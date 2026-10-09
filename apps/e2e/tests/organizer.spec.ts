@@ -13,7 +13,7 @@ test('organizer logs in and creates + submits an event via the wizard', async ({
   await page.getByLabel('Event title').fill(title);
   // A dropdown now, not a text box: browse builds its category list with `distinct`
   // over this column, so every typo an organizer typed became its own row on the front page.
-  await page.getByLabel('Category').selectOption('Music');
+  await page.getByRole('radio', { name: 'Music' }).check();
   await page.getByRole('button', { name: 'Next', exact: true }).click();
 
   // Step 2 — where and when: the venue (the first existing one) and the sessions, together

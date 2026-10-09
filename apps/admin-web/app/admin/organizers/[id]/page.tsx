@@ -19,6 +19,7 @@ import {
   type Column,
   type OrgMember,
 } from '@eticketsgo/web-kit';
+import { AccountContact, accountContactText } from '../../../../components/account-contact';
 import { LegalIdentityCard } from '@/components/legal-identity-card';
 import { OrganizerStandingCard } from '@/components/organizer-standing-card';
 
@@ -76,7 +77,8 @@ export default function OrganizerDetail() {
   const org = orgQ.data;
   const columns: Column<OrgMember>[] = [
     { key: 'name', header: 'Name', render: (m) => m.user.fullName },
-    { key: 'email', header: 'Email', render: (m) => m.user.email },
+    // A member who signs in by phone has a placeholder here, never shown as an address.
+    { key: 'email', header: 'Email', render: (m) => <AccountContact email={m.user.email} /> },
     { key: 'role', header: 'Role', render: (m) => m.role.replaceAll('_', ' ') },
     { key: 'status', header: 'Status', render: (m) => <StatusBadge status={m.status} /> },
   ];
@@ -105,7 +107,7 @@ export default function OrganizerDetail() {
               <StatusBadge status={org.status} />
             </dd>
             <dt className="text-text-muted">Contact</dt>
-            <dd className="text-text-primary">{org.contactEmail ?? '—'}</dd>
+            <dd className="text-text-primary">{accountContactText(org.contactEmail) ?? '—'}</dd>
             <dt className="text-text-muted">Events</dt>
             <dd className="text-text-primary">{org._count?.events ?? 0}</dd>
             <dt className="text-text-muted">Members</dt>

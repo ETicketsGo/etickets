@@ -49,6 +49,7 @@ import { EVENT_IMAGE_MAX_BYTES, EVENT_IMAGE_MAX_COUNT, eventImageVersion } from 
 import { RequiresAdmin, CurrentUser, Public, Roles, type RequestUser } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { groupScopeFields, type GroupScope } from '../admin/group-scope';
+import { countryFilterField } from '../admin/country-filter';
 
 const createEventBody = createEventSchema.extend({ organizationId: z.string().cuid() });
 const updateEventBody = createEventSchema.partial();
@@ -545,6 +546,8 @@ export class AdminEventsController {
           q: z.string().trim().optional(),
           // Scope to one row of the grouped summary. See `admin/group-scope.ts`.
           ...groupScopeFields,
+          // Every spelling of one market, by ISO code. See `admin/country-filter.ts`.
+          country: countryFilterField,
         }),
       ),
     )
@@ -553,9 +556,10 @@ export class AdminEventsController {
       pageSize: number;
       status?: EventStatus;
       q?: string;
+      country?: string;
     } & GroupScope,
   ) {
-    return this.events.adminList(q.status, q.page, q.pageSize, q.q || undefined, q);
+    return this.events.adminList(q.status, q.page, q.pageSize, q.q || undefined, q, q.country);
   }
 
   @Post(':id/review')

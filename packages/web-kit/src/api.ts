@@ -329,8 +329,24 @@ export const api = {
      * six hundred. Called with no arguments it still returns everything, which is only
      * appropriate for a caller that genuinely needs the lot.
      */
-    cities: (params?: { q?: string; country?: string; limit?: number }) =>
-      request<SellableCity[]>(`/public/location/cities${qs({ ...params })}`, { auth: false }),
+    cities: (params?: {
+      q?: string;
+      country?: string;
+      limit?: number;
+      anywhere?: boolean;
+      prefer?: string;
+    }) =>
+      request<SellableCity[]>(
+        `/public/location/cities${qs({
+          q: params?.q,
+          country: params?.country,
+          limit: params?.limit,
+          // Real places with nothing on sale yet, after the sellable ones. Search only.
+          anywhere: params?.anywhere ? '1' : undefined,
+          prefer: params?.prefer,
+        })}`,
+        { auth: false },
+      ),
     resolve: (hint?: { latitude?: number; longitude?: number; region?: string }) =>
       request<ResolvedLocation>(
         `/public/location/resolve${qs({
@@ -893,6 +909,18 @@ export const api = {
       request<{ unreadCount: number }>(`/notifications/unread-count${qs({ audience })}`),
     markRead: (id: string) =>
       request<{ updated: boolean }>(`/notifications/${id}/read`, { method: 'POST' }),
+    /**
+     * The notification centre grouped by what to do, with repeats of one cause folded into
+     * one card. The flat `inbox` above is unchanged; the bell and the customer site read it.
+     */
+    feed: (audience: NotificationAudience) =>
+      request<NotificationFeed>(`/notifications/feed${qs({ audience })}`),
+    /** Mark every notification folded into one card read. Only the caller's own are touched. */
+    markManyRead: (ids: string[]) =>
+      request<{ updated: number }>(`/notifications/read-many`, {
+        method: 'POST',
+        body: JSON.stringify({ ids }),
+      }),
     /** Scoped: clearing the customer inbox must not silence an organizer's payout notices. */
     markAllRead: (audience: NotificationAudience) =>
       request<{ updated: number }>(`/notifications/read-all${qs({ audience })}`, {
@@ -1769,8 +1797,9 @@ export const api = {
     auditSummary: (params?: AuditFilters) =>
       request<AuditSummary>(`/admin/audit/summary${qs(params ?? {})}`),
     /* Every one of these searches in the DATABASE. They used to filter the fetched page. */
-    organizers: (params: PageParams & { status?: string; q?: string } & AdminGroupFilter) =>
-      request<Paged<Organization>>(`/admin/organizers${qs(params)}`),
+    organizers: (
+      params: PageParams & { status?: string; q?: string; country?: string } & AdminGroupFilter,
+    ) => request<Paged<Organization>>(`/admin/organizers${qs(params)}`),
     reviewOrganizer: (id: string, decision: 'APPROVE' | 'REJECT', note?: string) =>
       request<Organization>(`/admin/organizers/${id}/review`, {
         method: 'POST',
@@ -1833,8 +1862,9 @@ export const api = {
         method: 'PATCH',
         body: JSON.stringify(patch),
       }),
-    events: (params: PageParams & { status?: string; q?: string } & AdminGroupFilter) =>
-      request<Paged<AdminEventRow>>(`/admin/events${qs(params)}`),
+    events: (
+      params: PageParams & { status?: string; q?: string; country?: string } & AdminGroupFilter,
+    ) => request<Paged<AdminEventRow>>(`/admin/events${qs(params)}`),
     reviewEvent: (id: string, decision: 'APPROVE' | 'REJECT', note?: string) =>
       request<OrgEventDetail>(`/admin/events/${id}/review`, {
         method: 'POST',
@@ -1845,8 +1875,9 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ status }),
       }),
-    bookings: (params: PageParams & { status?: string; q?: string } & AdminGroupFilter) =>
-      request<Paged<AdminBookingRow>>(`/admin/bookings${qs(params)}`),
+    bookings: (
+      params: PageParams & { status?: string; q?: string; country?: string } & AdminGroupFilter,
+    ) => request<Paged<AdminBookingRow>>(`/admin/bookings${qs(params)}`),
     payments: (params: PageParams & { status?: string; q?: string } & AdminGroupFilter) =>
       request<Paged<AdminPaymentRow>>(`/admin/payments${qs(params)}`),
     refunds: (params: PageParams & { status?: string; q?: string } & AdminGroupFilter) =>
@@ -2327,7 +2358,10 @@ export interface UserProfile extends AuthUser {
 }
 export interface AdminUser {
   id: string;
+  /** For a phone-only account this is a placeholder; show it through `adminContact`. */
   email: string;
+  /** E.164, or null for an account that has never added one. */
+  phone?: string | null;
   fullName: string;
   roles: string[];
   status: string;
@@ -3138,6 +3172,54 @@ export interface NotificationInbox {
   items: NotificationItem[];
   unreadCount: number;
 }
+
+/** The sections of the notification centre, in page order. */
+export type NotificationFeedCategory =
+  | 'ACTION_REQUIRED'
+  | 'BOOKINGS_AND_SALES'
+  | 'EVENT_APPROVALS'
+  | 'PAYMENTS_AND_PAYOUTS'
+  | 'CUSTOMER_ACTIVITY'
+  | 'SYSTEM_UPDATES';
+
+export type NotificationFeedSeverity = 'CRITICAL' | 'WARNING' | 'SUCCESS' | 'INFO';
+
+/** One card: every stored notification about one cause, folded together. */
+export interface NotificationFeedGroup {
+  key: string;
+  category: NotificationFeedCategory;
+  severity: NotificationFeedSeverity;
+  type: string;
+  title: string;
+  summary: string;
+  detail: string | null;
+  /** Said instead of an action when only the platform can fix it. */
+  ownerNote: string | null;
+  action: { label: string; href: string } | null;
+  eventId: string | null;
+  notificationIds: string[];
+  unreadIds: string[];
+  read: boolean;
+  firstAt: string;
+  lastAt: string;
+  /** Affected shows, earliest first, each with the zone it should be read in. */
+  sessions: { id: string; startsAt: string; timeZone: string | null }[];
+  affectedSessions: number;
+  /** Checked live. Null means not checked, which is to be read as still a problem. */
+  resolved: boolean | null;
+  dismissible: boolean;
+}
+
+export interface NotificationFeed {
+  sections: {
+    category: NotificationFeedCategory;
+    label: string;
+    groups: NotificationFeedGroup[];
+  }[];
+  unreadCount: number;
+  scanned: number;
+  truncated: boolean;
+}
 /**
  * A bookable area inside a venue.
  *
@@ -3271,6 +3353,11 @@ export interface Screen extends ScreenBody {
   futureShowsRequiringAttention?: number;
   /** False until a seat layout is published. A screen without one cannot host a show. */
   hasSeatMap?: boolean;
+  /**
+   * Seats the published layout sells (aisles excluded); null without one. This - not
+   * `capacity`, the number typed when the screen was added - is the room's real size.
+   */
+  bookableSeats?: number | null;
 }
 
 export interface CinemaBody {
@@ -4468,7 +4555,10 @@ export interface AdminStaffMember {
 export interface SellableCity {
   city: string;
   country: string;
+  /** 0 for a real place found by name that has nothing on sale yet. */
   eventCount: number;
+  /** State or province, on a place found by name, where same-named places are common. */
+  region?: string | null;
 }
 
 /** How a location guess was arrived at. See the API's LocationService for what each means. */
@@ -5328,7 +5418,8 @@ export interface AdminEventRow {
   createdAt: string;
   updatedAt: string;
   organization: { name: string };
-  venue: { name: string; city: string };
+  /** `country` is as stored - any spelling; name it with `countryDisplay`. */
+  venue: { name: string; city: string; country?: string | null };
   /**
    * When the event actually happens, as opposed to when its row was last edited.
    *
@@ -5389,6 +5480,8 @@ export type AdminGroupQuery = {
   groupBy: AdminGroupBy;
   status?: string;
   q?: string;
+  /** ISO alpha-2. The list's country filter, so the summary counts the same rows. */
+  country?: string;
 };
 
 export type AdminGroupFilter = {
@@ -5414,12 +5507,15 @@ export interface AdminBookingRow {
   id: string;
   reference: string | null;
   status: string;
+  /** May be a phone-only placeholder on older bookings; show it through `adminContact`. */
   buyerEmail: string;
   totalMinor: number;
   /** Money carries its own currency: `money()` without one formats as rupees. */
   currency: string;
   createdAt: string;
   event: { title: string };
+  /** The venue's country, as stored. Name it with `countryDisplay`. */
+  country?: string | null;
   paymentStatus: string | null;
 }
 export interface AdminPaymentRow {

@@ -22,6 +22,7 @@ import {
   type Column,
   type RefundRow,
 } from '@eticketsgo/web-kit';
+import { AccountContact } from '../../../components/account-contact';
 
 const STATUSES = ['REQUESTED', 'APPROVED', 'REJECTED', 'PROCESSING', 'COMPLETED', 'FAILED'];
 
@@ -75,7 +76,9 @@ export default function AdminRefunds() {
           <p className="font-medium text-text-primary">
             {r.booking?.event?.title ?? 'Event not named'}
           </p>
-          <p className="text-caption text-text-secondary">{r.booking?.buyerEmail ?? 'No buyer'}</p>
+          <p>
+            <AccountContact email={r.booking?.buyerEmail} fallback="No buyer" />
+          </p>
           <p className="text-caption text-text-muted">{r.reason}</p>
           {r.booking?.reference && (
             <p className="font-mono text-caption text-text-muted">{r.booking.reference}</p>

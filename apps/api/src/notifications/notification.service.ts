@@ -832,7 +832,12 @@ export class NotificationService {
         createdAt: row.createdAt,
       };
     });
-    return { items, unreadCount: await this.unreadCount(userId) };
+    /*
+      Counted for the same audience as the list. Unscoped, the organizer page offered "Mark all
+      read" for the operator's own unread ticket confirmations - a button that then changed
+      nothing it could show, because the organizer read-all is (correctly) scoped.
+    */
+    return { items, unreadCount: await this.unreadCount(userId, opts.audience) };
   }
 
   /** Count of unread in-app notifications for a user. */

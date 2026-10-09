@@ -22,6 +22,7 @@ import {
   type Column,
   type Organization,
 } from '@eticketsgo/web-kit';
+import { CountryFilter, CountryLabel, useCountryParam } from '../../../components/country-filter';
 
 /**
  * The organizer queue.
@@ -58,9 +59,23 @@ export default function OrganizersPage() {
   const [status, setStatus] = useState(params.get('status') ?? '');
   const [q, setQ] = useState('');
   const [applied, setApplied] = useState('');
+  const [country, setCountryParam] = useCountryParam();
+  const setCountry = (code: string | undefined) => {
+    setCountryParam(code);
+    setPage(1);
+  };
 
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['admin', 'organizers', page, status, applied, group.groupBy, group.groupKey],
+    queryKey: [
+      'admin',
+      'organizers',
+      page,
+      status,
+      applied,
+      country,
+      group.groupBy,
+      group.groupKey,
+    ],
     queryFn: () =>
       api.admin.organizers({
         page,
@@ -68,6 +83,7 @@ export default function OrganizersPage() {
         ...group,
         status: status || undefined,
         q: applied || undefined,
+        country,
       }),
   });
 
@@ -90,6 +106,12 @@ export default function OrganizersPage() {
           )}
         </div>
       ),
+    },
+    {
+      key: 'country',
+      // Where the business is registered - the country approval collects.
+      header: 'Country',
+      render: (o) => <CountryLabel stored={o.registeredCountry} />,
     },
     {
       key: 'status',
@@ -145,7 +167,7 @@ export default function OrganizersPage() {
       />
 
       <Card>
-        <div className="grid gap-3 sm:grid-cols-[1fr_200px]">
+        <div className="grid gap-3 sm:grid-cols-[1fr_200px_200px]">
           <SearchInput
             value={q}
             onChange={setQ}
@@ -170,6 +192,7 @@ export default function OrganizersPage() {
               </option>
             ))}
           </Select>
+          <CountryFilter value={country} onChange={setCountry} />
         </div>
       </Card>
 
@@ -183,6 +206,7 @@ export default function OrganizersPage() {
           value={group}
           status={status || undefined}
           q={applied || undefined}
+          country={country}
           onChange={(next) => {
             // Page 1: the page number belonged to the previous scope, and page 4 of a group with
             // two rows is an empty table that looks like "no results".

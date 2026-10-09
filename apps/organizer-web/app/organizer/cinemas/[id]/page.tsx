@@ -249,7 +249,22 @@ export default function CinemaDetailPage() {
   const screenColumns: Column<Screen>[] = [
     { key: 'name', header: 'Name', render: (s) => s.name },
     { key: 'type', header: 'Type', render: (s) => s.screenType },
-    { key: 'capacity', header: 'Capacity', render: (s) => s.capacity },
+    {
+      key: 'capacity',
+      header: 'Seats',
+      /*
+        The seats the layout actually sells, once there is one. Before that, the number typed
+        when the screen was added, labelled as the plan it is.
+      */
+      render: (s) =>
+        s.bookableSeats != null ? (
+          <span className="tabular-nums">{s.bookableSeats}</span>
+        ) : (
+          <span className="text-text-muted">
+            <span className="tabular-nums">{s.capacity}</span> planned
+          </span>
+        ),
+    },
     {
       key: 'status',
       header: 'Status',

@@ -21,6 +21,7 @@ import {
   type FeeTaxPart,
   type RefundRow,
 } from '@eticketsgo/web-kit';
+import { accountContactText } from '../../../../components/account-contact';
 
 /** GST components named in full, as the buyer's checkout and receipt name them. */
 const GST_NAMES: Record<string, string> = {
@@ -82,7 +83,10 @@ export default function AdminBookingDetail() {
             <Row label="Booking ID" value={b.id} mono />
             <Row label="Event" value={b.event.title} />
             <Row label="Session" value={dateTime(b.eventSession.startsAt)} />
-            <Row label="Buyer" value={`${b.buyerName} · ${b.buyerEmail}`} />
+            <Row
+              label="Buyer"
+              value={[b.buyerName, accountContactText(b.buyerEmail)].filter(Boolean).join(' · ')}
+            />
             <div className="flex justify-between">
               <dt className="text-text-muted">Status</dt>
               <dd>

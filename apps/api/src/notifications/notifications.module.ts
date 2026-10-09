@@ -131,6 +131,8 @@ import { PUSH_TRANSPORT, selectPushTransport } from './channels/transports/push.
   ],
   exports: [
     NotificationService,
+    // Exported so the grouped notification centre renders rows the way the inbox does.
+    NotificationTemplateService,
     TemplateBindingService,
     CertificationEvidenceService,
     // Exported so phone sign-in can deliver an OTP WITHOUT going through

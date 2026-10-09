@@ -18,6 +18,7 @@ import {
   useAuthUser,
   type CurrencyMoney,
 } from '@eticketsgo/web-kit';
+import { accountContactText } from '../../components/account-contact';
 
 /**
  * "United States · USD" rather than "USD".
@@ -305,7 +306,8 @@ export default function AdminDashboard() {
                 <li key={a.id} className="flex items-center justify-between py-2">
                   <span className="text-text-primary">{titleCase(a.action)}</span>
                   <span className="text-text-muted">
-                    {a.actor?.email ?? 'system'} · {dateTime(a.createdAt)}
+                    {a.actor ? (accountContactText(a.actor.email) ?? 'an account') : 'system'} ·{' '}
+                    {dateTime(a.createdAt)}
                   </span>
                 </li>
               ))}

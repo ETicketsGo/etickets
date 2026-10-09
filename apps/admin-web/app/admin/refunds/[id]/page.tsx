@@ -19,6 +19,7 @@ import {
   useToast,
   errorMessage,
 } from '@eticketsgo/web-kit';
+import { accountContactText } from '../../../../components/account-contact';
 
 export default function RefundDetail() {
   const { id } = useParams<{ id: string }>();
@@ -90,7 +91,9 @@ export default function RefundDetail() {
             </div>
             <div className="flex justify-between">
               <dt className="text-text-muted">Buyer</dt>
-              <dd className="text-text-primary">{refund.booking?.buyerEmail ?? '—'}</dd>
+              <dd className="text-text-primary">
+                {accountContactText(refund.booking?.buyerEmail) ?? '—'}
+              </dd>
             </div>
             <div className="flex justify-between">
               <dt className="text-text-muted">Tickets</dt>
@@ -160,7 +163,8 @@ export default function RefundDetail() {
       >
         <p>
           This will refund <strong>{money(refund.amountMinor, refund.booking?.currency)}</strong> to{' '}
-          {refund.booking?.buyerEmail ?? 'the buyer'}. This action cannot be undone.
+          {accountContactText(refund.booking?.buyerEmail) ?? 'the buyer'}. This action cannot be
+          undone.
         </p>
       </Dialog>
     </div>

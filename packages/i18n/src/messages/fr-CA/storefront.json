@@ -179,7 +179,11 @@
     "selectionCount": "{count, plural, one {# siège choisi} other {# sièges choisis}}",
     "seatsChosen": "{count, plural, one {# siège} other {# sièges}} - {seats}",
     "priceDetails": "Détail du prix",
-    "clearSeats": "Effacer les sièges"
+    "clearSeats": "Effacer les sièges",
+    "otherAreas": "Autres zones",
+    "venueMapTitle": "Plan de la salle",
+    "venueMapLead": "Choisissez une autre zone. Les sièges déjà choisis restent dans votre panier.",
+    "changeArea": "Changer de zone ({count} zones)"
   },
   "checkout": {
     "heading": "Paiement",

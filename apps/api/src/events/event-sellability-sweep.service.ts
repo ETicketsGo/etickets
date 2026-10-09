@@ -3,6 +3,7 @@ import { NotificationType } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 import { AdminAudienceService } from '../notifications/admin-audience.service';
 import { EventSellabilityService } from './event-sellability.service';
+import { causeIdentity, MAX_LISTED_SESSIONS } from './sellability-cause';
 
 export interface SellabilitySweepSummary {
   checked: number;
@@ -25,8 +26,9 @@ export interface SellabilitySweepSummary {
  * the situation generates a signal on its own.
  *
  * ── WHY IT NOTIFIES ONCE AND NOT EVERY TICK ────────────────────────────────────────
- * The notification's dedupe key is derived from the event and the set of blocker codes, so a
- * problem that persists produces one message and a NEW problem produces another. Sweeping
+ * The notification's dedupe key is derived from the event and the identity of one root cause
+ * (`causeIdentity()`), so a problem that persists produces one message and a NEW problem
+ * produces another, without re-announcing the old one beside it. Sweeping
  * every few hours and mailing every time would train the recipient to filter the sender,
  * which costs more than the message is worth — and the one that mattered would be filtered
  * with the rest.
@@ -78,14 +80,6 @@ export class EventSellabilitySweepService {
       summary.unsellable += 1;
 
       /*
-        The blocker codes, sorted, are the identity of the PROBLEM rather than of the check.
-        Two sweeps over an unchanged fault produce the same key and the second is discarded by
-        the database; a fault that changes produces a new key and a new message, which is the
-        one worth reading.
-      */
-      const signature = [...new Set(report.blockers.map((b) => b.code))].sort().join('+');
-
-      /*
         ── WHO IS ACTUALLY BEING ASKED TO ACT ──────────────────────────────────────────
         Some of these faults cannot be fixed by the organizer at all: a jurisdiction with no
         pricing policy needs a government order read and a rule written by whoever runs this
@@ -107,33 +101,50 @@ export class EventSellabilitySweepService {
           blockerCodes: [...new Set(platformBlockers.map((b) => b.code))].sort().join('+'),
         });
       }
-      const sent = await this.audience.notifyOrganizationOwners(
-        event.organizationId,
-        NotificationType.EVENT_NOT_SELLABLE,
-        {
-          eventId: event.id,
-          eventTitle: event.title,
-          // The sentence the check already produced, not a summary of a code. It names the
-          // seat category or the ticket type, which is the part that makes it actionable.
-          /*
-            One sentence per DISTINCT fault, not one per show. A 148-show event with a single
-            misconfigured jurisdiction used to produce the same sentence 148 times in one
-            email; the report now folds them, and the count carries what was lost.
-          */
-          reason: report.blockers
-            .map((b) =>
-              b.affectedSessions > 1 ? `${b.message} (${b.affectedSessions} shows)` : b.message,
-            )
-            .join(' '),
-          /*
-            Part of the notification's identity, via the dedupe table: eventId + blockerCodes.
-            A fault that persists produces the same key and the repeat is discarded by the
-            database; a DIFFERENT fault produces a new key and a new message.
-          */
-          blockerCodes: signature,
-        },
-      );
-      summary.notified += sent;
+      /*
+        ── ONE MESSAGE PER ROOT CAUSE, NOT ONE PER EVENT OR PER SHOW ───────────────────
+        This used to send one message per event, keyed on the sorted set of blocker codes,
+        with every fault joined into one paragraph. Two things went wrong with that shape.
+
+        A fault that PERSISTED was announced again whenever a different one appeared or was
+        fixed beside it, because the set changed and so did the key. And the message could
+        not say which shows were affected or where to go, so the notification centre had
+        nothing to group on and nowhere to link - it listed the same sentence once per
+        message, which on a long season read as one row per showtime.
+
+        Each folded blocker is one cause, with its affected shows and its fix path in the
+        payload. The dedupe key is the event plus `causeIdentity()`, so a cause that persists
+        is discarded by the database on every later run, and a NEW cause is told once.
+      */
+      for (const blocker of report.blockers) {
+        summary.notified += await this.audience.notifyOrganizationOwners(
+          event.organizationId,
+          NotificationType.EVENT_NOT_SELLABLE,
+          {
+            eventId: event.id,
+            eventTitle: event.title,
+            // The sentence the check already produced, not a summary of a code. It names the
+            // seat category or the ticket type, which is the part that makes it actionable.
+            reason:
+              blocker.affectedSessions > 1
+                ? `${blocker.message} (${blocker.affectedSessions} shows)`
+                : blocker.message,
+            /*
+              Part of the notification's identity, via the dedupe table: eventId +
+              blockerCodes. Named for what it held before, so that keys written by the
+              earlier version still match where the cause is the same.
+            */
+            blockerCodes: causeIdentity(blocker),
+            blockerCode: blocker.code,
+            owner: blocker.owner,
+            subject: blocker.subject ?? null,
+            fix: blocker.fix,
+            fixPath: blocker.fixPath,
+            affectedSessions: blocker.affectedSessions,
+            sessions: blocker.sessions.slice(0, MAX_LISTED_SESSIONS),
+          },
+        );
+      }
     }
     return summary;
   }

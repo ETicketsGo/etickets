@@ -5,6 +5,7 @@ import { CacheService } from '../cache/cache.service';
 import { countryMatches } from '../common/country';
 import {
   NoReverseGeocoder,
+  fold,
   REVERSE_GEOCODER,
   type ReverseGeocoder,
 } from './geocoding/reverse-geocoder';
@@ -52,6 +53,11 @@ export interface SellableCity {
   country: string;
   /** How many published, still-upcoming events sit in this city. Never a guess. */
   eventCount: number;
+  /**
+   * State, province or territory - only on a place found by name (`anywhere`), where two
+   * places of the same name are common and the region is what tells them apart.
+   */
+  region?: string | null;
 }
 
 /** How the caller wants the city list narrowed. All optional; omitting all means "everything". */
@@ -62,6 +68,16 @@ export interface CitySearch {
   country?: string;
   /** Most-inventory-first cap. The picker asks for a handful; nothing else needs a cap. */
   limit?: number;
+  /**
+   * Also return real places with nothing on sale (eventCount 0), after every city that has
+   * something. Only with a query: it is a search for a named place, never a list of the world.
+   */
+  anywhere?: boolean;
+  /**
+   * Ranks this country's places first among those with nothing on sale. Ordering only - unlike
+   * `country`, it never hides a place, so the search still finds anywhere in the world.
+   */
+  prefer?: string;
 }
 
 export interface ResolvedLocation {
@@ -169,7 +185,37 @@ export class LocationService {
         .split(/[\s-]+/)
         .some((word) => word.startsWith(q));
     });
-    return matches.slice(0, limit);
+    if (!query?.anywhere || !q || matches.length >= limit) return matches.slice(0, limit);
+
+    /*
+      Then the rest of the map. A city we sell nothing in is still a city: the customer picks it,
+      and the page says "No events available in <city> yet" instead of pretending it is not there.
+      Sellable cities stay first and are never repeated as an empty duplicate.
+    */
+    const places = await this.geocoder.search(q, Math.max(limit * 4, 20));
+    const seen = new Set(matches.map((c) => `${fold(c.city)}|${c.country.toLowerCase()}`));
+    const extra: SellableCity[] = [];
+    for (const p of places) {
+      if (query.country && !countryMatches(p.country, query.country)) continue;
+      const sellable = matches.some(
+        (c) =>
+          countryMatches(c.country, p.country) &&
+          (fold(c.city) === fold(p.city) || fold(c.city) === fold(p.asciiCity ?? '')),
+      );
+      const key = `${fold(p.city)}|${p.country.toLowerCase()}|${p.region ?? ''}`;
+      if (sellable || seen.has(key)) continue;
+      seen.add(key);
+      extra.push({ city: p.city, country: p.country, eventCount: 0, region: p.region });
+    }
+    // Stable: within each group the biggest places stay first.
+    const prefer = query.prefer;
+    if (prefer) {
+      extra.sort(
+        (a, b) =>
+          Number(countryMatches(b.country, prefer)) - Number(countryMatches(a.country, prefer)),
+      );
+    }
+    return [...matches, ...extra].slice(0, limit);
   }
 
   /** Every sellable city, cached. The filtered view above is derived from this one list. */

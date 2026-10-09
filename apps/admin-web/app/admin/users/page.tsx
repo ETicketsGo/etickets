@@ -16,11 +16,20 @@ import {
   Select,
   Skeleton,
   StatusBadge,
+  adminContact,
   dateOnly,
+  marketFor,
   type AdminUser,
   type Column,
   type UserDirectoryFilters,
 } from '@eticketsgo/web-kit';
+import { AccountContact } from '../../../components/account-contact';
+import {
+  CountryFilter,
+  CountryLabel,
+  countryPhrase,
+  useCountryParam,
+} from '../../../components/country-filter';
 
 /**
  * The account directory, read by country first.
@@ -50,9 +59,16 @@ const USER_STATUSES = ['ACTIVE', 'SUSPENDED'];
 export default function AdminUsers() {
   const [page, setPage] = useState(1);
   const [q, setQ] = useState('');
-  const [filters, setFilters] = useState<UserDirectoryFilters>({});
-  const set = (patch: UserDirectoryFilters) => {
-    setFilters((f) => ({ ...f, ...patch }));
+  // Role, status and search are local; the country is in the URL (see `useCountryParam`).
+  const [local, setLocal] = useState<Omit<UserDirectoryFilters, 'country'>>({});
+  const [country, setCountryParam] = useCountryParam();
+  const filters: UserDirectoryFilters = { ...local, country };
+  const set = (patch: Omit<UserDirectoryFilters, 'country'>) => {
+    setLocal((f) => ({ ...f, ...patch }));
+    setPage(1);
+  };
+  const setCountry = (code: string | undefined) => {
+    setCountryParam(code);
     setPage(1);
   };
 
@@ -75,12 +91,35 @@ export default function AdminUsers() {
     {
       key: 'person',
       header: 'Account',
-      render: (u) => (
-        <div className="min-w-0">
-          <p className="font-medium text-text-primary">{u.fullName}</p>
-          <p className="text-caption text-text-muted">{u.email}</p>
-        </div>
-      ),
+      render: (u) => {
+        /*
+          A phone-only account has no name and a placeholder for an email. It is shown by its
+          number, labelled, rather than as a blank name over an address nobody can write to.
+        */
+        const name = u.fullName?.trim();
+        const contact = adminContact(u.email, u.phone);
+        return (
+          <div className="min-w-0 space-y-0.5">
+            {name ? (
+              <>
+                <p className="font-medium text-text-primary">{name}</p>
+                <AccountContact
+                  email={u.email}
+                  phone={u.phone}
+                  className="text-caption text-text-muted"
+                />
+              </>
+            ) : (
+              <>
+                <p className="whitespace-nowrap font-medium tabular-nums text-text-primary">
+                  {contact?.text ?? 'No name'}
+                </p>
+                {contact?.phoneSignIn && <Badge tone="neutral">Phone sign-in</Badge>}
+              </>
+            )}
+          </div>
+        );
+      },
     },
     {
       key: 'countries',
@@ -91,9 +130,7 @@ export default function AdminUsers() {
         ) : (
           <div className="flex flex-wrap gap-1">
             {u.countries.map((c) => (
-              <Badge key={c} tone="neutral">
-                {c}
-              </Badge>
+              <CountryLabel key={c} stored={c} />
             ))}
           </div>
         ),
@@ -166,13 +203,30 @@ export default function AdminUsers() {
               ) : (
                 <div className="flex flex-wrap gap-2">
                   {summary.data.byCountry.map((c) => {
-                    const selected = filters.country === c.country;
+                    /*
+                      The chip filters by the market's CODE, the same value the dropdown and the
+                      link carry. A country this platform has no market for cannot be put in a
+                      link, so its count is shown without being a button.
+                    */
+                    const code = marketFor(c.country)?.code;
+                    const selected = Boolean(code) && country === code;
+                    if (!code) {
+                      return (
+                        <span
+                          key={c.country}
+                          className="rounded-full border border-border px-3 py-1.5 text-sm text-text-secondary"
+                        >
+                          {c.country}{' '}
+                          <span className="tabular-nums text-text-muted">{c.count}</span>
+                        </span>
+                      );
+                    }
                     return (
                       <button
                         key={c.country}
                         type="button"
                         aria-pressed={selected}
-                        onClick={() => set({ country: selected ? undefined : c.country })}
+                        onClick={() => setCountry(selected ? undefined : code)}
                         className={`rounded-full border px-3 py-1.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${
                           selected
                             ? 'border-action-primary bg-tint-primary font-medium text-action-primary'
@@ -195,13 +249,14 @@ export default function AdminUsers() {
       )}
 
       <Card>
-        <div className="grid gap-3 sm:grid-cols-[1fr_180px_180px_auto]">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_180px_180px_180px_auto]">
           <SearchInput
             value={q}
             onChange={setQ}
             onSubmit={() => set({ q: q || undefined })}
-            placeholder="Search name or email"
+            placeholder="Search name, email or phone"
           />
+          <CountryFilter value={country} onChange={setCountry} />
           <Select
             aria-label="Role filter"
             value={filters.role ?? ''}
@@ -231,8 +286,8 @@ export default function AdminUsers() {
               variant="ghost"
               onClick={() => {
                 setQ('');
-                setFilters({});
-                setPage(1);
+                setLocal({});
+                setCountry(undefined);
               }}
             >
               Clear
@@ -242,7 +297,7 @@ export default function AdminUsers() {
       </Card>
 
       <Card
-        title={filters.country ? `Accounts in ${filters.country}` : 'All accounts'}
+        title={country ? `Accounts${countryPhrase(country)}` : 'All accounts'}
         action={data ? <Badge tone="neutral">{data.meta.total} matching</Badge> : undefined}
       >
         <DataTable
@@ -254,7 +309,7 @@ export default function AdminUsers() {
           empty={
             <EmptyState
               title="No account matches"
-              hint="Try clearing a filter, or search by email instead."
+              hint="Try clearing a filter, or search by email or phone number instead."
             />
           }
           rowKey={(u) => u.id}

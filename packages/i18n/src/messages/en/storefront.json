@@ -179,7 +179,11 @@
     "selectionCount": "{count, plural, one {# seat chosen} other {# seats chosen}}",
     "seatsChosen": "{count, plural, one {# seat} other {# seats}} - {seats}",
     "priceDetails": "Price details",
-    "clearSeats": "Clear seats"
+    "clearSeats": "Clear seats",
+    "otherAreas": "Other areas",
+    "venueMapTitle": "Venue map",
+    "venueMapLead": "Choose another area. The seats you already chose stay in your basket.",
+    "changeArea": "Change area ({count} areas)"
   },
   "checkout": {
     "heading": "Checkout",

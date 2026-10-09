@@ -132,3 +132,41 @@ describe('account directory: the summary', () => {
     expect(summary.withoutCountry).toBe(80);
   });
 });
+
+/*
+  A phone-only account has no name and no email - only a number, and a placeholder address the
+  console must never show. So the number is how an operator finds it, typed the way a person
+  writes it rather than the way it is stored.
+*/
+describe('account directory: a phone-only account can be found by its number', () => {
+  it.each([
+    ['+91 98765 43210', '919876543210'],
+    ['469-588-4580', '4695884580'],
+    ['(469) 588 4580', '4695884580'],
+  ])('searches the stored number for the digits of %p', async (typed, digits) => {
+    const { service, prisma } = makeService();
+
+    await service.list(1, 25, { query: typed });
+
+    const where = (prisma.user.count as jest.Mock).mock.calls[0][0].where;
+    expect(where.OR).toContainEqual({ phone: { contains: digits } });
+  });
+
+  it('does not search numbers for a name, or for too few digits to mean anybody', async () => {
+    for (const query of ['ada', 'room 12']) {
+      const { service, prisma } = makeService();
+      await service.list(1, 25, { query });
+      const where = (prisma.user.count as jest.Mock).mock.calls[0][0].where;
+      expect(JSON.stringify(where.OR)).not.toContain('phone');
+    }
+  });
+
+  it('returns the number, so the console can show it instead of the placeholder', async () => {
+    const { service, prisma } = makeService();
+
+    await service.list(1, 25, {});
+
+    const select = (prisma.user.findMany as jest.Mock).mock.calls[0][0].select;
+    expect(select.phone).toBe(true);
+  });
+});

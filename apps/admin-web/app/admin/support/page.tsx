@@ -24,6 +24,7 @@ import {
   type FeedbackRow,
   type FeedbackStatusValue,
 } from '@eticketsgo/web-kit';
+import { accountContactText } from '../../../components/account-contact';
 
 /*
   Complaint first, because it is the one a person has to act on.
@@ -125,7 +126,7 @@ export default function AdminSupport() {
           {r.subject && <p className="font-medium text-text-primary">{r.subject}</p>}
           <p className="line-clamp-2 text-text-secondary">{r.message}</p>
           <p className="text-caption text-text-muted">
-            {r.user?.email ?? r.email ?? 'Anonymous'}
+            {accountContactText(r.user?.email ?? r.email) ?? 'Anonymous'}
             {r.organizationName ? ` · about ${r.organizationName}` : ''}
             {r.bookingReference ? ` · ${r.bookingReference}` : ''}
           </p>
@@ -260,8 +261,10 @@ export default function AdminSupport() {
               <dt className="text-text-muted">From</dt>
               <dd className="text-text-primary">
                 {selected.user
-                  ? `${selected.user.fullName} (${selected.user.email})`
-                  : (selected.email ?? 'Anonymous')}
+                  ? [selected.user.fullName, accountContactText(selected.user.email)]
+                      .filter(Boolean)
+                      .join(' - ')
+                  : (accountContactText(selected.email) ?? 'Anonymous')}
               </dd>
               <dt className="text-text-muted">Account</dt>
               <dd className="text-text-primary">{selected.userId ? 'Signed-in user' : 'Guest'}</dd>
