@@ -9,6 +9,7 @@ import {
   TicketStatus,
   computeMarketplaceSplit,
   routeProviderForBooking,
+  venueZone,
 } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -986,7 +987,9 @@ export class PaymentsService {
           // Cinema first, then the venue. Without the fallback every non-cinema event fell
           // back to UTC in the confirmation while the page showed the reader's own zone.
           timeZone:
-            booking.eventSession?.screen?.cinema?.timezone ?? booking.event?.venue?.timezone ?? '',
+            booking.eventSession?.screen?.cinema?.timezone ??
+            venueZone(booking.event?.venue?.timezone, booking.event?.venue?.country) ??
+            '',
           seats: issuedSeatLabels.join(', '),
           tickets: ticketCount,
         },
@@ -1156,7 +1159,7 @@ export class PaymentsService {
     const booking = await this.prisma.booking.findUnique({
       where: { id: event.bookingId },
       include: {
-        event: { select: { title: true, venue: { select: { timezone: true } } } },
+        event: { select: { title: true, venue: { select: { timezone: true, country: true } } } },
         eventSession: {
           select: {
             startsAt: true,
@@ -1214,7 +1217,9 @@ export class PaymentsService {
           eventTitle: booking.event?.title ?? '',
           startsAt: booking.eventSession?.startsAt?.toISOString() ?? '',
           timeZone:
-            booking.eventSession?.screen?.cinema?.timezone ?? booking.event?.venue?.timezone ?? '',
+            booking.eventSession?.screen?.cinema?.timezone ??
+            venueZone(booking.event?.venue?.timezone, booking.event?.venue?.country) ??
+            '',
           amountMinor: booking.totalMinor,
           currency: booking.currency,
           reason: event.failure?.reason ?? '',

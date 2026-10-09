@@ -59,9 +59,9 @@ export const WIZARD_STEPS: readonly WizardStep[] = [
   {
     id: 'tickets',
     title: 'Tickets and pricing',
-    intro: 'What you sell and for how much. A free event is set here.',
+    intro: 'How people get in, what you sell and for how much.',
     required:
-      'Required: at least one ticket type with a name and a quantity, and a price unless the event is free. Sessions with a seat map need none.',
+      'Required: free, paid or reserved seating. Free and paid need at least one ticket type with a name and a quantity, and paid needs a price. Reserved seating needs a seat map for each session.',
   },
   {
     id: 'details',
@@ -79,6 +79,7 @@ export const WIZARD_STEPS: readonly WizardStep[] = [
 
 export const STEP_COUNT = WIZARD_STEPS.length;
 export const REVIEW_STEP = STEP_COUNT - 1;
+export const TICKETS_STEP = WIZARD_STEPS.findIndex((s) => s.id === 'tickets');
 
 export interface SessionDraft {
   startsAt: string;
@@ -104,15 +105,44 @@ export interface TicketDraft {
   maxPerOrder: string;
 }
 
+/**
+ * How people get in: the first question on the tickets step.
+ *
+ * ── WHY ONE CHOICE INSTEAD OF A CHECKBOX AND A DROPDOWN ───────────────────────────
+ * Free was a checkbox on the tickets step and reserved seating was a dropdown on every session
+ * of the step before. An organizer had to find both, in two places, and the combinations they
+ * allowed were not all real: a free event in a seated room gets one PRICED ticket type per seat
+ * category, which the API then refuses on a free event. Three answers, asked together, are the
+ * three events this wizard can actually create.
+ *
+ * '' is "not answered yet". The step will not move on until it is answered, because each
+ * answer changes what is asked next.
+ */
+export type Admission = '' | 'free' | 'paid' | 'seated';
+
+export const ADMISSION_CHOICES: readonly { value: Exclude<Admission, ''>; label: string }[] = [
+  { value: 'free', label: 'Free event' },
+  { value: 'paid', label: 'Paid - general admission' },
+  { value: 'seated', label: 'Reserved seating' },
+];
+
 /** The answers the step rules read. The page holds more; none of the rest is required. */
 export interface WizardAnswers {
   basics: { title: string; category: string };
-  isFree: boolean;
+  admission: Admission;
   venueMode: 'existing' | 'new';
   venueId: string;
   newVenue: { name: string; city: string };
   sessions: SessionDraft[];
   tickets: TicketDraft[];
+  /**
+   * The seat maps that can be used at the chosen venue, or null while that is not known.
+   *
+   * Known only to the page (it is a server answer). When it is known, a session left on a seat
+   * map of ANOTHER venue - the venue was changed after the seats were chosen - is caught here
+   * instead of creating an event whose seats are in a different building.
+   */
+  venueSeatMaps?: readonly string[] | null;
 }
 
 export type FieldErrors = Record<string, string>;
@@ -124,20 +154,71 @@ export const EMPTY_SESSION: SessionDraft = {
   seatMapId: '',
 };
 
-/** True when every session is in a room, so the ticket types come from its seat map. */
-export function allSessionsSeated(sessions: SessionDraft[]): boolean {
-  return sessions.length > 0 && sessions.every((s) => Boolean(s.screenId));
+/** True when the organizer said nobody pays. Declared, never inferred from the prices. */
+export function isFreeAdmission(admission: Admission): boolean {
+  return admission === 'free';
+}
+
+/**
+ * The sessions as they will be sent.
+ *
+ * Only reserved seating keeps a room on a session. Free and paid general admission send every
+ * session without one, whatever an earlier choice left behind, so the answer on the chooser is
+ * the only thing that decides whether the event sells named seats.
+ */
+export function sessionsToSend(
+  answers: Pick<WizardAnswers, 'admission' | 'sessions'>,
+): SessionDraft[] {
+  if (answers.admission === 'seated') return answers.sessions;
+  return answers.sessions.map((s) => ({ ...s, screenId: '', seatMapId: '' }));
 }
 
 /**
  * The ticket rows that will actually be sent.
  *
- * A row pointing at a seated session is dropped on submit - that session's ticket types come
- * from the room's seat categories - so it is neither judged nor shown on Review.
+ * None for reserved seating: a seated session gets one ticket type per seat category, priced
+ * from the category, and rows typed here would be a second, conflicting set of prices. For
+ * free and paid, every row - each is bound to a session that exists.
  */
-export function ticketsToSend(answers: Pick<WizardAnswers, 'sessions' | 'tickets'>): TicketDraft[] {
-  return answers.tickets.filter((t) => !answers.sessions[t.sessionIndex]?.screenId);
+export function ticketsToSend(
+  answers: Pick<WizardAnswers, 'admission' | 'sessions' | 'tickets'>,
+): TicketDraft[] {
+  if (answers.admission === 'seated') return [];
+  return answers.tickets.filter(
+    (t) => t.sessionIndex >= 0 && t.sessionIndex < answers.sessions.length,
+  );
 }
+
+/** Whole tickets on sale per session, for the running total under the ticket rows. */
+export function capacityBySession(
+  answers: Pick<WizardAnswers, 'admission' | 'sessions' | 'tickets'>,
+): number[] {
+  const totals = answers.sessions.map(() => 0);
+  for (const t of ticketsToSend(answers)) {
+    const n = Number(t.quantityTotal);
+    if (Number.isInteger(n) && n > 0) totals[t.sessionIndex] += n;
+  }
+  return totals;
+}
+
+/**
+ * A new ticket row, for "Add ticket type".
+ *
+ * Name and price start empty with an example in the placeholder, because a pre-filled second
+ * name ("VIP") is the kind of default that gets published by accident. The limit per order
+ * matches the first row's, which is the organizer's own answer to that question.
+ */
+export function newTicketRow(tickets: TicketDraft[], sessionIndex = 0): TicketDraft {
+  return {
+    sessionIndex,
+    name: '',
+    priceMajor: '',
+    quantityTotal: '',
+    maxPerOrder: tickets[0]?.maxPerOrder || '6',
+  };
+}
+
+const isWholeNumber = (v: string) => /^\d+$/.test(v.trim());
 
 /**
  * What is wrong with ONE step, keyed by field.
@@ -165,23 +246,77 @@ export function validateStep(stepId: WizardStepId, a: WizardAnswers): FieldError
         e[`s${i}End`] = 'End must be after start.';
     });
   }
-  if (stepId === 'tickets' && !allSessionsSeated(a.sessions)) {
-    // Only the tickets that will actually be sent are judged. One left pointing at a
-    // session that has since been given a room is dropped on submit, so blocking the
-    // organizer on it would be refusing to accept a form because of a field they cannot see.
-    if (ticketsToSend(a).length === 0) e.form = 'Add at least one ticket type.';
-    a.tickets.forEach((t, i) => {
-      if (a.sessions[t.sessionIndex]?.screenId) return;
-      if (!t.name.trim()) e[`t${i}Name`] = 'Name is required.';
-      if (
-        !a.isFree &&
-        (t.priceMajor === '' || !Number.isFinite(Number(t.priceMajor)) || Number(t.priceMajor) < 0)
-      )
-        e[`t${i}Price`] = 'Enter a valid price (0 or more).';
-      if (Number(t.quantityTotal) < 1) e[`t${i}Qty`] = 'Quantity must be at least 1.';
-    });
+  if (stepId === 'tickets') {
+    if (!a.admission) {
+      e.admission = 'Choose how people get in: free, paid or reserved seating.';
+    } else if (a.admission === 'seated') {
+      a.sessions.forEach((s, i) => {
+        if (!s.screenId || !s.seatMapId) e[`s${i}Seat`] = 'Choose a seat map.';
+        else if (a.venueSeatMaps && !a.venueSeatMaps.includes(s.seatMapId))
+          e[`s${i}Seat`] = 'This seat map is not at the venue you picked. Choose another.';
+      });
+    } else {
+      // Only the rows that will actually be sent are judged: one bound to a session that no
+      // longer exists is not sent, and refusing the form over it would be refusing a field
+      // the organizer cannot see.
+      const sent = ticketsToSend(a);
+      if (sent.length === 0) e.form = 'Add at least one ticket type.';
+      const free = isFreeAdmission(a.admission);
+      a.tickets.forEach((t, i) => {
+        if (!sent.includes(t)) return;
+        const name = t.name.trim().toLowerCase();
+        if (!name) {
+          e[`t${i}Name`] = 'Name is required.';
+        } else if (
+          /*
+            Two rows called "General" on the same night are two prices for what the buyer sees
+            as one thing, and nothing on the event page would tell them apart.
+          */
+          a.tickets.some(
+            (o, j) =>
+              j < i && o.sessionIndex === t.sessionIndex && o.name.trim().toLowerCase() === name,
+          )
+        ) {
+          e[`t${i}Name`] = 'Another ticket type for this session has the same name.';
+        }
+        if (
+          !free &&
+          (t.priceMajor === '' ||
+            !Number.isFinite(Number(t.priceMajor)) ||
+            Number(t.priceMajor) < 0)
+        )
+          e[`t${i}Price`] = 'Enter a valid price (0 or more).';
+        // Whole tickets: "1.5" passed the old `>= 1` check and was then refused by the API.
+        if (!isWholeNumber(t.quantityTotal) || Number(t.quantityTotal) < 1)
+          e[`t${i}Qty`] = 'Quantity must be a whole number, at least 1.';
+        // Blank is allowed and means the platform default, as it always has.
+        if (t.maxPerOrder.trim() !== '') {
+          if (!isWholeNumber(t.maxPerOrder) || Number(t.maxPerOrder) < 1)
+            e[`t${i}Max`] = 'Max per order must be a whole number, at least 1.';
+          else if (!e[`t${i}Qty`] && Number(t.maxPerOrder) > Number(t.quantityTotal))
+            e[`t${i}Max`] = 'Max per order cannot be more than the quantity on sale.';
+        }
+      });
+    }
   }
   return e;
+}
+
+/**
+ * The problems on one step as a list a person can read without looking at the form.
+ *
+ * Field messages are written to sit under their field, where "Name is required." is clear. In a
+ * list at the top of the step, or on Review, the same sentence needs to say WHICH name - so a
+ * session's or a ticket type's problem is prefixed with which one it is.
+ */
+export function describeProblems(errors: FieldErrors): string[] {
+  return Object.entries(errors).map(([key, message]) => {
+    let m = /^s(\d+)(Start|End|Seat)$/.exec(key);
+    if (m) return `Session ${Number(m[1]) + 1}: ${message}`;
+    m = /^t(\d+)(Name|Price|Qty|Max)$/.exec(key);
+    if (m) return `Ticket type ${Number(m[1]) + 1}: ${message}`;
+    return message;
+  });
 }
 
 /** Every step's errors at once, for the indicator and for the final check before creating. */
@@ -245,11 +380,13 @@ export function fieldIdForError(key: string, categoryMode: 'list' | 'other'): st
   if (key === 'venueId') return 'venue';
   if (key === 'venueName') return 'vname';
   if (key === 'venueCity') return 'vcity';
-  let m = /^s(\d+)(Start|End)$/.exec(key);
-  if (m) return `${m[2] === 'Start' ? 'ss' : 'se'}${m[1]}`;
-  m = /^t(\d+)(Name|Price|Qty)$/.exec(key);
+  if (key === 'admission') return 'admission';
+  let m = /^s(\d+)(Start|End|Seat)$/.exec(key);
   if (m)
-    return `${{ Name: 'tn', Price: 'tp', Qty: 'tq' }[m[2] as 'Name' | 'Price' | 'Qty']}${m[1]}`;
+    return `${{ Start: 'ss', End: 'se', Seat: 'sr' }[m[2] as 'Start' | 'End' | 'Seat']}${m[1]}`;
+  m = /^t(\d+)(Name|Price|Qty|Max)$/.exec(key);
+  if (m)
+    return `${{ Name: 'tn', Price: 'tp', Qty: 'tq', Max: 'tm' }[m[2] as 'Name' | 'Price' | 'Qty' | 'Max']}${m[1]}`;
   return null;
 }
 
@@ -288,6 +425,41 @@ export function whatHappensNext(autoApprove: boolean): {
   };
 }
 
+/* ── WHAT THE BUYER WILL SEE ─────────────────────────────────────────────────────── */
+
+/**
+ * The lowest price on sale, in minor units, as the customer event card shows it ("From ...").
+ *
+ * Null when it cannot be known here: reserved seating is priced from the seat map's categories,
+ * which this page does not hold, and a paid event with no valid price yet has nothing to show.
+ */
+export function fromPriceMinor(
+  answers: Pick<WizardAnswers, 'admission' | 'sessions' | 'tickets'>,
+): number | null {
+  if (answers.admission === 'free') return 0;
+  if (answers.admission !== 'paid') return null;
+  const prices = ticketsToSend(answers)
+    .filter((t) => t.priceMajor.trim() !== '')
+    .map((t) => Number(t.priceMajor))
+    .filter((n) => Number.isFinite(n) && n >= 0);
+  if (prices.length === 0) return null;
+  return Math.round(Math.min(...prices) * 100);
+}
+
+/**
+ * The one line about fees a buyer reads next to the price, for each way fees can be paid.
+ *
+ * Read off what checkout does (`calculateFees`): the buyer is charged the booking and payment
+ * fees in full, half of them, or none, and on a free event there is no checkout at all.
+ */
+export function buyerFeeNote(admission: Admission, feeMode: string): string {
+  if (admission === 'free') return 'Free to book. No checkout and no fees.';
+  if (feeMode === 'ORGANIZER_PAYS') return 'No fees added. The buyer pays the ticket price.';
+  if (feeMode === 'SHARED')
+    return 'Plus half of the booking and payment fees, shown before the buyer pays.';
+  return 'Plus booking and payment fees, shown before the buyer pays.';
+}
+
 /* ── THE SAVED DRAFT ──────────────────────────────────────────────────────────────── */
 
 /** Everything the wizard keeps between visits. Images are deliberately not in it. */
@@ -309,7 +481,7 @@ export interface WizardDraft {
     termsAndConditions: string;
   };
   categoryMode: 'list' | 'other';
-  isFree: boolean;
+  admission: Admission;
   venueMode: 'existing' | 'new';
   venueId: string;
   newVenue: { name: string; city: string; address: string; capacity: string };
@@ -322,6 +494,81 @@ export interface WizardDraft {
 
 export function serializeWizardDraft(draft: WizardDraft): string {
   return JSON.stringify(draft);
+}
+
+/** What a starter template fills in before the organizer has typed anything. */
+export interface WizardSeed {
+  title?: string;
+  category?: string;
+  description?: string;
+  categoryMode?: 'list' | 'other';
+}
+
+/**
+ * The wizard as it opens, before anybody has typed anything.
+ *
+ * One definition, used by the page for its first render AND by the check below for "has this
+ * draft got anything in it", so the two cannot disagree about what a blank form is.
+ *
+ * The first ticket row is "General" with a quantity of 100 and no price: a price typed for the
+ * organizer would be in a currency they had not chosen yet, and a number they did not choose is
+ * one they may not notice they are publishing.
+ */
+export function initialWizardDraft(seed: WizardSeed = {}): WizardDraft {
+  return {
+    step: 0,
+    furthest: 0,
+    basics: {
+      title: seed.title ?? '',
+      category: seed.category ?? '',
+      description: seed.description ?? '',
+      refundPolicy: '',
+      /* The platform's existing behaviour, now stated rather than assumed. */
+      refundsEnabled: true,
+      refundCutoffHours: '48',
+    },
+    details: { ageLimit: '', artists: [], termsAndConditions: '' },
+    categoryMode: seed.categoryMode ?? 'list',
+    admission: '',
+    venueMode: 'existing',
+    venueId: '',
+    newVenue: { name: '', city: '', address: '', capacity: '' },
+    newVenueWhere: null,
+    feeMode: 'CUSTOMER_PAYS',
+    sessions: [{ ...EMPTY_SESSION }],
+    tickets: [
+      { sessionIndex: 0, name: 'General', priceMajor: '', quantityTotal: '100', maxPerOrder: '6' },
+    ],
+  };
+}
+
+/**
+ * Whether a saved draft holds anything the organizer actually entered.
+ *
+ * ── THE FALSE "PICKED UP WHERE YOU LEFT OFF" ───────────────────────────────────────
+ * The page saves on every render, including the very first one, so simply OPENING the wizard
+ * wrote a draft of the blank form. The next visit restored it and announced "Picked up where you
+ * left off" over a form with nothing in it - a message about work that never happened, which
+ * teaches people to ignore the message the one time it matters.
+ *
+ * A draft counts when any answer differs from the form as it opens. What is left out is what
+ * says nothing on its own: which step was showing, the venue tab or the category mode with
+ * nothing typed under them, and the new-venue location, which starts from the visitor's own
+ * country rather than from anything they chose.
+ */
+export function isMeaningfulDraft(draft: WizardDraft, initial: WizardDraft): boolean {
+  const answers = (d: WizardDraft) =>
+    JSON.stringify([
+      d.basics,
+      d.details,
+      d.admission,
+      d.venueId,
+      d.newVenue,
+      d.feeMode,
+      d.sessions,
+      d.tickets,
+    ]);
+  return answers(draft) !== answers(initial);
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
@@ -368,9 +615,10 @@ export function restoreWizardDraft(raw: unknown): WizardDraft | null {
   }
   const details = isObject(d.details) ? d.details : {};
   const step = clampStep(d.step);
+  const furthest = Math.max(step, clampStep(d.furthest));
   return {
     step,
-    furthest: Math.max(step, clampStep(d.furthest)),
+    furthest,
     basics: {
       title: str(b.title),
       category: str(b.category),
@@ -391,7 +639,7 @@ export function restoreWizardDraft(raw: unknown): WizardDraft | null {
       termsAndConditions: str(details.termsAndConditions),
     },
     categoryMode: d.categoryMode === 'other' ? 'other' : 'list',
-    isFree: d.isFree === true,
+    admission: restoreAdmission(d, sessions, furthest),
     venueMode: d.venueMode === 'new' ? 'new' : 'existing',
     venueId: str(d.venueId),
     newVenue: {
@@ -405,6 +653,26 @@ export function restoreWizardDraft(raw: unknown): WizardDraft | null {
     sessions,
     tickets,
   };
+}
+
+/**
+ * The admission answer of a saved draft, including one saved before the question existed.
+ *
+ * An older draft said `isFree` and put rooms on sessions; those two facts ARE the answer. A
+ * paid general-admission draft from then says nothing either way, so it counts as answered only
+ * if the organizer had already got past the tickets step - where, then, paid was the default.
+ */
+function restoreAdmission(
+  d: Record<string, unknown>,
+  sessions: SessionDraft[],
+  furthest: number,
+): Admission {
+  if (d.admission === 'free' || d.admission === 'paid' || d.admission === 'seated')
+    return d.admission;
+  if (d.admission === '') return '';
+  if (sessions.some((s) => s.screenId)) return 'seated';
+  if (d.isFree === true) return 'free';
+  return furthest > TICKETS_STEP ? 'paid' : '';
 }
 
 function isLocation(v: unknown): v is LocationValue {

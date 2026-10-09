@@ -99,6 +99,12 @@ export class AdminAudienceService {
     organizationId: string,
     type: NotificationType,
     payload: Record<string, unknown>,
+    /**
+     * `skip` leaves out an owner who has already been told this some other way - for the
+     * sellability sweep, by a message written before its dedupe key took its current shape.
+     * A skipped owner is not counted as notified.
+     */
+    options: { skip?: (userId: string) => boolean } = {},
   ): Promise<number> {
     try {
       const members = await this.prisma.organizationMember.findMany({
@@ -109,8 +115,10 @@ export class AdminAudienceService {
         this.logger.warn(`${type}: organization ${organizationId} has no owner to notify.`);
         return 0;
       }
+      const skip = options.skip;
+      const recipients = skip ? members.filter((m) => !skip(m.user.id)) : members;
       await Promise.all(
-        members.map((m) =>
+        recipients.map((m) =>
           this.notifications
             .send({ type, userId: m.user.id, toEmail: m.user.email, payload })
             .catch((err) =>
@@ -118,7 +126,7 @@ export class AdminAudienceService {
             ),
         ),
       );
-      return members.length;
+      return recipients.length;
     } catch (err) {
       this.logger.error(`${type}: owner fan-out failed entirely: ${err}`);
       return 0;

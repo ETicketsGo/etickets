@@ -454,6 +454,31 @@ export function marketFor(country: string | null | undefined): Market | null {
   );
 }
 
+/**
+ * The one time zone a country has, or null when it has several or is not a market.
+ *
+ * A country is not a timezone in general - the United States, Canada and Australia each span
+ * several - so a venue in one of those must be told its zone. But India, the United Kingdom,
+ * the UAE and Singapore have exactly one, and there the country IS the answer. Leaving those
+ * venues without a zone made every show time render in the reader's own browser zone: a
+ * 19:00 Hyderabad concert read "7:30 am" to a buyer in the United States.
+ */
+export function unambiguousZoneFor(country: string | null | undefined): string | null {
+  const market = marketFor(country);
+  return market && market.timezones.length === 1 ? market.timezones[0] : null;
+}
+
+/**
+ * The zone a show at this place runs in: the zone it was given, else the only zone its
+ * country has, else null (unknown - callers keep their own fallback).
+ */
+export function venueZone(
+  timezone: string | null | undefined,
+  country: string | null | undefined,
+): string | null {
+  return timezone?.trim() || unambiguousZoneFor(country);
+}
+
 /** Spellings that reach a market but are not its code or its canonical name. */
 const EXTRA_SPELLINGS: Record<string, string[]> = {
   US: ['usa', 'united states of america', 'u.s.', 'u.s.a.'],

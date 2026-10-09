@@ -1,5 +1,5 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
-import { isReservedEmail, Role } from '@eticketsgo/shared-types';
+import { isReservedEmail, Role, venueZone } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
 import { AuditService } from '../audit/audit.service';
@@ -200,7 +200,7 @@ export class EventAttendeesService {
         organizationId: true,
         slug: true,
         isFree: true,
-        venue: { select: { timezone: true } },
+        venue: { select: { timezone: true, country: true } },
         sessions: {
           select: { id: true, screen: { select: { cinema: { select: { timezone: true } } } } },
         },
@@ -222,7 +222,12 @@ export class EventAttendeesService {
 
     const zones = new Map<string, string>();
     for (const s of event.sessions) {
-      zones.set(s.id, safeZone(s.screen?.cinema?.timezone ?? event.venue?.timezone));
+      zones.set(
+        s.id,
+        safeZone(
+          s.screen?.cinema?.timezone ?? venueZone(event.venue?.timezone, event.venue?.country),
+        ),
+      );
     }
     return {
       eventId: event.id,

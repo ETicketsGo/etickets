@@ -5,6 +5,7 @@ import {
   Role,
   TicketStatus,
   SessionStatus,
+  venueZone,
 } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 import { QrService } from '../tickets/qr.service';
@@ -302,7 +303,9 @@ export class CheckinsService {
       select: {
         id: true,
         startsAt: true,
-        event: { select: { title: true, venue: { select: { name: true, timezone: true } } } },
+        event: {
+          select: { title: true, venue: { select: { name: true, timezone: true, country: true } } },
+        },
       },
       orderBy: { startsAt: 'asc' },
       take: 50,
@@ -321,7 +324,7 @@ export class CheckinsService {
         weekday: 'short',
         hour: '2-digit',
         minute: '2-digit',
-        timeZone: s.event.venue?.timezone ?? 'UTC',
+        timeZone: venueZone(s.event.venue?.timezone, s.event.venue?.country) ?? 'UTC',
       }).format(s.startsAt),
     }));
   }
