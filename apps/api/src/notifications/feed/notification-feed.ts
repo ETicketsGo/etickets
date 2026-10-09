@@ -339,13 +339,15 @@ function sellabilityGroup(
     for (const s of sessionsOf(m.payload)) if (!byId.has(s.id)) byId.set(s.id, s);
   }
   const sessions = [...byId.values()].sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+  const reason = str(p.reason) ?? latest.body;
+  const legacy = condenseLegacyReason(reason);
   const affected = Math.max(
     sessions.length,
+    legacy?.shows ?? 0,
     ...members.map((m) => num(m.payload.affectedSessions) ?? 0),
   );
 
-  const reason = str(p.reason) ?? latest.body;
-  const headline = causeHeadline(code, subject) ?? reason;
+  const headline = causeHeadline(code, subject) ?? legacy?.reason ?? reason;
   const count =
     affected > 0 ? ` ${affected} ${affected === 1 ? 'showtime' : 'showtimes'} affected.` : '';
   const fix = str(p.fix);
@@ -489,4 +491,37 @@ export function sectionFeed(groups: FeedGroup[]): FeedSection[] {
       .filter((g) => g.category === category)
       .sort((a, b) => rank(a) - rank(b) || b.lastAt.localeCompare(a.lastAt)),
   })).filter((s) => s.groups.length > 0);
+}
+
+/**
+ * An older sellability message, written as one sentence per show:
+ *
+ *   "The show on 2026-09-07T01:31:32.952Z cannot be sold: Normal, Premium are not mapped to a
+ *    regulatory seat class, ... The show on 2026-09-10T01:31:32.952Z cannot be sold: ..."
+ *
+ * Shown as stored, a card's summary was that whole paragraph, with raw timestamps, saying the
+ * same thing once per show. This reads it back as the distinct reasons and how many shows they
+ * cover, so the card says the problem once. The stored row is never changed. Null for any
+ * text not in that shape, which is then shown as it is.
+ */
+export function condenseLegacyReason(
+  text: string | null,
+): { reason: string; shows: number } | null {
+  if (!text) return null;
+  const parts = text
+    .split(/(?=The show on )/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const reasons: string[] = [];
+  let shows = 0;
+  for (const part of parts) {
+    const m = /^The show on \S+ cannot be sold: ([\s\S]+)$/.exec(part);
+    if (!m) return null;
+    shows += 1;
+    const why = m[1].trim();
+    if (!reasons.includes(why)) reasons.push(why);
+  }
+  if (shows === 0) return null;
+  const reason = reasons.join(' ');
+  return { reason: reason.charAt(0).toUpperCase() + reason.slice(1), shows };
 }
