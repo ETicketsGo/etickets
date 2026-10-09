@@ -135,6 +135,15 @@ export default function ScreenSeatMapPage() {
     outline: LayoutTemplateOutline | null;
   } | null>(null);
   const [venueBasePrice, setVenueBasePrice] = useState('');
+  /*
+    Sections whose rows came from a gallery template.
+
+    For those the room-shape picker below is hidden: it describes the room by ITS OWN plan, so
+    after choosing Cinema (12 rows x 15) it still read "10 rows of 19 - 180 seats to sell",
+    beside "Set it exactly - 12 rows x 15" and a preview of 12 rows - three answers for one
+    room. The template's own numbers are shown instead, with a way back to the picker.
+  */
+  const [fromTemplate, setFromTemplate] = useState<Set<number>>(new Set());
 
   /**
    * A gallery card was chosen.
@@ -151,6 +160,7 @@ export default function ScreenSeatMapPage() {
     const drafts = draftsFromOutline(outline, '');
     setName(option.label);
     setSections(drafts);
+    setFromTemplate(new Set(drafts.map((_, i) => i)));
     setPlans(
       drafts.map((d) => ({
         shapeKey: DEFAULT_SHAPE.key,
@@ -208,6 +218,14 @@ export default function ScreenSeatMapPage() {
   const removeSection = (idx: number) => {
     setSections((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== idx) : prev));
     setPlans((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== idx) : prev));
+    // Indexes after the removed one shift down by one.
+    setFromTemplate((prev) => {
+      const nx = new Set<number>();
+      for (const i of prev)
+        if (i < idx) nx.add(i);
+        else if (i > idx) nx.add(i - 1);
+      return nx;
+    });
   };
 
   /**
@@ -640,11 +658,34 @@ export default function ScreenSeatMapPage() {
                     are still here, under "Set it exactly" — but nobody has to open them to
                     describe an ordinary cinema any more.
                   */}
-                  <RoomShapePicker
-                    shapeKey={plans[i]?.shapeKey ?? DEFAULT_SHAPE.key}
-                    capacity={plans[i]?.capacity ?? ''}
-                    onChange={(next) => applyPlan(i, next)}
-                  />
+                  {fromTemplate.has(i) ? (
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-background-subtle/40 px-3 py-2">
+                      <p className="text-[0.9375rem] text-text-primary">
+                        {previewSection(s).rows.length} rows of {s.seatsPerRow} -{' '}
+                        <strong>{previewSection(s).sellable}</strong> seats to sell, from the{' '}
+                        {chosen?.option.label ?? 'chosen'} template.
+                      </p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          setFromTemplate((prev) => {
+                            const nx = new Set(prev);
+                            nx.delete(i);
+                            return nx;
+                          })
+                        }
+                      >
+                        Describe the room differently
+                      </Button>
+                    </div>
+                  ) : (
+                    <RoomShapePicker
+                      shapeKey={plans[i]?.shapeKey ?? DEFAULT_SHAPE.key}
+                      capacity={plans[i]?.capacity ?? ''}
+                      onChange={(next) => applyPlan(i, next)}
+                    />
+                  )}
 
                   <details
                     open={exact.has(i)}

@@ -89,6 +89,7 @@ export function LayoutTemplateGallery({
           <Skeleton className="h-28 w-full" />
         ) : (
           <LayoutThumbnail
+            decorative
             outline={outline}
             label={option.label}
             generalAdmission={option.style === 'GA'}
