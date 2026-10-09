@@ -21,6 +21,7 @@ import {
   type Column,
   type AdminPaymentRow,
 } from '@eticketsgo/web-kit';
+import { AccountContact } from '../../../components/account-contact';
 
 /**
  * The payment ledger.
@@ -70,7 +71,9 @@ export default function AdminPayments() {
       render: (p) => (
         <div className="min-w-0 space-y-1">
           <p className="font-medium text-text-primary">{p.eventTitle}</p>
-          <p className="text-caption text-text-secondary">{p.buyerEmail}</p>
+          <p>
+            <AccountContact email={p.buyerEmail} />
+          </p>
           <p className="font-mono text-caption text-text-muted">
             {p.bookingReference ?? 'no booking reference'}
           </p>

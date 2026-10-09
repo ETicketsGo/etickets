@@ -67,6 +67,15 @@ export class UsersService {
         { email: { contains: f.query, mode: 'insensitive' } },
         { fullName: { contains: f.query, mode: 'insensitive' } },
       ];
+      /*
+        A phone-only account has no name and no email, so a phone number is the only thing an
+        operator can search it by - and they type it the way it is written on screen,
+        "+91 98765 43210" or "469-588-4580", never as the stored "+919876543210". So the digits
+        are compared against the stored number's digits. Four at least: fewer matches half the
+        directory and finds nobody in particular.
+      */
+      const digits = f.query.replace(/\D/g, '');
+      if (digits.length >= 4) where.OR.push({ phone: { contains: digits } });
     }
     if (f.role) where.roles = { has: f.role };
     if (f.status) where.status = f.status;
@@ -157,6 +166,8 @@ export class UsersService {
         select: {
           id: true,
           email: true,
+          // So the console can show a phone-only account by its number, not its placeholder.
+          phone: true,
           fullName: true,
           roles: true,
           status: true,

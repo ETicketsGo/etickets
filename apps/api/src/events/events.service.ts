@@ -29,6 +29,7 @@ import { ShowsService } from '../shows/shows.service';
 import type { RequestUser } from '../common/decorators';
 import { coverImagePath, eventImageOrder, eventImagePath } from './event-image';
 import { groupScopeWhere, type GroupScope } from '../admin/group-scope';
+import { countryWhere } from '../admin/country-filter';
 import { spaceOrganizationId, spaceVenueName } from '../spaces/space-owner';
 
 const ORGANIZER_ROLES = [Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER];
@@ -1515,7 +1516,9 @@ export class EventsService {
     pageSize: number,
     query?: string,
     scope: GroupScope = {},
+    country?: string,
   ) {
+    const inCountry = countryWhere('events', country);
     const where: Prisma.EventWhereInput = {
       /*
       Spread before the search so the scope cannot be overwritten by it. A list that quietly
@@ -1532,6 +1535,8 @@ export class EventsService {
             ],
           }
         : {}),
+      // In `AND`, not spread: the group scope can also name `venue`, and one must not erase the other.
+      ...(inCountry ? { AND: [inCountry] } : {}),
     };
     const [total, data] = await this.prisma.$transaction([
       this.prisma.event.count({ where }),
@@ -1542,7 +1547,7 @@ export class EventsService {
         orderBy: { updatedAt: 'desc' },
         include: {
           organization: { select: { name: true } },
-          venue: { select: { name: true, city: true } },
+          venue: { select: { name: true, city: true, country: true } },
         },
       }),
     ]);

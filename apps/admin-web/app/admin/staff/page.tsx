@@ -16,6 +16,7 @@ import {
   errorMessage,
   type AdminStaffMember,
 } from '@eticketsgo/web-kit';
+import { AccountContact, accountContactText } from '../../../components/account-contact';
 
 /**
  * Who works in the back office, and what each of them may do.
@@ -136,7 +137,10 @@ export default function StaffPage() {
   const save = useMutation({
     mutationFn: () => api.admin.staff.setPermissions(editing!.id, [...selected], note || undefined),
     onSuccess: () => {
-      toast.push(`Permissions updated for ${editing?.email}.`, 'success');
+      toast.push(
+        `Permissions updated for ${accountContactText(editing?.email) ?? editing?.fullName}.`,
+        'success',
+      );
       qc.invalidateQueries({ queryKey: ['admin', 'staff'] });
       setEditing(null);
     },
@@ -184,7 +188,7 @@ export default function StaffPage() {
                       </span>
                     ) : null}
                   </p>
-                  <p className="text-caption text-text-muted">{person.email}</p>
+                  <AccountContact email={person.email} className="text-caption text-text-muted" />
                 </div>
                 {person.isSuperAdmin ? (
                   /*
@@ -250,9 +254,10 @@ export default function StaffPage() {
         {revoking ? (
           <div className="space-y-4">
             <p className="text-[0.9375rem] text-text-secondary">
-              <strong className="text-text-primary">{revoking.fullName}</strong> ({revoking.email})
-              loses the back-office role and every duty they hold, and can no longer use this
-              console. Giving access back means choosing their duties again.
+              <strong className="text-text-primary">{revoking.fullName}</strong> (
+              {accountContactText(revoking.email)}) loses the back-office role and every duty they
+              hold, and can no longer use this console. Giving access back means choosing their
+              duties again.
             </p>
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setRevoking(null)}>
@@ -428,7 +433,12 @@ export default function StaffPage() {
                   >
                     <div className="min-w-0">
                       <p className="truncate text-[0.9375rem] text-text-primary">{u.fullName}</p>
-                      <p className="truncate text-caption text-text-muted">{u.email}</p>
+                      {/* Candidates include customers, and some sign in by phone only. */}
+                      <AccountContact
+                        email={u.email}
+                        phone={u.phone}
+                        className="text-caption text-text-muted"
+                      />
                     </div>
                     {already ? (
                       // Shown rather than hidden: a person searching for somebody who is

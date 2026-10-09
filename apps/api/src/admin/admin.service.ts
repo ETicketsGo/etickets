@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import { groupScopeWhere, type GroupScope } from './group-scope';
+import { countryWhere } from './country-filter';
 
 function paginate(page: number, pageSize: number, total: number) {
   return { page, pageSize, total, totalPages: Math.ceil(total / pageSize) };
@@ -16,8 +17,15 @@ export class AdminService {
   ) {}
 
   async bookings(
-    params: { page: number; pageSize: number; status?: string; q?: string } & GroupScope,
+    params: {
+      page: number;
+      pageSize: number;
+      status?: string;
+      q?: string;
+      country?: string;
+    } & GroupScope,
   ) {
+    const country = countryWhere('bookings', params.country);
     const where = {
       /*
         The group scope is spread FIRST and the search after it, because both can produce a
@@ -36,6 +44,8 @@ export class AdminService {
             ],
           }
         : {}),
+      // In `AND`, not spread: the group scope can also name `event`, and one must not erase the other.
+      ...(country ? { AND: [country] } : {}),
     };
     const [total, rows] = await this.prisma.$transaction([
       this.prisma.booking.count({ where }),
@@ -44,7 +54,10 @@ export class AdminService {
         skip: (params.page - 1) * params.pageSize,
         take: params.pageSize,
         orderBy: { createdAt: 'desc' },
-        include: { event: { select: { title: true } }, payment: { select: { status: true } } },
+        include: {
+          event: { select: { title: true, venue: { select: { country: true } } } },
+          payment: { select: { status: true } },
+        },
       }),
     ]);
     return {
@@ -58,6 +71,8 @@ export class AdminService {
         currency: b.currency,
         createdAt: b.createdAt,
         event: { title: b.event.title },
+        // Where the sale happened: the venue's country, as stored. The console names it.
+        country: b.event.venue?.country ?? null,
         paymentStatus: b.payment?.status ?? null,
       })),
       meta: paginate(params.page, params.pageSize, total),
