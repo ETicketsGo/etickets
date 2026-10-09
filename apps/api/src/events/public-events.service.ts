@@ -30,6 +30,18 @@ export interface PublicEventFilters {
    * still wins when both are given: the narrower intent is the real one.
    */
   country?: string;
+  /**
+   * The country OF the chosen city - not the visitor's scope above, which a city overrides.
+   * Sent by the storefront from the selection itself, so a city picked by hand in another
+   * country is never ANDed with a stale scope. Tells Hyderabad (India) from Hyderabad
+   * (Pakistan).
+   */
+  cityCountry?: string;
+  /**
+   * The city's state or province, to tell two Springfields apart. Applied only with a city,
+   * and a venue that never recorded its region is kept rather than hidden.
+   */
+  region?: string;
   category?: string;
   dateFrom?: Date;
   dateTo?: Date;
@@ -113,14 +125,34 @@ export class PublicEventsService {
         : {}),
       ...(filters.category ? { category: { equals: filters.category, mode: 'insensitive' } } : {}),
       ...(filters.city
-        ? { venue: { city: { equals: filters.city, mode: 'insensitive' } } }
+        ? {
+            /*
+              A city is a place, not a word. "Springfield" is in Illinois and in Missouri, and
+              Hyderabad is in India and in Pakistan, so a city sent with ITS OWN country
+              (`cityCountry`) and, when known, its state is filtered by them. The visitor's
+              scope `country` is still ignored here: a city picked by hand wins over it.
+            */
+            venue: {
+              city: { equals: filters.city, mode: 'insensitive' },
+              ...(filters.cityCountry
+                ? { country: { in: countryAliases(filters.cityCountry), mode: 'insensitive' } }
+                : {}),
+              ...(filters.region
+                ? {
+                    OR: [
+                      { region: { equals: filters.region, mode: 'insensitive' } },
+                      { region: null },
+                    ],
+                  }
+                : {}),
+            },
+          }
         : filters.country
           ? {
               /*
                 Every spelling, because the caller's `IN` has to meet the database's
-                `India`. Applied only when no city is given — a city already implies its
-                country, and ANDing both would turn one bad country string into an empty
-                page for a city the customer explicitly asked for.
+                `India`. Applied only when no city is given - a city chosen by hand wins over
+                the visitor's scope, and ANDing a stale scope with it would empty the page.
               */
               venue: { country: { in: countryAliases(filters.country), mode: 'insensitive' } },
             }

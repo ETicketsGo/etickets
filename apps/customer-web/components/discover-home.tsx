@@ -151,7 +151,7 @@ export function DiscoverHome() {
   /**
    * What the sections below are actually showing, for the copy that describes them.
    *
-   * The country is named, not coded — "Nothing on in US just yet" is a database row read
+   * The country is named, not coded — "No events available in US yet" is a database row read
    * aloud. And it is tracked separately from the city because the way out of each differs:
    * leaving a city lands you in the rest of the country, which for a visitor whose country
    * we do not sell in yet is the same empty page they are already looking at.
@@ -351,7 +351,7 @@ export function DiscoverHome() {
             out is offered here rather than left to be rediscovered in the header.
           */
           <EmptyState
-            title={`Nothing on in ${where} just yet`}
+            title={`No events available in ${where} yet`}
             hint={
               whereCountry
                 ? 'Here is where we are selling right now.'

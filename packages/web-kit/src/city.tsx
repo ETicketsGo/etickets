@@ -77,13 +77,47 @@ const STORAGE_KEY = 'etg.city';
 /** Stored when the person deliberately chose everywhere, so we stop suggesting at them. */
 const ALL_CITIES = '__all__';
 
+/**
+ * Where a chosen city is: its state and country.
+ *
+ * A city name alone is not a place - there is a Springfield in Illinois and one in Missouri,
+ * and a Hyderabad in India and one in Pakistan. A city chosen from "use my location" or from
+ * the search carries where it is, and that travels with it to every list it filters.
+ */
+export interface CityPlace {
+  region: string | null;
+  country: string | null;
+}
+
+/** A two-letter country code, or null. Venue data spells countries out; scope uses codes. */
+function isoCountry(value: string | null | undefined): string | null {
+  const v = (value ?? '').trim().toUpperCase();
+  return /^[A-Z]{2}$/.test(v) ? v : null;
+}
+
 /** Reading storage throws in some privacy modes; a missing city is never worth a crash. */
-function readStoredCity(): string | null {
+function readStored(): { city: string; place: CityPlace } | null {
   try {
-    return globalThis.localStorage?.getItem(STORAGE_KEY) ?? null;
+    const raw = globalThis.localStorage?.getItem(STORAGE_KEY) ?? null;
+    if (!raw) return null;
+    // Older visits stored the bare name; it is still honoured, with no place attached.
+    if (!raw.startsWith('{')) return { city: raw, place: { region: null, country: null } };
+    const parsed = JSON.parse(raw) as { city?: unknown; region?: unknown; country?: unknown };
+    if (typeof parsed.city !== 'string' || !parsed.city) return null;
+    return {
+      city: parsed.city,
+      place: {
+        region: typeof parsed.region === 'string' ? parsed.region : null,
+        country: typeof parsed.country === 'string' ? parsed.country : null,
+      },
+    };
   } catch {
     return null;
   }
+}
+
+function readStoredCity(): string | null {
+  return readStored()?.city ?? null;
 }
 
 /**
@@ -115,9 +149,14 @@ export function rememberMarketCountry(country: string | null): void {
   }
 }
 
-function writeStoredCity(city: string | null): void {
+function writeStoredCity(city: string | null, place?: CityPlace | null): void {
   try {
-    if (city) globalThis.localStorage?.setItem(STORAGE_KEY, city);
+    if (city === ALL_CITIES) globalThis.localStorage?.setItem(STORAGE_KEY, city);
+    else if (city)
+      globalThis.localStorage?.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ city, region: place?.region ?? null, country: place?.country ?? null }),
+      );
     else globalThis.localStorage?.removeItem(STORAGE_KEY);
   } catch {
     /* a preference we cannot persist is still worth honouring for this session */
@@ -140,6 +179,8 @@ function writeStoredCity(city: string | null): void {
 export interface CityPreference {
   /** The city to filter by, or null for everywhere. */
   city: string | null;
+  /** Where the chosen city is, when known. Null for a bare name or no city. */
+  place: CityPlace | null;
   /**
    * The country to scope to when no city is chosen, or null when we do not know where they
    * are. Kept even when the customer picks "All cities", which means every city in their
@@ -166,7 +207,7 @@ export interface CityPreference {
    * describes is labelled with the country now, so nothing has to be inferred from the word
    * "all"; leaving the country is done by searching for a city, not by a button.
    */
-  setCity: (city: string | null) => void;
+  setCity: (city: string | null, place?: CityPlace | null) => void;
   /** Stop filtering by city, keeping the country scope and forgetting the stored choice. */
   clearCity: () => void;
   /**
@@ -211,6 +252,11 @@ export function useCityPreference(): CityPreference {
   const [chosen, setChosen] = useState<boolean>(() =>
     typeof window === 'undefined' ? false : readStoredCity() !== null,
   );
+  const [place, setPlace] = useState<CityPlace | null>(() => {
+    if (typeof window === 'undefined') return null;
+    const stored = readStored();
+    return stored && stored.city !== ALL_CITIES ? stored.place : null;
+  });
   const [country, setCountry] = useState<string | null>(null);
   const [topCities, setTopCities] = useState<SellableCity[]>([]);
   const [suggestion, setSuggestion] = useState<ResolvedLocation | null>(null);
@@ -251,9 +297,17 @@ export function useCityPreference(): CityPreference {
           When we do not know where somebody is at all, this stays null and the feed is
           unscoped, because there is nothing narrower to be.
         */
-        setCountry(result.scopeCountry);
+        /*
+          A city the person chose carries its own country, and that beats any guess. Without
+          this, choosing Hyderabad while browsing from a US network left the page scoped to
+          the United States with a city from India - a filter that could only be empty.
+        */
+        const stored = readStored();
+        const own = stored && stored.city !== ALL_CITIES ? isoCountry(stored.place.country) : null;
+        const scopeCountry = own ?? result.scopeCountry;
+        setCountry(scopeCountry);
         // Mirror it where a server-rendered page can see it - see `rememberMarketCountry`.
-        rememberMarketCountry(result.scopeCountry);
+        rememberMarketCountry(scopeCountry);
         if (readStoredCity() === ALL_CITIES) return;
         if (readStoredCity() !== null) return; // their choice stands
         if (result.confident && result.city) {
@@ -273,10 +327,17 @@ export function useCityPreference(): CityPreference {
     };
   }, []);
 
-  const setCity = useCallback((next: string | null) => {
+  const setCity = useCallback((next: string | null, nextPlace?: CityPlace | null) => {
     setCityState(next);
+    setPlace(next ? (nextPlace ?? null) : null);
     setChosen(true);
     setSuggestion(null);
+    // A city chosen with a known country browses in that country - never a stale guess.
+    const own = next ? isoCountry(nextPlace?.country) : null;
+    if (own) {
+      setCountry(own);
+      rememberMarketCountry(own);
+    }
     /*
       Clearing the city widens to the COUNTRY, not to the world -- so the country hint is
       deliberately left alone here.
@@ -290,11 +351,12 @@ export function useCityPreference(): CityPreference {
     */
     // "All cities" is a real choice and is remembered as one — storing null would make the
     // next visit guess again at somebody who already said they wanted everything.
-    writeStoredCity(next ?? ALL_CITIES);
+    writeStoredCity(next ?? ALL_CITIES, nextPlace);
   }, []);
 
   const clearCity = useCallback(() => {
     setCityState(null);
+    setPlace(null);
     setChosen(false);
     setSuggestion(null);
     // Storage cleared rather than set to '__all__': this is "I have not chosen a city",
@@ -315,9 +377,14 @@ export function useCityPreference(): CityPreference {
           maximumAge: 300_000,
         });
       });
+      /*
+        Rounded to two decimals (about a kilometre) before it leaves the browser. That is
+        far more than enough to name a city, and a precise position is not ours to collect.
+      */
+      const round = (v: number) => Math.round(v * 100) / 100;
       const result = await api.location.resolve({
-        latitude: position.coords.latitude,
-        longitude: position.coords.longitude,
+        latitude: round(position.coords.latitude),
+        longitude: round(position.coords.longitude),
         /*
           The region goes WITH the coordinates, and leaving it out was a real defect.
 
@@ -332,15 +399,18 @@ export function useCityPreference(): CityPreference {
         region: visitorCountry() ?? undefined,
       });
       setTopCities(result.topCities);
-      setCountry(result.scopeCountry);
       // Coordinates come from a button press, so this IS their choice — persisted as one.
+      // The city is where they are, whether or not anything is on sale there: an empty city
+      // gets an empty page that names it, never a quiet move to a city that has events.
       if (result.city) {
-        setCity(result.city);
+        setCity(result.city, { region: result.region ?? null, country: result.country });
         return 'applied';
       }
-      // Country but no city: honest, and worth saying, because the panel would otherwise
-      // look like it had ignored the press. Common, because coordinates only ever resolve to
-      // a city through a cinema carrying latitude and longitude, and almost none do.
+      setCountry(result.scopeCountry);
+      /*
+        No city: open water, wilderness, or the geocoder is off. Said plainly and nothing is
+        invented - a country is never shown as though it were a city.
+      */
       setLocateError('no-city');
       return 'no-city';
     } catch {
@@ -383,6 +453,7 @@ export function useCityPreference(): CityPreference {
   return {
     // A stored '__all__' means everywhere, explicitly.
     city: city === ALL_CITIES ? null : city,
+    place: city === ALL_CITIES ? null : place,
     country,
     topCities,
     suggestion,
@@ -425,6 +496,7 @@ export function useCity(): CityPreference {
   return (
     useContext(CityContext) ?? {
       city: null,
+      place: null,
       country: null,
       topCities: [],
       suggestion: null,
@@ -450,8 +522,25 @@ export function useCity(): CityPreference {
  * Bengaluru in the header changed Browse and left the homepage showing Mumbai. Three
  * pages each deciding this for themselves is three chances to disagree.
  */
-export function cityScope(preference: CityPreference): { city?: string; country?: string } {
-  if (preference.city) return { city: preference.city };
+export function cityScope(preference: CityPreference): {
+  city?: string;
+  country?: string;
+  cityCountry?: string;
+  region?: string;
+} {
+  if (preference.city) {
+    /*
+      The city's OWN country and state travel with it, so Springfield, Illinois and
+      Springfield, Missouri are two places. Deliberately not `country`: that is the visitor's
+      scope, which a hand-picked city overrides, and the API ignores it when a city is given.
+    */
+    const place = preference.place;
+    return {
+      city: preference.city,
+      ...(place?.country ? { cityCountry: place.country } : {}),
+      ...(place?.region ? { region: place.region } : {}),
+    };
+  }
   if (preference.country) return { country: preference.country };
   return {};
 }
@@ -659,8 +748,8 @@ export function CityPicker({
   */
   const label = city ?? (country ? countryName(country) : allCitiesLabel);
 
-  const choose = (next: string | null) => {
-    setCity(next);
+  const choose = (next: string | null, nextPlace?: CityPlace | null) => {
+    setCity(next, nextPlace);
     setOpen(false);
   };
 
@@ -689,7 +778,7 @@ export function CityPicker({
     }
     if (e.key === 'Enter' && shown[active]) {
       e.preventDefault();
-      choose(shown[active].city);
+      choose(shown[active].city, { region: null, country: shown[active].country });
     }
   };
 
@@ -815,8 +904,8 @@ export function CityPicker({
                     className="border-b border-border bg-background-subtle px-3 py-2.5 text-caption text-text-secondary"
                   >
                     {locateError === 'refused'
-                      ? 'Your browser did not share your location.'
-                      : 'We could not find one of our cities near you.'}
+                      ? 'Location is off or blocked for this site. Search for your city below.'
+                      : 'We could not work out your city from your location. Search for it below.'}
                   </p>
                 ) : null}
 
@@ -872,7 +961,7 @@ export function CityPicker({
                     >
                       <button
                         type="button"
-                        onClick={() => choose(c.city)}
+                        onClick={() => choose(c.city, { region: null, country: c.country })}
                         onMouseEnter={() => setActive(i)}
                         className={`flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-[0.9375rem] text-text-primary transition-colors ${
                           i === active ? 'bg-background-subtle' : ''
@@ -974,7 +1063,12 @@ export function CitySuggestionBar({ preference }: { preference?: CityPreference 
       <span className="flex flex-wrap items-center gap-2">
         <button
           type="button"
-          onClick={() => setCity(suggested)}
+          onClick={() =>
+            setCity(suggested, {
+              region: suggestion?.region ?? null,
+              country: suggestion?.country ?? null,
+            })
+          }
           className="rounded-md px-2 py-0.5 font-medium text-action-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
         >
           Show me {suggested}
@@ -990,7 +1084,7 @@ export function CitySuggestionBar({ preference }: { preference?: CityPreference 
           <button
             key={c.city}
             type="button"
-            onClick={() => setCity(c.city)}
+            onClick={() => setCity(c.city, { region: null, country: c.country })}
             className="rounded-md px-2 py-0.5 text-text-secondary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
           >
             {c.city}

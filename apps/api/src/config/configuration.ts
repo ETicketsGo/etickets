@@ -580,6 +580,13 @@ const envSchema = z.object({
   */
   THROTTLE_STORAGE: z.enum(['memory', 'redis']).default('memory'),
 
+  /*
+    How "use my current location" turns coordinates into a city. `offline` uses the bundled
+    GeoNames dataset (CC BY 4.0): no key, no cost, nothing leaves the server. `none` turns it
+    off, and the storefront then says it could not find a city instead of guessing one.
+  */
+  REVERSE_GEOCODER: z.enum(['offline', 'none']).default('offline'),
+
   SMS_PROVIDER: z.enum(['log', 'twilio', 'msg91']).default('log'),
   TWILIO_ACCOUNT_SID: z.string().optional(),
   TWILIO_AUTH_TOKEN: z.string().optional(),

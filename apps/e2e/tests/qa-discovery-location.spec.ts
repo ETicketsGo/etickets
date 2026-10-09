@@ -116,7 +116,7 @@ test.describe('QA: where the customer is actually changes what they see', () => 
     for (const name of names) {
       await open(page, `${CUSTOMER}/events?category=${encodeURIComponent(name)}`);
       await expect(
-        page.getByText(/No events match your search|Nothing on in/),
+        page.getByText(/No events match your search|No events available in/),
         `the "${name}" chip we offer leads to an empty page`,
       ).toHaveCount(0, { timeout: 30_000 });
     }

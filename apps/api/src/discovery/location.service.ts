@@ -1,8 +1,13 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { EventStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CacheService } from '../cache/cache.service';
 import { countryMatches } from '../common/country';
+import {
+  NoReverseGeocoder,
+  REVERSE_GEOCODER,
+  type ReverseGeocoder,
+} from './geocoding/reverse-geocoder';
 
 /**
  * Where the person browsing is, and which cities we can actually sell them a ticket in.
@@ -62,6 +67,8 @@ export interface CitySearch {
 export interface ResolvedLocation {
   country: string | null;
   city: string | null;
+  /** State, province or territory of `city`, so two Springfields are two places. */
+  region: string | null;
   source: LocationSource;
   /**
    * Whether the client should ask before applying this.
@@ -116,33 +123,17 @@ const CITIES_CACHE_TTL_SECONDS = 300;
 /** How many cities `resolve` offers up front. Enough to choose from, few enough to read. */
 const RESOLVE_CITY_COUNT = 8;
 
-/** Kilometres between two points. Good enough to pick the nearest of a few dozen cities. */
-function distanceKm(aLat: number, aLng: number, bLat: number, bLng: number): number {
-  const toRad = (d: number) => (d * Math.PI) / 180;
-  const R = 6371;
-  const dLat = toRad(bLat - aLat);
-  const dLng = toRad(bLng - aLng);
-  const h =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(aLat)) * Math.cos(toRad(bLat)) * Math.sin(dLng / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(h));
-}
-
-/**
- * How far away a venue can be and still count as "your city".
- *
- * 120km is generous on purpose. Someone in Thane should be shown Mumbai, and someone an
- * hour outside a metro should be offered it rather than an empty page. The client always
- * names the city it applied, so a wrong guess is visible and one click from being fixed.
- */
-const NEAREST_CITY_RADIUS_KM = 120;
-
 @Injectable()
 export class LocationService {
+  private readonly geocoder: ReverseGeocoder;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly cache: CacheService,
-  ) {}
+    @Optional() @Inject(REVERSE_GEOCODER) geocoder?: ReverseGeocoder,
+  ) {
+    this.geocoder = geocoder ?? new NoReverseGeocoder();
+  }
 
   /**
    * Cities with something on sale, most inventory first — searched, not enumerated.
@@ -269,22 +260,42 @@ export class LocationService {
     // 1. Coordinates the person actively offered. The only source good enough to apply
     //    without asking.
     if (typeof input.latitude === 'number' && typeof input.longitude === 'number') {
-      const nearest = await this.nearestSellableCity(input.latitude, input.longitude, cities);
-      if (nearest) {
+      /*
+        WHERE THE PERSON IS, FROM THE MAP - NEVER FROM WHAT WE SELL.
+
+        This used to look for the nearest cinema with coordinates AND something on sale.
+        Almost no cinema carried coordinates and no venue ever did, so Dallas, Boise,
+        Hyderabad and Vijayawada all resolved to "no city". The city is now answered by a
+        reverse geocoder and kept whether or not anything is on sale there: an empty city
+        is an honest empty page ("No events available in Dallas yet"), never a quiet move to
+        somewhere that does have events.
+
+        The only use of inventory here is SPELLING: if we sell in the same city under a
+        different spelling ("Montreal" for "Montréal"), the filter uses ours so its events
+        are found. It never picks a different city.
+      */
+      const place = await this.geocoder.reverse(input.latitude, input.longitude);
+      if (place) {
+        const fold = (v: string) => v.normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
+        const names = [place.city, place.asciiCity].filter(Boolean).map((v) => fold(v!));
+        const sameCity = cities.find(
+          (c) => countryMatches(c.country, place.country) && names.includes(fold(c.city)),
+        );
         return {
-          country: nearest.country,
-          city: nearest.city,
+          country: place.country,
+          // Plain spelling for display ("Thane", not "Thāne") - customer copy is ASCII.
+          city: sameCity?.city ?? place.asciiCity ?? place.city,
+          region: place.region,
           source: 'coordinates',
           confident: true,
-          scopeCountry: scope(nearest.country),
-          topCities: offer(nearest.country),
+          scopeCountry: scope(place.country),
+          topCities: offer(place.country),
         };
       }
       /*
-        Coordinates that match nothing fall through rather than returning the nearest city
-        regardless of distance. Someone in a country we do not operate in is better served
-        by "pick a city" than by being told their nearest event is four thousand kilometres
-        away.
+        The geocoder could not name a city (open water, wilderness, or a geocoder that is
+        switched off). Nothing is invented: the answer below carries no city, and the client
+        says it could not find one and offers the search box.
       */
     }
 
@@ -293,26 +304,32 @@ export class LocationService {
     const country = this.firstHeader(input.headers, COUNTRY_HEADERS)?.toUpperCase() ?? null;
     const headerCity = this.firstHeader(input.headers, CITY_HEADERS);
     if (headerCity) {
+      /*
+        A guess from the network, offered as a suggestion to confirm - and offered whether or
+        not we sell there. It used to be dropped unless it matched a city with inventory,
+        which made where somebody is depend on what we had for sale.
+      */
       const match = cities.find((c) => c.city.toLowerCase() === headerCity.toLowerCase());
-      // Only returned if we can actually sell there. An unmatched city name would filter
-      // the homepage down to nothing.
-      if (match) {
-        return {
-          country: match.country,
-          city: match.city,
-          source: 'network',
-          confident: false,
-          scopeCountry: scope(match.country),
-          topCities: offer(match.country),
-        };
-      }
+      const where = match?.country ?? country;
+      return {
+        country: where,
+        city: match?.city ?? headerCity,
+        region: null,
+        source: 'network',
+        confident: false,
+        scopeCountry: scope(where),
+        topCities: offer(where),
+      };
     }
     if (country) {
-      const here = inCountry(country);
       return {
         country,
-        // Exactly one city in the country means there is nothing to choose between.
-        city: here.length === 1 ? here[0].city : null,
+        /*
+          Never a city from inventory. This used to pick the country's only city with events,
+          which put a visitor from anywhere in the United States in Boise.
+        */
+        city: null,
+        region: null,
         source: 'network',
         confident: false,
         scopeCountry: scope(country),
@@ -325,6 +342,7 @@ export class LocationService {
       return {
         country: input.deviceRegion.toUpperCase(),
         city: null,
+        region: null,
         source: 'device-region',
         confident: false,
         scopeCountry: scope(input.deviceRegion.toUpperCase()),
@@ -336,32 +354,12 @@ export class LocationService {
     return {
       country: null,
       city: null,
+      region: null,
       source: 'none',
       confident: false,
       scopeCountry: null,
       topCities: offer(null),
     };
-  }
-
-  /** Nearest city with inventory, using cinema coordinates — the only geo the platform stores. */
-  private async nearestSellableCity(
-    latitude: number,
-    longitude: number,
-    cities: SellableCity[],
-  ): Promise<SellableCity | null> {
-    const points = await this.prisma.cinema.findMany({
-      where: { latitude: { not: null }, longitude: { not: null } },
-      select: { city: true, latitude: true, longitude: true },
-    });
-
-    let best: { city: SellableCity; km: number } | null = null;
-    for (const p of points) {
-      const sellable = cities.find((c) => c.city.toLowerCase() === p.city.toLowerCase());
-      if (!sellable) continue; // a cinema with nothing on sale is not an answer
-      const km = distanceKm(latitude, longitude, p.latitude!, p.longitude!);
-      if (km <= NEAREST_CITY_RADIUS_KM && (!best || km < best.km)) best = { city: sellable, km };
-    }
-    return best?.city ?? null;
   }
 
   private firstHeader(
