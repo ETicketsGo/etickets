@@ -66,7 +66,7 @@ test.describe('organizer dashboard: payments by market', () => {
     for (const column of [
       'Market',
       'Gross sales',
-      'Net revenue',
+      'Net proceeds',
       'Refunds',
       'Paid bookings',
       'All bookings',

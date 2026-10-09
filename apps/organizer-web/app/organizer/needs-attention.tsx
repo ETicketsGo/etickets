@@ -27,12 +27,12 @@ import { api, Card } from '@eticketsgo/web-kit';
 const TONE = {
   BLOCKING: {
     icon: AlertTriangle,
-    badge: 'bg-status-error/10 text-status-error',
+    badge: 'bg-tint-error text-status-error',
     label: 'Blocking',
   },
   IMPORTANT: {
     icon: AlertTriangle,
-    badge: 'bg-status-warning/10 text-status-warning',
+    badge: 'bg-tint-warning text-status-warning',
     label: 'Important',
   },
   SUGGESTED: { icon: Info, badge: 'bg-tint-primary text-action-primary', label: 'Suggested' },

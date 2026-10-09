@@ -546,6 +546,24 @@ Ownership key: **[DS]** = this workstream (design system, organizer shell/nav, d
 
 ---
 
+## Status after the ux-shell workstream (2026-10-09)
+
+What the design-system / shell / dashboard PRs closed from section 8. Everything not listed
+here is still open and belongs to the owner named in section 8.
+
+| Item                                                     | Status                                                                                                                                                                                                                                                |
+| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P1.1 every organizer route reachable and marked          | Done. Grouped sidebar; `match` prefixes cover `/organizer/cinemas` and `/organizer/spaces`; Check-in (`/organizer/gate`) is now in the owner/manager nav. `components/organizer-nav.test.ts` walks `app/organizer` and fails if a page has no way in. |
+| P1.2 sidebar accessibility                               | Done. Labelled nav, `<ul>` lists, labelled groups, one `aria-current` (longest href wins), drawer is a dialog with focus in, Tab trap, Escape and focus return.                                                                                       |
+| P2.7 segmented control                                   | Done for the dashboard: `SegmentedControl` in web-kit is a radiogroup; the market switch uses it. Admin reports tabs are still [ADM].                                                                                                                 |
+| P2.8 dashboard                                           | Done. Skeleton matches the loaded layout; one "Create event" in the header plus the empty state; the by-market table is a focusable scroll region (axe `scrollable-region-focusable` was failing at 390px). Not yet shared with admin.                |
+| Dashboard wash badges                                    | Done. `needs-attention.tsx` uses `bg-tint-*`.                                                                                                                                                                                                         |
+| P1.3 `/8` classes, `Notice` primitive, `ErrorState` wash | Open. `ErrorState` lives in `components.tsx`, outside this workstream's files.                                                                                                                                                                        |
+| Check-in staff landing page                              | Open. Staff still land on `/organizer`, which is not in their two-item nav.                                                                                                                                                                           |
+| Page titles vs the new nav labels                        | Open. The sidebar says "Venues & seating" (owner's label); the venues page title and breadcrumbs still say "Venues & spaces".                                                                                                                         |
+
+---
+
 ## Appendix - organizer route checklist for the new sidebar
 
 Every path the organizer app serves under `/organizer` (50 page files; dynamic segments in brackets):
