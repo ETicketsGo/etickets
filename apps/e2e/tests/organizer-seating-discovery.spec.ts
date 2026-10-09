@@ -160,6 +160,11 @@ test.describe('finding reserved seating from a standing start', () => {
       the journey an organizer actually takes.
     */
     await page.locator('#room-capacity').fill('18');
+    // Whole rows rarely land on exactly the number asked for; when they do not, the organizer
+    // confirms the real number before the room is created.
+    await expect(page.getByTestId('bookable-count')).toBeVisible();
+    const confirm = page.getByRole('checkbox', { name: /confirm that \d+ seats/ });
+    if (await confirm.isVisible()) await confirm.check();
     await page.getByRole('button', { name: 'Generate seat map' }).click();
 
     /*

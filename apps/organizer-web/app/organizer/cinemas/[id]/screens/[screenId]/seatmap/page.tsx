@@ -19,7 +19,9 @@ import {
   currencyForCountry,
 } from '@eticketsgo/web-kit';
 import {
+  capacitySummary,
   expandRowLabels,
+  nextGapSeats,
   previewSection,
   seatKindsFor,
   type SeatKind,
@@ -99,9 +101,20 @@ export default function ScreenSeatMapPage() {
     reading the intent from the result would make the picker jump to a shape the organizer
     never chose. This is what they said; the draft is what it produced.
   */
-  const [plans, setPlans] = useState<{ shapeKey: string; capacity: string }[]>([
-    { shapeKey: DEFAULT_SHAPE.key, capacity: String(DEFAULT_SHAPE.typicalSeats) },
+  const [plans, setPlans] = useState<
+    { shapeKey: string; capacity: string; suggestedAisle: string }[]
+  >([
+    {
+      shapeKey: DEFAULT_SHAPE.key,
+      capacity: String(DEFAULT_SHAPE.typicalSeats),
+      suggestedAisle: '',
+    },
   ]);
+  /**
+   * The bookable count the organizer has confirmed, when it differs from what they asked for.
+   * Cleared whenever the count changes, so a confirmation never outlives the room it was for.
+   */
+  const [confirmedBookable, setConfirmedBookable] = useState<number | null>(null);
   /** Which sections have the exact row/seat fields open. Closed by default. */
   const [exact, setExact] = useState<Set<number>>(new Set());
   const [errors, setErrors] = useState<string | null>(null);
@@ -123,7 +136,11 @@ export default function ScreenSeatMapPage() {
     setSections((prev) => [...prev, { ...emptySection }]);
     setPlans((prev) => [
       ...prev,
-      { shapeKey: DEFAULT_SHAPE.key, capacity: String(DEFAULT_SHAPE.typicalSeats) },
+      {
+        shapeKey: DEFAULT_SHAPE.key,
+        capacity: String(DEFAULT_SHAPE.typicalSeats),
+        suggestedAisle: '',
+      },
     ]);
   };
   const removeSection = (idx: number) => {
@@ -142,25 +159,33 @@ export default function ScreenSeatMapPage() {
     idx: number,
     next: { shapeKey: string; capacity: string; plan: ReturnType<typeof planRoom> },
   ) => {
+    const previousSuggestion = plans[idx]?.suggestedAisle ?? '';
+    const aisle = next.plan.aisle;
     setPlans((prev) =>
-      prev.map((p, i) => (i === idx ? { shapeKey: next.shapeKey, capacity: next.capacity } : p)),
+      prev.map((p, i) =>
+        i === idx
+          ? {
+              shapeKey: next.shapeKey,
+              capacity: next.capacity,
+              suggestedAisle: aisle === null ? '' : String(aisle),
+            }
+          : p,
+      ),
     );
     if (!Number.isFinite(Number(next.capacity)) || Number(next.capacity) < 1) return;
 
     /*
-      The suggested aisle is written in, but only into an EMPTY box.
+      The suggested aisle follows the plan; an aisle the organizer typed is theirs.
 
-      The picker tells the organizer an aisle is suggested, so it has to actually appear —
-      a suggestion that leaves the field blank is just a sentence. Overwriting an aisle they
-      positioned themselves would be worse than never offering one, so a box with anything in
-      it is left exactly as they left it.
+      It used to be written only into an EMPTY box, so a second plan left the first plan's aisle
+      behind - or none - and the preview counted the aisle column as seats ("153 seats to sell"
+      above, "162 bookable" below). See `nextGapSeats`.
     */
     const current = sections[idx];
-    const aisle = next.plan.aisle;
     setSection(idx, {
       rowLabels: next.plan.rowLabels.join(', '),
       seatsPerRow: String(next.plan.seatsPerRow),
-      ...(aisle !== null && !current?.gapSeats?.trim() ? { gapSeats: String(aisle) } : {}),
+      gapSeats: nextGapSeats(current?.gapSeats ?? '', previousSuggestion, aisle),
     });
   };
 
@@ -212,7 +237,18 @@ export default function ScreenSeatMapPage() {
   };
 
   const seatMap = seatMapQ.data;
-  const totalSellable = sections.reduce((n, sec) => n + previewSection(sec).sellable, 0);
+  const capacity = capacitySummary(
+    sections,
+    plans.map((p) => {
+      const n = Number(p.capacity);
+      return Number.isFinite(n) && n > 0 ? n : null;
+    }),
+  );
+  /*
+    Never more (or fewer) seats than the organizer agreed to. When the room that will be created
+    is not the number they asked for, they confirm the real number before anything is sold.
+  */
+  const needsConfirmation = capacity.differsFromRequest && confirmedBookable !== capacity.bookable;
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
@@ -554,13 +590,58 @@ export default function ScreenSeatMapPage() {
               );
             })}
 
-            {/* One number for the whole room, which is the figure an operator actually knows. */}
-            {totalSellable > 0 ? (
-              <p className="text-caption text-text-secondary">
-                This screen will have <strong className="text-text-primary">{totalSellable}</strong>{' '}
-                bookable seats across {sections.length} section
-                {sections.length === 1 ? '' : 's'}.
-              </p>
+            {/*
+              One set of numbers for the whole room, from the draft that will actually be sent.
+              Bookable is the headline because it is what the room sells; the rest explain it.
+            */}
+            {capacity.positions > 0 ? (
+              <div
+                data-testid="capacity-summary"
+                className="rounded-md border border-border bg-background-subtle/40 p-3"
+              >
+                <p className="text-[0.9375rem] text-text-primary">
+                  This screen will sell{' '}
+                  <strong data-testid="bookable-count">{capacity.bookable}</strong> seat
+                  {capacity.bookable === 1 ? '' : 's'} across {sections.length} section
+                  {sections.length === 1 ? '' : 's'}.
+                </p>
+                <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-caption sm:grid-cols-4">
+                  {capacity.requested !== null ? (
+                    <div>
+                      <dt className="text-text-muted">You asked for</dt>
+                      <dd className="tabular-nums text-text-primary">{capacity.requested}</dd>
+                    </div>
+                  ) : null}
+                  <div>
+                    <dt className="text-text-muted">Seat positions</dt>
+                    <dd className="tabular-nums text-text-primary">{capacity.positions}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-text-muted">Aisle spaces (not sold)</dt>
+                    <dd className="tabular-nums text-text-primary">{capacity.aisles}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-text-muted">Accessible places (sold)</dt>
+                    <dd className="tabular-nums text-text-primary">{capacity.accessible}</dd>
+                  </div>
+                </dl>
+                {capacity.differsFromRequest ? (
+                  <label className="mt-3 flex items-start gap-2 rounded-md bg-tint-warning px-3 py-2 text-caption text-text-primary">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5"
+                      checked={confirmedBookable === capacity.bookable}
+                      onChange={(e) =>
+                        setConfirmedBookable(e.target.checked ? capacity.bookable : null)
+                      }
+                    />
+                    <span>
+                      You asked for {capacity.requested} but this layout sells {capacity.bookable}.
+                      Change the room size, or confirm that {capacity.bookable} seats is right.
+                    </span>
+                  </label>
+                ) : null}
+              </div>
             ) : null}
 
             <Button variant="outline" size="sm" onClick={addSection}>
@@ -574,7 +655,7 @@ export default function ScreenSeatMapPage() {
             )}
 
             <div>
-              <Button loading={generate.isPending} onClick={submit}>
+              <Button loading={generate.isPending} disabled={needsConfirmation} onClick={submit}>
                 Generate seat map
               </Button>
             </div>
