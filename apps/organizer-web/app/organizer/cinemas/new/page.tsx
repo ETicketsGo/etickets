@@ -11,8 +11,12 @@ import {
   PageHeader,
   useToast,
   errorMessage,
+  LocationFields,
+  defaultLocation,
   type CinemaBody,
+  type LocationValue,
 } from '@eticketsgo/web-kit';
+import { venueZone } from '@eticketsgo/shared-types';
 import { VenuePicker, InheritedVenueLocation } from '@/components/venue-fields';
 import { useOrg } from '@/components/org-context';
 
@@ -53,6 +57,13 @@ export default function NewCinemaPage() {
   });
 
   const selectedVenue = (venues.data ?? []).find((v) => v.id === venueId) ?? null;
+  /*
+    Where a NEW venue is. This form created venues from a city and a street alone - no country,
+    state or time zone - so a space added here had no currency, no tax rules and a clock that
+    defaulted to India wherever it really was. The venues page and the event wizard already ask
+    these three; this is the same component.
+  */
+  const [where, setWhere] = useState<LocationValue>(defaultLocation);
 
   const set = (key: keyof typeof form, value: string) => setForm((f) => ({ ...f, [key]: value }));
 
@@ -83,6 +94,19 @@ export default function NewCinemaPage() {
         longitude: form.longitude ? Number(form.longitude) : undefined,
         // Empty means "make a new one", which is what the server already does with no value.
         venueId: venueId || undefined,
+        /*
+          The space's clock is its venue's: the zone the venue was given, else its country's
+          only zone. Without this every space defaulted to the launch market's zone.
+        */
+        ...(selectedVenue
+          ? {
+              timezone: venueZone(selectedVenue.timezone, selectedVenue.country) ?? undefined,
+            }
+          : {
+              country: where.country,
+              region: where.region || undefined,
+              timezone: where.timezone || undefined,
+            }),
       };
       return api.cinemas.create({ organizationId: activeOrg.id, ...body });
     },
@@ -165,6 +189,12 @@ export default function NewCinemaPage() {
                 hint="Just the street and area. The city is set above."
                 value={form.address}
                 onChange={(e) => set('address', e.target.value)}
+              />
+              <LocationFields
+                idPrefix="space-venue"
+                value={where}
+                onChange={setWhere}
+                countryHint="Sets the currency you sell in and the tax rules that apply."
               />
             </>
           )}
