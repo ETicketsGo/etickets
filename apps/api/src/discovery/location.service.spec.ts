@@ -121,6 +121,79 @@ describe('LocationService', () => {
     });
   });
 
+  describe('cities search anywhere', () => {
+    /*
+      A customer in a city we sell nothing in must still be able to type it and choose it, so
+      the page can say "nothing here yet" about THEIR city instead of acting as if it did not
+      exist. Real places from the offline dataset; sellable cities always come first.
+    */
+    const geocoder = new OfflineCityGeocoder();
+    const svc = (venues: VenueRow[]) =>
+      new LocationService(prismaWith(venues), passthroughCache(), geocoder);
+
+    it('finds a real city with nothing on sale, marked as having no events', async () => {
+      const found = await svc([venue('Mumbai')]).cities({ q: 'boise', anywhere: true, limit: 8 });
+      expect(found[0]).toMatchObject({
+        city: 'Boise',
+        country: 'US',
+        eventCount: 0,
+        region: 'Idaho',
+      });
+    });
+
+    it('is off unless asked for, so the sellable-only search is unchanged', async () => {
+      const found = await svc([venue('Mumbai')]).cities({ q: 'boise', limit: 8 });
+      expect(found).toEqual([]);
+    });
+
+    it('puts sellable cities first and never repeats one as an empty duplicate', async () => {
+      const found = await svc([venue('Hyderabad', 'India', 3)]).cities({
+        q: 'hyder',
+        anywhere: true,
+        limit: 8,
+      });
+      expect(found[0]).toMatchObject({ city: 'Hyderabad', eventCount: 3 });
+      // Hyderabad in Pakistan (Sindh) is a different place and may appear; India's may not.
+      const indianEmpties = found.filter(
+        (c) => c.eventCount === 0 && c.city === 'Hyderabad' && c.country === 'IN',
+      );
+      expect(indianEmpties).toHaveLength(0);
+    });
+
+    it('matches without accents and respects the country filter', async () => {
+      const found = await svc([]).cities({ q: 'montre', anywhere: true, country: 'CA', limit: 8 });
+      expect(found.map((c) => c.city)).toContain('Montréal');
+      expect(found.every((c) => c.country === 'CA')).toBe(true);
+    });
+
+    it("puts the visitor's own country first among empty places, without hiding the rest", async () => {
+      const plain = await svc([]).cities({ q: 'hyder', anywhere: true, limit: 8 });
+      const fromPakistan = await svc([]).cities({
+        q: 'hyder',
+        anywhere: true,
+        prefer: 'PK',
+        limit: 8,
+      });
+      expect(plain[0]).toMatchObject({ city: 'Hyderabad', country: 'IN' });
+      expect(fromPakistan[0]).toMatchObject({ city: 'Hyderabad', country: 'PK' });
+      expect(fromPakistan.map((c) => c.country)).toContain('IN');
+    });
+
+    it('needs a typed name - it never lists the world', async () => {
+      expect(await svc([]).cities({ anywhere: true, limit: 8 })).toEqual([]);
+      expect(await svc([]).cities({ q: 'b', anywhere: true, limit: 8 })).toEqual([]);
+    });
+
+    it('finds nothing when the geocoder is switched off', async () => {
+      const found = await new LocationService(
+        prismaWith([]),
+        passthroughCache(),
+        new NoReverseGeocoder(),
+      ).cities({ q: 'boise', anywhere: true, limit: 8 });
+      expect(found).toEqual([]);
+    });
+  });
+
   describe('resolve', () => {
     // The real offline geocoder: these tests are about real places, not stubbed answers.
     const geocoder = new OfflineCityGeocoder();

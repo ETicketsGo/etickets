@@ -27,6 +27,14 @@ export interface ReverseGeocoder {
   readonly name: string;
   /** Null when no populated place is close enough to be honest about. Never a guess. */
   reverse(latitude: number, longitude: number): Promise<GeocodedPlace | null>;
+  /**
+   * Places whose name (or a word of it) starts with `query`, biggest first.
+   *
+   * For typing a city by hand. Somebody in a city we sell nothing in yet must still be able to
+   * say where they are - and be told plainly there is nothing there - rather than finding their
+   * own city missing from the list as if it did not exist.
+   */
+  search(query: string, limit: number): Promise<GeocodedPlace[]>;
 }
 
 export const REVERSE_GEOCODER = Symbol('REVERSE_GEOCODER');
@@ -36,6 +44,9 @@ export class NoReverseGeocoder implements ReverseGeocoder {
   readonly name = 'none';
   async reverse(): Promise<GeocodedPlace | null> {
     return null;
+  }
+  async search(): Promise<GeocodedPlace[]> {
+    return [];
   }
 }
 
@@ -95,6 +106,8 @@ export class OfflineCityGeocoder implements ReverseGeocoder {
   readonly name = 'geonames-offline';
   /** One-degree cells. Searching a cell and its neighbours covers MAX_CITY_DISTANCE_KM. */
   private grid: Map<string, Place[]> | null = null;
+  /** Every place, biggest first, for name search. Built from the same parse as the grid. */
+  private byPopulation: Place[] | null = null;
 
   constructor(private readonly source: string = GEONAMES_CITIES_GZ_B64) {}
 
@@ -120,7 +133,32 @@ export class OfflineCityGeocoder implements ReverseGeocoder {
       else grid.set(key, [place]);
     }
     this.grid = grid;
+    this.byPopulation = [...grid.values()].flat().sort((a, b) => b.population - a.population);
     return grid;
+  }
+
+  async search(query: string, limit: number): Promise<GeocodedPlace[]> {
+    const q = fold(query.trim());
+    if (q.length < 2) return [];
+    this.load();
+    const found: GeocodedPlace[] = [];
+    for (const p of this.byPopulation ?? []) {
+      /*
+        Prefix of any word, on the name with its accents folded away, so "montr" finds
+        Montreal and "york" finds New York - the same rule as the sellable-city search.
+      */
+      const words = fold(`${p.name} ${p.ascii ?? ''}`).split(/[\s'-]+/);
+      if (!words.some((w) => w.startsWith(q))) continue;
+      found.push({
+        city: p.name,
+        asciiCity: p.ascii,
+        region: p.region,
+        country: p.country,
+        distanceKm: 0,
+      });
+      if (found.length >= limit) break;
+    }
+    return found;
   }
 
   async reverse(latitude: number, longitude: number): Promise<GeocodedPlace | null> {
@@ -157,4 +195,12 @@ export class OfflineCityGeocoder implements ReverseGeocoder {
       distanceKm: Math.round(bestKm * 10) / 10,
     };
   }
+}
+
+/** Lower case with diacritics removed: "Montréal" and "montreal" compare equal. */
+export function fold(text: string): string {
+  return text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
 }

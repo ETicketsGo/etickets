@@ -11,6 +11,10 @@ const citiesQuery = z.object({
   q: z.string().trim().max(60).optional(),
   country: z.string().trim().min(2).max(60).optional(),
   limit: z.coerce.number().int().min(1).max(50).optional(),
+  /** "1" adds real places with nothing on sale yet, after the sellable ones. */
+  anywhere: z.enum(['0', '1']).optional(),
+  /** The visitor's country: its places come first among those with nothing on sale. */
+  prefer: z.string().trim().min(2).max(60).optional(),
 });
 
 const resolveQuery = z.object({
@@ -47,9 +51,11 @@ export class LocationController {
       q?: string;
       country?: string;
       limit?: number;
+      anywhere?: '0' | '1';
+      prefer?: string;
     },
   ) {
-    return this.location.cities(q);
+    return this.location.cities({ ...q, anywhere: q.anywhere === '1' });
   }
 
   @Public()
