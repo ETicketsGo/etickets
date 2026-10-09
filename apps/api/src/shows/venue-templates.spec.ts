@@ -4,6 +4,7 @@ import {
   generateVenue,
   rowLabel,
   seatCount,
+  templateOutline,
   type GeneratedVenue,
   type Point,
   type VenueTemplateKey,
@@ -257,7 +258,14 @@ describe('venue templates', () => {
     // Checked by bounding box, which is coarse — two ring segments in the same band have
     // overlapping boxes without overlapping at all. So this runs only on the templates built
     // from rectangles, where the box IS the shape and an overlap is a real one.
-    it.each<VenueTemplateKey>(['CINEMA', 'PROSCENIUM', 'STADIUM'])('%s', (key) => {
+    it.each<VenueTemplateKey>([
+      'CINEMA',
+      'PREMIUM_CINEMA',
+      'AUDITORIUM',
+      'FLAT_HALL',
+      'PROSCENIUM',
+      'STADIUM',
+    ])('%s', (key) => {
       const venue = generateVenue(key);
       const collisions: string[] = [];
       for (let i = 0; i < venue.sections.length; i++) {
@@ -323,6 +331,71 @@ describe('venue templates', () => {
           [0, 10],
         ]),
       ).toEqual([5, 5]);
+    });
+  });
+
+  describe('the gallery templates', () => {
+    it.each<[VenueTemplateKey, number]>([
+      ['PREMIUM_CINEMA', 72],
+      ['AUDITORIUM', 504],
+      ['FLAT_HALL', 120],
+      ['BASKETBALL', 7628],
+    ])('%s builds exactly the seats the gallery states', (key, seats) => {
+      // Exact, not within 5%: these are the cards an organizer picks a room from, and the
+      // shared catalogue states these numbers.
+      expect(seatCount(generateVenue(key))).toBe(seats);
+      expect(VENUE_TEMPLATES.find((t) => t.key === key)?.approximateSeats).toBe(seats);
+    });
+
+    it.each<VenueTemplateKey>(['PREMIUM_CINEMA', 'AUDITORIUM', 'FLAT_HALL'])(
+      '%s is a grid with an aisle down every row, so the seat picker draws it',
+      (key) => {
+        const venue = generateVenue(key);
+        expect(venue.layoutKind).toBe('GRID');
+        for (const section of venue.sections) {
+          for (const row of section.rows) {
+            expect(row.seats.filter((s) => s.kind === 'GAP')).toHaveLength(1);
+          }
+        }
+      },
+    );
+
+    it('puts the basketball court in the middle, with nothing sat on it', () => {
+      const venue = generateVenue('BASKETBALL');
+      expect(venue.layoutKind).toBe('SECTIONED');
+      expect(venue.focalLabel).toBe('COURT');
+      const [cx, cy] = centroid(venue.focalShape);
+      expect(Math.abs(cx - 500)).toBeLessThanOrEqual(5);
+      expect(Math.abs(cy - 500)).toBeLessThanOrEqual(5);
+    });
+  });
+
+  describe('templateOutline', () => {
+    it.each(ALL)('%s describes the same seats the generator writes', (key) => {
+      /*
+        The gallery's picture and capacity come from this, and the generator pre-fill too. If
+        it counted differently from the generator, the card would promise one room and the
+        build would write another - the advertised-versus-real capacity bug again.
+      */
+      const outline = templateOutline(key);
+      const venue = generateVenue(key);
+      const counted = outline.kindCounts.reduce((n, k) => n + k.count, 0);
+      const gaps = outline.kindCounts.find((k) => k.kind === 'GAP')?.count ?? 0;
+      expect(counted - gaps).toBe(seatCount(venue));
+      expect(outline.sections.map((s) => s.name)).toEqual(venue.sections.map((s) => s.name));
+    });
+
+    it('states aisle and accessible positions 1-based, as the generator takes them', () => {
+      const outline = templateOutline('FLAT_HALL');
+      const hall = outline.sections[0];
+      // 12 seats and an aisle: positions 1-13, the aisle at 7 in every row.
+      expect(hall.positions).toBe(13);
+      const gaps = hall.seatKinds.filter((k) => k.kind === 'GAP');
+      expect(gaps).toHaveLength(hall.rowLabels.length);
+      expect(gaps.every((g) => g.seats.length === 1 && g.seats[0] === 7)).toBe(true);
+      const back = hall.rowLabels[hall.rowLabels.length - 1];
+      expect(hall.seatKinds).toContainEqual({ rowLabel: back, seats: [1], kind: 'WHEELCHAIR' });
+      expect(hall.seatKinds).toContainEqual({ rowLabel: back, seats: [2], kind: 'COMPANION' });
     });
   });
 

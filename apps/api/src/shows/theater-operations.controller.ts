@@ -7,13 +7,16 @@ import {
   releaseSeatsSchema,
   updateSeatLayoutSchema,
   applyVenueTemplateSchema,
+  createLayoutFromTemplateSchema,
   type BlockSeatsInput,
   type CloneSeatLayoutInput,
   type PublishSeatLayoutInput,
   type ReleaseSeatsInput,
   type UpdateSeatLayoutInput,
   type ApplyVenueTemplateInput,
+  type CreateLayoutFromTemplateInput,
 } from '@eticketsgo/validation';
+import { z } from 'zod';
 import { SeatLayoutsService } from './seat-layouts.service';
 import { SeatOverridesService } from './seat-overrides.service';
 import { LiveOperationsService } from './live-operations.service';
@@ -46,6 +49,37 @@ export class TheaterOperationsController {
   @ApiOperation({ summary: 'List every seat layout version for a screen.' })
   listLayouts(@CurrentUser() user: RequestUser, @Param('screenId') screenId: string) {
     return this.layouts.listVersions(user, screenId);
+  }
+
+  @Post('screens/:screenId/seat-layouts')
+  @ApiOperation({ summary: 'Start a new draft layout for a space from a template.' })
+  createLayoutFromTemplate(
+    @CurrentUser() user: RequestUser,
+    @Param('screenId') screenId: string,
+    @Body(new ZodValidationPipe(createLayoutFromTemplateSchema))
+    body: CreateLayoutFromTemplateInput,
+  ) {
+    return this.layouts.createFromTemplate(user, screenId, body);
+  }
+
+  @Get('seat-layout-templates')
+  @ApiOperation({ summary: 'Every layout template, as outlines for the gallery (no seats).' })
+  layoutTemplates() {
+    return this.layouts.templates();
+  }
+
+  @Get('seat-layouts/:layoutId/preview')
+  @ApiOperation({
+    summary:
+      'A layout as a buyer would see it. Sectioned layouts return an overview; pass ?section= for one block.',
+  })
+  previewLayout(
+    @CurrentUser() user: RequestUser,
+    @Param('layoutId') layoutId: string,
+    @Query(new ZodValidationPipe(z.object({ section: z.string().trim().min(1).optional() })))
+    q: { section?: string },
+  ) {
+    return this.layouts.preview(user, layoutId, q.section);
   }
 
   @Post('seat-layouts/:layoutId/clone')

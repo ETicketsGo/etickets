@@ -39,6 +39,8 @@ export {
 export * from './datetime-field';
 export * from './datetime-value';
 export * from './venue-map';
+export * from './buyer-seat-map';
+export * from './buyer-seat-legend';
 export * from './price-breakdown';
 export * from './seat-selection';
 export * from './buyer-region';

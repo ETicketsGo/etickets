@@ -1,7 +1,8 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
+import { Eye } from 'lucide-react';
 import { useState } from 'react';
 import {
   api,
@@ -21,7 +22,15 @@ import {
   type SeatLayoutStatus,
   type SeatLayoutSummary,
 } from '@eticketsgo/web-kit';
-import { VENUE_TEMPLATES, type VenueTemplateKey } from '@eticketsgo/shared-types';
+import {
+  LAYOUT_GALLERY,
+  reconcileSeats,
+  type LayoutGalleryOption,
+  type VenueTemplateKey,
+} from '@eticketsgo/shared-types';
+import { LayoutTemplateGallery } from '@/components/layout-template-gallery';
+import { SeatCountSummary } from '@/components/seat-count-summary';
+import { SeatingExplainer } from '@/components/seating-explainer';
 
 /**
  * Seat layout versions for one screen.
@@ -47,6 +56,11 @@ export default function SeatLayoutsPage() {
   // `id` is absent on /organizer/spaces/<screenId>/layouts: a space that is not a cinema screen.
   const { id: cinemaId, screenId } = useParams<{ id?: string; screenId: string }>();
   const qc = useQueryClient();
+  const router = useRouter();
+  /** Where this space's pages live: under its cinema, or under spaces when it has none. */
+  const base = cinemaId
+    ? `/organizer/cinemas/${cinemaId}/screens/${screenId}/layouts`
+    : `/organizer/spaces/${screenId}/layouts`;
 
   const [publishing, setPublishing] = useState<SeatLayoutSummary | null>(null);
   const [archiving, setArchiving] = useState<SeatLayoutSummary | null>(null);
@@ -56,6 +70,10 @@ export default function SeatLayoutsPage() {
   const [templating, setTemplating] = useState<SeatLayoutSummary | null>(null);
   const [template, setTemplate] = useState<VenueTemplateKey>('PROSCENIUM');
   const [basePrice, setBasePrice] = useState('500');
+  /** The "new layout from a template" dialog: open, which card, and what to call it. */
+  const [creating, setCreating] = useState(false);
+  const [newOption, setNewOption] = useState<LayoutGalleryOption | null>(null);
+  const [newName, setNewName] = useState('');
 
   const layoutsQ = useQuery({
     queryKey: ['screen', screenId, 'layouts'],
@@ -75,6 +93,29 @@ export default function SeatLayoutsPage() {
     },
     // Refusals here carry a policy code and a written explanation; showing the server's
     // sentence is better than inventing one that may not match the actual rule.
+    onError: (e) => setError(errorMessage(e)),
+  });
+
+  /*
+    A new draft from a template, for ANY space - including one with no layout yet, which
+    "Start from a shape" (it needs a draft to fill) could never help. Opens the buyer preview
+    next, because checking it there is the step before publishing.
+  */
+  const create = useMutation({
+    mutationFn: () => {
+      if (!newOption?.template) throw new Error('Choose a template first.');
+      return api.theaterOps.createLayoutFromTemplate(screenId, {
+        template: newOption.template,
+        name: newName.trim() || newOption.label,
+        basePriceMinor: Math.round(Number(basePrice) * 100),
+      });
+    },
+    onSuccess: (created) => {
+      refresh();
+      setCreating(false);
+      setError(null);
+      router.push(`${base}/${created.id}/preview`);
+    },
     onError: (e) => setError(errorMessage(e)),
   });
 
@@ -98,11 +139,25 @@ export default function SeatLayoutsPage() {
         title="Seat layout versions"
         description="Clone, edit and publish the seating for this screen. Published versions are frozen."
         action={
-          <Button variant="outline" onClick={() => history.back()}>
-            Back to screen
-          </Button>
+          <span className="flex flex-wrap gap-2">
+            <Button
+              onClick={() => {
+                setError(null);
+                setNewOption(null);
+                setNewName('');
+                setCreating(true);
+              }}
+            >
+              New layout from a template
+            </Button>
+            <Button variant="outline" onClick={() => history.back()}>
+              Back to screen
+            </Button>
+          </span>
         }
       />
+
+      <SeatingExplainer current="layout" />
 
       <Card>
         <p className="text-sm text-text-secondary">
@@ -129,7 +184,9 @@ export default function SeatLayoutsPage() {
               <ButtonLink href={`/organizer/cinemas/${cinemaId}/screens/${screenId}/seatmap`}>
                 Design the seat layout
               </ButtonLink>
-            ) : undefined
+            ) : (
+              <Button onClick={() => setCreating(true)}>Start from a template</Button>
+            )
           }
         />
       ) : (
@@ -155,7 +212,7 @@ export default function SeatLayoutsPage() {
                   ) : null}
 
                   <span className="text-sm text-text-muted">
-                    {l.capacity} seats
+                    {l.capacity} bookable seats
                     {l.futureShows > 0
                       ? ` · ${l.futureShows} upcoming show${l.futureShows === 1 ? '' : 's'}`
                       : ''}
@@ -163,6 +220,14 @@ export default function SeatLayoutsPage() {
                   </span>
 
                   <span className="flex flex-wrap gap-2">
+                    <ButtonLink
+                      variant="outline"
+                      href={`${base}/${l.id}/preview`}
+                      aria-label={`Preview version ${l.version} as a buyer`}
+                    >
+                      <Eye className="mr-1.5 h-4 w-4" aria-hidden />
+                      Preview as buyer
+                    </ButtonLink>
                     <Button
                       variant="secondary"
                       disabled={run.isPending}
@@ -222,6 +287,12 @@ export default function SeatLayoutsPage() {
                   </span>
                 </div>
 
+                {l.kindCounts && l.kindCounts.length > 0 ? (
+                  <div className="mt-2">
+                    <SeatCountSummary counts={reconcileSeats(l.kindCounts)} compact />
+                  </div>
+                ) : null}
+
                 {compareTo === l.id ? (
                   <div className="mt-3 border-t border-border pt-3">
                     {compareQ.isPending ? (
@@ -237,7 +308,7 @@ export default function SeatLayoutsPage() {
         </ul>
       )}
 
-      {error && !publishing && !archiving ? (
+      {error && !publishing && !archiving && !creating ? (
         <p role="alert" className="rounded-md bg-status-error/10 p-3 text-sm">
           {error}
         </p>
@@ -338,36 +409,13 @@ export default function SeatLayoutsPage() {
               starting from an empty room.
             </p>
 
-            <div className="space-y-2">
-              {VENUE_TEMPLATES.map((t) => (
-                <label
-                  key={t.key}
-                  className="flex cursor-pointer items-start gap-2.5 rounded-md border border-border p-2.5 hover:bg-background-subtle"
-                >
-                  <input
-                    type="radio"
-                    name="venue-template"
-                    checked={template === t.key}
-                    onChange={() => setTemplate(t.key)}
-                    className="mt-1 h-4 w-4 shrink-0 cursor-pointer accent-action-primary"
-                  />
-                  <span className="min-w-0">
-                    <span className="block text-sm font-medium text-text-primary">
-                      {t.label}
-                      {/*
-                        The seat count is the thing an organizer actually chooses on, so it
-                        is stated rather than left to be discovered after the build. It is
-                        measured by a test against the real generator, not estimated.
-                      */}
-                      <span className="ml-2 font-normal text-text-muted">
-                        ≈{t.approximateSeats.toLocaleString()} seats
-                      </span>
-                    </span>
-                    <span className="block text-caption text-text-muted">{t.description}</span>
-                  </span>
-                </label>
-              ))}
-            </div>
+            <LayoutTemplateGallery
+              includeGeneralAdmission={false}
+              selectedId={galleryIdFor(template)}
+              onChoose={(option) => {
+                if (option.template) setTemplate(option.template);
+              }}
+            />
 
             <div>
               <label htmlFor="base-price" className="mb-1 block text-sm font-medium">
@@ -392,6 +440,79 @@ export default function SeatLayoutsPage() {
               </p>
             </div>
 
+            {error ? (
+              <p role="alert" className="rounded-md bg-status-error/10 p-3 text-sm">
+                {error}
+              </p>
+            ) : null}
+          </div>
+        </Dialog>
+      ) : null}
+
+      {creating ? (
+        <Dialog
+          open
+          onClose={() => setCreating(false)}
+          title="New layout from a template"
+          footer={
+            <>
+              <Button variant="outline" onClick={() => setCreating(false)}>
+                Cancel
+              </Button>
+              <Button
+                loading={create.isPending}
+                disabled={
+                  !newOption?.template ||
+                  basePrice.trim() === '' ||
+                  !Number.isFinite(Number(basePrice)) ||
+                  Number(basePrice) < 0
+                }
+                onClick={() => create.mutate()}
+              >
+                Build draft and preview
+              </Button>
+            </>
+          }
+        >
+          <div className="space-y-4">
+            <p className="text-sm">
+              This builds a new DRAFT. Nothing changes for buyers or for sessions already on sale
+              until you publish it.
+            </p>
+            <LayoutTemplateGallery
+              selectedId={newOption?.id ?? null}
+              onChoose={(option) => {
+                setNewOption(option);
+                if (!newName.trim() || LAYOUT_GALLERY.some((g) => g.label === newName.trim())) {
+                  setNewName(option.label);
+                }
+              }}
+            />
+            {newOption?.style === 'GA' ? (
+              <p role="status" className="rounded-md border border-border p-3 text-sm">
+                General admission needs no layout. Buyers do not choose a seat: give the
+                event&apos;s ticket a number of places, and that is what you sell.
+              </p>
+            ) : newOption ? (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Input
+                  id="new-layout-name"
+                  label="Layout name"
+                  hint="One space can have several, such as Basketball and Concert."
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                />
+                <Input
+                  id="new-layout-price"
+                  label="Cheapest seat"
+                  type="number"
+                  min="0"
+                  hint="Other ticket categories are priced up from this. Change any later."
+                  value={basePrice}
+                  onChange={(e) => setBasePrice(e.target.value)}
+                />
+              </div>
+            ) : null}
             {error ? (
               <p role="alert" className="rounded-md bg-status-error/10 p-3 text-sm">
                 {error}
@@ -442,6 +563,11 @@ export default function SeatLayoutsPage() {
       ) : null}
     </div>
   );
+}
+
+/** Which gallery card stands for a template key, so the picker shows the current choice. */
+function galleryIdFor(key: VenueTemplateKey): string {
+  return LAYOUT_GALLERY.find((g) => g.template === key)?.id ?? key.toLowerCase();
 }
 
 /**

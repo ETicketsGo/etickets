@@ -180,6 +180,29 @@ function buildRowsWithAccessibleBay(rows: number, seatsPerRow: number, widen = 0
   return built;
 }
 
+/**
+ * Rows with a centre aisle running front to back, and the accessible bay at the back.
+ *
+ * The aisle is a GAP position in every row, exactly as the row-by-row generator writes one,
+ * so a template and a generator room of the same size are the same room. `seatsPerRow` is
+ * the number of SEATS; the row is one position wider.
+ */
+function buildRowsWithAisle(rows: number, seatsPerRow: number): TemplateRow[] {
+  const aisle = Math.floor(seatsPerRow / 2); // 0-based column of the aisle
+  const built = buildRowsWithAccessibleBay(rows, seatsPerRow + 1);
+  for (const row of built) row.seats[aisle] = { ...row.seats[aisle], kind: 'GAP' };
+  return built;
+}
+
+/** What the audience faces is called, when a layout does not say. Mirrors ShowsService's table. */
+export const DEFAULT_FOCAL_LABEL: Record<string, string> = {
+  SCREEN: 'SCREEN',
+  STAGE_END: 'STAGE',
+  STAGE_THRUST: 'STAGE',
+  STAGE_CENTRE: 'STAGE',
+  FIELD: 'FIELD',
+};
+
 // ── Templates ───────────────────────────────────────────────────────────────────────
 
 export interface TemplateParams {
@@ -219,6 +242,192 @@ function cinema({ rows = 12, seatsPerRow = 15 }: TemplateParams): GeneratedVenue
         rows: buildRowsWithAccessibleBay(rows, seatsPerRow),
       },
     ],
+  };
+}
+
+/**
+ * A premium cinema: a few wide rows of recliners.
+ *
+ * GRID like the standard cinema, so it renders with the same seat picker. One price band,
+ * because a recliner screen sells one kind of seat; the organizer can split it afterwards.
+ */
+function premiumCinema({ rows = 6, seatsPerRow = 12 }: TemplateParams): GeneratedVenue {
+  return {
+    layoutKind: 'GRID',
+    focalPoint: 'SCREEN',
+    focalShape: rect(150, 40, 700, 30),
+    focalLabel: 'SCREEN',
+    categories: [{ name: 'Recliner', colorHex: '#B45309', sortOrder: 0, priceWeight: 1 }],
+    sections: [
+      {
+        name: 'Recliners',
+        sortOrder: 0,
+        shape: rect(150, 160, 700, 600),
+        labelX: 500,
+        labelY: 460,
+        tier: 'FLOOR',
+        rotationDeg: 0,
+        categoryName: 'Recliner',
+        rows: buildRowsWithAisle(rows, seatsPerRow),
+      },
+    ],
+  };
+}
+
+/**
+ * An auditorium: stalls in front and a balcony behind, facing a stage.
+ *
+ * GRID rather than SECTIONED on purpose. Two blocks are easy to read as stacked rows - the
+ * buyer sees every seat at once - and a venue map of two rectangles would add a step without
+ * telling anyone anything. The theatre template is the sectioned version for a bigger house.
+ */
+function auditorium({ rows = 14, seatsPerRow = 24 }: TemplateParams): GeneratedVenue {
+  return {
+    layoutKind: 'GRID',
+    focalPoint: 'STAGE_END',
+    focalShape: rect(200, 40, 600, 60),
+    focalLabel: 'STAGE',
+    categories: [
+      { name: 'Stalls', colorHex: '#DC2626', sortOrder: 0, priceWeight: 1.4 },
+      { name: 'Balcony', colorHex: '#0891B2', sortOrder: 1, priceWeight: 1 },
+    ],
+    sections: [
+      {
+        name: 'Stalls',
+        sortOrder: 0,
+        shape: rect(150, 140, 700, 440),
+        labelX: 500,
+        labelY: 360,
+        tier: 'FLOOR',
+        rotationDeg: 0,
+        categoryName: 'Stalls',
+        rows: buildRowsWithAisle(rows, seatsPerRow),
+      },
+      {
+        name: 'Balcony',
+        sortOrder: 1,
+        shape: rect(120, 620, 760, 300),
+        labelX: 500,
+        labelY: 770,
+        tier: 'UPPER',
+        rotationDeg: 0,
+        categoryName: 'Balcony',
+        // A balcony keeps its accessible bay too: a lift-served balcony is common, and a
+        // template with none would leave it to be remembered.
+        rows: buildRowsWithAisle(Math.max(3, Math.round(rows * 0.5)), seatsPerRow),
+      },
+    ],
+  };
+}
+
+/** A flat hall: rows on a level floor, a centre aisle, a stage at one end. */
+function flatHall({ rows = 10, seatsPerRow = 12 }: TemplateParams): GeneratedVenue {
+  return {
+    layoutKind: 'GRID',
+    focalPoint: 'STAGE_END',
+    focalShape: rect(250, 40, 500, 60),
+    focalLabel: 'STAGE',
+    categories: [{ name: 'Standard', colorHex: '#64748B', sortOrder: 0, priceWeight: 1 }],
+    sections: [
+      {
+        name: 'Hall',
+        sortOrder: 0,
+        shape: rect(200, 150, 600, 700),
+        labelX: 500,
+        labelY: 500,
+        tier: 'FLOOR',
+        rotationDeg: 0,
+        categoryName: 'Standard',
+        rows: buildRowsWithAisle(rows, seatsPerRow),
+      },
+    ],
+  };
+}
+
+/**
+ * A basketball arena: courtside rows and a two-tier bowl around a court in the middle.
+ *
+ * Different from the concert arena in the one way that matters to a buyer: the action is in
+ * the CENTRE, so every block faces inwards and there is no "behind the stage". Courtside rows
+ * run along both sidelines, just off the court, and are the most expensive seats in the house.
+ *
+ * Radii are chosen so nothing touches the court: the courtside blocks' outer corners are 212
+ * from the centre, and the lower bowl starts at 240.
+ */
+function basketball({ rows = 12, seatsPerRow = 16 }: TemplateParams): GeneratedVenue {
+  const sections: TemplateSection[] = [];
+
+  const courtside = [
+    { name: 'Courtside N', y: 360 },
+    { name: 'Courtside S', y: 590 },
+  ];
+  courtside.forEach((block, i) => {
+    const shape = rect(340, block.y, 320, 50);
+    sections.push({
+      name: block.name,
+      sortOrder: i,
+      shape,
+      ...labelFrom(shape),
+      tier: 'FLOOR',
+      rotationDeg: i === 0 ? 180 : 0,
+      categoryName: 'Courtside',
+      rows: i === 0 ? buildRowsWithAccessibleBay(2, 20) : buildRows(2, 20),
+    });
+  });
+
+  const rings = [
+    {
+      prefix: 1,
+      inner: 240,
+      outer: 330,
+      count: 14,
+      category: 'Lower bowl',
+      tier: 'LOWER',
+      rows,
+      seats: seatsPerRow,
+    },
+    {
+      prefix: 2,
+      inner: 345,
+      outer: 465,
+      count: 18,
+      category: 'Upper bowl',
+      tier: 'UPPER',
+      rows: Math.round(rows * 1.25),
+      seats: seatsPerRow + 2,
+    },
+  ];
+  rings.forEach((ring) => {
+    for (let i = 0; i < ring.count; i++) {
+      const from = (360 / ring.count) * i;
+      const to = from + 360 / ring.count;
+      const shape = ringSegment(CENTRE, ring.inner, ring.outer, from + 1, to - 1);
+      const across = ring.seats;
+      sections.push({
+        name: `${ring.prefix}${String(i + 1).padStart(2, '0')}`,
+        sortOrder: 100 * ring.prefix + i,
+        shape,
+        ...labelFrom(shape),
+        tier: ring.tier,
+        rotationDeg: round((from + to) / 2),
+        categoryName: ring.category,
+        rows:
+          i === 0 ? buildRowsWithAccessibleBay(ring.rows, across) : buildRows(ring.rows, across),
+      });
+    }
+  });
+
+  return {
+    layoutKind: 'SECTIONED',
+    focalPoint: 'FIELD',
+    focalShape: rect(340, 420, 320, 160),
+    focalLabel: 'COURT',
+    categories: [
+      { name: 'Courtside', colorHex: '#DC2626', sortOrder: 0, priceWeight: 3 },
+      { name: 'Lower bowl', colorHex: '#7C3AED', sortOrder: 1, priceWeight: 1.5 },
+      { name: 'Upper bowl', colorHex: '#0891B2', sortOrder: 2, priceWeight: 1 },
+    ],
+    sections,
   };
 }
 
@@ -593,9 +802,13 @@ function labelFrom(shape: Point[]): { labelX: number; labelY: number } {
 
 const GENERATORS: Record<VenueTemplateKey, (p: TemplateParams) => GeneratedVenue> = {
   CINEMA: cinema,
+  PREMIUM_CINEMA: premiumCinema,
+  AUDITORIUM: auditorium,
+  FLAT_HALL: flatHall,
   PROSCENIUM: proscenium,
   AMPHITHEATRE: amphitheatre,
   ARENA: arena,
+  BASKETBALL: basketball,
   STADIUM: stadium,
   IN_THE_ROUND: inTheRound,
 };
@@ -615,4 +828,88 @@ export function seatCount(venue: GeneratedVenue): number {
       section.rows.reduce((n, row) => n + row.seats.filter((s) => s.kind !== 'GAP').length, 0),
     0,
   );
+}
+
+/** A non-ordinary seat run in one row, 1-based - the generator's own `seatKinds` shape. */
+export interface TemplateSeatKinds {
+  rowLabel: string;
+  seats: number[];
+  kind: 'WHEELCHAIR' | 'COMPANION' | 'GAP';
+}
+
+/**
+ * A template described without its seats: outlines, row labels and the positions that are
+ * not ordinary seats.
+ *
+ * ── WHY THIS EXISTS ────────────────────────────────────────────────────────────────
+ * The layout gallery draws a small picture of every template and states its capacity. Both
+ * have to come from the geometry that will actually be written - a hand-drawn thumbnail or a
+ * typed capacity is a second description of the room that can drift from the first. This is
+ * that geometry, small enough to send for every template at once (no seat objects, which for
+ * a stadium would be fourteen thousand of them).
+ *
+ * It also carries what the row-by-row generator needs to be PRE-FILLED from a grid template:
+ * row labels, row width and the aisle and accessible positions, in the generator's own shape.
+ */
+export interface TemplateOutline {
+  key: VenueTemplateKey;
+  label: string;
+  description: string;
+  layoutKind: GeneratedVenue['layoutKind'];
+  focal: { kind: GeneratedVenue['focalPoint']; label: string; shape: Point[] };
+  categories: { name: string; colorHex: string; priceWeight: number }[];
+  sections: {
+    name: string;
+    categoryName: string;
+    tier: string;
+    shape: Point[];
+    rowLabels: string[];
+    /** The widest row, in positions (aisles included). */
+    positions: number;
+    seatKinds: TemplateSeatKinds[];
+  }[];
+  /** Seats by kind across the whole template, for the shared reconciliation. */
+  kindCounts: { kind: string; count: number }[];
+}
+
+export function templateOutline(key: VenueTemplateKey): TemplateOutline {
+  const option = VENUE_TEMPLATES.find((t) => t.key === key);
+  const venue = generateVenue(key);
+  const counts = new Map<string, number>();
+  return {
+    key,
+    label: option?.label ?? key,
+    description: option?.description ?? '',
+    layoutKind: venue.layoutKind,
+    focal: {
+      kind: venue.focalPoint,
+      label: venue.focalLabel || DEFAULT_FOCAL_LABEL[venue.focalPoint] || 'STAGE',
+      shape: venue.focalShape,
+    },
+    categories: venue.categories.map((c) => ({
+      name: c.name,
+      colorHex: c.colorHex,
+      priceWeight: c.priceWeight,
+    })),
+    sections: venue.sections.map((section) => {
+      const seatKinds: TemplateSeatKinds[] = [];
+      for (const row of section.rows) {
+        for (const seat of row.seats) counts.set(seat.kind, (counts.get(seat.kind) ?? 0) + 1);
+        for (const kind of ['WHEELCHAIR', 'COMPANION', 'GAP'] as const) {
+          const seats = row.seats.filter((s) => s.kind === kind).map((s) => s.colIndex + 1);
+          if (seats.length > 0) seatKinds.push({ rowLabel: row.label, seats, kind });
+        }
+      }
+      return {
+        name: section.name,
+        categoryName: section.categoryName,
+        tier: section.tier,
+        shape: section.shape,
+        rowLabels: section.rows.map((r) => r.label),
+        positions: Math.max(0, ...section.rows.map((r) => r.seats.length)),
+        seatKinds,
+      };
+    }),
+    kindCounts: [...counts.entries()].map(([kind, count]) => ({ kind, count })),
+  };
 }

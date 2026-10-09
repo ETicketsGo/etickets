@@ -15,6 +15,8 @@
  * same functions, so what the operator is shown cannot drift from what is created.
  */
 
+import { countSeatKinds, reconcileSeats } from '@eticketsgo/shared-types';
+
 /** Letters used for row ranges, in order. Rows beyond Z are written out explicitly. */
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
@@ -87,6 +89,15 @@ export interface SectionDraft {
   wheelchairSeats: string;
   companionSeats: string;
   gapSeats: string;
+  /**
+   * Which rows the wheelchair and companion positions apply to. Blank means every row, which
+   * is what the generator always did.
+   *
+   * Added so a template can be reproduced exactly: a real room puts its wheelchair bay in
+   * ONE row - usually the back, where the floor is level with the door - and "positions 1-2
+   * in every row" turned a two-seat bay into twenty-four wheelchair spaces.
+   */
+  accessibleRows?: string;
 }
 
 export interface RowPreview {
@@ -120,27 +131,34 @@ export function previewSection(section: SectionDraft): SectionPreview {
   const perRow = Number(section.seatsPerRow);
   const width = Number.isInteger(perRow) && perRow > 0 ? perRow : 0;
 
-  const wheelchair = new Set(expandSeatPositions(section.wheelchairSeats, width));
-  const companion = new Set(expandSeatPositions(section.companionSeats, width));
+  const wheelchairAt = new Set(expandSeatPositions(section.wheelchairSeats, width));
+  const companionAt = new Set(expandSeatPositions(section.companionSeats, width));
   const gaps = new Set(expandSeatPositions(section.gapSeats, width));
+  const accessibleOnly = new Set(expandRowLabels(section.accessibleRows ?? ''));
+  const none = new Set<number>();
 
-  const rows: RowPreview[] = labels.map((label) => ({
-    label,
-    seats: Array.from({ length: width }, (_unused, i) => {
-      const position = i + 1;
-      // Precedence is deliberate and narrow-to-broad: a gap is structural and wins, then
-      // the wheelchair bay, then its companion. Without an order, a position listed twice
-      // would resolve differently depending on input order.
-      const kind: SeatKind = gaps.has(position)
-        ? 'GAP'
-        : wheelchair.has(position)
-          ? 'WHEELCHAIR'
-          : companion.has(position)
-            ? 'COMPANION'
-            : 'SEAT';
-      return { position, kind };
-    }),
-  }));
+  const rows: RowPreview[] = labels.map((label) => {
+    const inBay = accessibleOnly.size === 0 || accessibleOnly.has(label);
+    const wheelchair = inBay ? wheelchairAt : none;
+    const companion = inBay ? companionAt : none;
+    return {
+      label,
+      seats: Array.from({ length: width }, (_unused, i) => {
+        const position = i + 1;
+        // Precedence is deliberate and narrow-to-broad: a gap is structural and wins, then
+        // the wheelchair bay, then its companion. Without an order, a position listed twice
+        // would resolve differently depending on input order.
+        const kind: SeatKind = gaps.has(position)
+          ? 'GAP'
+          : wheelchair.has(position)
+            ? 'WHEELCHAIR'
+            : companion.has(position)
+              ? 'COMPANION'
+              : 'SEAT';
+        return { position, kind };
+      }),
+    };
+  });
 
   const count = (k: SeatKind) =>
     rows.reduce((n, r) => n + r.seats.filter((s) => s.kind === k).length, 0);
@@ -221,17 +239,15 @@ export function capacitySummary(
   sections: SectionDraft[],
   requestedPerSection: (number | null)[],
 ): CapacitySummary {
-  let positions = 0;
-  let aisles = 0;
-  let accessible = 0;
-  let bookable = 0;
-  for (const section of sections) {
-    const p = previewSection(section);
-    positions += p.total;
-    aisles += p.gaps;
-    accessible += p.wheelchair + p.companion;
-    bookable += p.sellable;
-  }
+  /*
+    Counted by the SHARED rule (`reconcileSeats`), the same one the layout list and the
+    buyer preview use, from the very seats the draft will send.
+  */
+  const { positions, aisles, accessible, bookable } = reconcileSeats(
+    countSeatKinds(
+      sections.flatMap((section) => previewSection(section).rows.flatMap((row) => row.seats)),
+    ),
+  );
   const asked = requestedPerSection.filter(
     (n): n is number => typeof n === 'number' && Number.isFinite(n) && n > 0,
   );

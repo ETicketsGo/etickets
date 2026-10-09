@@ -24,6 +24,7 @@ import {
   type CinemaBody,
   parseCoordinates,
 } from '@eticketsgo/web-kit';
+import { SeatingExplainer } from '@/components/seating-explainer';
 
 const SCREEN_TYPES = ['2D', '3D', 'IMAX', '4DX', 'Dolby Atmos', 'Recliner'];
 
@@ -503,6 +504,12 @@ export default function CinemaDetailPage() {
         </div>
       </Card>
 
+      {/*
+        The five seating words, once, where the screens (this cinema's spaces) are listed: each
+        screen below gets a layout, and the layout is what a session sells from.
+      */}
+      <SeatingExplainer current="space" />
+
       <Card
         title="Screens"
         action={
@@ -520,7 +527,7 @@ export default function CinemaDetailPage() {
           rowKey={(s) => s.id}
           empty={
             <div className="p-8 text-center text-text-muted">
-              No screens yet. Add a screen to define seating capacity.
+              No screens yet. Add a screen, then give it a layout from a template.
             </div>
           }
         />
