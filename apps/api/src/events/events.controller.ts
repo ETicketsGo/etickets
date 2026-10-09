@@ -292,25 +292,6 @@ export class EventsController {
     return this.events.orders(user, id, q);
   }
 
-  @Get(':id/attendees')
-  @ApiOperation({ summary: 'List attendees (issued tickets) for an event.' })
-  attendees(
-    @CurrentUser() user: RequestUser,
-    @Param('id') id: string,
-    @Query(
-      new ZodValidationPipe(
-        paginationSchema.extend({
-          status: z.string().optional(),
-          q: z.string().optional(),
-          sessionId: z.string().optional(),
-        }),
-      ),
-    )
-    q: { page: number; pageSize: number; status?: string; q?: string; sessionId?: string },
-  ) {
-    return this.events.attendees(user, id, q);
-  }
-
   /**
    * Whether a customer could actually complete a purchase for this event.
    *

@@ -272,10 +272,12 @@ async function downloadCsv(path: string, filename: string): Promise<void> {
   if (!res.ok) throw new ApiRequestError('CSV_EXPORT_FAILED', 'Could not export CSV.');
   const blob = await res.blob();
   if (typeof window === 'undefined') return;
+  // The server's name when it gives one (it knows the event and the date); ours otherwise.
+  const named = /filename="([^"]+)"/.exec(res.headers.get('content-disposition') ?? '')?.[1];
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = filename;
+  a.download = named ?? filename;
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -1294,10 +1296,15 @@ export const api = {
     resume: (id: string) => request<EventResumeResult>(`/events/${id}/resume`, { method: 'POST' }),
     orders: (id: string, params: PageParams & { status?: string; q?: string }) =>
       request<Paged<OrderRow>>(`/events/${id}/orders${qs(params)}`),
-    attendees: (
-      id: string,
-      params: PageParams & { status?: string; q?: string; sessionId?: string },
-    ) => request<Paged<AttendeeRow>>(`/events/${id}/attendees${qs(params)}`),
+    /** Who booked: filtered and paged on the server, with per-status totals for the filter. */
+    attendees: (id: string, params: PageParams & AttendeeFilter) =>
+      request<AttendeeList>(`/events/${id}/attendees${qs(params)}`),
+    /**
+     * Downloads the SAME filter as a CSV, built by the server. Owners and managers only.
+     * The server names the file; this name is only the fallback the browser uses.
+     */
+    exportAttendees: (id: string, filter: AttendeeFilter) =>
+      downloadCsv(`/events/${id}/attendees/export${qs(filter)}`, `attendees-${id}.csv`),
   },
 
   coupons: {
@@ -3871,15 +3878,68 @@ export interface OrderRow {
   ticketCount: number;
   paymentStatus: string | null;
 }
+/** The four states an organizer reads a booking in. */
+export type AttendeeState = 'CONFIRMED' | 'PENDING' | 'CANCELLED' | 'REFUNDED';
+
+// A type rather than an interface so it fits the query-string helper's record parameter.
+export type AttendeeFilter = {
+  sessionId?: string;
+  ticketTypeId?: string;
+  status?: AttendeeState;
+  checkIn?: 'checked_in' | 'not_checked_in';
+  q?: string;
+};
+
+/**
+ * One attendee row: an issued ticket, or - for a booking with no tickets yet (reserved, or
+ * cancelled before confirmation) - one ticket line with its quantity. Contact details and
+ * payment are null for gate staff, and an email is null rather than a phone-only placeholder.
+ */
 export interface AttendeeRow {
   id: string;
-  serial: string;
-  status: string;
-  holderName: string | null;
-  holderEmail: string | null;
+  /** Null when no ticket has been issued (reserved or cancelled before confirmation). */
+  ticketId: string | null;
+  serial: string | null;
+  bookingId: string;
+  reference: string | null;
+  bookedAt: string;
+  buyerName: string;
+  buyerEmail: string | null;
+  attendeeName: string | null;
+  attendeeEmail: string | null;
+  attendeePhone: string | null;
+  ticketTypeId: string;
   ticketType: string;
+  quantity: number;
+  sessionId: string;
   sessionStartsAt: string;
+  /** Formatted in the venue's time zone, by the server. */
+  sessionLabel: string;
+  timeZone: string;
+  seatLabel: string | null;
+  checkedIn: boolean;
   checkedInAt: string | null;
+  status: AttendeeState;
+  ticketStatus: string | null;
+  bookingStatus: string;
+  /** SUCCEEDED, REFUNDED, CASH_DUE, CASH_PAID, NONE... Null on a free event, or for staff. */
+  payment: string | null;
+}
+
+export interface AttendeeStateTotals {
+  rows: number;
+  tickets: number;
+  checkedIn: number;
+}
+
+export interface AttendeeList extends Paged<AttendeeRow> {
+  totals: AttendeeStateTotals & { byStatus: Record<AttendeeState, AttendeeStateTotals> };
+  filters: {
+    sessions: { id: string; startsAt: string; label: string; timeZone: string }[];
+    ticketTypes: { id: string; name: string; sessionId: string }[];
+  };
+  event: { isFree: boolean };
+  viewer: { canSeeContact: boolean; canExport: boolean };
 }
 
 // ── Offline gate check-in (ADR-035) ──
