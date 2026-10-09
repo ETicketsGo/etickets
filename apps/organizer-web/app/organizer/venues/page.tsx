@@ -285,81 +285,92 @@ export default function VenuesPage() {
         </Card>
       )}
 
-      {!loading &&
-        !failed &&
-        grouped.venues.map(({ venue, spaces: inside, seatedCount }) => {
-          return (
-            <Card key={venue.id}>
-              {/*
+      {/*
+        Two columns once each card still has room for a space's name AND its seating summary
+        on one line. One column of 30 venues was a 7,500px scroll at 1440 with the right half
+        of every card empty; the cards are independent, so nothing is lost by reading them
+        across as well as down. Narrower than that, it stays one column.
+      */}
+      <div className="grid items-start gap-4 min-[1360px]:grid-cols-2">
+        {!loading &&
+          !failed &&
+          grouped.venues.map(({ venue, spaces: inside, seatedCount }) => {
+            return (
+              <Card key={venue.id}>
+                {/*
                 A stable hook for the end-to-end tests. They used to address table cells
                 and rows; this page has neither any more, and pinning them to the div
                 nesting instead would break on the next styling change.
               */}
-              <div
-                data-testid="venue-card"
-                className="flex flex-wrap items-start justify-between gap-3"
-              >
-                <div className="min-w-0">
-                  <h3 className="font-medium text-text-primary">{venue.name}</h3>
-                  <p className="text-caption text-text-secondary">
-                    {[venue.city, venue.region, venue.country].filter(Boolean).join(', ')}
-                    {venue.capacity != null && ` · seats about ${venue.capacity.toLocaleString()}`}
-                  </p>
-                  {/*
+                <div
+                  data-testid="venue-card"
+                  className="flex flex-wrap items-start justify-between gap-3"
+                >
+                  <div className="min-w-0">
+                    <h3 className="font-medium text-text-primary">{venue.name}</h3>
+                    <p className="text-caption text-text-secondary">
+                      {[venue.city, venue.region, venue.country].filter(Boolean).join(', ')}
+                      {venue.capacity != null &&
+                        ` · seats about ${venue.capacity.toLocaleString()}`}
+                    </p>
+                    {/*
                     Said on the venue, because "3 spaces" and "3 spaces, 1 of which can sell a
                     numbered seat" are different facts, and only the second one tells an
                     organizer whether they are ready to sell reserved seating here.
                   */}
-                  {inside.length > 0 && (
-                    <p className="text-caption text-text-muted">
-                      {inside.length} space{inside.length === 1 ? '' : 's'}
-                      {seatedCount > 0
-                        ? ` · ${seatedCount} with a seating plan`
-                        : ' · none with a seating plan yet'}
-                    </p>
-                  )}
-                  {venue.address && <p className="text-caption text-text-muted">{venue.address}</p>}
+                    {inside.length > 0 && (
+                      <p className="text-caption text-text-muted">
+                        {inside.length} space{inside.length === 1 ? '' : 's'}
+                        {seatedCount > 0
+                          ? ` · ${seatedCount} with a seating plan`
+                          : ' · none with a seating plan yet'}
+                      </p>
+                    )}
+                    {venue.address && (
+                      <p className="text-caption text-text-muted">{venue.address}</p>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => openEdit(venue)}
+                    className="rounded text-caption text-action-primary underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                  >
+                    Edit venue
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => openEdit(venue)}
-                  className="rounded text-caption text-action-primary underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-                >
-                  Edit venue
-                </button>
-              </div>
 
-              <div className="mt-4">
-                {inside.length > 0 ? (
-                  <ul className="space-y-2">
-                    {inside.map((space) => (
-                      <SpaceRow key={space.id} space={space} />
-                    ))}
-                  </ul>
-                ) : (
-                  /*
+                <div className="mt-4">
+                  {inside.length > 0 ? (
+                    <ul className="space-y-2">
+                      {inside.map((space) => (
+                        <SpaceRow key={space.id} space={space} />
+                      ))}
+                    </ul>
+                  ) : (
+                    /*
                     Said here rather than left blank. "No spaces" is not a fault — a lawn or a
                     stadium terrace sells fine without one — so this states the consequence
                     and lets the organizer decide, instead of reading as something undone.
                   */
-                  <p className="text-caption text-text-secondary">
-                    No spaces here. Add one if you want buyers to pick their own seat.
-                  </p>
-                )}
-                {/*
+                    <p className="text-caption text-text-secondary">
+                      No spaces here. Add one if you want buyers to pick their own seat.
+                    </p>
+                  )}
+                  {/*
                   Carries the venue, so the space joins this one instead of quietly creating a
                   second venue with the same name.
                 */}
-                <Link
-                  href={`/organizer/cinemas/new?venueId=${venue.id}`}
-                  className="mt-3 inline-block rounded text-caption text-action-primary underline underline-offset-2 hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-                >
-                  Add a space here
-                </Link>
-              </div>
-            </Card>
-          );
-        })}
+                  <Link
+                    href={`/organizer/cinemas/new?venueId=${venue.id}`}
+                    className="mt-3 inline-block rounded text-caption text-action-primary underline underline-offset-2 hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                  >
+                    Add a space here
+                  </Link>
+                </div>
+              </Card>
+            );
+          })}
+      </div>
 
       {!loading && !failed && grouped.orphans.length > 0 && (
         <Card title="Spaces not linked to a venue">

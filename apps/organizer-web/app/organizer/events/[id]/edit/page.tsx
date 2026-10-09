@@ -204,139 +204,156 @@ export default function EditEvent() {
   );
 
   return (
-    <Card className="max-w-2xl">
+    /*
+      Wide enough for two columns, and no wider.
+
+      This was one 672px column on every screen, so on a desktop the event's images sat a long
+      scroll below its title with half the window empty beside them. From `lg` the written
+      basics and the images sit side by side, and the refund policy pairs with how the event is
+      charged. Each column keeps a comfortable line length; below `lg` it is the old single
+      column, in the same order, so focus order follows reading order at every width.
+    */
+    <Card className="max-w-6xl">
       {!editable && (
         <p className="mb-4 rounded-md bg-status-warning/10 p-3 text-sm text-status-warning">
           This event is {event.status.toLowerCase()} and cannot be edited. Pause it first to make
           changes.
         </p>
       )}
-      <div className="space-y-4">
-        <Input
-          id="title"
-          label="Title"
-          value={form.title}
-          onChange={(e) => setForm({ ...form, title: e.target.value })}
-          disabled={!editable}
-        />
-        <Select
-          id="category"
-          label="Category"
-          value={categoryMode === 'other' ? '__other' : form.category}
-          disabled={!editable}
-          onChange={(e) => {
-            if (e.target.value === '__other') {
-              setCategoryMode('other');
-              setForm((f) => ({ ...f, category: '' }));
-            } else {
-              setCategoryMode('list');
-              setForm((f) => ({ ...f, category: e.target.value }));
+      <div className="space-y-6">
+        <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
+          <div className="space-y-4">
+            <Input
+              id="title"
+              label="Title"
+              value={form.title}
+              onChange={(e) => setForm({ ...form, title: e.target.value })}
+              disabled={!editable}
+            />
+            <Select
+              id="category"
+              label="Category"
+              value={categoryMode === 'other' ? '__other' : form.category}
+              disabled={!editable}
+              onChange={(e) => {
+                if (e.target.value === '__other') {
+                  setCategoryMode('other');
+                  setForm((f) => ({ ...f, category: '' }));
+                } else {
+                  setCategoryMode('list');
+                  setForm((f) => ({ ...f, category: e.target.value }));
+                }
+              }}
+            >
+              <option value="">Select a category…</option>
+              {EVENT_CATEGORIES.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+              <option value="__other">Something else…</option>
+            </Select>
+            {categoryMode === 'other' && (
+              <Input
+                id="category-other"
+                label="Your category"
+                value={form.category}
+                onChange={(e) => setForm({ ...form, category: e.target.value })}
+                disabled={!editable}
+              />
+            )}
+            <Textarea
+              id="desc"
+              label="Description"
+              rows={4}
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+              disabled={!editable}
+            />
+          </div>
+          <EventGalleryEditor
+            tiles={[
+              ...(event.images ?? []).map((image) => ({
+                key: image.id,
+                url: apiAssetUrl(image.path) ?? '',
+              })),
+              ...pending,
+            ]}
+            disabled={IMAGES_LOCKED.includes(event.status)}
+            // Order and removal wait for uploads, so a reorder never names a half-saved list.
+            busy={uploadingCount > 0 || removeImage.isPending || reorderImages.isPending}
+            error={imageError}
+            note={
+              IMAGES_LOCKED.includes(event.status)
+                ? `This event is ${event.status.toLowerCase()}, so its images can no longer be changed.`
+                : !editable
+                  ? 'Images can be changed while the event is live; the other fields need it paused.'
+                  : null
             }
-          }}
-        >
-          <option value="">Select a category…</option>
-          {EVENT_CATEGORIES.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-          <option value="__other">Something else…</option>
-        </Select>
-        {categoryMode === 'other' && (
-          <Input
-            id="category-other"
-            label="Your category"
-            value={form.category}
-            onChange={(e) => setForm({ ...form, category: e.target.value })}
+            onAdd={addImages}
+            onRemove={(key) => {
+              const failed = pending.find((tile) => tile.key === key);
+              if (failed) {
+                setPending((tiles) => tiles.filter((tile) => tile.key !== key));
+                release(failed.url);
+              } else {
+                removeImage.mutate(key);
+              }
+            }}
+            onReorder={(imageIds) => reorderImages.mutate(imageIds)}
+          />
+        </div>
+        <EventDetailsFields value={details} onChange={setDetails} disabled={!editable} />
+        <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
+          <Textarea
+            id="refund"
+            label="Refund policy"
+            rows={2}
+            value={form.refundPolicy}
+            onChange={(e) => setForm({ ...form, refundPolicy: e.target.value })}
             disabled={!editable}
           />
-        )}
-        <Textarea
-          id="desc"
-          label="Description"
-          rows={4}
-          value={form.description}
-          onChange={(e) => setForm({ ...form, description: e.target.value })}
-          disabled={!editable}
-        />
-        <EventGalleryEditor
-          tiles={[
-            ...(event.images ?? []).map((image) => ({
-              key: image.id,
-              url: apiAssetUrl(image.path) ?? '',
-            })),
-            ...pending,
-          ]}
-          disabled={IMAGES_LOCKED.includes(event.status)}
-          // Order and removal wait for uploads, so a reorder never names a half-saved list.
-          busy={uploadingCount > 0 || removeImage.isPending || reorderImages.isPending}
-          error={imageError}
-          note={
-            IMAGES_LOCKED.includes(event.status)
-              ? `This event is ${event.status.toLowerCase()}, so its images can no longer be changed.`
-              : !editable
-                ? 'Images can be changed while the event is live; the other fields need it paused.'
-                : null
-          }
-          onAdd={addImages}
-          onRemove={(key) => {
-            const failed = pending.find((tile) => tile.key === key);
-            if (failed) {
-              setPending((tiles) => tiles.filter((tile) => tile.key !== key));
-              release(failed.url);
-            } else {
-              removeImage.mutate(key);
-            }
-          }}
-          onReorder={(imageIds) => reorderImages.mutate(imageIds)}
-        />
-        <EventDetailsFields value={details} onChange={setDetails} disabled={!editable} />
-        <Textarea
-          id="refund"
-          label="Refund policy"
-          rows={2}
-          value={form.refundPolicy}
-          onChange={(e) => setForm({ ...form, refundPolicy: e.target.value })}
-          disabled={!editable}
-        />
-        {/*
+          <div className="space-y-4">
+            {/*
           Switching between free and paid is refused by the API once anybody has booked, so
           the control is disabled with the reason rather than left to fail on save. A
           confirmed booking with no payment behind it cannot be re-read as a paid one.
         */}
-        <label className="flex items-start gap-3 rounded-md border border-border p-3">
-          <input
-            id="is-free"
-            type="checkbox"
-            className="mt-1 h-4 w-4"
-            checked={form.isFree}
-            disabled={!editable || hasBookings}
-            onChange={(e) => setForm({ ...form, isFree: e.target.checked })}
-          />
-          <span className="text-sm">
-            <span className="font-medium">This is a free event</span>
-            <span className="mt-1 block text-text-muted">
-              {hasBookings
-                ? 'This event already has bookings, so it can no longer be switched between free and paid.'
-                : 'Nobody is charged, so there is no checkout, no booking fee and no platform share. Attendees still book, get tickets and QR codes, and can cancel.'}
-            </span>
-          </span>
-        </label>
-        {!form.isFree && (
-          <Select
-            id="fee"
-            label="Fee handling"
-            value={form.feeMode}
-            onChange={(e) => setForm({ ...form, feeMode: e.target.value })}
-            disabled={!editable}
-          >
-            {FEE_MODES.map((f) => (
-              <option key={f} value={f}>
-                {f.replaceAll('_', ' ')}
-              </option>
-            ))}
-          </Select>
-        )}
+            <label className="flex items-start gap-3 rounded-md border border-border p-3">
+              <input
+                id="is-free"
+                type="checkbox"
+                className="mt-1 h-4 w-4"
+                checked={form.isFree}
+                disabled={!editable || hasBookings}
+                onChange={(e) => setForm({ ...form, isFree: e.target.checked })}
+              />
+              <span className="text-sm">
+                <span className="font-medium">This is a free event</span>
+                <span className="mt-1 block text-text-muted">
+                  {hasBookings
+                    ? 'This event already has bookings, so it can no longer be switched between free and paid.'
+                    : 'Nobody is charged, so there is no checkout, no booking fee and no platform share. Attendees still book, get tickets and QR codes, and can cancel.'}
+                </span>
+              </span>
+            </label>
+            {!form.isFree && (
+              <Select
+                id="fee"
+                label="Fee handling"
+                value={form.feeMode}
+                onChange={(e) => setForm({ ...form, feeMode: e.target.value })}
+                disabled={!editable}
+              >
+                {FEE_MODES.map((f) => (
+                  <option key={f} value={f}>
+                    {f.replaceAll('_', ' ')}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </div>
+        </div>
         {/*
           Said before Save rather than after Resume: an organizer fixing a typo on a live event
           should know the edit costs a trip through review while they can still choose not to.
