@@ -143,6 +143,24 @@ describe('folding one cause into one card', () => {
     expect(groups[0].notificationIds).toHaveLength(2);
   });
 
+  it('says an older one-sentence-per-show message once, with a count, not as raw timestamps', () => {
+    // The exact shape QA showed on 2026-10-09: the same reason repeated per show.
+    const why =
+      'Normal, Premium, Recliner are not mapped to a regulatory seat class, and this jurisdiction caps the price of each class.';
+    const [g] = groupNotifications([
+      row({
+        eventId: 'e-sky',
+        eventTitle: 'Skyfront Protocol',
+        blockerCodes: 'SEAT_CLASS_UNMAPPED',
+        reason: `The show on 2026-09-07T01:31:32.952Z cannot be sold: ${why} The show on 2026-09-10T01:31:32.952Z cannot be sold: ${why}`,
+      }),
+    ]);
+    expect(g.summary).toBe(`${why} 2 showtimes affected.`);
+    expect(g.summary).not.toMatch(/\d{4}-\d{2}-\d{2}T/);
+    // The full original text stays available under the details.
+    expect(g.detail).toContain('2026-09-07T01:31:32.952Z');
+  });
+
   it('never folds unrelated notifications of other types together', () => {
     const groups = groupNotifications([
       row({ settlementId: 'st1' }, { type: 'SETTLEMENT_RELEASED' }),
