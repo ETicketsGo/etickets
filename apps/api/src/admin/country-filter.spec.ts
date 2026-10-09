@@ -216,14 +216,14 @@ describe('the grouped summary filters by the same country as its list', () => {
     expect(params).toEqual(['APPROVED', expect.arrayContaining(['united kingdom', 'uk'])]);
   });
 
-  it('a queue whose list takes no country ignores it, as its list does', async () => {
+  it('the money queues filter their summary by the venue country, as their lists do', async () => {
     const { service, $queryRawUnsafe } = grouping();
 
     await service.grouped('settlements', 'currency', { country: 'IN' });
 
     const [sql, ...params] = $queryRawUnsafe.mock.calls[0];
-    expect(sql).not.toContain('ANY(');
-    expect(params).toEqual([]);
+    expect(sql).toContain('LOWER(v.country) = ANY($1::text[])');
+    expect(params).toEqual([expect.arrayContaining(['india', 'in'])]);
   });
 });
 

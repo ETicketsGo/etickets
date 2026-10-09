@@ -238,7 +238,8 @@ test.describe('admin search reaches the database', () => {
 
   test('the refund queue asks the server too', async ({ page }) => {
     await page.goto(`${ADMIN}/admin/refunds`);
-    await page.getByLabel('Status filter').selectOption('');
+    // The filter bar labels every control on screen, so the status select is named "Status".
+    await page.getByLabel('Status', { exact: true }).selectOption('');
     await expect(page.getByText(/matching/).first()).toBeVisible();
 
     const url = await listRequestFor(page, '/admin/refunds', 'example.test');
@@ -295,7 +296,7 @@ test.describe('complaints', () => {
     await expect(page.getByRole('heading', { name: 'Support and complaints' })).toBeVisible();
     // Its own kind, so it can be counted per seller rather than lost among contact messages.
     await expect(
-      page.getByLabel('Kind filter').locator('option', { hasText: 'Complaint' }),
+      page.getByLabel('Kind', { exact: true }).locator('option', { hasText: 'Complaint' }),
     ).toHaveCount(1);
   });
 

@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ChevronRight } from 'lucide-react';
 import {
   api,
@@ -10,7 +10,6 @@ import {
   Card,
   EmptyState,
   ErrorState,
-  Input,
   Pagination,
   PageHeader,
   Select,
@@ -19,6 +18,7 @@ import {
   type AuditRow,
 } from '@eticketsgo/web-kit';
 import { accountContactText } from '../../../components/account-contact';
+import { FilterBar, useFilterDescription, useUrlFilters } from '../../../components/list-filters';
 
 /**
  * The audit log, with a way in.
@@ -113,13 +113,30 @@ function Entry({ row }: { row: AuditRow }) {
   );
 }
 
+const FILTER_KEYS = ['country', 'organizationId', 'eventId', 'action', 'from', 'to'] as const;
+
 export default function AuditPage() {
   const [page, setPage] = useState(1);
-  const [filters, setFilters] = useState<AuditFilters>({ from: THIRTY_DAYS_AGO, to: TODAY });
-  const set = (patch: AuditFilters) => {
-    setFilters((f) => ({ ...f, ...patch }));
-    setPage(1);
+  /*
+    Every filter lives in the URL, so "what this organizer did last week" can be refreshed and
+    sent on. The window still opens on the last 30 days; a link that names no dates means that.
+    The audit log has no status of its own - the action is what a row IS - so the action list
+    stands where the other queues have their status.
+  */
+  const url = useUrlFilters(FILTER_KEYS, { from: THIRTY_DAYS_AGO, to: TODAY });
+  const v = url.values;
+  const filters: AuditFilters = {
+    from: v.from || undefined,
+    to: v.to || undefined,
+    action: v.action || undefined,
+    organizationId: v.organizationId || undefined,
+    country: v.country || undefined,
+    eventId: v.eventId || undefined,
   };
+  const set = (patch: AuditFilters) => url.set(patch);
+  const described = useFilterDescription(v, [{ name: 'Action', value: v.action || undefined }]);
+
+  useEffect(() => setPage(1), [url.signature]);
 
   /*
     The summary is asked WITHOUT the organization filter, so the panel keeps showing every
@@ -131,14 +148,18 @@ export default function AuditPage() {
     to: filters.to,
     action: filters.action,
     entityType: filters.entityType,
+    country: filters.country,
+    eventId: filters.eventId,
   };
   const summary = useQuery({
     queryKey: ['admin', 'audit-summary', summaryFilters],
+    enabled: !url.invalidWindow,
     queryFn: () => api.admin.auditSummary(summaryFilters),
   });
 
   const list = useQuery({
     queryKey: ['admin', 'audit', page, filters],
+    enabled: !url.invalidWindow,
     queryFn: () => api.admin.audit({ page, pageSize: 50, ...filters }),
   });
 
@@ -181,30 +202,13 @@ export default function AuditPage() {
       />
 
       <Card>
-        <div className="flex flex-wrap items-end gap-3">
-          <Input
-            id="from"
-            label="From"
-            type="date"
-            className="w-auto"
-            value={filters.from ?? ''}
-            max={filters.to ?? TODAY}
-            onChange={(e) => set({ from: e.target.value })}
-          />
-          <Input
-            id="to"
-            label="To"
-            type="date"
-            className="w-auto"
-            value={filters.to ?? ''}
-            min={filters.from}
-            max={TODAY}
-            onChange={(e) => set({ to: e.target.value })}
-          />
+        <FilterBar
+          filters={url}
+          countryHint="Where the acting organizer is registered. Platform actions are in no country."
+        >
           <Select
             label="Action"
-            className="w-auto min-w-[14rem]"
-            value={filters.action ?? ''}
+            value={v.action ?? ''}
             onChange={(e) => set({ action: e.target.value || undefined })}
           >
             <option value="">Every action</option>
@@ -215,15 +219,7 @@ export default function AuditPage() {
               </option>
             ))}
           </Select>
-          {(filters.organizationId || filters.action) && (
-            <Button
-              variant="ghost"
-              onClick={() => set({ organizationId: undefined, action: undefined })}
-            >
-              Clear filters
-            </Button>
-          )}
-        </div>
+        </FilterBar>
       </Card>
 
       <div className="grid gap-6 lg:grid-cols-[20rem_1fr]">
@@ -293,7 +289,18 @@ export default function AuditPage() {
           ) : days.length === 0 ? (
             <EmptyState
               title="Nothing recorded"
-              hint="No privileged action matched these filters in this window."
+              hint={
+                described
+                  ? `No privileged action matches ${described}.`
+                  : 'No privileged action matched these filters in this window.'
+              }
+              action={
+                url.active ? (
+                  <Button variant="outline" onClick={url.clear}>
+                    Clear filters
+                  </Button>
+                ) : undefined
+              }
             />
           ) : (
             <div className="space-y-5">

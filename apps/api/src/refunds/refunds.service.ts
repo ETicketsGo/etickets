@@ -24,6 +24,8 @@ import { ACCEPTED_TRANSFERS, currentHolderUserId, isTransferred } from '../ticke
 import type { RequestUser } from '../common/decorators';
 import { MetricsService } from '../metrics/metrics.service';
 import { groupScopeWhere, type GroupScope } from '../admin/group-scope';
+import { countryWhere } from '../admin/country-filter';
+import { allOf, dayRangeWhere, type ListFilters } from '../admin/list-filters';
 
 /** Refund rows that hold or consume a ticket's refund allocation. */
 const OPEN_REFUND_STATUSES = [
@@ -688,23 +690,34 @@ export class RefundsService {
     page: number,
     pageSize: number,
     query?: string,
-    scope: GroupScope = {},
+    scope: GroupScope & ListFilters = {},
   ) {
+    const created = dayRangeWhere(scope.from, scope.to);
     const where: Prisma.RefundWhereInput = {
       /*
-      Spread before the search so the scope cannot be overwritten by it. A list that quietly
-      dropped its scope would show every row while the summary above it named one group.
-    */
-      ...groupScopeWhere('refunds', scope),
-      ...(status ? { status } : {}),
-      ...(query
-        ? {
-            OR: [
-              { booking: { buyerEmail: { contains: query, mode: 'insensitive' } } },
-              { booking: { reference: { contains: query, mode: 'insensitive' } } },
-            ],
-          }
-        : {}),
+        Every condition in one `AND`. The group scope, the event and the country all reach through
+        `booking`, and spreading them side by side would let one silently erase another - a list
+        that quietly dropped its scope would show every row while the summary above it named one
+        group.
+      */
+      AND: allOf(
+        groupScopeWhere('refunds', scope),
+        status ? { status } : null,
+        query
+          ? {
+              OR: [
+                { booking: { buyerEmail: { contains: query, mode: 'insensitive' } } },
+                { booking: { reference: { contains: query, mode: 'insensitive' } } },
+              ],
+            }
+          : null,
+        countryWhere('refunds', scope.country),
+        // The refund's own organizer, the column the queue and its summary are keyed on.
+        scope.organizationId ? { organizationId: scope.organizationId } : null,
+        scope.eventId ? { booking: { eventId: scope.eventId } } : null,
+        // When it was ASKED for - the date the queue shows on every row.
+        created ? { createdAt: created } : null,
+      ) as Prisma.RefundWhereInput[],
     };
     const [total, data] = await this.prisma.$transaction([
       this.prisma.refund.count({ where }),

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { marketFor } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
+import { organizationIdsInCountry } from '../admin/country-filter';
 
 /**
  * Reading the audit log, as opposed to writing it.
@@ -28,6 +29,10 @@ export interface AuditFilters {
   action?: string;
   organizationId?: string;
   entityType?: string;
+  /** ISO alpha-2: the market the acting organizer is registered in. */
+  country?: string;
+  /** Entries about one event: the event itself, or an action that names it. */
+  eventId?: string;
   /** ISO date or date-time. Inclusive. */
   from?: string;
   to?: string;
@@ -70,7 +75,7 @@ export class AuditQueryService {
    * the end of the 18th, and a naive parse would silently exclude everything that happened
    * after midnight - which on an audit log is the entire day.
    */
-  private where(f: AuditFilters): Prisma.AuditLogWhereInput {
+  private async where(f: AuditFilters): Promise<Prisma.AuditLogWhereInput> {
     const where: Prisma.AuditLogWhereInput = {};
     if (f.action) where.action = f.action;
     if (f.organizationId) where.organizationId = f.organizationId;
@@ -80,12 +85,35 @@ export class AuditQueryService {
     if (from || to) {
       where.createdAt = { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) };
     }
+    const and: Prisma.AuditLogWhereInput[] = [];
+    /*
+      The market is the acting organizer's registered country, as the summary already groups it.
+      An entry has a bare `organizationId` and no relation, so the market becomes the ids it
+      means. Platform actions belong to no organizer and so to no market, and drop out when one
+      is chosen. In `AND` so it narrows an explicit organizer rather than replacing it.
+    */
+    const orgIds = await organizationIdsInCountry(this.prisma, f.country);
+    if (orgIds) and.push({ organizationId: { in: orgIds } });
+    /*
+      "About this event" is the event's own entries plus any entry that names it in its metadata
+      (a booking confirmed for it, a session moved). Both are what somebody asking "what happened
+      to this event" means; the entity id alone would miss everything done to its sales.
+    */
+    if (f.eventId) {
+      and.push({
+        OR: [
+          { entityType: 'Event', entityId: f.eventId },
+          { metadata: { path: ['eventId'], equals: f.eventId } },
+        ],
+      });
+    }
+    if (and.length > 0) where.AND = and;
     return where;
   }
 
   /** Who is in this window, and what they were doing. */
   async summary(filters: AuditFilters): Promise<AuditSummary> {
-    const where = this.where(filters);
+    const where = await this.where(filters);
     const [total, byOrgRaw, byActionRaw, allActions] = await Promise.all([
       this.prisma.auditLog.count({ where }),
       this.prisma.auditLog.groupBy({
@@ -140,7 +168,7 @@ export class AuditQueryService {
 
   /** One page of entries, newest first, with the organization named rather than an id. */
   async list(filters: AuditFilters, page: number, pageSize: number) {
-    const where = this.where(filters);
+    const where = await this.where(filters);
     const [total, rows] = await this.prisma.$transaction([
       this.prisma.auditLog.count({ where }),
       this.prisma.auditLog.findMany({

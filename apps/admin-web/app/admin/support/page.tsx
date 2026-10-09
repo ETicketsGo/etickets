@@ -2,8 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   api,
   DataTable,
@@ -25,6 +24,12 @@ import {
   type FeedbackStatusValue,
 } from '@eticketsgo/web-kit';
 import { accountContactText } from '../../../components/account-contact';
+import {
+  FilterBar,
+  apiFilters,
+  useFilterDescription,
+  useUrlFilters,
+} from '../../../components/list-filters';
 
 /*
   Complaint first, because it is the one a person has to act on.
@@ -35,6 +40,16 @@ import { accountContactText } from '../../../components/account-contact';
 */
 const KINDS = ['COMPLAINT', 'CONTACT', 'BUG', 'FEATURE', 'GENERAL', 'CSAT', 'ORGANIZER_CSAT'];
 const STATUSES: FeedbackStatusValue[] = ['OPEN', 'TRIAGED', 'CLOSED'];
+const FILTER_KEYS = [
+  'country',
+  'organizationId',
+  'eventId',
+  'kind',
+  'status',
+  'from',
+  'to',
+  'q',
+] as const;
 
 const KIND_TONE: Record<string, 'info' | 'error' | 'warning' | 'success' | 'neutral'> = {
   COMPLAINT: 'error',
@@ -57,40 +72,39 @@ export default function AdminSupport() {
   const toast = useToast();
   const qc = useQueryClient();
   /*
-    The organizer page links straight here with an organizer and a kind in the URL, so the link
-    lands on the complaints about that organizer rather than on the whole inbox. Read once as the
-    initial state: after that the selects own the filters, and a link that kept overriding them
-    would make the dropdowns look broken.
+    Every filter lives in the URL. The organizer page links here with an organizer and a kind,
+    and the action centre with a status; those links are now simply the filters they name, and
+    a filtered inbox can be refreshed or sent to a colleague without losing them.
   */
-  const params = useSearchParams();
-  const [organizationId, setOrganizationId] = useState(params.get('organizationId') ?? '');
+  const filters = useUrlFilters(FILTER_KEYS);
+  const { kind, status, q: applied } = filters.values;
+  const [q, setQ] = useState(applied);
   const [page, setPage] = useState(1);
-  const [kind, setKind] = useState(params.get('kind') ?? '');
-  /*
-    The status this page opens on can be named in the link.
+  const scope = apiFilters(filters.values);
+  const described = useFilterDescription(
+    filters.values,
+    [{ name: 'Kind', value: kind || undefined }],
+    applied,
+  );
+  const clearAll = () => {
+    setQ('');
+    filters.clear();
+  };
 
-    The action centre on the landing page counts each queue and links straight to it. Those
-    links were landing on an UNFILTERED list, so "6 open complaints" took an operator to a
-    page where they had to find those rows again - which is the work the count existed to
-    save. The same failing as the search boxes that only ever searched the page you were on.
-
-    Seeded once, then editable: the filter is still a control, not a property of the URL.
-  */
-  const [status, setStatus] = useState(params.get('status') ?? '');
-  const [q, setQ] = useState('');
-  const [applied, setApplied] = useState('');
+  useEffect(() => setPage(1), [filters.signature]);
   const [selected, setSelected] = useState<FeedbackRow | null>(null);
 
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['admin', 'support', page, kind, status, applied, organizationId],
+    queryKey: ['admin', 'support', page, filters.signature],
+    enabled: !filters.invalidWindow,
     queryFn: () =>
       api.admin.support({
         page,
         pageSize: 15,
+        ...scope,
         kind: kind || undefined,
         status: status || undefined,
         q: applied || undefined,
-        organizationId: organizationId || undefined,
       }),
   });
 
@@ -155,63 +169,27 @@ export default function AdminSupport() {
         title="Support and complaints"
         description="Complaints about organizers, contact messages, bug reports and satisfaction surveys."
       />
-      {organizationId && (
-        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-background-subtle/50 p-3">
-          <p className="text-sm text-text-secondary">
-            Showing submissions about one organizer only.
-          </p>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => {
-              setOrganizationId('');
-              setPage(1);
-            }}
-          >
-            Show every organizer
-          </Button>
-        </div>
-      )}
-      <div className="grid gap-3 sm:grid-cols-[1fr_180px_180px]">
+      <div className="space-y-4 rounded-lg border border-border bg-background-surface p-4">
         <SearchInput
           value={q}
           onChange={setQ}
-          onSubmit={() => {
-            setApplied(q);
-            setPage(1);
-          }}
-          placeholder="Search message, subject, or email…"
+          onSubmit={() => filters.set({ q: q.trim() })}
+          placeholder="Search message, subject, or email"
         />
-        <Select
-          aria-label="Kind filter"
-          value={kind}
-          onChange={(e) => {
-            setKind(e.target.value);
-            setPage(1);
-          }}
+        <FilterBar
+          filters={{ ...filters, clear: clearAll }}
+          statuses={STATUSES}
+          countryHint="Where the organizer is registered. A message about no organizer is in no country."
         >
-          <option value="">All kinds</option>
-          {KINDS.map((k) => (
-            <option key={k} value={k}>
-              {kindLabel(k)}
-            </option>
-          ))}
-        </Select>
-        <Select
-          aria-label="Status filter"
-          value={status}
-          onChange={(e) => {
-            setStatus(e.target.value);
-            setPage(1);
-          }}
-        >
-          <option value="">All statuses</option>
-          {STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {kindLabel(s)}
-            </option>
-          ))}
-        </Select>
+          <Select label="Kind" value={kind} onChange={(e) => filters.set({ kind: e.target.value })}>
+            <option value="">Every kind</option>
+            {KINDS.map((k) => (
+              <option key={k} value={k}>
+                {kindLabel(k)}
+              </option>
+            ))}
+          </Select>
+        </FilterBar>
       </div>
       <DataTable
         columns={columns}
@@ -219,7 +197,19 @@ export default function AdminSupport() {
         loading={isLoading}
         error={isError ? "We couldn't load this. Please try again." : undefined}
         onRetry={() => refetch()}
-        empty={<EmptyState title="No submissions match these filters" />}
+        empty={
+          <EmptyState
+            title="No submissions match these filters"
+            hint={described ? `Nothing matches ${described}.` : undefined}
+            action={
+              filters.active ? (
+                <Button variant="outline" onClick={clearAll}>
+                  Clear filters
+                </Button>
+              ) : undefined
+            }
+          />
+        }
         rowKey={(r) => r.id}
         onRowClick={(r) => setSelected(r)}
       />

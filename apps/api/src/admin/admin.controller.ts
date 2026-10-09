@@ -3,10 +3,18 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
 import { AdminPermission, MovieStatus, Role } from '@eticketsgo/shared-types';
 import { paginationSchema } from '@eticketsgo/validation';
+import { PaymentStatus } from '@prisma/client';
 import { AdminService } from './admin.service';
 import { AdminGroupingService } from './admin-grouping.service';
 import { groupScopeFields, type GroupScope } from './group-scope';
 import { countryFilterField } from './country-filter';
+import {
+  dayField,
+  idField,
+  listFilterFields,
+  refineDateOrder,
+  type ListFilters,
+} from './list-filters';
 import { TaxRulesService } from './tax-rules.service';
 import { CinemaPricingPoliciesService, type PolicyInput } from './cinema-pricing-policies.service';
 import { MoviesService } from '../movies/movies.service';
@@ -128,21 +136,31 @@ type TaxRuleSupersedeBody = z.infer<typeof taxRuleSupersedeSchema>;
  * with a message that names the ones that ARE supported. A schema per route would state the same
  * list twice and let the two drift.
  */
-const groupQuerySchema = z.object({
-  groupBy: z.string().trim().min(1),
-  /*
+const groupQuerySchema = z
+  .object({
+    groupBy: z.string().trim().min(1),
+    /*
     The same two filters the list below the summary is showing.
 
     Without them the summary counted every row of the resource while the list was filtered, so the
     refund queue - which opens on REQUESTED - read "India, 1 row" above an empty table. A summary
     that does not add up to the list it sits on is worse than no summary.
   */
-  status: z.string().trim().optional(),
-  q: z.string().trim().optional(),
-  // The list's country filter too, for the same reason. Only bookings, events and organizers
-  // offer one; on the other queues their lists ignore it, and so does their summary.
-  country: countryFilterField,
-});
+    status: z.string().trim().optional(),
+    q: z.string().trim().optional(),
+    // The list's country filter too, for the same reason.
+    country: countryFilterField,
+    /*
+    And the organizer, event and day window the money queues filter by. A queue whose list does
+    not take one of these ignores it, and so does its summary - `FILTERS` in the grouping service
+    names a column only where the list has the same filter.
+  */
+    organizationId: idField,
+    eventId: idField,
+    from: dayField,
+    to: dayField,
+  })
+  .superRefine(refineDateOrder);
 type GroupQuery = z.infer<typeof groupQuerySchema>;
 
 @ApiTags('admin')
@@ -191,20 +209,26 @@ export class AdminController {
   payments(
     @Query(
       new ZodValidationPipe(
-        paginationSchema.extend({
-          status: z.string().optional(),
-          // Searched in the DATABASE: buyer email, booking reference or provider reference.
-          q: z.string().trim().optional(),
-          ...groupScopeFields,
-        }),
+        paginationSchema
+          .extend({
+            // The payment's own lifecycle, so a typo is a 400 and not an empty ledger.
+            status: z.nativeEnum(PaymentStatus).optional(),
+            // Searched in the DATABASE: buyer email, booking reference or provider reference.
+            q: z.string().trim().optional(),
+            ...groupScopeFields,
+            // Market, organizer, event and a UTC day window. See `list-filters.ts`.
+            ...listFilterFields,
+          })
+          .superRefine(refineDateOrder),
       ),
     )
     q: {
       page: number;
       pageSize: number;
-      status?: string;
+      status?: PaymentStatus;
       q?: string;
-    } & GroupScope,
+    } & GroupScope &
+      ListFilters,
   ) {
     return this.admin.payments(q);
   }

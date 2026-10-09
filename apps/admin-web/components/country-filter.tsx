@@ -41,13 +41,17 @@ export function useCountryParam(): [string | undefined, (code: string | undefine
 export function CountryFilter({
   value,
   onChange,
+  label,
 }: {
   value: string | undefined;
   onChange: (code: string | undefined) => void;
+  /** A visible label, for a filter bar where every control is labelled. */
+  label?: string;
 }) {
   return (
     <Select
-      aria-label="Country filter"
+      label={label}
+      aria-label={label ? undefined : 'Country filter'}
       value={value ?? ''}
       onChange={(e) => onChange(e.target.value || undefined)}
     >

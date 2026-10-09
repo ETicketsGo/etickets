@@ -8,6 +8,8 @@ import type {
 import { PrismaService } from '../prisma/prisma.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import type { RequestUser } from '../common/decorators';
+import { organizationIdsInCountry } from '../admin/country-filter';
+import { allOf, dayRangeWhere, type ListFilters } from '../admin/list-filters';
 
 /** A support submission as surfaced to the admin triage inbox. */
 export interface FeedbackRow {
@@ -115,8 +117,31 @@ export class SupportService {
 
   /** Paged, filterable admin triage list. Searches subject/message/email. */
   async list(
-    params: ListFeedbackInput,
+    params: ListFeedbackInput & Omit<ListFilters, 'organizationId'>,
   ): Promise<{ data: FeedbackRow[]; meta: ReturnType<typeof paginate> }> {
+    /*
+      ── WHY THE MARKET AND THE EVENT ARE RESOLVED TO IDS FIRST ───────────────────────
+      A submission keeps its organization and booking as bare columns with no foreign key, on
+      purpose: the complaint must outlive both. That leaves Prisma no relation to filter through,
+      so each is turned into the ids it means and the list filters on those.
+
+      The market is where the organizer is REGISTERED, the same country the audit log groups by;
+      a submission is not a sale and has no venue. So a contact message that names no organizer
+      is in no market and is left out when one is chosen - the console says so beside the filter.
+
+      The event is reached through the booking the submission names, and only that way: a
+      general message with no booking cannot be "about" an event, however it is worded.
+    */
+    const [orgIdsInCountry, idsForEvent] = await Promise.all([
+      organizationIdsInCountry(this.prisma, params.country),
+      params.eventId
+        ? this.prisma.$queryRaw<{ id: string }[]>`
+            SELECT f.id FROM "Feedback" f
+              JOIN "Booking" b ON b.id = f."bookingId"
+             WHERE b."eventId" = ${params.eventId}`
+        : Promise.resolve(null),
+    ]);
+    const created = dayRangeWhere(params.from, params.to);
     const where = {
       ...(params.kind ? { kind: params.kind } : {}),
       ...(params.status ? { status: params.status } : {}),
@@ -130,6 +155,12 @@ export class SupportService {
             ],
           }
         : {}),
+      // In `AND` so the market cannot overwrite an explicit organizer: both name `organizationId`.
+      AND: allOf(
+        orgIdsInCountry ? { organizationId: { in: orgIdsInCountry } } : null,
+        idsForEvent ? { id: { in: idsForEvent.map((r) => r.id) } } : null,
+        created ? { createdAt: created } : null,
+      ),
     };
     const [total, rows] = await this.prisma.$transaction([
       this.prisma.feedback.count({ where }),

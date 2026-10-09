@@ -9,6 +9,8 @@ import { AuditQueryService, type AuditFilters } from '../audit/audit-query.servi
 import { RequiresAdmin, CurrentUser, Roles, type RequestUser } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { AppException, ErrorCodes } from '../common/errors';
+import { countryFilterField } from '../admin/country-filter';
+import { dayField, idField, refineDateOrder } from '../admin/list-filters';
 
 @ApiTags('reports')
 @ApiBearerAuth()
@@ -59,6 +61,23 @@ export class ReportsController {
   }
 }
 
+/**
+ * The audit filters, shared by the list and its summary so the two cannot accept different things.
+ *
+ * Dates are calendar days in UTC and validated as such: a value `new Date()` cannot read used to
+ * reach Prisma as an Invalid Date and come back as a 500, which looks like the log is broken
+ * rather than the link. A window that ends before it starts is a 400 for the same reason.
+ */
+const auditFilterFields = {
+  action: z.string().trim().max(100).optional(),
+  organizationId: idField,
+  entityType: z.string().trim().max(100).optional(),
+  country: countryFilterField,
+  eventId: idField,
+  from: dayField,
+  to: dayField,
+};
+
 @ApiTags('admin')
 @ApiBearerAuth()
 @Roles(Role.ADMIN, Role.SUPER_ADMIN)
@@ -91,13 +110,7 @@ export class AdminReportsController {
   audit(
     @Query(
       new ZodValidationPipe(
-        paginationSchema.extend({
-          action: z.string().optional(),
-          organizationId: z.string().optional(),
-          entityType: z.string().optional(),
-          from: z.string().optional(),
-          to: z.string().optional(),
-        }),
+        paginationSchema.extend(auditFilterFields).superRefine(refineDateOrder),
       ),
     )
     q: { page: number; pageSize: number } & AuditFilters,
@@ -110,17 +123,7 @@ export class AdminReportsController {
     summary: 'Audit activity grouped by organizer (with country) and by action, for a window.',
   })
   auditSummary(
-    @Query(
-      new ZodValidationPipe(
-        z.object({
-          action: z.string().optional(),
-          organizationId: z.string().optional(),
-          entityType: z.string().optional(),
-          from: z.string().optional(),
-          to: z.string().optional(),
-        }),
-      ),
-    )
+    @Query(new ZodValidationPipe(z.object(auditFilterFields).superRefine(refineDateOrder)))
     q: AuditFilters,
   ) {
     return this.auditQuery.summary(q);

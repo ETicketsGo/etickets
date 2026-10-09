@@ -12,6 +12,7 @@ import { AdminPermission } from '@eticketsgo/shared-types';
 import { CurrentUser, RequiresAdmin, Roles, type RequestUser } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { groupScopeFields, type GroupScope } from '../admin/group-scope';
+import { listFilterFields, refineDateOrder, type ListFilters } from '../admin/list-filters';
 
 @ApiTags('refunds')
 @ApiBearerAuth()
@@ -94,13 +95,17 @@ export class AdminRefundsController {
   list(
     @Query(
       new ZodValidationPipe(
-        paginationSchema.extend({
-          status: z.nativeEnum(RefundStatus).optional(),
-          // Searched in the DATABASE: buyer email or booking reference.
-          q: z.string().trim().optional(),
-          // Scope to one row of the grouped summary. See `admin/group-scope.ts`.
-          ...groupScopeFields,
-        }),
+        paginationSchema
+          .extend({
+            status: z.nativeEnum(RefundStatus).optional(),
+            // Searched in the DATABASE: buyer email or booking reference.
+            q: z.string().trim().optional(),
+            // Scope to one row of the grouped summary. See `admin/group-scope.ts`.
+            ...groupScopeFields,
+            // Market, organizer, event and a UTC day window. See `admin/list-filters.ts`.
+            ...listFilterFields,
+          })
+          .superRefine(refineDateOrder),
       ),
     )
     q: {
@@ -108,7 +113,8 @@ export class AdminRefundsController {
       pageSize: number;
       status?: RefundStatus;
       q?: string;
-    } & GroupScope,
+    } & GroupScope &
+      ListFilters,
   ) {
     return this.refunds.adminList(q.status, q.page, q.pageSize, q.q || undefined, q);
   }

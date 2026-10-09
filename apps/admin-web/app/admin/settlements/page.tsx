@@ -1,15 +1,13 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useSearchParams } from 'next/navigation';
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   api,
   Button,
   DataTable,
   Dialog,
   StatusBadge,
-  Select,
   Pagination,
   PageHeader,
   GroupedSummary,
@@ -25,6 +23,13 @@ import {
   type Column,
   type SettlementRow,
 } from '@eticketsgo/web-kit';
+import {
+  CurrencyTotals,
+  FilterBar,
+  apiFilters,
+  useFilterDescription,
+  useUrlFilters,
+} from '../../../components/list-filters';
 
 const STATUSES = [
   'PENDING',
@@ -40,6 +45,7 @@ const STATUSES = [
 ];
 
 const PAGE_SIZE = 15;
+const FILTER_KEYS = ['country', 'organizationId', 'eventId', 'status', 'from', 'to'] as const;
 
 export default function AdminSettlements() {
   const [page, setPage] = useState(1);
@@ -52,19 +58,28 @@ export default function AdminSettlements() {
     page where they had to find those rows again - which is the work the count existed to
     save. The same failing as the search boxes that only ever searched the page you were on.
 
-    Seeded once, then editable: the filter is still a control, not a property of the URL.
+    Every filter now lives in the URL, so that link is simply the status filter.
+
+    Read-only: these choose which settlements are listed. Nothing here changes a settlement's
+    money or state; approve, release and block stay in the dialog, unchanged.
   */
-  const params = useSearchParams();
-  const [status, setStatus] = useState(params.get('status') ?? '');
+  const filters = useUrlFilters(FILTER_KEYS);
+  const { status } = filters.values;
+  const scope = apiFilters(filters.values);
+  const described = useFilterDescription(filters.values);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
+  useEffect(() => setPage(1), [filters.signature]);
+
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['admin', 'settlements', page, status, group.groupBy, group.groupKey],
+    queryKey: ['admin', 'settlements', page, filters.signature, group.groupBy, group.groupKey],
+    enabled: !filters.invalidWindow,
     queryFn: () =>
       api.admin.settlements.list({
         page,
         pageSize: PAGE_SIZE,
         ...group,
+        ...scope,
         status: status || undefined,
       }),
   });
@@ -114,29 +129,27 @@ export default function AdminSettlements() {
         title="Settlements"
         description="Marketplace payout ledger. Review, approve, release, or block organizer settlements."
       />
-      <div className="grid gap-3 sm:grid-cols-[200px]">
-        <Select
-          aria-label="Status filter"
-          value={status}
-          onChange={(e) => {
-            setStatus(e.target.value);
-            setPage(1);
-          }}
-        >
-          <option value="">All statuses</option>
-          {STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {s.replaceAll('_', ' ')}
-            </option>
-          ))}
-        </Select>
+      <div className="rounded-lg border border-border bg-background-surface p-4">
+        <FilterBar
+          filters={filters}
+          statuses={STATUSES}
+          countryHint="Where the event took place. Dates are when the settlement was created."
+        />
       </div>
+
+      <CurrencyTotals
+        resource="settlements"
+        status={status || undefined}
+        filters={scope}
+        enabled={!filters.invalidWindow}
+      />
 
       <GroupedSummary
         resource="settlements"
         options={['country', 'organizer', 'event', 'currency']}
         value={group}
         status={status || undefined}
+        filters={scope}
         onChange={(next) => {
           // Page 1: the page number belonged to the previous scope, and page 4 of a group with
           // two rows is an empty table that looks like "no results".
@@ -150,7 +163,19 @@ export default function AdminSettlements() {
         loading={isLoading}
         error={isError ? "We couldn't load settlements. Please try again." : undefined}
         onRetry={() => refetch()}
-        empty={<EmptyState title="No settlements match these filters" />}
+        empty={
+          <EmptyState
+            title="No settlements match these filters"
+            hint={described ? `Nothing matches ${described}.` : undefined}
+            action={
+              filters.active ? (
+                <Button variant="outline" onClick={filters.clear}>
+                  Clear filters
+                </Button>
+              ) : undefined
+            }
+          />
+        }
         rowKey={(s) => s.id}
         onRowClick={(s) => setSelectedId(s.id)}
       />
