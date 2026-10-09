@@ -171,8 +171,8 @@ test.describe('QA: picking a date and a time', () => {
     // over this column, so every typo an organizer typed became its own row on the front page.
     await page.getByLabel('Category').selectOption('Music');
     await page.getByRole('button', { name: 'Next', exact: true }).click();
+    // Venue and sessions are one "Where and when" step: the session fields are already here.
     await page.getByLabel('Venue').selectOption({ index: 1 });
-    await page.getByRole('button', { name: 'Next', exact: true }).click();
   }
 
   test('the session field is a date plus a time, and reads itself back', async ({
