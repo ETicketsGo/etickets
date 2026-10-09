@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { AiModule } from '../ai/ai.module';
 import { EventsModule } from '../events/events.module';
 import { MoviesModule } from '../movies/movies.module';
@@ -8,6 +9,11 @@ import { CapabilitiesController } from './capabilities.controller';
 import { DiscoveryService } from './discovery.service';
 import { DiscoverySectionsService } from './discovery-sections.service';
 import { LocationService } from './location.service';
+import {
+  NoReverseGeocoder,
+  OfflineCityGeocoder,
+  REVERSE_GEOCODER,
+} from './geocoding/reverse-geocoder';
 import {
   DISCOVERY_STRATEGIES,
   type DiscoveryStrategy,
@@ -38,6 +44,19 @@ import { RecommendedStrategy } from './strategies/recommended.strategy';
     DiscoveryService,
     DiscoverySectionsService,
     LocationService,
+    /*
+      Where coordinates are, independent of anything on sale. Offline by default: no key,
+      no cost, no third party sees a customer's position. `none` switches it off, and a
+      hosted provider can be added behind the same token without touching the resolver.
+    */
+    {
+      provide: REVERSE_GEOCODER,
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) =>
+        config.get<string>('REVERSE_GEOCODER') === 'none'
+          ? new NoReverseGeocoder()
+          : new OfflineCityGeocoder(),
+    },
     TrendingStrategy,
     PopularStrategy,
     WeekendStrategy,

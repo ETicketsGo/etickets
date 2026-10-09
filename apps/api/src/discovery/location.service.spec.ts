@@ -1,4 +1,5 @@
 import { LocationService } from './location.service';
+import { NoReverseGeocoder, OfflineCityGeocoder } from './geocoding/reverse-geocoder';
 
 /**
  * Guessing where somebody is, and refusing to guess when we cannot.
@@ -121,22 +122,23 @@ describe('LocationService', () => {
   });
 
   describe('resolve', () => {
+    // The real offline geocoder: these tests are about real places, not stubbed answers.
+    const geocoder = new OfflineCityGeocoder();
     const service = (venues: VenueRow[], cinemas: CinemaRow[] = []) =>
-      new LocationService(prismaWith(venues, cinemas), passthroughCache());
+      new LocationService(prismaWith(venues, cinemas), passthroughCache(), geocoder);
 
     it('says it does not know rather than inventing an answer', async () => {
       const result = await service([venue('Mumbai')]).resolve({ headers: {} });
       expect(result).toMatchObject({ country: null, city: null, source: 'none', confident: false });
     });
 
-    it('never returns a city we cannot sell in, even when the network names one', async () => {
-      // The core guarantee. A header city we do not serve, applied as a filter, empties the
-      // homepage — so it is dropped and only the country survives as a hint.
+    it('offers the network city as a suggestion even where nothing is on sale', async () => {
+      // Where somebody is does not depend on what we sell. The guess is still only a
+      // suggestion (not confident), so nothing is applied without the person confirming.
       const result = await service([venue('Mumbai'), venue('Delhi')]).resolve({
         headers: { 'cf-ipcountry': 'IN', 'cf-ipcity': 'Nagpur' },
       });
-      expect(result.city).toBeNull();
-      expect(result.country).toBe('IN');
+      expect(result).toMatchObject({ city: 'Nagpur', country: 'IN', confident: false });
     });
 
     it('accepts a network city we do sell in, but asks the client to confirm it', async () => {
@@ -149,11 +151,14 @@ describe('LocationService', () => {
       expect(result.confident).toBe(false);
     });
 
-    it('picks the only city in a country, because there is nothing to choose between', async () => {
+    it('never picks a city from inventory when only the country is known', async () => {
+      // It used to pick the country's only city with events, which put everybody in the
+      // United States in Boise.
       const result = await service([venue('Mumbai', 'India')]).resolve({
         headers: { 'cf-ipcountry': 'IN' },
       });
-      expect(result.city).toBe('Mumbai');
+      expect(result.city).toBeNull();
+      expect(result.country).toBe('IN');
     });
 
     it('leaves the city unset when a country has several, rather than picking the biggest', async () => {
@@ -178,76 +183,103 @@ describe('LocationService', () => {
       const result = await service([venue('Austin', 'United States')]).resolve({
         headers: { 'x-vercel-ip-country': 'us' },
       });
-      expect(result.city).toBe('Austin');
+      expect(result.topCities.map((c) => c.city)).toEqual(['Austin']);
+      expect(result.city).toBeNull();
     });
 
-    it('resolves coordinates to the nearest sellable city and trusts the answer', async () => {
-      const result = await service(
-        [venue('Mumbai'), venue('Delhi')],
-        [
-          { city: 'Mumbai', latitude: MUMBAI.lat, longitude: MUMBAI.lng },
-          { city: 'Delhi', latitude: DELHI.lat, longitude: DELHI.lng },
-        ],
-      ).resolve({ headers: {}, latitude: THANE.lat, longitude: THANE.lng });
+    it.each([
+      ['Dallas', 32.7767, -96.797, 'Texas', 'US'],
+      ['Boise', 43.615, -116.2023, 'Idaho', 'US'],
+      ['Hyderabad', 17.385, 78.4867, 'Telangana', 'IN'],
+      ['Vijayawada', 16.5062, 80.648, 'Andhra Pradesh', 'IN'],
+    ])(
+      'names %s from its coordinates with nothing on sale there',
+      async (city, lat, lng, region, country) => {
+        // THE BUG. Coordinates used to resolve only through a cinema with stock, so all four
+        // of these came back with no city. The database here has no events anywhere near.
+        const result = await service([]).resolve({ headers: {}, latitude: lat, longitude: lng });
+        expect(result).toMatchObject({
+          city,
+          region,
+          country,
+          source: 'coordinates',
+          confident: true,
+          scopeCountry: country,
+        });
+      },
+    );
 
-      expect(result.city).toBe('Mumbai');
-      expect(result.source).toBe('coordinates');
-      // The one source the person actively consented to, so it applies without a prompt.
-      expect(result.confident).toBe(true);
+    it('works outside the markets we sell in, too', async () => {
+      // Worldwide by design: London resolves to London, and simply has nothing on sale.
+      const result = await service([venue('Mumbai')]).resolve({
+        headers: {},
+        latitude: LONDON.lat,
+        longitude: LONDON.lng,
+      });
+      expect(result).toMatchObject({ city: 'London', country: 'GB', topCities: [] });
     });
 
-    it('refuses a nearest city that is not actually near', async () => {
-      // Someone in London is better served by "pick a city" than by being told their local
-      // cinema is in Mumbai.
+    it('names the city the person is in, never the nearest city with events', async () => {
+      // Thane is twenty kilometres from Mumbai, which has everything on sale. It is Thane.
       const result = await service(
         [venue('Mumbai')],
         [{ city: 'Mumbai', latitude: MUMBAI.lat, longitude: MUMBAI.lng }],
-      ).resolve({ headers: {}, latitude: LONDON.lat, longitude: LONDON.lng });
+      ).resolve({ headers: {}, latitude: THANE.lat, longitude: THANE.lng });
+      expect(result.city).toBe('Thane');
+      expect(result.confident).toBe(true);
+    });
 
+    it('names no city in open water, rather than the nearest one ashore', async () => {
+      const result = await service([venue('Mumbai')]).resolve({
+        headers: {},
+        latitude: 30,
+        longitude: -40,
+      });
       expect(result.city).toBeNull();
       expect(result.source).toBe('none');
     });
 
-    it('falls back to the country when coordinates match no city of ours', async () => {
-      /*
-        What "use my current location" actually does most of the time, and the half of it
-        that was broken in the client.
+    it('names no city when the geocoder is switched off - it never invents one', async () => {
+      const result = await new LocationService(
+        prismaWith([venue('Mumbai')]),
+        passthroughCache(),
+        new NoReverseGeocoder(),
+      ).resolve({ headers: {}, latitude: MUMBAI.lat, longitude: MUMBAI.lng, deviceRegion: 'in' });
+      expect(result.city).toBeNull();
+      expect(result.scopeCountry).toBe('IN');
+    });
 
-        Coordinates can only ever name a city through a CINEMA carrying latitude and
-        longitude, and almost none do — so the lookup above usually finds nothing and this
-        path is the real one. The browser sends its region alongside the coordinates, and
-        when it does the answer must still be that country.
-
-        The client used to send the coordinates ALONE. With the fix missing and the lookup
-        empty, the server had no hint left and answered "we do not know" — which does not
-        mean "stay put", it clears the scope and opens the storefront to the world. Pressing
-        the one button whose purpose is to put you where you are, in New York, offered
-        Hyderabad.
-      */
-      const result = await service(
-        [venue('Mumbai')],
-        [{ city: 'Mumbai', latitude: MUMBAI.lat, longitude: MUMBAI.lng }],
-      ).resolve({
+    it('uses our spelling of the same city, so its events are found', async () => {
+      // GeoNames says "Montréal"; a venue typed "Montreal". Same place, our spelling.
+      const result = await service([venue('Montreal', 'Canada')]).resolve({
         headers: {},
-        latitude: LONDON.lat,
-        longitude: LONDON.lng,
+        latitude: 45.5017,
+        longitude: -73.5673,
+      });
+      expect(result).toMatchObject({ city: 'Montreal', region: 'Quebec', country: 'CA' });
+    });
+
+    it('falls back to the country when coordinates name no city', async () => {
+      // Open water with a device region: no city is invented, the country still scopes.
+      const result = await service([venue('Mumbai')]).resolve({
+        headers: {},
+        latitude: 30,
+        longitude: -40,
         deviceRegion: 'gb',
       });
-
       expect(result.city).toBeNull();
       expect(result.scopeCountry).toBe('GB');
-      // And it does NOT offer Mumbai to somebody standing in London.
       expect(result.topCities).toEqual([]);
     });
 
-    it('ignores a nearby cinema that has nothing on sale', async () => {
-      // A cinema with no upcoming shows is a building, not an answer.
-      const result = await service(
-        [venue('Delhi')],
-        [{ city: 'Mumbai', latitude: MUMBAI.lat, longitude: MUMBAI.lng }],
-      ).resolve({ headers: {}, latitude: MUMBAI.lat, longitude: MUMBAI.lng });
-
-      expect(result.city).toBeNull();
+    it('keeps a city that has nothing on sale instead of moving to one that does', async () => {
+      // Standing in Mumbai with events only in Delhi: the answer is Mumbai, and empty.
+      const result = await service([venue('Delhi')]).resolve({
+        headers: {},
+        latitude: MUMBAI.lat,
+        longitude: MUMBAI.lng,
+      });
+      expect(result.city).toBe('Mumbai');
     });
 
     it('prefers coordinates over the network when both are present', async () => {

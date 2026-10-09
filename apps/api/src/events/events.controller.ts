@@ -392,6 +392,9 @@ export class PublicEventsController {
             .optional(),
           // Either spelling — `IN` or `India`. Ignored when a city is given.
           country: z.string().trim().min(2).max(60).optional(),
+          // The country OF the chosen city, and its state: two places can share a name.
+          cityCountry: z.string().trim().min(2).max(60).optional(),
+          region: z.string().trim().max(80).optional(),
           category: z.string().optional(),
           dateFrom: z.coerce.date().optional(),
           dateTo: z.coerce.date().optional(),
@@ -409,6 +412,8 @@ export class PublicEventsController {
       city?: string;
       ids?: string[];
       country?: string;
+      cityCountry?: string;
+      region?: string;
       category?: string;
       dateFrom?: Date;
       dateTo?: Date;

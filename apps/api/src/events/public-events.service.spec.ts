@@ -109,6 +109,26 @@ describe('PublicEventsService.list geography', () => {
     expect(venue.country).toBeUndefined();
   });
 
+  it('narrows a city to its own country and state, telling same-named places apart', async () => {
+    const { service, count } = makeService();
+    await service.list({
+      city: 'Springfield',
+      cityCountry: 'US',
+      region: 'Illinois',
+      country: 'IN', // a stale visitor scope: still ignored when a city is chosen
+      page: 1,
+      pageSize: 10,
+    });
+    const venue = count.mock.calls[0][0].where.venue;
+    expect(venue.city).toEqual({ equals: 'Springfield', mode: 'insensitive' });
+    expect(venue.country.in).toEqual(expect.arrayContaining(['us', 'united states']));
+    // A venue that never recorded its state is kept, not hidden.
+    expect(venue.OR).toEqual([
+      { region: { equals: 'Illinois', mode: 'insensitive' } },
+      { region: null },
+    ]);
+  });
+
   it('applies no geography at all when neither is given', async () => {
     const { service, count } = makeService();
 

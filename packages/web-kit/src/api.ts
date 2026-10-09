@@ -4397,6 +4397,8 @@ export type LocationSource = 'coordinates' | 'network' | 'device-region' | 'none
 export interface ResolvedLocation {
   country: string | null;
   city: string | null;
+  /** State, province or territory of `city`, when known ("Texas", "Telangana"). */
+  region?: string | null;
   source: LocationSource;
   /** True only for a coordinate fix. Anything else is a suggestion to confirm, not apply. */
   confident: boolean;

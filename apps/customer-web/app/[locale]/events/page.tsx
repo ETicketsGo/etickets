@@ -197,8 +197,19 @@ export default function EventsPage() {
       ...rest,
       ...(freeOnly ? { freeOnly: 'true' } : {}),
       ...(applied.city ? {} : preference.country ? { country: preference.country } : {}),
+      /*
+        The chosen city's own country and state, so a same-named city elsewhere is not mixed
+        in. Only when the city on the page IS the chosen one - a city typed into this page's
+        own search box carries no place, and must not inherit another city's.
+      */
+      ...(applied.city && applied.city === preference.city && preference.place?.country
+        ? { cityCountry: preference.place.country }
+        : {}),
+      ...(applied.city && applied.city === preference.city && preference.place?.region
+        ? { region: preference.place.region }
+        : {}),
     };
-  }, [applied, preference.country]);
+  }, [applied, preference.country, preference.city, preference.place]);
 
   const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: ['events', request, page],
@@ -554,7 +565,9 @@ export default function EventsPage() {
           platform today, where the events are in Mumbai and the films are in Bengaluru.
         */
         <EmptyState
-          title={placeOnly ? `Nothing on in ${placeOnly} just yet` : 'No events match your search'}
+          title={
+            placeOnly ? `No events available in ${placeOnly} yet` : 'No events match your search'
+          }
           hint={
             placeIsCountry
               ? 'Search for a city to see what is on there.'
