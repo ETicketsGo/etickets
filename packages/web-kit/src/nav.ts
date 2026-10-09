@@ -36,6 +36,15 @@ export interface NavItem {
    * Finance, Counter under Bookings. Shown when the section is open, and openable by hand.
    */
   children?: NavItem[];
+  /**
+   * False to stop Next prefetching this link.
+   *
+   * For a link whose page may not exist in this build - the organizer Calendar is linked
+   * before its page lands. A production prefetch of a route that is not there never settled,
+   * so every page with the sidebar on screen kept a request open forever, and every e2e
+   * test waiting for 'networkidle' on a desktop page timed out.
+   */
+  prefetch?: boolean;
 }
 
 function isActive(pathname: string, href: string, exact?: boolean): boolean {

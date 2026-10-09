@@ -99,7 +99,8 @@ export function navFor({
       The calendar page is built by its own workstream; this is only the way in. Until that
       page ships the route has no page, which is why it is listed here and not invented.
     */
-    { label: 'Calendar', href: '/organizer/calendar', icon: CalendarDays },
+    // Not prefetched: see `NavItem.prefetch`. Safe to drop once the calendar page is on main.
+    { label: 'Calendar', href: '/organizer/calendar', icon: CalendarDays, prefetch: false },
     {
       label: 'Events',
       href: '/organizer/events',

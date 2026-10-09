@@ -70,7 +70,10 @@ describe('the organizer sidebar', () => {
   });
 
   it('links the calendar', () => {
-    expect(flatten(owner).map((i) => i.href)).toContain('/organizer/calendar');
+    const calendar = flatten(owner).find((i) => i.href === '/organizer/calendar');
+    expect(calendar).toBeDefined();
+    // Its page ships separately; a prefetch of a missing route never settles (see NavItem).
+    expect(calendar?.prefetch).toBe(false);
   });
 
   it('lists Movies only for an organization that shows films', () => {

@@ -80,6 +80,7 @@ function NavTree({
     return (
       <Link
         href={item.href}
+        prefetch={item.prefetch === false ? false : undefined}
         onClick={onNavigate}
         aria-current={isCurrent ? 'page' : undefined}
         title={collapsed ? item.label : undefined}
