@@ -3,7 +3,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { BellRing, ExternalLink, LogOut, Receipt, Store, Ticket, User } from 'lucide-react';
-import { api, initialsOf, useAuthUser } from '@eticketsgo/web-kit';
+import {
+  accountContact,
+  accountInitials,
+  accountName,
+  api,
+  useAuthUser,
+} from '@eticketsgo/web-kit';
 import { Link } from '@/i18n/navigation';
 import { useTranslations } from 'next-intl';
 
@@ -58,8 +64,14 @@ export function AccountMenu({ onSignOut }: { onSignOut: () => void }) {
     };
   }, [open]);
 
-  const name = user?.fullName?.trim();
-  const label = name || user?.email || t('account');
+  /*
+    Name, else email, else the person's own phone number. A phone-only account used to be shown
+    by the placeholder address the database keeps for it, and given the initials "PH".
+  */
+  const name = accountName(user);
+  const contact = accountContact(user);
+  const initials = accountInitials(user);
+  const label = name || t('account');
 
   /*
     Fetched only while the menu is open, and never retried.
@@ -93,7 +105,7 @@ export function AccountMenu({ onSignOut }: { onSignOut: () => void }) {
           aria-hidden
           className="flex h-7 w-7 items-center justify-center rounded-full bg-action-primary text-[0.6875rem] font-semibold text-action-primary-foreground"
         >
-          {initialsOf(user?.fullName, user?.email)}
+          {initials ?? <User className="h-4 w-4" />}
         </span>
         <span className="hidden max-w-[10rem] truncate sm:inline">{label}</span>
       </button>
@@ -110,9 +122,7 @@ export function AccountMenu({ onSignOut }: { onSignOut: () => void }) {
             <p className="truncate text-[0.9375rem] font-medium text-text-primary">
               {name || 'Your account'}
             </p>
-            {user?.email ? (
-              <p className="truncate text-caption text-text-muted">{user.email}</p>
-            ) : null}
+            {contact ? <p className="truncate text-caption text-text-muted">{contact}</p> : null}
           </div>
 
           <Link

@@ -28,6 +28,20 @@ export const registrableEmailSchema = emailSchema.refine(
 );
 
 /**
+ * An address mail can actually be sent to.
+ *
+ * Phone-only accounts carry a placeholder address in a domain this platform keeps for itself.
+ * It is an identifier, not a mailbox: tickets, receipts or an organization's contact details
+ * sent to it go nowhere, and bounces damage the sender's reputation. So every place that
+ * stores an address somebody will be MAILED at refuses it, the same way registration does.
+ */
+export const deliverableEmailSchema = z
+  .string()
+  .trim()
+  .email('A valid email is required.')
+  .refine((email) => !isReservedEmail(email), 'Add an email address we can send your tickets to.');
+
+/**
  * The context-free password rules: length, commonness, predictability.
  *
  * The rule lives in `@eticketsgo/shared-types` so the server and the strength meter read ONE
