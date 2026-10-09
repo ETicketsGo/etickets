@@ -36,6 +36,14 @@ import {
 } from './event-image';
 import { groupScopeWhere, type GroupScope } from '../admin/group-scope';
 import { countryWhere } from '../admin/country-filter';
+import {
+  ADMIN_CALENDAR_SELECT,
+  CALENDAR_LIMIT,
+  adminCalendarRow,
+  adminCalendarWhere,
+  type AdminCalendarDbRow,
+  type AdminCalendarQuery,
+} from './admin-event-calendar';
 import { spaceOrganizationId, spaceVenueName } from '../spaces/space-owner';
 
 const ORGANIZER_ROLES = [Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER];
@@ -1535,6 +1543,27 @@ export class EventsService {
         };
       }),
       meta: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) },
+    };
+  }
+
+  /**
+   * Every session in a UTC day window, across organizers, for the admin calendar.
+   *
+   * One more than the cap is read so the response can say it is truncated without a second
+   * count query. Ordered by start so a truncated window drops the END of the window, which is
+   * the part the operator is least likely to be looking at, rather than a random subset.
+   */
+  async adminCalendar(q: AdminCalendarQuery) {
+    const rows = (await this.prisma.eventSession.findMany({
+      where: adminCalendarWhere(q) as Prisma.EventSessionWhereInput,
+      orderBy: [{ startsAt: 'asc' }, { id: 'asc' }],
+      take: CALENDAR_LIMIT + 1,
+      select: ADMIN_CALENDAR_SELECT,
+    })) as unknown as AdminCalendarDbRow[];
+    const truncated = rows.length > CALENDAR_LIMIT;
+    return {
+      data: rows.slice(0, CALENDAR_LIMIT).map(adminCalendarRow),
+      meta: { from: q.from, to: q.to, limit: CALENDAR_LIMIT, truncated },
     };
   }
 

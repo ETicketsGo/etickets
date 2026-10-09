@@ -50,6 +50,7 @@ import { RequiresAdmin, CurrentUser, Public, Roles, type RequestUser } from '../
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { groupScopeFields, type GroupScope } from '../admin/group-scope';
 import { countryFilterField } from '../admin/country-filter';
+import { adminCalendarQuerySchema, type AdminCalendarQuery } from './admin-event-calendar';
 
 const createEventBody = createEventSchema.extend({ organizationId: z.string().cuid() });
 const updateEventBody = createEventSchema.partial();
@@ -560,6 +561,17 @@ export class AdminEventsController {
     } & GroupScope,
   ) {
     return this.events.adminList(q.status, q.page, q.pageSize, q.q || undefined, q, q.country);
+  }
+
+  /*
+    Before any `:id` route on this controller, so "calendar" can never be read as an id. Same
+    class, so the same guard: EVENT_REVIEW, admins only. See `admin-event-calendar.ts` for why the
+    event list could not answer this.
+  */
+  @Get('calendar')
+  @ApiOperation({ summary: 'Sessions across every organizer in a UTC day window (admin).' })
+  calendar(@Query(new ZodValidationPipe(adminCalendarQuerySchema)) q: AdminCalendarQuery) {
+    return this.events.adminCalendar(q);
   }
 
   @Post(':id/review')

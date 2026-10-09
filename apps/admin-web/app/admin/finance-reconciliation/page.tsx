@@ -11,6 +11,7 @@ import {
   EmptyState,
   MetricCard,
   PageHeader,
+  Select,
   money,
   tokenStore,
   useToast,
@@ -20,6 +21,7 @@ import {
   type DiscrepancyRow,
   type DiscrepancyStatusValue,
 } from '@eticketsgo/web-kit';
+import { useUrlFilters } from '../../../components/list-filters';
 
 /*
   The queue is read by a finance person, not by the code that files the rows, so the row says
@@ -69,12 +71,22 @@ function downloadCsv() {
     });
 }
 
+const STATUS_KEYS = ['status'] as const;
+
 export default function FinanceReconciliationPage() {
   const qc = useQueryClient();
   const { push } = useToast();
+  /*
+    The status can be named in the link, like every other queue's: the dashboard counts the
+    exceptions nobody has picked up and links here with `?status=OPEN`, and landing on the whole
+    history instead would make the operator find those rows again. The API already filtered by
+    status; this page never asked it to.
+  */
+  const filters = useUrlFilters(STATUS_KEYS);
+  const status = (filters.values.status || undefined) as DiscrepancyStatusValue | undefined;
   const list = useQuery({
-    queryKey: ['admin', 'discrepancies'],
-    queryFn: () => api.admin.finance.discrepancies(),
+    queryKey: ['admin', 'discrepancies', status ?? 'all'],
+    queryFn: () => api.admin.finance.discrepancies(status),
   });
   const aging = useQuery({
     queryKey: ['admin', 'aging'],
@@ -190,17 +202,42 @@ export default function FinanceReconciliationPage() {
         ))}
       </div>
 
-      <Card title="Discrepancies">
+      <Card
+        title="Discrepancies"
+        action={
+          <div className="w-48">
+            <Select
+              aria-label="Status filter"
+              value={status ?? ''}
+              onChange={(e) => filters.set({ status: e.target.value || undefined })}
+            >
+              <option value="">Every status</option>
+              {(Object.keys(STATUS_LABELS) as DiscrepancyStatusValue[]).map((s) => (
+                <option key={s} value={s}>
+                  {STATUS_LABELS[s]}
+                </option>
+              ))}
+            </Select>
+          </div>
+        }
+      >
         <DataTable
           columns={columns}
           rows={list.data}
           loading={list.isLoading}
           rowKey={(r) => r.id}
           empty={
-            <EmptyState
-              title="Nothing to reconcile"
-              hint="Everything the last detection run compared agreed. Run detection again to check now."
-            />
+            status ? (
+              <EmptyState
+                title={`No discrepancy is ${STATUS_LABELS[status].toLowerCase()}`}
+                hint="Choose Every status to see the whole history."
+              />
+            ) : (
+              <EmptyState
+                title="Nothing to reconcile"
+                hint="Everything the last detection run compared agreed. Run detection again to check now."
+              />
+            )
           }
         />
       </Card>

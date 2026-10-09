@@ -1900,6 +1900,17 @@ export const api = {
     events: (
       params: PageParams & { status?: string; q?: string; country?: string } & AdminGroupFilter,
     ) => request<Paged<AdminEventRow>>(`/admin/events${qs(params)}`),
+    /**
+     * Every session in a window of whole UTC days (both inclusive, at most 62), across
+     * organizers, for the admin calendar. Needs EVENT_REVIEW, like the moderation queue.
+     */
+    eventCalendar: (params: {
+      from: string;
+      to: string;
+      country?: string;
+      organizationId?: string;
+      status?: string;
+    }) => request<AdminCalendarResponse>(`/admin/events/calendar${qs(params)}`),
     reviewEvent: (id: string, decision: 'APPROVE' | 'REJECT', note?: string) =>
       request<OrgEventDetail>(`/admin/events/${id}/review`, {
         method: 'POST',
@@ -5489,6 +5500,29 @@ export interface AdminEventRow {
   firstSessionAt: string | null;
   lastSessionAt: string | null;
   sessionCount: number;
+}
+/**
+ * One session on the admin calendar.
+ *
+ * `timezone` is the zone the session's local day and time are read in - the venue's, then its
+ * room's - or null when nothing records one. It is never guessed; the console shows a null-zone
+ * session in UTC and says so.
+ */
+export interface AdminCalendarSession {
+  id: string;
+  startsAt: string;
+  endsAt: string;
+  status: string;
+  timezone: string | null;
+  room: string | null;
+  event: { id: string; title: string; status: string; category: string };
+  organization: { id: string; name: string };
+  venue: { name: string; city: string; country: string | null };
+}
+export interface AdminCalendarResponse {
+  data: AdminCalendarSession[];
+  /** `truncated` means the window held more sessions than `limit`; narrow the filters. */
+  meta: { from: string; to: string; limit: number; truncated: boolean };
 }
 /** What an admin queue can be grouped by. Which ones a given queue accepts is server-side. */
 export type AdminGroupBy = 'country' | 'organizer' | 'event' | 'currency';

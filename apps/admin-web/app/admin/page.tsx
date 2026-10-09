@@ -121,6 +121,21 @@ export default function AdminDashboard() {
         </Card>
       )}
 
+      {/*
+        The line between the two halves of the page, said in words. Everything above asks for a
+        decision; everything below is a measurement nobody has to act on, and a red number down
+        here (payment failures, refunds) is a reading, not a queue - the queues are above.
+      */}
+      {mayReadFigures && (
+        <div className="border-t border-border pt-6">
+          <h2 className="text-title font-semibold text-text-primary">How the platform is doing</h2>
+          <p className="mt-1 text-sm text-text-secondary">
+            For information. Money is shown one currency at a time and is never added across
+            currencies.
+          </p>
+        </div>
+      )}
+
       {markets.length > 0 && (
         <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Market">
           <span className="text-sm text-text-muted">Showing figures for</span>
@@ -221,7 +236,13 @@ export default function AdminDashboard() {
       */}
       {markets.length > 0 && (
         <Card title="By market">
-          <div className="overflow-x-auto">
+          {/* Focusable, so a keyboard user can scroll it sideways on a phone (WCAG 2.1.1). */}
+          <div
+            className="overflow-x-auto"
+            tabIndex={0}
+            role="region"
+            aria-label="Figures by market"
+          >
             <table className="w-full text-left text-sm">
               <caption className="sr-only">
                 Money, bookings and payment failures for each market
