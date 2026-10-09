@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { eventImageFields } from '@/features/events/event-image';
 
 /**
  * Runtime contract for the public discovery endpoints.
@@ -35,6 +36,8 @@ export const eventSummarySchema = z.object({
   /** Cheapest ticket, in MINOR units (paise/cents). Never render this unformatted. */
   fromPriceMinor: z.number().nullable(),
   currency: z.string(),
+  /** The event's picture, when it has one. See event-image.ts for why both are optional. */
+  ...eventImageFields,
 });
 
 export const movieSummarySchema = z.object({

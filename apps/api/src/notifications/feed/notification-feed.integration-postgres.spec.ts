@@ -140,6 +140,8 @@ describe('integration-real-postgres: notification centre folding', () => {
             { id: EVENT_ID, title: `Telugu Movie ${suffix}`, organizationId: orgId },
           ],
         },
+        // Real: the sweep reads what it already sent about the event.
+        notification: db.notification,
       } as never,
       sellability as never,
       // Admins are not under test; the real fan-out would message every admin in the DB.

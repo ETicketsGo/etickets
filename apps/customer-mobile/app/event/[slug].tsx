@@ -10,6 +10,7 @@ import { Badge, Button, Card, Chip, IconButton, Separator, Text } from '@/ui';
 import { formatDateTime, formatMoney } from '@/services/locale';
 import { useEvent } from '@/features/events/api';
 import { QuantityStepper } from '@/features/events/quantity-stepper';
+import { EventPicture } from '@/features/events/event-picture';
 import type { EventSession, TicketType } from '@/features/events/schema';
 import { requiresSeatSelection } from '@/features/events/seating';
 
@@ -95,6 +96,9 @@ export default function EventDetailScreen() {
       </View>
 
       <ScrollView contentContainerClassName="pb-6" showsVerticalScrollIndicator={false}>
+        {/* The organizer's banner, when there is one. Without one the page opens on the title,
+            as it always has: a placeholder this large would only push the tickets down. */}
+        <EventPicture event={event} use="banner" fallback={null} className="mb-4" />
         <View className="gap-2 px-5 pb-4">
           <Badge label={event.category} tone="accent" />
           <Text variant="title1" accessibilityRole="header">
