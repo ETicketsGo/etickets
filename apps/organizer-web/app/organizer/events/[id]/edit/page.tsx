@@ -23,6 +23,7 @@ import {
   prepareEventImage,
   type GalleryTile,
 } from '@/components/event-image-picker';
+import { EventImageFocus } from '@/components/event-image-focus';
 import {
   EMPTY_EVENT_DETAILS,
   EventDetailsFields,
@@ -192,6 +193,15 @@ export default function EditEvent() {
     onError: (e) => setImageError(errorMessage(e)),
     onSettled: refreshEvent,
   });
+  // Saved on its own like the images themselves; the copies are cut again on the server.
+  const [focusError, setFocusError] = useState<string | null>(null);
+  const setFocalPoint = useMutation({
+    mutationFn: (input: { imageId: string; x: number; y: number }) =>
+      api.events.setImageFocalPoint(id, input.imageId, { x: input.x, y: input.y }),
+    onSuccess: () => setFocusError(null),
+    onError: (e) => setFocusError(errorMessage(e)),
+    onSettled: refreshEvent,
+  });
 
   if (isError)
     return (
@@ -303,6 +313,15 @@ export default function EditEvent() {
             onReorder={(imageIds) => reorderImages.mutate(imageIds)}
           />
         </div>
+        {(event.images?.length ?? 0) > 0 && (
+          <EventImageFocus
+            images={event.images ?? []}
+            disabled={IMAGES_LOCKED.includes(event.status)}
+            saving={setFocalPoint.isPending}
+            error={focusError}
+            onSave={(imageId, point) => setFocalPoint.mutate({ imageId, ...point })}
+          />
+        )}
         <EventDetailsFields value={details} onChange={setDetails} disabled={!editable} />
         <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
           <Textarea

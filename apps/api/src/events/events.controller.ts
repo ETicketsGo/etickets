@@ -18,7 +18,12 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { SkipThrottle } from '@nestjs/throttler';
 import type { Response } from 'express';
 import { z } from 'zod';
-import { AdminPermission, EventStatus, Role } from '@eticketsgo/shared-types';
+import {
+  AdminPermission,
+  EventStatus,
+  Role,
+  isEventImageVariantName,
+} from '@eticketsgo/shared-types';
 import {
   createEventSchema,
   createSessionSchema,
@@ -35,7 +40,11 @@ import {
 } from '@eticketsgo/validation';
 import { EventsService } from './events.service';
 import { PublicEventsService } from './public-events.service';
-import { EventImageService, type UploadedImageFile } from './event-image.service';
+import {
+  EventImageService,
+  type ServedEventImage,
+  type UploadedImageFile,
+} from './event-image.service';
 import { EVENT_IMAGE_MAX_BYTES, EVENT_IMAGE_MAX_COUNT, eventImageVersion } from './event-image';
 import { RequiresAdmin, CurrentUser, Public, Roles, type RequestUser } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
@@ -46,6 +55,10 @@ const createEventBody = createEventSchema.extend({ organizationId: z.string().cu
 const updateEventBody = createEventSchema.partial();
 const reorderImagesBody = z.object({
   imageIds: z.array(z.string().min(1).max(64)).min(1).max(EVENT_IMAGE_MAX_COUNT),
+});
+const focalPointBody = z.object({
+  x: z.number().finite().min(0).max(1),
+  y: z.number().finite().min(0).max(1),
 });
 
 /**
@@ -59,13 +72,7 @@ const reorderImagesBody = z.object({
  */
 export function sendEventImage(
   res: Response,
-  image: {
-    bytes?: Uint8Array;
-    /** Set when the object is in a public bucket with a reachable CDN address. */
-    redirectTo?: string;
-    contentType: string;
-    sha256: string;
-  } | null,
+  image: ServedEventImage | null,
   version: string | undefined,
   ifNoneMatch: string | undefined,
 ): void {
@@ -73,7 +80,8 @@ export function sendEventImage(
     res.status(404).json({ code: 'NOT_FOUND', message: 'This event has no image.' });
     return;
   }
-  const current = eventImageVersion(image.sha256);
+  // A copy names its own version (its crop depends on the focal point as well as the bytes).
+  const current = image.version ?? eventImageVersion(image.sha256);
   /*
     Once the object is on a CDN, stop proxying it.
 
@@ -219,6 +227,21 @@ export class EventsController {
     @Body(new ZodValidationPipe(reorderImagesBody)) body: z.infer<typeof reorderImagesBody>,
   ) {
     return this.images.reorder(user, id, body.imageIds);
+  }
+
+  /*
+    The part of the picture every crop keeps in view. Cuts the image's copies again, so the
+    response carries their new URLs.
+  */
+  @Put(':id/images/:imageId/focal-point')
+  @ApiOperation({ summary: 'Set where crops of an event image are centred (x, y from 0 to 1).' })
+  setImageFocalPoint(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @Param('imageId') imageId: string,
+    @Body(new ZodValidationPipe(focalPointBody)) body: z.infer<typeof focalPointBody>,
+  ) {
+    return this.images.setFocalPoint(user, id, imageId, body);
   }
 
   @Delete(':id/images/:imageId')
@@ -448,6 +471,33 @@ export class PublicEventsController {
     @Res() res: Response,
   ): Promise<void> {
     sendEventImage(res, await this.images.read(id, imageId), version, ifNoneMatch);
+  }
+
+  /**
+   * One web-ready copy of an event image: `card`, `banner`, `thumb` or `full`, and the smaller
+   * `card-sm` and `banner-sm` for a `srcset`. Not throttled, for the same reason as the above.
+   *
+   * An unknown name is a 404 rather than the original: a typo in a client should be found, not
+   * quietly served a 2 MB picture where it asked for a thumbnail.
+   */
+  @Public()
+  @SkipThrottle()
+  @Get(':id/images/:imageId/:variant')
+  @ApiOperation({ summary: 'A web-ready copy of one of an event’s images.' })
+  async imageVariant(
+    @Param('id') id: string,
+    @Param('imageId') imageId: string,
+    @Param('variant') variant: string,
+    @Query('v') version: string | undefined,
+    @Headers('if-none-match') ifNoneMatch: string | undefined,
+    @Res() res: Response,
+  ): Promise<void> {
+    sendEventImage(
+      res,
+      isEventImageVariantName(variant) ? await this.images.readVariant(id, imageId, variant) : null,
+      version,
+      ifNoneMatch,
+    );
   }
 }
 

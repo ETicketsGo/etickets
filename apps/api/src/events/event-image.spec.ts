@@ -211,6 +211,46 @@ describe('EventImageService', () => {
     expect(prisma.eventImage.create).not.toHaveBeenCalled();
   });
 
+  it('refuses a file that only STARTS like a JPEG, storing nothing', async () => {
+    const { service, prisma } = setup();
+    const forged = Buffer.concat([JPEG, Buffer.alloc(2000, 0x41)]);
+    await expect(
+      service.add(organizer, 'ev1', { buffer: forged, size: forged.length }),
+    ).rejects.toMatchObject({ code: 'VALIDATION_FAILED', status: 415 });
+    expect(prisma.eventImage.create).not.toHaveBeenCalled();
+  });
+
+  it('writes every web-ready copy with the image, in the same statement', async () => {
+    const { service, prisma } = setup();
+    await service.add(organizer, 'ev1', png);
+    const data = prisma.eventImage.create.mock.calls[0][0].data as unknown as {
+      variants: {
+        create: {
+          name: string;
+          contentType: string;
+          bytes: Buffer;
+          sizeBytes: number;
+          storageKey: string | null;
+        }[];
+      };
+    };
+    const variants = data.variants.create;
+    expect(variants.map((v) => v.name)).toEqual([
+      'thumb',
+      'card-sm',
+      'card',
+      'banner-sm',
+      'banner',
+      'full',
+    ]);
+    for (const variant of variants) {
+      expect(variant.contentType).toBe('image/webp');
+      // The database driver: bytes in the row, no key.
+      expect(variant.bytes.length).toBe(variant.sizeBytes);
+      expect(variant.storageKey).toBeNull();
+    }
+  });
+
   it('checks the caller belongs to the organization, as an owner or manager', async () => {
     const { service, access } = setup();
     await service.add(organizer, 'ev1', png);

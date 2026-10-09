@@ -289,8 +289,9 @@ export function EventGalleryEditor({
         {full ? `${max} images added` : ready.length ? 'Add more images' : 'Choose images'}
       </Button>
       <p id={hintId} className="text-caption text-text-muted">
-        Up to {max}. The first image is the cover — shown on cards and at the top of your event
-        page, shown whole rather than cropped. JPG, PNG or WebP; drag several in at once.
+        Up to {max}. The first image is the cover, shown on cards and at the top of your event page.
+        Those show a crop of it, and once it is saved you can choose what the crop keeps. JPG, PNG
+        or WebP; drag several in at once.
       </p>
       {note && <p className="text-caption text-text-secondary">{note}</p>}
       {error && (

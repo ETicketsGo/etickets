@@ -7,7 +7,13 @@ import { AdvertisedPriceService } from '../pricing/advertised-price.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import { availableUnits } from '../inventory/inventory-strategy.interface';
 import { countryAliases } from '../common/country';
-import { coverImagePath, eventImageOrder, eventImagesView } from './event-image';
+import {
+  EVENT_IMAGE_URL_SELECT,
+  coverImagePath,
+  coverImageVariants,
+  eventImageOrder,
+  eventImagesView,
+} from './event-image';
 
 export interface PublicEventFilters {
   q?: string;
@@ -204,7 +210,7 @@ export class PublicEventsService {
           },
           organization: { select: { name: true } },
           // The cover's id and hash only. A listing must never drag image bytes out of the database.
-          images: { select: { id: true, sha256: true }, orderBy: eventImageOrder(), take: 1 },
+          images: { select: EVENT_IMAGE_URL_SELECT, orderBy: eventImageOrder(), take: 1 },
           sessions: {
             /*
               The NEXT session, not the first one ever scheduled.
@@ -244,6 +250,7 @@ export class PublicEventsService {
           venue: cardVenue(e.venue),
           organizer: e.organization.name,
           imagePath: coverImagePath(e.id, e.images),
+          imageVariants: coverImageVariants(e.id, e.images),
           nextSessionAt: e.sessions[0]?.startsAt ?? null,
           fromPriceMinor: await this.advertised.forTicket(
             e.sessions[0]?.ticketTypes[0]?.priceMinor ?? null,
@@ -288,7 +295,7 @@ export class PublicEventsService {
       where: { slug },
       include: {
         venue: true,
-        images: { select: { id: true, sha256: true }, orderBy: eventImageOrder() },
+        images: { select: EVENT_IMAGE_URL_SELECT, orderBy: eventImageOrder() },
         organization: {
           select: {
             id: true,
@@ -354,6 +361,7 @@ export class PublicEventsService {
       slug: event.slug,
       // The cover for anything that shows one image, and all of them for the page's gallery.
       imagePath: coverImagePath(event.id, event.images),
+      imageVariants: coverImageVariants(event.id, event.images),
       images: eventImagesView(event.id, event.images),
       experienceType: event.experienceType,
       category: event.category,
@@ -454,7 +462,7 @@ export class PublicEventsService {
       include: {
         // With its zone, for the same reason as the browse listing: the card's date is the venue's.
         venue: { select: { name: true, city: true, country: true, region: true, timezone: true } },
-        images: { select: { id: true, sha256: true }, orderBy: eventImageOrder(), take: 1 },
+        images: { select: EVENT_IMAGE_URL_SELECT, orderBy: eventImageOrder(), take: 1 },
         /*
           The same "still on" rule as the browse listing. This took each event's FIRST session
           ever and its cheapest ticket type of any status, so an organizer's page could show a
@@ -516,6 +524,7 @@ export class PublicEventsService {
         venue: cardVenue(e.venue),
         organizer: org.name,
         imagePath: coverImagePath(e.id, e.images),
+        imageVariants: coverImageVariants(e.id, e.images),
         nextSessionAt: e.sessions[0]?.startsAt ?? null,
         fromPriceMinor: advertisedByEvent.get(e.id) ?? null,
         currency: e.sessions[0]?.ticketTypes[0]?.currency ?? 'INR',
