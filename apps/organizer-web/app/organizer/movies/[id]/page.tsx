@@ -4,6 +4,7 @@ import Link from 'next/link';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ScheduleRunDialog } from '@/components/schedule-run-dialog';
+import { instantToWallClock, wallClockToInstant, zoneLabel } from '@/lib/zoned-time';
 import { EditShowDialog } from '@/components/edit-show-dialog';
 import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
@@ -40,12 +41,6 @@ const splitList = (v: string): string[] =>
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
-
-// `datetime-local` inputs expect a local `YYYY-MM-DDTHH:mm` string.
-const localDateTimeValue = (d: Date): string => {
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-};
 
 export default function EditMoviePage() {
   const { id } = useParams<{ id: string }>();
@@ -160,6 +155,15 @@ export default function EditMoviePage() {
 
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [sched, setSched] = useState({ cinemaId: '', screenId: '', startsAt: '', endsAt: '' });
+  /*
+    A showtime is a wall clock AT THE CINEMA. This dialog read "19:00" in the browser's zone,
+    so an operator scheduling a Hyderabad screen from Denver stored 19:00 Denver time - found
+    on QA in the 2026-10-09 cinema certification. The cinema's zone is authoritative.
+  */
+  const zoneOfCinema = (cinemaId: string | null | undefined) =>
+    cinemasQ.data?.find((c) => c.id === cinemaId)?.timezone ?? undefined;
+  const schedZone =
+    zoneOfCinema(sched.cinemaId) ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
   const [pricing, setPricing] = useState<Record<string, string>>({});
   const [schedError, setSchedError] = useState<string | null>(null);
 
@@ -194,8 +198,8 @@ export default function EditMoviePage() {
         }));
       const body: ScheduleShowBody = {
         screenId: sched.screenId,
-        startsAt: new Date(sched.startsAt).toISOString(),
-        endsAt: new Date(sched.endsAt).toISOString(),
+        startsAt: wallClockToInstant(sched.startsAt, schedZone).toISOString(),
+        endsAt: wallClockToInstant(sched.endsAt, schedZone).toISOString(),
         pricing: pricingEntries.length > 0 ? pricingEntries : undefined,
       };
       return api.shows.schedule(id, body);
@@ -244,9 +248,12 @@ export default function EditMoviePage() {
     if (noSeatMap)
       return setSchedError('This screen has no seat map yet — generate one before scheduling.');
     if (!sched.startsAt || !sched.endsAt) return setSchedError('Set start and end times.');
-    if (new Date(sched.startsAt).getTime() < Date.now())
+    if (wallClockToInstant(sched.startsAt, schedZone).getTime() < Date.now())
       return setSchedError('Start time must be in the future.');
-    if (new Date(sched.endsAt) <= new Date(sched.startsAt))
+    if (
+      wallClockToInstant(sched.endsAt, schedZone).getTime() <=
+      wallClockToInstant(sched.startsAt, schedZone).getTime()
+    )
       return setSchedError('End time must be after start time.');
     setSchedError(null);
     schedule.mutate();
@@ -264,7 +271,11 @@ export default function EditMoviePage() {
   const [runOpen, setRunOpen] = useState(false);
 
   const showColumns: Column<ShowRow>[] = [
-    { key: 'startsAt', header: 'Showtime', render: (s) => dateTime(s.startsAt) },
+    {
+      key: 'startsAt',
+      header: 'Showtime',
+      render: (s) => dateTime(s.startsAt, undefined, zoneOfCinema(s.cinemaId)),
+    },
     { key: 'screenName', header: 'Screen', render: (s) => s.screenName ?? '—' },
     { key: 'cinemaName', header: 'Cinema', render: (s) => s.cinemaName ?? '—' },
     {
@@ -288,7 +299,7 @@ export default function EditMoviePage() {
           <Button
             size="sm"
             variant="ghost"
-            aria-label={`Edit the ${dateTime(s.startsAt)} show`}
+            aria-label={`Edit the ${dateTime(s.startsAt, undefined, zoneOfCinema(s.cinemaId))} show`}
             onClick={() => setEditing(s)}
           >
             Edit
@@ -620,9 +631,10 @@ export default function EditMoviePage() {
             <DateTimeField
               id="schedStart"
               label="Starts at"
-              min={localDateTimeValue(new Date())}
+              min={instantToWallClock(new Date(), schedZone)}
               value={sched.startsAt}
               onChange={(v) => setSched({ ...sched, startsAt: v })}
+              timeZoneLabel={sched.cinemaId ? `Cinema time: ${zoneLabel(schedZone)}` : undefined}
             />
             <DateTimeField
               id="schedEnd"
@@ -633,6 +645,7 @@ export default function EditMoviePage() {
               min={sched.startsAt}
               value={sched.endsAt}
               onChange={(v) => setSched({ ...sched, endsAt: v })}
+              timeZoneLabel={sched.cinemaId ? `Cinema time: ${zoneLabel(schedZone)}` : undefined}
             />
           </div>
 
