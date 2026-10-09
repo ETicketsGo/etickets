@@ -317,7 +317,7 @@ export default function ExplorePage() {
         </div>
       ) : nothingHere && where ? (
         <EmptyState
-          title={`Nothing on in ${where} just yet`}
+          title={`No events available in ${where} yet`}
           hint="Search for a city to see what is on there."
           icon={Compass}
           action={

@@ -42,7 +42,7 @@ test.describe('the buyer front door', () => {
     */
     await page.goto(`${CUSTOMER}/`, { waitUntil: 'networkidle' });
 
-    const empty = page.getByText(/Nothing on in .* just yet/);
+    const empty = page.getByText(/No events available in .* yet/);
     if (await empty.count()) {
       await expect(page.getByText(/Here is where we are selling right now/i)).toBeVisible();
       // At least one city chip, and choosing it must change what the page shows.

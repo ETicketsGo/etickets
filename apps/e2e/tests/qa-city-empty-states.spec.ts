@@ -55,11 +55,11 @@ test.describe('QA: a city that empties a page says so', () => {
     // Bengaluru has films and no browsable events.
     await chooseCity(page, /^Bengaluru/, 'bengaluru');
 
-    await expect(page.getByText(/Nothing on in Bengaluru just yet/)).toBeVisible({
+    await expect(page.getByText(/No events available in Bengaluru yet/)).toBeVisible({
       timeout: 30_000,
     });
     await page.getByRole('button', { name: 'Show all cities' }).click();
-    await expect(page.getByText(/Nothing on in Bengaluru just yet/)).toHaveCount(0);
+    await expect(page.getByText(/No events available in Bengaluru yet/)).toHaveCount(0);
   });
 
   test('a search term makes the message about the search, not the city', async ({ page }) => {
@@ -79,7 +79,7 @@ test.describe('QA: a city that empties a page says so', () => {
     await page.getByRole('button', { name: /^Search$/ }).click();
 
     await expect(page.getByText(/No events match your search/)).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText(/Nothing on in Bengaluru just yet/)).toHaveCount(0);
+    await expect(page.getByText(/No events available in Bengaluru yet/)).toHaveCount(0);
   });
 
   /*

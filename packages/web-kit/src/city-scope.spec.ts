@@ -15,6 +15,7 @@ import { cityScope, countryName, countryPhrase, type CityPreference } from './ci
  */
 const preference = (over: Partial<CityPreference> = {}): CityPreference => ({
   city: null,
+  place: null,
   country: null,
   topCities: [],
   suggestion: null,
@@ -86,6 +87,29 @@ describe('cityScope', () => {
     expect(cityScope(preference({ city: 'Hyderabad', country: 'US' }))).toEqual({
       city: 'Hyderabad',
     });
+  });
+
+  it("carries the chosen city's own country and state, never the visitor's scope", () => {
+    /*
+      Two places can share a name. A city chosen from 'use my location' or from the search
+      knows where it is, and the request says so - as cityCountry, which the API applies only
+      to that city. The visitor's scope 'country' is still never sent with a city.
+    */
+    expect(
+      cityScope(
+        preference({
+          city: 'Springfield',
+          place: { region: 'Illinois', country: 'US' },
+          country: 'IN',
+        }),
+      ),
+    ).toEqual({ city: 'Springfield', cityCountry: 'US', region: 'Illinois' });
+  });
+
+  it('sends only what it knows about the place', () => {
+    expect(
+      cityScope(preference({ city: 'Hyderabad', place: { region: null, country: 'India' } })),
+    ).toEqual({ city: 'Hyderabad', cityCountry: 'India' });
   });
 });
 
