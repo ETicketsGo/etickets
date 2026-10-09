@@ -15,8 +15,17 @@ import { venueZone } from '@eticketsgo/shared-types';
 
 /** A wall-clock `YYYY-MM-DDTHH:mm` in `timeZone`, as an absolute instant. */
 export function wallClockToInstant(local: string, timeZone: string): Date {
-  const [date, time = '00:00'] = local.split('T');
+  const [date, time] = local.split('T');
+  /*
+    Half-typed values arrive on every render - a date picked before its time. `new Date` used
+    to turn those into an Invalid Date quietly; Intl.DateTimeFormat THROWS on one, which took
+    the whole wizard down. So an incomplete value is an Invalid Date here too, never an error.
+  */
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date ?? '') || !/^\d{2}:\d{2}/.test(time ?? '')) {
+    return new Date(NaN);
+  }
   const naive = new Date(`${date}T${time.slice(0, 5)}:00Z`);
+  if (Number.isNaN(naive.getTime())) return naive;
   const offsetMs = zoneOffsetMs(naive, timeZone);
   // The offset at the guessed instant can differ from the offset at the true instant across a
   // DST change; one correction step settles it for every real zone.

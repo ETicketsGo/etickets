@@ -18,6 +18,13 @@ describe('show times are typed in the venue zone', () => {
     );
   });
 
+  it('treats a half-typed value as no time yet, never as an error', () => {
+    // The wizard renders on every keystroke; this used to crash the whole page.
+    for (const v of ['', '2026-11-06', '2026-11-06T', '2026-11-06T1', 'not a date']) {
+      expect(Number.isNaN(wallClockToInstant(v, 'Asia/Kolkata').getTime())).toBe(true);
+    }
+  });
+
   it('round-trips for an edit form', () => {
     for (const [local, zone] of [
       ['2026-11-06T19:00', 'Asia/Kolkata'],
