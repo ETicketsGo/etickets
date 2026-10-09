@@ -342,6 +342,83 @@ describe('integration-real-postgres: screen operational status', () => {
     },
   );
 
+  /** A venue with one cinema and `screens` one-seat screens, all in the test organization. */
+  const place = async (tag: string, country: string | null, timezone: string, screens = 1) => {
+    const d = db as Client;
+    const v = await d.venue.create({
+      data: { organizationId: orgId, name: `${tag} ${suffix}`, city: tag, country, timezone },
+    });
+    const c = await d.cinema.create({
+      data: {
+        organizationId: orgId,
+        venueId: v.id,
+        name: `${tag} C ${suffix}`,
+        city: tag,
+        timezone,
+      },
+    });
+    const ids: string[] = [];
+    for (let i = 0; i < screens; i++) {
+      const sc = await d.screen.create({
+        data: { cinemaId: c.id, name: `${tag} ${i}`, screenType: '2D', capacity: 1 },
+      });
+      const m = await d.seatMap.create({ data: { screenId: sc.id, name: 'P' } });
+      const cat = await d.seatCategory.create({
+        data: { seatMapId: m.id, name: 'Normal', basePriceMinor: 1500, sortOrder: 0 },
+      });
+      const sec = await d.seatSection.create({
+        data: { seatMapId: m.id, name: 'M', sortOrder: 0 },
+      });
+      const row = await d.seatRow.create({ data: { sectionId: sec.id, label: 'A', sortOrder: 0 } });
+      await d.seat.create({
+        data: {
+          seatMapId: m.id,
+          rowId: row.id,
+          seatCategoryId: cat.id,
+          label: '1',
+          colIndex: 1,
+          kind: 'SEAT',
+        },
+      });
+      ids.push(sc.id);
+    }
+    return { venueId: v.id, screenIds: ids };
+  };
+  const inDays = (days: number, h: number) => {
+    const t = new Date();
+    t.setUTCDate(t.getUTCDate() + days);
+    t.setUTCHours(h, 0, 0, 0);
+    return t;
+  };
+
+  maybe('concurrent schedules of one film at one venue make exactly one event', async () => {
+    const { venueId: v, screenIds } = await place('Pune', 'IN', 'Asia/Kolkata', 3);
+    const results = await Promise.all(
+      screenIds.map((screenId) =>
+        shows.scheduleShow(ORGANIZER, movieId, {
+          screenId,
+          startsAt: inDays(130, 12),
+          endsAt: inDays(130, 14),
+        } as never),
+      ),
+    );
+    expect(new Set(results.map((r) => r.eventId)).size).toBe(1);
+    expect(await (db as Client).event.count({ where: { movieId, venueId: v } })).toBe(1);
+  });
+
+  maybe('refuses to schedule at a venue with no country, and leaves nothing behind', async () => {
+    const { venueId: v, screenIds } = await place('Nowhere', null, 'Asia/Kolkata');
+    await expect(
+      shows.scheduleShow(ORGANIZER, movieId, {
+        screenId: screenIds[0],
+        startsAt: inDays(131, 12),
+        endsAt: inDays(131, 14),
+      } as never),
+    ).rejects.toMatchObject({ response: { details: { reason: 'CURRENCY_CONTEXT_REQUIRED' } } });
+    // The whole schedule rolled back: no event was left filed under that venue.
+    expect(await (db as Client).event.count({ where: { movieId, venueId: v } })).toBe(0);
+  });
+
   maybe('defaults to ACTIVE, so existing screens are unaffected by the migration', async () => {
     const screen = await (db as Client).screen.findUnique({ where: { id: screenId } });
     expect(screen.status).toBe('ACTIVE');

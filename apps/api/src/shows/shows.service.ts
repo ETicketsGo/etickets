@@ -1424,6 +1424,13 @@ export class ShowsService {
 
       Existing events are reused for their own venue, so nothing already sold moves.
     */
+    /*
+      Serialised per (film, venue). Two operators scheduling the same film at the same venue at
+      the same moment would otherwise both miss in `findFirst` and both create an event - two
+      events for one place, splitting its showings. The lock is transaction-scoped, so it is
+      released by the commit or rollback of the schedule that took it.
+    */
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`movie-event:${movie.id}:${venueId}`}))`;
     const existing = await tx.event.findFirst({
       where: { movieId: movie.id, experienceType: ExperienceType.MOVIE, venueId },
     });

@@ -523,8 +523,12 @@ describe('integration-real-postgres: cinema timezone is authoritative', () => {
       createCinemaSchema.safeParse({ name: 'Odeon', city: 'Sydney', timezone: 'Australia/Sydney' })
         .success,
     ).toBe(true);
-    // Omitted entirely, an operator gets the launch market rather than a failure.
+    /*
+      Omitted, the schema no longer invents the launch market. CinemasService resolves it from
+      the venue or its country, and refuses a multi-zone country with none (see
+      cinemas.service.spec.ts) - a silent Asia/Kolkata default ran Boise spaces on Indian time.
+    */
     const parsed = createCinemaSchema.parse({ name: 'Odeon', city: 'Hyderabad' });
-    expect(parsed.timezone).toBe('Asia/Kolkata');
+    expect(parsed.timezone).toBeUndefined();
   });
 });
