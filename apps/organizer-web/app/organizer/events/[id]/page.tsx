@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
+import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import {
   api,
@@ -15,11 +16,26 @@ import {
   useToast,
   errorMessage,
   titleCase,
-  dateTime,
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
 import { SellabilityPanel } from '@/components/sellability-panel';
+import { ReadMore } from '@/components/events/read-more';
+import {
+  QuickLinks,
+  SalesSection,
+  SessionsSection,
+  TicketsSection,
+} from '@/components/events/overview-sections';
+import { timeAtVenue } from '@/components/events/event-list-model';
 
+/*
+  ── THE ORDER OF THIS PAGE ─────────────────────────────────────────────────────────
+  The header above (in the layout) says which event this is and where it stands. Below it,
+  from `lg` up, two columns: what the event IS and how it is doing on the left - about, what is
+  missing, tickets, sales, sessions - and what to DO on the right: the status actions and the
+  way into each section. On a phone the status card comes first, because a phone is where
+  somebody goes to pause a show, not to read its description.
+*/
 export default function EventOverview() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
@@ -89,125 +105,163 @@ export default function EventOverview() {
   if (isLoading || !event) return <Skeleton className="h-64 w-full" />;
 
   return (
-    <div className="grid gap-6 lg:grid-cols-3">
-      <Card className="lg:col-span-2" title="Details">
-        <dl className="grid grid-cols-2 gap-y-3 text-sm">
-          <dt className="text-text-muted">Category</dt>
-          <dd className="text-text-primary">{event.category}</dd>
-          <dt className="text-text-muted">Venue</dt>
-          <dd className="text-text-primary">
-            {event.venue.name}, {event.venue.city}
-          </dd>
-          <dt className="text-text-muted">Age limit</dt>
-          <dd className="text-text-primary">
-            {event.ageLimit ? `${event.ageLimit}+` : 'No age limit'}
-          </dd>
-          <dt className="text-text-muted">Artists</dt>
-          <dd className="text-text-primary">
-            {event.artists?.length ? event.artists.map((a) => a.name).join(', ') : 'None'}
-          </dd>
-          <dt className="text-text-muted">Fee handling</dt>
-          <dd className="text-text-primary">{titleCase(event.feeMode)}</dd>
-          <dt className="text-text-muted">Sessions</dt>
-          <dd className="text-text-primary">{event.sessions.length}</dd>
-          <dt className="text-text-muted">Published</dt>
-          <dd className="text-text-primary">
-            {event.publishedAt ? dateTime(event.publishedAt) : '—'}
-          </dd>
-        </dl>
-        {event.description && (
-          <p className="mt-4 text-sm text-text-secondary">{event.description}</p>
-        )}
-        {event.reviewNote && (
-          <p className="mt-4 rounded-md bg-status-warning/10 p-3 text-sm text-status-warning">
-            Reviewer note: {event.reviewNote}
-          </p>
-        )}
-      </Card>
-
-      {/*
-        Above the submit button, because it decides whether that button will work. An
-        organizer who reads this first never meets the refusal; one who does not still gets
-        the same list back from the refusal itself.
-      */}
-      <div className="lg:col-span-2 lg:order-last">
-        <SellabilityPanel eventId={id} />
-      </div>
-
-      <Card title="Status & actions">
-        <div className="mb-4">
-          <StatusBadge status={event.status} />
-        </div>
-        <div className="space-y-2">
-          {/*
-            A pause by the platform team is theirs to lift, and the API refuses both ways back
-            to sale. The reason replaces the buttons, so the organizer is not offered two
-            controls that can only fail.
-          */}
-          {event.status === 'PAUSED' && event.pausedByAdmin && (
-            <p className="rounded-md border border-status-warning/40 bg-tint-warning p-3 text-sm text-status-warning">
-              This event was paused by the platform team. Contact support to resume it.
+    <div className="grid min-w-0 gap-6 lg:grid-cols-3">
+      <div className="min-w-0 space-y-6 lg:col-span-2">
+        <Card title="About this event">
+          {event.description ? (
+            <ReadMore text={event.description} />
+          ) : (
+            <p className="text-[0.9375rem] text-text-muted">
+              No description yet. Buyers read this on the event page.{' '}
+              <Link
+                href={`/organizer/events/${id}/edit`}
+                className="font-medium text-action-primary hover:underline"
+              >
+                Add one
+              </Link>
             </p>
           )}
-          {(event.status === 'DRAFT' || (event.status === 'PAUSED' && !event.pausedByAdmin)) && (
-            <Button className="w-full" loading={submit.isPending} onClick={() => submit.mutate()}>
-              Submit for approval
-            </Button>
+          <dl className="mt-5 grid grid-cols-1 gap-x-6 gap-y-3 border-t border-border pt-4 text-[0.9375rem] sm:grid-cols-2">
+            {[
+              ['Category', event.category],
+              [
+                'Venue',
+                [event.venue.name, event.venue.address, event.venue.city]
+                  .filter(Boolean)
+                  .join(', '),
+              ],
+              ['Age limit', event.ageLimit ? `${event.ageLimit}+` : 'No age limit'],
+              [
+                'Artists',
+                event.artists?.length ? event.artists.map((a) => a.name).join(', ') : 'None',
+              ],
+              ['Fee handling', event.isFree ? 'Free event' : titleCase(event.feeMode)],
+              [
+                'Published',
+                event.publishedAt ? timeAtVenue(event.publishedAt, event.venue) : 'Not yet',
+              ],
+            ].map(([label, value]) => (
+              <div key={label} className="min-w-0">
+                <dt className="text-caption text-text-muted">{label}</dt>
+                <dd className="break-words text-text-primary [overflow-wrap:anywhere]">{value}</dd>
+              </div>
+            ))}
+          </dl>
+          {event.reviewNote && (
+            <p className="mt-4 break-words rounded-md bg-tint-warning p-3 text-[0.9375rem] text-status-warning">
+              Reviewer note: {event.reviewNote}
+            </p>
           )}
-          {event.status === 'PUBLISHED' && (
-            <Button
-              variant="outline"
-              className="w-full"
-              loading={pause.isPending}
-              onClick={() => pause.mutate()}
-            >
-              Pause event
-            </Button>
-          )}
-          {event.status === 'PAUSED' && !event.pausedByAdmin && (
-            <>
-              <Button
-                variant="outline"
-                className="w-full"
-                loading={resume.isPending}
-                onClick={() => resume.mutate()}
-              >
-                Resume event
-              </Button>
-              {event.needsReviewOnResume && (
-                <p className="text-caption text-text-muted">
-                  Details were edited while paused, so resuming may send it for review first.
+        </Card>
+
+        {/*
+          Before the figures, because it decides whether the submit button will work. An
+          organizer who reads this first never meets the refusal; one who does not still gets
+          the same list back from the refusal itself.
+        */}
+        <section aria-label="Readiness">
+          <SellabilityPanel eventId={id} />
+        </section>
+
+        <TicketsSection event={event} />
+        <SalesSection event={event} />
+        <SessionsSection event={event} />
+      </div>
+
+      {/*
+        `contents` below `lg`, so the two cards are items of the page's own grid there and the
+        status card can be lifted above the description with `order-first`. From `lg` up it is
+        the right-hand column, in order.
+      */}
+      <div className="contents min-w-0 lg:block lg:space-y-6">
+        <div className="order-first min-w-0 lg:order-none">
+          <Card title="Status & actions">
+            <div className="mb-4">
+              <StatusBadge status={event.status} />
+            </div>
+            <div className="space-y-2">
+              {/*
+              A pause by the platform team is theirs to lift, and the API refuses both ways back
+              to sale. The reason replaces the buttons, so the organizer is not offered two
+              controls that can only fail.
+            */}
+              {event.status === 'PAUSED' && event.pausedByAdmin && (
+                <p className="rounded-md border border-status-warning/40 bg-tint-warning p-3 text-sm text-status-warning">
+                  This event was paused by the platform team. Contact support to resume it.
                 </p>
               )}
-            </>
-          )}
-          <ButtonLink href={`/organizer/events/${id}/edit`} variant="ghost" className="w-full">
-            Edit details
-          </ButtonLink>
-          <ButtonLink href={`/organizer/events/${id}/checkin`} variant="ghost" className="w-full">
-            Open check-in
-          </ButtonLink>
-          {/*
-            Deleting is for an event nobody has bought into. Once there are bookings the button
-            is replaced by the reason, and pausing — above — is how sales stop.
-          */}
-          <div className="border-t border-border pt-2">
-            {(event._count?.bookings ?? 0) === 0 ? (
-              <Button
+              {(event.status === 'DRAFT' ||
+                (event.status === 'PAUSED' && !event.pausedByAdmin)) && (
+                <Button
+                  className="w-full"
+                  loading={submit.isPending}
+                  onClick={() => submit.mutate()}
+                >
+                  Submit for approval
+                </Button>
+              )}
+              {event.status === 'PUBLISHED' && (
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  loading={pause.isPending}
+                  onClick={() => pause.mutate()}
+                >
+                  Pause event
+                </Button>
+              )}
+              {event.status === 'PAUSED' && !event.pausedByAdmin && (
+                <>
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    loading={resume.isPending}
+                    onClick={() => resume.mutate()}
+                  >
+                    Resume event
+                  </Button>
+                  {event.needsReviewOnResume && (
+                    <p className="text-caption text-text-muted">
+                      Details were edited while paused, so resuming may send it for review first.
+                    </p>
+                  )}
+                </>
+              )}
+              <ButtonLink href={`/organizer/events/${id}/edit`} variant="ghost" className="w-full">
+                Edit details
+              </ButtonLink>
+              <ButtonLink
+                href={`/organizer/events/${id}/checkin`}
                 variant="ghost"
-                className="w-full text-status-error"
-                onClick={() => setConfirmDelete(true)}
+                className="w-full"
               >
-                Delete event
-              </Button>
-            ) : (
-              <p className="text-caption text-text-muted">
-                This event has bookings, so it cannot be deleted. Pause it to stop sales.
-              </p>
-            )}
-          </div>
+                Open check-in
+              </ButtonLink>
+              {/*
+              Deleting is for an event nobody has bought into. Once there are bookings the
+              button is replaced by the reason, and pausing - above - is how sales stop.
+            */}
+              <div className="border-t border-border pt-2">
+                {(event._count?.bookings ?? 0) === 0 ? (
+                  <Button
+                    variant="ghost"
+                    className="w-full text-status-error"
+                    onClick={() => setConfirmDelete(true)}
+                  >
+                    Delete event
+                  </Button>
+                ) : (
+                  <p className="text-caption text-text-muted">
+                    This event has bookings, so it cannot be deleted. Pause it to stop sales.
+                  </p>
+                )}
+              </div>
+            </div>
+          </Card>
         </div>
-      </Card>
+
+        <QuickLinks eventId={id} />
+      </div>
 
       <Dialog
         open={confirmDelete}

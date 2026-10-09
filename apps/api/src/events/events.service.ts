@@ -34,6 +34,7 @@ import {
   eventImageOrder,
   eventImagesView,
 } from './event-image';
+import { assembleOrgEventExtras } from './org-event-list';
 import { groupScopeWhere, type GroupScope } from '../admin/group-scope';
 import { countryWhere } from '../admin/country-filter';
 import { spaceOrganizationId, spaceVenueName } from '../spaces/space-owner';
@@ -545,16 +546,103 @@ export class EventsService {
     return updated;
   }
 
+  /**
+   * The organization's events, each with its cover, when it is on, how full it is and - for a
+   * member who may see money - what it has taken. See `org-event-list.ts` for where each figure
+   * comes from; every one is an existing report's definition, read for all events at once.
+   */
   async listForOrg(user: RequestUser, organizationId: string) {
     await this.access.assertMember(user, organizationId);
-    return this.prisma.event.findMany({
-      where: { organizationId },
-      orderBy: { createdAt: 'desc' },
-      include: {
-        venue: { select: { name: true, city: true } },
-        _count: { select: { sessions: true, bookings: true } },
+    const showFinancials = await this.canViewFinancials(user, organizationId);
+    const now = new Date();
+    const live = { event: { organizationId }, status: { not: SessionStatus.CANCELLED } };
+
+    const [events, spans, upcoming, inventory, sales] = await Promise.all([
+      this.prisma.event.findMany({
+        where: { organizationId },
+        orderBy: { createdAt: 'desc' },
+        include: {
+          // The zone, so a start time is shown as the time AT THE VENUE, not the reader's.
+          venue: { select: { name: true, city: true, country: true, timezone: true } },
+          _count: { select: { sessions: true, bookings: true } },
+          // The cover only: one row per event, ids and hashes, never the bytes.
+          images: { select: EVENT_IMAGE_URL_SELECT, orderBy: eventImageOrder(), take: 1 },
+        },
+      }),
+      this.prisma.eventSession.groupBy({
+        by: ['eventId'],
+        where: live,
+        _min: { startsAt: true },
+        _max: { startsAt: true },
+      }),
+      this.prisma.eventSession.groupBy({
+        by: ['eventId'],
+        where: { ...live, endsAt: { gt: now } },
+        _min: { startsAt: true },
+        _count: { _all: true },
+      }),
+      /*
+        Raw because the inventory row is two relations away from the event, and a Prisma
+        groupBy cannot group by a relation's column. Fetching every ticket type instead would be
+        one row per type per session - thousands for a cinema - to add up into a few dozen.
+      */
+      this.prisma.$queryRaw<{ eventId: string; capacity: bigint | null; sold: bigint | null }[]>`
+        SELECT s."eventId" AS "eventId",
+               SUM(i."quantityTotal")::bigint AS capacity,
+               SUM(i."quantitySold")::bigint AS sold
+        FROM "TicketInventory" i
+        JOIN "TicketType" t ON t.id = i."ticketTypeId"
+        JOIN "EventSession" s ON s.id = t."eventSessionId"
+        JOIN "Event" e ON e.id = s."eventId"
+        WHERE e."organizationId" = ${organizationId}
+        GROUP BY s."eventId"
+      `,
+      // Money only for those who may see money - the gate the dashboard and reports apply.
+      showFinancials
+        ? this.prisma.booking.groupBy({
+            by: ['eventId', 'currency'],
+            where: { organizationId, confirmedAt: { not: null } },
+            _sum: { subtotalMinor: true },
+            _count: { _all: true },
+          })
+        : Promise.resolve(null),
+    ]);
+
+    const extras = assembleOrgEventExtras(
+      events.map((e) => e.id),
+      {
+        spans,
+        upcoming,
+        inventory: inventory.map((r) => ({
+          eventId: r.eventId,
+          capacity: Number(r.capacity ?? 0),
+          sold: Number(r.sold ?? 0),
+        })),
+        sales,
       },
+    );
+    return events.map(({ images, ...event }) => ({
+      ...event,
+      imagePath: coverImagePath(event.id, images),
+      imageVariants: coverImageVariants(event.id, images),
+      // So the list can say why there is no Resume, as the event's own page does.
+      pausedByAdmin: event.status === EventStatus.PAUSED && event.pausedByAdminAt !== null,
+      ...extras.get(event.id)!,
+    }));
+  }
+
+  /** True when the caller may see money: a platform admin, or an org OWNER or MANAGER. */
+  private async canViewFinancials(user: RequestUser, organizationId: string): Promise<boolean> {
+    if (this.access.isPlatformAdmin(user)) return true;
+    const membership = await this.prisma.organizationMember.findUnique({
+      where: { organizationId_userId: { organizationId, userId: user.id } },
+      select: { role: true, status: true },
     });
+    return (
+      !!membership &&
+      membership.status === 'ACTIVE' &&
+      (membership.role === Role.ORGANIZER_OWNER || membership.role === Role.ORGANIZER_MANAGER)
+    );
   }
 
   async getForOrg(user: RequestUser, id: string) {
