@@ -548,7 +548,12 @@ export function CurrencyTotals({
 }) {
   const call = api.admin.grouped[resource];
   const { data, isLoading, isError } = useQuery({
-    queryKey: ['admin', 'grouped', resource, 'currency', status, q, filters],
+    /*
+      Its own key, not the grouped summary's. Sharing `['admin', 'grouped', ...]` meant choosing
+      "Currency" in the summary was answered from this strip's cache with no request at all, so
+      the summary and the strip could not be told apart and the summary never visibly refetched.
+    */
+    queryKey: ['admin', 'currency-totals', resource, status, q, filters],
     enabled,
     queryFn: () => call({ groupBy: 'currency', status, q, ...filters }),
   });
