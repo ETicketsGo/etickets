@@ -14,6 +14,7 @@ import {
   money,
   type ShowRow,
 } from '@eticketsgo/web-kit';
+import { instantToWallClock, wallClockToInstant } from '@/lib/zoned-time';
 
 /**
  * Everything you can change about a show that already exists.
@@ -36,20 +37,22 @@ export function EditShowDialog({
   show,
   onClose,
   onChanged,
+  timeZone,
 }: {
   show: ShowRow | null;
   onClose: () => void;
   onChanged: () => void;
+  /**
+   * The cinema's zone. The start time is read and typed as a wall clock THERE; without it the
+   * dialog falls back to the reader's own zone, which moves the show when they are elsewhere.
+   */
+  timeZone?: string | null;
 }) {
   const toast = useToast();
   const sessionId = show?.sessionId ?? '';
 
-  /** Local `datetime-local` value for an instant, in the reader's own zone. */
-  const localValue = (iso: string) => {
-    const d = new Date(iso);
-    const pad = (n: number) => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  };
+  /** The `datetime-local` value for an instant, as a wall clock at the cinema. */
+  const zone = timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone;
 
   const [startsAt, setStartsAt] = useState('');
   /** Rupees as typed, keyed by ticket type. Empty until pricing loads. */
@@ -73,13 +76,13 @@ export function EditShowDialog({
   const openedStartsAt = show?.startsAt;
   useEffect(() => {
     if (!openedStartsAt) return;
-    setStartsAt(localValue(openedStartsAt));
+    setStartsAt(instantToWallClock(openedStartsAt, zone));
     setReason('');
     setConfirmCancel(false);
     // Keyed on the show's IDENTITY, not the row object: `showsQ` refetches after every
     // action and hands back a new object each time, which would wipe whatever the operator
     // had half-typed in the next section.
-  }, [openedSessionId, openedStartsAt]);
+  }, [openedSessionId, openedStartsAt, zone]);
 
   useEffect(() => {
     if (!pricingQ.data) return;
@@ -97,7 +100,8 @@ export function EditShowDialog({
   const failed = (e: unknown) => toast.push(errorMessage(e), 'error');
 
   const move = useMutation({
-    mutationFn: () => api.shows.reschedule(sessionId, new Date(startsAt).toISOString(), 20),
+    mutationFn: () =>
+      api.shows.reschedule(sessionId, wallClockToInstant(startsAt, zone).toISOString(), 20),
     onSuccess: () => {
       done('Showtime moved.');
       onClose();
@@ -173,7 +177,11 @@ export function EditShowDialog({
       open={show !== null}
       onClose={onClose}
       size="lg"
-      title={show ? `Edit the ${new Date(show.startsAt).toLocaleString()} show` : 'Edit show'}
+      title={
+        show
+          ? `Edit the ${new Date(show.startsAt).toLocaleString('en-IN', { timeZone: zone, dateStyle: 'medium', timeStyle: 'short' })} show`
+          : 'Edit show'
+      }
       footer={
         <Button variant="outline" onClick={onClose} disabled={busy}>
           Done
@@ -196,7 +204,7 @@ export function EditShowDialog({
               id="edit-show-start"
               label="Start time"
               value={startsAt}
-              min={localValue(new Date().toISOString())}
+              min={instantToWallClock(new Date(), zone)}
               onChange={setStartsAt}
             />
             <p className="text-caption text-text-muted">
