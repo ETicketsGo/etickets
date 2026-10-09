@@ -1290,6 +1290,12 @@ export const api = {
 
   events: {
     list: (organizationId: string) => request<OrgEventRow[]>(`/events${qs({ organizationId })}`),
+    /**
+     * Every session of the organization touching `[from, to)` (ISO instants, at most 62 days),
+     * for the organizer calendar. One request per visible range, instead of one per event.
+     */
+    calendar: (organizationId: string, from: string, to: string) =>
+      request<OrganizerCalendarResponse>(`/organizer-calendar${qs({ organizationId, from, to })}`),
     get: (id: string) => request<OrgEventDetail>(`/events/${id}`),
     create: (body: CreateEventBody) =>
       request<OrgEventDetail>('/events', { method: 'POST', body: JSON.stringify(body) }),
@@ -3911,6 +3917,32 @@ export interface OrgEventRow {
   createdAt: string;
   venue: { name: string; city: string };
   _count: { sessions: number; bookings: number };
+}
+/** One session on the organizer calendar, with its event and venue. */
+export interface OrganizerCalendarSession {
+  id: string;
+  startsAt: string;
+  endsAt: string;
+  status: string;
+  event: { id: string; title: string; category: string; status: string; experienceType: string };
+  venue: {
+    id: string;
+    name: string;
+    city: string;
+    country: string | null;
+    timezone: string | null;
+  };
+  /** The zone of the cinema a seated session's room belongs to; null for general admission. */
+  cinemaTimezone: string | null;
+  /** Tickets sold and on sale over the session's ticket types; null when it has none. */
+  sold: number | null;
+  capacity: number | null;
+}
+export interface OrganizerCalendarResponse {
+  sessions: OrganizerCalendarSession[];
+  /** More sessions matched than `limit`; the latest ones were left out. */
+  truncated: boolean;
+  limit: number;
 }
 export interface EventPromotion {
   eventId: string;
