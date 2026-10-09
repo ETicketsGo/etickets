@@ -272,6 +272,8 @@ test.describe('accessibility sweep: the organizer console', () => {
       both halves — that the control exists and is reachable, and that it is named.
     */
     await page.goto(`${ORGANIZER}/organizer/events`, { waitUntil: 'networkidle' });
+    // The events list opens as cards now; the table is one choice away.
+    await page.getByRole('button', { name: 'Table', exact: true }).click();
     const firstRow = page.locator('tbody tr').first();
     await expect(firstRow).toBeVisible({ timeout: 30_000 });
 

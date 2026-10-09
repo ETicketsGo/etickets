@@ -5,8 +5,9 @@ import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useParams, usePathname } from 'next/navigation';
 import { ChevronDown } from 'lucide-react';
-import { api, StatusBadge, Skeleton, ErrorState } from '@eticketsgo/web-kit';
+import { api, Skeleton, ErrorState } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
+import { EventHeader } from '@/components/events/event-header';
 import {
   resolveEventLocation,
   segmentOf,
@@ -239,37 +240,37 @@ export default function EventLayout({ children }: { children: React.ReactNode })
 
   return (
     <div className="space-y-4">
+      {/*
+        The trail is the way back, not a second copy of the title: the header below names the
+        event in full, and a long title printed twice in a row pushed the page's first useful
+        line off a phone's screen.
+      */}
       <nav aria-label="Breadcrumb" className="text-sm text-text-muted">
-        <Link href="/organizer/events" className="hover:text-text-primary">
-          Events
-        </Link>{' '}
-        / <span className="text-text-secondary">{event?.title ?? '…'}</span>
+        <Link
+          href="/organizer/events"
+          className="rounded hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        >
+          <span aria-hidden="true">&larr; </span>All events
+        </Link>
       </nav>
 
-      {isLoading ? (
-        <Skeleton className="h-8 w-64" />
-      ) : (
-        <div className="flex flex-wrap items-center gap-3">
-          <h1 className="min-w-0 break-words text-2xl font-bold text-text-primary">
-            {event?.title}
-          </h1>
-          {event && <StatusBadge status={event.status} />}
-          {/*
-            Whose event this is, when it is not the organization the switcher is on.
-
-            An event is reachable by link as well as by browsing, so somebody can be looking at
-            one organization's event while the console is set to another - and every action on
-            this page would then read as belonging to the wrong one. Named only when they differ,
-            using the one identity implementation, so the ordinary case stays quiet.
-          */}
-          {event &&
-          event.organizationId !== activeOrg.id &&
-          orgSentenceName(event.organizationId) ? (
-            <span className="rounded-full bg-tint-warning px-3 py-1 text-caption font-medium text-status-warning">
-              In {orgSentenceName(event.organizationId)}
-            </span>
-          ) : null}
+      {isLoading || !event ? (
+        <div className="flex items-start gap-4">
+          <Skeleton className="h-14 w-14 shrink-0 sm:h-20 sm:w-20" />
+          <div className="flex-1 space-y-2">
+            <Skeleton className="h-8 w-2/3" />
+            <Skeleton className="h-4 w-1/2" />
+          </div>
         </div>
+      ) : (
+        <EventHeader
+          event={event}
+          ownerNote={
+            event.organizationId !== activeOrg.id && orgSentenceName(event.organizationId)
+              ? `In ${orgSentenceName(event.organizationId)}`
+              : null
+          }
+        />
       )}
 
       <SectionNav
