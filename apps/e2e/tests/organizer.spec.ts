@@ -106,7 +106,8 @@ test('organizer logs in and creates + submits an event via the wizard', async ({
   expect(secondSrc).not.toBe(firstSrc);
   const served = await page.request.get(firstSrc!);
   expect(served.status()).toBe(200);
-  expect(served.headers()['content-type']).toBe('image/jpeg');
+  // The original URL now serves the upright, metadata-free WebP copy of the upload.
+  expect(served.headers()['content-type']).toBe('image/webp');
   expect(served.headers()['cross-origin-resource-policy']).toBe('cross-origin');
 
   // The second becomes the cover, and the order is saved — not just redrawn.
