@@ -493,6 +493,15 @@ const BUILDERS: Partial<Record<NotificationType, Builder>> = {
 
 @Injectable()
 export class NotificationTemplateService {
+  /**
+   * Whether a type has a real template, or would fall back to the generic one. The
+   * notification centre asks so it can title an untemplated card in words rather than show
+   * the enum name and a JSON blob to an organizer.
+   */
+  hasTemplate(type: NotificationType): boolean {
+    return Boolean(BUILDERS[type]);
+  }
+
   render(type: NotificationType, locale: string, payload: Payload): RenderedTemplate {
     /*
       An unknown locale renders in the default rather than throwing.
