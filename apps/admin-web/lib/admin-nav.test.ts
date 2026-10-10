@@ -117,6 +117,7 @@ describe('the menu lists only what the operator can open', () => {
     'REFUND_APPROVE',
     'ORGANIZER_REVIEW',
     'EVENT_REVIEW',
+    'PLATFORM_CONFIG_READ',
     'PLATFORM_CONFIG',
     'PAYOUT_MANAGE',
     'PAYMENT_ADMIN',
@@ -126,7 +127,7 @@ describe('the menu lists only what the operator can open', () => {
     visibleNav(adminNavItems(), { roles: ['ADMIN'], adminPermissions: perms }).map((i) => i.href);
 
   it('gives somebody holding every capability every page', () => {
-    // A super admin: /auth/me returns all twelve capabilities for SUPER_ADMIN.
+    // A super admin: /auth/me returns every capability for SUPER_ADMIN.
     expect(hrefsFor(ALL).sort()).toEqual(
       allNavLinks()
         .map((l) => l.href)
@@ -160,7 +161,8 @@ describe('the menu lists only what the operator can open', () => {
 
   it('keeps each surviving page under its own group heading', () => {
     // A group's first link can be the one that goes: Approval queue and Refunds both need
-    // more than BOOKING_READ, so Movies and Support carry their groups' names instead.
+    // more than BOOKING_READ, so Movies and Support carry their groups' names instead. And
+    // Platform configuration is gone entirely: none of it opens with BOOKING_READ.
     const items = visibleNav(adminNavItems(), {
       roles: ['ADMIN'],
       adminPermissions: ['BOOKING_READ'],
@@ -173,8 +175,23 @@ describe('the menu lists only what the operator can open', () => {
       'Bookings & payments',
       'Refunds & disputes',
       'Audit history',
-      'Platform configuration',
     ]);
+  });
+
+  it('keeps platform configuration away from the support desk', () => {
+    /*
+      Fee rules, tax rules and cinema pricing used to open with BOOKING_READ, mirroring an API
+      that let the support desk change them. Each now needs PLATFORM_CONFIG_READ to open.
+    */
+    const CONFIG = ['/admin/settings', '/admin/tax-rules', '/admin/cinema-pricing'];
+    const support = hrefsFor(['BOOKING_READ', 'ORGANIZER_READ']);
+    for (const page of CONFIG) expect(support).not.toContain(page);
+
+    const reader = hrefsFor(['PLATFORM_CONFIG_READ']);
+    for (const page of CONFIG) expect(reader).toContain(page);
+    // The write capability alone does not open a page whose list it cannot load.
+    const writer = hrefsFor(['PLATFORM_CONFIG']);
+    for (const page of CONFIG) expect(writer).not.toContain(page);
   });
 
   it('quick navigation cannot find a page the operator cannot open', () => {
