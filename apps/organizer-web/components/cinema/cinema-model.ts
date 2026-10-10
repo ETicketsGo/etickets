@@ -459,6 +459,12 @@ export function showSaleVerdict(i: ShowSaleInput): SaleVerdict {
   };
 }
 
+export type FilmSale = SaleVerdict & {
+  exceptions: { cinema: string; reason: string }[];
+  /** Some upcoming shows sell and some do not. Never labelled plain "Selling". */
+  partial: boolean;
+};
+
 /**
  * A film's sale state across its cinemas, for the library card.
  *
@@ -472,8 +478,8 @@ export function filmSaleSummary(
   rows: ShowRow[] | undefined,
   now: Date,
   cinemaState: (cinemaId: string) => CinemaSaleState,
-): SaleVerdict & { exceptions: { cinema: string; reason: string }[] } {
-  const none = { exceptions: [] as { cinema: string; reason: string }[] };
+): FilmSale {
+  const none = { exceptions: [] as { cinema: string; reason: string }[], partial: false };
   if (film.status !== 'PUBLISHED')
     return {
       ...notSelling(film.status === 'ARCHIVED' ? 'film archived' : 'film not published', null),
@@ -520,8 +526,39 @@ export function filmSaleSummary(
   const selling = states.filter((s) => s.state.kind === 'SELLING' || s.state.kind === 'PARTLY');
   if (selling.length === 0) {
     const first = states[0]!.state as { reason: string; message: string; fixPath: string | null };
-    return { ...notSelling(first.reason, first.message, 'warning', first.fixPath), exceptions };
+    return {
+      ...notSelling(first.reason, first.message, 'warning', first.fixPath),
+      exceptions,
+      partial: false,
+    };
   }
+
+  /*
+    "Selling" alone only when EVERY upcoming show can be bought. A green "Selling" with a
+    "Not selling at Hyderabad" line under it was two answers to one question; a film that sells
+    at one cinema and not another is one state - partly selling - and says so in its own words,
+    in a neutral tone, with the reasons kept beside it.
+  */
+  const allCinemas = programme.cinemas.length;
+  const notOpen = programme.upcoming - open.length;
+  const partialLabel =
+    selling.length < allCinemas
+      ? `Selling at ${selling.length} of ${allCinemas} ${allCinemas === 1 ? 'cinema' : 'cinemas'}`
+      : notOpen > 0
+        ? `Selling ${open.length} of ${programme.upcoming} upcoming shows`
+        : exceptions.length > 0
+          ? 'Selling, with exceptions'
+          : null;
+  if (partialLabel)
+    return {
+      selling: false,
+      label: partialLabel,
+      tone: 'neutral',
+      detail: null,
+      fixPath: null,
+      exceptions,
+      partial: true,
+    };
   return {
     selling: true,
     label: 'Selling',
@@ -529,5 +566,6 @@ export function filmSaleSummary(
     detail: null,
     fixPath: null,
     exceptions,
+    partial: false,
   };
 }

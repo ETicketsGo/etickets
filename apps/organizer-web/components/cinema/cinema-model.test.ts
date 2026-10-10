@@ -285,14 +285,43 @@ describe('filmSaleSummary', () => {
   const programme = programmeOf(rows, NOW);
   const tg = cinemaSaleState(TELANGANA, 'Telangana');
 
-  it('is Selling with the exception named when one cinema cannot sell', () => {
+  it('one cinema selling and one not is ONE partial state, never plain "Selling"', () => {
     const s = filmSaleSummary(movie(), programme, rows, NOW, (id) =>
       id === 'c2' ? tg : { kind: 'SELLING' },
     );
-    expect(s.label).toBe('Selling');
+    expect(s.label).toBe('Selling at 1 of 2 cinemas');
+    expect(s.label).not.toBe('Selling');
+    expect(s.selling).toBe(false);
+    expect(s.partial).toBe(true);
+    expect(s.tone).not.toBe('success');
     expect(s.exceptions).toEqual([
       { cinema: 'Hyderabad Screens', reason: 'Telangana pricing rules not configured' },
     ]);
+  });
+
+  it('is plain "Selling" only when every upcoming show can be bought', () => {
+    const s = filmSaleSummary(movie(), programme, rows, NOW, () => ({ kind: 'SELLING' }));
+    expect(s).toMatchObject({ label: 'Selling', selling: true, partial: false, tone: 'success' });
+  });
+
+  it('a paused show among selling ones is partial too', () => {
+    const mixed = [rows[0]!, { ...rows[0]!, sessionId: 'p', status: 'PAUSED' }];
+    const s = filmSaleSummary(movie(), programmeOf(mixed, NOW), mixed, NOW, () => ({
+      kind: 'SELLING',
+    }));
+    expect(s.label).toBe('Selling 1 of 2 upcoming shows');
+    expect(s.partial).toBe(true);
+  });
+
+  it('a seat-category problem at the only cinema is partial, not plain "Selling"', () => {
+    const partly = cinemaSaleState(
+      report([{ code: 'SALE_SEAT_CLASS_UNMAPPED', level: 'BLOCKED' }]),
+      'Andhra Pradesh',
+    );
+    const one = [rows[0]!];
+    const s = filmSaleSummary(movie(), programmeOf(one, NOW), one, NOW, () => partly);
+    expect(s.label).toBe('Selling, with exceptions');
+    expect(s.partial).toBe(true);
   });
 
   it('is Not selling when no cinema can sell', () => {

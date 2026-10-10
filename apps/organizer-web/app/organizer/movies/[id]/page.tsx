@@ -355,7 +355,7 @@ export default function EditMoviePage() {
 
       <header className="flex flex-col gap-5 sm:flex-row sm:items-start">
         <div className="w-28 shrink-0 sm:w-36">
-          <FilmPoster id={movie.id} posterUrl={movie.posterUrl} iconClassName="h-10 w-10" />
+          <FilmPoster posterUrl={movie.posterUrl} iconClassName="h-10 w-10" />
         </div>
         <div className="min-w-0 flex-1 space-y-3">
           <div className="space-y-1.5">
@@ -373,7 +373,7 @@ export default function EditMoviePage() {
             </Badge>
             <SaleChip verdict={sale} />
           </div>
-          {sale.selling && sale.exceptions.length > 0 ? (
+          {sale.partial && sale.exceptions.length > 0 ? (
             <ul className="space-y-0.5 text-caption text-status-warning">
               {sale.exceptions.map((e) => (
                 <li key={e.cinema}>
@@ -612,7 +612,7 @@ export default function EditMoviePage() {
               </p>
               <div className="flex gap-4">
                 <div className="w-28 shrink-0">
-                  <FilmPoster id={movie.id} posterUrl={form.posterUrl || null} />
+                  <FilmPoster posterUrl={form.posterUrl || null} />
                 </div>
                 <div className="min-w-0 space-y-1">
                   <p className="break-words font-semibold text-text-primary">

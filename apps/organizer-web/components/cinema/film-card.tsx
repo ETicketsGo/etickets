@@ -13,13 +13,13 @@ import {
   formatShowTime,
   percentSold,
   type FilmProgramme,
-  type SaleVerdict,
+  type FilmSale,
 } from './cinema-model';
 
 export interface FilmSummary {
   movie: Movie;
   programme: FilmProgramme | null;
-  sale: (SaleVerdict & { exceptions: { cinema: string; reason: string }[] }) | null;
+  sale: FilmSale | null;
   zoneOf: (cinemaId: string | null | undefined) => string | undefined;
 }
 
@@ -106,7 +106,7 @@ function Programme({ f }: { f: FilmSummary }) {
 }
 
 function Exceptions({ f }: { f: FilmSummary }) {
-  if (!f.sale || f.sale.exceptions.length === 0 || !f.sale.selling) return null;
+  if (!f.sale || f.sale.exceptions.length === 0 || !f.sale.partial) return null;
   return (
     <ul className="space-y-0.5 text-caption text-status-warning">
       {f.sale.exceptions.map((e) => (
@@ -140,7 +140,7 @@ export function FilmCard({
     >
       <div className="flex min-w-0 flex-1 gap-4">
         <Link href={href} tabIndex={-1} aria-hidden="true" className="w-24 shrink-0 sm:w-28">
-          <FilmPoster id={m.id} posterUrl={m.posterUrl} />
+          <FilmPoster posterUrl={m.posterUrl} />
         </Link>
         <div className="flex min-w-0 flex-1 flex-col gap-2.5">
           <div className="min-w-0 space-y-1">
@@ -203,7 +203,7 @@ export function FilmRow({
   return (
     <li className="flex min-w-0 flex-wrap items-center gap-3 border-b border-border px-4 py-3 last:border-b-0 sm:flex-nowrap">
       <div className="w-10 shrink-0">
-        <FilmPoster id={m.id} posterUrl={m.posterUrl} iconClassName="h-4 w-4" />
+        <FilmPoster posterUrl={m.posterUrl} iconClassName="h-4 w-4" compact />
       </div>
       <div className="min-w-0 flex-1 basis-40">
         <p className="break-words font-semibold text-text-primary">
