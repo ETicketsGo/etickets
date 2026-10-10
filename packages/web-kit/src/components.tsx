@@ -1181,11 +1181,19 @@ export const Modal = Dialog;
  * Focus for anything modal: Escape closes; focus moves in on open (the first control, or the
  * panel); Tab and Shift+Tab stay inside; and focus goes back to whatever opened it on close.
  * Returns the panel's keydown handler.
+ *
+ * `defer` moves focus in one frame later and, on close, gives it back only if it is still
+ * inside the panel (or nowhere). That is for `Drawer`, whose callers predate this hook and
+ * several of which manage the opener's focus themselves: a child's effect runs before its
+ * parent's, so moving focus synchronously made such a caller record the drawer's own close
+ * button as "the opener" and hand focus to a button that was about to disappear - the cinema
+ * quick look lost focus on Escape. Deferring lets both agree on the real opener.
  */
 function useModalFocus(
   open: boolean,
   onClose: () => void,
   panelRef: React.RefObject<HTMLElement | null>,
+  defer = false,
 ) {
   const previouslyFocused = useRef<HTMLElement | null>(null);
 
@@ -1199,13 +1207,20 @@ function useModalFocus(
   useEffect(() => {
     if (!open) return;
     previouslyFocused.current = document.activeElement as HTMLElement | null;
-    const panel = panelRef.current;
-    if (panel) {
+    const focusIn = () => {
+      const panel = panelRef.current;
+      if (!panel || panel.contains(document.activeElement)) return;
       const first = panel.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
       (first ?? panel).focus();
-    }
+    };
+    const frame = defer ? requestAnimationFrame(focusIn) : (focusIn(), 0);
     return () => {
-      previouslyFocused.current?.focus?.();
+      if (defer) cancelAnimationFrame(frame);
+      const panel = panelRef.current;
+      const active = document.activeElement;
+      if (!defer || !active || active === document.body || (panel && panel.contains(active))) {
+        previouslyFocused.current?.focus?.();
+      }
     };
   }, [open, panelRef]);
 
@@ -1266,7 +1281,7 @@ export function Drawer({
 }) {
   const panelRef = useRef<HTMLElement>(null);
   const descriptionId = useId();
-  const onPanelKeyDown = useModalFocus(open, onClose, panelRef);
+  const onPanelKeyDown = useModalFocus(open, onClose, panelRef, true);
 
   return (
     <AnimatePresence>
