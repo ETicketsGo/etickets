@@ -1,24 +1,28 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { StatusPill } from '@eticketsgo/web-kit';
 import {
   capItems,
   displayStatus,
-  formatClock,
   formatDayLong,
-  zoneAbbrev,
+  statusTone,
   type DayKey,
   type DaySegment,
 } from '@/lib/calendar';
+import { segmentTime } from './day-panel';
 import { sessionLabel, type OpenSession } from './session-chip';
-import { statusLook } from './status-style';
+import { statusDot } from './status-style';
 
 /** Sessions listed per day before "Show N more"; the rest render only when asked for. */
 export const AGENDA_DAY_CAP = 8;
 
 /**
- * The calendar as a list, one heading per day that has something on it. The default on a
- * phone, where a seven-column grid cannot show a title.
+ * The calendar as a list, one card per day that has something on it. The default on a phone,
+ * where a seven-column grid cannot show a title.
+ *
+ * A row is the same as a row of the day panel beside the month - dot, title, time and venue,
+ * status in words - so the two views read as one calendar, not two designs.
  */
 export function AgendaView({
   days,
@@ -54,29 +58,31 @@ export function AgendaView({
         const open = expanded.has(day);
         const { shown, hidden } = open ? { shown: all, hidden: 0 } : capItems(all, AGENDA_DAY_CAP);
         return (
-          <section key={day} aria-labelledby={`agenda-${day}`} data-testid={`agenda-day-${day}`}>
+          <section
+            key={day}
+            aria-labelledby={`agenda-${day}`}
+            data-testid={`agenda-day-${day}`}
+            className="overflow-hidden rounded-lg border border-border bg-background-surface shadow-xs"
+          >
             <h3
               id={`agenda-${day}`}
               tabIndex={-1}
-              className="mb-2 flex items-baseline gap-2 text-sm font-semibold text-text-primary focus:outline-none"
+              className="flex scroll-mt-20 flex-wrap items-center gap-2 border-b border-border px-4 py-3 font-display text-ui font-bold text-text-primary focus:outline-none"
             >
               {formatDayLong(day)}
               {day === today && (
-                <span className="text-caption font-medium text-action-primary">Today</span>
+                <StatusPill tone="primary" size="sm">
+                  Today
+                </StatusPill>
               )}
+              <span className="ml-auto text-caption font-medium text-text-muted">
+                {all.length} {all.length === 1 ? 'session' : 'sessions'}
+              </span>
             </h3>
-            <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-background-surface">
+            <ul className="divide-y divide-border">
               {shown.map((seg) => {
                 const s = seg.session;
-                const shownStatus = displayStatus(s);
-                const look = statusLook(shownStatus.status);
-                const Icon = look.icon;
-                // A session stored with no length has a start and nothing more to say.
-                const time = seg.continuesBefore
-                  ? `Continues until ${formatClock(s.endsAt, s.zone)}`
-                  : seg.endMin <= seg.startMin && !seg.continuesAfter
-                    ? formatClock(s.startsAt, s.zone)
-                    : `${formatClock(s.startsAt, s.zone)} - ${formatClock(s.endsAt, s.zone)}`;
+                const status = displayStatus(s);
                 return (
                   <li key={s.id}>
                     <button
@@ -84,41 +90,41 @@ export function AgendaView({
                       data-session-id={s.id}
                       aria-label={sessionLabel(s)}
                       onClick={(e) => onOpen(s, e.currentTarget)}
-                      className="flex w-full items-start gap-3 px-3 py-2.5 text-left hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                      className="flex w-full flex-wrap items-start gap-x-3 gap-y-1.5 px-4 py-3 text-left transition-colors duration-150 hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                     >
                       <span
                         aria-hidden
-                        className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${look.chip}`}
-                      >
-                        <Icon className={`h-4 w-4 ${look.accent}`} />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block font-mono text-caption tabular-nums text-text-secondary">
-                          {time} {zoneAbbrev(s.zone, s.startsAt)}
-                        </span>
-                        <span className="block truncate font-medium text-text-primary">
+                        className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${statusDot(status.status)}`}
+                      />
+                      <span className="min-w-0 flex-1 basis-40">
+                        <span className="block truncate text-sm font-semibold text-text-primary">
                           {s.title}
+                        </span>
+                        <span className="block text-caption tabular-nums text-text-secondary">
+                          {segmentTime(seg)}
                         </span>
                         <span className="block truncate text-caption text-text-muted">
                           {[s.venueName, s.city].filter(Boolean).join(', ')}
                         </span>
                       </span>
-                      <span className="shrink-0 text-caption font-medium text-text-secondary">
-                        {shownStatus.label}
-                      </span>
+                      <StatusPill tone={statusTone(status.status)} size="sm" dot={false}>
+                        {status.label}
+                      </StatusPill>
                     </button>
                   </li>
                 );
               })}
             </ul>
             {hidden > 0 && (
-              <button
-                type="button"
-                onClick={() => setExpanded((prev) => new Set(prev).add(day))}
-                className="mt-1 rounded px-1 text-caption font-medium text-action-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                Show {hidden} more on {formatDayLong(day)}
-              </button>
+              <div className="border-t border-border px-4 py-2.5">
+                <button
+                  type="button"
+                  onClick={() => setExpanded((prev) => new Set(prev).add(day))}
+                  className="rounded-sm text-caption font-semibold text-action-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  Show {hidden} more on {formatDayLong(day)}
+                </button>
+              </div>
             )}
           </section>
         );

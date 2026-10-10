@@ -11,6 +11,9 @@ import {
   placeSessions,
   rangeLabel,
   shiftAnchor,
+  showStatus,
+  statusText,
+  statusTone,
   viewDays,
   zoneNote,
   zoneUnknown,
@@ -188,5 +191,27 @@ describe('the city filter', () => {
   it('keeps only that city, and everything when no city is chosen', () => {
     expect(inCity(rows, 'hyderabad')).toHaveLength(2);
     expect(inCity(rows, '')).toHaveLength(4);
+  });
+});
+
+describe('the status vocabulary', () => {
+  it('uses the console words, the same as the organizer calendar', () => {
+    expect(statusText('UNDER_REVIEW')).toBe('In review');
+    expect(statusText('ARCHIVED')).toBe('Ended');
+    expect(statusTone('PUBLISHED')).toBe('success');
+    expect(statusTone('SOMETHING_NEW')).toBe('neutral');
+  });
+
+  it('draws a stopped show by its own status, not its published event', () => {
+    const published = { status: 'PUBLISHED' };
+    expect(showStatus({ status: 'CANCELLED', event: published })).toEqual({
+      status: 'CANCELLED',
+      label: 'Show cancelled',
+    });
+    expect(showStatus({ status: 'PAUSED', event: published }).label).toBe('Show paused');
+    expect(showStatus({ status: 'SCHEDULED', event: published })).toEqual({
+      status: 'PUBLISHED',
+      label: 'Published',
+    });
   });
 });

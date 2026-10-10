@@ -2,17 +2,34 @@
 
 import { useMemo } from 'react';
 import { useQueries } from '@tanstack/react-query';
-import { ArrowRight, CheckCircle2, Info } from 'lucide-react';
+import {
+  ArrowRight,
+  Banknote,
+  Building2,
+  CalendarCheck2,
+  CheckCircle2,
+  CircleAlert,
+  CreditCard,
+  Inbox,
+  Landmark,
+  MessageSquareWarning,
+  RotateCcw,
+  Scale,
+  ShieldAlert,
+  type LucideIcon,
+} from 'lucide-react';
 import Link from 'next/link';
 import {
   ACTION_QUEUES,
   api,
-  Badge,
-  Card,
-  Skeleton,
+  IconTile,
+  SectionCard,
+  SkeletonCard,
+  StatusPill,
   money,
   useAuthUser,
-  type BadgeTone,
+  type PillTone,
+  type TileTone,
 } from '@eticketsgo/web-kit';
 import {
   attentionQueues,
@@ -106,21 +123,45 @@ function fetchCount(queue: AttentionQueue, now: Date): Promise<Count> {
       return Promise.reject(new Error(`No count defined for the "${queue.key}" queue.`));
   }
 }
-
 /*
-  Severity is said in words as well as colour. A red bar and an amber bar are the same bar to
+  Severity is said in words as well as colour. A red tile and an amber tile are the same tile to
   somebody who cannot tell red from amber, and "Urgent" is not.
 */
-const SEVERITY: Record<AttentionQueue['tone'], { word: string; badge: BadgeTone; bar: string }> = {
-  critical: { word: 'Urgent', badge: 'error', bar: 'bg-status-error' },
-  warning: { word: 'Action needed', badge: 'warning', bar: 'bg-status-warning' },
-  normal: { word: 'Waiting for review', badge: 'info', bar: 'bg-status-info' },
+const SEVERITY: Record<AttentionQueue['tone'], { word: string; pill: PillTone; tile: TileTone }> = {
+  critical: { word: 'Urgent', pill: 'error', tile: 'rose' },
+  warning: { word: 'Action needed', pill: 'warning', tile: 'amber' },
+  normal: { word: 'Waiting for review', pill: 'info', tile: 'blue' },
 };
+
+/** What each queue is about, as an icon. A queue added without one gets the generic inbox. */
+const QUEUE_ICON: Record<string, LucideIcon> = {
+  disputes: ShieldAlert,
+  'refunds-requested': RotateCcw,
+  'refunds-failed': CircleAlert,
+  'payouts-failed': Banknote,
+  'settlements-blocked': Landmark,
+  'reconciliation-open': Scale,
+  'organizers-pending': Building2,
+  'events-review': CalendarCheck2,
+  'complaints-open': MessageSquareWarning,
+  'payments-failed-7d': CreditCard,
+};
+
+function iconFor(queue: AttentionQueue): LucideIcon {
+  return QUEUE_ICON[queue.key] ?? Inbox;
+}
 
 function capitalise(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
+const FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
+
+/**
+ * A queue with work in it, as a stat card: the pastel tile says what kind of work, the number
+ * is the size of the queue, the pill says how much delay costs, and the sentence says what
+ * happens if it is left. The whole card is the link, and it lands on the filtered list.
+ */
 function ActionTile({ item }: { item: AttentionItem }) {
   const { queue, outcome } = item;
   const sev = SEVERITY[queue.tone];
@@ -131,21 +172,25 @@ function ActionTile({ item }: { item: AttentionItem }) {
       <Link
         href={queue.href}
         data-queue={queue.key}
-        className="group relative flex h-full flex-col gap-2 overflow-hidden rounded-lg border border-border bg-background-surface p-4 pl-5 shadow-sm transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        className={`group flex h-full flex-col gap-3 rounded-lg border border-border bg-background-surface p-5 shadow-xs transition-[box-shadow,transform] duration-150 hover:-translate-y-0.5 hover:shadow-md motion-reduce:transition-none motion-reduce:hover:translate-y-0 ${FOCUS} focus-visible:ring-offset-2`}
       >
-        <span className={`absolute inset-y-0 left-0 w-1 ${sev.bar}`} aria-hidden />
         <span className="flex items-start justify-between gap-3">
-          <span className="text-h3 font-bold tabular-nums tracking-tight text-text-primary">
+          <IconTile icon={iconFor(queue)} tone={sev.tile} size="lg" />
+          <StatusPill tone={sev.pill} size="sm">
+            {sev.word}
+          </StatusPill>
+        </span>
+        <span className="block">
+          <span className="block font-display text-[1.75rem] font-bold leading-none tracking-tight tabular-nums text-text-primary">
             {count}
           </span>
-          <Badge tone={sev.badge}>{sev.word}</Badge>
+          <span className="mt-1.5 block text-ui font-semibold text-text-primary group-hover:underline">
+            {capitalise(queueNoun(queue))}
+          </span>
         </span>
-        <span className="text-[0.9375rem] font-semibold text-text-primary group-hover:underline">
-          {capitalise(queueNoun(queue))}
-        </span>
-        <span className="text-sm text-text-secondary">{queue.consequence}</span>
-        {note && <span className="text-caption font-medium text-text-primary">{note}</span>}
-        <span className="mt-auto flex items-center gap-1 pt-1 text-caption font-medium text-action-primary">
+        <span className="text-caption text-text-secondary">{queue.consequence}</span>
+        {note && <span className="text-caption font-semibold text-text-primary">{note}</span>}
+        <span className="mt-auto inline-flex items-center gap-1 text-caption font-semibold text-action-primary">
           Open the queue <ArrowRight className="h-3.5 w-3.5" aria-hidden />
         </span>
       </Link>
@@ -174,7 +219,7 @@ export function NeedsYou() {
     })),
   });
 
-  if (userLoading) return <Skeleton className="h-32 w-full" />;
+  if (userLoading) return <SkeletonCard variant="stat" />;
 
   /*
     ── NO DUTIES IS NOT AN EMPTY QUEUE ────────────────────────────────────────────────
@@ -185,13 +230,13 @@ export function NeedsYou() {
   */
   if (queues.length === 0) {
     return (
-      <Card title="Needs you">
+      <SectionCard title="Needs you">
         <p className="text-sm text-text-secondary">
           Your account does not have any duties assigned yet, so there are no queues to show. This
           is not the same as there being no work. Ask a super admin to give your account the duties
           for your job.
         </p>
-      </Card>
+      </SectionCard>
     );
   }
 
@@ -207,20 +252,21 @@ export function NeedsYou() {
   const s = summarise(items);
 
   return (
-    <div className="space-y-4">
-      <Card
+    <div className="space-y-5">
+      <SectionCard
         title="Needs you"
+        description="Queues that wait on a decision, most costly to leave first."
         action={
           s.needsAction.length > 0 ? (
-            <Badge tone="warning">
+            <StatusPill tone="warning">
               {s.waiting} waiting in {s.needsAction.length}{' '}
               {s.needsAction.length === 1 ? 'queue' : 'queues'}
-            </Badge>
+            </StatusPill>
           ) : undefined
         }
       >
         {s.needsAction.length > 0 && (
-          <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" aria-label="Queues with work">
+          <ul className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-3" aria-label="Queues with work">
             {s.needsAction.map((item) => (
               <ActionTile key={item.queue.key} item={item} />
             ))}
@@ -228,9 +274,9 @@ export function NeedsYou() {
         )}
 
         {s.loading.length > 0 && s.needsAction.length === 0 && (
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-3">
             {s.loading.slice(0, 3).map((i) => (
-              <Skeleton key={i.queue.key} className="h-32 w-full" />
+              <SkeletonCard key={i.queue.key} variant="stat" />
             ))}
           </div>
         )}
@@ -241,9 +287,9 @@ export function NeedsYou() {
           as a fact, on the one screen whose whole job is to be trusted when it says so.
         */}
         {s.allChecked && s.needsAction.length === 0 && (
-          <div className="flex items-center gap-3 text-sm">
+          <div className="flex items-center gap-3 rounded-lg bg-tint-success px-4 py-3 text-sm">
             <CheckCircle2 className="h-5 w-5 shrink-0 text-status-success" aria-hidden />
-            <p className="text-text-secondary">
+            <p className="font-medium text-text-primary">
               Nothing is waiting in {s.clear.length === 1 ? 'your queue' : 'any of your queues'}.
               Checked just now.
             </p>
@@ -255,17 +301,23 @@ export function NeedsYou() {
             {s.unchecked.map(({ queue }) => (
               <li
                 key={queue.key}
-                className="rounded-md border border-border bg-background-subtle px-3 py-2 text-sm"
+                className="flex items-start gap-3 rounded-lg border border-border bg-background-subtle px-4 py-3 text-sm"
               >
-                <p className="font-medium text-text-primary">
-                  We could not check {queueNoun(queue)}.
-                </p>
-                <p className="text-text-secondary">
-                  Open it to see for yourself, rather than assume it is empty.{' '}
-                  <Link href={queue.href} className="font-medium text-action-primary underline">
-                    Go to the queue
-                  </Link>
-                </p>
+                <IconTile icon={CircleAlert} tone="amber" size="sm" />
+                <span className="min-w-0">
+                  <span className="block font-semibold text-text-primary">
+                    We could not check {queueNoun(queue)}.
+                  </span>
+                  <span className="block text-text-secondary">
+                    Open it to see for yourself, rather than assume it is empty.{' '}
+                    <Link
+                      href={queue.href}
+                      className={`rounded-sm font-semibold text-action-primary underline ${FOCUS}`}
+                    >
+                      Go to the queue
+                    </Link>
+                  </span>
+                </span>
               </li>
             ))}
           </ul>
@@ -277,8 +329,8 @@ export function NeedsYou() {
           open a queue they want to look at anyway.
         */}
         {s.clear.length > 0 && (
-          <div className="mt-4 border-t border-border pt-3">
-            <p className="mb-2 text-caption font-semibold uppercase tracking-wide text-text-muted">
+          <div className="mt-5 border-t border-border pt-4">
+            <p className="mb-2.5 text-micro font-semibold uppercase tracking-wide text-text-muted">
               Clear
             </p>
             <ul className="flex flex-wrap gap-2">
@@ -287,7 +339,7 @@ export function NeedsYou() {
                   <Link
                     href={queue.href}
                     data-queue={queue.key}
-                    className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1 text-caption text-text-secondary transition-colors hover:bg-background-subtle hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                    className={`inline-flex items-center gap-1.5 rounded-full border border-border bg-background-surface px-3 py-1 text-caption text-text-secondary transition-colors duration-150 hover:bg-background-subtle hover:text-text-primary ${FOCUS}`}
                   >
                     <CheckCircle2 className="h-3.5 w-3.5 text-status-success" aria-hidden />
                     No {queueNoun(queue)}
@@ -297,20 +349,20 @@ export function NeedsYou() {
             </ul>
           </div>
         )}
-      </Card>
+      </SectionCard>
 
       {s.info.length > 0 && (
-        <Card title="For information">
+        <SectionCard title="For information">
           <ul className="space-y-2">
             {s.info.map(({ queue, outcome }) => (
               <li key={queue.key}>
                 <Link
                   href={queue.href}
                   data-queue={queue.key}
-                  className="group flex flex-wrap items-start gap-x-3 gap-y-1 rounded-md py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                  className={`group flex flex-wrap items-start gap-x-3 gap-y-2 rounded-md py-1 ${FOCUS}`}
                 >
-                  <Info className="mt-0.5 h-4 w-4 shrink-0 text-status-info" aria-hidden />
-                  <span className="min-w-0 flex-1">
+                  <IconTile icon={iconFor(queue)} tone="neutral" size="md" />
+                  <span className="min-w-0 flex-1 basis-48">
                     <span className="block text-sm font-semibold text-text-primary group-hover:underline">
                       {outcome.status === 'ok'
                         ? capitalise(queue.label(outcome.count))
@@ -318,14 +370,18 @@ export function NeedsYou() {
                           ? `We could not count ${queueNoun(queue)}`
                           : `Counting ${queueNoun(queue)}`}
                     </span>
-                    <span className="block text-sm text-text-secondary">{queue.consequence}</span>
+                    <span className="block text-caption text-text-secondary">
+                      {queue.consequence}
+                    </span>
                   </span>
-                  <Badge tone="neutral">No action needed</Badge>
+                  <StatusPill tone="neutral" size="sm" dot={false}>
+                    No action needed
+                  </StatusPill>
                 </Link>
               </li>
             ))}
           </ul>
-        </Card>
+        </SectionCard>
       )}
     </div>
   );

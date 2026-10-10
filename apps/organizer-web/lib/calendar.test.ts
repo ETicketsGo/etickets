@@ -6,6 +6,8 @@ import {
   capItems,
   defaultViewFor,
   displayStatus,
+  statusText,
+  statusTone,
   fetchWindow,
   filterOptions,
   filterSessions,
@@ -444,7 +446,7 @@ describe('status words', () => {
   it('names the event status, unless the session itself was stopped', () => {
     expect(displayStatus({ eventStatus: 'UNDER_REVIEW', sessionStatus: 'SCHEDULED' })).toEqual({
       status: 'UNDER_REVIEW',
-      label: 'Under review',
+      label: 'In review',
     });
     expect(displayStatus({ eventStatus: 'PUBLISHED', sessionStatus: 'CANCELLED' })).toEqual({
       status: 'CANCELLED',
@@ -474,5 +476,21 @@ describe('bounded rendering and defaults', () => {
     expect(canCreateEvents(null)).toBe(true);
     expect(canCreateEvents(undefined)).toBe(true);
     expect(canCreateEvents('CHECKIN_STAFF')).toBe(false);
+  });
+});
+
+describe('the status vocabulary', () => {
+  it('uses the console words, the same as the admin calendar', () => {
+    expect(statusText('UNDER_REVIEW')).toBe('In review');
+    expect(statusText('COMPLETED')).toBe('Ended');
+    expect(statusText('SOLD_OUT')).toBe('Sold out');
+    expect(statusText('SOMETHING_NEW')).toBe('Something new');
+  });
+
+  it('never draws an unknown status as green', () => {
+    expect(statusTone('PUBLISHED')).toBe('success');
+    expect(statusTone('UNDER_REVIEW')).toBe('warning');
+    expect(statusTone('CANCELLED')).toBe('error');
+    expect(statusTone('SOMETHING_NEW')).toBe('neutral');
   });
 });
