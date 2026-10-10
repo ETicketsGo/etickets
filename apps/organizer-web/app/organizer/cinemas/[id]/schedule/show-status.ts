@@ -9,38 +9,6 @@ import type { ShowRow, ScheduleRejection } from '@eticketsgo/web-kit';
  * already said.
  */
 
-/** Mirrors web-kit's BadgeTone; there is no 'danger', the error tone is called 'error'. */
-export type ShowTone = 'success' | 'warning' | 'error' | 'neutral';
-
-export interface ShowPresentation {
-  label: string;
-  tone: ShowTone;
-  /**
-   * Spoken by screen readers and shown as text next to the badge.
-   *
-   * Operational state is never communicated by colour alone: a paused show and a cancelled
-   * show are both "not selling", and a theater manager scanning a day at a glance must be
-   * able to tell them apart without relying on hue.
-   */
-  srText: string;
-}
-
-export function presentShow(status: string): ShowPresentation {
-  switch (status.toUpperCase()) {
-    case 'SCHEDULED':
-      return { label: 'On sale', tone: 'success', srText: 'On sale' };
-    case 'PAUSED':
-      return { label: 'Sales paused', tone: 'warning', srText: 'Sales paused' };
-    case 'CANCELLED':
-      return { label: 'Cancelled', tone: 'error', srText: 'Cancelled' };
-    case 'COMPLETED':
-      return { label: 'Finished', tone: 'neutral', srText: 'Finished' };
-    default:
-      // An unrecognised status from a newer API renders as itself rather than vanishing.
-      return { label: status, tone: 'neutral', srText: status };
-  }
-}
-
 /** Which actions the server would currently accept. Mirrors show-operations.ts. */
 export interface AvailableActions {
   pause: boolean;
@@ -78,9 +46,6 @@ export function availableActions(show: ShowRow, now: Date): AvailableActions {
     edit: true,
   };
 }
-
-export const occupancyPercent = (show: ShowRow): number | null =>
-  show.seatsTotal > 0 ? Math.round((show.seatsSold / show.seatsTotal) * 100) : null;
 
 /**
  * Turn a server rejection into something an operator can act on.
@@ -279,110 +244,4 @@ export function formatDayHeading(date: string): string {
     day: 'numeric',
     month: 'short',
   }).format(new Date(`${date}T12:00:00Z`));
-}
-
-/**
- * Booking-window state for one show, as the OPERATOR needs to read it.
- *
- * Derived from the same fields and the same boundary rule the server enforces: booking
- * creation rejects on `salesStartAt > now` and `salesEndAt < now`, so both edges are
- * INCLUSIVE. An exclusive close reads more naturally and would be wrong — the workspace
- * would say "closed" on a show the server would still happily sell, which is exactly the
- * inconsistency already fixed once on the public side.
- *
- * Sales state outranks the window: a paused or cancelled show is not "waiting to open".
- */
-export type BookingWindowState =
-  'ON_SALE' | 'SALES_NOT_OPEN' | 'BOOKING_CLOSED' | 'SALES_PAUSED' | 'CANCELLED' | 'FINISHED';
-
-export function bookingWindowState(
-  show: { status: string; salesStartAt?: string | null; salesEndAt?: string | null },
-  now: Date,
-): BookingWindowState {
-  const status = show.status.toUpperCase();
-  if (status === 'CANCELLED') return 'CANCELLED';
-  if (status === 'PAUSED') return 'SALES_PAUSED';
-  if (status === 'COMPLETED') return 'FINISHED';
-
-  if (show.salesStartAt && now.getTime() < new Date(show.salesStartAt).getTime()) {
-    return 'SALES_NOT_OPEN';
-  }
-  // `>` not `>=`: the close is inclusive, matching booking creation exactly.
-  if (show.salesEndAt && now.getTime() > new Date(show.salesEndAt).getTime()) {
-    return 'BOOKING_CLOSED';
-  }
-  return 'ON_SALE';
-}
-
-/** Operator-facing label and explanation for a booking-window state. */
-export function describeBookingWindow(
-  state: BookingWindowState,
-  show: { salesStartAt?: string | null },
-  timeZone: string,
-): { label: string; tone: ShowTone; hint: string } {
-  switch (state) {
-    case 'ON_SALE':
-      return { label: 'On sale', tone: 'success', hint: 'Customers can book this show.' };
-    case 'SALES_NOT_OPEN':
-      return {
-        label: 'Not open yet',
-        tone: 'neutral',
-        hint: show.salesStartAt
-          ? `Bookings open ${new Intl.DateTimeFormat('en-GB', {
-              timeZone,
-              day: 'numeric',
-              month: 'short',
-              hour: '2-digit',
-              minute: '2-digit',
-              hour12: false,
-            }).format(new Date(show.salesStartAt))}.`
-          : 'Bookings have not opened for this show yet.',
-      };
-    case 'BOOKING_CLOSED':
-      return {
-        label: 'Booking closed',
-        tone: 'neutral',
-        hint: 'Online booking has closed for this show.',
-      };
-    case 'SALES_PAUSED':
-      return {
-        label: 'Sales paused',
-        tone: 'warning',
-        hint: 'Sales were paused manually. Existing tickets are still valid.',
-      };
-    case 'CANCELLED':
-      return { label: 'Cancelled', tone: 'error', hint: 'This show was cancelled.' };
-    case 'FINISHED':
-      return { label: 'Finished', tone: 'neutral', hint: 'This show has already played.' };
-  }
-}
-
-/**
- * The single badge a show row displays.
- *
- * Lifecycle status ("scheduled") and booking window ("closed") answer different questions,
- * and rendering both put rows on screen reading "On sale  Booking closed" — two badges
- * contradicting each other in the same breath. An operator does not need the taxonomy; they
- * need one answer to "is this selling right now, and if not, why".
- *
- * `describeBookingWindow` already folds the lifecycle in, so it is the answer for every
- * status this build knows. A status it does NOT know falls back to rendering itself rather
- * than defaulting to "On sale": when a newer API adds a state, an out-of-date screen must
- * say something honest and unfamiliar, not something confident and wrong.
- */
-export function effectiveShowBadge(
-  show: { status: string; salesStartAt?: string | null; salesEndAt?: string | null },
-  now: Date,
-  timeZone: string,
-): { label: string; tone: ShowTone; hint: string } {
-  const known = ['SCHEDULED', 'PAUSED', 'CANCELLED', 'COMPLETED'];
-  if (!known.includes(show.status.toUpperCase())) {
-    const fallback = presentShow(show.status);
-    return {
-      label: fallback.label,
-      tone: fallback.tone,
-      hint: 'This show is in a state this screen does not recognise.',
-    };
-  }
-  return describeBookingWindow(bookingWindowState(show, now), show, timeZone);
 }

@@ -274,8 +274,8 @@ async function tryBooking(
  * The show rows of the day timeline.
  *
  * Badge text is NOT unique on this page: the status filter is a <select> whose options read
- * 'On sale', 'Sales paused' and 'Cancelled', so a page-wide getByText finds the dropdown and
- * reports a state the timeline may not be showing at all. Every state assertion goes through
+ * 'Scheduled', 'Paused' and 'Cancelled', and the week view repeats a state, so a page-wide
+ * getByText can find text the timeline is not showing at all. Every state assertion goes through
  * here so it is answered by a row.
  */
 const showRow = (page: Page) => page.getByRole('listitem');
@@ -412,7 +412,8 @@ test.describe('organizer cinema scheduling', () => {
     await seedShows(request, token, fixture, fixture.screenAId, date, ['12:00']);
     await gotoSchedule(page, fixture.cinemaId, date);
 
-    await expect(page.getByText('On sale', { exact: true }).last()).toBeVisible({
+    // The row says the server's unified sale state - the answer checkout acts on.
+    await expect(showRow(page).getByText('Selling', { exact: true })).toBeVisible({
       timeout: 20_000,
     });
 
@@ -421,13 +422,13 @@ test.describe('organizer cinema scheduling', () => {
     await expect(page.getByText(/Tickets already sold stay valid/)).toBeVisible();
     await page.getByRole('button', { name: 'Pause sales', exact: true }).click();
 
-    await expect(page.getByText('Sales paused', { exact: true }).last()).toBeVisible({
+    await expect(showRow(page).getByText('Not selling: sales paused')).toBeVisible({
       timeout: 20_000,
     });
-    await expect(page.locator('li').getByText('On sale', { exact: true })).toHaveCount(0);
+    await expect(showRow(page).getByText('Selling', { exact: true })).toHaveCount(0);
 
     await page.getByRole('button', { name: /^Reopen sales for/ }).click();
-    await expect(page.getByText('On sale', { exact: true }).last()).toBeVisible({
+    await expect(showRow(page).getByText('Selling', { exact: true })).toBeVisible({
       timeout: 20_000,
     });
   });
@@ -446,7 +447,7 @@ test.describe('organizer cinema scheduling', () => {
     await confirm.click();
 
     // Kept and marked, not deleted — the operator still needs to see it happened.
-    await expect(page.getByText('Cancelled', { exact: true }).last()).toBeVisible({
+    await expect(showRow(page).getByText('Not selling: show cancelled')).toBeVisible({
       timeout: 20_000,
     });
     await expect(page.getByText(fixture.movieTitle).first()).toBeVisible();
@@ -510,7 +511,7 @@ test.describe('organizer cinema scheduling', () => {
     const date = dateLabel(40);
     const created = await seedShows(request, token, fixture, fixture.screenAId, date, ['16:00']);
     await gotoSchedule(page, fixture.cinemaId, date);
-    await expect(page.getByText('On sale', { exact: true }).last()).toBeVisible({
+    await expect(showRow(page).getByText('Selling', { exact: true })).toBeVisible({
       timeout: 20_000,
     });
 
@@ -522,7 +523,7 @@ test.describe('organizer cinema scheduling', () => {
 
     await page.reload();
     await page.getByLabel('Date', { exact: true }).fill(date);
-    await expect(page.getByText('Sales paused', { exact: true }).last()).toBeVisible({
+    await expect(showRow(page).getByText('Not selling: sales paused')).toBeVisible({
       timeout: 20_000,
     });
   });
@@ -575,7 +576,9 @@ test.describe('organizer cinema scheduling', () => {
     // The existing show is untouched: still there, still on sale.
     await gotoSchedule(page, fixture.cinemaId, date);
     await expect(page.getByRole('heading', { name: 'Screen B' })).toBeVisible({ timeout: 20_000 });
-    await expect(page.getByText('On sale', { exact: true }).last()).toBeVisible();
+    await expect(showRow(page).getByText('Selling', { exact: true })).toBeVisible({
+      timeout: 20_000,
+    });
 
     // Scheduling anything NEW on it is prevented twice over.
     //
@@ -758,7 +761,7 @@ test.describe('organizer cinema scheduling', () => {
     });
 
     await gotoSchedule(page, fixture.cinemaId, date);
-    await expect(page.getByText('Cancelled', { exact: true }).last()).toBeVisible({
+    await expect(showRow(page).getByText('Not selling: show cancelled')).toBeVisible({
       timeout: 20_000,
     });
     await expect(page.getByRole('button', { name: /^Move / })).toHaveCount(0);
@@ -913,8 +916,12 @@ test.describe('organizer cinema scheduling', () => {
     await openWeek(page, fixture.cinemaId, monday);
     // Each state is in the card's accessible name, so it is announced once and is not
     // carried by colour.
-    await expect(page.getByRole('button', { name: /10:00 .*Sales paused/ })).toHaveCount(1);
-    await expect(page.getByRole('button', { name: /16:00 .*Cancelled/ })).toHaveCount(1);
+    await expect(
+      page.getByRole('button', { name: /10:00 .*Not selling: sales paused/ }),
+    ).toHaveCount(1, { timeout: 20_000 });
+    await expect(
+      page.getByRole('button', { name: /16:00 .*Not selling: show cancelled/ }),
+    ).toHaveCount(1);
   });
 
   test('47: selecting a show hands over to the day view', async ({ page, request }) => {
@@ -958,7 +965,9 @@ test.describe('organizer cinema scheduling', () => {
     });
 
     await gotoSchedule(page, fixture.cinemaId, date);
-    await expect(showRow(page).getByText('Not open yet')).toBeVisible({ timeout: 20_000 });
+    await expect(showRow(page).getByText(/^Not selling: bookings open /)).toBeVisible({
+      timeout: 20_000,
+    });
 
     // The badge is not decoration: the endpoint agrees with it.
     const attempt = await tryBooking(request, token, sessionId);
@@ -980,9 +989,11 @@ test.describe('organizer cinema scheduling', () => {
     });
 
     await gotoSchedule(page, fixture.cinemaId, date);
-    // No window badge at all: the row is sellable, so there is nothing to warn about.
-    await expect(showRow(page).getByText('Booking closed')).toHaveCount(0);
-    await expect(showRow(page).getByText('Not open yet')).toHaveCount(0);
+    // Selling, with no window reason: the row is sellable, so there is nothing to warn about.
+    await expect(showRow(page).getByText('Selling', { exact: true })).toBeVisible({
+      timeout: 20_000,
+    });
+    await expect(showRow(page).getByText(/^Not selling/)).toHaveCount(0);
 
     const attempt = await tryBooking(request, token, sessionId);
     expect(attempt.ok).toBe(true);
@@ -1001,7 +1012,9 @@ test.describe('organizer cinema scheduling', () => {
     });
 
     await gotoSchedule(page, fixture.cinemaId, date);
-    await expect(showRow(page).getByText('Booking closed')).toBeVisible({ timeout: 20_000 });
+    await expect(showRow(page).getByText('Not selling: booking closed')).toBeVisible({
+      timeout: 20_000,
+    });
 
     const attempt = await tryBooking(request, token, sessionId);
     expect(attempt.ok).toBe(false);
@@ -1021,7 +1034,9 @@ test.describe('organizer cinema scheduling', () => {
     await gotoSchedule(page, fixture.cinemaId, date);
     // Closing the counter is not the same as the show going away. The operator still has to
     // be able to move or cancel it, and the row must still be there to do that with.
-    await expect(showRow(page).getByText('Booking closed')).toBeVisible({ timeout: 20_000 });
+    await expect(showRow(page).getByText('Not selling: booking closed')).toBeVisible({
+      timeout: 20_000,
+    });
     await expect(page.getByText('21:00', { exact: false })).toBeVisible();
     await expect(page.getByRole('button', { name: /^Move / })).toHaveCount(1);
   });
@@ -1044,8 +1059,10 @@ test.describe('organizer cinema scheduling', () => {
     // A deliberate pause and an elapsed clock are not the same situation, and only one of
     // them is undone by a person. The operator must be told which one they are looking at.
     await gotoSchedule(page, fixture.cinemaId, date);
-    await expect(showRow(page).getByText('Sales paused')).toBeVisible({ timeout: 20_000 });
-    await expect(showRow(page).getByText('Booking closed')).toHaveCount(0);
+    await expect(showRow(page).getByText('Not selling: sales paused')).toBeVisible({
+      timeout: 20_000,
+    });
+    await expect(showRow(page).getByText(/booking closed/)).toHaveCount(0);
   });
 
   test('55: the week view shows the same window states as the day', async ({ page, request }) => {
@@ -1064,15 +1081,19 @@ test.describe('organizer cinema scheduling', () => {
     });
 
     await openWeek(page, fixture.cinemaId, monday);
-    // Both views derive from the same badge function; this is the guard against a second
-    // set of window rules quietly appearing in one of them.
+    // Both views show the server's one unified sale state; this is the guard against a
+    // second set of window rules quietly appearing in one of them.
     //
     // Scoped to this test's own day column. Earlier specs in this file seed their own closed
     // 10:00 shows, and some of those dates land inside this same week — a page-wide count
     // asserts on other tests' data and drifts every time one of them changes.
     const column = page.getByTestId(`week-day-${day}`);
-    await expect(column.getByRole('button', { name: /10:00 .*Booking closed/ })).toHaveCount(1);
-    await expect(column.getByRole('button', { name: /15:00 .*Not open yet/ })).toHaveCount(1);
+    await expect(
+      column.getByRole('button', { name: /10:00 .*Not selling: booking closed/ }),
+    ).toHaveCount(1, { timeout: 20_000 });
+    await expect(
+      column.getByRole('button', { name: /15:00 .*Not selling: bookings open / }),
+    ).toHaveCount(1);
   });
 });
 
