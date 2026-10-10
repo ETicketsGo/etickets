@@ -17,18 +17,27 @@ import { SyncOpsService } from './sync-ops.service';
 export class SyncOpsController {
   constructor(private readonly ops: SyncOpsService) {}
 
+  /*
+    Every POST here re-runs, re-maps or rewinds a provider sync, which changes what inventory the
+    platform believes it holds - the checkpoint reset re-reads a provider's whole history. They
+    need OPS_EXECUTE; the reads (health, mappings) stay OPS_READ. Each used to inherit the
+    class's OPS_READ.
+  */
   @Post('events/:id/reprocess')
+  @RequiresAdmin(AdminPermission.OPS_EXECUTE)
   @ApiOperation({ summary: 'Requeue a raw provider event for reprocessing.' })
   reprocess(@CurrentUser() user: RequestUser, @Param('id') id: string) {
     return this.ops.reprocess(user?.id ?? null, id);
   }
 
   @Post('events/:id/manual-review')
+  @RequiresAdmin(AdminPermission.OPS_EXECUTE)
   markReview(@CurrentUser() user: RequestUser, @Param('id') id: string) {
     return this.ops.markManualReview(user?.id ?? null, id);
   }
 
   @Post('providers/:providerCode/retry-failed')
+  @RequiresAdmin(AdminPermission.OPS_EXECUTE)
   retryFailed(
     @CurrentUser() user: RequestUser,
     @Param('providerCode') providerCode: string,
@@ -38,6 +47,7 @@ export class SyncOpsController {
   }
 
   @Post('providers/:providerCode/reconcile')
+  @RequiresAdmin(AdminPermission.OPS_EXECUTE)
   reconcile(@Param('providerCode') providerCode: string, @Query('limit') limit?: string) {
     return this.ops.runReconciliation(providerCode, limit ? Number(limit) : undefined);
   }
@@ -66,6 +76,7 @@ export class SyncOpsController {
   }
 
   @Post('mappings/:id/resolve')
+  @RequiresAdmin(AdminPermission.OPS_EXECUTE)
   @ApiOperation({ summary: 'Link a provider record to an internal entity (verified, audited).' })
   resolveMapping(
     @CurrentUser() user: RequestUser,
@@ -81,6 +92,7 @@ export class SyncOpsController {
   }
 
   @Post('providers/:providerCode/checkpoint/reset')
+  @RequiresAdmin(AdminPermission.OPS_EXECUTE)
   resetCheckpoint(
     @CurrentUser() user: RequestUser,
     @Param('providerCode') providerCode: string,

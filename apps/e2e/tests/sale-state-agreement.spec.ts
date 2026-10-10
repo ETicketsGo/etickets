@@ -174,8 +174,18 @@ async function everyScreenSays(page: Page, fx: Fixture, label: string) {
   await page.goto(`${ORGANIZER}/organizer`);
   const upcoming = page.getByRole('region', { name: 'Upcoming events' });
   await says(upcoming.getByRole('article').filter({ hasText: fx.title }), label);
-  const today = page.getByRole('list', { name: 'Shows today' });
-  await says(today.getByRole('listitem').filter({ hasText: fx.title }), label);
+  /*
+    The "Today" list holds the shows on today's date at their venue. The fixture show starts about
+    half an hour from now, so from 23:30 at the venue (Asia/Kolkata) it falls on tomorrow and is
+    rightly absent - which failed main and #303 at 18:01 UTC on 2026-10-10. Only assert the row
+    when the show really is on today's venue date.
+  */
+  const venueDay = (d: Date) =>
+    new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(d);
+  if (venueDay(fx.start) === venueDay(new Date())) {
+    const today = page.getByRole('list', { name: 'Shows today' });
+    await says(today.getByRole('listitem').filter({ hasText: fx.title }), label);
+  }
 
   // 2. The event list, as a card.
   await page.goto(`${ORGANIZER}/organizer/events`);

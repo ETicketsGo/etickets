@@ -43,6 +43,15 @@ const TONE_TEXT: Record<BadgeTone, string> = {
  * or `footer` in words, and a page that does not shows no trend at all.
  *
  * `href` makes the whole card a link to the page behind the number.
+ *
+ * ── COMPACT ────────────────────────────────────────────────────────────────────────
+ * `density="compact"` is the same card for a two-across phone grid (or any tight row): a
+ * small tile beside the label, the number on its own line under them and the caption below.
+ * The comfortable card puts a 48px tile beside the number, which at 320px left about 70px
+ * for "₹17,147.82", so four figures had to stack into a 450px column. The compact number
+ * scales with the screen (never below 17px) and wraps rather than losing digits. Same tokens,
+ * same tiles, same link behaviour - a page can switch density at a breakpoint by rendering
+ * the one it needs.
  */
 export function StatCard({
   label,
@@ -53,6 +62,8 @@ export function StatCard({
   tile = 'teal',
   href,
   footer,
+  density = 'comfortable',
+  className = '',
 }: {
   label: string;
   value: ReactNode;
@@ -63,8 +74,28 @@ export function StatCard({
   tile?: TileTone;
   href?: string;
   footer?: ReactNode;
+  /** `compact`: tile + label on one line, the number under them, tight padding. */
+  density?: 'comfortable' | 'compact';
+  className?: string;
 }) {
-  const body = (
+  const compact = density === 'compact';
+  const body = compact ? (
+    <>
+      <div className="flex min-w-0 items-center gap-2">
+        {Icon && <IconTile icon={Icon} tone={tile} size="sm" />}
+        <p className="min-w-0 text-caption font-medium leading-tight text-text-secondary">
+          {label}
+        </p>
+      </div>
+      <p
+        className={`mt-1.5 font-display text-[clamp(1.0625rem,5vw,1.25rem)] font-bold leading-tight tracking-tight tabular-nums [overflow-wrap:anywhere] ${TONE_TEXT[tone]}`}
+      >
+        {value}
+      </p>
+      {hint && <p className="mt-0.5 text-micro leading-snug text-text-muted">{hint}</p>}
+      {footer && <div className="mt-2">{footer}</div>}
+    </>
+  ) : (
     <>
       <div className="flex items-start gap-4">
         {Icon && <IconTile icon={Icon} tone={tile} size="lg" />}
@@ -81,7 +112,9 @@ export function StatCard({
       {footer && <div className="mt-3">{footer}</div>}
     </>
   );
-  const frame = 'block rounded-lg border border-border bg-background-surface p-5 shadow-xs';
+  const frame = `block h-full min-w-0 rounded-lg border border-border bg-background-surface shadow-xs ${
+    compact ? 'p-3' : 'p-5'
+  } ${className}`;
   return href ? (
     <Link
       href={href}

@@ -50,13 +50,20 @@ export class OpsController {
     return this.ops.failedJobs(Number.isFinite(parsed) ? (parsed as number) : undefined);
   }
 
+  /*
+    Retrying re-runs a job that already ran once, side effects included (a hold expiry, a
+    reminder). That is acting on the queue, not reading it, so it needs OPS_EXECUTE: before, it
+    inherited this class's OPS_READ and "may see queue depth" meant "may replay every failure".
+  */
   @Post('queues/retry-failed')
+  @RequiresAdmin(AdminPermission.OPS_EXECUTE)
   @ApiOperation({ summary: 'Retry all failed jobs (bounded). Returns the count retried.' })
   retryFailed() {
     return this.ops.retryFailed();
   }
 
   @Post('queues/jobs/:id/retry')
+  @RequiresAdmin(AdminPermission.OPS_EXECUTE)
   @ApiOperation({ summary: 'Retry a single failed job by id.' })
   retryJob(@Param('id') id: string) {
     return this.ops.retryJob(id);

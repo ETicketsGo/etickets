@@ -30,6 +30,7 @@ import {
   useFilterDescription,
   useUrlFilters,
 } from '../../../components/list-filters';
+import { missingDutyNote, useHolds } from '@/lib/capabilities';
 
 /*
   Complaint first, because it is the one a person has to act on.
@@ -93,6 +94,11 @@ export default function AdminSupport() {
 
   useEffect(() => setPage(1), [filters.signature]);
   const [selected, setSelected] = useState<FeedbackRow | null>(null);
+  /*
+    The inbox opens with BOOKING_READ; changing a submission's status needs SUPPORT_MANAGE, since
+    closing a complaint changes the count that decides whether an organizer keeps selling.
+  */
+  const mayManage = useHolds('SUPPORT_MANAGE');
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['admin', 'support', page, filters.signature],
@@ -222,7 +228,12 @@ export default function AdminSupport() {
         onClose={() => setSelected(null)}
         title={selected ? kindLabel(selected.kind) : 'Submission'}
         footer={
-          selected && (
+          selected &&
+          (!mayManage ? (
+            <p className="text-caption text-text-muted">
+              {missingDutyNote('change its status', 'SUPPORT_MANAGE')}
+            </p>
+          ) : (
             <div className="flex flex-wrap items-center justify-end gap-2">
               {STATUSES.map((s) => (
                 <Button
@@ -237,7 +248,7 @@ export default function AdminSupport() {
                 </Button>
               ))}
             </div>
-          )
+          ))
         }
       >
         {selected && (
