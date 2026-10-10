@@ -107,7 +107,7 @@ export function EventImageFocus({
     <section className="space-y-3 rounded-md border border-border p-3" aria-labelledby="focus-h">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h3 id="focus-h" className="text-sm font-medium text-text-primary">
-          How buyers see your image
+          Focus point
         </h3>
         <span className="text-caption text-text-muted" aria-live="polite">
           {saving ? 'Saving...' : ''}
