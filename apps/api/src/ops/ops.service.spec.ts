@@ -72,14 +72,51 @@ describe('OpsService.health', () => {
     expect(health.redis.status).toBe('down');
   });
 
-  it('marks the queue degraded when there are failed jobs', async () => {
+  it('marks the queue degraded when a job failed in the last 24 hours', async () => {
+    const recent = Date.now() - 60 * 60 * 1000;
+    const old = Date.now() - 60 * 24 * 60 * 60 * 1000;
     const { service } = makeService({
-      queue: { getJobCounts: jest.fn().mockResolvedValue({ failed: 3 }) },
+      queue: {
+        getJobCounts: jest.fn().mockResolvedValue({ failed: 3 }),
+        getFailed: jest
+          .fn()
+          .mockResolvedValue([{ finishedOn: old }, { finishedOn: recent }, { finishedOn: old }]),
+      },
     });
     const health = await service.health();
     expect(health.queue.status).toBe('degraded');
     expect(health.queue.failed).toBe(3);
+    expect(health.queue.recentFailed).toBe(1);
+    expect(health.queue.lastFailedAt).toBe(new Date(recent).toISOString());
     expect(health.status).toBe('degraded');
+  });
+
+  // QA on 2026-10-10 showed "Queue Degraded" for 20 jobs that failed in a database outage two
+  // months earlier. Old failures stay counted and retryable; they do not make the system unhealthy.
+  it('keeps the queue ok when every failed job is older than 24 hours', async () => {
+    const old = Date.now() - 60 * 24 * 60 * 60 * 1000;
+    const { service } = makeService({
+      queue: {
+        getJobCounts: jest.fn().mockResolvedValue({ failed: 2 }),
+        getFailed: jest.fn().mockResolvedValue([{ finishedOn: old }, { finishedOn: old - 1000 }]),
+      },
+    });
+    const health = await service.health();
+    expect(health.queue.status).toBe('ok');
+    expect(health.queue.failed).toBe(2);
+    expect(health.queue.recentFailed).toBe(0);
+    expect(health.queue.lastFailedAt).toBe(new Date(old).toISOString());
+    expect(health.status).toBe('ok');
+  });
+
+  it('labels the environment with APP_ENV, not NODE_ENV', async () => {
+    const { service } = makeService({});
+    (service as unknown as { config: { get: jest.Mock } }).config.get = jest.fn(
+      (k: string, d?: unknown) => (k === 'APP_ENV' ? 'QA' : k === 'NODE_ENV' ? 'production' : d),
+    );
+    const health = await service.health();
+    expect(health.appEnv).toBe('QA');
+    expect(health.nodeEnv).toBe('production');
   });
 
   it('reports queue down when the queue client throws', async () => {
