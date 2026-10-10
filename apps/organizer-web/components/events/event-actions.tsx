@@ -1,7 +1,8 @@
 'use client';
 
 import { Armchair, Copy, Pencil, ScanLine, Ticket, Trash2, Users } from 'lucide-react';
-import { ButtonLink, Menu, type MenuItem } from '@eticketsgo/web-kit';
+import Link from 'next/link';
+import { FOCUS_RING, Menu, type MenuItem } from '@eticketsgo/web-kit';
 
 /**
  * What can be done to one event from the list: one tinted "Manage", and a square "..." menu
@@ -77,18 +78,19 @@ export function EventActions({
         visible text must START with it (WCAG 2.5.3), and "Manage <title>" does.
       */}
       {inTable ? null : (
-        <span className={fill ? 'min-w-0 flex-1' : ''}>
-          {/* `relative` keeps the hidden half of the name inside a sideways-scrolling box. */}
-          <ButtonLink
-            href={`/organizer/events/${event.id}`}
-            variant="tinted"
-            size="sm"
-            className={`relative ${fill ? 'w-full' : ''} [&>span]:sr-only`}
-          >
-            Manage
-            <span> {event.title}</span>
-          </ButtonLink>
-        </span>
+        /*
+          `aria-label`, not a visually hidden span: hidden text is still page text, so a search
+          for the title found it twice on every card.
+        */
+        <Link
+          href={`/organizer/events/${event.id}`}
+          aria-label={`Manage ${event.title}`}
+          className={`inline-flex h-9 items-center justify-center rounded-md bg-tint-primary px-3.5 text-button font-semibold text-action-primary transition-[filter] duration-150 hover:brightness-95 active:translate-y-px motion-reduce:transition-none dark:hover:brightness-125 ${FOCUS_RING} ${
+            fill ? 'min-w-0 flex-1' : ''
+          }`}
+        >
+          Manage
+        </Link>
       )}
       <Menu trigger="icon" label={`More actions for ${event.title}`} items={items} size="md" />
     </div>
