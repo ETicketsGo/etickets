@@ -129,6 +129,80 @@ describe('the admin surface is fully gated', () => {
     expect(ungated).toEqual([]);
   });
 
+  it('never lets a READ capability open a staff-only write', () => {
+    /*
+      The defect behind admin-config-authz.spec.ts and admin-action-authz.spec.ts, held across the
+      WHOLE surface: a controller whose class guard is a read capability, and a POST added to it
+      without one of its own, inherits the read - "may see the outbox" became "may replay it".
+      So every staff-only POST/PUT/PATCH/DELETE must resolve (handler first, then class, the way
+      Nest does) to capabilities none of which is a read.
+
+      The one exception persists nothing and is named, so adding another is a decision in review.
+    */
+    const READS = new Set([
+      'AdminPermission.BOOKING_READ',
+      'AdminPermission.ORGANIZER_READ',
+      'AdminPermission.FINANCE_READ',
+      'AdminPermission.OPS_READ',
+      'AdminPermission.PLATFORM_CONFIG_READ',
+    ]);
+    /** POSTs that compute and return, writing nothing. */
+    const READ_ONLY_POSTS = new Set(['CompensationAdminController.dryRun']);
+    const STAFF_ROLES = new Set(['Role.ADMIN', 'Role.SUPER_ADMIN']);
+    const WRITES = new Set(['Post', 'Put', 'Patch', 'Delete']);
+    const leaning: string[] = [];
+    let writes = 0;
+
+    for (const file of files) {
+      const sf = ts.createSourceFile(
+        file,
+        readFileSync(file, 'utf8'),
+        ts.ScriptTarget.Latest,
+        true,
+      );
+      const decoratorsOf = (node: ts.Node) =>
+        (ts.canHaveDecorators(node) ? (ts.getDecorators(node) ?? []) : []).flatMap((d) =>
+          ts.isCallExpression(d.expression) && ts.isIdentifier(d.expression.expression)
+            ? [
+                {
+                  name: d.expression.expression.text,
+                  args: d.expression.arguments.map((a) => a.getText(sf)),
+                },
+              ]
+            : [],
+        );
+      const visit = (node: ts.Node): void => {
+        if (ts.isClassDeclaration(node)) {
+          const onClass = decoratorsOf(node);
+          for (const member of node.members) {
+            if (!ts.isMethodDeclaration(member)) continue;
+            const onMethod = decoratorsOf(member);
+            if (!onMethod.some((d) => WRITES.has(d.name))) continue;
+            const roles =
+              (onMethod.find((d) => d.name === 'Roles') ?? onClass.find((d) => d.name === 'Roles'))
+                ?.args ?? [];
+            if (roles.length === 0 || !roles.every((r) => STAFF_ROLES.has(r))) continue;
+            const id = `${node.name?.text}.${member.name.getText(sf)}`;
+            if (READ_ONLY_POSTS.has(id)) continue;
+            writes++;
+            const required =
+              (
+                onMethod.find((d) => d.name === 'RequiresAdmin') ??
+                onClass.find((d) => d.name === 'RequiresAdmin')
+              )?.args ?? [];
+            if (required.length === 0 || required.some((p) => READS.has(p))) leaning.push(id);
+          }
+        }
+        ts.forEachChild(node, visit);
+      };
+      visit(sf);
+    }
+
+    // Dozens exist; finding almost none would mean the parser stopped seeing them.
+    expect(writes).toBeGreaterThan(40);
+    expect(leaning).toEqual([]);
+  });
+
   it('only ever requires capabilities that exist in the catalogue', () => {
     // A typo in a decorator would compile — `AdminPermission.REFUND_APROVE` is undefined,
     // and an undefined requirement is one nobody can satisfy or, worse, one the guard
