@@ -3,28 +3,24 @@
 import Link from 'next/link';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Building2, Clapperboard, Ticket } from 'lucide-react';
 import { ScheduleRunDialog } from '@/components/schedule-run-dialog';
 import { instantToWallClock, wallClockToInstant, zoneLabel } from '@/lib/zoned-time';
 import { EditShowDialog } from '@/components/edit-show-dialog';
 import { useParams } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   api,
   Button,
-  Card,
+  Badge,
   Input,
   Select,
   Textarea,
   Dialog,
-  DataTable,
   Skeleton,
   ErrorState,
-  PageHeader,
-  StatusBadge,
   useToast,
   errorMessage,
-  dateTime,
-  type Column,
   type MovieBody,
   type MovieStatusValue,
   type ShowRow,
@@ -32,6 +28,21 @@ import {
   DateTimeField,
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
+import { FilmPoster } from '@/components/cinema/film-poster';
+import { MoreMenu } from '@/components/cinema/more-menu';
+import { SaleChip } from '@/components/cinema/sale-chip';
+import { Showtimes } from '@/components/cinema/showtimes';
+import { ShowQuickLook } from '@/components/cinema/show-quick-look';
+import { filmFacts } from '@/components/cinema/film-card';
+import { useCinemaSales, useCinemas } from '@/components/cinema/use-cinema-data';
+import {
+  filmSaleSummary,
+  filmStatusLabel,
+  isUpcoming,
+  percentSold,
+  programmeOf,
+  type SaleVerdict,
+} from '@/components/cinema/cinema-model';
 
 const CERTIFICATES = ['U', 'U/A', 'A', 'S'];
 const LANGUAGES = ['Hindi', 'English', 'Tamil', 'Telugu', 'Kannada', 'Malayalam', 'Bengali'];
@@ -148,10 +159,7 @@ export default function EditMoviePage() {
     queryKey: ['movie', id, 'shows'],
     queryFn: () => api.shows.listForMovie(id),
   });
-  const cinemasQ = useQuery({
-    queryKey: ['cinemas', activeOrg.id],
-    queryFn: () => api.cinemas.list(activeOrg.id),
-  });
+  const cinemasQ = useCinemas(activeOrg.id);
 
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [sched, setSched] = useState({ cinemaId: '', screenId: '', startsAt: '', endsAt: '' });
@@ -270,230 +278,380 @@ export default function EditMoviePage() {
   const [editing, setEditing] = useState<ShowRow | null>(null);
   const [runOpen, setRunOpen] = useState(false);
 
-  const showColumns: Column<ShowRow>[] = [
-    {
-      key: 'startsAt',
-      header: 'Showtime',
-      render: (s) => dateTime(s.startsAt, undefined, zoneOfCinema(s.cinemaId)),
-    },
-    { key: 'screenName', header: 'Screen', render: (s) => s.screenName ?? '—' },
-    { key: 'cinemaName', header: 'Cinema', render: (s) => s.cinemaName ?? '—' },
-    {
-      key: 'seats',
-      header: 'Seats sold',
-      render: (s) => `${s.seatsSold} / ${s.seatsTotal}`,
-    },
-    {
-      key: 'actions',
-      header: '',
-      render: (s) => {
-        /*
-          A show that has already played, or is cancelled, has nothing left to edit — its
-          time, its price and its sale state are all settled. Offering the button anyway
-          would only produce a dialog whose every action is refused.
-        */
-        const editable =
-          (s.status === 'SCHEDULED' || s.status === 'PAUSED') && new Date(s.startsAt) > new Date();
-        if (!editable) return null;
-        return (
-          <Button
-            size="sm"
-            variant="ghost"
-            aria-label={`Edit the ${dateTime(s.startsAt, undefined, zoneOfCinema(s.cinemaId))} show`}
-            onClick={() => setEditing(s)}
-          >
-            Edit
-          </Button>
-        );
-      },
-    },
-  ];
+  /*
+    ── WHAT THE FILM PAGE IS FOR ─────────────────────────────────────────────────────
+    Before (QA 6b80ad8) this page opened on a status card and a long form, with the shows in
+    a plain table at the bottom - the reverse of how a cinema works. A programmer comes here
+    to see when and where the film plays and whether it sells, and edits its synopsis now and
+    then. So the showtimes lead, and the details are one tab away, unchanged in what they save.
+  */
+  const [tab, setTab] = useState<'showtimes' | 'details'>('showtimes');
+  const [peek, setPeek] = useState<{ show: ShowRow; verdict: SaleVerdict } | null>(null);
+
+  // `?tab=details` and `?schedule=run` are what the library's "More" menu links to.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('tab') === 'details') setTab('details');
+    if (params.get('schedule') === 'run') setRunOpen(true);
+  }, []);
+
+  const [now] = useState(() => new Date());
+  const programme = useMemo(() => programmeOf(showsQ.data, now), [showsQ.data, now]);
+  const upcomingCinemaIds = useMemo(
+    () =>
+      (showsQ.data ?? []).filter((s) => isUpcoming(s, now) && s.cinemaId).map((s) => s.cinemaId!),
+    [showsQ.data, now],
+  );
+  const sales = useCinemaSales(upcomingCinemaIds, cinemasQ.byId);
 
   if (isError)
     return (
       <ErrorState message="We couldn't load this. Please try again." onRetry={() => refetch()} />
     );
-  if (isLoading || !movie) return <Skeleton className="h-64 w-full" />;
+  if (isLoading || !movie)
+    return (
+      <div className="space-y-6" aria-hidden="true">
+        <div className="flex gap-5">
+          <Skeleton className="aspect-[2/3] w-28 rounded-md sm:w-36" />
+          <div className="flex-1 space-y-3">
+            <Skeleton className="h-8 w-2/3" />
+            <Skeleton className="h-4 w-1/3" />
+            <Skeleton className="h-6 w-1/2" />
+          </div>
+        </div>
+        <Skeleton className="h-64 w-full" />
+      </div>
+    );
+
+  const status = filmStatusLabel(movie.status);
+  const sale = filmSaleSummary(movie, programme, showsQ.data, now, sales.stateOf);
+  const pct = percentSold(programme.sold, programme.total);
+  const statusItems = [
+    ...(movie.status !== 'PUBLISHED'
+      ? [{ label: 'Publish film', onSelect: () => changeStatus.mutate('PUBLISHED') }]
+      : []),
+    ...(movie.status !== 'DRAFT'
+      ? [{ label: 'Move to draft', onSelect: () => changeStatus.mutate('DRAFT') }]
+      : []),
+    ...(movie.status !== 'ARCHIVED'
+      ? [{ label: 'Archive film', onSelect: () => changeStatus.mutate('ARCHIVED') }]
+      : []),
+  ];
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6">
-      <PageHeader
-        title={movie.title}
-        breadcrumbs={[{ label: 'Movies', href: '/organizer/movies' }, { label: movie.title }]}
-        action={<StatusBadge status={movie.status} />}
-      />
+    <div className="space-y-6 pb-20 sm:pb-0">
+      <nav aria-label="Breadcrumb" className="text-caption text-text-muted">
+        <Link
+          href="/organizer/movies"
+          className="rounded hover:text-text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          Movies
+        </Link>
+        <span aria-hidden> / </span>
+        <span aria-current="page" className="break-words">
+          {movie.title}
+        </span>
+      </nav>
 
-      <Card title="Status">
-        <div className="flex flex-wrap items-center gap-3">
-          <StatusBadge status={movie.status} />
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              loading={changeStatus.isPending}
-              disabled={movie.status === 'PUBLISHED'}
-              onClick={() => changeStatus.mutate('PUBLISHED')}
-            >
-              Publish
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              loading={changeStatus.isPending}
-              disabled={movie.status === 'ARCHIVED'}
-              onClick={() => changeStatus.mutate('ARCHIVED')}
-            >
-              Archive
-            </Button>
-            {movie.status !== 'DRAFT' && (
-              <Button
-                variant="ghost"
-                size="sm"
-                loading={changeStatus.isPending}
-                onClick={() => changeStatus.mutate('DRAFT')}
-              >
-                Move to draft
-              </Button>
-            )}
-          </div>
+      <header className="flex flex-col gap-5 sm:flex-row sm:items-start">
+        <div className="w-28 shrink-0 sm:w-36">
+          <FilmPoster id={movie.id} posterUrl={movie.posterUrl} iconClassName="h-10 w-10" />
         </div>
-      </Card>
-
-      <Card title="Details">
-        <div className="space-y-4">
-          <Input
-            id="title"
-            label="Title"
-            value={form.title}
-            onChange={(e) => set('title', e.target.value)}
-            error={fieldErrors.title}
-          />
-          <Textarea
-            id="synopsis"
-            label="Synopsis"
-            rows={4}
-            value={form.synopsis}
-            onChange={(e) => set('synopsis', e.target.value)}
-          />
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Input
-              id="runtime"
-              label="Runtime (minutes)"
-              type="number"
-              min={1}
-              value={form.runtimeMinutes}
-              onChange={(e) => set('runtimeMinutes', e.target.value)}
-              error={fieldErrors.runtimeMinutes}
-            />
-            <Input
-              id="releaseDate"
-              label="Release date"
-              type="date"
-              value={form.releaseDate}
-              onChange={(e) => set('releaseDate', e.target.value)}
-            />
-            <Select
-              id="language"
-              label="Language"
-              value={form.language}
-              onChange={(e) => set('language', e.target.value)}
-              error={fieldErrors.language}
-            >
-              {LANGUAGES.map((l) => (
-                <option key={l} value={l}>
-                  {l}
-                </option>
-              ))}
-            </Select>
-            <Select
-              id="certificate"
-              label="Certificate"
-              value={form.certificate}
-              onChange={(e) => set('certificate', e.target.value)}
-            >
-              <option value="">Not set</option>
-              {CERTIFICATES.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </Select>
+        <div className="min-w-0 flex-1 space-y-3">
+          <div className="space-y-1.5">
+            <h1 className="text-balance break-words text-h2 font-semibold tracking-tight text-text-primary sm:text-h1">
+              {movie.title}
+            </h1>
+            <p className="text-[0.9375rem] text-text-secondary">
+              {[filmFacts(movie), movie.genres.join(', ')].filter(Boolean).join(' · ')}
+            </p>
           </div>
-          <Input
-            id="genres"
-            label="Genres"
-            hint="Comma-separated, e.g. Action, Thriller"
-            value={form.genres}
-            onChange={(e) => set('genres', e.target.value)}
-            error={fieldErrors.genres}
-          />
-          <Input
-            id="cast"
-            label="Cast"
-            hint="Comma-separated, e.g. Actor One, Actor Two"
-            value={form.cast}
-            onChange={(e) => set('cast', e.target.value)}
-          />
-          <Input
-            id="director"
-            label="Director"
-            value={form.director}
-            onChange={(e) => set('director', e.target.value)}
-          />
-          <Input
-            id="posterUrl"
-            label="Poster URL"
-            value={form.posterUrl}
-            onChange={(e) => set('posterUrl', e.target.value)}
-          />
-          <Input
-            id="trailerUrl"
-            label="Trailer URL"
-            value={form.trailerUrl}
-            onChange={(e) => set('trailerUrl', e.target.value)}
-          />
-          <Button loading={save.isPending} onClick={submit}>
-            Save changes
-          </Button>
-        </div>
-      </Card>
-
-      <Card
-        title="Shows"
-        action={
-          <div className="flex gap-2">
-            {/*
-              Two ways in, because they are two different jobs. One showtime is a correction
-              or an extra late screening; a RUN is how a film is actually booked in — a week,
-              four times a day, twenty-eight shows nobody wants to type one at a time.
-
-              Both keep the verb. "One show" next to "Schedule a run" read as an odd pair —
-              one a noun, one an instruction — and renaming the existing button also broke
-              every test that had been clicking it for months.
-            */}
-            <Button size="sm" variant="outline" onClick={openSchedule}>
-              Schedule show
-            </Button>
-            <Button size="sm" onClick={() => setRunOpen(true)} disabled={cannotSchedule}>
-              Schedule a run
-            </Button>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Badge tone={status.tone === 'success' ? 'success' : 'neutral'}>
+              <span className="sr-only">Film status: </span>
+              {status.label}
+            </Badge>
+            <SaleChip verdict={sale} />
           </div>
-        }
-      >
-        <DataTable
-          columns={showColumns}
-          rows={showsQ.data}
-          loading={showsQ.isLoading}
-          error={showsQ.isError ? "We couldn't load shows. Please try again." : undefined}
-          onRetry={() => showsQ.refetch()}
-          rowKey={(s) => s.sessionId}
-          empty={
-            <div className="p-8 text-center text-text-muted">
-              No shows scheduled yet. Schedule a show to start selling seats.
+          {sale.selling && sale.exceptions.length > 0 ? (
+            <ul className="space-y-0.5 text-caption text-status-warning">
+              {sale.exceptions.map((e) => (
+                <li key={e.cinema}>
+                  Not selling at {e.cinema}: {e.reason}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          <dl className="grid max-w-xl grid-cols-3 gap-3 pt-1">
+            <div className="min-w-0">
+              <dt className="flex items-center gap-1.5 text-caption text-text-muted">
+                <Clapperboard className="h-3.5 w-3.5" aria-hidden /> Upcoming
+              </dt>
+              <dd className="text-h3 font-semibold tabular-nums text-text-primary">
+                {showsQ.isLoading ? '-' : programme.upcoming}
+              </dd>
             </div>
-          }
-        />
-      </Card>
+            <div className="min-w-0">
+              <dt className="flex items-center gap-1.5 text-caption text-text-muted">
+                <Building2 className="h-3.5 w-3.5" aria-hidden /> Cinemas
+              </dt>
+              <dd className="text-h3 font-semibold tabular-nums text-text-primary">
+                {showsQ.isLoading ? '-' : programme.cinemas.length}
+              </dd>
+            </div>
+            <div className="min-w-0">
+              <dt className="flex items-center gap-1.5 text-caption text-text-muted">
+                <Ticket className="h-3.5 w-3.5" aria-hidden /> Seats sold
+              </dt>
+              <dd className="text-h3 font-semibold tabular-nums text-text-primary">
+                {showsQ.isLoading ? '-' : programme.sold}
+                <span className="text-caption font-normal text-text-muted">
+                  {' '}
+                  of {programme.total}
+                  {pct !== null ? ` (${pct}%)` : ''}
+                </span>
+              </dd>
+            </div>
+          </dl>
+        </div>
+        {/*
+          One primary action. Booking a film in is a RUN (a week, several times a day); a single
+          extra showtime and the film's status live in the labelled More menu. An organizer with
+          no cinema yet is sent to make one, the only thing that unblocks scheduling.
+        */}
+        {/*
+          On a phone the same controls become a bar fixed to the bottom of the screen, where a
+          thumb reaches them; the page leaves room for it below.
+        */}
+        <div className="fixed inset-x-0 bottom-0 z-20 flex items-center gap-2 border-t border-border bg-background-surface/95 px-4 py-3 shadow-md backdrop-blur sm:static sm:z-auto sm:shrink-0 sm:flex-wrap sm:justify-end sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none sm:backdrop-blur-none [&>*:first-child]:flex-1 sm:[&>*:first-child]:flex-none">
+          {noCinemas ? (
+            <Link
+              href="/organizer/cinemas/new"
+              className="inline-flex h-10 items-center rounded-md bg-action-primary px-4 text-button font-semibold text-action-primary-foreground hover:bg-action-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            >
+              Set up a cinema
+            </Link>
+          ) : (
+            <Button onClick={() => setRunOpen(true)}>Schedule a run</Button>
+          )}
+          <MoreMenu
+            accessibleLabel={`More actions for ${movie.title}`}
+            upOnPhones
+            items={[
+              { label: 'Schedule one show', onSelect: openSchedule },
+              { label: 'Edit details', onSelect: () => setTab('details') },
+              ...statusItems,
+            ]}
+          />
+        </div>
+      </header>
+
+      <div role="tablist" aria-label="Film sections" className="flex gap-1 border-b border-border">
+        {(
+          [
+            ['showtimes', `Showtimes${showsQ.data ? ` (${showsQ.data.length})` : ''}`],
+            ['details', 'Details'],
+          ] as const
+        ).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            id={`tab-${key}`}
+            aria-selected={tab === key}
+            aria-controls={`panel-${key}`}
+            tabIndex={tab === key ? 0 : -1}
+            onClick={() => setTab(key)}
+            onKeyDown={(e) => {
+              if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+                const next = tab === 'showtimes' ? 'details' : 'showtimes';
+                setTab(next);
+                document.getElementById(`tab-${next}`)?.focus();
+              }
+            }}
+            className={`-mb-px border-b-2 px-3 py-2 text-[0.9375rem] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+              tab === key
+                ? 'border-action-primary text-text-primary'
+                : 'border-transparent text-text-secondary hover:text-text-primary'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'showtimes' ? (
+        <div role="tabpanel" id="panel-showtimes" aria-labelledby="tab-showtimes">
+          <Showtimes
+            rows={showsQ.data}
+            loading={showsQ.isLoading}
+            error={showsQ.isError}
+            onRetry={() => showsQ.refetch()}
+            filmStatus={movie.status}
+            zoneOf={cinemasQ.zoneOf}
+            cinemaState={sales.stateOf}
+            onOpen={(show, verdict) => setPeek({ show, verdict })}
+            onEdit={(show) => setEditing(show)}
+            onSchedule={() => (noCinemas ? openSchedule() : setRunOpen(true))}
+          />
+        </div>
+      ) : (
+        <div
+          role="tabpanel"
+          id="panel-details"
+          aria-labelledby="tab-details"
+          className="grid gap-6 xl:grid-cols-[minmax(0,720px)_minmax(0,1fr)]"
+        >
+          <section className="rounded-lg border border-border bg-background-surface p-5 sm:p-6">
+            <h2 className="mb-4 text-title font-semibold text-text-primary">Film details</h2>
+            <div className="space-y-4">
+              <Input
+                id="title"
+                label="Title"
+                value={form.title}
+                onChange={(e) => set('title', e.target.value)}
+                error={fieldErrors.title}
+              />
+              <Textarea
+                id="synopsis"
+                label="Synopsis"
+                rows={4}
+                value={form.synopsis}
+                onChange={(e) => set('synopsis', e.target.value)}
+              />
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Input
+                  id="runtime"
+                  label="Runtime (minutes)"
+                  type="number"
+                  min={1}
+                  value={form.runtimeMinutes}
+                  onChange={(e) => set('runtimeMinutes', e.target.value)}
+                  error={fieldErrors.runtimeMinutes}
+                />
+                <Input
+                  id="releaseDate"
+                  label="Release date"
+                  type="date"
+                  value={form.releaseDate}
+                  onChange={(e) => set('releaseDate', e.target.value)}
+                />
+                <Select
+                  id="language"
+                  label="Language"
+                  value={form.language}
+                  onChange={(e) => set('language', e.target.value)}
+                  error={fieldErrors.language}
+                >
+                  {LANGUAGES.map((l) => (
+                    <option key={l} value={l}>
+                      {l}
+                    </option>
+                  ))}
+                </Select>
+                <Select
+                  id="certificate"
+                  label="Certificate"
+                  value={form.certificate}
+                  onChange={(e) => set('certificate', e.target.value)}
+                >
+                  <option value="">Not set</option>
+                  {CERTIFICATES.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <Input
+                id="genres"
+                label="Genres"
+                hint="Comma-separated, e.g. Action, Thriller"
+                value={form.genres}
+                onChange={(e) => set('genres', e.target.value)}
+                error={fieldErrors.genres}
+              />
+              <Input
+                id="cast"
+                label="Cast"
+                hint="Comma-separated, e.g. Actor One, Actor Two"
+                value={form.cast}
+                onChange={(e) => set('cast', e.target.value)}
+              />
+              <Input
+                id="director"
+                label="Director"
+                value={form.director}
+                onChange={(e) => set('director', e.target.value)}
+              />
+              <Input
+                id="posterUrl"
+                label="Poster URL"
+                value={form.posterUrl}
+                onChange={(e) => set('posterUrl', e.target.value)}
+              />
+              <Input
+                id="trailerUrl"
+                label="Trailer URL"
+                value={form.trailerUrl}
+                onChange={(e) => set('trailerUrl', e.target.value)}
+              />
+              <Button loading={save.isPending} onClick={submit}>
+                Save changes
+              </Button>
+            </div>
+          </section>
+          {/*
+            On a wide screen the empty right half becomes what a buyer will see, updated as the
+            operator types: the poster as the storefront lists it, and the line under the title.
+          */}
+          <aside className="hidden xl:block" aria-label="Preview">
+            <div className="sticky top-6 space-y-3 rounded-lg border border-border bg-background-surface p-5">
+              <p className="text-caption font-semibold uppercase tracking-wide text-text-muted">
+                How buyers see it
+              </p>
+              <div className="flex gap-4">
+                <div className="w-28 shrink-0">
+                  <FilmPoster id={movie.id} posterUrl={form.posterUrl || null} />
+                </div>
+                <div className="min-w-0 space-y-1">
+                  <p className="break-words font-semibold text-text-primary">
+                    {form.title || 'Untitled film'}
+                  </p>
+                  <p className="text-caption text-text-muted">
+                    {[
+                      form.language,
+                      form.certificate,
+                      form.runtimeMinutes ? `${form.runtimeMinutes} min` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </p>
+                  <p className="text-caption text-text-secondary">{form.genres}</p>
+                </div>
+              </div>
+              {form.synopsis ? (
+                <p className="line-clamp-4 text-caption text-text-secondary">{form.synopsis}</p>
+              ) : (
+                <p className="text-caption text-text-muted">
+                  No synopsis yet. Two or three sentences help buyers choose.
+                </p>
+              )}
+            </div>
+          </aside>
+        </div>
+      )}
+
+      <ShowQuickLook
+        show={peek?.show ?? null}
+        verdict={peek?.verdict ?? null}
+        timeZone={cinemasQ.zoneOf(peek?.show.cinemaId)}
+        onClose={() => setPeek(null)}
+        onEdit={(show) => {
+          setPeek(null);
+          setEditing(show);
+        }}
+      />
 
       <ScheduleRunDialog
         open={runOpen}

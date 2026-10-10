@@ -272,7 +272,12 @@ export function EditShowDialog({
 
           <section className="space-y-3 border-t border-border pt-5">
             <h3 className="text-[0.9375rem] font-semibold text-text-primary">
-              {paused ? 'Currently off sale' : 'On sale'}
+              {/*
+                Not "On sale": a scheduled show can still be refused at checkout (a state with
+                no price rules, for one), and this heading would have said otherwise. It names
+                the control instead; the film page shows whether the show actually sells.
+              */}
+              {paused ? 'Currently off sale' : 'Pause sales'}
             </h3>
             <p className="text-caption text-text-muted">
               {paused
