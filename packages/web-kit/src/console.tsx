@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { ArrowRight, type LucideIcon } from 'lucide-react';
 import { useId, type ReactNode } from 'react';
 import type { BadgeTone } from './components';
+import { IconTile, type TileTone } from './primitives';
 
 /*
   ── CONSOLE PRIMITIVES ──────────────────────────────────────────────────────────────
@@ -28,20 +29,18 @@ const TONE_TEXT: Record<BadgeTone, string> = {
   neutral: 'text-text-primary',
 };
 
-const TONE_ICON: Record<BadgeTone, string> = {
-  success: 'bg-tint-success text-status-success',
-  warning: 'bg-tint-warning text-status-warning',
-  error: 'bg-tint-error text-status-error',
-  info: 'bg-tint-info text-status-info',
-  neutral: 'bg-tint-primary text-action-primary',
-};
-
 /**
- * One figure, with what it is and what it is out of.
+ * One figure, with what it is and what it is out of - the reference's stat card: a pastel
+ * icon tile, the label, the big number and a small caption.
  *
  * The value is neutral by default. Colouring every number green or blue made the colour
  * mean nothing, so `tone` is for a figure that is genuinely a state - refunds outstanding,
  * capacity nearly gone - and the reason is always in the words as well, never colour alone.
+ * The TILE colour (`tile`) is a grouping cue, not a state: blue for sales, purple for people.
+ *
+ * There is deliberately no trend slot. A "+12% vs last 30 days" is only honest when an API
+ * returns a comparable prior period for this viewer; a page that has one puts it in `hint`
+ * or `footer` in words, and a page that does not shows no trend at all.
  *
  * `href` makes the whole card a link to the page behind the number.
  */
@@ -51,6 +50,7 @@ export function StatCard({
   hint,
   icon: Icon,
   tone = 'neutral',
+  tile = 'teal',
   href,
   footer,
 }: {
@@ -59,28 +59,25 @@ export function StatCard({
   hint?: ReactNode;
   icon?: LucideIcon;
   tone?: BadgeTone;
+  /** The pastel tile behind the icon. Ignored without an icon. */
+  tile?: TileTone;
   href?: string;
   footer?: ReactNode;
 }) {
   const body = (
     <>
-      <div className="flex items-start justify-between gap-3">
-        <p className="text-[0.875rem] font-medium text-text-secondary">{label}</p>
-        {Icon && (
-          <span
-            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${TONE_ICON[tone]}`}
-            aria-hidden
+      <div className="flex items-start gap-4">
+        {Icon && <IconTile icon={Icon} tone={tile} size="lg" />}
+        <div className="min-w-0 flex-1">
+          <p className="text-ui font-medium text-text-secondary">{label}</p>
+          <p
+            className={`mt-1 break-words font-display text-[1.625rem] font-bold leading-tight tracking-tight tabular-nums ${TONE_TEXT[tone]}`}
           >
-            <Icon className="h-4 w-4" />
-          </span>
-        )}
+            {value}
+          </p>
+          {hint && <p className="mt-1 text-caption text-text-muted">{hint}</p>}
+        </div>
       </div>
-      <p
-        className={`mt-2 break-words text-[1.625rem] font-bold leading-tight tracking-tight tabular-nums ${TONE_TEXT[tone]}`}
-      >
-        {value}
-      </p>
-      {hint && <p className="mt-1 text-caption text-text-muted">{hint}</p>}
       {footer && <div className="mt-3">{footer}</div>}
     </>
   );
@@ -88,7 +85,7 @@ export function StatCard({
   return href ? (
     <Link
       href={href}
-      className={`${frame} transition-shadow hover:shadow-md ${FOCUS} focus-visible:ring-offset-2`}
+      className={`${frame} transition-[box-shadow,transform] duration-150 hover:-translate-y-0.5 hover:shadow-md motion-reduce:transition-none motion-reduce:hover:translate-y-0 ${FOCUS} focus-visible:ring-offset-2`}
     >
       {body}
     </Link>
@@ -132,7 +129,7 @@ export function SectionCard({
     >
       <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 px-5 pb-3 pt-5">
         <div className="min-w-0">
-          <Heading id={id} className="text-[1.0625rem] font-semibold text-text-primary">
+          <Heading id={id} className="font-display text-[1.0625rem] font-bold text-text-primary">
             {title}
           </Heading>
           {description && <p className="mt-0.5 text-caption text-text-muted">{description}</p>}

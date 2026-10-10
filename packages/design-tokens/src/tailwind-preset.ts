@@ -42,6 +42,8 @@ const preset: Partial<Config> = {
         shell: '90rem',
         /** Long-form reading: articles, policies, a paragraph of explanation. */
         prose: '42rem',
+        /** A console form's main column (DESIGN-DIRECTION: 640-720px). */
+        form: '45rem',
       },
       fontSize: {
         hero: typeScale.hero,
@@ -52,6 +54,20 @@ const preset: Partial<Config> = {
         body: typeScale.body,
         caption: typeScale.caption,
         button: typeScale.button,
+        // The console scale (30 / 24 / 14 / 12) - see tokens.ts.
+        display: typeScale.display,
+        headline: typeScale.headline,
+        ui: typeScale.ui,
+        micro: typeScale.micro,
+      },
+      spacing: {
+        /*
+          The console frame, named once so the sidebar, the rail, the top bar and anything
+          that has to line up with them agree. The page gutter is 24px (`6`) on a desktop.
+        */
+        'shell-sidebar': '17rem',
+        'shell-rail': '4.5rem',
+        'shell-topbar': '4rem',
       },
       colors: {
         background: {
@@ -110,6 +126,37 @@ const preset: Partial<Config> = {
         marquee: {
           DEFAULT: hsl('--marquee'),
           fill: hsl('--marquee-fill'),
+        },
+        /*
+          The console sidebar's own palette: `bg-nav`, `text-nav-foreground`, `text-nav-muted`
+          for group headings, `bg-nav-active` + `text-nav-active-foreground` for the current
+          page, `bg-nav-accent` for its bar. Only ever on the navy - see tokens.css.
+        */
+        nav: {
+          DEFAULT: hsl('--nav-background'),
+          foreground: hsl('--nav-foreground'),
+          muted: hsl('--nav-muted'),
+          hover: hsl('--nav-hover'),
+          active: hsl('--nav-active'),
+          'active-foreground': hsl('--nav-active-foreground'),
+          accent: hsl('--nav-accent'),
+          border: hsl('--nav-border'),
+        },
+        /*
+          Pastel icon tiles: `bg-tile-blue text-tile-blue-foreground`. For the icon of a stat
+          card or a quick action, never for body text.
+        */
+        tile: {
+          blue: hsl('--tile-blue'),
+          'blue-foreground': hsl('--tile-blue-foreground'),
+          purple: hsl('--tile-purple'),
+          'purple-foreground': hsl('--tile-purple-foreground'),
+          amber: hsl('--tile-amber'),
+          'amber-foreground': hsl('--tile-amber-foreground'),
+          teal: hsl('--tile-teal'),
+          'teal-foreground': hsl('--tile-teal-foreground'),
+          rose: hsl('--tile-rose'),
+          'rose-foreground': hsl('--tile-rose-foreground'),
         },
         ring: hsl('--ring'),
       },

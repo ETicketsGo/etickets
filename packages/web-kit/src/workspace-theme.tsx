@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { Monitor, Moon, Sun } from 'lucide-react';
 import { ACCENT_THEMES, isAccentTheme, type AccentTheme } from '@eticketsgo/design-tokens';
 
 /**
@@ -137,3 +138,62 @@ export function useColorScheme(): {
 /** The palettes an organization may choose, for rendering a picker. */
 export { ACCENT_THEMES };
 export type { AccentTheme };
+
+const SCHEME_OPTIONS: { value: ColorScheme; label: string; Icon: typeof Sun }[] = [
+  { value: 'light', label: 'Light', Icon: Sun },
+  { value: 'dark', label: 'Dark', Icon: Moon },
+  { value: 'system', label: 'Match system', Icon: Monitor },
+];
+
+/**
+ * Light, dark, or whatever the machine is doing - one control for both consoles.
+ *
+ * The organizer and admin consoles each had their own copy, one with words and one with
+ * icons. This is the one: a segmented radiogroup (three mutually exclusive choices), icons
+ * only by default so it stays small in the top bar, each option named for assistive
+ * technology and shown on hover. `labels` adds the words, for a settings page with room.
+ *
+ * Three states rather than a toggle: a toggle has to decide what "off" means before the
+ * person has said, and "match system" is a real answer and the default.
+ */
+export function ColorSchemeSwitch({
+  labels = false,
+  className = 'flex',
+}: {
+  labels?: boolean;
+  className?: string;
+}) {
+  const { scheme, setScheme } = useColorScheme();
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Appearance"
+      className={`${className} shrink-0 items-center gap-0.5 rounded-md border border-border bg-background-surface p-0.5`}
+    >
+      {SCHEME_OPTIONS.map(({ value, label, Icon }) => {
+        const active = scheme === value;
+        return (
+          <button
+            key={value}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            aria-label={label}
+            title={label}
+            onClick={() => setScheme(value)}
+            className={`flex h-8 items-center justify-center gap-1.5 rounded-sm text-caption font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none ${
+              labels ? 'px-2.5' : 'w-8'
+            } ${
+              active
+                ? 'bg-tint-primary text-action-primary'
+                : 'text-text-muted hover:bg-background-subtle hover:text-text-primary'
+            }`}
+          >
+            <Icon className="h-4 w-4" aria-hidden />
+            {labels && <span>{label}</span>}
+          </button>
+        );
+      })}
+    </div>
+  );
+}

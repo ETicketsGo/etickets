@@ -1,10 +1,17 @@
 'use client';
 
 import { usePathname } from 'next/navigation';
-import { AppShell, RequireAuth } from '@eticketsgo/web-kit';
+import { useQuery } from '@tanstack/react-query';
+import {
+  AppShell,
+  ColorSchemeSwitch,
+  NotificationsButton,
+  RequireAuth,
+  api,
+} from '@eticketsgo/web-kit';
 import { navFor } from '@/components/organizer-nav';
 import { OrgProvider, OrgSwitcher } from '@/components/org-context';
-import { ColorSchemeSwitch, WorkspaceTheme, useWorkspace } from '@/components/workspace-chrome';
+import { WorkspaceTheme, useWorkspace } from '@/components/workspace-chrome';
 
 /**
  * A page that exists to become paper gets no shell.
@@ -17,6 +24,23 @@ import { ColorSchemeSwitch, WorkspaceTheme, useWorkspace } from '@/components/wo
  */
 function isPrintRoute(path: string): boolean {
   return path.endsWith('/print') || path.includes('/print/');
+}
+
+/**
+ * The bell in the top bar, with the organizer stream's real unread count.
+ *
+ * The same count the notification centre reads, scoped to the ORGANIZER audience so a person
+ * who also buys tickets does not see their customer messages counted here. Until it answers -
+ * or if it fails - the bell shows no number rather than a guessed one.
+ */
+function OrganizerNotifications() {
+  const { data } = useQuery({
+    queryKey: ['notifications', 'unread-count', 'ORGANIZER'],
+    queryFn: () => api.notifications.unreadCount('ORGANIZER'),
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+  return <NotificationsButton href="/organizer/notifications" unread={data?.unreadCount} />;
 }
 
 /**
@@ -39,6 +63,17 @@ function OrganizerChrome({ children }: { children: React.ReactNode }) {
       nav={nav}
       workspace={{ name: workspace.name, logoUrl: workspace.logoUrl }}
       headerAccessory={<ColorSchemeSwitch />}
+      accountRole={workspace.roleLabel}
+      notifications={<OrganizerNotifications />}
+      /*
+        The console's one primary action, for the members who can create events. Check-in
+        staff cannot, and are not offered it - the same rule their sidebar follows.
+      */
+      primaryAction={
+        workspace.can.financials || workspace.can.ownerActions
+          ? { label: 'Create event', href: '/organizer/events/new' }
+          : null
+      }
       // Organizer pages are tables, schedules and seat maps; the frame should not be what
       // squeezes them. Forms and prose keep their own measure inside it - see AppShell.
       width="fluid"

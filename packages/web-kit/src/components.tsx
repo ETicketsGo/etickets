@@ -33,15 +33,21 @@ import {
   type TextareaHTMLAttributes,
 } from 'react';
 import { titleCase } from './format';
+import { tileClasses, type TileTone } from './primitives';
 
 const focus =
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas';
 
 const btnBase = `inline-flex items-center justify-center gap-2 rounded-md text-button font-semibold transition-all duration-200 ease-premium active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none ${focus}`;
 
+/*
+  `md` stays 44px, the touch-target size, because it is the size most buttons already are and a
+  smaller default would move every form in three apps. `lg` is a page's one big call to action.
+*/
 const sizes = {
   sm: 'h-9 px-3.5',
   md: 'h-11 px-5',
+  lg: 'h-12 px-6 text-[1rem]',
 };
 
 const variants = {
@@ -53,28 +59,48 @@ const variants = {
   outline:
     'border border-border-input bg-background-surface text-text-primary hover:bg-background-subtle hover:border-text-secondary',
   ghost: 'text-text-secondary hover:bg-background-subtle hover:text-text-primary',
+  /*
+    The reference's "Manage" button: the accent's own tint under the accent. A strong second
+    action that does not compete with the page's one primary button.
+  */
+  tinted: 'bg-tint-primary text-action-primary hover:brightness-95 dark:hover:brightness-125',
 };
 export type ButtonVariant = keyof typeof variants;
 
+/**
+ * The button. `primary` is the page's ONE main action; `secondary`, `outline`, `tinted` and
+ * `ghost` are everything else, `danger` is the one that deletes.
+ *
+ * `loading` disables it and swaps the icon for a spinner without changing its width, and says
+ * so to assistive technology (`aria-busy`). `icon` is a leading icon; the words are still the
+ * name - an icon-only control is `IconButton`, which requires one.
+ */
 export function Button({
   variant = 'primary',
   size = 'md',
   className = '',
   loading,
+  icon: Icon,
   children,
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: ButtonVariant;
   size?: keyof typeof sizes;
   loading?: boolean;
+  icon?: LucideIcon;
 }) {
   return (
     <button
+      {...props}
       className={`${btnBase} ${sizes[size]} ${variants[variant]} ${className}`}
       disabled={loading || props.disabled}
-      {...props}
+      aria-busy={loading || undefined}
     >
-      {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+      {loading ? (
+        <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden />
+      ) : (
+        Icon && <Icon className="h-4 w-4" aria-hidden />
+      )}
       {children}
     </button>
   );
@@ -98,6 +124,7 @@ export function ButtonLink({
   variant = 'primary',
   size = 'md',
   className = '',
+  icon: Icon,
   children,
   linkComponent: LinkComponent = Link,
 }: {
@@ -105,6 +132,7 @@ export function ButtonLink({
   variant?: ButtonVariant;
   size?: keyof typeof sizes;
   className?: string;
+  icon?: LucideIcon;
   children: ReactNode;
   /*
     The link that renders the anchor. `next/link` unless the app says otherwise.
@@ -121,6 +149,7 @@ export function ButtonLink({
       href={href}
       className={`${btnBase} ${sizes[size]} ${variants[variant]} ${className}`}
     >
+      {Icon && <Icon className="h-4 w-4" aria-hidden />}
       {children}
     </LinkComponent>
   );
@@ -289,24 +318,36 @@ export function Select({
   );
 }
 
+const cardPadding = { none: '', sm: 'p-4', md: 'p-5', lg: 'p-6' };
+
+/**
+ * A white card on the canvas: hairline border, the radius of the context (14px in a console,
+ * 20px on the storefront) and at most a very soft shadow.
+ *
+ * `padding` defaults to the 24px every existing card has; the console design's 16-20px is
+ * `md` / `sm`. `interactive` lifts it one elevation step on hover - only for a card that IS a
+ * link or opens something, never as decoration.
+ */
 export function Card({
   children,
   className = '',
   title,
   action,
   interactive,
+  padding = 'lg',
 }: {
   children: ReactNode;
   className?: string;
   title?: ReactNode;
   action?: ReactNode;
   interactive?: boolean;
+  padding?: keyof typeof cardPadding;
 }) {
   return (
     <div
-      className={`rounded-lg border border-border bg-background-surface p-6 shadow-sm ${
+      className={`rounded-lg border border-border bg-background-surface shadow-sm ${cardPadding[padding]} ${
         interactive
-          ? 'transition-all duration-200 ease-premium hover:-translate-y-0.5 hover:shadow-md'
+          ? 'transition-[transform,box-shadow] duration-150 ease-premium hover:-translate-y-0.5 hover:shadow-md motion-reduce:transition-none motion-reduce:hover:translate-y-0'
           : ''
       } ${className}`}
     >
@@ -415,31 +456,134 @@ export function Spinner({ className = 'h-5 w-5' }: { className?: string }) {
   return <Loader2 className={`animate-spin text-action-primary ${className}`} aria-hidden />;
 }
 
+/**
+ * A grey placeholder in the shape of what is loading. Decorative: the region that is loading
+ * says so (`role="status"` + `aria-busy`), not each bar. The pulse stops for anyone who has
+ * asked for reduced motion.
+ */
 export function Skeleton({ className = 'h-4 w-full' }: { className?: string }) {
-  return <div className={`animate-pulse rounded-md bg-background-subtle ${className}`} />;
+  return (
+    <div
+      aria-hidden
+      className={`rounded-md bg-background-subtle motion-safe:animate-pulse ${className}`}
+    />
+  );
 }
 
+/** Lines of text loading: full width, with a shorter last line, as a paragraph looks. */
+export function SkeletonText({
+  lines = 3,
+  className = '',
+}: {
+  lines?: number;
+  className?: string;
+}) {
+  return (
+    <div aria-hidden className={`space-y-2 ${className}`}>
+      {Array.from({ length: lines }).map((_, i) => (
+        <Skeleton
+          key={i}
+          className={`h-3.5 ${i === lines - 1 && lines > 1 ? 'w-2/3' : 'w-full'}`}
+        />
+      ))}
+    </div>
+  );
+}
+
+/**
+ * A card loading, in the shape of the two cards the consoles show most: a stat card (`stat`:
+ * icon tile, label, big number) and an event card (`media`: 16:9 artwork, title, two rows and
+ * a meter). `label` names the loading region for assistive technology.
+ */
+export function SkeletonCard({
+  variant = 'stat',
+  label = 'Loading',
+  className = '',
+}: {
+  variant?: 'stat' | 'media';
+  label?: string;
+  className?: string;
+}) {
+  return (
+    <div
+      role="status"
+      aria-busy="true"
+      aria-label={label}
+      className={`rounded-lg border border-border bg-background-surface ${variant === 'media' ? 'overflow-hidden' : 'p-5'} ${className}`}
+    >
+      {variant === 'stat' ? (
+        <div className="flex items-start gap-4">
+          <Skeleton className="h-12 w-12 shrink-0 rounded-lg" />
+          <div className="flex-1 space-y-2.5 pt-0.5">
+            <Skeleton className="h-3.5 w-24" />
+            <Skeleton className="h-7 w-20" />
+            <Skeleton className="h-3 w-28" />
+          </div>
+        </div>
+      ) : (
+        <>
+          <Skeleton className="aspect-video w-full rounded-none" />
+          <div className="space-y-2.5 p-4">
+            <Skeleton className="h-4 w-3/4" />
+            <Skeleton className="h-3 w-1/2" />
+            <Skeleton className="h-3 w-2/5" />
+            <Skeleton className="mt-3 h-1.5 w-full rounded-full" />
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Nothing here yet: what this place is for and the one thing to do about it.
+ *
+ * `tone` puts the icon on a pastel tile (the console look); without it the icon sits on the
+ * neutral circle the storefront has always used. `secondaryAction` is a quieter second way on
+ * ("Learn how seat maps work"), never a second primary button. `compact` is for an empty
+ * section inside a card, where 48px of padding would be most of the card.
+ */
 export function EmptyState({
   title,
   hint,
   action,
+  secondaryAction,
   icon: Icon,
+  tone,
+  compact = false,
 }: {
   title: string;
   hint?: string;
   action?: ReactNode;
+  secondaryAction?: ReactNode;
   icon?: LucideIcon;
+  tone?: TileTone;
+  compact?: boolean;
 }) {
   return (
-    <div className="rounded-lg border border-dashed border-border bg-background-surface/50 p-12 text-center">
+    <div
+      className={`rounded-lg border border-dashed border-border bg-background-surface/50 text-center ${compact ? 'px-6 py-8' : 'p-12'}`}
+    >
       {Icon && (
-        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-background-subtle text-text-muted">
+        <div
+          aria-hidden
+          className={`mx-auto mb-4 flex h-12 w-12 items-center justify-center ${
+            tone
+              ? `rounded-lg ${tileClasses(tone)}`
+              : 'rounded-full bg-background-subtle text-text-muted'
+          }`}
+        >
           <Icon className="h-6 w-6" />
         </div>
       )}
       <p className="font-semibold text-text-primary">{title}</p>
       {hint && <p className="mx-auto mt-1.5 max-w-sm text-[0.9375rem] text-text-muted">{hint}</p>}
-      {action && <div className="mt-5 flex justify-center">{action}</div>}
+      {(action || secondaryAction) && (
+        <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
+          {action}
+          {secondaryAction}
+        </div>
+      )}
     </div>
   );
 }
@@ -481,6 +625,8 @@ export interface Column<T> {
   sortable?: boolean;
   /** Value used for sorting when `sortable` — return a string or number. */
   sortValue?: (row: T) => string | number;
+  /** The label in the phone card layout (`mobile="cards"`), when `header` is not words. */
+  mobileLabel?: ReactNode;
 }
 
 export function DataTable<T>({
@@ -492,6 +638,10 @@ export function DataTable<T>({
   onRetry,
   onRowClick,
   rowKey,
+  stickyHeader = false,
+  density = 'comfortable',
+  mobile = 'scroll',
+  caption,
 }: {
   columns: Column<T>[];
   rows: T[] | undefined;
@@ -502,6 +652,23 @@ export function DataTable<T>({
   onRetry?: () => void;
   onRowClick?: (row: T) => void;
   rowKey: (row: T) => string;
+  /**
+   * Keep the header row in view while a long table scrolls. The table then scrolls inside its
+   * own box, capped at 70% of the window - so use it for a list that is the page's main
+   * subject, not for a short table in the middle of a page, which should just flow.
+   */
+  stickyHeader?: boolean;
+  /** `compact` for dense admin queues (44px rows); `comfortable` (52px) everywhere else. */
+  density?: 'comfortable' | 'compact';
+  /**
+   * What happens below `sm`. `scroll` (the default) keeps the table and lets it scroll
+   * sideways; `cards` shows each row as a card of label / value pairs instead, which reads
+   * far better on a phone for a list of more than three columns. The first column is the
+   * card's title and keeps the row's control.
+   */
+  mobile?: 'scroll' | 'cards';
+  /** A visually hidden caption naming the table for assistive technology. */
+  caption?: string;
 }) {
   const [sort, setSort] = useState<{ key: string; dir: 'asc' | 'desc' } | null>(null);
 
@@ -549,19 +716,55 @@ export function DataTable<T>({
       s?.key === key ? (s.dir === 'asc' ? { key, dir: 'desc' } : null) : { key, dir: 'asc' },
     );
 
-  return (
+  const cellY = density === 'compact' ? 'py-2.5' : 'py-3.5';
+
+  /*
+    The first cell carries the row's control, when the row has one.
+
+    A keyboard user needs SOMETHING to press, and it cannot be the row: a row that opens a page
+    and also contains Edit and Approve buttons announces as a button containing buttons, and
+    has no accessible name beyond its own contents read aloud in full.
+
+    Wrapping the first cell instead gives the action a real name — "Sunburn Arena — Bengaluru",
+    which is what the cell already says — and leaves the other controls in the row as siblings
+    rather than descendants. The row keeps its own `onClick` for mouse users, so nothing
+    changes for them.
+
+    The first column must therefore not itself be interactive. The accessibility sweep fails
+    on `nested-interactive` if one ever becomes so.
+  */
+  const firstCell = (row: T, c: Column<T>) =>
+    onRowClick ? (
+      <button
+        type="button"
+        onClick={(e) => {
+          // The row's own handler would otherwise fire a second time.
+          e.stopPropagation();
+          onRowClick(row);
+        }}
+        className={`-m-1 block w-full rounded p-1 text-left ${focus}`}
+      >
+        {c.render(row)}
+      </button>
+    ) : (
+      c.render(row)
+    );
+
+  const table = (
     /*
       Reachable by keyboard, because it scrolls.
 
-      The table has a 640px floor, so on a narrow screen — or a wide one once a column holds long
-      invited emails — this box scrolls sideways. A table with no clickable rows has nothing inside
-      that takes focus, which left a keyboard user no way to scroll it at all: the organizer team
-      page failed WCAG 2.1.1 in the accessibility sweep as soon as its member list grew. One tab
-      stop on the box lets the arrow keys scroll it.
+      The table has a floor, so on a narrow screen — or a wide one once a column holds long
+      invited emails — this box scrolls sideways. A table with no clickable rows has nothing
+      inside that takes focus, which left a keyboard user no way to scroll it at all: the
+      organizer team page failed WCAG 2.1.1 in the accessibility sweep as soon as its member
+      list grew. One tab stop on the box lets the arrow keys scroll it.
     */
     <div
       tabIndex={0}
-      className="overflow-x-auto rounded-lg border border-border bg-background-surface shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+      className={`overflow-x-auto rounded-lg border border-border bg-background-surface shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${
+        stickyHeader ? 'max-h-[70vh] overflow-y-auto' : ''
+      } ${mobile === 'cards' ? 'hidden sm:block' : ''}`}
     >
       {/*
         ── THE FLOOR IS FOR PHONES, NOT FOR DESKTOPS ────────────────────────────────
@@ -572,8 +775,9 @@ export function DataTable<T>({
         a phone's width, and cells wrap instead of forcing the table wider.
       */}
       <table className="w-full min-w-[22rem] text-left text-[0.9375rem]">
-        <thead>
-          <tr className="border-b border-border">
+        {caption && <caption className="sr-only">{caption}</caption>}
+        <thead className={stickyHeader ? 'sticky top-0 z-[1]' : ''}>
+          <tr className="border-b border-border bg-background-subtle">
             {columns.map((c) => {
               const active = sort?.key === c.key;
               const SortIcon = active
@@ -587,13 +791,13 @@ export function DataTable<T>({
                   aria-sort={
                     active ? (sort!.dir === 'asc' ? 'ascending' : 'descending') : undefined
                   }
-                  className={`px-5 py-3.5 text-caption font-semibold uppercase tracking-wide text-text-muted ${c.className ?? ''}`}
+                  className={`h-11 whitespace-nowrap px-5 text-micro font-semibold uppercase tracking-[0.06em] text-text-muted ${c.className ?? ''}`}
                 >
                   {c.sortable ? (
                     <button
                       type="button"
                       onClick={() => toggleSort(c.key)}
-                      className={`-mx-1 inline-flex items-center gap-1 rounded px-1 transition-colors hover:text-text-secondary ${focus}`}
+                      className={`-mx-1 inline-flex items-center gap-1 rounded px-1 transition-colors hover:text-text-primary ${focus}`}
                     >
                       {c.header}
                       <SortIcon
@@ -619,56 +823,17 @@ export function DataTable<T>({
 
                 It used to carry `role="button"` and `tabIndex={0}`. Rows contain their own
                 buttons and links — Edit, Approve, a link to the detail page — so that made
-                every row a button containing buttons: `nested-interactive`, WCAG 4.1.2. A
-                screen reader announced "button" and then read the controls inside it, and
-                the inner ones were reachable only by fighting the outer one.
-
-                It also promised something it could not keep. There is no accessible NAME for
-                "the row about the Sunburn Arena event" — the announcement was "button", with
-                the whole row read out as its label.
-
-                So the keyboard and assistive-technology path is the real control inside the
-                row, which every caller already renders, and the row keeps `onClick` and
-                `cursor-pointer` for people using a mouse. Nothing is lost: a keyboard user
-                reaches the same destination through the link in the first cell.
+                every row a button containing buttons: `nested-interactive`, WCAG 4.1.2. The
+                keyboard and assistive-technology path is the real control inside the row
+                (see `firstCell`), and the row keeps `onClick` for people using a mouse.
               */
-              className={`border-b border-border/70 last:border-0 transition-colors ${
+              className={`border-b border-border/70 transition-colors last:border-0 ${
                 onRowClick ? 'cursor-pointer hover:bg-background-subtle/60' : ''
               }`}
             >
               {columns.map((c, i) => (
-                <td key={c.key} className={`px-5 py-4 text-text-primary ${c.className ?? ''}`}>
-                  {/*
-                    The first cell carries the row's control, when the row has one.
-
-                    A keyboard user needs SOMETHING to press, and it cannot be the row: a row
-                    that opens a page and also contains Edit and Approve buttons announces as
-                    a button containing buttons, and has no accessible name beyond its own
-                    contents read aloud in full.
-
-                    Wrapping the first cell instead gives the action a real name — "Sunburn
-                    Arena — Bengaluru", which is what the cell already says — and leaves the
-                    other controls in the row as siblings rather than descendants. The row
-                    keeps its own `onClick` for mouse users, so nothing changes for them.
-
-                    The first column must therefore not itself be interactive. The
-                    accessibility sweep fails on `nested-interactive` if one ever becomes so.
-                  */}
-                  {onRowClick && i === 0 ? (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        // The row's own handler would otherwise fire a second time.
-                        e.stopPropagation();
-                        onRowClick(row);
-                      }}
-                      className={`-m-1 block w-full rounded p-1 text-left ${focus}`}
-                    >
-                      {c.render(row)}
-                    </button>
-                  ) : (
-                    c.render(row)
-                  )}
+                <td key={c.key} className={`px-5 ${cellY} text-text-primary ${c.className ?? ''}`}>
+                  {i === 0 ? firstCell(row, c) : c.render(row)}
                 </td>
               ))}
             </tr>
@@ -676,6 +841,43 @@ export function DataTable<T>({
         </tbody>
       </table>
     </div>
+  );
+
+  if (mobile !== 'cards') return table;
+
+  const [head, ...rest] = columns;
+  return (
+    <>
+      {table}
+      {/*
+        The phone layout: one card per row, the first column as its title and every other
+        column as a label / value pair. Sorting stays a desktop affordance - the order the rows
+        arrive in is the order a phone shows.
+      */}
+      <ul className="space-y-3 sm:hidden" aria-label={caption}>
+        {sorted.map((row) => (
+          <li
+            key={rowKey(row)}
+            onClick={onRowClick ? () => onRowClick(row) : undefined}
+            className={`rounded-lg border border-border bg-background-surface p-4 shadow-xs ${
+              onRowClick ? 'cursor-pointer' : ''
+            }`}
+          >
+            <div className="font-semibold text-text-primary">{firstCell(row, head)}</div>
+            {rest.length > 0 && (
+              <dl className="mt-3 grid grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-4 gap-y-2 text-ui">
+                {rest.map((c) => (
+                  <div key={c.key} className="contents">
+                    <dt className="text-text-muted">{c.mobileLabel ?? c.header}</dt>
+                    <dd className="min-w-0 text-right text-text-primary">{c.render(row)}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
+          </li>
+        ))}
+      </ul>
+    </>
   );
 }
 
@@ -895,6 +1097,7 @@ export function Dialog({
   open,
   onClose,
   title,
+  description,
   children,
   footer,
   size = 'md',
@@ -902,6 +1105,8 @@ export function Dialog({
   open: boolean;
   onClose: () => void;
   title: string;
+  /** One sentence under the title saying what the dialog is for. Read out with its name. */
+  description?: string;
   children: ReactNode;
   footer?: ReactNode;
   /**
@@ -916,6 +1121,72 @@ export function Dialog({
   size?: 'md' | 'lg';
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
+  const descriptionId = useId();
+  const onPanelKeyDown = useModalFocus(open, onClose, panelRef);
+
+  return (
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
+          onClick={onClose}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.18 }}
+        >
+          <motion.div
+            ref={panelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label={title}
+            aria-describedby={description ? descriptionId : undefined}
+            tabIndex={-1}
+            onKeyDown={onPanelKeyDown}
+            className={`flex max-h-[90vh] w-full flex-col rounded-2xl border border-border bg-background-elevated p-6 shadow-lg focus:outline-none ${
+              size === 'lg' ? 'max-w-2xl' : 'max-w-md'
+            }`}
+            onClick={(e) => e.stopPropagation()}
+            initial={{ opacity: 0, scale: 0.96, y: 8 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.97, y: 4 }}
+            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+          >
+            <h2 className="shrink-0 font-display text-title font-semibold text-text-primary">
+              {title}
+            </h2>
+            {description && (
+              <p id={descriptionId} className="mt-1 shrink-0 text-ui text-text-secondary">
+                {description}
+              </p>
+            )}
+            <div className="mt-3 flex-1 overflow-y-auto text-[0.9375rem] text-text-secondary">
+              {children}
+            </div>
+            {footer && <div className="mt-6 flex shrink-0 justify-end gap-2">{footer}</div>}
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
+/**
+ * `Modal` is `Dialog`. The design calls it a modal, the code has always called it a dialog,
+ * and two components for one thing is how they drift apart - so it is one, by both names.
+ */
+export const Modal = Dialog;
+
+/**
+ * Focus for anything modal: Escape closes; focus moves in on open (the first control, or the
+ * panel); Tab and Shift+Tab stay inside; and focus goes back to whatever opened it on close.
+ * Returns the panel's keydown handler.
+ */
+function useModalFocus(
+  open: boolean,
+  onClose: () => void,
+  panelRef: React.RefObject<HTMLElement | null>,
+) {
   const previouslyFocused = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
@@ -925,8 +1196,6 @@ export function Dialog({
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
 
-  // Focus management: remember the trigger, move focus into the dialog on open,
-  // and restore focus to the trigger on close/unmount (accessibility).
   useEffect(() => {
     if (!open) return;
     previouslyFocused.current = document.activeElement as HTMLElement | null;
@@ -938,10 +1207,9 @@ export function Dialog({
     return () => {
       previouslyFocused.current?.focus?.();
     };
-  }, [open]);
+  }, [open, panelRef]);
 
-  // Trap Tab / Shift+Tab within the panel so focus can't reach the page behind.
-  const onPanelKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+  return (e: ReactKeyboardEvent<HTMLElement>) => {
     if (e.key !== 'Tab') return;
     const panel = panelRef.current;
     if (!panel) return;
@@ -966,66 +1234,39 @@ export function Dialog({
       first.focus();
     }
   };
-
-  return (
-    <AnimatePresence>
-      {open && (
-        <motion.div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
-          onClick={onClose}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.18 }}
-        >
-          <motion.div
-            ref={panelRef}
-            role="dialog"
-            aria-modal="true"
-            aria-label={title}
-            tabIndex={-1}
-            onKeyDown={onPanelKeyDown}
-            className={`flex max-h-[90vh] w-full flex-col rounded-2xl border border-border bg-background-elevated p-6 shadow-lg focus:outline-none ${
-              size === 'lg' ? 'max-w-2xl' : 'max-w-md'
-            }`}
-            onClick={(e) => e.stopPropagation()}
-            initial={{ opacity: 0, scale: 0.96, y: 8 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.97, y: 4 }}
-            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-          >
-            <h2 className="shrink-0 text-title font-semibold text-text-primary">{title}</h2>
-            <div className="mt-3 flex-1 overflow-y-auto text-[0.9375rem] text-text-secondary">
-              {children}
-            </div>
-            {footer && <div className="mt-6 flex shrink-0 justify-end gap-2">{footer}</div>}
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
-  );
 }
 
+/**
+ * A panel from the side: quick look at a booking, an event's details, a filter set.
+ *
+ * Modal, like `Dialog`: Escape closes, focus moves in and stays in, and returns to the control
+ * that opened it. The header (title, optional description, close) and the `footer` (its
+ * actions) stay put while the body scrolls, so a long booking never pushes Refund off screen.
+ * Full width on a phone; `md` 448px or `lg` 640px from `sm` up.
+ */
 export function Drawer({
   open,
   onClose,
   title,
+  description,
   children,
+  footer,
+  size = 'md',
   closeLabel = 'Close',
 }: {
   open: boolean;
   onClose: () => void;
   title: string;
+  description?: string;
   children: ReactNode;
+  footer?: ReactNode;
+  size?: 'md' | 'lg';
   /** The close button's accessible name; English unless the app passes its translation. */
   closeLabel?: string;
 }) {
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
+  const panelRef = useRef<HTMLElement>(null);
+  const descriptionId = useId();
+  const onPanelKeyDown = useModalFocus(open, onClose, panelRef);
 
   return (
     <AnimatePresence>
@@ -1039,27 +1280,46 @@ export function Drawer({
           transition={{ duration: 0.18 }}
         >
           <motion.aside
+            ref={panelRef}
             role="dialog"
             aria-modal="true"
             aria-label={title}
-            className="h-full w-full max-w-md overflow-y-auto border-l border-border bg-background-elevated p-6 shadow-lg"
+            aria-describedby={description ? descriptionId : undefined}
+            tabIndex={-1}
+            onKeyDown={onPanelKeyDown}
+            className={`flex h-full w-full flex-col border-l border-border bg-background-elevated shadow-lg focus:outline-none ${
+              size === 'lg' ? 'sm:max-w-xl' : 'sm:max-w-md'
+            }`}
             onClick={(e) => e.stopPropagation()}
             initial={{ x: '100%' }}
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
             transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
           >
-            <div className="mb-5 flex items-center justify-between">
-              <h2 className="text-title font-semibold text-text-primary">{title}</h2>
+            <div className="flex shrink-0 items-start justify-between gap-3 border-b border-border px-6 py-4">
+              <div className="min-w-0">
+                <h2 className="font-display text-title font-semibold text-text-primary">{title}</h2>
+                {description && (
+                  <p id={descriptionId} className="mt-0.5 text-ui text-text-secondary">
+                    {description}
+                  </p>
+                )}
+              </div>
               <button
+                type="button"
                 onClick={onClose}
                 aria-label={closeLabel}
-                className={`rounded-full p-1.5 text-text-muted hover:bg-background-subtle hover:text-text-primary ${focus}`}
+                className={`-mr-2 flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-text-muted hover:bg-background-subtle hover:text-text-primary ${focus}`}
               >
-                <X className="h-4 w-4" />
+                <X className="h-[1.125rem] w-[1.125rem]" aria-hidden />
               </button>
             </div>
-            {children}
+            <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">{children}</div>
+            {footer && (
+              <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-border px-6 py-4">
+                {footer}
+              </div>
+            )}
           </motion.aside>
         </motion.div>
       )}
