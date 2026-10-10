@@ -11,10 +11,11 @@ import {
   CircleAlert,
   CircleCheck,
   CircleDashed,
+  ChevronDown,
   ClipboardCheck,
+  ExternalLink,
   FilePen,
   Gift,
-  ImagePlus,
   Info,
   Lightbulb,
   MapPin,
@@ -63,6 +64,7 @@ import {
   CENTRE_FOCAL_POINT,
   type FocalPoint,
   type LocationValue,
+  type SeatingRoom,
 } from '@eticketsgo/web-kit';
 import { venuePayload } from '@/components/venue-fields';
 import { useOrg } from '@/components/org-context';
@@ -71,6 +73,8 @@ import { getTemplate } from '@/lib/templates';
 import { clearEventDraft, draftAge, readEventDraft, saveEventDraft } from '@/lib/event-draft';
 import {
   ADMISSION_CHOICES,
+  FEE_MODE_CHOICES,
+  REFUND_CUTOFF_CHOICES,
   EMPTY_SESSION,
   REVIEW_STEP,
   WIZARD_STEPS,
@@ -84,6 +88,9 @@ import {
   isFreeAdmission,
   isMeaningfulDraft,
   newTicketRow,
+  applyTicketPreset,
+  matchesPreset,
+  ticketPresets,
   restoreWizardDraft,
   sessionsToSend,
   stepStatus,
@@ -131,6 +138,7 @@ import { summarize } from '@/lib/image-uploads';
 import { CoverFocus } from '@/components/create-event/cover-focus';
 import { ExperienceArt } from '@/components/create-event/experience-art';
 import { HowItWorks } from '@/components/create-event/how-it-works';
+import { SeatMapPreviewDialog } from '@/components/events/seat-map-preview';
 
 /*
   Each step's tile in the console's pastel set: the same colour on its heading, in the
@@ -178,22 +186,6 @@ const STEP_LOOK: Record<WizardStepId, { icon: LucideIcon; tone: TileTone }> = {
   calls, in the same order, with the same values. The rules for each step are in
   `lib/event-wizard`, where they are tested. The experience changes words and defaults only.
 */
-const FEE_MODES = [
-  { value: 'CUSTOMER_PAYS', label: 'Customer pays fees' },
-  { value: 'ORGANIZER_PAYS', label: 'Organizer absorbs fees' },
-  { value: 'SHARED', label: 'Shared 50/50' },
-];
-
-const REFUND_CUTOFFS: { value: string; label: string }[] = [
-  { value: '0', label: 'Right up to start time' },
-  { value: '2', label: '2 hours before' },
-  { value: '24', label: '24 hours before' },
-  { value: '48', label: '48 hours before' },
-  { value: '72', label: '3 days before' },
-  { value: '168', label: '7 days before' },
-  { value: '336', label: '14 days before' },
-];
-
 /** A session's start, as the organizer chose it - the thing that tells two sessions apart. */
 function sessionWhen(s: SessionDraft, index: number, noun: string): string {
   return s.startsAt
@@ -253,6 +245,8 @@ function NewEventWizard() {
   /* Whether Continue was refused on this step, which is when the summary of problems shows. */
   const [refused, setRefused] = useState(false);
   const [busy, setBusy] = useState(false);
+  /* The seat map open in the preview dialog on the tickets step. */
+  const [previewRoom, setPreviewRoom] = useState<SeatingRoom | null>(null);
 
   const venuesQ = useQuery({
     queryKey: ['venues', activeOrg.id],
@@ -593,6 +587,21 @@ function NewEventWizard() {
   /* Point out one field's problem once the organizer has left it. */
   const reveal = (key: string) =>
     setShownErrors((s) => (key in s ? s : { ...s, [key]: liveErrors[key] ?? '' }));
+  /*
+    A number on a ticket row is checked AS IT IS TYPED once there is something in it: "1.5"
+    tickets or a max above the quantity used to be pointed out only after leaving the box, and
+    a first-timer pressing Continue straight from the field met it as a refusal instead.
+    Empty boxes still wait for blur or Continue, so nothing is red before it is touched.
+  */
+  const editNumber = (
+    index: number,
+    field: 'priceMajor' | 'quantityTotal' | 'maxPerOrder',
+    value: string,
+    key: string,
+  ) => {
+    setTickets((rows) => rows.map((x, j) => (j === index ? { ...x, [field]: value } : x)));
+    if (value !== '') reveal(key);
+  };
   /* For a group of controls: only when focus leaves the whole group. */
   const revealOnLeave = (key: string) => (e: FocusEvent<HTMLElement>) => {
     if (e.relatedTarget instanceof Node && e.currentTarget.contains(e.relatedTarget)) return;
@@ -1034,6 +1043,7 @@ function NewEventWizard() {
   }
 
   const exp = experience!;
+  const presets = ticketPresets(exp.defaultTicketName, exp.ticketSuggestions);
   const intro =
     current.id === 'where'
       ? `The venue, and the date and time of each ${nouns.session.toLowerCase()}.`
@@ -1269,21 +1279,11 @@ function NewEventWizard() {
                   image outbox (see commit). The first is the cover, and its focus point is
                   chosen right below it, against the two crops buyers will see.
                 */}
-                <section
-                  aria-labelledby="basics-images"
-                  className="space-y-4 border-t border-border pt-5"
-                >
-                  <div className="flex items-start gap-3">
-                    <IconTile icon={ImagePlus} tone="blue" size="sm" />
-                    <div>
-                      <h3 id="basics-images" className="text-ui font-semibold text-text-primary">
-                        Cover and pictures
-                      </h3>
-                      <p className="text-caption text-text-muted">
-                        Optional, and the quickest way to make the event look real.
-                      </p>
-                    </div>
-                  </div>
+                {/*
+                  No heading of its own: the picker's label already says "Event images", and the
+                  heading above it said the same thing in other words ("Cover and pictures").
+                */}
+                <div className="space-y-4 border-t border-border pt-5">
                   <EventGalleryEditor
                     tiles={images.map((image) => ({ key: image.key, url: image.url }))}
                     busy={preparingImages}
@@ -1318,7 +1318,7 @@ function NewEventWizard() {
                       onChange={(point) => setFocal((f) => ({ ...f, [cover.key]: point }))}
                     />
                   ) : null}
-                </section>
+                </div>
               </div>
             )}
 
@@ -1585,7 +1585,7 @@ function NewEventWizard() {
                               ? roomsQ.isLoading
                                 ? 'Checking this venue for a seat map...'
                                 : 'Needs a seat map at this venue.'
-                              : 'Buyers pick a named seat from the seat map.';
+                              : `Buyers pick a named seat. ${venueRooms.length === 1 ? 'This venue has a seat map.' : `This venue has ${venueRooms.length} seat maps.`}`;
                       return (
                         <label
                           key={choice.value}
@@ -1658,23 +1658,59 @@ function NewEventWizard() {
                     form stays behind them (it is saved either way).
                   */}
                   {!seatingAvailable && !roomsQ.isLoading && (
-                    <p className="mt-2 text-caption text-text-muted">
-                      {roomsQ.isError
-                        ? 'We could not check this venue for seat maps, so reserved seating is not on offer right now. '
-                        : venueMode === 'new'
-                          ? 'A new venue has no seat map yet, so reserved seating is not on offer. '
-                          : "Reserved seating needs a published seat map in one of this venue's spaces, and it has none yet. "}
-                      To sell numbered seats, draw one in{' '}
-                      <a
-                        href="/organizer/venues"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="font-medium text-action-primary underline underline-offset-2"
+                    /*
+                      Collapsed: most events here are general admission, and a paragraph about
+                      seat maps under every one of them was noise. Opened, it says why, gives the
+                      way there and - the dead end the walkthrough found - a way back: after
+                      drawing a map in the other tab, "Check again" offers it here without a
+                      reload.
+                    */
+                    <details className="group mt-2 rounded-md border border-border bg-background-subtle text-caption">
+                      <summary
+                        className={`flex cursor-pointer list-none items-center gap-2 rounded-md px-3 py-2 text-text-secondary hover:text-text-primary ${FOCUS_RING}`}
                       >
-                        Venues and spaces (opens in a new tab)
-                      </a>
-                      . What you have typed here is saved either way.
-                    </p>
+                        <Armchair aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+                        <span className="flex-1">
+                          Want numbered seats? How to set up a seat map
+                        </span>
+                        <ChevronDown
+                          aria-hidden="true"
+                          className="h-3.5 w-3.5 shrink-0 transition-transform group-open:rotate-180"
+                        />
+                      </summary>
+                      <div className="space-y-2 px-3 pb-3 text-text-secondary">
+                        <p>
+                          {roomsQ.isError
+                            ? 'We could not check this venue for seat maps, so reserved seating is not on offer right now.'
+                            : venueMode === 'new'
+                              ? 'A new venue has no seat map yet. Create the event now with free or paid tickets, or save the venue first in Venues & seating and draw its seat map there.'
+                              : "Reserved seating needs a published seat map in one of this venue's spaces, and this venue has none yet."}{' '}
+                          What you have typed here is saved either way.
+                        </p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <a
+                            href="/organizer/venues"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className={`inline-flex min-h-9 items-center gap-1.5 rounded-md border border-border-input bg-background-surface px-3 font-medium text-text-primary hover:bg-background-canvas ${FOCUS_RING}`}
+                          >
+                            Set up a seat map
+                            <ExternalLink aria-hidden="true" className="h-3.5 w-3.5" />
+                            <span className="sr-only">(opens in a new tab)</span>
+                          </a>
+                          {venueMode === 'existing' ? (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              loading={roomsQ.isFetching}
+                              onClick={() => void roomsQ.refetch()}
+                            >
+                              Check again
+                            </Button>
+                          ) : null}
+                        </div>
+                      </div>
+                    </details>
                   )}
                 </fieldset>
 
@@ -1692,6 +1728,49 @@ function NewEventWizard() {
                         change prices per {nouns.session.toLowerCase()} afterwards from the
                         event&apos;s pricing page.
                       </p>
+                    </div>
+                    {/*
+                      The venue's seat maps, listed and previewable BEFORE one is picked. The
+                      choice used to be a closed dropdown of "AP Screen 1 - Standard (20 seats)",
+                      with no way to see which map that was without leaving the wizard.
+                    */}
+                    <div className="space-y-2">
+                      <h3 className="text-ui font-semibold text-text-primary">
+                        Seat maps at {chosenVenue?.name ?? 'this venue'}
+                      </h3>
+                      <ul className="grid gap-2 sm:grid-cols-2">
+                        {venueRooms.map((r) => {
+                          const used = sessions.some((x) => x.seatMapId === r.layoutId);
+                          return (
+                            <li
+                              key={r.layoutId}
+                              className={`flex items-center gap-3 rounded-lg border p-3 ${used ? 'border-action-primary bg-tint-primary' : 'border-border bg-background-surface'}`}
+                            >
+                              <IconTile icon={Armchair} tone="blue" size="sm" />
+                              <span className="min-w-0 flex-1 text-caption">
+                                <span className="block truncate font-semibold text-text-primary">
+                                  {r.name}
+                                </span>
+                                <span className="block text-text-secondary">
+                                  {r.layoutName ?? 'Layout'} ·{' '}
+                                  <span className="tabular-nums">
+                                    {r.sellableSeats.toLocaleString()}
+                                  </span>{' '}
+                                  seats
+                                </span>
+                              </span>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                aria-label={`Preview ${r.name}`}
+                                onClick={() => setPreviewRoom(r)}
+                              >
+                                Preview
+                              </Button>
+                            </li>
+                          );
+                        })}
+                      </ul>
                     </div>
                     {sessions.map((s, i) => (
                       <Select
@@ -1739,6 +1818,40 @@ function NewEventWizard() {
                         Prices are in {eventCurrency}, the currency of the venue&apos;s country.
                       </p>
                     )}
+                    {/*
+                      Starting sets of ticket names for this kind of event, one press each. Only
+                      for a single date: with several, rows belong to dates and a set would have
+                      to guess which.
+                    */}
+                    {sessions.length === 1 && presets.length > 1 ? (
+                      <div
+                        role="group"
+                        aria-labelledby="ticket-presets"
+                        className="flex flex-wrap items-center gap-2"
+                      >
+                        <span id="ticket-presets" className="text-caption text-text-secondary">
+                          Start from
+                        </span>
+                        {presets.map((p) => {
+                          const on = matchesPreset(tickets, p.names);
+                          return (
+                            <button
+                              key={p.id}
+                              type="button"
+                              aria-pressed={on}
+                              onClick={() => setTickets(applyTicketPreset(tickets, p.names))}
+                              className={`inline-flex min-h-9 items-center rounded-full border px-3 text-caption font-medium transition-colors ${FOCUS_RING} ${
+                                on
+                                  ? 'border-action-primary bg-tint-primary text-text-primary'
+                                  : 'border-border-input bg-background-surface text-text-secondary hover:bg-background-subtle hover:text-text-primary'
+                              }`}
+                            >
+                              {p.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : null}
                     {/*
                       More tickets than the room holds: a warning, not a block. Counted per
                       SESSION, because that is what fills the room.
@@ -1811,7 +1924,11 @@ function NewEventWizard() {
                           {!isFree && (
                             <Input
                               id={`tp${i}`}
-                              label={`Price (${currencySymbol})`}
+                              label={
+                                currencySymbol === eventCurrency
+                                  ? `Price (${eventCurrency})`
+                                  : `Price (${eventCurrency}, ${currencySymbol})`
+                              }
                               type="number"
                               inputMode="decimal"
                               min={0}
@@ -1822,11 +1939,7 @@ function NewEventWizard() {
                               error={fieldErrors[`t${i}Price`]}
                               onBlur={() => reveal(`t${i}Price`)}
                               onChange={(e) =>
-                                setTickets(
-                                  tickets.map((x, j) =>
-                                    j === i ? { ...x, priceMajor: e.target.value } : x,
-                                  ),
-                                )
+                                editNumber(i, 'priceMajor', e.target.value, `t${i}Price`)
                               }
                             />
                           )}
@@ -1841,11 +1954,7 @@ function NewEventWizard() {
                             value={t.quantityTotal}
                             onBlur={() => reveal(`t${i}Qty`)}
                             onChange={(e) =>
-                              setTickets(
-                                tickets.map((x, j) =>
-                                  j === i ? { ...x, quantityTotal: e.target.value } : x,
-                                ),
-                              )
+                              editNumber(i, 'quantityTotal', e.target.value, `t${i}Qty`)
                             }
                             error={fieldErrors[`t${i}Qty`]}
                           />
@@ -1860,11 +1969,7 @@ function NewEventWizard() {
                             error={fieldErrors[`t${i}Max`]}
                             onBlur={() => reveal(`t${i}Max`)}
                             onChange={(e) =>
-                              setTickets(
-                                tickets.map((x, j) =>
-                                  j === i ? { ...x, maxPerOrder: e.target.value } : x,
-                                ),
-                              )
+                              editNumber(i, 'maxPerOrder', e.target.value, `t${i}Max`)
                             }
                           />
                         </div>
@@ -2004,7 +2109,7 @@ function NewEventWizard() {
                       hint="Measured back from the start. After this point the button is gone."
                       onChange={(e) => setBasics({ ...basics, refundCutoffHours: e.target.value })}
                     >
-                      {REFUND_CUTOFFS.map((c) => (
+                      {REFUND_CUTOFF_CHOICES.map((c) => (
                         <option key={c.value} value={c.value}>
                           {c.label}
                         </option>
@@ -2170,10 +2275,10 @@ function NewEventWizard() {
                     {basics.title || '-'}{' '}
                     <span className="text-text-muted">({basics.category})</span>
                   </ReviewRow>
-                  <ReviewRow label="Pictures" onEdit={() => goTo(0)} editLabel="Edit pictures">
+                  <ReviewRow label="Images" onEdit={() => goTo(0)} editLabel="Edit images">
                     {images.length === 0
-                      ? 'No pictures yet'
-                      : `${images.length} picture${images.length === 1 ? '' : 's'}, the first is the cover`}
+                      ? 'No images yet'
+                      : `${images.length} image${images.length === 1 ? '' : 's'}, the first is the cover`}
                   </ReviewRow>
                   <ReviewRow label="Venue" onEdit={() => goTo(1)} editLabel="Edit where and when">
                     {venueMode === 'existing'
@@ -2243,7 +2348,7 @@ function NewEventWizard() {
                       })(),
                       basics.refundsEnabled
                         ? `Refunds until ${(
-                            REFUND_CUTOFFS.find((c) => c.value === basics.refundCutoffHours)
+                            REFUND_CUTOFF_CHOICES.find((c) => c.value === basics.refundCutoffHours)
                               ?.label ?? `${basics.refundCutoffHours} hours before`
                           ).toLowerCase()}`
                         : 'No refunds for attendees',
@@ -2265,7 +2370,7 @@ function NewEventWizard() {
                       value={feeMode}
                       onChange={(e) => setFeeMode(e.target.value)}
                     >
-                      {FEE_MODES.map((f) => (
+                      {FEE_MODE_CHOICES.map((f) => (
                         <option key={f.value} value={f.value}>
                           {f.label}
                         </option>
@@ -2528,6 +2633,22 @@ function NewEventWizard() {
           </section>
         </aside>
       </div>
+
+      {/*
+        The same buyer-eye preview the event's Seating page opens, before any session exists:
+        the layout's seats, all free, at the categories' base prices. Nothing can be booked.
+      */}
+      {previewRoom ? (
+        <SeatMapPreviewDialog
+          open
+          onClose={() => setPreviewRoom(null)}
+          sessionId=""
+          seatMapId={previewRoom.layoutId}
+          live={false}
+          title={`Seat map: ${previewRoom.name}`}
+          layoutText={`${previewRoom.name}, ${previewRoom.layoutName ?? 'layout'}`}
+        />
+      ) : null}
 
       {/*
         ── ADDING THE IMAGES ──────────────────────────────────────────────────────────────

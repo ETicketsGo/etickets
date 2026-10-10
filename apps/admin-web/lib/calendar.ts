@@ -1,4 +1,11 @@
 import { zoneAbbrev } from '@eticketsgo/shared-types';
+import {
+  calendarDisplayStatus,
+  calendarStatusText,
+  calendarStatusTone,
+  type CalendarEntry,
+  type CalendarTone,
+} from '@eticketsgo/web-kit';
 
 /**
  * The admin calendar's arithmetic: which days a view shows, which window to ask the API for,
@@ -257,8 +264,6 @@ export function dayLabel(day: string): string {
   return `${names[weekdayIndex(day)]} ${short(day)}`;
 }
 
-export const WEEKDAY_HEADINGS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-
 /** The cities in a set of sessions, for the city filter, "Hyderabad (IN)", sorted. */
 export function cityOptions(
   sessions: { venue: { city: string; country: string | null } }[],
@@ -282,49 +287,78 @@ export function inCity<T extends { venue: { city: string } }>(sessions: T[], cit
 }
 
 /**
- * How a status reads on the calendar: its words and the tone of its dot and pill.
- *
- * The same table as the organizer calendar's `lib/calendar.ts`, so a status looks the same in
- * both consoles. The words are the lifecycle vocabulary (DESIGN-DIRECTION): "In review", not
- * "Under review"; COMPLETED and ARCHIVED are "Ended". PAUSED and SOLD_OUT keep their own words:
- * they are what the event row says, not a claim about sale eligibility, which the calendar does
- * not read.
+ * How a status reads on the calendar - its words and the tone of its dot and pill - is the
+ * shared table in web-kit's `calendar-status.ts`, which the organizer calendar draws by too, so
+ * "In review" reads the same to an organizer and to the admin who reviews them. These names
+ * keep this file's callers (the calendar page, the overview's today list) and tests.
  */
-export type StatusTone = 'success' | 'warning' | 'error' | 'info' | 'neutral';
+export type StatusTone = CalendarTone;
 
-const STATUS_LOOK: Record<string, { label: string; tone: StatusTone }> = {
-  DRAFT: { label: 'Draft', tone: 'neutral' },
-  UNDER_REVIEW: { label: 'In review', tone: 'warning' },
-  PUBLISHED: { label: 'Published', tone: 'success' },
-  PAUSED: { label: 'Paused', tone: 'warning' },
-  SOLD_OUT: { label: 'Sold out', tone: 'info' },
-  CANCELLED: { label: 'Cancelled', tone: 'error' },
-  COMPLETED: { label: 'Ended', tone: 'neutral' },
-  ARCHIVED: { label: 'Ended', tone: 'neutral' },
-};
+export const statusText = calendarStatusText;
 
-export function statusText(status: string): string {
-  const known = STATUS_LOOK[status];
-  if (known) return known.label;
-  const words = status.toLowerCase().replaceAll('_', ' ');
-  return words.charAt(0).toUpperCase() + words.slice(1);
-}
-
-/** A status this table does not know is neutral, never green. */
-export function statusTone(status: string): StatusTone {
-  return STATUS_LOOK[status]?.tone ?? 'neutral';
-}
+/** A status the table does not know is neutral, never green. */
+export const statusTone = calendarStatusTone;
 
 /**
  * The status a show is DRAWN with: the event's, unless the show itself was cancelled or paused -
- * a cancelled 21:00 show inside a published event must not look like it is on sale. The
- * organizer calendar's `displayStatus` makes the same call.
+ * a cancelled 21:00 show inside a published event must not look like it is on sale.
  */
 export function showStatus(s: { status: string; event: { status: string } }): {
   status: string;
   label: string;
 } {
-  if (s.status === 'CANCELLED' || s.status === 'PAUSED')
-    return { status: s.status, label: `Show ${s.status.toLowerCase()}` };
-  return { status: s.event.status, label: statusText(s.event.status) };
+  return calendarDisplayStatus(s.event.status, s.status, 'Show');
+}
+
+/** The month's days in rows of seven, for the shared month grid. */
+export function toWeeks(days: string[]): string[][] {
+  return Array.from({ length: Math.ceil(days.length / 7) }, (_, i) => days.slice(i * 7, i * 7 + 7));
+}
+
+export interface EntrySession extends PlaceableSession {
+  status: string;
+  endsAt: string;
+  event: { title: string; status: string };
+  organization: { name: string };
+  venue: { city: string };
+}
+
+/** "7:30 PM - 10:30 PM IST", at the venue. */
+export function timeRange(s: {
+  startsAt: string;
+  endsAt: string;
+  timezone: string | null;
+}): string {
+  const start = localTime(s.startsAt, s.timezone);
+  const zone = zoneNote(s.startsAt, s.timezone);
+  if (new Date(s.endsAt).getTime() <= new Date(s.startsAt).getTime()) return `${start} ${zone}`;
+  return `${start} - ${localTime(s.endsAt, s.timezone)} ${zone}`;
+}
+
+/** A show in the words web-kit's shared calendar draws: the venue's clock, the organizer's name. */
+export function entryFor<T extends EntrySession>(s: T): CalendarEntry<T> {
+  const shown = showStatus(s);
+  const detail = `${s.organization.name} - ${s.venue.city}`;
+  const start = localTime(s.startsAt, s.timezone);
+  return {
+    id: s.id,
+    title: s.event.title,
+    start,
+    time: timeRange(s),
+    detail,
+    tone: statusTone(shown.status),
+    statusLabel: shown.label,
+    struck: shown.status === 'CANCELLED',
+    label: `${start} ${zoneNote(s.startsAt, s.timezone)}, ${s.event.title}, ${detail}. ${shown.label}`,
+    source: s,
+  };
+}
+
+/** Every drawn day's shows as entries, in the same order. */
+export function entriesByDay<T extends EntrySession>(
+  byDay: Record<string, T[]>,
+): Map<string, CalendarEntry<T>[]> {
+  const out = new Map<string, CalendarEntry<T>[]>();
+  for (const [day, list] of Object.entries(byDay)) out.set(day, list.map(entryFor));
+  return out;
 }

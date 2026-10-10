@@ -1,8 +1,10 @@
 'use client';
 
 import Link from 'next/link';
+import { useId, useState, type ReactNode } from 'react';
 import {
   ArrowRight,
+  ChevronDown,
   BadgeCheck,
   Banknote,
   Bell,
@@ -17,6 +19,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import {
+  ButtonLink,
   IconTile,
   SectionCard,
   SectionLink,
@@ -27,6 +30,7 @@ import {
   type TileTone,
 } from '@eticketsgo/web-kit';
 import { relativeTime } from '@/lib/notification-feed-view';
+import { listSentence } from './model';
 
 export interface QuickAction {
   label: string;
@@ -80,7 +84,8 @@ export function QuickActions({ actions }: { actions: QuickAction[] }) {
   if (actions.length === 0) return null;
   return (
     <SectionCard title="Quick actions">
-      <ul className="grid grid-cols-1 gap-2.5 min-[360px]:grid-cols-2">
+      {/* One row of four on a laptop, where the card spans the page; two by two beside the welcome. */}
+      <ul className="grid grid-cols-1 gap-2.5 min-[360px]:grid-cols-2 lg:grid-cols-4 xl:grid-cols-2">
         {actions.map((a, i) => (
           // An odd last tile takes the whole row rather than leaving a hole beside it.
           <li
@@ -96,7 +101,7 @@ export function QuickActions({ actions }: { actions: QuickAction[] }) {
               <a.icon className="h-4 w-4 shrink-0" aria-hidden />
               <span className="min-w-0 flex-1 truncate text-text-primary">{a.label}</span>
               <ArrowRight
-                className="ml-auto hidden h-4 w-4 shrink-0 transition-transform min-[480px]:block xl:hidden duration-150 group-hover:translate-x-0.5 motion-reduce:transition-none"
+                className="ml-auto hidden h-4 w-4 shrink-0 transition-transform min-[480px]:block lg:hidden duration-150 group-hover:translate-x-0.5 motion-reduce:transition-none"
                 aria-hidden
               />
             </Link>
@@ -104,6 +109,93 @@ export function QuickActions({ actions }: { actions: QuickAction[] }) {
         ))}
       </ul>
     </SectionCard>
+  );
+}
+
+/**
+ * The quick actions on a phone: "Create event" as the one primary button, the rest as a row of
+ * small tiles under it. The desktop's 2x2 card of equal tiles took ~200px of a phone and made
+ * the page's one main action look like any other.
+ */
+export function PhoneActions({ actions }: { actions: QuickAction[] }) {
+  if (actions.length === 0) return null;
+  const [first, ...rest] = actions;
+  const primary = first.href === '/organizer/events/new' ? first : null;
+  const others = primary ? rest : actions;
+  return (
+    <section aria-labelledby="phone-actions-heading" className="space-y-2.5">
+      <h2 id="phone-actions-heading" className="sr-only">
+        Quick actions
+      </h2>
+      {primary && (
+        <ButtonLink href={primary.href} icon={primary.icon} size="lg" className="w-full">
+          {primary.label}
+        </ButtonLink>
+      )}
+      {others.length > 0 && (
+        <ul
+          className="grid gap-2"
+          style={{ gridTemplateColumns: `repeat(${others.length}, minmax(0, 1fr))` }}
+        >
+          {others.map((a) => (
+            <li key={a.href} className="min-w-0">
+              <Link
+                href={a.href}
+                className={`flex h-full min-h-[3.5rem] flex-col items-center justify-center gap-1 rounded-md px-1.5 py-2 text-center text-micro font-semibold leading-tight transition-[filter] duration-150 active:translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas motion-reduce:transition-none ${tileClasses(a.tone)}`}
+              >
+                <a.icon className="h-4 w-4 shrink-0" aria-hidden />
+                <span className="text-text-primary">{a.label}</span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/**
+ * The phone's fold: the Overview's detailed sections behind one real disclosure button.
+ *
+ * Collapsed by default, because a phone opens this page to see how today is going, not to read
+ * the gross-to-net working; the button says exactly what is behind it, so nothing is hidden
+ * that the organizer cannot see is there. The button stays above the sections it opens, so it
+ * does not move from under the thumb that pressed it.
+ */
+export function MoreOnOverview({
+  parts,
+  children,
+}: {
+  /** What is folded, in lower case, in the order it appears. */
+  parts: string[];
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const id = useId();
+  return (
+    <div className="space-y-4">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={id}
+        onClick={() => setOpen((o) => !o)}
+        className="flex min-h-[3.25rem] w-full items-center gap-3 rounded-lg border border-border bg-background-surface px-4 py-2.5 text-left shadow-xs transition-colors duration-150 hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas motion-reduce:transition-none"
+      >
+        <span className="min-w-0 flex-1">
+          <span className="block text-ui font-semibold text-text-primary">
+            {open ? 'Show less' : 'Show more'}
+          </span>
+          <span className="block text-caption text-text-muted">{listSentence(parts)}</span>
+        </span>
+        <ChevronDown
+          className={`h-5 w-5 shrink-0 text-text-muted transition-transform duration-150 motion-reduce:transition-none ${open ? 'rotate-180' : ''}`}
+          aria-hidden
+        />
+      </button>
+      <div id={id} hidden={!open} className="space-y-4">
+        {children}
+      </div>
+    </div>
   );
 }
 

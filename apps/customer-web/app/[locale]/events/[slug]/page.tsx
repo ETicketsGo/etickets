@@ -16,10 +16,12 @@ import {
   Images,
 } from 'lucide-react';
 import { ImageLightbox } from '@/components/image-lightbox';
+import { heroState } from '@/lib/event-hero';
 import {
   RatingStars,
   apiAssetUrl,
   eventImageSource,
+  gradientFor,
   useToast,
   errorMessage,
   venueAddressLine,
@@ -79,6 +81,10 @@ export default function EventDetailPage() {
   const [activeImage, setActiveImage] = useState(0);
   /* Which image is open full screen, or null. */
   const [lightbox, setLightbox] = useState<number | null>(null);
+  /* Images that failed to load, by their full-size URL. See `lib/event-hero.ts`. */
+  const [failedImages, setFailedImages] = useState<string[]>([]);
+  const markImageFailed = (full: string) =>
+    setFailedImages((failed) => (failed.includes(full) ? failed : [...failed, full]));
   /*
     Optional, only rendered for Indian venues, and PREFILLED from the last answer.
 
@@ -498,7 +504,7 @@ export default function EventDetailPage() {
     strip, the whole picture in the full-screen viewer. An API from before the copies gives
     the original for all three, which still works, only heavier.
   */
-  const gallery = (
+  const allImages = (
     event.images?.length
       ? event.images
       : event.imagePath
@@ -520,8 +526,15 @@ export default function EventDetailPage() {
       },
     ];
   });
-  const shownImage = Math.min(activeImage, Math.max(gallery.length - 1, 0));
-  const heroImage = gallery[shownImage] ?? null;
+  /*
+    Only the images that loaded are offered anywhere on the page. If none did, the hero keeps
+    its image-shaped box and fills it with the event's gradient, so nothing below it moves.
+  */
+  const hero = heroState(allImages, failedImages, activeImage);
+  const gallery = hero.usable;
+  const shownImage = hero.index;
+  const heroImage = hero.image;
+  const hasArt = hero.mode !== 'none';
   /*
     Over the banner from a small tablet up; under it on a phone (see the hero). Without an
     image it sits on the plain gradient as it always has.
@@ -529,7 +542,7 @@ export default function EventDetailPage() {
   const heroTitle = (
     <div
       className={`pointer-events-none relative z-10 ${
-        heroImage ? 'p-5 sm:absolute sm:inset-x-0 sm:bottom-0 sm:p-6' : ''
+        hasArt ? 'p-5 sm:absolute sm:inset-x-0 sm:bottom-0 sm:p-6' : ''
       }`}
     >
       <Badge tone="info">{event.category}</Badge>
@@ -562,14 +575,16 @@ export default function EventDetailPage() {
       {/* Hero */}
       <div
         className={`relative overflow-hidden rounded-lg border border-border shadow-sm ${
-          heroImage ? 'bg-background-surface' : ''
+          hasArt ? 'bg-background-surface' : ''
         }`}
       >
         <div
           className={
             heroImage
               ? 'relative aspect-video bg-black sm:aspect-[2/1]'
-              : 'relative flex h-52 items-end bg-gradient-to-br from-action-primary/25 via-action-primary/10 to-background-subtle p-6 sm:h-64'
+              : hasArt
+                ? `relative flex aspect-video items-center justify-center bg-gradient-to-br sm:aspect-[2/1] ${gradientFor(event.id)}`
+                : 'relative flex h-52 items-end bg-gradient-to-br from-action-primary/25 via-action-primary/10 to-background-subtle p-6 sm:h-64'
           }
         >
           {/*
@@ -610,6 +625,7 @@ export default function EventDetailPage() {
                   // The page is at most about 1200px wide; on a phone the hero is the screen.
                   sizes="(min-width: 1280px) 1200px, 100vw"
                   alt=""
+                  onError={() => markImageFailed(heroImage.full)}
                   style={{ objectPosition: heroImage.position }}
                   className="h-full w-full animate-fade-in object-cover"
                 />
@@ -656,9 +672,22 @@ export default function EventDetailPage() {
               )}
             </>
           )}
-          {!heroImage && heroTitle}
+          {/*
+            Every image failed: the same lettered gradient a card shows for this event, in the
+            box the image would have filled. Decorative - the title says what the event is.
+          */}
+          {hasArt && !heroImage && (
+            <span
+              aria-hidden
+              data-testid="event-hero-placeholder"
+              className="select-none text-7xl font-bold text-text-primary/25"
+            >
+              {event.title.charAt(0)}
+            </span>
+          )}
+          {!hasArt && heroTitle}
         </div>
-        {heroImage && heroTitle}
+        {hasArt && heroTitle}
         <button
           onClick={share}
           className="absolute right-4 top-4 z-10 flex items-center gap-1.5 rounded-full bg-background-surface/90 px-3 py-1.5 text-caption font-medium text-text-secondary shadow-sm backdrop-blur transition-colors hover:text-text-primary"
@@ -693,6 +722,8 @@ export default function EventDetailPage() {
                   src={image.strip}
                   alt=""
                   loading="lazy"
+                  // A thumbnail that cannot load takes its image out of the gallery with it.
+                  onError={() => markImageFailed(image.full)}
                   className="aspect-video h-16 object-cover"
                 />
               </button>

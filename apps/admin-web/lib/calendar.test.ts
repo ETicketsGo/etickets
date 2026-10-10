@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   addDays,
+  entriesByDay,
   cityOptions,
   fetchWindow,
   inCity,
@@ -14,6 +15,7 @@ import {
   showStatus,
   statusText,
   statusTone,
+  toWeeks,
   viewDays,
   zoneNote,
   zoneUnknown,
@@ -213,5 +215,59 @@ describe('the status vocabulary', () => {
       status: 'PUBLISHED',
       label: 'Published',
     });
+  });
+});
+
+describe('entries for the shared calendar', () => {
+  function show(id: string, startsAt: string, timezone: string | null, status = 'SCHEDULED') {
+    return {
+      id,
+      startsAt,
+      endsAt: new Date(new Date(startsAt).getTime() + 2 * 3_600_000).toISOString(),
+      timezone,
+      status,
+      event: { title: `Film ${id}`, status: 'PUBLISHED' },
+      organization: { name: 'Bengaluru Live' },
+      venue: { city: 'Vijayawada' },
+    };
+  }
+
+  it("draws each show at its venue's clock, on the venue's day, with the organizer", () => {
+    // 13:30Z is 7:00 PM in Kolkata; 18:30Z on the 9th is 5:30 AM on the 10th in Sydney.
+    const days = viewDays('week', '2026-10-09');
+    const { byDay } = placeSessions(
+      [
+        show('k', '2026-10-09T13:30:00.000Z', 'Asia/Kolkata'),
+        show('s', '2026-10-09T18:30:00.000Z', 'Australia/Sydney'),
+      ],
+      days,
+    );
+    const entries = entriesByDay(byDay);
+    const k = entries.get('2026-10-09')![0];
+    expect(k.start).toBe('7:00 PM');
+    expect(k.time).toBe(`7:00 PM - 9:00 PM ${zoneNote(k.source.startsAt, 'Asia/Kolkata')}`);
+    expect(k.detail).toBe('Bengaluru Live - Vijayawada');
+    expect(k.label).toBe(
+      `7:00 PM ${zoneNote(k.source.startsAt, 'Asia/Kolkata')}, Film k, Bengaluru Live - Vijayawada. Published`,
+    );
+    expect(entries.get('2026-10-10')!.map((e) => e.id)).toEqual(['s']);
+    expect(entries.get('2026-10-10')![0].start).toBe('5:30 AM');
+  });
+
+  it('a cancelled show is drawn cancelled, in the admin word', () => {
+    const { byDay } = placeSessions(
+      [show('c', '2026-10-09T13:30:00.000Z', 'Asia/Kolkata', 'CANCELLED')],
+      ['2026-10-09'],
+    );
+    const e = entriesByDay(byDay).get('2026-10-09')![0];
+    expect(e.statusLabel).toBe('Show cancelled');
+    expect(e.struck).toBe(true);
+  });
+
+  it('cuts the drawn days into weeks of seven', () => {
+    const weeks = toWeeks(viewDays('month', '2026-10-09'));
+    expect(weeks).toHaveLength(5);
+    expect(weeks.every((w) => w.length === 7)).toBe(true);
+    expect(weeks[0][0]).toBe('2026-09-28');
   });
 });

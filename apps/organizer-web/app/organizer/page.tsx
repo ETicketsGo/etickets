@@ -22,6 +22,7 @@ import {
   SegmentedControl,
   Skeleton,
   SkeletonCard,
+  StatCard,
   StatusBadge,
   dateOnly,
   MARKETS,
@@ -59,8 +60,14 @@ import { sellingOf, setupSummary, type SetupSummary } from './_dashboard/status'
 import { WelcomeHero } from './_dashboard/hero';
 import { NoUpcomingEvents, UpcomingEventCard } from './_dashboard/upcoming-events';
 import { MonthCard } from './_dashboard/month-card';
-import { GlanceCard } from './_dashboard/glance-card';
-import { ActivityTimeline, QuickActions, quickActionsFor } from './_dashboard/side-panels';
+import {
+  ActivityTimeline,
+  MoreOnOverview,
+  PhoneActions,
+  QuickActions,
+  quickActionsFor,
+} from './_dashboard/side-panels';
+import { usePhone } from './_dashboard/use-phone';
 
 /**
  * "India · INR" rather than "INR" - the same label the admin dashboard gives a market.
@@ -255,7 +262,11 @@ export default function OrganizerDashboard() {
 
   const attendance = analytics?.attendance;
   const performance = performanceFor(analytics, activeCurrency);
-  const pending = pendingActions(feedQ.data).slice(0, 3);
+  const phone = usePhone();
+  const density = phone ? 'compact' : 'comfortable';
+  // A phone shows the two most recent of what is open, and says how many there are in all.
+  const pendingAll = pendingActions(feedQ.data);
+  const pending = pendingAll.slice(0, phone ? 2 : 3);
   const activity = recentActivity(feedQ.data, 4);
   const latestPayout = payoutsQ.data?.[0];
   const setup = setupSummary(actionsQ.data?.actions);
@@ -311,13 +322,487 @@ export default function OrganizerDashboard() {
       </div>
     );
 
+  /*
+    ── THE SECTIONS, ONCE ────────────────────────────────────────────────────────────
+    Each section is built here once and placed twice below: in the desktop's two columns, or
+    in the phone's single column in the phone's own order. Nothing exists on one and not the
+    other; the phone folds the detail behind "Show more" instead of dropping it.
+  */
+  // A genuine blocker first: money that cannot reach them is worth reading before anything else.
+  const attention = <Attention setup={setup} loading={actionsQ.isLoading} />;
+
+  const figures = (
+    <section aria-labelledby="figures-heading" className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+        <h2
+          id="figures-heading"
+          className="font-display text-[1.0625rem] font-bold text-text-primary"
+        >
+          At a glance
+        </h2>
+        {can.financials &&
+          choices.length > 1 &&
+          activeCurrency &&
+          (phone ? (
+            /*
+              Four markets as a segmented switch wrap to two rows on a phone - taller than the
+              figures they choose between. A native select is one row and the phone's own picker.
+            */
+            <select
+              aria-label="Market"
+              value={activeCurrency}
+              onChange={(e) => setMarket(e.target.value)}
+              className="h-9 min-w-0 max-w-[60%] cursor-pointer truncate rounded-md border border-border-input bg-background-surface px-2.5 text-caption font-semibold text-text-primary focus:border-ring focus:outline-none focus:ring-4 focus:ring-ring/15"
+            >
+              {choices.map((c) => (
+                <option key={c.currency} value={c.currency}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <SegmentedControl
+              label="Market"
+              options={choices.map((c) => ({ value: c.currency, label: c.label }))}
+              value={activeCurrency}
+              onChange={setMarket}
+            />
+          ))}
+      </div>
+      {loading ? (
+        <div className={`grid grid-cols-2 xl:grid-cols-4 ${phone ? 'gap-2.5' : 'gap-3 sm:gap-4'}`}>
+          {Array.from({ length: can.financials ? 4 : 2 }).map((_, i) => (
+            <SkeletonCard key={i} variant="stat" label="Loading figures" />
+          ))}
+        </div>
+      ) : (
+        <div className={`grid grid-cols-2 xl:grid-cols-4 ${phone ? 'gap-2.5' : 'gap-3 sm:gap-4'}`}>
+          <StatCard
+            /*
+              Tickets buyers hold now: issued and not refunded, cancelled or voided (the
+              analytics `attendance.issued`), with how many of them have been scanned in.
+            */
+            density={density}
+            icon={Ticket}
+            tile="teal"
+            label="Tickets sold"
+            value={count(attendance?.issued ?? 0)}
+            hint={
+              attendance && attendance.issued > 0
+                ? `${count(attendance.checkedIn)} checked in (${attendance.checkInRate}%)`
+                : 'Valid tickets buyers hold'
+            }
+          />
+          <StatCard
+            density={density}
+            icon={CalendarClock}
+            tile="amber"
+            label="Upcoming events"
+            value={count(upcomingCount)}
+            href="/organizer/events"
+            hint={
+              thisWeek !== null
+                ? `${count(thisWeek)} in the next 7 days`
+                : 'With a show still to come'
+            }
+          />
+          {can.financials && (
+            <StatCard
+              density={density}
+              icon={currencyIcon(activeCurrency)}
+              tile="blue"
+              label="Gross sales"
+              value={cash ? fmt(cash.grossMinor) : '-'}
+              hint={cash ? 'Before fees and refunds' : 'No sales yet'}
+            />
+          )}
+          {can.financials && (
+            <StatCard
+              density={density}
+              icon={Wallet}
+              tile="purple"
+              label="Net proceeds"
+              value={cash ? fmt(cash.netMinor) : '-'}
+              hint="Yours after fees and refunds"
+            />
+          )}
+        </div>
+      )}
+    </section>
+  );
+
+  const upcomingSection = calendarOk ? (
+    <section aria-labelledby="upcoming-heading" className="min-w-0">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h2
+          id="upcoming-heading"
+          className="font-display text-[1.0625rem] font-bold text-text-primary"
+        >
+          Upcoming events
+        </h2>
+        <SectionLink href="/organizer/events" srLabel="events">
+          View all
+        </SectionLink>
+      </div>
+      {homeQ.isLoading ? (
+        <div className="grid gap-4 md:grid-cols-3">
+          {Array.from({ length: phone ? 1 : UPCOMING_CARDS }).map((_, i) => (
+            <SkeletonCard key={i} variant="media" label="Loading events" />
+          ))}
+        </div>
+      ) : homeQ.isError ? (
+        <ErrorState
+          message="We could not load your upcoming shows."
+          onRetry={() => homeQ.refetch()}
+        />
+      ) : upcoming.length === 0 ? (
+        <NoUpcomingEvents canCreate={canCreate} />
+      ) : (
+        /*
+          A row that swipes on a phone - each compact card most of the width, so the next one
+          peeks in and says there is more - and three image cards from a tablet up.
+        */
+        <ul
+          className={
+            phone
+              ? 'relative -mx-4 flex snap-x snap-mandatory scroll-px-4 gap-3 overflow-x-auto px-4 pb-1 [scrollbar-width:thin] sm:-mx-6 sm:scroll-px-6 sm:px-6'
+              : 'grid gap-4 md:grid-cols-3'
+          }
+          aria-label="Your next events"
+        >
+          {upcoming.map((s, i) => (
+            <li
+              key={s.event.id}
+              className={phone ? 'flex w-[86%] max-w-[22rem] shrink-0 snap-start' : 'flex min-w-0'}
+            >
+              <UpcomingEventCard
+                show={s}
+                row={eventRow.get(s.event.id)}
+                selling={sellingOf(eventState.get(s.event.id), eventStatesQ.isError)}
+                priority={i === 0}
+                compact={phone}
+              />
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  ) : null;
+
+  // What the notifications say is still open - only when something is.
+  const needsYou =
+    pendingAll.length > 0 || feedQ.isError ? (
+      <ActivityTimeline
+        title={
+          phone && pendingAll.length > pending.length
+            ? `Needs you (${count(pendingAll.length)})`
+            : 'Needs you'
+        }
+        groups={pending}
+        loading={false}
+        error={feedQ.isError}
+        onRetry={() => feedQ.refetch()}
+        empty="Nothing needs you right now."
+      />
+    ) : null;
+
+  const activityCard = (
+    <ActivityTimeline
+      title="Recent activity"
+      groups={activity}
+      loading={feedQ.isLoading}
+      error={feedQ.isError}
+      onRetry={() => feedQ.refetch()}
+      empty="Nothing has happened yet."
+    />
+  );
+
+  const monthCard = calendarOk ? (
+    <MonthCard
+      month={month}
+      onMonth={(next) => {
+        setMonth(next);
+        setSelectedDay(null);
+      }}
+      today={today}
+      selected={selectedDay}
+      onSelect={setSelectedDay}
+      weekStart={weekStartFor(activeOrg.registeredCountry)}
+      perDay={perDay}
+      loading={monthState.isLoading}
+      failed={monthState.isError}
+      onRetry={() => monthState.refetch()}
+      agenda={agenda}
+      agendaLoading={selectedDay === null ? homeQ.isLoading : monthState.isLoading}
+      sellingFor={(id) => sellingOf(sessionState.get(id), sessionStatesQ.isError)}
+    />
+  ) : null;
+
+  const salesCard = can.financials ? (
+    <SectionCard
+      title="Sales performance"
+      description={
+        activeLabel ? `Top events by gross sales, ${activeLabel}` : 'Top events by gross sales'
+      }
+      action={
+        <SectionLink href="/organizer/finance" srLabel="finance">
+          Finance
+        </SectionLink>
+      }
+    >
+      {loading ? (
+        <Skeleton className="h-40 w-full" />
+      ) : performance.length === 0 ? (
+        <p className="text-caption text-text-muted">
+          No paid bookings in this market yet. Events appear here once they sell.
+        </p>
+      ) : (
+        <ol className="space-y-3.5">
+          {performance.map((e, i) => (
+            <li key={e.eventId} className="min-w-0">
+              <div className="flex items-baseline justify-between gap-3">
+                <Link
+                  href={`/organizer/events/${e.eventId}`}
+                  className="min-w-0 truncate rounded-sm text-ui font-medium text-text-primary hover:text-action-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  title={e.title}
+                >
+                  <span className="mr-1.5 tabular-nums text-text-muted">{i + 1}.</span>
+                  {e.title}
+                </Link>
+                <span className="shrink-0 text-ui font-semibold tabular-nums text-text-primary">
+                  {money(e.grossMinor, e.currency)}
+                </span>
+              </div>
+              <div className="mt-1.5 flex items-center gap-3">
+                {/* The bar is the figure beside it, drawn: decoration for assistive tech. */}
+                <div
+                  aria-hidden
+                  className="h-2 flex-1 overflow-hidden rounded-full bg-background-subtle"
+                >
+                  <div
+                    className="h-full rounded-full bg-action-primary"
+                    style={{ width: `${Math.max(e.relative, 2)}%` }}
+                  />
+                </div>
+                <span className="w-[5.5rem] shrink-0 text-right text-micro tabular-nums text-text-muted">
+                  {count(e.bookings)} {e.bookings === 1 ? 'booking' : 'bookings'}
+                </span>
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
+    </SectionCard>
+  ) : null;
+
+  const grossCard = can.financials ? (
+    <SectionCard
+      title="Gross to net"
+      description={
+        activeLabel ? `${activeLabel}. Other currencies are never added in.` : 'No sales yet.'
+      }
+    >
+      {loading ? (
+        <Skeleton className="h-40 w-full" />
+      ) : cash ? (
+        <MoneyBreakdown cash={cash} fmt={fmt} />
+      ) : (
+        <p className="text-caption text-text-muted">
+          Sales appear here once your first booking is paid.
+        </p>
+      )}
+    </SectionCard>
+  ) : null;
+
+  /*
+    Every market side by side: "where am I selling at all, and where are payments failing".
+    Each amount is in its own row's currency, and rows are never totalled.
+  */
+  const marketsCard =
+    can.financials && markets.length > 0 ? (
+      <SectionCard title="By market" flush>
+        {/*
+          On a phone, one small card per market: seven columns do not fit 320px, and a table
+          cut off mid-word at the screen edge reads as broken, not as scrollable.
+        */}
+        <ul className="divide-y divide-border border-t border-border sm:hidden">
+          {markets.map((m) => (
+            <li key={m.currency} className="px-4 py-3">
+              <p className="text-ui font-semibold text-text-primary">{marketName(m)}</p>
+              <dl className="mt-1.5 grid grid-cols-1 gap-x-4 gap-y-1 text-caption min-[360px]:grid-cols-2">
+                {(
+                  [
+                    ['Gross sales', money(m.grossMinor, m.currency)],
+                    ['Net proceeds', money(m.netMinor, m.currency)],
+                    ['Refunds', money(m.refundsMinor, m.currency)],
+                    ['Paid bookings', String(m.paidBookings)],
+                    ['All bookings', String(m.totalBookings)],
+                    ['Payment failures', String(m.paymentFailures)],
+                  ] as const
+                ).map(([term, value]) => (
+                  <div key={term} className="flex min-w-0 justify-between gap-2">
+                    <dt className="text-text-muted">{term}</dt>
+                    <dd className="tabular-nums text-text-primary">{value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </li>
+          ))}
+        </ul>
+        {/*
+          A focusable, named region: the table can scroll sideways, and a scroll area a keyboard
+          cannot reach is content a keyboard user cannot read.
+        */}
+        <div
+          className="hidden overflow-x-auto rounded-b-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:block"
+          tabIndex={0}
+          role="region"
+          aria-label="Sales by market"
+        >
+          <table className="w-full text-left text-ui">
+            <caption className="sr-only">
+              Sales, refunds, bookings and payment failures for each market
+            </caption>
+            <thead>
+              <tr className="border-y border-border bg-background-subtle text-micro uppercase tracking-wide text-text-secondary">
+                <th scope="col" className="whitespace-nowrap px-5 py-2.5 font-semibold">
+                  Market
+                </th>
+                {[
+                  'Gross sales',
+                  'Net proceeds',
+                  'Refunds',
+                  'Paid bookings',
+                  'All bookings',
+                  'Payment failures',
+                ].map((h) => (
+                  <th
+                    key={h}
+                    scope="col"
+                    className="whitespace-nowrap px-5 py-2.5 text-right font-semibold"
+                  >
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {markets.map((m) => (
+                <tr key={m.currency}>
+                  <th
+                    scope="row"
+                    className="whitespace-nowrap px-5 py-3 font-medium text-text-primary"
+                  >
+                    {marketName(m)}
+                  </th>
+                  <td className="whitespace-nowrap px-5 py-3 text-right tabular-nums">
+                    {money(m.grossMinor, m.currency)}
+                  </td>
+                  <td className="whitespace-nowrap px-5 py-3 text-right tabular-nums">
+                    {money(m.netMinor, m.currency)}
+                  </td>
+                  <td className="whitespace-nowrap px-5 py-3 text-right tabular-nums">
+                    {money(m.refundsMinor, m.currency)}
+                  </td>
+                  <td className="px-5 py-3 text-right tabular-nums">{m.paidBookings}</td>
+                  <td className="px-5 py-3 text-right tabular-nums">{m.totalBookings}</td>
+                  <td className="px-5 py-3 text-right tabular-nums">{m.paymentFailures}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </SectionCard>
+    ) : null;
+
+  const payoutCard = showPayouts ? (
+    <SectionCard
+      title="Latest payout"
+      action={
+        <SectionLink href="/organizer/payouts" srLabel="payouts">
+          Payouts
+        </SectionLink>
+      }
+    >
+      {payoutsQ.isLoading ? (
+        <Skeleton className="h-20 w-full" />
+      ) : payoutsQ.isError ? (
+        <p className="text-caption text-text-muted">
+          We could not load payouts.{' '}
+          <button
+            type="button"
+            onClick={() => payoutsQ.refetch()}
+            className="rounded-sm font-semibold text-action-primary underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            Try again
+          </button>
+        </p>
+      ) : latestPayout ? (
+        <dl className="space-y-2.5 text-ui">
+          <div className="flex items-center justify-between gap-3">
+            <dt className="text-text-muted">Status</dt>
+            <dd>
+              <StatusBadge status={latestPayout.status} />
+            </dd>
+          </div>
+          <div className="flex justify-between gap-3">
+            <dt className="text-text-muted">Net amount</dt>
+            <dd className="font-display text-[1.0625rem] font-bold tabular-nums text-text-primary">
+              {money(latestPayout.netMinor, latestPayout.currency)}
+            </dd>
+          </div>
+          <div className="flex justify-between gap-3">
+            <dt className="text-text-muted">Created</dt>
+            <dd className="text-text-secondary">{dateOnly(latestPayout.createdAt)}</dd>
+          </div>
+        </dl>
+      ) : (
+        <p className="text-caption text-text-muted">
+          No payouts yet. Settlements are made from the Payouts page.
+        </p>
+      )}
+    </SectionCard>
+  ) : null;
+
+  /*
+    ── ON A PHONE: WHAT IS HAPPENING, THEN WHAT TO DO, THEN THE DETAIL ────────────────
+    One column in the order an organizer standing in a foyer asks: is anything blocking me, how
+    am I doing (four figures, two across), what is on next (a swipeable row), what can I do, what
+    needs me. The month, the money in detail, the markets, the activity and the payout follow
+    behind one "Show more" button - folded, not removed: the same sections, one tap away.
+  */
+  if (phone) {
+    const folded = [
+      monthCard && 'calendar',
+      salesCard && 'sales',
+      grossCard && 'gross to net',
+      marketsCard && 'markets',
+      'activity',
+      payoutCard && 'payouts',
+    ].filter((p): p is string => typeof p === 'string');
+    return (
+      <div className="space-y-4">
+        {attention}
+        {hero}
+        {figures}
+        {upcomingSection}
+        <PhoneActions actions={actions} />
+        {needsYou}
+        <MoreOnOverview parts={folded}>
+          {monthCard}
+          {salesCard}
+          {grossCard}
+          {marketsCard}
+          {activityCard}
+          {payoutCard}
+        </MoreOnOverview>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
-      {/*
-        A genuine blocker first: money that cannot reach them is worth reading before anything
-        else. It renders nothing when nothing is blocking; the rest of setup is one line.
-      */}
-      <Attention setup={setup} loading={actionsQ.isLoading} />
+      {attention}
 
       {/* The welcome, with the quick actions beside it on a wide screen. */}
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
@@ -326,428 +811,41 @@ export default function OrganizerDashboard() {
       </div>
 
       {/* Four figures for the whole organization, one market's money at a time. */}
-      <section aria-labelledby="figures-heading" className="space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2
-            id="figures-heading"
-            className="font-display text-[1.0625rem] font-bold text-text-primary"
-          >
-            At a glance
-          </h2>
-          {can.financials && choices.length > 1 && activeCurrency && (
-            <SegmentedControl
-              label="Market"
-              options={choices.map((c) => ({ value: c.currency, label: c.label }))}
-              value={activeCurrency}
-              onChange={setMarket}
-            />
-          )}
-        </div>
-        {loading ? (
-          <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
-            {Array.from({ length: can.financials ? 4 : 2 }).map((_, i) => (
-              <SkeletonCard key={i} variant="stat" label="Loading figures" />
-            ))}
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
-            <GlanceCard
-              /*
-                Tickets buyers hold now: issued and not refunded, cancelled or voided (the
-                analytics `attendance.issued`), with how many of them have been scanned in.
-              */
-              icon={Ticket}
-              tile="teal"
-              label="Tickets sold"
-              value={count(attendance?.issued ?? 0)}
-              hint={
-                attendance && attendance.issued > 0
-                  ? `${count(attendance.checkedIn)} checked in (${attendance.checkInRate}%)`
-                  : 'Valid tickets buyers hold'
-              }
-            />
-            <GlanceCard
-              icon={CalendarClock}
-              tile="amber"
-              label="Upcoming events"
-              value={count(upcomingCount)}
-              href="/organizer/events"
-              hint={
-                thisWeek !== null
-                  ? `${count(thisWeek)} in the next 7 days`
-                  : 'With a show still to come'
-              }
-            />
-            {can.financials && (
-              <GlanceCard
-                icon={currencyIcon(activeCurrency)}
-                tile="blue"
-                label="Gross sales"
-                value={cash ? fmt(cash.grossMinor) : '-'}
-                hint={cash ? 'Before fees and refunds' : 'No sales yet'}
-              />
-            )}
-            {can.financials && (
-              <GlanceCard
-                icon={Wallet}
-                tile="purple"
-                label="Net proceeds"
-                value={cash ? fmt(cash.netMinor) : '-'}
-                hint="Yours after fees and refunds"
-              />
-            )}
-          </div>
-        )}
-      </section>
+      {figures}
 
       {/*
         Below the figures, two columns on a wide screen: the events and the money on the left,
-        the month, what needs you and what happened on the right. On a narrower screen the
-        columns dissolve (`contents`) and `order` interleaves them, so a phone reads the next
-        events, then the month, then the activity - and the detailed money after that.
+        the month, what needs you and what happened on the right. On a tablet the columns
+        dissolve (`contents`) and `order` interleaves them, so it reads the next events, then
+        the month, then the activity - and the detailed money after that.
       */}
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:flex xl:items-start">
         <div className="contents xl:flex xl:min-w-0 xl:flex-1 xl:flex-col xl:gap-6">
-          {calendarOk && (
-            <section
-              aria-labelledby="upcoming-heading"
-              className="order-1 min-w-0 md:col-span-2 xl:order-none"
-            >
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <h2
-                  id="upcoming-heading"
-                  className="font-display text-[1.0625rem] font-bold text-text-primary"
-                >
-                  Upcoming events
-                </h2>
-                <SectionLink href="/organizer/events" srLabel="events">
-                  View all
-                </SectionLink>
-              </div>
-              {homeQ.isLoading ? (
-                <div className="grid gap-4 md:grid-cols-3">
-                  {Array.from({ length: UPCOMING_CARDS }).map((_, i) => (
-                    <SkeletonCard
-                      key={i}
-                      variant="media"
-                      label="Loading events"
-                      className={i > 0 ? 'hidden md:block' : ''}
-                    />
-                  ))}
-                </div>
-              ) : homeQ.isError ? (
-                <ErrorState
-                  message="We could not load your upcoming shows."
-                  onRetry={() => homeQ.refetch()}
-                />
-              ) : upcoming.length === 0 ? (
-                <NoUpcomingEvents canCreate={canCreate} />
-              ) : (
-                /*
-                  A row that swipes on a phone - each card most of the width, so the next one
-                  peeks in and says there is more - and three columns from a tablet up.
-                */
-                <ul
-                  className="relative -mx-4 flex snap-x snap-mandatory gap-4 overflow-x-auto px-4 pb-2 [scrollbar-width:thin] sm:-mx-6 sm:px-6 md:mx-0 md:grid md:grid-cols-3 md:overflow-visible md:px-0 md:pb-0"
-                  aria-label="Your next events"
-                >
-                  {upcoming.map((s, i) => (
-                    <li
-                      key={s.event.id}
-                      className="flex w-[78%] max-w-[20rem] shrink-0 snap-start md:w-auto md:max-w-none"
-                    >
-                      <UpcomingEventCard
-                        show={s}
-                        row={eventRow.get(s.event.id)}
-                        selling={sellingOf(eventState.get(s.event.id), eventStatesQ.isError)}
-                        priority={i === 0}
-                      />
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
+          {upcomingSection && (
+            <div className="order-1 min-w-0 md:col-span-2 xl:order-none">{upcomingSection}</div>
           )}
 
           {can.financials && (
-            <div className="order-5 grid min-w-0 gap-6 md:col-span-2 lg:grid-cols-2 xl:order-none">
-              <SectionCard
-                title="Sales performance"
-                description={
-                  activeLabel
-                    ? `Top events by gross sales, ${activeLabel}`
-                    : 'Top events by gross sales'
-                }
-                action={
-                  <SectionLink href="/organizer/finance" srLabel="finance">
-                    Finance
-                  </SectionLink>
-                }
-              >
-                {loading ? (
-                  <Skeleton className="h-40 w-full" />
-                ) : performance.length === 0 ? (
-                  <p className="text-caption text-text-muted">
-                    No paid bookings in this market yet. Events appear here once they sell.
-                  </p>
-                ) : (
-                  <ol className="space-y-3.5">
-                    {performance.map((e, i) => (
-                      <li key={e.eventId} className="min-w-0">
-                        <div className="flex items-baseline justify-between gap-3">
-                          <Link
-                            href={`/organizer/events/${e.eventId}`}
-                            className="min-w-0 truncate rounded-sm text-ui font-medium text-text-primary hover:text-action-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                            title={e.title}
-                          >
-                            <span className="mr-1.5 tabular-nums text-text-muted">{i + 1}.</span>
-                            {e.title}
-                          </Link>
-                          <span className="shrink-0 text-ui font-semibold tabular-nums text-text-primary">
-                            {money(e.grossMinor, e.currency)}
-                          </span>
-                        </div>
-                        <div className="mt-1.5 flex items-center gap-3">
-                          {/* The bar is the figure beside it, drawn: decoration for assistive tech. */}
-                          <div
-                            aria-hidden
-                            className="h-2 flex-1 overflow-hidden rounded-full bg-background-subtle"
-                          >
-                            <div
-                              className="h-full rounded-full bg-action-primary"
-                              style={{ width: `${Math.max(e.relative, 2)}%` }}
-                            />
-                          </div>
-                          <span className="w-[5.5rem] shrink-0 text-right text-micro tabular-nums text-text-muted">
-                            {count(e.bookings)} {e.bookings === 1 ? 'booking' : 'bookings'}
-                          </span>
-                        </div>
-                      </li>
-                    ))}
-                  </ol>
-                )}
-              </SectionCard>
-
-              <SectionCard
-                title="Gross to net"
-                description={
-                  activeLabel
-                    ? `${activeLabel}. Other currencies are never added in.`
-                    : 'No sales yet.'
-                }
-              >
-                {loading ? (
-                  <Skeleton className="h-40 w-full" />
-                ) : cash ? (
-                  <MoneyBreakdown cash={cash} fmt={fmt} />
-                ) : (
-                  <p className="text-caption text-text-muted">
-                    Sales appear here once your first booking is paid.
-                  </p>
-                )}
-              </SectionCard>
+            <div className="order-5 grid min-w-0 gap-6 md:col-span-2 md:grid-cols-2 xl:order-none">
+              {salesCard}
+              {grossCard}
             </div>
           )}
 
-          {/*
-            Every market side by side: "where am I selling at all, and where are payments
-            failing". Each amount is in its own row's currency, and rows are never totalled.
-          */}
-          {can.financials && markets.length > 0 && (
-            <div className="order-6 min-w-0 md:col-span-2 xl:order-none">
-              <SectionCard title="By market" flush>
-                {/*
-                  A focusable, named region: on a phone the table scrolls sideways, and a
-                  scroll area a keyboard cannot reach is content a keyboard user cannot read.
-                */}
-                {/*
-                  On a phone, one small card per market: seven columns do not fit 320px, and a
-                  table cut off mid-word at the screen edge reads as broken, not as scrollable.
-                */}
-                <ul className="divide-y divide-border border-t border-border sm:hidden">
-                  {markets.map((m) => (
-                    <li key={m.currency} className="px-4 py-3">
-                      <p className="text-ui font-semibold text-text-primary">{marketName(m)}</p>
-                      <dl className="mt-1.5 grid grid-cols-1 gap-x-4 gap-y-1 text-caption min-[360px]:grid-cols-2">
-                        {(
-                          [
-                            ['Gross sales', money(m.grossMinor, m.currency)],
-                            ['Net proceeds', money(m.netMinor, m.currency)],
-                            ['Refunds', money(m.refundsMinor, m.currency)],
-                            ['Paid bookings', String(m.paidBookings)],
-                            ['All bookings', String(m.totalBookings)],
-                            ['Payment failures', String(m.paymentFailures)],
-                          ] as const
-                        ).map(([term, value]) => (
-                          <div key={term} className="flex min-w-0 justify-between gap-2">
-                            <dt className="text-text-muted">{term}</dt>
-                            <dd className="tabular-nums text-text-primary">{value}</dd>
-                          </div>
-                        ))}
-                      </dl>
-                    </li>
-                  ))}
-                </ul>
-                <div
-                  className="hidden overflow-x-auto rounded-b-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:block"
-                  tabIndex={0}
-                  role="region"
-                  aria-label="Sales by market"
-                >
-                  <table className="w-full text-left text-ui">
-                    <caption className="sr-only">
-                      Sales, refunds, bookings and payment failures for each market
-                    </caption>
-                    <thead>
-                      <tr className="border-y border-border bg-background-subtle text-micro uppercase tracking-wide text-text-secondary">
-                        <th scope="col" className="whitespace-nowrap px-5 py-2.5 font-semibold">
-                          Market
-                        </th>
-                        {[
-                          'Gross sales',
-                          'Net proceeds',
-                          'Refunds',
-                          'Paid bookings',
-                          'All bookings',
-                          'Payment failures',
-                        ].map((h) => (
-                          <th
-                            key={h}
-                            scope="col"
-                            className="whitespace-nowrap px-5 py-2.5 text-right font-semibold"
-                          >
-                            {h}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border">
-                      {markets.map((m) => (
-                        <tr key={m.currency}>
-                          <th
-                            scope="row"
-                            className="whitespace-nowrap px-5 py-3 font-medium text-text-primary"
-                          >
-                            {marketName(m)}
-                          </th>
-                          <td className="whitespace-nowrap px-5 py-3 text-right tabular-nums">
-                            {money(m.grossMinor, m.currency)}
-                          </td>
-                          <td className="whitespace-nowrap px-5 py-3 text-right tabular-nums">
-                            {money(m.netMinor, m.currency)}
-                          </td>
-                          <td className="whitespace-nowrap px-5 py-3 text-right tabular-nums">
-                            {money(m.refundsMinor, m.currency)}
-                          </td>
-                          <td className="px-5 py-3 text-right tabular-nums">{m.paidBookings}</td>
-                          <td className="px-5 py-3 text-right tabular-nums">{m.totalBookings}</td>
-                          <td className="px-5 py-3 text-right tabular-nums">{m.paymentFailures}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </SectionCard>
-            </div>
+          {marketsCard && (
+            <div className="order-6 min-w-0 md:col-span-2 xl:order-none">{marketsCard}</div>
           )}
         </div>
 
         <div className="contents xl:flex xl:w-[22rem] xl:shrink-0 xl:flex-col xl:gap-6">
-          {calendarOk && (
-            <div className="order-2 min-w-0 xl:order-none">
-              <MonthCard
-                month={month}
-                onMonth={(next) => {
-                  setMonth(next);
-                  setSelectedDay(null);
-                }}
-                today={today}
-                selected={selectedDay}
-                onSelect={setSelectedDay}
-                weekStart={weekStartFor(activeOrg.registeredCountry)}
-                perDay={perDay}
-                loading={monthState.isLoading}
-                failed={monthState.isError}
-                onRetry={() => monthState.refetch()}
-                agenda={agenda}
-                agendaLoading={selectedDay === null ? homeQ.isLoading : monthState.isLoading}
-                sellingFor={(id) => sellingOf(sessionState.get(id), sessionStatesQ.isError)}
-              />
-            </div>
-          )}
+          {monthCard && <div className="order-2 min-w-0 xl:order-none">{monthCard}</div>}
 
           <div className="order-3 min-w-0 space-y-6 xl:order-none">
-            {/* What the notifications say is still open - only when something is. */}
-            {(pending.length > 0 || feedQ.isError) && (
-              <ActivityTimeline
-                title="Needs you"
-                groups={pending}
-                loading={false}
-                error={feedQ.isError}
-                onRetry={() => feedQ.refetch()}
-                empty="Nothing needs you right now."
-              />
-            )}
-            <ActivityTimeline
-              title="Recent activity"
-              groups={activity}
-              loading={feedQ.isLoading}
-              error={feedQ.isError}
-              onRetry={() => feedQ.refetch()}
-              empty="Nothing has happened yet."
-            />
+            {needsYou}
+            {activityCard}
           </div>
 
-          {showPayouts && (
-            <div className="order-7 min-w-0 xl:order-none">
-              <SectionCard
-                title="Latest payout"
-                action={
-                  <SectionLink href="/organizer/payouts" srLabel="payouts">
-                    Payouts
-                  </SectionLink>
-                }
-              >
-                {payoutsQ.isLoading ? (
-                  <Skeleton className="h-20 w-full" />
-                ) : payoutsQ.isError ? (
-                  <p className="text-caption text-text-muted">
-                    We could not load payouts.{' '}
-                    <button
-                      type="button"
-                      onClick={() => payoutsQ.refetch()}
-                      className="rounded-sm font-semibold text-action-primary underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    >
-                      Try again
-                    </button>
-                  </p>
-                ) : latestPayout ? (
-                  <dl className="space-y-2.5 text-ui">
-                    <div className="flex items-center justify-between gap-3">
-                      <dt className="text-text-muted">Status</dt>
-                      <dd>
-                        <StatusBadge status={latestPayout.status} />
-                      </dd>
-                    </div>
-                    <div className="flex justify-between gap-3">
-                      <dt className="text-text-muted">Net amount</dt>
-                      <dd className="font-display text-[1.0625rem] font-bold tabular-nums text-text-primary">
-                        {money(latestPayout.netMinor, latestPayout.currency)}
-                      </dd>
-                    </div>
-                    <div className="flex justify-between gap-3">
-                      <dt className="text-text-muted">Created</dt>
-                      <dd className="text-text-secondary">{dateOnly(latestPayout.createdAt)}</dd>
-                    </div>
-                  </dl>
-                ) : (
-                  <p className="text-caption text-text-muted">
-                    No payouts yet. Settlements are made from the Payouts page.
-                  </p>
-                )}
-              </SectionCard>
-            </div>
-          )}
+          {payoutCard && <div className="order-7 min-w-0 xl:order-none">{payoutCard}</div>}
         </div>
       </div>
     </div>
@@ -773,6 +871,12 @@ function Attention({ setup, loading }: { setup: SetupSummary; loading: boolean }
   if (setup.blockers.length === 0 && setup.todo.length === 0) return null;
   const listId = 'setup-checklist';
   const blocked = setup.blockers.length > 0;
+  /*
+    On a phone each blocker is one line - what to fix and the button - until the list is
+    opened; the consequence and the "Blocking" pill (the header already says it) come with it.
+    With nothing else to open, the consequence is simply shown.
+  */
+  const foldDetail = setup.todo.length > 0 && !open ? 'max-md:hidden' : '';
   const TONE: Record<string, string> = {
     IMPORTANT: 'bg-tint-warning text-status-warning',
     SUGGESTED: 'bg-background-subtle text-text-secondary',
@@ -819,15 +923,17 @@ function Attention({ setup, loading }: { setup: SetupSummary; loading: boolean }
               <li key={a.key}>
                 <Link
                   href={a.fixPath}
-                  className="group flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-3 transition-colors hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:flex-nowrap sm:px-5"
+                  className="group flex items-center gap-x-3 px-4 py-2.5 transition-colors hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-5 sm:py-3"
                 >
-                  <div className="min-w-0 flex-1 basis-full sm:basis-auto">
-                    <p className="text-ui font-semibold text-text-primary group-hover:text-action-primary">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-ui font-semibold leading-snug text-text-primary group-hover:text-action-primary">
                       {a.title}
                     </p>
-                    <p className="text-caption text-text-muted">{a.consequence}</p>
+                    <p className={`text-caption text-text-muted ${foldDetail}`}>{a.consequence}</p>
                   </div>
-                  <span className="shrink-0 rounded-full bg-tint-error px-2 py-0.5 text-micro font-semibold text-status-error">
+                  <span
+                    className={`shrink-0 rounded-full bg-tint-error px-2 py-0.5 text-micro font-semibold text-status-error ${foldDetail}`}
+                  >
                     Blocking
                   </span>
                   <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-tint-primary px-3 py-1.5 text-caption font-semibold text-action-primary">

@@ -3,25 +3,24 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import {
-  CalendarDays,
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  SlidersHorizontal,
-} from 'lucide-react';
+import { CalendarDays } from 'lucide-react';
 import {
   api,
-  Button,
   ButtonLink,
+  CalendarDayPanel,
+  CalendarLoading,
+  CalendarMonthGrid,
+  CalendarMonthLayout,
+  CalendarToolbar,
+  CalendarZoneNote,
   EmptyState,
   ErrorState,
-  IconButton,
   Input,
   PageHeader,
   Select,
   Skeleton,
   errorMessage,
+  type CalendarEntry,
 } from '@eticketsgo/web-kit';
 import { viewerToday, viewerZoneLabel } from '@eticketsgo/shared-types';
 import { useOrg } from '@/components/org-context';
@@ -29,9 +28,11 @@ import {
   CALENDAR_STATUSES,
   canCreateEvents,
   defaultViewFor,
+  entriesByDay,
   fetchWindow,
   filterOptions,
   filterSessions,
+  formatDayLong,
   isDayKey,
   monthGrid,
   rangeTitle,
@@ -47,8 +48,6 @@ import {
   type DayKey,
 } from '@/lib/calendar';
 import { AgendaView } from './agenda-view';
-import { DayPanel } from './day-panel';
-import { MonthView } from './month-view';
 import { PreviewDrawer } from './preview-drawer';
 import { TimeGrid } from './time-grid';
 
@@ -62,6 +61,8 @@ const VIEWS: { id: CalendarView; label: string }[] = [
   { id: 'day', label: 'Day' },
   { id: 'agenda', label: 'List' },
 ];
+
+const NOUN = { one: 'session', many: 'sessions' };
 
 const STEP_NAMES: Record<CalendarView, string> = {
   month: 'month',
@@ -119,7 +120,6 @@ export function OrganizerCalendar() {
     [params, pathname, router],
   );
 
-  const [filtersOpen, setFiltersOpen] = useState(false);
   const [focusedDay, setFocusedDay] = useState<DayKey>(anchor);
   const [agendaFocus, setAgendaFocus] = useState<DayKey | null>(null);
   useEffect(() => setFocusedDay(anchor), [anchor]);
@@ -165,6 +165,7 @@ export function OrganizerCalendar() {
     () => segmentsByDay(filtered, range.from, range.to),
     [filtered, range.from, range.to],
   );
+  const entries = useMemo(() => entriesByDay(byDay), [byDay]);
   const inRange = useMemo(() => {
     const ids = new Set<string>();
     for (const list of byDay.values()) for (const seg of list) ids.add(seg.session.id);
@@ -178,6 +179,10 @@ export function OrganizerCalendar() {
     returnFocus.current = trigger;
     setSelected(s);
   }, []);
+  const openEntry = useCallback(
+    (e: CalendarEntry<CalendarSession>, trigger: HTMLElement) => openSession(e.source, trigger),
+    [openSession],
+  );
   const closeDrawer = useCallback(() => {
     setSelected(null);
     // After the drawer has gone; the trigger may have re-rendered, so find it again by id.
@@ -214,8 +219,6 @@ export function OrganizerCalendar() {
     eventsQ.isSuccess &&
     eventsQ.data.every((e) => e._count.sessions === 0);
 
-  const monthSegments = byDay.get(focusedDay) ?? [];
-
   return (
     <div className="space-y-5">
       {/*
@@ -230,136 +233,71 @@ export function OrganizerCalendar() {
       />
 
       {/* ── Toolbar: where you are, how you look at it, and what is shown ── */}
-      <section
-        aria-label="Calendar controls"
-        className="rounded-lg border border-border bg-background-surface p-4 shadow-xs sm:p-5"
+      <CalendarToolbar
+        views={VIEWS}
+        view={view}
+        onView={(v) => setParams({ view: v })}
+        stepName={STEP_NAMES[view]}
+        onStep={(dir) => goTo(stepAnchor(view, anchor, dir))}
+        title={rangeTitle(view, anchor, weekStart)}
+        titleTestId="calendar-range-title"
+        onToday={() => goTo(today)}
+        activeFilters={activeFilters}
+        filtersLabel="Filters and date"
+        filters={
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <Select
+              label="Status"
+              value={status}
+              onChange={(e) => setParams({ status: e.target.value || null })}
+            >
+              <option value="">All statuses</option>
+              {CALENDAR_STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {statusText(s)}
+                </option>
+              ))}
+            </Select>
+            <Select
+              label="Venue"
+              value={venueId}
+              onChange={(e) => setParams({ venue: e.target.value || null })}
+            >
+              <option value="">All venues</option>
+              {options.venues.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.label}
+                </option>
+              ))}
+            </Select>
+            <Select
+              label="Category"
+              value={category}
+              onChange={(e) => setParams({ category: e.target.value || null })}
+            >
+              <option value="">All categories</option>
+              {options.categories.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </Select>
+            <Input
+              type="date"
+              label="Go to date"
+              value={anchor}
+              onChange={(e) => {
+                if (isDayKey(e.target.value)) goTo(e.target.value);
+              }}
+            />
+          </div>
+        }
       >
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-3">
-          <div className="flex items-center gap-1">
-            <IconButton
-              variant="outline"
-              size="sm"
-              icon={ChevronLeft}
-              label={`Previous ${STEP_NAMES[view]}`}
-              onClick={() => goTo(stepAnchor(view, anchor, -1))}
-            />
-            <IconButton
-              variant="outline"
-              size="sm"
-              icon={ChevronRight}
-              label={`Next ${STEP_NAMES[view]}`}
-              onClick={() => goTo(stepAnchor(view, anchor, 1))}
-            />
-          </div>
-          <h2
-            className="min-w-0 flex-1 font-display text-title font-bold text-text-primary"
-            aria-live="polite"
-            data-testid="calendar-range-title"
-          >
-            {rangeTitle(view, anchor, weekStart)}
-          </h2>
-          <Button variant="outline" size="sm" onClick={() => goTo(today)}>
-            Today
-          </Button>
-          <div
-            role="group"
-            aria-label="Calendar view"
-            className="inline-flex max-w-full rounded-md border border-border bg-background-subtle p-1"
-          >
-            {VIEWS.map((v) => (
-              <button
-                key={v.id}
-                type="button"
-                aria-pressed={view === v.id}
-                onClick={() => setParams({ view: v.id })}
-                className={`rounded-sm px-3 py-1.5 text-caption font-semibold transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                  view === v.id
-                    ? 'bg-background-surface text-action-primary shadow-xs'
-                    : 'text-text-secondary hover:text-text-primary'
-                }`}
-              >
-                {v.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/*
-          On a phone the four filters were a screen of form before the first date. They fold
-          behind one button there, which says how many are on; from `sm` up they are always
-          shown. The URL still holds them either way.
-        */}
-        <button
-          type="button"
-          aria-expanded={filtersOpen}
-          aria-controls="calendar-filters"
-          onClick={() => setFiltersOpen((o) => !o)}
-          className="mt-4 inline-flex w-full items-center justify-between rounded-md border border-border px-3 py-2 text-caption font-semibold text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:hidden"
-        >
-          <span className="inline-flex items-center gap-2">
-            <SlidersHorizontal className="h-4 w-4 text-text-secondary" aria-hidden />
-            {activeFilters > 0 ? `Filters, ${activeFilters} on` : 'Filters and date'}
-          </span>
-          <ChevronDown
-            className={`h-4 w-4 text-text-secondary transition-transform ${filtersOpen ? 'rotate-180' : ''}`}
-            aria-hidden
-          />
-        </button>
-        <div
-          id="calendar-filters"
-          className={`mt-4 gap-3 border-border sm:grid sm:grid-cols-2 sm:border-t sm:pt-4 xl:grid-cols-4 ${filtersOpen ? 'grid' : 'hidden'}`}
-        >
-          <Select
-            label="Status"
-            value={status}
-            onChange={(e) => setParams({ status: e.target.value || null })}
-          >
-            <option value="">All statuses</option>
-            {CALENDAR_STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {statusText(s)}
-              </option>
-            ))}
-          </Select>
-          <Select
-            label="Venue"
-            value={venueId}
-            onChange={(e) => setParams({ venue: e.target.value || null })}
-          >
-            <option value="">All venues</option>
-            {options.venues.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.label}
-              </option>
-            ))}
-          </Select>
-          <Select
-            label="Category"
-            value={category}
-            onChange={(e) => setParams({ category: e.target.value || null })}
-          >
-            <option value="">All categories</option>
-            {options.categories.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </Select>
-          <Input
-            type="date"
-            label="Go to date"
-            value={anchor}
-            onChange={(e) => {
-              if (isDayKey(e.target.value)) goTo(e.target.value);
-            }}
-          />
-        </div>
-
         <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-caption text-text-muted">
-          <p data-testid="calendar-today-zone">
-            Today is marked in your time zone, {viewerZoneLabel(viewer)}. Each session sits on the
-            date at its venue.
-          </p>
+          <CalendarZoneNote
+            zone={viewerZoneLabel(viewer)}
+            extra="Each session sits on the date at its venue."
+          />
           {!loading && !sessionsQ.isError && !nothingAtAll && (
             <p aria-live="polite">
               {inRange === 0
@@ -385,7 +323,7 @@ export function OrganizerCalendar() {
             shown. Pick a shorter view or a venue to see them all.
           </p>
         )}
-      </section>
+      </CalendarToolbar>
 
       {/* ── Body ── */}
       {sessionsQ.isError ? (
@@ -394,10 +332,7 @@ export function OrganizerCalendar() {
           onRetry={() => void sessionsQ.refetch()}
         />
       ) : loading ? (
-        <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_20rem]">
-          <Skeleton className="h-[32rem] w-full rounded-lg" />
-          {view === 'month' && <Skeleton className="hidden h-72 w-full rounded-lg xl:block" />}
-        </div>
+        <CalendarLoading withPanel={view === 'month'} />
       ) : nothingAtAll ? (
         <EmptyState
           icon={CalendarDays}
@@ -412,31 +347,39 @@ export function OrganizerCalendar() {
       ) : (
         <>
           {view === 'month' && (
-            <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_20rem]">
-              <div className="min-w-0 rounded-lg border border-border bg-background-surface p-2 shadow-xs sm:p-3">
-                <MonthView
+            <CalendarMonthLayout
+              grid={
+                <CalendarMonthGrid
                   weeks={monthGrid(anchor, weekStart)}
                   month={anchor.slice(0, 7)}
-                  byDay={byDay}
+                  entries={entries}
                   today={today}
                   focusedDay={focusedDay}
                   weekStart={weekStart}
+                  formatDay={formatDayLong}
+                  noun={NOUN}
+                  showDayLabel="Open the day"
                   onFocusDay={(day, viaKeyboard) => {
                     setFocusedDay(day);
                     if (viaKeyboard && day.slice(0, 7) !== anchor.slice(0, 7)) goTo(day);
                   }}
-                  onOpen={openSession}
+                  onOpen={openEntry}
                   onShowDay={(day) => goTo(day, 'day')}
                 />
-              </div>
-              <DayPanel
-                day={focusedDay}
-                segments={monthSegments}
-                today={today}
-                onOpen={openSession}
-                onShowDay={(day) => goTo(day, 'day')}
-              />
-            </div>
+              }
+              panel={
+                <CalendarDayPanel
+                  day={focusedDay}
+                  heading={formatDayLong(focusedDay)}
+                  entries={entries.get(focusedDay) ?? []}
+                  today={today}
+                  noun={NOUN}
+                  showDayLabel="Open the day"
+                  onOpen={openEntry}
+                  onShowDay={(day) => goTo(day, 'day')}
+                />
+              }
+            />
           )}
           {(view === 'week' || view === 'day') && (
             <TimeGrid
@@ -444,7 +387,7 @@ export function OrganizerCalendar() {
               byDay={byDay}
               today={today}
               cap={view === 'week' ? WEEK_DAY_CAP : DAY_CAP}
-              onOpen={openSession}
+              onOpen={openEntry}
               onShowMore={(day) => {
                 setAgendaFocus(day);
                 goTo(day, 'agenda');
@@ -455,10 +398,10 @@ export function OrganizerCalendar() {
             <>
               <AgendaView
                 days={Array.from(byDay.keys())}
-                byDay={byDay}
+                entries={entries}
                 today={today}
                 focusDay={agendaFocus}
-                onOpen={openSession}
+                onOpen={openEntry}
               />
               {inRange === 0 && (
                 <EmptyState

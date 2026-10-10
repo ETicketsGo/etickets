@@ -414,6 +414,29 @@ export function DesignSystemGallery() {
             <SetupPill missing={0} />
             <SetupPill missing={3} />
           </div>
+          {/*
+            A restriction is never cut off: a long reason wraps in the pill, and in a dense
+            column the stacked layout prints the reason as text under the state word.
+          */}
+          <div className="grid gap-4 sm:grid-cols-2" data-testid="ds-long-reasons">
+            <div className="min-w-0 space-y-2">
+              <p className="text-caption font-semibold text-text-secondary">Long reason, wraps</p>
+              <SellingPill
+                state="partly"
+                reason="Telangana pricing rules are not set for 3 of 5 shows"
+                size="sm"
+              />
+            </div>
+            <div className="w-40 min-w-0 space-y-2">
+              <p className="text-caption font-semibold text-text-secondary">Dense cell, stacked</p>
+              <SellingPill
+                state="not"
+                reason="Telangana pricing rules are not set"
+                size="sm"
+                layout="stacked"
+              />
+            </div>
+          </div>
           <div className="flex flex-wrap gap-2">
             {TONES.map((t) => (
               <StatusPill key={t} tone={t}>

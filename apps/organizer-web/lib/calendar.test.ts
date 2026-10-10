@@ -6,6 +6,8 @@ import {
   capItems,
   defaultViewFor,
   displayStatus,
+  entriesByDay,
+  entryFor,
   statusText,
   statusTone,
   fetchWindow,
@@ -492,5 +494,55 @@ describe('the status vocabulary', () => {
     expect(statusTone('UNDER_REVIEW')).toBe('warning');
     expect(statusTone('CANCELLED')).toBe('error');
     expect(statusTone('SOMETHING_NEW')).toBe('neutral');
+  });
+});
+
+describe('entries for the shared calendar', () => {
+  it("draws a session at its venue's clock, with the zone, on the venue's day", () => {
+    // 13:30Z is 19:00 in Kolkata; 02:00Z on the 7th is 19:00 on the 6th in Denver.
+    const kolkata = session({ id: 'k' });
+    const denver = session({
+      id: 'd',
+      zone: 'America/Denver',
+      venueName: 'Ogden',
+      city: 'Denver',
+      startsAt: '2026-11-07T02:00:00.000Z',
+      endsAt: '2026-11-07T04:00:00.000Z',
+    });
+    const byDay = entriesByDay(segmentsByDay([kolkata, denver], '2026-11-05', '2026-11-08'));
+    const sixth = byDay.get('2026-11-06') ?? [];
+    expect(sixth.map((e) => e.id).sort()).toEqual(['d', 'k']);
+    expect(byDay.get('2026-11-07')).toEqual([]);
+    const k = sixth.find((e) => e.id === 'k')!;
+    expect(k.start).toBe('19:00');
+    expect(k.time).toBe(`19:00 - 22:00 ${zoneAbbrev('Asia/Kolkata', kolkata.startsAt)}`);
+    expect(k.detail).toBe('Hall, Hyderabad');
+    expect(k.label).toMatch(/^19:00 .*, Show, Hall, Hyderabad\. Published$/);
+    expect(k.source).toBe(kolkata);
+    const d = sixth.find((e) => e.id === 'd')!;
+    expect(d.start).toBe('19:00');
+    expect(d.time).toBe('19:00 - 21:00 MST');
+  });
+
+  it('a cancelled session in a published event is drawn cancelled and struck through', () => {
+    const [seg] = segmentsByDay(
+      [session({ sessionStatus: 'CANCELLED' })],
+      '2026-11-06',
+      '2026-11-06',
+    ).get('2026-11-06')!;
+    const e = entryFor(seg);
+    expect(e.statusLabel).toBe('Session cancelled');
+    expect(e.tone).toBe('error');
+    expect(e.struck).toBe(true);
+  });
+
+  it('a day a session runs on into starts with "cont."', () => {
+    const late = session({
+      startsAt: '2026-11-06T17:30:00.000Z', // 23:00 IST
+      endsAt: '2026-11-06T20:30:00.000Z', // 02:00 IST on the 7th
+    });
+    const seventh = segmentsByDay([late], '2026-11-06', '2026-11-07').get('2026-11-07')!;
+    expect(entryFor(seventh[0]).start).toBe('cont.');
+    expect(entryFor(seventh[0]).time).toMatch(/^Until 02:00 /);
   });
 });

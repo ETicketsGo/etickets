@@ -6,6 +6,7 @@ import type {
   OrganizerCalendarSession,
 } from '@eticketsgo/web-kit';
 import {
+  listSentence,
   comingUp,
   comingUpWindow,
   moneyFor,
@@ -335,5 +336,16 @@ describe('the premium Overview', () => {
         { status: 'PUBLISHED' },
       ]),
     ).toBe(2);
+  });
+});
+
+describe('listSentence', () => {
+  it('names what the phone folds as one sentence', () => {
+    expect(listSentence([])).toBe('');
+    expect(listSentence(['activity'])).toBe('Activity');
+    expect(listSentence(['calendar', 'activity'])).toBe('Calendar and activity');
+    expect(listSentence(['calendar', 'sales', 'gross to net', 'payouts'])).toBe(
+      'Calendar, sales, gross to net and payouts',
+    );
   });
 });

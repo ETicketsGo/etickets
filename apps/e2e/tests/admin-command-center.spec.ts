@@ -165,7 +165,7 @@ test.describe('the calendar', () => {
     test.skip(inRange.length === 0, 'no session in the next two weeks in this environment');
 
     const first = inRange[0];
-    const chip = page.locator(`[data-session="${first.id}"]`);
+    const chip = page.locator(`[data-session-id="${first.id}"]`);
     await expect(chip).toBeVisible({ timeout: 30_000 });
 
     // The heading of the day the chip is listed under is the VENUE's day.
