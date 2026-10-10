@@ -9,6 +9,8 @@ import {
   comingUp,
   comingUpWindow,
   moneyFor,
+  nextShowByEvent,
+  startingWithin,
   pendingActions,
   performanceFor,
   pickCurrency,
@@ -201,5 +203,47 @@ describe('coming up', () => {
       }),
     ];
     expect(comingUp(rows, now).map((s) => s.id)).toEqual(['soon', 'later']);
+  });
+});
+
+describe('the next show per event', () => {
+  const at = (id: string, eventId: string, startsAt: string, status = 'SCHEDULED') =>
+    ({
+      id,
+      startsAt,
+      endsAt: startsAt,
+      status,
+      event: {
+        id: eventId,
+        title: eventId,
+        category: 'MUSIC',
+        status: 'PUBLISHED',
+        experienceType: 'EVENT',
+      },
+      venue: { id: 'v', name: 'V', city: 'C', country: 'IN', timezone: 'Asia/Kolkata' },
+      cinemaTimezone: null,
+      sold: 0,
+      capacity: 10,
+    }) as OrganizerCalendarSession;
+  const now = new Date('2026-10-10T00:00:00Z');
+
+  it('is the earliest show still to come, skipping cancelled and started ones', () => {
+    const next = nextShowByEvent(
+      [
+        at('late', 'e1', '2026-10-20T10:00:00Z'),
+        at('gone', 'e1', '2026-10-09T10:00:00Z'),
+        at('off', 'e1', '2026-10-11T10:00:00Z', 'CANCELLED'),
+        at('soon', 'e1', '2026-10-12T10:00:00Z'),
+        at('other', 'e2', '2026-10-15T10:00:00Z'),
+      ],
+      now,
+    );
+    expect(next.get('e1')?.id).toBe('soon');
+    expect(next.get('e2')?.id).toBe('other');
+  });
+
+  it('keeps the week out of a longer window', () => {
+    const rows = [at('a', 'e1', '2026-10-12T10:00:00Z'), at('b', 'e1', '2026-10-30T10:00:00Z')];
+    expect(startingWithin(rows, 7, now).map((s) => s.id)).toEqual(['a']);
   });
 });

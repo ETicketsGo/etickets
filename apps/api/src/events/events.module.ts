@@ -15,6 +15,7 @@ import { PublicEventsService } from './public-events.service';
 import { EventImageService } from './event-image.service';
 import { OrganizerCalendarController } from './organizer-calendar.controller';
 import { OrganizerCalendarService } from './organizer-calendar.service';
+import { OrganizerSaleEligibilityService } from './organizer-sale-eligibility.service';
 
 @Module({
   imports: [PricingModule, ShowsModule],
@@ -33,6 +34,7 @@ import { OrganizerCalendarService } from './organizer-calendar.service';
     EventSellabilityService,
     EventSellabilitySweepService,
     OrganizerCalendarService,
+    OrganizerSaleEligibilityService,
   ],
   exports: [
     EventsService,

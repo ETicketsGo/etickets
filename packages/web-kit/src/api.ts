@@ -1296,6 +1296,15 @@ export const api = {
      */
     calendar: (organizationId: string, from: string, to: string) =>
       request<OrganizerCalendarResponse>(`/organizer-calendar${qs({ organizationId, from, to })}`),
+    /**
+     * Whether checkout would sell each show now, by the same sale-eligibility rules checkout
+     * refuses a cart by, with the organizer's reason. At most 50 ids; another organization's
+     * shows are left out of the answer.
+     */
+    saleEligibility: (organizationId: string, sessionIds: string[]) =>
+      request<{ sessions: OrganizerSessionSaleEligibility[] }>(
+        `/organizer-calendar/sale-eligibility${qs({ organizationId, sessionIds: sessionIds.join(',') })}`,
+      ),
     get: (id: string) => request<OrgEventDetail>(`/events/${id}`),
     create: (body: CreateEventBody) =>
       request<OrgEventDetail>('/events', { method: 'POST', body: JSON.stringify(body) }),
@@ -3973,6 +3982,22 @@ export interface OrganizerCalendarResponse {
   /** More sessions matched than `limit`; the latest ones were left out. */
   truncated: boolean;
   limit: number;
+}
+/** One show's answer from `GET /organizer-calendar/sale-eligibility`. */
+export interface OrganizerSessionSaleEligibility {
+  sessionId: string;
+  /** Something on the show can be bought online now (the storefront's `onlineBooking.open`). */
+  open: boolean;
+  /** Nothing on the show is refused. */
+  sellable: boolean;
+  blockers: {
+    code: string;
+    owner: 'ORGANIZER' | 'PLATFORM';
+    /** The organizer's sentence: what is wrong and what to do. */
+    message: string;
+    fixPath: string | null;
+    subject?: string;
+  }[];
 }
 export interface EventPromotion {
   eventId: string;

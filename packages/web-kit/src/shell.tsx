@@ -250,13 +250,21 @@ export function AppShell({
           </div>
 
           {/*
-            The masthead, centred in the HEADER with absolute positioning from `sm` up, and
-            click-through all the way down: it is a label, and on a narrow screen the centre is
-            where the controls are (`masthead-does-not-block-controls.spec.ts`).
+            The masthead, from `sm` up: the space BETWEEN the two clusters, centred within it.
+
+            It used to be centred in the whole header with absolute positioning, which is exact
+            centring and no layout at all: the name did not know the controls existed. A
+            40-character organization name ("Lakshmi Cinemas 1791605120706") covered the Light
+            option at 1024-1440px, reported by two workstreams. As the middle flex child it can
+            only ever have the room the controls leave it, and truncates there with an ellipsis -
+            so nothing can overlap at any width, at the cost of sitting a few pixels off the true
+            centre when the two sides differ. The full name stays in the text (screen readers
+            read all of it) and in `title`, which now works because nothing is click-through.
+            Checked by `shell-header-overlap.spec.ts` with a long name.
           */}
           {workspace && (
-            <div className="pointer-events-none absolute inset-x-0 hidden justify-center sm:flex">
-              <div className="flex max-w-[min(50vw,28rem)] items-center gap-2.5">
+            <div className="hidden min-w-0 flex-1 justify-center px-2 sm:flex">
+              <div className="flex min-w-0 max-w-[28rem] items-center gap-2.5">
                 {apiAssetUrl(workspace.logoUrl ?? null) && (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
@@ -276,7 +284,7 @@ export function AppShell({
             </div>
           )}
 
-          <div className="flex items-center gap-2 sm:gap-3">
+          <div className="flex shrink-0 items-center gap-2 sm:gap-3">
             {headerAccessory}
             {user && (
               <div className="flex items-center gap-2.5">

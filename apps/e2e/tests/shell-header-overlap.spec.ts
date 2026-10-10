@@ -27,9 +27,20 @@ const WIDTHS = [
   { w: 320, h: 720, note: 'the narrowest phone still in use' },
   { w: 390, h: 844 },
   { w: 412, h: 915 },
+  { w: 768, h: 1024 },
+  { w: 1024, h: 768 },
+  { w: 1280, h: 800 },
   { w: 1440, h: 900 },
   { w: 1920, h: 1080 },
 ];
+
+/*
+  A 40-character organization name, the shape that broke it on QA: "Lakshmi Cinemas
+  1791605120706" covered the Light option at 1024-1440px. Served by rewriting the
+  organization list in the browser rather than renaming a seeded organization, because the
+  local database is shared and other specs read that name.
+*/
+const LONG_NAME = 'Lakshmi Venkateswara Cinemas Pvt Ltd 001';
 
 test.describe('the organizer header at every width', () => {
   let owner: Awaited<ReturnType<typeof apiLogin>>;
@@ -39,23 +50,38 @@ test.describe('the organizer header at every width', () => {
     owner = await apiLogin(request, ORGANIZER_EMAIL);
   });
 
-  for (const { w, h, note } of WIDTHS) {
-    test(`${w}px: the workspace name touches no control${note ? ` (${note})` : ''}`, async ({
-      browser,
-    }) => {
-      const context = await browser.newContext({ viewport: { width: w, height: h } });
-      await seedBrowserAuth(context, owner);
-      const page = await context.newPage();
+  for (const { w, h, note } of WIDTHS)
+    for (const long of [false, true]) {
+      test(`${w}px: the ${long ? '40-character ' : ''}workspace name touches no control${note ? ` (${note})` : ''}`, async ({
+        browser,
+      }) => {
+        const context = await browser.newContext({ viewport: { width: w, height: h } });
+        await seedBrowserAuth(context, owner);
+        const page = await context.newPage();
+        if (long) {
+          await page.route(
+            (url) => url.pathname.endsWith('/api/organizations'),
+            async (route) => {
+              if (route.request().method() !== 'GET') return route.continue();
+              const res = await route.fetch();
+              const orgs = (await res.json()) as { name: string }[];
+              await route.fulfill({
+                response: res,
+                json: orgs.map((o) => ({ ...o, name: LONG_NAME })),
+              });
+            },
+          );
+        }
 
-      try {
-        await page.goto(`${ORGANIZER}/organizer/venues`);
-        await page.waitForLoadState('networkidle').catch(() => undefined);
+        try {
+          await page.goto(`${ORGANIZER}/organizer/venues`);
+          await page.waitForLoadState('networkidle').catch(() => undefined);
 
-        const collisions = await page.evaluate(() => {
-          const header = document.querySelector('header');
-          if (!header) return ['no header rendered'];
+          const collisions = await page.evaluate(() => {
+            const header = document.querySelector('header');
+            if (!header) return ['no header rendered'];
 
-          /*
+            /*
             BOTH copies carry the hook. The element differs by width - a phone gets the one
             that flows in the left cluster, wider screens the absolutely centred one - so
             every visible copy is checked rather than whichever happens to exist.
@@ -65,32 +91,37 @@ test.describe('the organizer header at every width', () => {
             itself at every desktop width. A heuristic selector reported a defect that was not
             there; the hook reports the one that is.
           */
-          const hits: string[] = [];
-          for (const nameEl of header.querySelectorAll('[data-testid="workspace-name"]')) {
-            const n = nameEl.getBoundingClientRect();
-            if (n.width === 0 || n.height === 0) continue;
+            const hits: string[] = [];
+            for (const nameEl of header.querySelectorAll('[data-testid="workspace-name"]')) {
+              const n = nameEl.getBoundingClientRect();
+              if (n.width === 0 || n.height === 0) continue;
 
-            for (const el of header.querySelectorAll('button, a, input, select')) {
-              if (el.contains(nameEl) || nameEl.contains(el)) continue;
-              const r = el.getBoundingClientRect();
-              if (r.width === 0 || r.height === 0) continue;
-              // Two rectangles overlap unless one is entirely past the other on an axis.
-              const apart =
-                r.right <= n.left || r.left >= n.right || r.bottom <= n.top || r.top >= n.bottom;
-              if (!apart) {
-                hits.push((el.getAttribute('aria-label') || el.textContent || el.tagName).trim());
+              for (const el of header.querySelectorAll('button, a, input, select')) {
+                if (el.contains(nameEl) || nameEl.contains(el)) continue;
+                const r = el.getBoundingClientRect();
+                if (r.width === 0 || r.height === 0) continue;
+                // Two rectangles overlap unless one is entirely past the other on an axis.
+                const apart =
+                  r.right <= n.left || r.left >= n.right || r.bottom <= n.top || r.top >= n.bottom;
+                if (!apart) {
+                  hits.push((el.getAttribute('aria-label') || el.textContent || el.tagName).trim());
+                }
               }
             }
-          }
-          return hits;
-        });
+            return hits;
+          });
 
-        expect(collisions).toEqual([]);
-      } finally {
-        await context.close();
-      }
-    });
-  }
+          expect(collisions).toEqual([]);
+          if (long) {
+            // The long name really was in play, and is still there whole for assistive tech.
+            const shown = page.locator('header [data-testid="workspace-name"]:visible');
+            await expect(shown).toHaveText(LONG_NAME);
+          }
+        } finally {
+          await context.close();
+        }
+      });
+    }
 
   test('the header never forces the page to scroll sideways', async ({ browser }) => {
     // The other way a header breaks a phone: it fits visually and pushes the document wider.

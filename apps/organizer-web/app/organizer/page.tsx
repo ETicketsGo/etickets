@@ -33,7 +33,6 @@ import {
   useAuthUser,
   type AnalyticsOrganizerMarket,
   type BadgeTone,
-  type EventSellability,
   type NotificationFeedSeverity,
   type OrganizerCalendarSession,
 } from '@eticketsgo/web-kit';
@@ -50,6 +49,9 @@ import {
   comingUp,
   comingUpWindow,
   COMING_UP_DAYS,
+  NEXT_SHOW_DAYS,
+  nextShowByEvent,
+  startingWithin,
   type MarketChoice,
   type MarketMoney,
 } from './_dashboard/model';
@@ -61,6 +63,7 @@ import {
   sessionSelling,
   setupSummary,
   type Selling,
+  type ShowSaleInput,
   type SetupSummary,
 } from './_dashboard/status';
 
@@ -152,13 +155,15 @@ export default function OrganizerDashboard() {
   });
   /*
     What is on next: the calendar's own endpoint, one request for every show of the
-    organization in the coming week, with sold and capacity per show. The window is fixed at
-    mount so the query key does not change on every render.
+    organization in the next 60 days (NEXT_SHOW_DAYS), with sold and capacity per show. The week's
+    programme is the first seven days of it; the rest is each event's NEXT show, which is what
+    "is this event selling" is judged by. The window is fixed at mount so the query key does
+    not change on every render.
   */
-  const [window7] = useState(() => comingUpWindow());
+  const [horizon] = useState(() => comingUpWindow(new Date(), NEXT_SHOW_DAYS));
   const upcomingQ = useQuery({
-    queryKey: ['organizer-calendar', activeOrg.id, window7.from, window7.to],
-    queryFn: () => api.events.calendar(activeOrg.id, window7.from, window7.to),
+    queryKey: ['organizer-calendar', activeOrg.id, horizon.from, horizon.to],
+    queryFn: () => api.events.calendar(activeOrg.id, horizon.from, horizon.to),
   });
   const feedQ = useQuery({
     queryKey: FEED_KEY,
@@ -176,19 +181,28 @@ export default function OrganizerDashboard() {
   const loading = eventsQ.isLoading || analyticsQ.isLoading;
   const isError = eventsQ.isError || analyticsQ.isError;
   const upcoming = useMemo(
-    () => comingUp(upcomingQ.data?.sessions, new Date(), PROGRAMME_LIMIT),
+    () =>
+      comingUp(
+        startingWithin(upcomingQ.data?.sessions, COMING_UP_DAYS),
+        new Date(),
+        PROGRAMME_LIMIT,
+      ),
     [upcomingQ.data],
   );
-  const recentEvents = events.slice(0, 6);
+  const nextShows = useMemo(() => nextShowByEvent(upcomingQ.data?.sessions), [upcomingQ.data]);
+  const recentEvents = useMemo(() => events.slice(0, 6), [events]);
 
   /*
-    ── IS IT SELLING: ASKED OF THE SERVER, FOR PUBLISHED EVENTS ONLY ──────────────────
-    The sale check is the rules checkout refuses a sale by (GET /events/:id/sellability), so
-    "Selling" here cannot disagree with what a buyer meets. Only a PUBLISHED event can be
-    selling at all, so nothing else is asked about - a draft answers "Not selling: draft"
-    from its status alone. The ids are the events on this page (the week's shows and the
-    recent list), a handful for a pilot organizer, and the answers are cached under the same
-    key the event page uses.
+    ── IS IT SELLING: TWO SERVER CHECKS, BOTH REQUIRED ───────────────────────────────
+    1. GET /events/:id/sellability - is the event CONFIGURED so a sale can be made (dates,
+       ticket types, seat classes). Cached under the key the event page uses.
+    2. GET /organizer-calendar/sale-eligibility - would checkout sell this SHOW now, by the
+       sale-eligibility rules it refuses a cart by (#280): state price rules, ceilings. The
+       first check does not ask these, and on QA a Telangana cinema show with no state price
+       rules read "Selling" while every checkout answered SALE_NOT_OPEN.
+    Only PUBLISHED events are asked about at all - a draft answers "Not selling: draft" from
+    its status - and only the shows on this page: the week's programme and each listed
+    event's next show, a dozen at most.
   */
   const publishedIds = useMemo(() => {
     const ids = new Set<string>();
@@ -204,14 +218,49 @@ export default function OrganizerDashboard() {
       retry: 1,
     })),
   });
-  const sellabilityOf = (eventId: string): { data?: EventSellability; failed: boolean } => {
-    const i = publishedIds.indexOf(eventId);
-    if (i < 0) return { failed: false };
-    return { data: sellabilityQs[i]?.data, failed: !!sellabilityQs[i]?.isError };
+  const askedSessionIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const s of upcoming) if (s.event.status === 'PUBLISHED') ids.add(s.id);
+    for (const e of recentEvents) {
+      const next = nextShows.get(e.id);
+      if (e.status === 'PUBLISHED' && next) ids.add(next.id);
+    }
+    return [...ids].sort();
+  }, [upcoming, recentEvents, nextShows]);
+  const eligibilityQ = useQuery({
+    queryKey: ['organizer-sale-eligibility', activeOrg.id, askedSessionIds.join(',')],
+    queryFn: () => api.events.saleEligibility(activeOrg.id, askedSessionIds),
+    enabled: askedSessionIds.length > 0,
+    staleTime: 60_000,
+    retry: 1,
+  });
+  const eligibilityBySession = useMemo(
+    () => new Map((eligibilityQ.data?.sessions ?? []).map((e) => [e.sessionId, e])),
+    [eligibilityQ.data],
+  );
+
+  /** Both checks for one show, in the shape the status rules take. */
+  const showInput = (s: OrganizerCalendarSession): ShowSaleInput => {
+    const i = publishedIds.indexOf(s.event.id);
+    return {
+      sessionStatus: s.status,
+      startsAt: s.startsAt,
+      sold: s.sold,
+      capacity: s.capacity,
+      sessionId: s.id,
+      sellability: i < 0 ? undefined : sellabilityQs[i]?.data,
+      eligibility: eligibilityBySession.get(s.id),
+    };
   };
-  /** A sale check that could not be read is said as such, never as Selling. */
+  /** A check that could not be read is said as such, never as Selling. */
+  const failedFor = (eventId: string) => {
+    const i = publishedIds.indexOf(eventId);
+    return eligibilityQ.isError || (i >= 0 && !!sellabilityQs[i]?.isError);
+  };
   const unknown = (s: Selling, failed: boolean): Selling =>
-    failed && s.selling === null ? { selling: null, label: 'Sales status unavailable' } : s;
+    failed && s.selling === null && s.label === 'Checking sales'
+      ? { selling: null, label: 'Sales status unavailable' }
+      : s;
 
   /*
     ── MONEY IS PER MARKET, AND THE ORGANIZER PICKS WHICH ONE ────────────────────────
@@ -330,12 +379,22 @@ export default function OrganizerDashboard() {
           ) : (
             <dl className="grid grid-cols-2 gap-3 xl:grid-cols-4">
               <Figure
+                /*
+                  TWO COUNTS, SAID AS TWO THINGS. The figure is tickets buyers hold now (issued
+                  and not refunded, cancelled or voided - the analytics `attendance.issued`).
+                  The line under it is the inventory's places sold (`capacity.sold`), a
+                  counter the booking and refund paths keep in step with the tickets. They were
+                  printed as "41" and "42 of 48,317 places" in one tile, which read as a
+                  contradiction; when they differ, a ticket left the valid set without its place
+                  going back on sale, and the organizer should see both, labelled.
+                */
                 label="Tickets sold"
                 value={(attendance?.issued ?? 0).toLocaleString('en-IN')}
-                hint={
+                hint="Valid tickets buyers hold now"
+                detail={
                   capacity && capacity.capacity > 0
-                    ? `${capacity.sold.toLocaleString('en-IN')} of ${capacity.capacity.toLocaleString('en-IN')} places (${capacity.utilization}%)`
-                    : 'Across every event'
+                    ? `Places taken: ${capacity.sold.toLocaleString('en-IN')} of ${capacity.capacity.toLocaleString('en-IN')} (${capacity.utilization}%)`
+                    : undefined
                 }
               />
               {can.financials && (
@@ -401,22 +460,13 @@ export default function OrganizerDashboard() {
               ) : (
                 <ol className="divide-y divide-border border-t border-border">
                   {upcoming.map((s) => {
-                    const sell = sellabilityOf(s.event.id);
                     return (
                       <ProgrammeRow
                         key={s.id}
                         session={s}
                         selling={unknown(
-                          sessionSelling({
-                            eventStatus: s.event.status,
-                            sessionStatus: s.status,
-                            startsAt: s.startsAt,
-                            sold: s.sold,
-                            capacity: s.capacity,
-                            sessionId: s.id,
-                            sellability: sell.data,
-                          }),
-                          sell.failed,
+                          sessionSelling({ ...showInput(s), eventStatus: s.event.status }),
+                          failedFor(s.event.id),
                         )}
                       />
                     );
@@ -450,8 +500,15 @@ export default function OrganizerDashboard() {
               ) : (
                 <ul className="divide-y divide-border border-t border-border">
                   {recentEvents.map((e) => {
-                    const sell = sellabilityOf(e.id);
-                    const selling = unknown(eventSelling(e.status, sell.data), sell.failed);
+                    const next = nextShows.get(e.id);
+                    const selling = unknown(
+                      eventSelling(
+                        e.status,
+                        upcomingQ.isLoading ? undefined : next ? showInput(next) : null,
+                        NEXT_SHOW_DAYS,
+                      ),
+                      failedFor(e.id) || upcomingQ.isError,
+                    );
                     return (
                       <li
                         key={e.id}
@@ -469,6 +526,7 @@ export default function OrganizerDashboard() {
                             {e._count.sessions === 1 ? 'show' : 'shows'} · {e._count.bookings}{' '}
                             {e._count.bookings === 1 ? 'booking' : 'bookings'}
                           </p>
+                          {selling.detail && <ReasonLine text={selling.detail} />}
                         </div>
                         <div className="flex shrink-0 flex-wrap items-center gap-1.5">
                           <Badge tone={lifecycleTone(e.status)}>{lifecycleLabel(e.status)}</Badge>
@@ -711,11 +769,14 @@ function Figure({
   label,
   value,
   hint,
+  detail,
   accent = false,
 }: {
   label: string;
   value: string;
   hint: string;
+  /** A second, separately labelled fact - never a different count of the same thing. */
+  detail?: string;
   accent?: boolean;
 }) {
   return (
@@ -733,6 +794,7 @@ function Figure({
         {value}
       </dd>
       <dd className="mt-0.5 text-caption text-text-muted">{hint}</dd>
+      {detail && <dd className="mt-0.5 text-caption text-text-secondary">{detail}</dd>}
     </div>
   );
 }
@@ -753,6 +815,15 @@ function SellingChip({ selling }: { selling: Selling }) {
   }
   const tone: BadgeTone = sellingTone(selling);
   return <Badge tone={tone}>{selling.label}</Badge>;
+}
+
+/**
+ * The server's own sentence for why something is not selling, under the chip that names it
+ * in a few words. Never dropped: "Not selling: no state price rules yet" is only actionable
+ * with "Contact support" beside it.
+ */
+function ReasonLine({ text }: { text: string }) {
+  return <p className="mt-1 text-caption text-status-warning">{text}</p>;
 }
 
 /** A show in the week's programme: date tile, title, time and place, sales, status. */
@@ -806,6 +877,7 @@ function ProgrammeRow({
               {zoneAbbrev(zone, s.startsAt)} · {s.venue.name}
               {s.venue.city ? `, ${s.venue.city}` : ''}
             </p>
+            {selling.detail && <ReasonLine text={selling.detail} />}
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-1.5">
             {/* The lifecycle only when it is news: a published event's row says so by selling. */}
