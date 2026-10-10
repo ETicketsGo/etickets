@@ -1,23 +1,19 @@
 'use client';
 
+import { useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   api,
-  Badge,
-  Card,
   EmptyState,
   ErrorState,
   Skeleton,
   errorMessage,
   type ShowRow,
 } from '@eticketsgo/web-kit';
-import {
-  effectiveShowBadge,
-  formatDayHeading,
-  formatLocalTime,
-  localDateOf,
-  weekDates,
-} from './show-status';
+import { useOrg } from '@/components/org-context';
+import { SalePill } from '@/components/cinema/sale-pill';
+import { useShowVerdicts } from '@/components/cinema/use-cinema-data';
+import { formatDayHeading, formatLocalTime, localDateOf, weekDates } from './show-status';
 
 /**
  * Seven days of a cinema, for planning.
@@ -57,6 +53,11 @@ export function WeekView({
     queryFn: () => api.shows.cinemaScheduleRange(cinemaId, from, to, timezone),
     enabled: Boolean(from && to),
   });
+  // The server's unified sale state per show, the same answer as the day view and checkout.
+  const { activeOrg } = useOrg();
+  const zoneOf = useCallback(() => timezone, [timezone]);
+  const rows = (weekQ.data ?? []).filter((r) => !screenFilter || r.screenId === screenFilter);
+  const verdictOf = useShowVerdicts(activeOrg.id, rows, zoneOf);
 
   if (weekQ.isPending) {
     return (
@@ -75,7 +76,7 @@ export function WeekView({
     return <ErrorState message={errorMessage(weekQ.error)} onRetry={() => void weekQ.refetch()} />;
   }
 
-  const rows = (weekQ.data ?? []).filter((r) => !screenFilter || r.screenId === screenFilter);
+  const today = localDateOf(new Date().toISOString(), timezone);
   const byDay = new Map<string, ShowRow[]>(days.map((d) => [d, []]));
   for (const row of rows) {
     const day = localDateOf(row.startsAt, timezone);
@@ -97,24 +98,39 @@ export function WeekView({
         />
       ) : null}
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {days.map((day) => {
           const shows = byDay.get(day) ?? [];
+          const isToday = day === today;
           return (
             /*
               The wrapper exists so each day column has one unambiguous boundary. Without it
               a "this show is NOT under Tuesday" assertion can only reach for some ancestor
-              <div>, and the nearest one that matches is the whole grid — which contains every
+              <div>, and the nearest one that matches is the whole grid - which contains every
               day, so the check silently passes on a broken bucket. Cheap element, real
               guarantee.
             */
-            <div key={day} data-testid={`week-day-${day}`}>
-              <Card>
-                <div className="mb-2 flex items-baseline justify-between">
-                  <h3 className="text-sm font-semibold">{formatDayHeading(day)}</h3>
+            <div key={day} data-testid={`week-day-${day}`} className="min-w-0">
+              <section
+                aria-label={formatDayHeading(day)}
+                className={`h-full rounded-lg border bg-background-surface p-3.5 shadow-xs ${
+                  isToday
+                    ? 'border-action-primary/50 ring-1 ring-action-primary/30'
+                    : 'border-border'
+                }`}
+              >
+                <div className="mb-2.5 flex items-baseline justify-between gap-2">
+                  <h3 className="font-display text-[0.9375rem] font-bold text-text-primary">
+                    {formatDayHeading(day)}
+                    {isToday ? (
+                      <span className="ml-1.5 text-micro font-semibold text-action-primary">
+                        Today
+                      </span>
+                    ) : null}
+                  </h3>
                   <button
                     type="button"
-                    className="text-caption text-action-primary underline"
+                    className="rounded-sm text-caption font-medium text-action-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     onClick={() => onSelectDay(day)}
                     aria-label={`Open ${formatDayHeading(day)} in the day view`}
                   >
@@ -127,38 +143,42 @@ export function WeekView({
                 ) : (
                   <ul className="space-y-2">
                     {shows.map((show) => {
-                      const described = effectiveShowBadge(show, new Date(), timezone);
+                      const verdict = verdictOf(show);
                       return (
                         <li key={show.sessionId}>
                           <button
                             type="button"
                             onClick={() => onSelectDay(day)}
-                            className="w-full rounded-md border border-border p-2 text-left hover:bg-background-subtle"
+                            className="w-full rounded-md border border-border bg-background-surface p-2.5 text-left transition-colors duration-150 hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                             /*
                             One accessible name carrying everything a screen-reader user
-                            needs, so the card is not read as four disconnected fragments —
+                            needs, so the card is not read as four disconnected fragments -
                             and the state appears ONCE, not duplicated by a hidden span.
                           */
                             aria-label={`${formatLocalTime(show.startsAt, timezone)} ${
                               show.movieTitle ?? 'Untitled'
-                            }, ${show.screenName ?? 'unassigned screen'}, ${described.label}. ${
-                              described.hint
+                            }, ${show.screenName ?? 'unassigned screen'}, ${verdict.label}.${
+                              verdict.detail ? ` ${verdict.detail}` : ''
                             }`}
                           >
                             <span className="flex items-baseline justify-between gap-2">
-                              <span className="font-mono text-sm tabular-nums">
+                              <span className="font-display text-[0.9375rem] font-bold tabular-nums text-text-primary">
                                 {formatLocalTime(show.startsAt, timezone)}
                               </span>
-                              <Badge tone={described.tone}>{described.label}</Badge>
+                              <span className="truncate text-micro text-text-muted">
+                                {show.screenName ?? 'No screen'}
+                              </span>
                             </span>
-                            <span className="mt-0.5 block truncate text-sm font-medium">
+                            <span className="mt-0.5 block truncate text-ui font-medium text-text-primary">
                               {show.movieTitle ?? 'Untitled'}
                             </span>
-                            <span className="block text-caption text-text-muted">
-                              {show.screenName ?? '—'}
-                              {show.seatsTotal > 0
-                                ? ` · ${show.seatsSold}/${show.seatsTotal} sold`
-                                : ''}
+                            <span className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+                              <SalePill verdict={verdict} size="sm" />
+                              {show.seatsTotal > 0 ? (
+                                <span className="text-micro tabular-nums text-text-muted">
+                                  {show.seatsSold}/{show.seatsTotal} sold
+                                </span>
+                              ) : null}
                             </span>
                           </button>
                         </li>
@@ -166,7 +186,7 @@ export function WeekView({
                     })}
                   </ul>
                 )}
-              </Card>
+              </section>
             </div>
           );
         })}

@@ -1,21 +1,21 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { CalendarPlus } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { CalendarPlus, Pencil } from 'lucide-react';
 import {
   Button,
   EmptyState,
   ErrorState,
-  Meter,
+  ProgressMeter,
   SegmentedControl,
   Select,
   Skeleton,
+  StatusPill,
   dateTime,
   type ShowRow,
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
-import { sessionSaleStates } from '@/lib/sale-state';
+import { useShowVerdicts } from './use-cinema-data';
 import {
   dateLabel,
   dayHeading,
@@ -23,11 +23,12 @@ import {
   groupByDay,
   isUpcoming,
   localDate,
-  showSaleVerdict,
   zoneShort,
   type SaleVerdict,
 } from './cinema-model';
-import { SaleChip } from './sale-chip';
+import { SalePill } from './sale-pill';
+
+const WEEKDAY = new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', weekday: 'short' });
 
 type Range = 'upcoming' | 'past' | 'all';
 
@@ -49,6 +50,7 @@ export function Showtimes({
   onOpen,
   onEdit,
   onSchedule,
+  focus,
 }: {
   rows: ShowRow[] | undefined;
   loading: boolean;
@@ -58,6 +60,8 @@ export function Showtimes({
   onOpen: (show: ShowRow, verdict: SaleVerdict) => void;
   onEdit: (show: ShowRow) => void;
   onSchedule: () => void;
+  /** A day picked on the calendar: the list shows it and scrolls to it. `at` re-triggers. */
+  focus?: { date: string; at: number } | null;
 }) {
   const [range, setRange] = useState<Range>('upcoming');
   const [cinemaId, setCinemaId] = useState('');
@@ -86,29 +90,27 @@ export function Showtimes({
     unavailable", never a guess.
   */
   const { activeOrg } = useOrg();
-  const askedIds = useMemo(() => shown.map((s) => s.sessionId).sort(), [shown]);
-  const statesQ = useQuery({
-    queryKey: ['organizer-sale-eligibility', activeOrg.id, askedIds.join(',')],
-    queryFn: () => sessionSaleStates(activeOrg.id, askedIds),
-    enabled: askedIds.length > 0,
-    staleTime: 30_000,
-    retry: false,
-  });
-  const stateBySession = useMemo(
-    () => new Map((statesQ.data ?? []).map((a) => [a.sessionId, a])),
-    [statesQ.data],
-  );
+  const verdictOf = useShowVerdicts(activeOrg.id, shown, zoneOf);
 
-  const verdictOf = (s: ShowRow): SaleVerdict =>
-    showSaleVerdict({
-      show: s,
-      timeZone: zoneOf(s.cinemaId),
-      sale: statesQ.isError
-        ? null
-        : statesQ.data
-          ? (stateBySession.get(s.sessionId) ?? null)
-          : undefined,
-    });
+  /*
+    Jump to a day picked on the calendar. The calendar offers only upcoming days, so the list
+    goes back to "Upcoming" for all cinemas, and the page grows until that day is on it.
+  */
+  useEffect(() => {
+    if (!focus) return;
+    setRange('upcoming');
+    setCinemaId('');
+    const upcoming = (rows ?? []).filter((s) => isUpcoming(s, now));
+    const at = upcoming.findIndex((s) => localDate(s.startsAt, zoneOf(s.cinemaId)) === focus.date);
+    if (at >= 0) setLimit((l) => Math.max(l, (Math.floor(at / PAGE) + 1) * PAGE));
+    const t = window.setTimeout(() => {
+      const el = document.getElementById(`showday-${focus.date}`);
+      el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      el?.focus({ preventScroll: true });
+    }, 60);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus]);
 
   const days = groupByDay(shown, zoneOf);
   if (range === 'past') days.reverse();
@@ -158,7 +160,7 @@ export function Showtimes({
       ) : loading ? (
         <div className="space-y-2" aria-hidden="true">
           {[0, 1, 2].map((i) => (
-            <Skeleton key={i} className="h-16 w-full rounded-lg" />
+            <Skeleton key={i} className="h-24 w-full rounded-lg" />
           ))}
         </div>
       ) : filtered.length === 0 ? (
@@ -183,33 +185,60 @@ export function Showtimes({
           }
         />
       ) : (
-        <div className="space-y-5">
+        <div className="space-y-4">
           {days.map((day) => {
-            const today = localDate(now, zoneOf(day.shows[0]!.cinemaId));
+            const zone = zoneOf(day.shows[0]!.cinemaId);
+            const today = localDate(now, zone);
             const heading = dayHeading(day.date, today);
             const isToday = day.date === today;
+            const d = new Date(`${day.date}T12:00:00Z`);
             return (
-              <section key={day.date} aria-label={heading} className="space-y-2">
-                <h3 className="flex items-center gap-2 text-[0.9375rem] font-semibold text-text-primary">
-                  {isToday ? (
-                    <>
-                      {/*
-                        The one warm "marquee" moment on the page: today. Amber from the
-                        default palette, paired with the word, and never used for a warning.
-                      */}
-                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-caption font-semibold text-amber-900 dark:bg-amber-400/15 dark:text-amber-200">
-                        Today
-                      </span>
-                      <span>{dateLabel(day.date, today)}</span>
-                    </>
-                  ) : (
-                    heading
-                  )}
-                  <span className="text-caption font-normal text-text-muted">
-                    {day.shows.length} {day.shows.length === 1 ? 'show' : 'shows'}
+              <section
+                key={day.date}
+                id={`showday-${day.date}`}
+                tabIndex={-1}
+                aria-label={heading}
+                className="scroll-mt-20 overflow-hidden rounded-lg border border-border bg-background-surface shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <h3 className="flex items-center gap-3 border-b border-border px-4 py-3">
+                  {/*
+                    The day as a calendar leaf, the reference's calendar card in miniature.
+                    Today is ringed in the accent and says "Today" in words as well.
+                  */}
+                  <span
+                    aria-hidden
+                    className={`flex h-11 w-11 shrink-0 flex-col items-center justify-center rounded-md leading-none ${
+                      isToday
+                        ? 'bg-tint-primary text-action-primary ring-2 ring-action-primary/60'
+                        : 'bg-background-subtle text-text-primary'
+                    }`}
+                  >
+                    <span className="text-[0.625rem] font-semibold uppercase tracking-wide opacity-80">
+                      {WEEKDAY.format(d)}
+                    </span>
+                    <span className="mt-0.5 font-display text-[1.0625rem] font-bold tabular-nums">
+                      {d.getUTCDate()}
+                    </span>
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex flex-wrap items-center gap-2 font-display text-[0.9375rem] font-bold text-text-primary">
+                      {isToday ? (
+                        <>
+                          <StatusPill tone="marquee" size="sm">
+                            Today
+                          </StatusPill>
+                          {dateLabel(day.date, today)}
+                        </>
+                      ) : (
+                        heading
+                      )}
+                    </span>
+                    <span className="block text-caption font-normal text-text-muted">
+                      {day.shows.length} {day.shows.length === 1 ? 'show' : 'shows'}
+                    </span>
                   </span>
                 </h3>
-                <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-background-surface">
+                <ul className="divide-y divide-border">
                   {day.shows.map((s) => {
                     const zone = zoneOf(s.cinemaId);
                     const verdict = verdictOf(s);
@@ -220,42 +249,40 @@ export function Showtimes({
                     return (
                       <li
                         key={s.sessionId}
-                        className="grid grid-cols-[4.5rem_1fr] items-start gap-x-3 gap-y-2 px-4 py-3 transition-colors hover:bg-background-subtle/60 md:grid-cols-[4.5rem_minmax(0,1.3fr)_minmax(0,0.8fr)_minmax(0,1.2fr)_auto] md:items-center"
+                        className="grid grid-cols-[4rem_minmax(0,1fr)] items-start gap-x-3 gap-y-3 px-4 py-3.5 transition-colors duration-150 hover:bg-background-subtle/60 sm:grid-cols-[4.5rem_minmax(0,1fr)_auto] sm:gap-x-4"
                       >
                         <p className="leading-tight">
-                          <span className="block text-[1.0625rem] font-semibold tabular-nums text-text-primary">
+                          <span className="block font-display text-[1.125rem] font-bold tabular-nums text-text-primary">
                             {formatClock(s.startsAt, zone)}
                           </span>
-                          <span className="text-caption text-text-muted">
+                          <span className="text-micro text-text-muted">
                             {zoneShort(s.startsAt, zone)}
                           </span>
                         </p>
-                        <div className="min-w-0">
-                          <p className="break-words font-medium text-text-primary">
-                            {s.cinemaName ?? 'Unknown cinema'}
-                          </p>
-                          <p className="text-caption text-text-muted">
-                            {s.screenName ?? 'No screen'} - ends {formatClock(s.endsAt, zone)}
-                          </p>
-                        </div>
-                        <div className="col-start-2 min-w-0 md:col-start-auto">
-                          <p className="text-caption tabular-nums text-text-secondary">
-                            {s.seatsSold} / {s.seatsTotal} sold
-                          </p>
-                          {s.seatsTotal > 0 ? (
-                            <div className="mt-1 max-w-[9rem]">
-                              <Meter
+                        <div className="min-w-0 space-y-2">
+                          <div className="min-w-0">
+                            <p className="break-words text-ui font-semibold text-text-primary">
+                              {s.cinemaName ?? 'Unknown cinema'}
+                            </p>
+                            <p className="text-caption text-text-muted">
+                              {s.screenName ?? 'No screen'} - ends {formatClock(s.endsAt, zone)}
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                            <div className="w-full max-w-[11rem]">
+                              <ProgressMeter
                                 value={s.seatsSold}
                                 max={s.seatsTotal}
+                                size="sm"
                                 label={`Seats sold, ${when} show`}
                               />
                             </div>
-                          ) : null}
+                            <div className="min-w-0">
+                              <SalePill verdict={verdict} size="sm" wrap />
+                            </div>
+                          </div>
                         </div>
-                        <div className="col-start-2 min-w-0 md:col-start-auto">
-                          <SaleChip verdict={verdict} />
-                        </div>
-                        <div className="col-start-2 flex flex-wrap gap-2 md:col-start-auto md:justify-end">
+                        <div className="col-start-2 flex flex-wrap gap-2 sm:col-start-3 sm:self-center sm:justify-end">
                           <Button
                             size="sm"
                             variant="outline"
@@ -268,6 +295,7 @@ export function Showtimes({
                             <Button
                               size="sm"
                               variant="ghost"
+                              icon={Pencil}
                               aria-label={`Edit the ${when} show`}
                               onClick={() => onEdit(s)}
                             >
