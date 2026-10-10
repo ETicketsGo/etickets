@@ -487,6 +487,33 @@ const EXTRA_SPELLINGS: Record<string, string[]> = {
 };
 
 /**
+ * Every spelling `marketFor` accepts for a market, lower-cased: its code, its name and the extra
+ * spellings above. For a code that is not a market, just that code, so it still matches itself.
+ *
+ * For code that has to apply `marketFor` where the data is. The admin summaries group and filter
+ * stored `Venue.country` values by market inside SQL, so they cannot call `marketFor` row by row;
+ * they compare against this list instead, and so put a row in exactly the market `marketFor`
+ * (and every country label in the console) would name. Explicit spellings only - nothing here is
+ * fuzzy, and a value it does not list is not in the market.
+ *
+ * Deliberately NOT `countryAliases` from `country.ts`. That table decides a seller's CURRENCY
+ * (`currencyForCountry`), and widening it to group a report would quietly change what a venue
+ * stored as "u.s.a." is priced in. This one only answers "which market does this row belong to".
+ */
+export function marketSpellings(code: string): string[] {
+  const needle = code.trim().toUpperCase();
+  const market = MARKETS.find((m) => m.code === needle);
+  if (!market) return needle ? [needle.toLowerCase()] : [];
+  return [
+    ...new Set([
+      market.code.toLowerCase(),
+      market.name.toLowerCase(),
+      ...(EXTRA_SPELLINGS[market.code] ?? []),
+    ]),
+  ];
+}
+
+/**
  * The subdivision a stored region value refers to, in any spelling, or null.
  *
  * Same tolerance, same reason: `Venue.region` is nullable and was never editable through the

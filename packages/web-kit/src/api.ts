@@ -6235,6 +6235,9 @@ export interface OpsQueueCheck {
   status: 'ok' | 'degraded' | 'down';
   latencyMs: number;
   failed?: number;
+  /** Failed in the last 24 hours - only these make the queue degraded. */
+  recentFailed?: number;
+  lastFailedAt?: string | null;
   error?: string;
 }
 export interface OpsHealth {
@@ -6245,6 +6248,8 @@ export interface OpsHealth {
   storage: { status: 'not_configured' };
   uptime: number;
   nodeEnv: string;
+  /** LOCAL / QA / UAT / PRODUCTION. QA and UAT run NODE_ENV=production, so show this instead. */
+  appEnv?: string | null;
 }
 
 export interface OpsQueueCounts {

@@ -166,13 +166,13 @@ test.describe('QA: back-office duties', () => {
 test.describe('QA: picking a date and a time', () => {
   /** Through the wizard as far as the session step, which is where the field lives. */
   async function toSessionStep(page: Page, title: string) {
+    // The kind of event first, then the basics; Music is a concert's first category.
+    await page.getByRole('radio', { name: 'Concert or live music' }).check();
+    await page.getByRole('button', { name: 'Continue' }).click();
     await page.getByLabel('Event title').fill(title);
-    // A dropdown now, not a text box: browse builds its category list with `distinct`
-    // over this column, so every typo an organizer typed became its own row on the front page.
-    await page.getByRole('radio', { name: 'Music' }).check();
-    await page.getByRole('button', { name: 'Next', exact: true }).click();
+    await page.getByRole('button', { name: 'Continue' }).click();
     // Venue and sessions are one "Where and when" step: the session fields are already here.
-    await page.getByLabel('Venue').selectOption({ index: 1 });
+    await page.getByRole('group', { name: 'Venue' }).getByRole('radio').first().check();
   }
 
   test('the session field is a date plus a time, and reads itself back', async ({
@@ -206,7 +206,7 @@ test.describe('QA: picking a date and a time', () => {
     ).toBeVisible();
   });
 
-  test('the day shortcuts do not collide with the wizard own Next button', async ({
+  test('the day shortcuts do not collide with the wizard own Continue button', async ({
     page,
     context,
     request,
@@ -219,6 +219,6 @@ test.describe('QA: picking a date and a time', () => {
     // real misread, and a skim-click would change the date instead of advancing the step.
     await expect(page.getByRole('button', { name: 'In a week' }).first()).toBeVisible();
     await expect(page.getByRole('button', { name: 'Next week' })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Next', exact: true })).toHaveCount(1);
+    await expect(page.getByRole('button', { name: 'Continue', exact: true })).toHaveCount(1);
   });
 });

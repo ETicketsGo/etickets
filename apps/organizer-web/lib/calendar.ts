@@ -271,11 +271,6 @@ export function localPlace(iso: string | Date, zone: string): { day: DayKey; min
   };
 }
 
-/** Today's label on the organizer's own clock - what the Today button goes to. */
-export function todayKey(now: Date = new Date(), zone?: string): DayKey {
-  return localPlace(now, zone ?? Intl.DateTimeFormat().resolvedOptions().timeZone).day;
-}
-
 /** "19:00", at the venue. 24-hour, the same as the cinema scheduler. */
 export function formatClock(iso: string, zone: string): string {
   return new Intl.DateTimeFormat('en-GB', {

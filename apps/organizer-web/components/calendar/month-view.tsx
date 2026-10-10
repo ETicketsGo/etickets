@@ -117,6 +117,7 @@ export function MonthView({
                 role="gridcell"
                 data-day={day}
                 data-testid={`month-day-${day}`}
+                aria-current={isToday ? 'date' : undefined}
                 tabIndex={isFocused ? 0 : -1}
                 aria-selected={isFocused}
                 aria-label={`${formatDayLong(day)}${isToday ? ', today' : ''}, ${

@@ -1,6 +1,11 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
-import { countryAliases } from '@eticketsgo/shared-types';
-import { COUNTRY_COLUMNS, type CountryFilterable } from './country-filter';
+import { marketSpellings } from '@eticketsgo/shared-types';
+import {
+  COUNTRY_COLUMNS,
+  countryGroupLabel,
+  countryKeySql,
+  type CountryFilterable,
+} from './country-filter';
 import { dayRangeSql } from './list-filters';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppException, ErrorCodes } from '../common/errors';
@@ -126,14 +131,29 @@ const SETTLEMENT_FROM =
  * table rather than a query per combination so that adding a resource is one row and cannot
  * quietly diverge in how it counts.
  */
+/*
+  `country: true` marks a grouping whose `key` is a stored country column. Such a group is the
+  MARKET the value names, not the text as typed - "USA", "United States" and "US" are one group
+  keyed `US` and labelled "United States" - and a value that names no market is its own group,
+  labelled "Unknown (<value>)". `key` and `label` still name the column, and `grouped()` wraps it
+  in `countryKeySql` and `countryGroupLabel`; see `country-filter.ts` for why the comparison is
+  exactly the one the list's scope makes.
+*/
 const SHAPES: Record<
   string,
-  { from: string; key: string; label: string; money?: { amount: string; currency: string } }
+  {
+    from: string;
+    key: string;
+    label: string;
+    country?: true;
+    money?: { amount: string; currency: string };
+  }
 > = {
   'bookings:country': {
     from: BOOKING_FROM,
     key: 'v.country',
     label: 'v.country',
+    country: true,
     money: { amount: 'b."totalMinor"', currency: 'b.currency' },
   },
   'bookings:organizer': {
@@ -154,6 +174,7 @@ const SHAPES: Record<
     from: PAYMENT_FROM,
     key: 'v.country',
     label: 'v.country',
+    country: true,
     money: { amount: 'p."amountMinor"', currency: 'p.currency' },
   },
   'payments:organizer': {
@@ -183,6 +204,7 @@ const SHAPES: Record<
     from: REFUND_FROM,
     key: 'v.country',
     label: 'v.country',
+    country: true,
     money: { amount: 'r."amountMinor"', currency: 'b.currency' },
   },
   'refunds:organizer': {
@@ -204,7 +226,7 @@ const SHAPES: Record<
     label: 'UPPER(b.currency)',
     money: { amount: 'r."amountMinor"', currency: 'b.currency' },
   },
-  'events:country': { from: EVENT_FROM, key: 'v.country', label: 'v.country' },
+  'events:country': { from: EVENT_FROM, key: 'v.country', label: 'v.country', country: true },
   'events:organizer': { from: EVENT_FROM, key: 'o.id', label: 'o.name' },
   /*
     An organization's country is `registeredCountry` - where the business is registered, which is
@@ -216,6 +238,7 @@ const SHAPES: Record<
     from: '"Organization" o',
     key: 'o."registeredCountry"',
     label: 'o."registeredCountry"',
+    country: true,
   },
   /*
     `payableMinor` is the settlement figure, not `grossSalesMinor`: it is what the organizer is
@@ -225,6 +248,7 @@ const SHAPES: Record<
     from: SETTLEMENT_FROM,
     key: 'v.country',
     label: 'v.country',
+    country: true,
     money: { amount: 's."payableMinor"', currency: 's.currency' },
   },
   'settlements:organizer': {
@@ -337,12 +361,13 @@ function filterClause(resource: string, filters: GroupFilters): { sql: string; p
   }
   /*
     The country filter, on the same column the list filters (`country-filter.ts`), compared
-    lower-cased against every spelling - the SQL form of the list's `in` + `mode: 'insensitive'`.
+    lower-cased against every spelling of the market - the SQL form of the list's `in` +
+    `mode: 'insensitive'`, and the same comparison a country GROUP is keyed by.
     A queue whose list takes no country has no column here, and ignores it the way its list does.
   */
   const countryColumn = COUNTRY_COLUMNS[resource as CountryFilterable];
   if (filters.country && countryColumn) {
-    params.push(countryAliases(filters.country));
+    params.push(marketSpellings(filters.country));
     conditions.push(`LOWER(${countryColumn}) = ANY($${params.length}::text[])`);
   }
   if (filters.organizationId && spec.organizer) {
@@ -416,6 +441,14 @@ export class AdminGroupingService {
     }
 
     const where = filterClause(resource, filters);
+    /*
+      A country grouping's key is computed, and its spelling lists are parameters too: appended
+      after the filter's, so both statements below can share one parameter list. Grouped by
+      position (`GROUP BY 1, 2`) so the CASE is written once and cannot drift from the SELECT.
+    */
+    const params = [...where.params];
+    const keySql = shape.country ? countryKeySql(shape.key, params) : shape.key;
+    const labelSql = shape.country ? keySql : shape.label;
 
     /*
       Two statements rather than one with a currency dimension in the same GROUP BY.
@@ -429,23 +462,23 @@ export class AdminGroupingService {
     const counts = await this.prisma.$queryRawUnsafe<
       { key: string | null; label: string | null; count: bigint }[]
     >(
-      `SELECT ${shape.key} AS key, ${shape.label} AS label, COUNT(*)::bigint AS count
+      `SELECT ${keySql} AS key, ${labelSql} AS label, COUNT(*)::bigint AS count
          FROM ${shape.from}${where.sql}
-        GROUP BY ${shape.key}, ${shape.label}
+        GROUP BY 1, 2
         ORDER BY COUNT(*) DESC
         LIMIT ${MAX_GROUPS + 1}`,
-      ...where.params,
+      ...params,
     );
 
     const money = shape.money
       ? await this.prisma.$queryRawUnsafe<
           { key: string | null; currency: string; total: bigint }[]
         >(
-          `SELECT ${shape.key} AS key, ${shape.money.currency} AS currency,
+          `SELECT ${keySql} AS key, ${shape.money.currency} AS currency,
                   COALESCE(SUM(${shape.money.amount}), 0)::bigint AS total
              FROM ${shape.from}${where.sql}
-            GROUP BY ${shape.key}, ${shape.money.currency}`,
-          ...where.params,
+            GROUP BY 1, 2`,
+          ...params,
         )
       : [];
 
@@ -466,7 +499,7 @@ export class AdminGroupingService {
         key: row.key,
         // A row whose venue has no country, or an organization with none recorded, is a real
         // group and is shown as one - hiding it would make the counts not add up to the list.
-        label: row.label ?? 'Not recorded',
+        label: shape.country ? countryGroupLabel(row.key) : (row.label ?? 'Not recorded'),
         count: Number(row.count),
         totals: (byKey.get(row.key ?? '') ?? []).sort((a, b) =>
           a.currency.localeCompare(b.currency),

@@ -68,6 +68,14 @@ function DependencyTile({
       </div>
       <p className="mt-2 text-sm text-text-secondary">{latency != null ? `${latency} ms` : '—'}</p>
       {error && <p className="mt-1 line-clamp-2 text-caption text-status-error">{error}</p>}
+      {'failed' in check && (check.failed ?? 0) > 0 ? (
+        <p className="mt-1 text-caption text-text-secondary">
+          {check.failed} failed
+          {check.recentFailed === 0
+            ? ` - none in the last 24 hours${check.lastFailedAt ? `, last on ${new Date(check.lastFailedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}` : ''}`
+            : ` - ${check.recentFailed} in the last 24 hours`}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -259,7 +267,7 @@ export default function AdminOps() {
               <span className="text-sm text-text-muted">Overall</span>
               <Badge tone={statusTone(h.status)}>{titleCase(h.status)}</Badge>
               <span className="text-sm text-text-muted">
-                · {h.nodeEnv} · uptime {formatUptime(h.uptime)}
+                · {h.appEnv ?? h.nodeEnv} · uptime {formatUptime(h.uptime)}
               </span>
             </div>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

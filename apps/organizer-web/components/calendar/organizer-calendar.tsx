@@ -16,6 +16,7 @@ import {
   Skeleton,
   errorMessage,
 } from '@eticketsgo/web-kit';
+import { viewerToday, viewerZoneLabel } from '@eticketsgo/shared-types';
 import { useOrg } from '@/components/org-context';
 import {
   CALENDAR_STATUSES,
@@ -31,7 +32,6 @@ import {
   statusText,
   stepAnchor,
   toCalendarSessions,
-  todayKey,
   visibleRange,
   weekDays,
   weekStartFor,
@@ -74,7 +74,15 @@ export function OrganizerCalendar() {
   const pathname = usePathname();
   const params = useSearchParams();
 
-  const today = todayKey();
+  /*
+    Today is the organizer's own date, in the zone their browser reports - the policy in
+    shared-types' `viewer-today.ts`, which the admin calendar follows too. Taken when the page
+    opens and fixed for its life, then taken again once mounted: a server render would otherwise
+    hand over the server's date, and the server runs in UTC.
+  */
+  const [viewer, setViewer] = useState(() => viewerToday(new Date()));
+  useEffect(() => setViewer(viewerToday(new Date())), []);
+  const today = viewer.day;
   const weekStart = weekStartFor(activeOrg.registeredCountry);
   const anchor: DayKey = isDayKey(params.get('date')) ? params.get('date')! : today;
   const status = params.get('status') ?? '';
@@ -266,6 +274,11 @@ export function OrganizerCalendar() {
           ))}
         </div>
       </div>
+
+      <p className="text-caption text-text-muted" data-testid="calendar-today-zone">
+        Today is marked in your time zone, {viewerZoneLabel(viewer)}. Each session sits on the date
+        at its venue.
+      </p>
 
       {/* ── Filters ── */}
       <div className="grid gap-3 sm:grid-cols-3">
