@@ -3,7 +3,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { useRouter } from 'next/navigation';
-import { LayoutGrid, List, SlidersHorizontal } from 'lucide-react';
+import Link from 'next/link';
+import { CalendarDays, LayoutGrid, List, SlidersHorizontal } from 'lucide-react';
 import {
   api,
   Button,
@@ -311,29 +312,42 @@ export default function OrganizerEvents() {
               </>
             ) : null}
           </p>
-          <div
-            role="group"
-            aria-label="Show events as"
-            className="inline-flex rounded-lg border border-border bg-background-subtle p-0.5"
-          >
-            <button
-              type="button"
-              aria-pressed={view === 'cards'}
-              className={toggleButton(view === 'cards')}
-              onClick={() => setView('cards')}
+          <div className="flex flex-wrap items-center gap-2">
+            {/*
+            The same events by date. The list answers "how is each event doing"; the calendar
+            answers "what is on when", and an organizer switches between the two questions.
+          */}
+            <Link
+              href="/organizer/calendar"
+              className="inline-flex h-9 items-center gap-1.5 rounded-md px-3 text-[0.875rem] font-medium text-action-primary hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
             >
-              <LayoutGrid className="h-4 w-4" aria-hidden />
-              Cards
-            </button>
-            <button
-              type="button"
-              aria-pressed={view === 'table'}
-              className={toggleButton(view === 'table')}
-              onClick={() => setView('table')}
+              <CalendarDays className="h-4 w-4" aria-hidden />
+              Calendar
+            </Link>
+            <div
+              role="group"
+              aria-label="Show events as"
+              className="inline-flex rounded-lg border border-border bg-background-subtle p-0.5"
             >
-              <List className="h-4 w-4" aria-hidden />
-              Table
-            </button>
+              <button
+                type="button"
+                aria-pressed={view === 'cards'}
+                className={toggleButton(view === 'cards')}
+                onClick={() => setView('cards')}
+              >
+                <LayoutGrid className="h-4 w-4" aria-hidden />
+                Cards
+              </button>
+              <button
+                type="button"
+                aria-pressed={view === 'table'}
+                className={toggleButton(view === 'table')}
+                onClick={() => setView('table')}
+              >
+                <List className="h-4 w-4" aria-hidden />
+                Table
+              </button>
+            </div>
           </div>
         </div>
         {view === 'table' && !wide ? (
@@ -355,7 +369,7 @@ export default function OrganizerEvents() {
           aria-label="Loading"
         >
           {Array.from({ length: 6 }).map((_, i) => (
-            <Skeleton key={i} className="h-80 w-full" />
+            <Skeleton key={i} className="h-72 w-full" />
           ))}
         </div>
       ) : all.length === 0 ? (

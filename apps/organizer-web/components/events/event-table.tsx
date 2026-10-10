@@ -45,12 +45,11 @@ export function EventTable({
         return (
           <div className="flex min-w-0 items-start gap-3">
             <EventArtwork
-              id={e.id}
-              title={e.title}
+              category={e.category}
               imagePath={e.imagePath}
               imageVariants={e.imageVariants}
               use="thumb"
-              className="h-12 w-12 rounded-md text-xl"
+              className="h-10 w-10 rounded-md"
             />
             <div className="min-w-0">
               <p className="line-clamp-2 break-words font-medium text-text-primary">{e.title}</p>
@@ -125,6 +124,7 @@ export function EventTable({
       ),
       render: (e) => (
         <EventActions
+          inTable
           event={e}
           duplicating={duplicatingId === e.id}
           onDuplicate={() => onDuplicate(e)}

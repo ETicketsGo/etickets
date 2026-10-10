@@ -62,7 +62,7 @@ describe('event sections', () => {
     const pages = (key: string) =>
       EVENT_SECTIONS.find((s) => s.key === key)!.pages.map((p) => p.seg);
     expect(pages('overview')).toEqual(['']);
-    expect(pages('tickets')).toEqual(['/sessions', '/tickets', '/commerce']);
+    expect(pages('tickets')).toEqual(['/sessions', '/seating', '/tickets', '/commerce']);
     expect(pages('bookings')).toEqual(['/orders', '/attendees']);
     expect(pages('promotion')).toEqual(['/promote']);
     expect(pages('checkin')).toEqual([

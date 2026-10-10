@@ -103,18 +103,30 @@ export function SellabilityPanel({ eventId }: { eventId: string }) {
 
   const { blockers, warnings, sellable } = q.data;
 
+  /*
+    Never "Ready to sell". This check is CONFIGURATION only - it does not ask the sale-eligibility
+    rule checkout also enforces, and it answers the same for a draft as for a live event - so
+    the most it can say is that setup is complete. Whether the event is selling is the overview's
+    "Selling / Not selling" line, which also asks the event's status and that rule.
+  */
   if (sellable && warnings.length === 0) {
     return (
-      <Card title="Ready to sell">
+      <Card title="Setup complete">
         <p className="text-sm text-text-secondary">
-          Nothing is standing between this event and a completed purchase.
+          Nothing in this event&rsquo;s setup would stop a purchase.
         </p>
       </Card>
     );
   }
 
   return (
-    <Card title={sellable ? 'Worth checking before you publish' : 'This event cannot be sold yet'}>
+    <Card
+      title={
+        sellable
+          ? 'Worth checking'
+          : `${blockers.length} thing${blockers.length === 1 ? '' : 's'} to set up before it can sell`
+      }
+    >
       {blockers.length > 0 && (
         <>
           <p className="mb-3 text-sm text-text-secondary">

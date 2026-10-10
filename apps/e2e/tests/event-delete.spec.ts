@@ -52,7 +52,9 @@ test.describe('deleting an event', () => {
     await page.goto(`${ORGANIZER}/organizer/events`);
     await page.getByPlaceholder('Search events…').fill(event.title);
 
-    await page.getByRole('button', { name: `Delete ${event.title}` }).click();
+    // Delete lives in the card's labelled "More" menu, not behind an unlabelled icon.
+    await page.getByRole('button', { name: `More actions for ${event.title}` }).click();
+    await page.getByRole('menuitem', { name: 'Delete event' }).click();
     const dialog = page.getByRole('dialog', { name: 'Delete this event?' });
     await expect(dialog).toContainText(event.title);
     await dialog.getByRole('button', { name: 'Delete event' }).click();
