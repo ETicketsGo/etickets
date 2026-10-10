@@ -53,6 +53,7 @@ export function EventActions({
   onDelete,
   fill = false,
   inTable = false,
+  size = 'md',
 }: {
   event: { id: string; title: string; _count: { bookings: number } };
   duplicating: boolean;
@@ -66,6 +67,8 @@ export function EventActions({
    * table at 1024 and 1440.
    */
   inTable?: boolean;
+  /** `sm`: 32px controls, for the phone's compact row. */
+  size?: 'sm' | 'md';
 }) {
   const items = eventMenuItems({ event, duplicating, onDuplicate, onDelete });
   return (
@@ -85,14 +88,14 @@ export function EventActions({
         <Link
           href={`/organizer/events/${event.id}`}
           aria-label={`Manage ${event.title}`}
-          className={`inline-flex h-9 items-center justify-center rounded-md bg-tint-primary px-3.5 text-button font-semibold text-action-primary transition-[filter] duration-150 hover:brightness-95 active:translate-y-px motion-reduce:transition-none dark:hover:brightness-125 ${FOCUS_RING} ${
+          className={`inline-flex ${size === 'sm' ? 'h-8 px-3' : 'h-9 px-3.5'} items-center justify-center rounded-md bg-tint-primary text-button font-semibold text-action-primary transition-[filter] duration-150 hover:brightness-95 active:translate-y-px motion-reduce:transition-none dark:hover:brightness-125 ${FOCUS_RING} ${
             fill ? 'min-w-0 flex-1' : ''
           }`}
         >
           Manage
         </Link>
       )}
-      <Menu trigger="icon" label={`More actions for ${event.title}`} items={items} size="md" />
+      <Menu trigger="icon" label={`More actions for ${event.title}`} items={items} size={size} />
     </div>
   );
 }
