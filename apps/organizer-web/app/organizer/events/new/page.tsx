@@ -2598,8 +2598,9 @@ function ReviewRow({
 }) {
   // Only <dt> and <dd> in the group: the Edit button sits inside the answer it changes.
   return (
-    <div className="grid grid-cols-[6.5rem_minmax(0,1fr)] items-start gap-3 px-3 py-2.5 sm:grid-cols-[8rem_minmax(0,1fr)]">
-      <dt className="pt-1.5 text-text-muted">{label}</dt>
+    // On a phone the label sits above the answer: side by side left the answer a sliver.
+    <div className="grid grid-cols-1 items-start gap-x-3 px-3 py-2.5 sm:grid-cols-[8rem_minmax(0,1fr)]">
+      <dt className="text-caption text-text-muted sm:pt-1.5 sm:text-sm">{label}</dt>
       <dd className="flex min-w-0 items-start justify-between gap-2">
         <span className="min-w-0 break-words pt-1.5 font-medium text-text-primary">{children}</span>
         {onEdit ? (
