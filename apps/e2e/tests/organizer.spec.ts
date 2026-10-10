@@ -101,7 +101,7 @@ test('organizer logs in and creates + submits an event via the wizard', async ({
 
   // Redirected to the event overview, now under review
   await expect(page).toHaveURL(/\/organizer\/events\/.+/, { timeout: 20_000 });
-  await expect(page.getByText('Under Review').first()).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText('In review').first()).toBeVisible({ timeout: 20_000 });
   const eventId = new URL(page.url()).pathname.split('/').filter(Boolean).pop()!;
 
   // It shows up in the events list

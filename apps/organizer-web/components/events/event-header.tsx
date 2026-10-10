@@ -32,12 +32,11 @@ export function EventHeader({
   return (
     <header className="flex min-w-0 items-start gap-3 sm:gap-4">
       <EventArtwork
-        id={event.id}
-        title={event.title}
+        category={event.category}
         imagePath={event.imagePath}
         imageVariants={event.imageVariants}
         use="thumb"
-        className="h-14 w-14 rounded-lg text-2xl sm:h-20 sm:w-20 sm:text-3xl"
+        className="h-14 w-14 rounded-lg sm:h-20 sm:w-20"
       />
       <div className="min-w-0 flex-1 space-y-1.5">
         <p className="truncate text-caption font-medium uppercase tracking-wide text-text-muted">

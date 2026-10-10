@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { CalendarDays, MapPin, Ticket } from 'lucide-react';
+import { CalendarDays, MapPin } from 'lucide-react';
 import { money } from '@eticketsgo/web-kit';
 import { EventArtwork } from './event-artwork';
 import { EventStateBadges } from './event-state-badges';
@@ -28,10 +28,10 @@ export function SalesLines({ event }: { event: EventListRow }) {
 export function SoldMeter({ event, compact = false }: { event: EventListRow; compact?: boolean }) {
   const { label, percent } = soldOfCapacity(event.tickets);
   return (
-    <div className={compact ? 'min-w-[6rem]' : ''}>
+    <div className={compact ? 'min-w-[6rem]' : 'min-w-0'}>
       <p className="tabular-nums text-text-primary">
         {label}
-        {percent !== null ? <span className="text-text-muted"> ({percent}%)</span> : null}
+        {percent !== null ? <span className="text-text-muted"> sold ({percent}%)</span> : null}
       </p>
       {percent !== null ? (
         <div
@@ -46,11 +46,14 @@ export function SoldMeter({ event, compact = false }: { event: EventListRow; com
 }
 
 /**
- * One event as a card: its picture, what it is, where and when, and how it is selling.
+ * One event as a compact card: a picture band, then what it is, where and when, and how it is
+ * selling, with one "Manage" button and a labelled "More" menu.
  *
- * Every line that holds somebody's words - the title, the venue - wraps or clamps inside the
- * card. A 120-character title or a venue named in full used to push a fixed-width layout
- * sideways; here the card's width is the grid's, and its text adapts to it.
+ * ── WHY THE BAND IS SHORT ─────────────────────────────────────────────────────────
+ * The 4:3 picture took 180-260px of every card, so three events filled a laptop screen and the
+ * picture - often a placeholder letter - was most of what anyone saw. The band is 128px high
+ * at every width: enough to recognise the poster, and the facts an organizer acts on (stage,
+ * next date, sold) come up into the first glance.
  */
 export function EventCard({
   event,
@@ -66,27 +69,31 @@ export function EventCard({
   const schedule = scheduleSummary(event);
   const href = `/organizer/events/${event.id}`;
   return (
+    /*
+      No `overflow-hidden` here: it clipped the More menu to the card. The picture band rounds
+      its own top corners instead.
+    */
     <article
       aria-labelledby={`event-${event.id}-title`}
-      className="flex w-full min-w-0 flex-col overflow-hidden rounded-lg border border-border bg-background-surface shadow-sm"
+      className="flex w-full min-w-0 flex-col rounded-lg border border-border bg-background-surface transition-shadow duration-150 hover:shadow-md motion-reduce:transition-none"
     >
       <EventArtwork
-        id={event.id}
-        title={event.title}
+        category={event.category}
         imagePath={event.imagePath}
         imageVariants={event.imageVariants}
         use="card"
-        sizes="(min-width: 1280px) 400px, (min-width: 640px) 50vw, 100vw"
-        className="w-full text-5xl"
+        sizes="(min-width: 1280px) 360px, (min-width: 640px) 50vw, 100vw"
+        className="h-32 w-full rounded-t-lg"
       />
-      <div className="flex min-w-0 flex-1 flex-col gap-3 p-4">
+      <div className="flex min-w-0 flex-1 flex-col gap-2.5 p-4">
         <div className="min-w-0 space-y-1.5">
-          <p className="truncate text-caption font-medium uppercase tracking-wide text-text-muted">
+          <p className="min-w-0 truncate text-caption font-medium uppercase tracking-wide text-text-muted">
             {event.category}
           </p>
           <h2
             id={`event-${event.id}-title`}
-            className="line-clamp-2 break-words text-title font-semibold text-text-primary"
+            className="line-clamp-2 break-words text-base font-semibold leading-snug text-text-primary"
+            title={event.title}
           >
             <Link
               href={href}
@@ -98,56 +105,49 @@ export function EventCard({
           <EventStateBadges event={event} />
         </div>
 
-        <dl className="min-w-0 space-y-1.5 text-[0.875rem] text-text-secondary">
+        <dl className="min-w-0 space-y-1 text-[0.8125rem] text-text-secondary">
           <div className="flex min-w-0 items-start gap-2">
             <dt className="mt-0.5 shrink-0">
-              <MapPin className="h-4 w-4 text-text-muted" aria-hidden />
+              <MapPin className="h-3.5 w-3.5 text-text-muted" aria-hidden />
               <span className="sr-only">Venue</span>
             </dt>
-            <dd className="line-clamp-2 min-w-0 break-words">
+            <dd className="min-w-0 truncate" title={`${event.venue.name}, ${event.venue.city}`}>
               {event.venue.name}, {event.venue.city}
             </dd>
           </div>
           <div className="flex min-w-0 items-start gap-2">
             <dt className="mt-0.5 shrink-0">
-              <CalendarDays className="h-4 w-4 text-text-muted" aria-hidden />
+              <CalendarDays className="h-3.5 w-3.5 text-text-muted" aria-hidden />
               <span className="sr-only">Schedule</span>
             </dt>
             <dd className="min-w-0 break-words">
               {schedule.lead ? <span className="text-text-muted">{schedule.lead}: </span> : null}
-              {schedule.when}
-              {schedule.more ? (
-                <span className="block text-caption text-text-muted">{schedule.more}</span>
-              ) : null}
+              <span className="tabular-nums">{schedule.when}</span>
+              {schedule.more ? <span className="text-text-muted"> ({schedule.more})</span> : null}
             </dd>
           </div>
-          <div className="flex min-w-0 items-start gap-2">
-            <dt className="mt-0.5 shrink-0">
-              <Ticket className="h-4 w-4 text-text-muted" aria-hidden />
-              <span className="sr-only">Tickets sold</span>
-            </dt>
-            <dd className="min-w-0 flex-1">
-              <SoldMeter event={event} />
-            </dd>
-          </div>
-          {event.sales ? (
-            <div className="flex min-w-0 items-start justify-between gap-3 border-t border-border pt-2">
-              <dt className="text-text-muted">Gross sales</dt>
-              <dd className="text-right">
-                <SalesLines event={event} />
-              </dd>
-            </div>
-          ) : null}
         </dl>
 
-        <div className="mt-auto border-t border-border pt-3">
-          <EventActions
-            event={event}
-            duplicating={duplicating}
-            onDuplicate={onDuplicate}
-            onDelete={onDelete}
-          />
+        <div className="mt-auto flex min-w-0 items-end justify-between gap-3 border-t border-border pt-2.5 text-[0.8125rem]">
+          <div className="min-w-0 flex-1">
+            <span className="sr-only">Tickets: </span>
+            <SoldMeter event={event} />
+          </div>
+          {event.sales ? (
+            <div className="shrink-0 text-right">
+              <span className="block text-caption text-text-muted">Gross</span>
+              <SalesLines event={event} />
+            </div>
+          ) : null}
         </div>
+
+        <EventActions
+          event={event}
+          fill
+          duplicating={duplicating}
+          onDuplicate={onDuplicate}
+          onDelete={onDelete}
+        />
       </div>
     </article>
   );

@@ -10,7 +10,6 @@ import {
   Button,
   Card,
   DataTable,
-  Dialog,
   Select,
   StatusBadge,
   useToast,
@@ -18,66 +17,15 @@ import {
   dateTime,
   type Column,
   type EventSession,
-  type SeatingRoom,
   DateTimeField,
 } from '@eticketsgo/web-kit';
-
-/** The value of a room select meaning "no room". Empty string, so it is also falsy. */
-const GENERAL_ADMISSION = '';
-
-/** Where an organizer goes to create a room and publish a seat map. */
-const ROOMS_HREF = '/organizer/cinemas';
-
-/**
- * The helper line under a seating control.
- *
- * Extracted because it is shown in two places that must not drift — the add form and the
- * change dialog — and because "no rooms exist yet" has to be a route to the fix rather than
- * a description of the problem. An organizer told that they need a published seat map, with
- * nowhere to click, has been given the same non-answer twice.
- */
-function SeatingHelp({
-  rooms,
-  chosen,
-  failed,
-}: {
-  rooms: SeatingRoom[] | undefined;
-  chosen: SeatingRoom | undefined;
-  failed: boolean;
-}) {
-  if (failed) {
-    return (
-      <p className="mt-1.5 text-caption text-text-muted">
-        We couldn&rsquo;t load your spaces, so only general admission is available here.
-      </p>
-    );
-  }
-  if (chosen) {
-    return (
-      <p className="mt-1.5 text-caption text-text-muted">
-        Buyers pick a named seat from {chosen.layoutName ?? 'this space’s'} layout. A ticket type is
-        created for each seat category and priced from it.
-      </p>
-    );
-  }
-  if (rooms && rooms.length === 0) {
-    return (
-      <p className="mt-1.5 text-caption text-text-muted">
-        Buyers choose how many tickets they want. To sell numbered seats you need a space with a
-        published seat map —{' '}
-        <Link href={ROOMS_HREF} className="underline hover:text-text-primary">
-          set one up
-        </Link>
-        .
-      </p>
-    );
-  }
-  return (
-    <p className="mt-1.5 text-caption text-text-muted">
-      Buyers choose how many tickets they want. Pick a space to sell numbered seats instead.
-    </p>
-  );
-}
+import {
+  ChangeSeatingDialog,
+  GENERAL_ADMISSION,
+  SeatingHelp,
+  roomOptionLabel,
+} from '@/components/events/change-seating-dialog';
+import { sessionSeating } from '@/components/events/seating-model';
 
 export default function SessionsTab() {
   const { id } = useParams<{ id: string }>();
@@ -149,38 +97,15 @@ export default function SessionsTab() {
 
   // ── Changing an existing session's seating ──────────────────────────────────────
   const [editing, setEditing] = useState<EventSession | null>(null);
-  const [nextRoom, setNextRoom] = useState(GENERAL_ADMISSION);
-
-  const openChange = (s: EventSession) => {
-    setEditing(s);
-    // The layout it already pins, so reopening the dialog shows the configuration in use.
-    setNextRoom(s.screenId ? (s.seatMapId ?? GENERAL_ADMISSION) : GENERAL_ADMISSION);
+  // The same rule the Seating view states in full, said in two words here.
+  const lockReason = (s: EventSession): string | null => {
+    const seating = sessionSeating({ session: s, space: null, layout: null, now: Date.now() });
+    if (seating.change.allowed) return null;
+    const { sold, held } = seating.counts;
+    if (sold > 0) return `${sold} sold`;
+    if (held > 0) return `${held} held`;
+    return s.status === 'CANCELLED' ? 'cancelled' : 'ended';
   };
-
-  const changeSeating = useMutation({
-    mutationFn: () => {
-      const seating = seatingFor(nextRoom);
-      return api.events.updateSessionSeating(
-        editing!.id,
-        seating?.screenId ?? null,
-        seating?.seatMapId ?? null,
-      );
-    },
-    onSuccess: (session) => {
-      toast.push(
-        session.screenId
-          ? 'Seating updated. Ticket types now come from the space’s seat categories.'
-          : 'This session is general admission again. Add ticket types to sell it.',
-        'success',
-      );
-      setEditing(null);
-      qc.invalidateQueries({ queryKey: ['event', id] });
-    },
-    // The server's message names the reason — how many are sold, how many held. Replacing it
-    // with "could not update" would throw away the only part the organizer can act on.
-    onError: (e) => toast.push(errorMessage(e), 'error'),
-  });
-
   const columns: Column<EventSession>[] = [
     { key: 'start', header: 'Starts', render: (s) => dateTime(s.startsAt, undefined, venueTz) },
     { key: 'end', header: 'Ends', render: (s) => dateTime(s.endsAt, undefined, venueTz) },
@@ -206,16 +131,30 @@ export default function SessionsTab() {
           ) : (
             <span className="text-text-muted">General admission</span>
           )}
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              openChange(s);
-            }}
-            className="block rounded text-caption text-action-primary underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-          >
-            Change
-          </button>
+          {/*
+            Offered only where the server would allow it. Past the first sale or hold the
+            button would only fail, so the reason - and the way to the Seating view, which
+            explains the layout version it is locked to - takes its place.
+          */}
+          {lockReason(s) ? (
+            <Link
+              href={`/organizer/events/${id}/seating`}
+              className="block rounded text-caption text-text-muted underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            >
+              Locked: {lockReason(s)}
+            </Link>
+          ) : (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setEditing(s);
+              }}
+              className="block rounded text-caption text-action-primary underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            >
+              Change
+            </button>
+          )}
         </div>
       ),
     },
@@ -227,13 +166,11 @@ export default function SessionsTab() {
     !!form.startsAt && !!form.endsAt && new Date(form.endsAt) <= new Date(form.startsAt);
   const valid = !!form.startsAt && !!form.endsAt && !endBeforeStart;
 
-  const editingTicketTypes = editing?.ticketTypes?.length ?? 0;
-  const unchanged =
-    (editing?.screenId ? (editing.seatMapId ?? GENERAL_ADMISSION) : GENERAL_ADMISSION) === nextRoom;
-
   return (
-    <div className="grid gap-6 lg:grid-cols-3">
-      <div className="lg:col-span-2">
+    // `min-w-0` on the grid and its items: without it a grid item is as wide as its widest
+    // content, and the table pushed the whole page sideways on a phone.
+    <div className="grid min-w-0 gap-6 lg:grid-cols-3 [&>*]:min-w-0">
+      <div className="min-w-0 lg:col-span-2">
         <DataTable
           columns={columns}
           rows={event?.sessions}
@@ -274,7 +211,7 @@ export default function SessionsTab() {
               <option value={GENERAL_ADMISSION}>General admission — no seat map</option>
               {(rooms.data ?? []).map((r) => (
                 <option key={r.layoutId} value={r.layoutId}>
-                  {r.venueName} · {r.name} · {r.layoutName ?? 'Layout'} ({r.sellableSeats} seats)
+                  {roomOptionLabel(r)}
                 </option>
               ))}
             </Select>
@@ -296,72 +233,15 @@ export default function SessionsTab() {
         </div>
       </Card>
 
-      <Dialog
-        open={!!editing}
+      <ChangeSeatingDialog
+        eventId={id}
+        session={editing}
+        rooms={rooms.data}
+        roomsFailed={rooms.isError}
+        roomsLoading={rooms.isLoading}
+        whenLabel={editing ? dateTime(editing.startsAt, undefined, venueTz) : ''}
         onClose={() => setEditing(null)}
-        title="Change seating"
-        footer={
-          <>
-            <Button variant="outline" onClick={() => setEditing(null)}>
-              Cancel
-            </Button>
-            <Button
-              loading={changeSeating.isPending}
-              disabled={unchanged}
-              onClick={() => changeSeating.mutate()}
-            >
-              {nextRoom ? 'Use this space' : 'Make it general admission'}
-            </Button>
-          </>
-        }
-      >
-        <div className="space-y-3">
-          <p className="text-[0.9375rem] text-text-secondary">
-            {editing ? dateTime(editing.startsAt, undefined, venueTz) : ''}
-          </p>
-
-          <Select
-            id="next-room"
-            label="Seating"
-            value={nextRoom}
-            disabled={rooms.isLoading}
-            onChange={(e) => setNextRoom(e.target.value)}
-          >
-            <option value={GENERAL_ADMISSION}>General admission — no seat map</option>
-            {(rooms.data ?? []).map((r) => (
-              <option key={r.layoutId} value={r.layoutId}>
-                {r.venueName} · {r.name} · {r.layoutName ?? 'Layout'} ({r.sellableSeats} seats)
-              </option>
-            ))}
-          </Select>
-          <SeatingHelp rooms={rooms.data} chosen={roomByLayout(nextRoom)} failed={rooms.isError} />
-
-          {/*
-            The consequence, before it happens rather than after.
-
-            Changing seating REPLACES this session's ticket types — a seated session derives
-            one per seat category and a general-admission one carries whatever was typed, so
-            keeping both would leave two competing prices on the same night. Nothing is sold
-            (the server refuses otherwise), so what is lost is draft configuration — but it is
-            still the organizer's work, and discovering it afterwards is how somebody stops
-            trusting the console.
-          */}
-          {!unchanged && editingTicketTypes > 0 && (
-            <p className="rounded-md border border-status-warning/40 bg-tint-warning p-3 text-caption text-text-primary">
-              This session&rsquo;s {editingTicketTypes} ticket type
-              {editingTicketTypes === 1 ? '' : 's'} will be replaced
-              {nextRoom
-                ? ' by one for each of the space’s seat categories.'
-                : '. Add new ones afterwards to sell this session.'}
-            </p>
-          )}
-
-          <p className="text-caption text-text-muted">
-            Seating can only be changed while nothing is sold or held. After the first sale the
-            space is fixed, because changing it would move seats people have already paid for.
-          </p>
-        </div>
-      </Dialog>
+      />
     </div>
   );
 }

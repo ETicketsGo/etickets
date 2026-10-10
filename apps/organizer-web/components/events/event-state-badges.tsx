@@ -1,45 +1,35 @@
 'use client';
 
-import { Badge, StatusBadge } from '@eticketsgo/web-kit';
-import { approvalOf } from './event-list-model';
+import { Badge } from '@eticketsgo/web-kit';
+import { lifecycleOf, type LifecycleInput } from './event-lifecycle';
+
+const DOT: Record<string, string> = {
+  success: 'bg-status-success',
+  warning: 'bg-status-warning',
+  error: 'bg-status-error',
+  info: 'bg-status-info',
+  neutral: 'bg-text-muted',
+};
 
 /**
- * Status and approval, side by side and each in words.
+ * Where the event is in its life, in the console's one vocabulary: Draft, In review, Approved,
+ * Published, Ended, Cancelled - plus, when the stage alone hides it, the one fact that matters
+ * ("Paused by platform", "Changes requested", "Sold out").
  *
- * Two badges because they answer two questions - "is it on sale" and "has it been approved" -
- * and an organizer looking at a paused event needs both: paused by them, or by us. Each says
- * its state in text; the colour only repeats it.
+ * Words always; the colour and the dot only repeat them. Replaces the enum spelled out
+ * ("PUBLISHED") next to a second "Approved" badge that said the same thing twice.
  */
-export function EventStateBadges({
-  event,
-}: {
-  event: {
-    status: string;
-    publishedAt?: string | null;
-    reviewNote?: string | null;
-    needsReviewOnResume?: boolean;
-    pausedByAdmin?: boolean;
-  };
-}) {
-  const approval = approvalOf(event);
+export function EventStateBadges({ event }: { event: LifecycleInput }) {
+  const life = lifecycleOf(event);
   return (
-    /*
-      `relative` so the hidden "Approval:" is positioned inside this span. Without it, in the
-      table's sideways-scrolling box, the hidden text was placed against the page instead and
-      widened the whole page by the width of the clipped columns.
-    */
+    // `relative` keeps the hidden label inside this span in a sideways-scrolling table.
     <span className="relative inline-flex flex-wrap items-center gap-1.5">
-      <StatusBadge status={event.status} />
-      {/*
-        Not repeated when it would only say the status again: "Under Review" beside "Awaiting
-        approval" is one fact twice.
-      */}
-      {event.status === 'UNDER_REVIEW' ? null : (
-        <Badge tone={approval.tone}>
-          <span className="sr-only">Approval: </span>
-          {approval.label}
-        </Badge>
-      )}
+      <Badge tone={life.tone}>
+        <span className={`h-1.5 w-1.5 rounded-full ${DOT[life.tone]}`} aria-hidden />
+        <span className="sr-only">Stage: </span>
+        {life.label}
+      </Badge>
+      {life.detail ? <Badge tone={life.detail.tone}>{life.detail.label}</Badge> : null}
     </span>
   );
 }
