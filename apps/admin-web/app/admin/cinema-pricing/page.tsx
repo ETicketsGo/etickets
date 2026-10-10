@@ -40,11 +40,13 @@ import { NO_READ_ACCESS, READ_ONLY_NOTE, useConfigAccess } from '@/lib/capabilit
  * both refuse, and the errors they return are shown verbatim because they are written for
  * the person reading this page.
  */
+// Opaque tint tokens, not a 10% wash of the status colour: on the dark console surface the wash
+// left "DISABLED" at 4.39:1 (QA axe sweep, 2026-10-10). The token-contrast test holds these pairs to AA.
 const STATUS_TONE: Record<string, string> = {
-  ACTIVE: 'bg-status-success/10 text-status-success',
-  DRAFT: 'bg-status-warning/10 text-status-warning',
-  SUPERSEDED: 'bg-background-subtle text-text-muted',
-  DISABLED: 'bg-status-error/10 text-status-error',
+  ACTIVE: 'bg-tint-success text-status-success',
+  DRAFT: 'bg-tint-warning text-status-warning',
+  SUPERSEDED: 'bg-background-subtle text-text-secondary',
+  DISABLED: 'bg-tint-error text-status-error',
 };
 
 const scopeOf = (p: CinemaPricingPolicyRow) =>

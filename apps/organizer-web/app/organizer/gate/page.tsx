@@ -60,9 +60,9 @@ const OUTCOME = {
 };
 
 const TONE_CLASS = {
-  ok: 'border-status-success/40 bg-status-success/10 text-status-success',
+  ok: 'border-status-success/40 bg-tint-success text-status-success',
   warn: 'border-status-warning/40 bg-tint-warning text-status-warning',
-  bad: 'border-status-error/40 bg-status-error/10 text-status-error',
+  bad: 'border-status-error/40 bg-tint-error text-status-error',
 };
 
 export default function GatePage() {

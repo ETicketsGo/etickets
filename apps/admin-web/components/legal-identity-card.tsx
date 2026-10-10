@@ -129,8 +129,8 @@ export function LegalIdentityCard({ organizationId }: { organizationId: string }
       <p
         className={`mb-4 rounded-md px-3 py-2 text-caption ${
           status.canIssueTaxInvoice
-            ? 'bg-status-success/10 text-status-success'
-            : 'bg-status-warning/10 text-status-warning'
+            ? 'bg-tint-success text-status-success'
+            : 'bg-tint-warning text-status-warning'
         }`}
         role="status"
       >
