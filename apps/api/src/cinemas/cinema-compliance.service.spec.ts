@@ -29,7 +29,7 @@ function setup(role: string) {
   };
   const svc = new CinemaComplianceService(
     prisma as never,
-    new OrgAccessService(prisma as never),
+    new OrgAccessService(prisma as never, { record: async () => undefined } as never),
     {} as never,
     { record: jest.fn().mockResolvedValue(undefined) } as never,
   );

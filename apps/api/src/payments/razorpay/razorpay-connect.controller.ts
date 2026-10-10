@@ -5,6 +5,7 @@ import { razorpayLinkAccountSchema, type RazorpayLinkAccountInput } from '@etick
 import { RazorpayConnectService } from './razorpay-connect.service';
 import { CurrentUser, Roles, type RequestUser } from '../../common/decorators';
 import { ZodValidationPipe } from '../../common/zod-validation.pipe';
+import { OrganizerOnly } from '../../tenancy/organizer-only.guard';
 
 /**
  * Organizer self-service Razorpay Route (India) payout account. Linked Account creation +
@@ -12,7 +13,9 @@ import { ZodValidationPipe } from '../../common/zod-validation.pipe';
  */
 @ApiTags('organizer-payments')
 @ApiBearerAuth()
-@Roles(Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER, Role.ADMIN, Role.SUPER_ADMIN)
+@Roles(Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER)
+// Which account an organizer is paid into. Staff use the merchant onboarding pages on /admin.
+@OrganizerOnly('payments.razorpay-route')
 @Controller('organizers/:organizerId/payments/razorpay')
 export class RazorpayConnectController {
   constructor(private readonly connect: RazorpayConnectService) {}

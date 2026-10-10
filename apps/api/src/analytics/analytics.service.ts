@@ -120,7 +120,7 @@ export interface OrganizerAnalytics {
   /** Capacity utilization across all of the org's ticket types. Non-financial. */
   capacity: { sold: number; capacity: number; utilization: number };
   /**
-   * Present only for OWNER/MANAGER + platform admins.
+   * Present only for OWNER/MANAGER.
    *
    * ── ONE BLOCK PER CURRENCY, NOT ONE TOTAL ──────────────────────────────────────
    * `revenue` used to be a single set of figures summed across every booking the
@@ -423,9 +423,12 @@ export class AnalyticsService {
     }));
   }
 
-  /** True when the caller may see money (platform admin, or org OWNER/MANAGER). */
+  /**
+   * True when the caller may see money: an org OWNER or MANAGER. Platform staff are not a case
+   * here: both callers assert membership first, and that is closed to staff who are not
+   * members (see `OrgAccessService`).
+   */
   private async canViewFinancials(user: RequestUser, organizationId: string): Promise<boolean> {
-    if (this.access.isPlatformAdmin(user)) return true;
     const membership = await this.prisma.organizationMember.findUnique({
       where: { organizationId_userId: { organizationId, userId: user.id } },
       select: { role: true, status: true },
@@ -442,7 +445,7 @@ export class AnalyticsService {
   /**
    * Whole-organization organizer dashboard in ONE round of aggregate queries
    * (no per-event fan-out). Financial blocks are omitted for members who are
-   * not OWNER/MANAGER (or a platform admin).
+   * not OWNER/MANAGER.
    */
   async organizer(user: RequestUser, organizationId: string): Promise<OrganizerAnalytics> {
     await this.access.assertMember(user, organizationId);

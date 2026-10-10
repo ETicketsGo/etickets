@@ -91,7 +91,7 @@ describe('RefundsService.listForOrganization', () => {
       prisma as never,
       {} as never,
       {} as never,
-      new OrgAccessService(prisma as never),
+      new OrgAccessService(prisma as never, { record: async () => undefined } as never),
       { record: jest.fn() } as never,
       { send: jest.fn() } as never,
       new MetricsService(),

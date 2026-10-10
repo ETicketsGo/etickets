@@ -8,6 +8,7 @@ import { PayoutAccountsService } from './payout-accounts.service';
 import { UnifiedFinanceService } from '../finance/unified-finance.service';
 import { RequiresAdmin, CurrentUser, Roles, type RequestUser } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { OrganizerOnly } from '../tenancy/organizer-only.guard';
 
 /**
  * What an admin may write. `null` clears an override back to inherited; an absent field
@@ -147,7 +148,13 @@ export class PayoutsController {
   }
 
   @Post('accounts')
-  @Roles(Role.ORGANIZER_OWNER, Role.ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.ORGANIZER_OWNER)
+  /*
+    Never platform staff. A bank account saved by staff could be verified by staff (PAYOUT_MANAGE)
+    and then paid by staff - one person choosing where an organizer's money goes. Staff verify
+    and reveal accounts on /admin/payouts; only the organization's owner enters them.
+  */
+  @OrganizerOnly('payout.account.save')
   @ApiOperation({ summary: 'Add or replace the payout bank account for one currency.' })
   saveAccount(
     @CurrentUser() user: RequestUser,
@@ -158,7 +165,9 @@ export class PayoutsController {
   }
 
   @Post('generate')
-  @Roles(Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER, Role.ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER)
+  // Staff do not raise an organizer's payouts; settlement runs and /admin/payouts do.
+  @OrganizerOnly('payout.generate')
   @ApiOperation({ summary: 'Generate a settlement payout for an organization/event.' })
   generate(
     @CurrentUser() user: RequestUser,

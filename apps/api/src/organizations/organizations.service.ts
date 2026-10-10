@@ -4,6 +4,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import * as bcrypt from 'bcryptjs';
 import { Prisma } from '@prisma/client';
 import {
+  AdminPermission,
   FeedbackKind,
   NotificationType,
   OrganizationStatus,
@@ -183,13 +184,15 @@ export class OrganizationsService {
    * learned the rule from the error. It grants nothing — every write still checks the
    * membership itself.
    *
-   * A platform administrator gets `null`. Their access comes from the platform role and
-   * bypasses every organization role check, so no membership role describes what they may do.
+   * Memberships only, platform staff included. Staff used to be given every organization on
+   * the platform here, with `myRole: null`, because a platform role bypassed every organization
+   * check; it no longer does (see `OrgAccessService`), and staff read organizations through the
+   * admin console.
    */
   async listMine(user: RequestUser) {
     const ids = await this.access.managedOrganizationIds(user);
     const orgs = await this.prisma.organization.findMany({
-      where: ids ? { id: { in: ids } } : {},
+      where: { id: { in: ids } },
       orderBy: { createdAt: 'desc' },
       /*
         `movies` is counted so the console can stop showing film navigation to organizers who do
@@ -202,8 +205,6 @@ export class OrganizationsService {
       */
       include: { _count: { select: { members: true, events: true, venues: true, movies: true } } },
     });
-    if (ids === null) return orgs.map((org) => ({ ...org, myRole: null }));
-
     const memberships = await this.prisma.organizationMember.findMany({
       where: { userId: user.id, status: 'ACTIVE' },
       select: { organizationId: true, role: true },
@@ -212,8 +213,16 @@ export class OrganizationsService {
     return orgs.map((org) => ({ ...org, myRole: roles.get(org.id) ?? null }));
   }
 
+  /**
+   * One organization, for its members - and for platform staff holding ORGANIZER_READ, which
+   * is what the admin console's organizer page reads. The readiness and actions routes use
+   * this as their gate too; both are reads.
+   */
   async get(user: RequestUser, id: string) {
-    await this.access.assertMember(user, id);
+    await this.access.assertMember(user, id, undefined, {
+      permission: AdminPermission.ORGANIZER_READ,
+      operation: 'organization.read',
+    });
     const org = await this.prisma.organization.findUnique({
       where: { id },
       /*
@@ -484,7 +493,12 @@ export class OrganizationsService {
   }
 
   async listMembers(user: RequestUser, orgId: string) {
-    await this.access.assertMember(user, orgId, [Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER]);
+    // Platform staff: the admin console's organizer page lists the team. A read, so a read
+    // capability; inviting or changing anybody stays with the organization's own owner.
+    await this.access.assertMember(user, orgId, [Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER], {
+      permission: AdminPermission.ORGANIZER_READ,
+      operation: 'organization.members.read',
+    });
     return this.prisma.organizationMember.findMany({
       where: { organizationId: orgId },
       include: { user: { select: { id: true, email: true, fullName: true } } },

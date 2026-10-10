@@ -96,7 +96,8 @@ function setup(opts: { amountMinor: number; hasPayment: boolean }) {
     {
       isPlatformAdmin: () => true,
       assertMember: async () => undefined,
-      assertPlatformAdmin: async () => undefined,
+      // Staff deciding a refund hold REFUND_APPROVE here; the rule is tested in refunds.service.spec.
+      assertPlatformCapability: async () => undefined,
     } as never,
     { record: jest.fn().mockResolvedValue(undefined) } as never,
     notifications as never,

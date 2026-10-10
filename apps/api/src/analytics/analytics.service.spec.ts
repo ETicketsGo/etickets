@@ -246,11 +246,12 @@ describe('AnalyticsService.organizer', () => {
     expect(failures.slice(1)).toEqual(['o1']);
   });
 
-  it('grants financial fields to platform admins regardless of membership', async () => {
-    const { service, prisma } = makeService({ isAdmin: true, membershipRole: null });
+  it('does not show money for a platform role alone: membership decides', async () => {
+    // The tenant check is mocked open here; in production it refuses staff who are not
+    // members (OrgAccessService). Even past it, a platform role is not an organizer role.
+    const { service } = makeService({ isAdmin: true, membershipRole: null });
     const r = await service.organizer(owner, 'o1');
-    expect(r.revenue?.[0].grossMinor).toBe(100000);
-    expect(prisma.organizationMember.findUnique).not.toHaveBeenCalled();
+    expect(r.revenue).toBeUndefined();
   });
 });
 
@@ -345,7 +346,7 @@ describe('AnalyticsService.venue', () => {
     expect(prisma.booking.aggregate).not.toHaveBeenCalled();
   });
 
-  it('shows revenue to a manager and to a platform admin', async () => {
+  it('shows revenue to a manager, and not to a platform role alone', async () => {
     const manager = await makeService({ membershipRole: 'ORGANIZER_MANAGER' }).service.venue(
       owner,
       'v1',
@@ -355,7 +356,7 @@ describe('AnalyticsService.venue', () => {
       owner,
       'v1',
     );
-    expect(admin.revenue?.grossMinor).toBe(100000);
+    expect(admin.revenue).toBeUndefined();
   });
 });
 

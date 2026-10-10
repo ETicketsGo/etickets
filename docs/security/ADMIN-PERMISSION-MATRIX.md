@@ -1,6 +1,6 @@
 # Admin permission matrix
 
-Status: current as of branch `feat/authz-read-write-execute` (base `main` 2358921).
+Status: current as of branch `fix/admin-organizer-bypass` (base `main` eb4534b).
 Source of truth: `packages/shared-types/src/admin-permissions.ts` (catalogue and presets) and the
 `@RequiresAdmin(...)` decorators on each controller. This document describes them. It does not
 replace them.
@@ -185,28 +185,215 @@ Listed, not changed (product decisions):
   - return fewer fields from `get`. Do not restrict `get` itself: other routes use it as a membership gate.
 - **Route and service mismatch.** `@Roles` on Stripe and Razorpay linking lists MANAGER, but the
   service allows the owner only. This is harmless, because the service decides.
-- **Defence in depth.** `collect-cash` calls `assertMember` with no role list. It is correct today
-  because only three membership roles exist. Passing the list explicitly would keep it correct if a
-  role is added.
-- **Platform-admin bypass (most important follow-up).** `assertMember` lets any `ADMIN` through
-  with **no capability check**. Any back-office account, even one holding no capability at all, can
-  therefore call organizer-side writes for any organization. Two exceptions are covered:
-  - refund approval is checked in `RefundsService`;
-  - `/admin` routes have their own guard.
+- **Defence in depth (fixed).** `collect-cash` now passes its three roles to `assertMember`
+  explicitly, so it stays correct if a membership role is added.
+- **Platform-admin bypass (fixed).** See "Organizer API: platform staff" below.
 
-  The exposed writes include:
-  - `POST /payouts/accounts` (payout bank account);
-  - `POST /payouts/generate`;
-  - `POST /payments/:id/collect-cash`;
-  - legal identity;
-  - event and coupon edits;
-  - check-in reversal.
+## Organizer API: platform staff
 
-  `admin-surface.spec.ts` deliberately excludes these shared routes, because putting
-  `@RequiresAdmin` on them would lock organizers out. The fix belongs in `OrgAccessService`, for
-  example by requiring a named capability for platform staff acting inside an organization. It
-  touches payout and payment paths, which this change may not modify, so it is reported here for
-  an owner decision.
+### Root cause
+
+`OrgAccessService.assertMember` returned early for any account with the `ADMIN` or `SUPER_ADMIN`
+role. It did not look up a membership and it did not check a capability. Every organizer route
+asserts membership through it. So a back-office account **holding no capability at all** could do
+all of the following, for **every** organization:
+
+- save the payout bank account (`POST /payouts/accounts`);
+- raise a payout (`POST /payouts/generate`);
+- record cash at the counter (`POST /payments/:bookingId/collect-cash`);
+- rewrite legal identity (`PATCH /organizations/:id/legal-identity`);
+- link a Stripe or Razorpay payout account;
+- create, edit, publish, pause and delete events, sessions, ticket types, coupons, add-ons,
+  bundles, venues, cinemas, screens, seat layouts and shows;
+- invite team members, including a new OWNER;
+- reverse check-ins and approve check-in devices;
+- read every organizer report, payout figure, attendee list and export.
+
+`managedOrganizationIds` returned "every organization" for staff, so the organizer console listed
+all of them. Four services also had their own `isPlatformAdmin` shortcut: event and analytics
+money fields, attendee contact details, refund requests and refund lists.
+
+### The rule now
+
+1. **Membership decides.** A member with an allowed role passes, as before. This includes a staff
+   account that is also a member. Members are not audited as platform access.
+2. **A platform role alone opens nothing.** A staff account that is not a member passes only
+   where the call site names a `PlatformPolicy` (`{ permission, operation }`) and the account
+   holds that capability. Most call sites name no policy, so most operations are closed to staff
+   **by default**. A new organizer route is therefore safe even if nobody remembers to close it.
+3. **Every staff attempt is audited**, allowed or refused. See "Audit rows".
+4. **Money and identity routes refuse staff at the door.** On a route marked `@OrganizerOnly`,
+   `OrganizerOnlyGuard` refuses a staff account before the handler runs, and records the attempt.
+   The guard runs before `RolesGuard`. `ADMIN` and `SUPER_ADMIN` are removed from the `@Roles` of
+   these routes. One exception: a staff account that is an ACTIVE member of some organization
+   (because it registered its own) goes on to the handler. There, membership of the target
+   organization decides. The door checks membership, not the global `ORGANIZER_*` role. The
+   seeded super admin on QA carries `ORGANIZER_OWNER` but belongs to no organization, and a role
+   check would let it past.
+5. **Super admin.** A super admin holds every capability by role, so it passes every **named**
+   policy below. Where no policy is named, it is refused. At the `@OrganizerOnly` door it is
+   refused like any other staff account. There is no "super admin can do anything on the
+   organizer API" path. Each operation a super admin can perform is listed in the next table, and
+   each one is audited.
+6. **The organization is resolved on the server.** Each check uses the organization of the
+   resource (event, ticket, booking, device, session). It never uses an id that the client sends
+   next to the resource. One route got this wrong and is fixed here (see "Cross-organization
+   ids").
+
+No new capability was added. Nothing was granted to anybody.
+
+### What platform staff may do on the organizer API
+
+| Route                                                    | Capability       | Operation (audit)           | Why                                              |
+| -------------------------------------------------------- | ---------------- | --------------------------- | ------------------------------------------------ |
+| `GET /organizations/:id` (also `/readiness`, `/actions`) | `ORGANIZER_READ` | `organization.read`         | Admin console organizer page                     |
+| `GET /organizations/:id/members`                         | `ORGANIZER_READ` | `organization.members.read` | Admin console organizer page                     |
+| `GET /events/:id`                                        | `ORGANIZER_READ` | `event.read`                | Admin console event page                         |
+| `DELETE /events/:id`                                     | `EVENT_REVIEW`   | `event.delete`              | Admin console Delete, no bookings (moderation)   |
+| `GET /refunds/booking/:bookingId`                        | `BOOKING_READ`   | `refund.list-for-booking`   | Admin console booking page                       |
+| `POST /refunds/:id/process`                              | `REFUND_APPROVE` | `refund.decide`             | Admin refund queue (same rule, now also audited) |
+
+**Nothing else.** Every other organizer operation is refused to staff who are not members. Staff
+do these on `/admin` instead, where each has its own capability:
+
+- payout accounts: reveal and verify need `PAYOUT_MANAGE`;
+- legal identity needs `ORGANIZER_REVIEW`;
+- event status needs `EVENT_REVIEW`;
+- refunds need `REFUND_REVIEW` or `REFUND_APPROVE`.
+
+### Refused at the door (`@OrganizerOnly`) for every staff account, super admin included
+
+| Route                                                      | Operation (audit)                    |
+| ---------------------------------------------------------- | ------------------------------------ |
+| `POST /payouts/accounts`                                   | `payout.account.save`                |
+| `POST /payouts/generate`                                   | `payout.generate`                    |
+| `POST /payments/:bookingId/collect-cash`                   | `cash.collect`                       |
+| `PATCH /organizations/:id/legal-identity`                  | `organization.legal-identity.update` |
+| `/organizers/:organizerId/payments/stripe/*` and `/status` | `payments.stripe-connect`            |
+| `/organizers/:organizerId/payments/razorpay/*`             | `payments.razorpay-route`            |
+| `GET /organizations/:organizationId/receipts`              | `organization.receipts.list`         |
+| `GET /organizations/:organizationId/refunds`               | `organization.refunds.list`          |
+
+### Every other route
+
+`apps/api/src/tenancy/organizer-route-policy.spec.ts` lists **all 226** non-admin, non-public
+routes, each with its staff policy. If a route is added without an entry, the build fails. The
+policies are:
+
+- `NONE`: organizer operations. The tenant check refuses staff, and the refusal is audited. This
+  covers:
+  - events, sessions, ticket types, images and seating;
+  - add-ons, bundles and coupons;
+  - venues, spaces, cinemas, screens, seat classes, movies, shows, pricing, seat layouts and seat
+    blocks;
+  - check-in, offline devices, drills, activation, reconciliation and the command center;
+  - the calendar, reports, analytics, attendees and exports, and the organizer AI;
+  - payout reads and receipts;
+  - the organization profile, logo, cover, cash switch and team invites.
+- `ORGANIZER_ONLY`: the routes in the table above.
+- `SELF`: the caller's own account, bookings and tickets.
+- `ADMIN_ROUTE`: `GET /users` and `GET /users/directory-summary` (`@RequiresAdmin(BOOKING_READ)`).
+- `CUSTOMER_RESOURCE_STAFF_BY_ROLE`: see "Not changed, reported".
+
+### Organizer members (no regression)
+
+The organizer role matrix above is unchanged. Real HTTP tests prove that:
+
+- the owner can save the bank account and edit legal identity and events;
+- the manager can edit events and read payouts, and cannot change the bank account or legal
+  identity;
+- check-in staff can read their organization and reach collect-cash. They cannot edit events,
+  read payouts or raise a payout;
+- the owner of another organization is refused everything, even when the request names that
+  owner's own organization.
+
+### Payout bank account safeguards
+
+Found:
+
+- The account number is encrypted at rest (`PAYOUT_BANK_ENCRYPTION_KEY`). The API shows only
+  the last 4 digits.
+- Saving an account clears any earlier verification.
+- The save is audited (`PAYOUT_ACCOUNT_SAVED`, last 4 digits only).
+- Verify and reveal are on `/admin/payouts`. They need `PAYOUT_MANAGE` and are audited. A reveal
+  needs a reason.
+
+Missing. These are reported here, not built:
+
+- **No maker-checker.** Nothing stops the person who verifies an account from being the person
+  who entered it. Before this change, one finance account (`PAYOUT_MANAGE`) could save a bank
+  account through the bypass, verify it, and mark a payout paid to it. Blocking staff from the
+  save closes that path. A rule "verifier is not `updatedByUserId`" does not exist yet.
+- The owner gets no notice when bank details change.
+- A changed account can receive a payout at once. There is no cooling-off period and no second
+  approval.
+
+Blocked: `POST /payouts/accounts` for every platform staff account, super admin included. The
+owner's own flow is unchanged.
+
+### Audit rows
+
+`PLATFORM_ORGANIZER_ACCESS_ALLOWED` is written when a staff account passes a named policy.
+`PLATFORM_ORGANIZER_ACCESS_DENIED` is written when the tenant check or the door refuses a staff
+account. Both rows carry:
+
+- `actorUserId`;
+- `organizationId`: the resource's organization;
+- `entityType` and `entityId`;
+- `correlationId`;
+- `metadata`: `result`, `operation`, `permission`, `reason` and `request`.
+
+`reason` is `CAPABILITY_HELD`, `CAPABILITY_MISSING` or `NO_PLATFORM_POLICY`. Where no policy is
+named, `operation` is the request line, for example `PATCH /api/events/...`.
+
+At the door, the organization recorded is the one the request **names**, and the row says so. The
+request is refused whatever it names. For collect-cash, the row records the booking id instead.
+Members are not audited as platform access. Their writes keep the audit rows they had before.
+
+### Cross-organization ids
+
+Every organizer route that takes an organization id together with a resource id was checked.
+Each one either checks that the resource belongs to that organization or takes the organization
+from the resource. The exceptions:
+
+- **Fixed:** `POST /checkin/command-center/alerts/ack`. A manager of org A could send org A's id
+  with a session id of org B. This acknowledged org B's live gate alerts, or overwrote who had
+  acknowledged them. The session's organization is now checked first.
+- **Fixed:** `GET /checkin/offline-readiness` and `GET /checkin/activation` read the manifest by
+  session only. This leaked one bit about another organization's session. They now also filter
+  by organization.
+- **Not fixed (low risk, data only):** `POST /checkin/devices` and `POST /checkin/drills` store an
+  event or session id without checking it. Every read is scoped to the caller's organization, so
+  nothing of the other organization can be read or changed.
+
+### Not changed, reported
+
+- **Customer resources reached by staff role.** These routes check `ADMIN` directly, with no
+  capability:
+  - `GET /bookings/:id`, `POST /bookings/:id/cancel` and `POST /bookings/:id/pay`;
+  - Razorpay verify;
+  - `GET /tickets/:id`;
+  - attendee assign, invite, transfer, unassign and resend;
+  - share links.
+
+  These are customer resources, not organizer resources. They are listed as
+  `CUSTOMER_RESOURCE_STAFF_BY_ROLE` and need the same fix in a follow-up. The admin console uses
+  `GET /bookings/:id`, so the gate there should be `BOOKING_READ`.
+
+- **`POST /refunds` by staff is now refused.** Staff could open a refund request as `staff` on any
+  customer's booking. That lifts the transferred-ticket rule, and on a free booking it cancels the
+  tickets at once. No console uses it. The owner should decide which capability, if any, opens it.
+- **Razorpay linked-account id.** Nothing stops two organizations from linking the same `acc_...`
+  id.
+- **Payout scope bug (payout code, not touched here).** In `payouts.service.ts`, three queries
+  have the same bug: `payableBookingWhere`, the refund query and the held-revenue query. Each one
+  spreads `eventId: scope.eventId`, and then `eventId: { notIn: transferredEventIds }` overwrites
+  it. Suppose an event-scoped payout is raised for an event with a claimed settlement. The payout
+  then settles the bookings of every other event. This should not be reachable while provider
+  transfers are off. The fix is to combine the two conditions with `AND`.
+- **Event detail needs `ORGANIZER_READ`.** The admin event page opens with `EVENT_REVIEW`, but it
+  reads the event with `ORGANIZER_READ`. The MODERATOR preset holds both. A custom account with
+  only `EVENT_REVIEW` is now refused on that page.
 
 ## Tests that enforce this
 
@@ -231,5 +418,34 @@ Listed, not changed (product decisions):
 - `apps/api/src/auth/admin-surface.spec.ts` has a new rule: across **every** controller, no
   staff-only POST, PUT, PATCH or DELETE may resolve to a read capability. The one named exception is
   the compensation dry run. **Load-bearing:** removing the new decorator from `PATCH /admin/support/:id` fails it.
+- `apps/api/src/tenancy/organizer-platform-access.integration-postgres.spec.ts` drives the real
+  application with real signed tokens and real Postgres. It tests six staff accounts: zero grants,
+  every read, the FINANCE preset, the SUPPORT preset, the MODERATOR preset and super admin. Each
+  is refused:
+  - the bank account, payout generation and collect-cash;
+  - legal identity and Razorpay linking;
+  - payout account reads, event edits and team invites.
+
+  For each refusal the test reads Postgres back to prove nothing was written, and checks the
+  audit row. The two documented reads and the EVENT_REVIEW delete are allowed and audited. Owner,
+  manager, check-in staff and another organization's owner are also tested.
+
+  **Load-bearing:**
+  - old bypass, old `@Roles` and the door disabled: 44 of its then 60 tests fail;
+  - the bypass alone restored: 29 tests fail across this spec and the unit spec;
+  - the door alone disabled: 6 tests fail;
+  - the door checking the global organizer role instead of membership: the QA-shaped super admin
+    (with `ORGANIZER_OWNER` and no organization) gets past it, and 2 tests fail. One of them is
+    collect-cash, where the handler ran and answered 404.
+
+- `apps/api/src/tenancy/organizer-route-policy.spec.ts` checks every non-admin route against its
+  written staff policy:
+  - the `@OrganizerOnly` door is on exactly the ORGANIZER_ONLY routes;
+  - `ADMIN` appears in `@Roles` only where it is allowed;
+  - every `{ permission, operation }` in production code is documented.
+
+  **Load-bearing:** removing the door from `POST /payouts/generate` fails it. So does renaming a
+  documented operation.
+
 - `apps/admin-web/lib/capabilities.test.ts` checks that controls stay hidden from read-only holders
   and that the notes are ASCII.

@@ -224,7 +224,7 @@ describe('integration-real-postgres: organizer attendee list + CSV export', () =
     }
     svc = new EventAttendeesService(
       db as never,
-      new OrgAccessService(db as never),
+      new OrgAccessService(db as never, { record: async () => undefined } as never),
       new AuditService(db as never),
     );
 
