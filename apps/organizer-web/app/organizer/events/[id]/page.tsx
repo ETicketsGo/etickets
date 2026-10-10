@@ -17,6 +17,7 @@ import {
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
 import { SellabilityPanel } from '@/components/sellability-panel';
+import { PendingImageUploads } from '@/components/image-upload-status';
 import { ReadMore } from '@/components/events/read-more';
 import {
   QuickLinks,
@@ -190,6 +191,12 @@ export default function EventOverview() {
         onPause={() => pause.mutate()}
         onDelete={() => setConfirmDelete(true)}
         busy={{ submit: submit.isPending, resume: resume.isPending, pause: pause.isPending }}
+      />
+
+      {/* Images picked in the wizard that are not on the event yet, on the device that has them. */}
+      <PendingImageUploads
+        eventId={id}
+        onUploaded={() => qc.invalidateQueries({ queryKey: ['event', id] })}
       />
 
       <ManageTiles event={event} />

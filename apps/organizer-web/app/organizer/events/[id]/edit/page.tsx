@@ -24,6 +24,7 @@ import {
   type GalleryTile,
 } from '@/components/event-image-picker';
 import { EventImageFocus } from '@/components/event-image-focus';
+import { PendingImageUploads } from '@/components/image-upload-status';
 import {
   EMPTY_EVENT_DETAILS,
   EventDetailsFields,
@@ -281,37 +282,40 @@ export default function EditEvent() {
               disabled={!editable}
             />
           </div>
-          <EventGalleryEditor
-            tiles={[
-              ...(event.images ?? []).map((image) => ({
-                key: image.id,
-                url: apiAssetUrl(image.path) ?? '',
-              })),
-              ...pending,
-            ]}
-            disabled={IMAGES_LOCKED.includes(event.status)}
-            // Order and removal wait for uploads, so a reorder never names a half-saved list.
-            busy={uploadingCount > 0 || removeImage.isPending || reorderImages.isPending}
-            error={imageError}
-            note={
-              IMAGES_LOCKED.includes(event.status)
-                ? `This event is ${event.status.toLowerCase()}, so its images can no longer be changed.`
-                : !editable
-                  ? 'Images can be changed while the event is live; the other fields need it paused.'
-                  : null
-            }
-            onAdd={addImages}
-            onRemove={(key) => {
-              const failed = pending.find((tile) => tile.key === key);
-              if (failed) {
-                setPending((tiles) => tiles.filter((tile) => tile.key !== key));
-                release(failed.url);
-              } else {
-                removeImage.mutate(key);
+          <div className="space-y-4">
+            <PendingImageUploads eventId={id} onUploaded={refreshEvent} />
+            <EventGalleryEditor
+              tiles={[
+                ...(event.images ?? []).map((image) => ({
+                  key: image.id,
+                  url: apiAssetUrl(image.path) ?? '',
+                })),
+                ...pending,
+              ]}
+              disabled={IMAGES_LOCKED.includes(event.status)}
+              // Order and removal wait for uploads, so a reorder never names a half-saved list.
+              busy={uploadingCount > 0 || removeImage.isPending || reorderImages.isPending}
+              error={imageError}
+              note={
+                IMAGES_LOCKED.includes(event.status)
+                  ? `This event is ${event.status.toLowerCase()}, so its images can no longer be changed.`
+                  : !editable
+                    ? 'Images can be changed while the event is live; the other fields need it paused.'
+                    : null
               }
-            }}
-            onReorder={(imageIds) => reorderImages.mutate(imageIds)}
-          />
+              onAdd={addImages}
+              onRemove={(key) => {
+                const failed = pending.find((tile) => tile.key === key);
+                if (failed) {
+                  setPending((tiles) => tiles.filter((tile) => tile.key !== key));
+                  release(failed.url);
+                } else {
+                  removeImage.mutate(key);
+                }
+              }}
+              onReorder={(imageIds) => reorderImages.mutate(imageIds)}
+            />
+          </div>
         </div>
         {(event.images?.length ?? 0) > 0 && (
           <EventImageFocus
