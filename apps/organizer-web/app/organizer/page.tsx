@@ -22,7 +22,6 @@ import {
   SegmentedControl,
   Skeleton,
   SkeletonCard,
-  StatCard,
   StatusBadge,
   dateOnly,
   MARKETS,
@@ -39,6 +38,7 @@ import {
   COMING_UP_DAYS,
   eventsStartingWithin,
   greetingDate,
+  greetingDateShort,
   homeWindow,
   moneyFor,
   monthWindow,
@@ -59,6 +59,7 @@ import { sellingOf, setupSummary, type SetupSummary } from './_dashboard/status'
 import { WelcomeHero } from './_dashboard/hero';
 import { NoUpcomingEvents, UpcomingEventCard } from './_dashboard/upcoming-events';
 import { MonthCard } from './_dashboard/month-card';
+import { GlanceCard } from './_dashboard/glance-card';
 import { ActivityTimeline, QuickActions, quickActionsFor } from './_dashboard/side-panels';
 
 /**
@@ -289,6 +290,7 @@ export default function OrganizerDashboard() {
       verified={!!activeOrg.verified}
       firstName={firstName}
       dateLine={greetingDate(now)}
+      shortDateLine={greetingDateShort(now)}
       dayLine={dayLine}
       setupOpen={actionsQ.data ? setup.open : null}
       feature={featured ?? null}
@@ -342,14 +344,14 @@ export default function OrganizerDashboard() {
           )}
         </div>
         {loading ? (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
             {Array.from({ length: can.financials ? 4 : 2 }).map((_, i) => (
               <SkeletonCard key={i} variant="stat" label="Loading figures" />
             ))}
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <StatCard
+          <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
+            <GlanceCard
               /*
                 Tickets buyers hold now: issued and not refunded, cancelled or voided (the
                 analytics `attendance.issued`), with how many of them have been scanned in.
@@ -364,7 +366,7 @@ export default function OrganizerDashboard() {
                   : 'Valid tickets buyers hold'
               }
             />
-            <StatCard
+            <GlanceCard
               icon={CalendarClock}
               tile="amber"
               label="Upcoming events"
@@ -377,7 +379,7 @@ export default function OrganizerDashboard() {
               }
             />
             {can.financials && (
-              <StatCard
+              <GlanceCard
                 icon={currencyIcon(activeCurrency)}
                 tile="blue"
                 label="Gross sales"
@@ -386,7 +388,7 @@ export default function OrganizerDashboard() {
               />
             )}
             {can.financials && (
-              <StatCard
+              <GlanceCard
                 icon={Wallet}
                 tile="purple"
                 label="Net proceeds"
@@ -558,8 +560,36 @@ export default function OrganizerDashboard() {
                   A focusable, named region: on a phone the table scrolls sideways, and a
                   scroll area a keyboard cannot reach is content a keyboard user cannot read.
                 */}
+                {/*
+                  On a phone, one small card per market: seven columns do not fit 320px, and a
+                  table cut off mid-word at the screen edge reads as broken, not as scrollable.
+                */}
+                <ul className="divide-y divide-border border-t border-border sm:hidden">
+                  {markets.map((m) => (
+                    <li key={m.currency} className="px-4 py-3">
+                      <p className="text-ui font-semibold text-text-primary">{marketName(m)}</p>
+                      <dl className="mt-1.5 grid grid-cols-1 gap-x-4 gap-y-1 text-caption min-[360px]:grid-cols-2">
+                        {(
+                          [
+                            ['Gross sales', money(m.grossMinor, m.currency)],
+                            ['Net proceeds', money(m.netMinor, m.currency)],
+                            ['Refunds', money(m.refundsMinor, m.currency)],
+                            ['Paid bookings', String(m.paidBookings)],
+                            ['All bookings', String(m.totalBookings)],
+                            ['Payment failures', String(m.paymentFailures)],
+                          ] as const
+                        ).map(([term, value]) => (
+                          <div key={term} className="flex min-w-0 justify-between gap-2">
+                            <dt className="text-text-muted">{term}</dt>
+                            <dd className="tabular-nums text-text-primary">{value}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                    </li>
+                  ))}
+                </ul>
                 <div
-                  className="overflow-x-auto rounded-b-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="hidden overflow-x-auto rounded-b-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:block"
                   tabIndex={0}
                   role="region"
                   aria-label="Sales by market"
@@ -868,14 +898,18 @@ function MoneyBreakdown({ cash, fmt }: { cash: MarketMoney; fmt: (minor: number)
         </div>
         <div className="flex justify-between gap-3 px-4 py-2.5">
           <dt className="text-text-secondary">Less your fees</dt>
-          <dd className="tabular-nums text-text-primary">- {fmt(cash.organizerFeesMinor)}</dd>
+          <dd className="whitespace-nowrap tabular-nums text-text-primary">
+            - {fmt(cash.organizerFeesMinor)}
+          </dd>
         </div>
         <div className="flex justify-between gap-3 px-4 py-2.5">
           <dt className="text-text-secondary">
             Less refunds{' '}
             <span className="text-micro text-text-muted">({cash.refundRate}% of gross)</span>
           </dt>
-          <dd className="tabular-nums text-text-primary">- {fmt(cash.refundsMinor)}</dd>
+          <dd className="whitespace-nowrap tabular-nums text-text-primary">
+            - {fmt(cash.refundsMinor)}
+          </dd>
         </div>
         <div className="flex justify-between gap-3 bg-tint-primary px-4 py-3 font-semibold">
           <dt className="text-text-primary">Net proceeds</dt>

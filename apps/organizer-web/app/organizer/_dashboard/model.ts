@@ -223,6 +223,17 @@ export function greetingDate(now: Date = new Date(), zone?: string): string {
   }).format(now);
 }
 
+/** "Sat, 10 Oct 2026": the greeting's date on a phone. */
+export function greetingDateShort(now: Date = new Date(), zone?: string): string {
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: zone,
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  }).format(now);
+}
+
 /** How many days ahead the Overview's calendar read reaches past today, inside the API's 62. */
 export const HOME_DAYS_AHEAD = 27;
 

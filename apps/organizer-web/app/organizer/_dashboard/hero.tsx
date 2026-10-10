@@ -22,6 +22,7 @@ export function WelcomeHero({
   verified,
   firstName,
   dateLine,
+  shortDateLine,
   dayLine,
   setupOpen,
   feature,
@@ -32,6 +33,8 @@ export function WelcomeHero({
   firstName?: string;
   /** "Saturday, 10 October 2026", in the viewer's zone. */
   dateLine: string;
+  /** "Sat, 10 Oct 2026": the same date for a phone, so the line stays one or two lines long. */
+  shortDateLine?: string;
   /** One sentence about the day, from real counts; absent when they could not be read. */
   dayLine?: string;
   /** Open setup steps, or null while unknown. */
@@ -60,7 +63,7 @@ export function WelcomeHero({
             'radial-gradient(closest-side, hsl(var(--tile-teal-foreground) / 0.16), transparent 70%), repeating-radial-gradient(circle at center, transparent 0 22px, hsl(var(--tile-teal-foreground) / 0.08) 22px 23px)',
         }}
       />
-      <div className="flex h-full flex-col gap-5 p-5 sm:p-6 lg:flex-row lg:items-center lg:gap-8 lg:p-7">
+      <div className="flex h-full flex-col gap-5 p-4 sm:p-6 lg:flex-row lg:items-center lg:gap-8 lg:p-7">
         <div className="min-w-0 flex-1">
           <p
             className="line-clamp-2 break-words text-micro font-semibold uppercase tracking-[0.08em] text-action-primary"
@@ -74,11 +77,18 @@ export function WelcomeHero({
           >
             Welcome back{firstName ? `, ${firstName}` : ''}
           </h1>
-          <p className="mt-2 text-[0.9375rem] text-text-secondary">
-            <span className="font-medium text-text-primary">{dateLine}</span>
+          <p className="mt-1.5 text-ui text-text-secondary sm:mt-2 sm:text-[0.9375rem]">
+            {shortDateLine ? (
+              <>
+                <span className="font-medium text-text-primary sm:hidden">{shortDateLine}</span>
+                <span className="hidden font-medium text-text-primary sm:inline">{dateLine}</span>
+              </>
+            ) : (
+              <span className="font-medium text-text-primary">{dateLine}</span>
+            )}
             {dayLine ? <span>. {dayLine}</span> : null}
           </p>
-          <div className="mt-4 flex flex-wrap items-center gap-2">
+          <div className="mt-3 flex flex-wrap items-center gap-2 sm:mt-4">
             <StatusPill tone={orgStatus === 'APPROVED' ? 'success' : 'warning'}>
               {orgStatusLabel(orgStatus)}
             </StatusPill>

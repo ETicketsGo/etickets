@@ -91,7 +91,7 @@ export function QuickActions({ actions }: { actions: QuickAction[] }) {
           >
             <Link
               href={a.href}
-              className={`group flex min-h-[3rem] items-center gap-2 rounded-md px-2.5 py-2 text-[0.8125rem] font-semibold sm:px-3 transition-[filter,transform] duration-150 hover:brightness-[0.97] active:translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background-surface motion-reduce:transition-none dark:hover:brightness-125 ${tileClasses(a.tone)}`}
+              className={`group flex min-h-[2.75rem] items-center sm:min-h-[3rem] gap-2 rounded-md px-2.5 py-2 text-[0.8125rem] font-semibold sm:px-3 transition-[filter,transform] duration-150 hover:brightness-[0.97] active:translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background-surface motion-reduce:transition-none dark:hover:brightness-125 ${tileClasses(a.tone)}`}
             >
               <a.icon className="h-4 w-4 shrink-0" aria-hidden />
               <span className="min-w-0 flex-1 truncate text-text-primary">{a.label}</span>
