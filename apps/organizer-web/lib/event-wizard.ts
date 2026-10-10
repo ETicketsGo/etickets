@@ -57,10 +57,10 @@ export const WIZARD_STEPS: readonly WizardStep[] = [
     id: 'basics',
     title: 'Basics',
     intro: 'What the event is called, how buyers find it, and its pictures.',
-    required: 'Needed: a title and a category. Pictures are optional.',
+    required: 'Needed: a title and a category. Images are optional.',
     tips: [
       'Put the name buyers would search for first: the artist, the show or the team.',
-      'A wide picture works best. The first one is the cover; click it to choose what always shows.',
+      'A wide image works best. The first one is the cover; click it to choose what always shows.',
       'You can change all of this later from the event page.',
     ],
   },
@@ -250,6 +250,103 @@ export function newTicketRow(tickets: TicketDraft[], sessionIndex = 0): TicketDr
   };
 }
 
+/** A starting set of ticket names, offered as one click on the tickets step. */
+export interface TicketPreset {
+  id: string;
+  /** The names joined, as the button says it: "General + VIP". */
+  label: string;
+  names: readonly string[];
+}
+
+/**
+ * ── STARTING SETS, PER KIND OF EVENT ─────────────────────────────────────────────────
+ * Walking the wizard as a first-time organizer, "two kinds of ticket" took five separate
+ * actions: add a row, name it, price it, size it, and check the limit. Most events start from
+ * one of a few shapes - one ticket, the usual one plus a premium one, or an early-bird price
+ * before the usual one - and the names come from the kind of event (`ticketSuggestions`).
+ *
+ * Names only. Nothing is priced for the organizer: a preset with prices in it is the kind of
+ * default that gets published by accident.
+ */
+export function ticketPresets(defaultName: string, suggestions: readonly string[]): TicketPreset[] {
+  const sets: string[][] = [[defaultName]];
+  if (suggestions[0]) sets.push([defaultName, suggestions[0]]);
+  if (suggestions[1]) sets.push([suggestions[1], defaultName]);
+  return sets.map((names) => ({
+    id: names.join('|').toLowerCase(),
+    label: names.join(' + '),
+    names,
+  }));
+}
+
+/**
+ * The ticket rows after choosing a starting set.
+ *
+ * A row the organizer already has under one of the set's names is kept as it is, prices and
+ * all, so pressing a set after typing never throws work away silently; every other row is
+ * replaced. A new row takes the first row's quantity and limit, which are the organizer's own
+ * answers (or the visible defaults), rather than an empty box to fill in again.
+ */
+export function applyTicketPreset(
+  tickets: TicketDraft[],
+  names: readonly string[],
+  sessionIndex = 0,
+): TicketDraft[] {
+  const first = tickets[0];
+  return names.map((name) => {
+    const kept = tickets.find(
+      (t) => t.sessionIndex === sessionIndex && t.name.trim().toLowerCase() === name.toLowerCase(),
+    );
+    return (
+      kept ?? {
+        ...newTicketRow(tickets, sessionIndex),
+        name,
+        quantityTotal: first?.quantityTotal ?? '',
+      }
+    );
+  });
+}
+
+/** Whether the rows are exactly a preset's names, in order - that button shows as chosen. */
+export function matchesPreset(tickets: TicketDraft[], names: readonly string[]): boolean {
+  return (
+    tickets.length === names.length &&
+    tickets.every((t, i) => t.name.trim().toLowerCase() === names[i].toLowerCase())
+  );
+}
+
+/**
+ * The title and category rule, shared by this wizard and the edit page, so the two say the same
+ * thing about the same field. The edit page saved a one-letter title the wizard would refuse.
+ */
+export function validateBasics(basics: { title: string; category: string }): FieldErrors {
+  const e: FieldErrors = {};
+  if (basics.title.trim().length < 3) e.title = 'Title must be at least 3 characters.';
+  if (!basics.category.trim()) e.category = 'Category is required.';
+  return e;
+}
+
+/**
+ * Who pays the booking fee, in the buyer's terms - one list for create and edit. The edit page
+ * showed the raw values ("CUSTOMER PAYS") under a different question ("Fee handling").
+ */
+export const FEE_MODE_CHOICES: readonly { value: string; label: string }[] = [
+  { value: 'CUSTOMER_PAYS', label: 'Customer pays fees' },
+  { value: 'ORGANIZER_PAYS', label: 'Organizer absorbs fees' },
+  { value: 'SHARED', label: 'Shared 50/50' },
+];
+
+/** When refunds close, measured back from the start. One list for create and edit. */
+export const REFUND_CUTOFF_CHOICES: readonly { value: string; label: string }[] = [
+  { value: '0', label: 'Right up to start time' },
+  { value: '2', label: '2 hours before' },
+  { value: '24', label: '24 hours before' },
+  { value: '48', label: '48 hours before' },
+  { value: '72', label: '3 days before' },
+  { value: '168', label: '7 days before' },
+  { value: '336', label: '14 days before' },
+];
+
 const isWholeNumber = (v: string) => /^\d+$/.test(v.trim());
 
 /**
@@ -260,10 +357,7 @@ const isWholeNumber = (v: string) => /^\d+$/.test(v.trim());
  */
 export function validateStep(stepId: WizardStepId, a: WizardAnswers): FieldErrors {
   const e: FieldErrors = {};
-  if (stepId === 'basics') {
-    if (a.basics.title.trim().length < 3) e.title = 'Title must be at least 3 characters.';
-    if (!a.basics.category.trim()) e.category = 'Category is required.';
-  }
+  if (stepId === 'basics') Object.assign(e, validateBasics(a.basics));
   if (stepId === 'where') {
     if (a.venueMode === 'existing' && !a.venueId) e.venueId = 'Select a venue.';
     if (a.venueMode === 'new') {

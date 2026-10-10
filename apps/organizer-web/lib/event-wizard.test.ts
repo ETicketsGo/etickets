@@ -10,6 +10,9 @@ import {
   initialWizardDraft,
   isMeaningfulDraft,
   newTicketRow,
+  applyTicketPreset,
+  matchesPreset,
+  ticketPresets,
   sessionsToSend,
   ticketsToSend,
   fieldIdForError,
@@ -596,5 +599,39 @@ describe('whether a draft is worth restoring', () => {
       { sessionIndex: 0, name: 'General', priceMajor: '', quantityTotal: '100', maxPerOrder: '6' },
     ]);
     expect(blank.admission).toBe('');
+  });
+});
+
+describe('ticket starting sets', () => {
+  it('offers one ticket, the usual plus a premium one, and an early price before the usual', () => {
+    expect(
+      ticketPresets('General', ['VIP', 'Early bird', 'Front row']).map((p) => p.label),
+    ).toEqual(['General', 'General + VIP', 'Early bird + General']);
+    // An experience with no suggestions has only the one-ticket set.
+    expect(ticketPresets('General', []).map((p) => p.label)).toEqual(['General']);
+  });
+
+  it('names the rows, never prices them, and keeps a row the organizer already priced', () => {
+    const typed = valid().tickets; // General, 499, 100 on sale
+    const rows = applyTicketPreset(typed, ['General', 'VIP']);
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toBe(typed[0]);
+    expect(rows[1]).toEqual({
+      sessionIndex: 0,
+      name: 'VIP',
+      priceMajor: '',
+      quantityTotal: '100',
+      maxPerOrder: '6',
+    });
+    expect(matchesPreset(rows, ['General', 'VIP'])).toBe(true);
+    expect(matchesPreset(rows, ['General'])).toBe(false);
+  });
+
+  it('replaces rows that are not in the chosen set', () => {
+    const rows = applyTicketPreset(
+      [...valid().tickets, { ...newTicketRow([]), name: 'Front row', priceMajor: '900' }],
+      ['General'],
+    );
+    expect(rows.map((t) => t.name)).toEqual(['General']);
   });
 });

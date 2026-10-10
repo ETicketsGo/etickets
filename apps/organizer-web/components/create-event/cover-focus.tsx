@@ -56,7 +56,7 @@ export function CoverFocus({
   return (
     <div className="space-y-2 rounded-md border border-border p-3">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <p className="text-sm font-medium text-text-primary">Cover focus point</p>
+        <p className="text-sm font-medium text-text-primary">Focus point</p>
         {!centred ? (
           <button
             type="button"
@@ -68,7 +68,8 @@ export function CoverFocus({
         ) : null}
       </div>
       <p id="cover-focus-hint" className="text-caption text-text-muted">
-        Click the part that must always show, such as a face or the name. Arrow keys move it too.
+        Click the part of the cover that must always show, such as a face or the name. Cards and the
+        event page banner are cut around it. Arrow keys move it too.
       </p>
       <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
         <div
@@ -85,7 +86,7 @@ export function CoverFocus({
           className="relative mx-auto w-full max-w-xs cursor-crosshair overflow-hidden rounded-md bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-action-primary"
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={url} alt="" className="block h-auto max-h-56 w-full object-contain" />
+          <img src={url} alt="" className="block h-auto max-h-44 w-full object-contain" />
           <span
             aria-hidden="true"
             className="pointer-events-none absolute flex h-7 w-7 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-background-surface/90 text-action-primary shadow-md ring-2 ring-action-primary"

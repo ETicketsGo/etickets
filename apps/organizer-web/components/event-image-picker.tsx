@@ -1,8 +1,17 @@
 'use client';
 
 import { useId, useRef, useState } from 'react';
-import { AlertTriangle, ArrowLeft, ArrowRight, ImagePlus, Loader2 } from 'lucide-react';
-import { Button } from '@eticketsgo/web-kit';
+import {
+  AlertTriangle,
+  ArrowLeft,
+  ArrowRight,
+  ImagePlus,
+  Loader2,
+  Star,
+  Trash2,
+  X,
+} from 'lucide-react';
+import { Button, FOCUS_RING, IconButton, IconTile } from '@eticketsgo/web-kit';
 
 /** What the picker offers, and what the API will recognise from the bytes. */
 export const EVENT_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
@@ -67,11 +76,6 @@ export interface GalleryTile {
   error?: string;
 }
 
-const ICON_BUTTON =
-  'inline-flex h-8 w-8 items-center justify-center rounded-md border border-border text-text-secondary hover:bg-background-subtle hover:text-text-primary disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50';
-const TEXT_BUTTON =
-  'inline-flex h-8 items-center rounded-md px-2 text-caption font-medium text-text-secondary hover:bg-background-subtle hover:text-text-primary disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50';
-
 /**
  * An event's images: add several — by picking or by dropping them — remove any, put them in
  * order, and choose the cover.
@@ -79,7 +83,8 @@ const TEXT_BUTTON =
  * ── THE FIRST IMAGE IS THE COVER ───────────────────────────────────────────────────
  * One rule instead of a separate "cover" flag that could point at an image since deleted. The
  * cover is what browse shows on the card and what the event page opens on; the rest are the
- * gallery beneath it. "Make cover" moves an image to the front; the arrows move it one place.
+ * gallery beneath it. "Make cover" (the star) moves an image to the front; the arrows move it one
+ * place. The cover tile is outlined and badged, so which one it is never needs reading.
  *
  * ── WHAT UPLOADING LOOKS LIKE ──────────────────────────────────────────────────────
  * A picked image appears as a tile immediately, marked "Uploading…", and becomes an ordinary
@@ -140,17 +145,24 @@ export function EventGalleryEditor({
   };
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2.5">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <label htmlFor={inputId} className="block text-sm font-medium text-text-primary">
           Event images <span className="font-normal text-text-muted">(optional)</span>
         </label>
-        <span className="text-caption text-text-muted" aria-live="polite">
+        <span className="text-caption tabular-nums text-text-muted" aria-live="polite">
           {ready.length} of {max}
           {uploading > 0 ? ` · uploading ${uploading}` : ''}
         </span>
       </div>
 
+      {/*
+        ── ONE COMPACT DROP AREA ───────────────────────────────────────────────────────
+        This was a tall dashed box (a third of the column's width high) with "choose them below"
+        and the button underneath it: on a phone the first thing on the step was an empty frame.
+        Now an empty picker is one short row with the button IN it, and a filled one is the
+        thumbnails with an "Add" tile at the end - the whole area still takes a drop.
+      */}
       <div
         onDragOver={(e) => {
           if (disabled || full) return;
@@ -164,8 +176,8 @@ export function EventGalleryEditor({
           if (disabled || full) return;
           accept(Array.from(e.dataTransfer.files));
         }}
-        className={`rounded-md border-2 border-dashed p-2 transition-colors ${
-          dragging ? 'border-action-primary bg-tint-primary' : 'border-border'
+        className={`rounded-lg transition-colors ${
+          dragging ? 'bg-tint-primary ring-2 ring-action-primary ring-offset-2' : ''
         }`}
       >
         {tiles.length > 0 ? (
@@ -177,9 +189,15 @@ export function EventGalleryEditor({
               return (
                 <li
                   key={tile.key}
-                  className="overflow-hidden rounded-md border border-border bg-background-surface"
+                  className={`overflow-hidden rounded-lg border bg-background-surface shadow-xs ${
+                    saved && index === 0 ? 'border-action-primary' : 'border-border'
+                  }`}
                 >
-                  <div className="relative bg-background-subtle">
+                  <div className="relative aspect-video bg-background-subtle">
+                    {/*
+                      Cover-cropped like the card buyers see, not letterboxed: a thumbnail with
+                      grey bars above and below read as a broken upload.
+                    */}
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={tile.url}
@@ -190,82 +208,116 @@ export function EventGalleryEditor({
                             ? 'Image uploading'
                             : 'Image not uploaded'
                       }
-                      className={`aspect-video w-full object-contain ${saved ? '' : 'opacity-50'}`}
+                      className={`absolute inset-0 h-full w-full object-cover ${saved ? '' : 'opacity-40'}`}
                     />
-                    {saved && index === 0 && (
-                      <span className="absolute left-2 top-2 rounded bg-black/75 px-1.5 py-0.5 text-caption font-medium text-white">
-                        Cover
+                    {saved ? (
+                      <span
+                        aria-hidden="true"
+                        className={`absolute left-1.5 top-1.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-micro font-semibold shadow-xs ${
+                          index === 0
+                            ? 'bg-action-primary text-action-primary-foreground'
+                            : 'bg-background-surface/90 text-text-primary'
+                        }`}
+                      >
+                        {index === 0 ? (
+                          <>
+                            <Star className="h-3 w-3" aria-hidden />
+                            Cover
+                          </>
+                        ) : (
+                          n
+                        )}
                       </span>
-                    )}
+                    ) : null}
                     {tile.status === 'uploading' && (
                       <span className="absolute inset-0 flex items-center justify-center gap-2 text-caption font-medium text-text-primary">
                         <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                        Uploading…
+                        Uploading...
                       </span>
                     )}
                     {tile.status === 'failed' && (
-                      <span className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-status-error/10 p-2 text-center text-caption text-status-error">
+                      <span className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-tint-error/90 p-2 text-center text-caption font-medium text-status-error">
                         <AlertTriangle className="h-4 w-4" aria-hidden />
                         {tile.error ?? 'Not uploaded'}
                       </span>
                     )}
                   </div>
-                  <div className="flex flex-wrap items-center gap-1 p-1.5">
+                  {/*
+                    One row of square buttons with names, so a tile never wraps onto a second
+                    and third line ("Make cover" and "Remove" used to stack on a phone).
+                  */}
+                  <div className="flex items-center gap-0.5 p-1">
                     {saved && (
                       <>
-                        <button
-                          type="button"
-                          className={ICON_BUTTON}
-                          aria-label={`Move image ${n} earlier`}
+                        <IconButton
+                          label={`Move image ${n} earlier`}
+                          icon={ArrowLeft}
+                          size="sm"
                           disabled={locked || index === 0}
                           onClick={() => move(index, index - 1)}
-                        >
-                          <ArrowLeft className="h-4 w-4" aria-hidden />
-                        </button>
-                        <button
-                          type="button"
-                          className={ICON_BUTTON}
-                          aria-label={`Move image ${n} later`}
+                        />
+                        <IconButton
+                          label={`Move image ${n} later`}
+                          icon={ArrowRight}
+                          size="sm"
                           disabled={locked || index === ready.length - 1}
                           onClick={() => move(index, index + 1)}
-                        >
-                          <ArrowRight className="h-4 w-4" aria-hidden />
-                        </button>
+                        />
                         {index > 0 && (
-                          <button
-                            type="button"
-                            className={TEXT_BUTTON}
-                            aria-label={`Make cover: image ${n}`}
+                          <IconButton
+                            label={`Make cover: image ${n}`}
+                            icon={Star}
+                            size="sm"
                             disabled={locked}
                             onClick={() => move(index, 0)}
-                          >
-                            Make cover
-                          </button>
+                          />
                         )}
                       </>
                     )}
                     {tile.status !== 'uploading' && (
-                      <button
-                        type="button"
-                        className={`${TEXT_BUTTON} ml-auto text-status-error`}
-                        aria-label={
-                          saved ? `Remove image ${n}` : 'Dismiss image that was not uploaded'
-                        }
+                      <IconButton
+                        label={saved ? `Remove image ${n}` : 'Dismiss image that was not uploaded'}
+                        icon={saved ? Trash2 : X}
+                        variant="danger"
+                        size="sm"
+                        className="ml-auto"
                         disabled={saved && locked}
                         onClick={() => onRemove(tile.key)}
-                      >
-                        {saved ? 'Remove' : 'Dismiss'}
-                      </button>
+                      />
                     )}
                   </div>
                 </li>
               );
             })}
+            {!full && !disabled ? (
+              <li>
+                <button
+                  type="button"
+                  onClick={() => input.current?.click()}
+                  className={`flex aspect-video w-full flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-border-strong bg-background-subtle text-caption font-medium text-text-secondary transition-colors hover:border-action-primary hover:text-text-primary ${FOCUS_RING}`}
+                >
+                  <ImagePlus className="h-5 w-5" aria-hidden />
+                  Add more images
+                </button>
+              </li>
+            ) : null}
           </ul>
         ) : (
-          <div className="flex aspect-[3/1] w-full flex-col items-center justify-center gap-2 text-center text-text-muted">
-            <ImagePlus className="h-8 w-8" aria-hidden />
-            <span className="text-sm">Drag images here, or choose them below</span>
+          <div className="flex items-center gap-3 rounded-lg border border-dashed border-border-strong bg-background-subtle px-3 py-3">
+            <IconTile icon={ImagePlus} tone="blue" size="sm" />
+            <p className="min-w-0 flex-1 text-caption text-text-secondary">
+              <span className="block font-medium text-text-primary">Add a cover image</span>
+              <span className="hidden sm:inline">Drag pictures here. </span>A wide one works best.
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={disabled}
+              onClick={() => input.current?.click()}
+            >
+              Choose images
+            </Button>
           </div>
         )}
       </div>
@@ -287,19 +339,10 @@ export function EventGalleryEditor({
           accept(files);
         }}
       />
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        disabled={disabled || full}
-        onClick={() => input.current?.click()}
-      >
-        {full ? `${max} images added` : ready.length ? 'Add more images' : 'Choose images'}
-      </Button>
       <p id={hintId} className="text-caption text-text-muted">
-        Up to {max}. The first image is the cover, shown on cards and at the top of your event page.
-        Those show a crop of it, and once it is saved you can choose what the crop keeps. JPG, PNG
-        or WebP; drag several in at once.
+        {full
+          ? `${max} images added, the most an event can have.`
+          : `The first image is the cover on cards and the event page. JPG, PNG or WebP, up to ${max}.`}
       </p>
       {note && <p className="text-caption text-text-secondary">{note}</p>}
       {error && (
