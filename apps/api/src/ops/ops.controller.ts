@@ -68,7 +68,15 @@ export class OpsController {
     return this.maintenance.getState();
   }
 
+  /*
+    Switching maintenance on serves a 503 to every customer and organizer, so it is a
+    platform-wide setting, not an operational read. It used to inherit this class's `OPS_READ`,
+    which let an account granted "see queue depth" take the whole storefront offline. Reading
+    the flag stays `OPS_READ`; changing it is `PLATFORM_CONFIG`, like every other setting that
+    affects every sale.
+  */
   @Post('maintenance')
+  @RequiresAdmin(AdminPermission.PLATFORM_CONFIG)
   @ApiOperation({ summary: 'Set the maintenance-mode flag (and optional message).' })
   async setMaintenance(
     @CurrentUser() user: RequestUser,

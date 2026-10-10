@@ -16,6 +16,7 @@ import {
   type Column,
   type TaxRule,
 } from '@eticketsgo/web-kit';
+import { NO_READ_ACCESS, READ_ONLY_NOTE, useConfigAccess } from '@/lib/capabilities';
 
 /**
  * Tax rules, edited by an administrator.
@@ -97,14 +98,22 @@ export default function AdminTaxRules() {
   const [changeFrom, setChangeFrom] = useState('');
   /** The switched-off rule awaiting a confirmed delete. */
   const [deleting, setDeleting] = useState<TaxRule | null>(null);
+  /*
+    The page opens with PLATFORM_CONFIG_READ; every button on it needs PLATFORM_CONFIG. An
+    operator who can only read sees the rules and no controls that would be refused.
+  */
+  const access = useConfigAccess();
+  const mayEdit = access.mayEdit;
 
   const { data, isLoading } = useQuery({
     queryKey: ['admin', 'tax-rules'],
     queryFn: () => api.admin.taxRules(),
+    enabled: access.mayRead,
   });
   const readiness = useQuery({
     queryKey: ['admin', 'tax-readiness'],
     queryFn: () => api.admin.taxReadiness(),
+    enabled: access.mayRead,
   });
 
   const done = (message: string) => {
@@ -181,7 +190,7 @@ export default function AdminTaxRules() {
     save.mutate({ id: editing?.id, body });
   };
 
-  const columns: Column<TaxRule>[] = [
+  const allColumns: Column<TaxRule>[] = [
     {
       key: 'status',
       header: 'Status',
@@ -298,7 +307,23 @@ export default function AdminTaxRules() {
     },
   ];
 
+  const columns = mayEdit ? allColumns : allColumns.filter((c) => c.key !== 'actions');
+
   const charging = (data ?? []).filter((r) => r.inForceNow).length;
+
+  // Until the operator is known nothing is fetched, so say so rather than show an empty list.
+  if (!access.known || !access.mayRead) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Tax rules" />
+        <Card>
+          <p className="text-sm text-text-secondary">
+            {access.known ? NO_READ_ACCESS : 'Loading...'}
+          </p>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -306,16 +331,20 @@ export default function AdminTaxRules() {
         title="Tax rules"
         description="Rates the platform charges. Every change is recorded in the audit log."
         action={
-          <Button
-            onClick={() => {
-              setCreating(true);
-              setDraft(BLANK);
-            }}
-          >
-            Add rule
-          </Button>
+          mayEdit ? (
+            <Button
+              onClick={() => {
+                setCreating(true);
+                setDraft(BLANK);
+              }}
+            >
+              Add rule
+            </Button>
+          ) : undefined
         }
       />
+
+      {!mayEdit && <p className="text-sm text-text-secondary">{READ_ONLY_NOTE}</p>}
 
       {/*
         The headline answer first. "How many rules exist" is not the question anybody opens

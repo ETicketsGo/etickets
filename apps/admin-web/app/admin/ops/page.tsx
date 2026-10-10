@@ -26,6 +26,7 @@ import {
   type OpsQueueCheck,
   type OpsFailedJob,
 } from '@eticketsgo/web-kit';
+import { useHolds } from '@/lib/capabilities';
 
 function statusTone(status: string): BadgeTone {
   switch (status) {
@@ -110,6 +111,12 @@ export default function AdminOps() {
 
   const [retryAllOpen, setRetryAllOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+
+  /*
+    Reading the flag needs OPS_READ, like the rest of this page; switching it needs
+    PLATFORM_CONFIG, because it takes the storefront offline for everybody.
+  */
+  const mayToggleMaintenance = useHolds('PLATFORM_CONFIG');
 
   // Maintenance dialog state.
   const [maintOpen, setMaintOpen] = useState(false);
@@ -387,9 +394,15 @@ export default function AdminOps() {
                 default; if Redis is unreachable the guard fails open (never blocks).
               </p>
             </div>
-            <Button variant={m?.enabled ? 'outline' : 'primary'} onClick={openMaintenanceDialog}>
-              {m?.enabled ? 'Disable maintenance' : 'Enable maintenance'}
-            </Button>
+            {mayToggleMaintenance ? (
+              <Button variant={m?.enabled ? 'outline' : 'primary'} onClick={openMaintenanceDialog}>
+                {m?.enabled ? 'Disable maintenance' : 'Enable maintenance'}
+              </Button>
+            ) : (
+              <p className="max-w-xs text-caption text-text-muted">
+                Switching maintenance mode needs the Platform configuration duty.
+              </p>
+            )}
           </div>
         )}
       </Card>

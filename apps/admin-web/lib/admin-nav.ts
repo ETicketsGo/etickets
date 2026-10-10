@@ -252,29 +252,31 @@ export const ADMIN_NAV: AdminNavGroup[] = [
     icon: Wrench,
     links: [
       /*
-        Booking fees, tax rules and cinema pricing are served by AdminController, whose class
-        guard is BOOKING_READ - so that is what opens them today, and the menu says the same.
-        Whether they should need PLATFORM_CONFIG is a server question, recorded in the PR.
+        Booking fees, tax rules and cinema pricing each declare their own guard on the API:
+        PLATFORM_CONFIG_READ to read, PLATFORM_CONFIG to change. They used to inherit
+        AdminController's BOOKING_READ, which let the support desk edit them. The page opens
+        with the read capability; its edit controls also need PLATFORM_CONFIG (see
+        `lib/capabilities.ts`).
       */
       {
         label: 'Booking fees',
         href: '/admin/settings',
         icon: Percent,
-        needs: 'BOOKING_READ',
+        needs: 'PLATFORM_CONFIG_READ',
         keywords: ['fee rules', 'settings'],
       },
       {
         label: 'Tax rules',
         href: '/admin/tax-rules',
         icon: Percent,
-        needs: 'BOOKING_READ',
+        needs: 'PLATFORM_CONFIG_READ',
         keywords: ['gst'],
       },
       {
         label: 'Cinema pricing',
         href: '/admin/cinema-pricing',
         icon: Percent,
-        needs: 'BOOKING_READ',
+        needs: 'PLATFORM_CONFIG_READ',
         keywords: ['ceilings', 'regulated'],
       },
       {
