@@ -1,0 +1,198 @@
+'use client';
+
+import { Building2, CalendarDays, Heart, MapPin, type LucideIcon } from 'lucide-react';
+import {
+  Badge,
+  EVENT_IMAGE_ASPECT,
+  focalObjectPosition,
+  type FocalPoint,
+} from '@eticketsgo/web-kit';
+
+export interface PreviewImage {
+  url: string;
+  width: number;
+  height: number;
+  focal: FocalPoint;
+}
+
+export interface BuyerPreviewProps {
+  title: string;
+  category: string;
+  image: PreviewImage | null;
+  when: string;
+  where: string;
+  organizer: string;
+  price: string;
+  /** "From" sits beside a price, and not beside "Free". */
+  showFrom: boolean;
+  /** The experience's icon, drawn on the placeholder when there is no picture. */
+  icon: LucideIcon;
+}
+
+/** `object-position` that keeps the chosen point in view, by the arithmetic the API crops with. */
+function position(image: PreviewImage, aspect: number): string {
+  return focalObjectPosition(image.width, image.height, aspect, image.focal);
+}
+
+/**
+ * The event as a buyer will meet it, updated as the organizer types: the card on the
+ * storefront's browse pages, and the top of the event page.
+ *
+ * ── A COPY OF THE STOREFRONT'S LOOK, NOT ITS CODE ──────────────────────────────────
+ * The real card and header live in customer-web, built from that app's translated strings and
+ * locale links. This repeats their shapes and classes (4:3 card, 16:9 banner, category badge,
+ * date with its zone, venue, "From" price) and none of their behaviour: nothing here is a link
+ * and the heart is a picture. Crops use `focalObjectPosition`, the arithmetic the API cuts the
+ * real copies with, so the crop shown is the crop buyers get.
+ *
+ * With no picture both shapes show ONE branded placeholder - the console tint, a faint dot
+ * pattern and the experience's icon - per the console design direction, never a lone initial.
+ * The same placeholder on every step, so the organizer is not shown two different "no image"
+ * looks. It says plainly that a picture is still to come.
+ */
+export function BuyerPreview(props: BuyerPreviewProps) {
+  return (
+    <div className="space-y-4">
+      <PreviewCard {...props} />
+      <PreviewHeader {...props} />
+    </div>
+  );
+}
+
+export function PreviewCard({
+  title,
+  category,
+  image,
+  when,
+  where,
+  price,
+  showFrom,
+  icon,
+}: BuyerPreviewProps) {
+  return (
+    <div
+      role="group"
+      aria-label="Preview of your event card"
+      className="overflow-hidden rounded-lg border border-border bg-background-surface"
+    >
+      <div className="relative flex aspect-[4/3] items-center justify-center overflow-hidden">
+        {image ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={image.url}
+            alt=""
+            className="absolute inset-0 h-full w-full object-cover"
+            style={{ objectPosition: position(image, EVENT_IMAGE_ASPECT.card) }}
+          />
+        ) : (
+          <NoImage icon={icon} />
+        )}
+        {category ? (
+          <div className="absolute left-3 top-3">
+            <Badge tone="info">{category}</Badge>
+          </div>
+        ) : null}
+        <span
+          aria-hidden="true"
+          className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full bg-background-surface/90 text-text-secondary shadow-sm"
+        >
+          <Heart className="h-4 w-4" />
+        </span>
+      </div>
+      <div className="space-y-2 p-4">
+        <h3 className="line-clamp-2 font-semibold text-text-primary">{title}</h3>
+        <div className="space-y-1 text-caption text-text-muted">
+          <p className="flex items-center gap-1.5">
+            <CalendarDays aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+            <span className="tabular-nums">{when}</span>
+          </p>
+          <p className="flex items-center gap-1.5">
+            <MapPin aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">{where}</span>
+          </p>
+        </div>
+        <div className="flex items-center justify-between border-t border-border pt-2.5">
+          <span className="text-caption text-text-muted">{showFrom ? 'From' : ''}</span>
+          <span className="font-semibold tabular-nums text-text-primary">{price}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function PreviewHeader({
+  title,
+  category,
+  image,
+  where,
+  organizer,
+  icon,
+}: BuyerPreviewProps) {
+  return (
+    <div
+      role="group"
+      aria-label="Preview of your event page"
+      className="overflow-hidden rounded-lg border border-border bg-background-surface"
+    >
+      {image ? (
+        <div className="relative aspect-video bg-black">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={image.url}
+            alt=""
+            className="absolute inset-0 h-full w-full object-cover"
+            style={{ objectPosition: position(image, EVENT_IMAGE_ASPECT.banner) }}
+          />
+        </div>
+      ) : (
+        <div className="relative flex aspect-[16/5] items-center justify-center overflow-hidden">
+          <NoImage icon={icon} compact />
+        </div>
+      )}
+      <div className="p-4">
+        {category ? <Badge tone="info">{category}</Badge> : null}
+        <p className="mt-2 text-lg font-bold tracking-tight text-text-primary [text-wrap:balance]">
+          {title}
+        </p>
+        <p className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-caption text-text-secondary">
+          <span className="flex items-center gap-1">
+            <MapPin aria-hidden="true" className="h-3.5 w-3.5" />
+            {where}
+          </span>
+          <span className="flex items-center gap-1">
+            <Building2 aria-hidden="true" className="h-3.5 w-3.5" />
+            {organizer}
+          </span>
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/** The one placeholder for "no picture yet": tint, dot pattern, icon, and the words. */
+function NoImage({ icon: Icon, compact = false }: { icon: LucideIcon; compact?: boolean }) {
+  return (
+    <div
+      className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-tint-primary text-action-primary"
+      style={{
+        backgroundImage:
+          'radial-gradient(hsl(var(--action-primary) / 0.14) 1px, transparent 1.5px)',
+        backgroundSize: '14px 14px',
+      }}
+    >
+      <span
+        aria-hidden="true"
+        className={`flex items-center justify-center rounded-full bg-background-surface shadow-sm ${
+          compact ? 'h-9 w-9' : 'h-14 w-14'
+        }`}
+      >
+        <Icon className={compact ? 'h-4 w-4' : 'h-6 w-6'} />
+      </span>
+      {compact ? null : (
+        <span className="rounded-full bg-background-surface px-2.5 py-0.5 text-caption font-medium text-text-secondary">
+          No image yet
+        </span>
+      )}
+    </div>
+  );
+}

@@ -67,7 +67,9 @@ async function createMovie(page: Page, token: string, organizationId: string, st
 
 const openScheduleDialog = async (page: Page, movieId: string) => {
   await page.goto(`${ORGANIZER}/organizer/movies/${movieId}`);
-  await page.getByRole('button', { name: 'Schedule show' }).click();
+  // One show at a time lives in the film's labelled More menu; the primary action is a run.
+  await page.getByRole('button', { name: /^More actions for / }).click();
+  await page.getByRole('menuitem', { name: 'Schedule one show' }).click();
   await expect(page.getByRole('dialog')).toBeVisible({ timeout: 20_000 });
 };
 

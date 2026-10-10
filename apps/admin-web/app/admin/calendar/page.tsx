@@ -20,6 +20,7 @@ import {
   useAuthUser,
   type AdminCalendarSession,
 } from '@eticketsgo/web-kit';
+import { viewerToday, viewerZoneLabel } from '@eticketsgo/shared-types';
 import { CountryFilter } from '@/components/country-filter';
 import { OrganizerPicker, useUrlFilters } from '@/components/list-filters';
 import {
@@ -36,7 +37,6 @@ import {
   placeSessions,
   rangeLabel,
   shiftAnchor,
-  todayIn,
   viewDays,
   zoneNote,
   zoneUnknown,
@@ -216,6 +216,8 @@ function MonthGrid({
               <div
                 key={day}
                 role="cell"
+                data-day={day}
+                aria-current={day === today ? 'date' : undefined}
                 aria-label={`${dayLabel(day)}, ${list.length} ${list.length === 1 ? 'show' : 'shows'}`}
                 className={`min-h-[7.5rem] min-w-0 space-y-1 border-b border-r border-border p-1.5 [&:nth-child(7n)]:border-r-0 ${
                   inMonth ? 'bg-background-surface' : 'bg-background-canvas'
@@ -364,8 +366,15 @@ export default function AdminCalendarPage() {
   const filters = useUrlFilters(KEYS);
   const v = filters.values;
   const view = parseView(v.view);
-  // Opens on today in the reader's own zone. Fixed for the life of the page.
-  const [today] = useState(() => todayIn(new Date()));
+  /*
+    Today is the reader's own date, in the zone their browser reports - the policy in
+    shared-types' `viewer-today.ts`, which the organizer calendar follows too. Taken when the page
+    opens and fixed for its life, then taken again once mounted: a server render would otherwise
+    hand over the server's date, and the server runs in UTC.
+  */
+  const [viewer, setViewer] = useState(() => viewerToday(new Date()));
+  useEffect(() => setViewer(viewerToday(new Date())), []);
+  const today = viewer.day;
   const anchor = parseDay(v.date) ?? today;
   const days = useMemo(() => viewDays(view, anchor), [view, anchor]);
   const range = fetchWindow(days);
@@ -560,6 +569,9 @@ export default function AdminCalendarPage() {
             </span>
           )}
           <span>Times are local to each venue.</span>
+          <span data-testid="calendar-today-zone">
+            Today is marked in your time zone, {viewerZoneLabel(viewer)}.
+          </span>
         </div>
 
         {query.data?.meta.truncated && (

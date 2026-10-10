@@ -117,11 +117,6 @@ export function shiftAnchor(view: CalendarView, anchor: string, dir: -1 | 1): st
   return d.toISOString().slice(0, 10);
 }
 
-/** Today in the reader's own zone, as a day. Used only to pick where the calendar opens. */
-export function todayIn(now: Date, zone?: string): string {
-  return localDay(now.toISOString(), zone ?? null) ?? now.toISOString().slice(0, 10);
-}
-
 function validZone(zone: string | null | undefined): string | null {
   if (!zone) return null;
   try {
