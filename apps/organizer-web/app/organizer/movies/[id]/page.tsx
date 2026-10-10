@@ -3,7 +3,20 @@
 import Link from 'next/link';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Building2, Clapperboard, Ticket } from 'lucide-react';
+import {
+  Archive,
+  Building2,
+  CalendarClock,
+  CalendarPlus,
+  Clapperboard,
+  Clock,
+  FilePen,
+  Pencil,
+  Send,
+  Ticket,
+  type LucideIcon,
+} from 'lucide-react';
+import type { ReactNode } from 'react';
 import { ScheduleRunDialog } from '@/components/schedule-run-dialog';
 import { instantToWallClock, wallClockToInstant, zoneLabel } from '@/lib/zoned-time';
 import { EditShowDialog } from '@/components/edit-show-dialog';
@@ -12,7 +25,15 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   api,
   Button,
-  Badge,
+  ButtonLink,
+  IconTile,
+  ImageFrame,
+  Menu,
+  TabPanel,
+  Tabs,
+  meterPercent,
+  type MenuItem,
+  type TileTone,
   Input,
   Select,
   Textarea,
@@ -28,18 +49,18 @@ import {
   DateTimeField,
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
-import { FilmPoster } from '@/components/cinema/film-poster';
-import { MoreMenu } from '@/components/cinema/more-menu';
-import { SaleChip } from '@/components/cinema/sale-chip';
+import { SalePill } from '@/components/cinema/sale-pill';
+import { WherePlays } from '@/components/cinema/film-context';
+import { ShowCalendar } from '@/components/cinema/show-calendar';
 import { Showtimes } from '@/components/cinema/showtimes';
 import { ShowQuickLook } from '@/components/cinema/show-quick-look';
-import { filmFacts } from '@/components/cinema/film-card';
+import { FilmLifecycle, filmFacts } from '@/components/cinema/film-card';
 import { useCinemas, useListingSales } from '@/components/cinema/use-cinema-data';
 import {
   filmSaleSummary,
-  filmStatusLabel,
-  percentSold,
+  formatShowTime,
   programmeOf,
+  zoneShort,
   type SaleVerdict,
 } from '@/components/cinema/cinema-model';
 
@@ -288,6 +309,7 @@ export default function EditMoviePage() {
   */
   const [tab, setTab] = useState<'showtimes' | 'details'>('showtimes');
   const [peek, setPeek] = useState<{ show: ShowRow; verdict: SaleVerdict } | null>(null);
+  const [jump, setJump] = useState<{ date: string; at: number } | null>(null);
 
   // `?tab=details` and `?schedule=run` are what the library's "More" menu links to.
   useEffect(() => {
@@ -307,7 +329,7 @@ export default function EditMoviePage() {
   if (isLoading || !movie)
     return (
       <div className="space-y-6" aria-hidden="true">
-        <div className="flex gap-5">
+        <div className="flex gap-5 rounded-lg border border-border bg-background-surface p-4 sm:p-6">
           <Skeleton className="aspect-[2/3] w-28 rounded-md sm:w-36" />
           <div className="flex-1 space-y-3">
             <Skeleton className="h-8 w-2/3" />
@@ -319,55 +341,97 @@ export default function EditMoviePage() {
       </div>
     );
 
-  const status = filmStatusLabel(movie.status);
   const sale = filmSaleSummary(movie, programme, showsQ.data, now, sales.listing);
-  const pct = percentSold(programme.sold, programme.total);
-  const statusItems = [
+  const nextZone = programme.next ? cinemasQ.zoneOf(programme.next.cinemaId) : undefined;
+  const statusItems: MenuItem[] = [
     ...(movie.status !== 'PUBLISHED'
-      ? [{ label: 'Publish film', onSelect: () => changeStatus.mutate('PUBLISHED') }]
+      ? [{ label: 'Publish film', icon: Send, onSelect: () => changeStatus.mutate('PUBLISHED') }]
       : []),
     ...(movie.status !== 'DRAFT'
-      ? [{ label: 'Move to draft', onSelect: () => changeStatus.mutate('DRAFT') }]
+      ? [{ label: 'Move to draft', icon: FilePen, onSelect: () => changeStatus.mutate('DRAFT') }]
       : []),
     ...(movie.status !== 'ARCHIVED'
-      ? [{ label: 'Archive film', onSelect: () => changeStatus.mutate('ARCHIVED') }]
+      ? [{ label: 'Archive film', icon: Archive, onSelect: () => changeStatus.mutate('ARCHIVED') }]
       : []),
   ];
+  const figure = (v: number | string) => (showsQ.isLoading ? '-' : v);
 
   return (
-    <div className="space-y-6 pb-20 sm:pb-0">
+    <div className="space-y-6 pb-24 sm:pb-0">
       <nav aria-label="Breadcrumb" className="text-caption text-text-muted">
         <Link
           href="/organizer/movies"
-          className="rounded hover:text-text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="rounded-sm hover:text-text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           Movies
         </Link>
         <span aria-hidden> / </span>
-        <span aria-current="page" className="break-words">
+        <span aria-current="page" className="break-words text-text-secondary">
           {movie.title}
         </span>
       </nav>
 
-      <header className="flex flex-col gap-5 sm:flex-row sm:items-start">
-        <div className="w-28 shrink-0 sm:w-36">
-          <FilmPoster posterUrl={movie.posterUrl} iconClassName="h-10 w-10" />
+      {/*
+        A grid rather than two flex rows: beside the poster on a tablet and up, the figures sit
+        under the title so the card is as tall as the poster and no taller; on a phone the
+        poster shrinks beside the title and the figures take the full width below both.
+      */}
+      <header className="grid grid-cols-[5rem_minmax(0,1fr)] gap-x-4 gap-y-4 rounded-lg border border-border bg-background-surface p-4 shadow-xs sm:grid-cols-[8.5rem_minmax(0,1fr)] sm:gap-x-6 sm:p-6">
+        <div className="sm:row-span-2">
+          <ImageFrame
+            src={movie.posterUrl}
+            alt={`Poster for ${movie.title}`}
+            ratio="2:3"
+            category="movie"
+            rounded="md"
+            placeholderLabel="No poster"
+            priority
+          />
         </div>
-        <div className="min-w-0 flex-1 space-y-3">
-          <div className="space-y-1.5">
-            <h1 className="text-balance break-words text-h2 font-semibold tracking-tight text-text-primary sm:text-h1">
-              {movie.title}
-            </h1>
-            <p className="text-[0.9375rem] text-text-secondary">
-              {[filmFacts(movie), movie.genres.join(', ')].filter(Boolean).join(' · ')}
-            </p>
+        <div className="min-w-0 space-y-3">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0 space-y-1.5">
+              <p className="text-micro font-semibold uppercase tracking-[0.08em] text-action-primary">
+                Film
+              </p>
+              <h1 className="text-balance break-words font-display text-headline font-bold tracking-tight text-text-primary sm:text-display">
+                {movie.title}
+              </h1>
+              <p className="text-ui text-text-secondary">
+                {[filmFacts(movie), movie.genres.join(', ')].filter(Boolean).join(' · ')}
+              </p>
+            </div>
+            {/*
+                One primary action. Booking a film in is a RUN (a week, several times a day); a
+                single extra showtime and the film's status live in the labelled More menu. An
+                organizer with no cinema yet is sent to make one, the only thing that unblocks
+                scheduling. On a phone the same controls become a bar fixed to the bottom of the
+                screen, where a thumb reaches them; the page leaves room for it below.
+              */}
+            <div className="fixed inset-x-0 bottom-0 z-20 flex items-center gap-2 border-t border-border bg-background-surface/95 px-4 py-3 shadow-md backdrop-blur sm:static sm:z-auto sm:shrink-0 sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none sm:backdrop-blur-none [&>*:first-child]:flex-1 sm:[&>*:first-child]:flex-none">
+              {noCinemas ? (
+                <ButtonLink href="/organizer/cinemas/new" icon={Building2}>
+                  Set up a cinema
+                </ButtonLink>
+              ) : (
+                <Button icon={CalendarPlus} onClick={() => setRunOpen(true)}>
+                  Schedule a run
+                </Button>
+              )}
+              <Menu
+                ariaLabel={`More actions for ${movie.title}`}
+                items={[
+                  { label: 'Schedule one show', icon: Clock, onSelect: openSchedule },
+                  { label: 'Edit details', icon: Pencil, onSelect: () => setTab('details') },
+                  { kind: 'separator' },
+                  ...statusItems,
+                ]}
+              />
+            </div>
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
-            <Badge tone={status.tone === 'success' ? 'success' : 'neutral'}>
-              <span className="sr-only">Film status: </span>
-              {status.label}
-            </Badge>
-            <SaleChip verdict={sale} />
+            <FilmLifecycle status={movie.status} />
+            <SalePill verdict={sale} wrap />
           </div>
           {sale.partial && sale.exceptions.length > 0 ? (
             <ul className="space-y-0.5 text-caption text-status-warning">
@@ -378,126 +442,113 @@ export default function EditMoviePage() {
               ))}
             </ul>
           ) : null}
-          <dl className="grid max-w-xl grid-cols-3 gap-3 pt-1">
-            <div className="min-w-0">
-              <dt className="flex items-center gap-1.5 text-caption text-text-muted">
-                <Clapperboard className="h-3.5 w-3.5" aria-hidden /> Upcoming
-              </dt>
-              <dd className="text-h3 font-semibold tabular-nums text-text-primary">
-                {showsQ.isLoading ? '-' : programme.upcoming}
-              </dd>
-            </div>
-            <div className="min-w-0">
-              <dt className="flex items-center gap-1.5 text-caption text-text-muted">
-                <Building2 className="h-3.5 w-3.5" aria-hidden /> Cinemas
-              </dt>
-              <dd className="text-h3 font-semibold tabular-nums text-text-primary">
-                {showsQ.isLoading ? '-' : programme.cinemas.length}
-              </dd>
-            </div>
-            <div className="min-w-0">
-              <dt className="flex items-center gap-1.5 text-caption text-text-muted">
-                <Ticket className="h-3.5 w-3.5" aria-hidden /> Seats sold
-              </dt>
-              <dd className="text-h3 font-semibold tabular-nums text-text-primary">
-                {showsQ.isLoading ? '-' : programme.sold}
-                <span className="text-caption font-normal text-text-muted">
-                  {' '}
+        </div>
+        {/*
+          The film's figures, each from its own show rows: upcoming shows, the cinemas they are
+          at, seats sold of seats on sale, and the next show on its cinema's clock.
+        */}
+        <dl className="col-span-2 grid grid-cols-2 gap-3 self-end border-t border-border pt-4 sm:col-span-1 sm:col-start-2 xl:grid-cols-4">
+          <Figure icon={Clapperboard} tone="teal" label="Upcoming shows">
+            {figure(programme.upcoming)}
+          </Figure>
+          <Figure icon={Building2} tone="blue" label="Cinemas">
+            {figure(programme.cinemas.length)}
+          </Figure>
+          <Figure icon={Ticket} tone="purple" label="Seats sold">
+            {showsQ.isLoading ? (
+              '-'
+            ) : (
+              <>
+                {programme.sold}
+                <span className="ml-1 font-sans text-caption font-normal text-text-muted">
                   of {programme.total}
-                  {pct !== null ? ` (${pct}%)` : ''}
+                  {programme.total > 0 ? ` (${meterPercent(programme.sold, programme.total)})` : ''}
                 </span>
-              </dd>
-            </div>
-          </dl>
-        </div>
-        {/*
-          One primary action. Booking a film in is a RUN (a week, several times a day); a single
-          extra showtime and the film's status live in the labelled More menu. An organizer with
-          no cinema yet is sent to make one, the only thing that unblocks scheduling.
-        */}
-        {/*
-          On a phone the same controls become a bar fixed to the bottom of the screen, where a
-          thumb reaches them; the page leaves room for it below.
-        */}
-        <div className="fixed inset-x-0 bottom-0 z-20 flex items-center gap-2 border-t border-border bg-background-surface/95 px-4 py-3 shadow-md backdrop-blur sm:static sm:z-auto sm:shrink-0 sm:flex-wrap sm:justify-end sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none sm:backdrop-blur-none [&>*:first-child]:flex-1 sm:[&>*:first-child]:flex-none">
-          {noCinemas ? (
-            <Link
-              href="/organizer/cinemas/new"
-              className="inline-flex h-10 items-center rounded-md bg-action-primary px-4 text-button font-semibold text-action-primary-foreground hover:bg-action-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            >
-              Set up a cinema
-            </Link>
-          ) : (
-            <Button onClick={() => setRunOpen(true)}>Schedule a run</Button>
-          )}
-          <MoreMenu
-            accessibleLabel={`More actions for ${movie.title}`}
-            upOnPhones
-            items={[
-              { label: 'Schedule one show', onSelect: openSchedule },
-              { label: 'Edit details', onSelect: () => setTab('details') },
-              ...statusItems,
-            ]}
-          />
-        </div>
+              </>
+            )}
+          </Figure>
+          <Figure icon={CalendarClock} tone="amber" label="Next show">
+            {showsQ.isLoading ? (
+              '-'
+            ) : programme.next ? (
+              <span className="text-[1rem]">
+                {formatShowTime(programme.next.startsAt, nextZone)}
+                {nextZone ? (
+                  <span className="ml-1 font-sans text-caption font-normal text-text-muted">
+                    {zoneShort(programme.next.startsAt, nextZone)}
+                  </span>
+                ) : null}
+              </span>
+            ) : (
+              <span className="font-sans text-ui font-normal text-text-muted">None scheduled</span>
+            )}
+          </Figure>
+        </dl>
       </header>
 
-      <div role="tablist" aria-label="Film sections" className="flex gap-1 border-b border-border">
-        {(
-          [
-            ['showtimes', `Showtimes${showsQ.data ? ` (${showsQ.data.length})` : ''}`],
-            ['details', 'Details'],
-          ] as const
-        ).map(([key, label]) => (
-          <button
-            key={key}
-            type="button"
-            role="tab"
-            id={`tab-${key}`}
-            aria-selected={tab === key}
-            aria-controls={`panel-${key}`}
-            tabIndex={tab === key ? 0 : -1}
-            onClick={() => setTab(key)}
-            onKeyDown={(e) => {
-              if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
-                const next = tab === 'showtimes' ? 'details' : 'showtimes';
-                setTab(next);
-                document.getElementById(`tab-${next}`)?.focus();
-              }
-            }}
-            className={`-mb-px border-b-2 px-3 py-2 text-[0.9375rem] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-              tab === key
-                ? 'border-action-primary text-text-primary'
-                : 'border-transparent text-text-secondary hover:text-text-primary'
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        id="film"
+        label="Film sections"
+        value={tab}
+        onChange={setTab}
+        tabs={[
+          { value: 'showtimes', label: 'Showtimes', count: showsQ.data?.length },
+          { value: 'details', label: 'Details' },
+        ]}
+      />
 
-      {tab === 'showtimes' ? (
-        <div role="tabpanel" id="panel-showtimes" aria-labelledby="tab-showtimes">
-          <Showtimes
-            rows={showsQ.data}
-            loading={showsQ.isLoading}
-            error={showsQ.isError}
-            onRetry={() => showsQ.refetch()}
-            zoneOf={cinemasQ.zoneOf}
-            onOpen={(show, verdict) => setPeek({ show, verdict })}
-            onEdit={(show) => setEditing(show)}
-            onSchedule={() => (noCinemas ? openSchedule() : setRunOpen(true))}
-          />
+      <TabPanel tabsId="film" value="showtimes" selected={tab} className="!pt-0">
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
+          {/*
+            The context column: the month at a glance and where the film plays. Beside the list
+            on a wide screen; under it on anything narrower, where the list, already grouped
+            by day, does the calendar's job and comes first.
+          */}
+          <div className="order-last min-w-0 xl:order-none xl:col-start-2 xl:row-start-1">
+            <div className="space-y-4 xl:sticky xl:top-20">
+              <div className="hidden xl:block">
+                <ShowCalendar
+                  rows={showsQ.data}
+                  now={now}
+                  zoneOf={cinemasQ.zoneOf}
+                  onPickDay={(date) => setJump({ date, at: Date.now() })}
+                />
+              </div>
+              <WherePlays
+                rows={showsQ.data}
+                loading={showsQ.isLoading}
+                now={now}
+                zoneOf={cinemasQ.zoneOf}
+              />
+            </div>
+          </div>
+          <div className="min-w-0 xl:col-start-1 xl:row-start-1">
+            <Showtimes
+              rows={showsQ.data}
+              loading={showsQ.isLoading}
+              error={showsQ.isError}
+              onRetry={() => showsQ.refetch()}
+              zoneOf={cinemasQ.zoneOf}
+              onOpen={(show, verdict) => setPeek({ show, verdict })}
+              onEdit={(show) => setEditing(show)}
+              onSchedule={() => (noCinemas ? openSchedule() : setRunOpen(true))}
+              focus={jump}
+            />
+          </div>
         </div>
-      ) : (
-        <div
-          role="tabpanel"
-          id="panel-details"
-          aria-labelledby="tab-details"
-          className="grid gap-6 xl:grid-cols-[minmax(0,720px)_minmax(0,1fr)]"
-        >
-          <section className="rounded-lg border border-border bg-background-surface p-5 sm:p-6">
-            <h2 className="mb-4 text-title font-semibold text-text-primary">Film details</h2>
+      </TabPanel>
+      <TabPanel tabsId="film" value="details" selected={tab} className="!pt-0">
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,720px)_minmax(0,1fr)]">
+          <section
+            aria-labelledby="film-details-heading"
+            className="rounded-lg border border-border bg-background-surface p-5 shadow-xs sm:p-6"
+          >
+            <h2
+              id="film-details-heading"
+              className="mb-4 font-display text-[1.0625rem] font-bold text-text-primary"
+            >
+              Film details
+            </h2>
             <div className="space-y-4">
               <Input
                 id="title"
@@ -600,13 +651,19 @@ export default function EditMoviePage() {
             operator types: the poster as the storefront lists it, and the line under the title.
           */}
           <aside className="hidden xl:block" aria-label="Preview">
-            <div className="sticky top-6 space-y-3 rounded-lg border border-border bg-background-surface p-5">
-              <p className="text-caption font-semibold uppercase tracking-wide text-text-muted">
+            <div className="sticky top-20 space-y-3 rounded-lg border border-border bg-background-surface p-5 shadow-xs">
+              <p className="text-micro font-semibold uppercase tracking-[0.08em] text-text-muted">
                 How buyers see it
               </p>
               <div className="flex gap-4">
                 <div className="w-28 shrink-0">
-                  <FilmPoster posterUrl={form.posterUrl || null} />
+                  <ImageFrame
+                    src={form.posterUrl || null}
+                    alt=""
+                    ratio="2:3"
+                    category="movie"
+                    rounded="md"
+                  />
                 </div>
                 <div className="min-w-0 space-y-1">
                   <p className="break-words font-semibold text-text-primary">
@@ -634,7 +691,7 @@ export default function EditMoviePage() {
             </div>
           </aside>
         </div>
-      )}
+      </TabPanel>
 
       <ShowQuickLook
         show={peek?.show ?? null}
@@ -847,6 +904,36 @@ export default function EditMoviePage() {
           )}
         </div>
       </Dialog>
+    </div>
+  );
+}
+
+/** One of the film's figures: a pastel tile, the label and the number. */
+function Figure({
+  icon,
+  tone,
+  label,
+  children,
+}: {
+  icon: LucideIcon;
+  tone: TileTone;
+  label: string;
+  children: ReactNode;
+}) {
+  /*
+    The tile sits inside the <dt>, positioned beside the pair: a <dl>'s groups may hold only
+    <dt> and <dd>, so a wrapper <div> around them (or a tile beside them) breaks the list for
+    a screen reader. The tile is decorative either way.
+  */
+  return (
+    <div className="relative flex min-h-10 min-w-0 flex-col justify-center pl-[3.25rem]">
+      <dt className="text-caption text-text-secondary">
+        <IconTile icon={icon} tone={tone} className="absolute left-0 top-1/2 -translate-y-1/2" />
+        {label}
+      </dt>
+      <dd className="break-words font-display text-[1.25rem] font-bold leading-tight tabular-nums text-text-primary">
+        {children}
+      </dd>
     </div>
   );
 }

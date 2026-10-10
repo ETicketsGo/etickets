@@ -1,17 +1,22 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { CalendarClock, MapPin } from 'lucide-react';
-import { Badge, Meter, type Movie } from '@eticketsgo/web-kit';
-import { FilmPoster } from './film-poster';
-import { SaleChip } from './sale-chip';
-import { MoreMenu } from './more-menu';
+import { Archive, CalendarClock, CalendarPlus, FilePen, MapPin, Pencil, Send } from 'lucide-react';
 import {
-  filmStatusLabel,
+  ButtonLink,
+  ImageFrame,
+  LifecyclePill,
+  Menu,
+  ProgressMeter,
+  lifecycleOf,
+  type MenuItem,
+  type Movie,
+} from '@eticketsgo/web-kit';
+import { SalePill } from './sale-pill';
+import {
   formatRuntime,
   formatShowTime,
-  percentSold,
+  zoneShort,
   type FilmProgramme,
   type FilmSale,
 } from './cinema-model';
@@ -22,6 +27,8 @@ export interface FilmSummary {
   sale: FilmSale | null;
   zoneOf: (cinemaId: string | null | undefined) => string | undefined;
 }
+
+type FilmStatus = 'PUBLISHED' | 'ARCHIVED' | 'DRAFT';
 
 /** "Telugu · UA · 2h 18m": what a cinema prints under a title. */
 export function filmFacts(m: Movie): string {
@@ -35,72 +42,76 @@ function where(p: FilmProgramme): string {
   return `${first!.name} and ${rest.length} more ${rest.length === 1 ? 'cinema' : 'cinemas'}`;
 }
 
-/** The secondary actions for one film. */
-function filmMenu(
-  m: Movie,
-  router: ReturnType<typeof useRouter>,
-  onStatus: (s: 'PUBLISHED' | 'ARCHIVED' | 'DRAFT') => void,
-) {
+/**
+ * The film's secondary actions. Navigation is a link item, a status change a button item;
+ * the status the film is already in is not offered.
+ */
+export function filmMenuItems(m: Movie, onStatus: (s: FilmStatus) => void): MenuItem[] {
   const base = `/organizer/movies/${m.id}`;
-  return [
-    { label: 'Edit details', onSelect: () => router.push(`${base}?tab=details`) },
-    { label: 'Schedule a run', onSelect: () => router.push(`${base}?schedule=run`) },
+  const status: MenuItem[] = [
     ...(m.status !== 'PUBLISHED'
-      ? [{ label: 'Publish film', onSelect: () => onStatus('PUBLISHED') }]
+      ? [{ label: 'Publish film', icon: Send, onSelect: () => onStatus('PUBLISHED') }]
       : []),
     ...(m.status !== 'DRAFT'
-      ? [{ label: 'Move to draft', onSelect: () => onStatus('DRAFT') }]
+      ? [{ label: 'Move to draft', icon: FilePen, onSelect: () => onStatus('DRAFT') }]
       : []),
     ...(m.status !== 'ARCHIVED'
-      ? [{ label: 'Archive film', onSelect: () => onStatus('ARCHIVED') }]
+      ? [{ label: 'Archive film', icon: Archive, onSelect: () => onStatus('ARCHIVED') }]
       : []),
+  ];
+  return [
+    { kind: 'link', label: 'Edit details', href: `${base}?tab=details`, icon: Pencil },
+    { kind: 'link', label: 'Schedule a run', href: `${base}?schedule=run`, icon: CalendarPlus },
+    { kind: 'separator' },
+    ...status,
   ];
 }
 
-function Programme({ f }: { f: FilmSummary }) {
+/** The film's lifecycle pill. A film is Draft, Published or (archived) Ended. */
+export function FilmLifecycle({ status, size }: { status: string; size?: 'sm' | 'md' }) {
+  const l = lifecycleOf(status);
+  return l ? <LifecyclePill status={l} size={size} /> : null;
+}
+
+function Facts({ f }: { f: FilmSummary }) {
   const p = f.programme;
   if (!p) return <p className="text-caption text-text-muted">Loading showtimes</p>;
-  if (p.upcoming === 0) return <p className="text-[0.875rem] text-text-muted">No upcoming shows</p>;
-  const pct = percentSold(p.sold, p.total);
+  if (p.upcoming === 0)
+    return (
+      <p className="flex items-center gap-1.5 text-caption text-text-muted">
+        <CalendarClock className="h-3.5 w-3.5 shrink-0" aria-hidden />
+        No upcoming shows
+      </p>
+    );
+  const zone = p.next ? f.zoneOf(p.next.cinemaId) : undefined;
   return (
-    <dl className="min-w-0 space-y-1.5 text-[0.875rem] text-text-secondary">
-      <div className="flex min-w-0 items-start gap-2">
-        <dt className="mt-0.5 shrink-0">
-          <MapPin className="h-4 w-4 text-text-muted" aria-hidden />
+    <dl className="min-w-0 space-y-1 text-caption text-text-secondary">
+      {p.next ? (
+        <div className="flex min-w-0 items-start gap-1.5">
+          <dt className="mt-px shrink-0">
+            <CalendarClock className="h-3.5 w-3.5 text-text-muted" aria-hidden />
+            <span className="sr-only">Next show</span>
+          </dt>
+          <dd className="min-w-0 tabular-nums">
+            Next {formatShowTime(p.next.startsAt, zone)}
+            {zone ? (
+              <span className="text-text-muted"> {zoneShort(p.next.startsAt, zone)}</span>
+            ) : null}
+          </dd>
+        </div>
+      ) : null}
+      <div className="flex min-w-0 items-start gap-1.5">
+        <dt className="mt-px shrink-0">
+          <MapPin className="h-3.5 w-3.5 text-text-muted" aria-hidden />
           <span className="sr-only">Plays at</span>
         </dt>
-        <dd className="min-w-0 break-words">
+        <dd className="line-clamp-2 min-w-0 break-words">
           <span className="font-medium tabular-nums text-text-primary">
             {p.upcoming} upcoming {p.upcoming === 1 ? 'show' : 'shows'}
           </span>{' '}
           at {where(p)}
         </dd>
       </div>
-      {p.next ? (
-        <div className="flex min-w-0 items-start gap-2">
-          <dt className="mt-0.5 shrink-0">
-            <CalendarClock className="h-4 w-4 text-text-muted" aria-hidden />
-            <span className="sr-only">Next show</span>
-          </dt>
-          <dd className="min-w-0 break-words">
-            Next{' '}
-            <span className="tabular-nums">
-              {formatShowTime(p.next.startsAt, f.zoneOf(p.next.cinemaId))}
-            </span>
-          </dd>
-        </div>
-      ) : null}
-      {p.total > 0 ? (
-        <div className="space-y-1 pt-0.5">
-          <dt className="sr-only">Seats sold</dt>
-          <dd className="text-caption tabular-nums">
-            {p.sold} of {p.total} seats sold{pct !== null ? ` (${pct}%)` : ''}
-          </dd>
-          <dd>
-            <Meter value={p.sold} max={p.total} label={`Seats sold for ${f.movie.title}`} />
-          </dd>
-        </div>
-      ) : null}
     </dl>
   );
 }
@@ -119,68 +130,90 @@ function Exceptions({ f }: { f: FilmSummary }) {
 }
 
 /**
- * One film in the library grid: poster first, then what it is, where it plays and whether it
- * sells. One worded "Manage" and a labelled "More" menu, never a row of icons.
+ * One film in the library grid, in the reference's card language: the poster (2:3, never
+ * stretched, the branded placeholder when there is none or the link is broken), the title, its
+ * lifecycle and sale state as pills, when and where it plays, a sold meter, and one tinted
+ * "Manage" with a square "..." menu beside it.
+ *
+ * The poster sits to the LEFT rather than on top: a 2:3 poster across a card's full width is
+ * a 400px-tall card, and a programmer scans tens of films. The pills sit beside the title
+ * rather than over the poster, where a long "Partly selling: ..." would cover the artwork.
  */
 export function FilmCard({
   f,
   onStatus,
+  priority = false,
 }: {
   f: FilmSummary;
-  onStatus: (movieId: string, status: 'PUBLISHED' | 'ARCHIVED' | 'DRAFT') => void;
+  onStatus: (movieId: string, status: FilmStatus) => void;
+  priority?: boolean;
 }) {
-  const router = useRouter();
   const m = f.movie;
-  const status = filmStatusLabel(m.status);
+  const p = f.programme;
   const href = `/organizer/movies/${m.id}`;
   return (
     <article
       aria-labelledby={`film-${m.id}`}
-      className="group flex min-w-0 flex-col gap-3 rounded-lg border border-border bg-background-surface p-4 transition-[box-shadow,transform] duration-150 ease-premium hover:-translate-y-px hover:shadow-md motion-reduce:transition-none motion-reduce:hover:translate-y-0"
+      className="flex min-w-0 flex-col rounded-lg border border-border bg-background-surface p-4 shadow-xs transition-[box-shadow,transform] duration-150 ease-premium hover:-translate-y-0.5 hover:shadow-md motion-reduce:transition-none motion-reduce:hover:translate-y-0"
     >
       <div className="flex min-w-0 flex-1 gap-4">
-        <Link href={href} tabIndex={-1} aria-hidden="true" className="w-24 shrink-0 sm:w-28">
-          <FilmPoster posterUrl={m.posterUrl} />
+        <Link
+          href={href}
+          tabIndex={-1}
+          aria-hidden="true"
+          className="w-[4.5rem] shrink-0 self-start min-[400px]:w-[5.5rem] sm:w-24"
+        >
+          <ImageFrame
+            src={m.posterUrl}
+            alt=""
+            ratio="2:3"
+            category="movie"
+            rounded="md"
+            priority={priority}
+          />
         </Link>
-        <div className="flex min-w-0 flex-1 flex-col gap-2.5">
-          <div className="min-w-0 space-y-1">
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
+          <div className="min-w-0">
             <h2
               id={`film-${m.id}`}
-              className="line-clamp-2 break-words text-[1rem] font-semibold leading-snug tracking-tight text-text-primary"
+              className="line-clamp-2 break-words font-display text-[1rem] font-bold leading-snug tracking-tight text-text-primary"
             >
               <Link
                 href={href}
-                className="rounded hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="rounded-sm hover:text-action-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 {m.title}
               </Link>
             </h2>
-            <p className="text-caption text-text-muted">{filmFacts(m)}</p>
-            <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-              <Badge tone={status.tone === 'success' ? 'success' : 'neutral'}>
-                <span className="sr-only">Film status: </span>
-                {status.label}
-              </Badge>
-              {f.sale ? <SaleChip verdict={f.sale} /> : null}
-            </div>
+            <p className="mt-0.5 truncate text-caption text-text-muted">{filmFacts(m)}</p>
           </div>
-          <Programme f={f} />
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+            <FilmLifecycle status={m.status} size="sm" />
+            {f.sale ? <SalePill verdict={f.sale} size="sm" wrap /> : null}
+          </div>
+          <Facts f={f} />
           <Exceptions f={f} />
         </div>
       </div>
-      {/* Across the whole card, so the two buttons sit side by side even in a narrow column. */}
-      <div className="flex items-center gap-2 border-t border-border pt-3">
-        <Link
-          href={href}
-          aria-label={`Manage ${m.title}`}
-          className="inline-flex h-9 items-center rounded-md bg-action-primary px-3.5 text-button font-semibold text-action-primary-foreground transition-colors hover:bg-action-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas active:translate-y-px"
-        >
-          Manage
-        </Link>
-        <MoreMenu
-          accessibleLabel={`More actions for ${m.title}`}
-          align="left"
-          items={filmMenu(m, router, (s) => onStatus(m.id, s))}
+      {p && p.total > 0 ? (
+        <div className="mt-3">
+          <ProgressMeter
+            value={p.sold}
+            max={p.total}
+            size="sm"
+            label={`Seats sold for ${m.title}, upcoming shows`}
+          />
+        </div>
+      ) : null}
+      <div className="mt-3 flex items-center gap-2">
+        <ButtonLink href={href} variant="tinted" size="sm" className="flex-1">
+          Manage<span className="sr-only"> {m.title}</span>
+        </ButtonLink>
+        <Menu
+          trigger="icon"
+          size="sm"
+          label={`More actions for ${m.title}`}
+          items={filmMenuItems(m, (s) => onStatus(m.id, s))}
         />
       </div>
     </article>
@@ -193,54 +226,58 @@ export function FilmRow({
   onStatus,
 }: {
   f: FilmSummary;
-  onStatus: (movieId: string, status: 'PUBLISHED' | 'ARCHIVED' | 'DRAFT') => void;
+  onStatus: (movieId: string, status: FilmStatus) => void;
 }) {
-  const router = useRouter();
   const m = f.movie;
-  const status = filmStatusLabel(m.status);
   const href = `/organizer/movies/${m.id}`;
   const p = f.programme;
   return (
-    <li className="flex min-w-0 flex-wrap items-center gap-3 border-b border-border px-4 py-3 last:border-b-0 sm:flex-nowrap">
+    <li className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 transition-colors hover:bg-background-subtle/60 lg:flex-nowrap">
       <div className="w-10 shrink-0">
-        <FilmPoster posterUrl={m.posterUrl} iconClassName="h-4 w-4" compact />
+        <ImageFrame src={m.posterUrl} alt="" ratio="2:3" category="movie" rounded="md" />
       </div>
       <div className="min-w-0 flex-1 basis-40">
         <p className="break-words font-semibold text-text-primary">
           <Link
             href={href}
-            className="rounded hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="rounded-sm hover:text-action-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {m.title}
           </Link>
         </p>
         <p className="text-caption text-text-muted">{filmFacts(m)}</p>
       </div>
-      <div className="flex min-w-0 flex-wrap items-center gap-1.5 sm:w-64">
-        <Badge tone={status.tone === 'success' ? 'success' : 'neutral'}>
-          <span className="sr-only">Film status: </span>
-          {status.label}
-        </Badge>
-        {f.sale ? <SaleChip verdict={f.sale} /> : null}
+      <div className="flex min-w-0 flex-wrap items-center gap-1.5 lg:w-72">
+        <FilmLifecycle status={m.status} size="sm" />
+        {f.sale ? <SalePill verdict={f.sale} size="sm" /> : null}
       </div>
-      <p className="min-w-0 text-caption tabular-nums text-text-secondary sm:w-44">
-        {!p
-          ? 'Loading'
-          : p.upcoming === 0
-            ? 'No upcoming shows'
-            : `${p.upcoming} upcoming at ${p.cinemas.length} ${p.cinemas.length === 1 ? 'cinema' : 'cinemas'}`}
-      </p>
+      <div className="min-w-0 basis-full lg:w-40 lg:basis-auto">
+        {!p ? (
+          <p className="text-caption text-text-muted">Loading</p>
+        ) : p.upcoming === 0 ? (
+          <p className="text-caption text-text-muted">No upcoming shows</p>
+        ) : p.total > 0 ? (
+          <ProgressMeter
+            value={p.sold}
+            max={p.total}
+            size="sm"
+            label={`Seats sold for ${m.title}`}
+          />
+        ) : (
+          <p className="text-caption tabular-nums text-text-secondary">
+            {p.upcoming} upcoming {p.upcoming === 1 ? 'show' : 'shows'}
+          </p>
+        )}
+      </div>
       <div className="flex items-center gap-2">
-        <Link
-          href={href}
-          aria-label={`Manage ${m.title}`}
-          className="inline-flex h-9 items-center rounded-md border border-border-input bg-background-surface px-3 text-button font-medium text-text-primary hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          Manage
-        </Link>
-        <MoreMenu
-          accessibleLabel={`More actions for ${m.title}`}
-          items={filmMenu(m, router, (s) => onStatus(m.id, s))}
+        <ButtonLink href={href} variant="tinted" size="sm">
+          Manage<span className="sr-only"> {m.title}</span>
+        </ButtonLink>
+        <Menu
+          trigger="icon"
+          size="sm"
+          label={`More actions for ${m.title}`}
+          items={filmMenuItems(m, (s) => onStatus(m.id, s))}
         />
       </div>
     </li>

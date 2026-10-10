@@ -2,13 +2,18 @@
 
 import Link from 'next/link';
 import { CalendarDays, MapPin } from 'lucide-react';
-import { money } from '@eticketsgo/web-kit';
-import { EventArtwork } from './event-artwork';
-import { EventStateBadges } from './event-state-badges';
+import {
+  ImageFrame,
+  ProgressMeter,
+  SellingPill,
+  StatusPill,
+  eventImageSource,
+  money,
+  type SellingState,
+} from '@eticketsgo/web-kit';
+import { EventStatePill } from './event-state-badges';
 import { EventActions } from './event-actions';
-import { scheduleSummary, soldOfCapacity, type EventListRow } from './event-list-model';
-import { SaleChip } from '../cinema/sale-chip';
-import type { SaleView } from '../../lib/sale-state';
+import { imageCategoryOf, scheduleSummary, type EventListRow } from './event-list-model';
 
 /** The events' sales, one line per currency. Never a total across currencies. */
 export function SalesLines({ event }: { event: EventListRow }) {
@@ -26,94 +31,138 @@ export function SalesLines({ event }: { event: EventListRow }) {
   );
 }
 
-/** Sold against capacity, with a bar when there is a capacity to fill. */
-export function SoldMeter({ event, compact = false }: { event: EventListRow; compact?: boolean }) {
-  const { label, percent } = soldOfCapacity(event.tickets);
+/** Sold against capacity: the design system's meter, "45 / 100 sold" and the percentage. */
+export function SoldMeter({ event }: { event: EventListRow }) {
+  const sold = event.tickets?.sold ?? 0;
+  const capacity = event.tickets?.capacity ?? 0;
   return (
-    <div className={compact ? 'min-w-[6rem]' : 'min-w-0'}>
-      <p className="tabular-nums text-text-primary">
-        {label}
-        {percent !== null ? <span className="text-text-muted"> sold ({percent}%)</span> : null}
-      </p>
-      {percent !== null ? (
-        <div
-          className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-background-subtle"
-          aria-hidden="true"
-        >
-          <div className="h-full rounded-full bg-action-primary" style={{ width: `${percent}%` }} />
-        </div>
-      ) : null}
-    </div>
+    <ProgressMeter
+      value={sold}
+      max={capacity}
+      size="sm"
+      label={capacity > 0 ? `${sold} of ${capacity} sold` : `${sold} sold`}
+    />
   );
 }
 
 /**
- * One event as a compact card: a picture band, then what it is, where and when, and how it is
- * selling, with one "Manage" button and a labelled "More" menu.
+ * Whether the event is selling, as the server said - or that it is still being asked, or
+ * could not be. Never "Selling" without an answer that says so.
+ */
+export function SaleStatePill({
+  selling,
+  unavailable,
+}: {
+  selling: SellingState | null | undefined;
+  /** The question failed, or this member may not ask it. */
+  unavailable?: boolean;
+}) {
+  if (selling) return <SellingPill {...selling} size="sm" />;
+  return (
+    <StatusPill tone="neutral" size="sm" dot={false}>
+      {unavailable ? 'Sale status unavailable' : 'Checking sale status'}
+    </StatusPill>
+  );
+}
+
+/** The picture for a list's card, in the sizes the API keeps. */
+export function cardImage(event: Pick<EventListRow, 'imagePath' | 'imageVariants'>) {
+  const image = { variants: event.imageVariants, path: event.imagePath };
+  return eventImageSource(image, 'card') ?? eventImageSource(image, 'banner');
+}
+
+/**
+ * One event as the reference's compact card: the artwork in a fixed frame with the lifecycle
+ * pill on it, the title, when and where, how it is selling, sold against capacity, and one
+ * tinted "Manage" beside a square "..." menu.
  *
- * ── WHY THE BAND IS SHORT ─────────────────────────────────────────────────────────
- * The 4:3 picture took 180-260px of every card, so three events filled a laptop screen and the
- * picture - often a placeholder letter - was most of what anyone saw. The band is 128px high
- * at every width: enough to recognise the poster, and the facts an organizer acts on (stage,
- * next date, sold) come up into the first glance.
+ * ── WHY THE FRAME IS FIXED ────────────────────────────────────────────────────────
+ * Uploads are posters, squares and panoramas. A box that took the picture's own shape made
+ * every row of cards a different height. The frame is 16:9 (21:9 on a phone, where 16:9 would
+ * fill half the screen) and the picture is cropped to it; no picture, or one that fails to
+ * load, draws the branded placeholder - never a broken-image icon, never a stretched picture.
+ *
+ * ── WHY THE FOOTER IS PINNED ──────────────────────────────────────────────────────
+ * A title on one line and one on two would put the meters and buttons of neighbouring cards at
+ * different heights. The body grows; the meter and the actions sit at the bottom of every card.
  */
 export function EventCard({
   event,
-  sale,
+  selling,
+  saleUnavailable,
   duplicating,
   onDuplicate,
   onDelete,
+  priority = false,
 }: {
   event: EventListRow;
-  /** The server's unified sale state for this event; left out when it is not asked. */
-  sale?: SaleView;
+  /** The server's unified sale state for this event; null while it is being asked. */
+  selling: SellingState | null;
+  saleUnavailable?: boolean;
   duplicating: boolean;
   onDuplicate: () => void;
   onDelete: () => void;
+  /** The first row on screen loads its pictures eagerly. */
+  priority?: boolean;
 }) {
   const schedule = scheduleSummary(event);
   const href = `/organizer/events/${event.id}`;
+  const source = cardImage(event);
+  const titleId = `event-${event.id}-title`;
   return (
     /*
-      No `overflow-hidden` here: it clipped the More menu to the card. The picture band rounds
-      its own top corners instead.
+      No `overflow-hidden` on the card: it clipped the More menu. The frame rounds its own top
+      corners instead. And no `transform` on hover, only the shadow: a transformed card becomes
+      the containing block of the menu's `position: fixed`, and the next card then painted over
+      the open menu - the hover that lifted the card was the one that buried its menu.
     */
     <article
-      aria-labelledby={`event-${event.id}-title`}
-      className="flex w-full min-w-0 flex-col rounded-lg border border-border bg-background-surface transition-shadow duration-150 hover:shadow-md motion-reduce:transition-none"
+      aria-labelledby={titleId}
+      className="relative flex w-full min-w-0 flex-col rounded-lg border border-border bg-background-surface shadow-xs transition-shadow duration-150 hover:shadow-md motion-reduce:transition-none"
     >
-      <EventArtwork
-        category={event.category}
-        imagePath={event.imagePath}
-        imageVariants={event.imageVariants}
-        use="card"
-        sizes="(min-width: 1280px) 360px, (min-width: 640px) 50vw, 100vw"
-        className="h-32 w-full rounded-t-lg"
+      <ImageFrame
+        src={source?.src}
+        srcSet={source?.srcSet}
+        sizes="(min-width: 1280px) 280px, (min-width: 640px) 33vw, 100vw"
+        alt=""
+        ratio="16:9"
+        category={imageCategoryOf(event.category)}
+        priority={priority}
+        rounded="none"
+        className="rounded-t-lg border-b border-border max-[479px]:aspect-[21/9]"
+        overlay={<EventStatePill event={event} />}
       />
-      <div className="flex min-w-0 flex-1 flex-col gap-2.5 p-4">
-        <div className="min-w-0 space-y-1.5">
-          <p className="min-w-0 truncate text-caption font-medium uppercase tracking-wide text-text-muted">
-            {event.category}
-          </p>
-          <h2
-            id={`event-${event.id}-title`}
-            className="line-clamp-2 break-words text-base font-semibold leading-snug text-text-primary"
-            title={event.title}
+      <div className="flex min-w-0 flex-1 flex-col p-3.5">
+        <h2
+          id={titleId}
+          className="line-clamp-2 break-words font-display text-[0.9375rem] font-semibold leading-snug text-text-primary [overflow-wrap:anywhere]"
+          title={event.title}
+        >
+          <Link
+            href={href}
+            className="rounded-sm hover:text-action-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background-surface"
           >
-            <Link
-              href={href}
-              className="rounded hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-            >
-              {event.title}
-            </Link>
-          </h2>
-          <EventStateBadges event={event} />
-          {sale ? <SaleChip verdict={sale} /> : null}
-        </div>
+            {event.title}
+          </Link>
+        </h2>
 
-        <dl className="min-w-0 space-y-1 text-[0.8125rem] text-text-secondary">
-          <div className="flex min-w-0 items-start gap-2">
-            <dt className="mt-0.5 shrink-0">
+        <dl className="mt-2 min-w-0 space-y-1 text-caption text-text-secondary">
+          <div className="flex min-w-0 items-start gap-1.5">
+            <dt className="mt-[3px] shrink-0">
+              <CalendarDays className="h-3.5 w-3.5 text-text-muted" aria-hidden />
+              <span className="sr-only">Schedule</span>
+            </dt>
+            <dd className="min-w-0">
+              {schedule.lead === 'Next' ? <span className="sr-only">Next: </span> : null}
+              {schedule.lead === 'Last' ? <span className="text-text-muted">Last: </span> : null}
+              <span className="tabular-nums">{schedule.when}</span>
+              {schedule.more ? (
+                <span className="block text-text-muted">{schedule.more}</span>
+              ) : null}
+            </dd>
+          </div>
+          <div className="flex min-w-0 items-start gap-1.5">
+            <dt className="mt-[3px] shrink-0">
               <MapPin className="h-3.5 w-3.5 text-text-muted" aria-hidden />
               <span className="sr-only">Venue</span>
             </dt>
@@ -121,39 +170,30 @@ export function EventCard({
               {event.venue.name}, {event.venue.city}
             </dd>
           </div>
-          <div className="flex min-w-0 items-start gap-2">
-            <dt className="mt-0.5 shrink-0">
-              <CalendarDays className="h-3.5 w-3.5 text-text-muted" aria-hidden />
-              <span className="sr-only">Schedule</span>
-            </dt>
-            <dd className="min-w-0 break-words">
-              {schedule.lead ? <span className="text-text-muted">{schedule.lead}: </span> : null}
-              <span className="tabular-nums">{schedule.when}</span>
-              {schedule.more ? <span className="text-text-muted"> ({schedule.more})</span> : null}
-            </dd>
-          </div>
         </dl>
 
-        <div className="mt-auto flex min-w-0 items-end justify-between gap-3 border-t border-border pt-2.5 text-[0.8125rem]">
-          <div className="min-w-0 flex-1">
-            <span className="sr-only">Tickets: </span>
-            <SoldMeter event={event} />
-          </div>
-          {event.sales ? (
-            <div className="shrink-0 text-right">
-              <span className="block text-caption text-text-muted">Gross</span>
-              <SalesLines event={event} />
-            </div>
-          ) : null}
+        <div className="mt-2.5 flex min-w-0">
+          <SaleStatePill selling={selling} unavailable={saleUnavailable} />
         </div>
 
-        <EventActions
-          event={event}
-          fill
-          duplicating={duplicating}
-          onDuplicate={onDuplicate}
-          onDelete={onDelete}
-        />
+        <div className="mt-auto space-y-2.5 pt-3">
+          <SoldMeter event={event} />
+          {event.sales ? (
+            <div className="flex min-w-0 items-baseline justify-between gap-2 border-t border-border pt-2 text-caption">
+              <span className="text-text-muted">Gross sales</span>
+              <span className="min-w-0 text-right">
+                <SalesLines event={event} />
+              </span>
+            </div>
+          ) : null}
+          <EventActions
+            event={event}
+            fill
+            duplicating={duplicating}
+            onDuplicate={onDuplicate}
+            onDelete={onDelete}
+          />
+        </div>
       </div>
     </article>
   );

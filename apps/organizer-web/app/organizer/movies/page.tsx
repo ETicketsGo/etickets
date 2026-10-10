@@ -2,9 +2,10 @@
 
 import { useMemo, useState } from 'react';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Film } from 'lucide-react';
+import { CalendarDays, Clapperboard, Film, Plus, Ticket } from 'lucide-react';
 import {
   api,
+  Button,
   ButtonLink,
   EmptyState,
   ErrorState,
@@ -13,7 +14,10 @@ import {
   SegmentedControl,
   Select,
   Skeleton,
+  SkeletonCard,
+  StatCard,
   errorMessage,
+  meterPercent,
   useToast,
   type ShowRow,
 } from '@eticketsgo/web-kit';
@@ -27,16 +31,21 @@ import {
   filterFilms,
   glanceByCinema,
   languagesOf,
+  libraryStats,
   programmeOf,
 } from '@/components/cinema/cinema-model';
 
 const STATUSES = [
   { value: 'PUBLISHED', label: 'Published' },
   { value: 'DRAFT', label: 'Draft' },
-  { value: 'ARCHIVED', label: 'Archived' },
+  // Archived films read "Ended" on their pill, the platform's lifecycle word.
+  { value: 'ARCHIVED', label: 'Ended' },
 ];
 
 type View = 'grid' | 'list';
+
+/** Cards per page: eight rows of three at 1440; a phone scrolls a long way before it. */
+const PAGE = 24;
 type FilmStatus = 'PUBLISHED' | 'ARCHIVED' | 'DRAFT';
 
 /**
@@ -61,6 +70,7 @@ export default function OrganizerMovies() {
   const [status, setStatus] = useState('');
   const [language, setLanguage] = useState('');
   const [view, setView] = useState<View>('grid');
+  const [limit, setLimit] = useState(PAGE);
 
   const moviesQ = useQuery({
     queryKey: ['movies', activeOrg.id],
@@ -145,18 +155,86 @@ export default function OrganizerMovies() {
   const filtering = Boolean(q || status || language);
   const showsLoading = (movies?.length ?? 0) > 0 && showsByFilm.some((r) => r === undefined);
 
+  const stats = libraryStats(summaries);
+  const paged = visible.slice(0, limit);
+  const clearFilters = () => {
+    setQ('');
+    setStatus('');
+    setLanguage('');
+    setLimit(PAGE);
+  };
+
   return (
     <div className="space-y-8">
       <PageHeader
+        eyebrow="Cinema"
         title="Movies"
         description="Your film library: where each film plays, how it is selling, and what is on this week."
-        action={<ButtonLink href="/organizer/movies/new">New movie</ButtonLink>}
+        action={
+          <ButtonLink href="/organizer/movies/new" icon={Plus}>
+            New movie
+          </ButtonLink>
+        }
       />
 
+      {/*
+        Four figures, each a sum of what the API returned for this organization's films. No
+        trend and no comparison: nothing here has a prior period to compare with.
+      */}
+      {moviesQ.isLoading || showsLoading ? (
+        <div
+          className="grid grid-cols-1 gap-4 min-[420px]:grid-cols-2 xl:grid-cols-4"
+          aria-hidden="true"
+        >
+          {[0, 1, 2, 3].map((i) => (
+            <SkeletonCard key={i} variant="stat" />
+          ))}
+        </div>
+      ) : movies && movies.length > 0 ? (
+        <div className="grid grid-cols-1 gap-4 min-[420px]:grid-cols-2 xl:grid-cols-4">
+          <StatCard
+            label="Films"
+            value={stats.films}
+            hint={`${stats.published} published`}
+            icon={Film}
+            tile="purple"
+          />
+          <StatCard
+            label="Playing now"
+            value={stats.playing}
+            hint={
+              stats.cinemas > 0
+                ? `at ${stats.cinemas} ${stats.cinemas === 1 ? 'cinema' : 'cinemas'}`
+                : 'No upcoming shows'
+            }
+            icon={Clapperboard}
+            tile="teal"
+          />
+          <StatCard
+            label="Upcoming shows"
+            value={stats.upcomingShows}
+            hint="At all your cinemas"
+            icon={CalendarDays}
+            tile="amber"
+          />
+          <StatCard
+            label="Seats sold"
+            value={stats.sold.toLocaleString('en-US')}
+            hint={
+              stats.total > 0
+                ? `of ${stats.total.toLocaleString('en-US')} upcoming (${meterPercent(stats.sold, stats.total)})`
+                : 'No seats on sale yet'
+            }
+            icon={Ticket}
+            tile="blue"
+          />
+        </div>
+      ) : null}
+
       {showsLoading && glances.length === 0 ? (
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" aria-hidden="true">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3" aria-hidden="true">
           {[0, 1, 2].map((i) => (
-            <Skeleton key={i} className="h-40 w-full rounded-lg" />
+            <Skeleton key={i} className="h-48 w-full rounded-lg" />
           ))}
         </div>
       ) : (
@@ -166,11 +244,11 @@ export default function OrganizerMovies() {
         />
       )}
 
-      <section aria-labelledby="library-heading" className="space-y-3">
+      <section aria-labelledby="library-heading" className="space-y-4">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <h2
             id="library-heading"
-            className="text-title font-semibold tracking-tight text-text-primary"
+            className="font-display text-[1.0625rem] font-bold text-text-primary"
           >
             Film library
           </h2>
@@ -186,20 +264,26 @@ export default function OrganizerMovies() {
         <div
           role="group"
           aria-label="Filter films"
-          className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-background-surface p-3"
+          className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-background-surface p-3 shadow-xs"
         >
           <div className="min-w-0 flex-1 basis-56">
             <SearchInput
               value={q}
-              onChange={setQ}
+              onChange={(v) => {
+                setQ(v);
+                setLimit(PAGE);
+              }}
               placeholder="Search by title, cast or director"
             />
           </div>
-          <div className="w-full sm:w-40">
+          <div className="w-full min-[420px]:w-auto min-[420px]:flex-1 sm:w-40 sm:flex-none">
             <Select
               aria-label="Filter by status"
               value={status}
-              onChange={(e) => setStatus(e.target.value)}
+              onChange={(e) => {
+                setStatus(e.target.value);
+                setLimit(PAGE);
+              }}
             >
               <option value="">All statuses</option>
               {STATUSES.map((s) => (
@@ -210,11 +294,14 @@ export default function OrganizerMovies() {
             </Select>
           </div>
           {languages.length > 1 ? (
-            <div className="w-full sm:w-40">
+            <div className="w-full min-[420px]:w-auto min-[420px]:flex-1 sm:w-40 sm:flex-none">
               <Select
                 aria-label="Filter by language"
                 value={language}
-                onChange={(e) => setLanguage(e.target.value)}
+                onChange={(e) => {
+                  setLanguage(e.target.value);
+                  setLimit(PAGE);
+                }}
               >
                 <option value="">All languages</option>
                 {languages.map((l) => (
@@ -242,17 +329,18 @@ export default function OrganizerMovies() {
             onRetry={() => moviesQ.refetch()}
           />
         ) : moviesQ.isLoading ? (
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3" aria-hidden="true">
-            {[0, 1, 2, 3].map((i) => (
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3" aria-hidden="true">
+            {[0, 1, 2, 3, 4, 5].map((i) => (
               <div
                 key={i}
                 className="flex gap-4 rounded-lg border border-border bg-background-surface p-4"
               >
                 <Skeleton className="aspect-[2/3] w-24 rounded-md" />
-                <div className="flex-1 space-y-2">
+                <div className="flex-1 space-y-2.5">
                   <Skeleton className="h-5 w-3/4" />
                   <Skeleton className="h-3 w-1/2" />
-                  <Skeleton className="h-3 w-2/3" />
+                  <Skeleton className="h-5 w-2/3 rounded-full" />
+                  <Skeleton className="h-3 w-full" />
                 </div>
               </div>
             ))}
@@ -265,20 +353,38 @@ export default function OrganizerMovies() {
             action={<ButtonLink href="/organizer/movies/new">New movie</ButtonLink>}
           />
         ) : visible.length === 0 ? (
-          <EmptyState title="No films match" hint="Try another search, or clear the filters." />
+          <EmptyState
+            title="No films match"
+            hint="Try another search, or clear the filters."
+            action={
+              <Button variant="outline" onClick={clearFilters}>
+                Clear filters
+              </Button>
+            }
+          />
         ) : view === 'grid' ? (
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {visible.map((f) => (
-              <FilmCard key={f.movie.id} f={f} onStatus={onStatus} />
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {paged.map((f, i) => (
+              <FilmCard key={f.movie.id} f={f} onStatus={onStatus} priority={i < 3} />
             ))}
           </div>
         ) : (
-          <ul className="overflow-hidden rounded-lg border border-border bg-background-surface">
-            {visible.map((f) => (
+          <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-background-surface shadow-xs">
+            {paged.map((f) => (
               <FilmRow key={f.movie.id} f={f} onStatus={onStatus} />
             ))}
           </ul>
         )}
+        {visible.length > paged.length ? (
+          <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+            <p className="text-caption tabular-nums text-text-muted">
+              Showing {paged.length} of {visible.length}
+            </p>
+            <Button variant="outline" size="sm" onClick={() => setLimit((l) => l + PAGE)}>
+              Show {Math.min(PAGE, visible.length - paged.length)} more
+            </Button>
+          </div>
+        ) : null}
       </section>
     </div>
   );
