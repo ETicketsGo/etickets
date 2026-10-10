@@ -47,12 +47,19 @@ export class OutboxOpsController {
     return this.ops.correlationChain(correlationId);
   }
 
+  /*
+    Every write below replays, cancels or parks a domain event, which re-runs (or stops) the
+    side effects its handlers own. They need OPS_EXECUTE; reading the outbox stays OPS_READ.
+    Each used to inherit the class's OPS_READ.
+  */
   @Post('events/:id/retry')
+  @RequiresAdmin(AdminPermission.OPS_EXECUTE)
   retry(@CurrentUser() user: RequestUser, @Param('id') id: string) {
     return this.ops.retry(user?.id ?? null, id);
   }
 
   @Post('retry-batch')
+  @RequiresAdmin(AdminPermission.OPS_EXECUTE)
   retryBatch(
     @CurrentUser() user: RequestUser,
     @Query('status') status: OutboxStatus,
@@ -62,16 +69,19 @@ export class OutboxOpsController {
   }
 
   @Post('events/:id/cancel')
+  @RequiresAdmin(AdminPermission.OPS_EXECUTE)
   cancel(@CurrentUser() user: RequestUser, @Param('id') id: string) {
     return this.ops.cancel(user?.id ?? null, id);
   }
 
   @Post('events/:id/manual-review')
+  @RequiresAdmin(AdminPermission.OPS_EXECUTE)
   markReview(@CurrentUser() user: RequestUser, @Param('id') id: string) {
     return this.ops.markManualReview(user?.id ?? null, id);
   }
 
   @Post('recover-stale-leases')
+  @RequiresAdmin(AdminPermission.OPS_EXECUTE)
   recoverStale(@CurrentUser() user: RequestUser, @Body() _body: unknown) {
     void _body;
     return this.ops.releaseStaleLeases(user?.id ?? null);

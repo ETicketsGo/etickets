@@ -70,7 +70,13 @@ export class AdminSupportController {
     return this.support.complaintCounts(organizationId);
   }
 
+  /*
+    Seeing submissions is BOOKING_READ, the class guard and the support desk's floor. Changing a
+    status is a write - closing a complaint changes the open count that decides whether an
+    organizer keeps selling - so it needs SUPPORT_MANAGE. It used to inherit BOOKING_READ.
+  */
   @Patch(':id')
+  @RequiresAdmin(AdminPermission.SUPPORT_MANAGE)
   @ApiOperation({ summary: 'Update a support submission status (admin).' })
   update(
     @Param('id') id: string,

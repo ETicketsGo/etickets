@@ -24,6 +24,7 @@ import { useOrg } from '@/components/org-context';
 import { useWorkspace } from '@/components/workspace-chrome';
 import { eventSaleStates } from '@/lib/sale-state';
 import { EventCard } from '@/components/events/event-card';
+import { EventCardCompact } from '@/components/events/event-card-compact';
 import { EventTable } from '@/components/events/event-table';
 import { EventCalendarView } from '@/components/events/event-calendar-view';
 import {
@@ -273,12 +274,296 @@ export default function OrganizerEvents() {
   const first = rows.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1;
   const last = Math.min(currentPage * PAGE_SIZE, rows.length);
 
+  /*
+    ── THE FINDER'S PARTS ────────────────────────────────────────────────────────────
+    Built once, laid out two ways. From `sm` up: search, Filters and the view switch in one
+    row, the filters below (always open from `md`), then the count and the sort. On a phone the
+    finder is one row - search and "Filters (n)" - that stays at the top while the list scrolls;
+    the view switch and the sort move into the filters panel, and the count sits under it.
+  */
+  const searchForm = (
+    <form
+      role="search"
+      className="relative min-w-0 flex-1 basis-40"
+      onSubmit={(e) => e.preventDefault()}
+    >
+      <Search
+        className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted"
+        aria-hidden
+      />
+      <input
+        type="search"
+        value={filters.q}
+        onChange={(e) => set({ q: e.target.value })}
+        placeholder="Search events…"
+        aria-label="Search events by title, venue or city"
+        className="h-10 w-full rounded-md border border-border-input bg-background-surface pl-9 pr-3 text-ui text-text-primary placeholder:text-text-muted focus:border-ring focus:outline-none focus:ring-4 focus:ring-ring/15"
+      />
+    </form>
+  );
+
+  const filtersButton = (
+    <Button
+      variant="outline"
+      size="sm"
+      className="!h-10 shrink-0 md:hidden"
+      aria-expanded={filtersOpen}
+      aria-controls="event-filters"
+      onClick={() => setFiltersOpen((o) => !o)}
+    >
+      <SlidersHorizontal className="h-4 w-4" aria-hidden />
+      Filters{activeFilters ? ` (${activeFilters})` : ''}
+    </Button>
+  );
+
+  const viewSwitch = (
+    <div
+      role="group"
+      aria-label="Show events as"
+      className="inline-flex rounded-md border border-border bg-background-subtle p-0.5"
+    >
+      {VIEWS.map(({ value, label, icon: Icon }) => (
+        <button
+          key={value}
+          type="button"
+          aria-pressed={view === value}
+          className={toggleButton(view === value)}
+          onClick={() => setView(value)}
+        >
+          <Icon className="h-4 w-4" aria-hidden />
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+
+  const tableNote =
+    view === 'table' && !wide ? (
+      <p className="text-caption text-text-muted">
+        The table needs a wider screen, so events show as cards here.
+      </p>
+    ) : null;
+
+  const sortOptions = (Object.keys(SORT_LABELS) as EventSort[])
+    .filter((s) => s !== 'gross' || showSales)
+    .map((s) => (
+      <option key={s} value={s}>
+        {SORT_LABELS[s]}
+      </option>
+    ));
+  const onSort = (next: string) => {
+    setSort(next as EventSort);
+    setPage(1);
+  };
+
+  const filterFields = (
+    <>
+      <Select
+        label="Status"
+        value={filters.status}
+        className={compact}
+        onChange={(e) => set({ status: e.target.value })}
+      >
+        <option value="">All statuses</option>
+        {STATUSES.map((s) => (
+          <option key={s} value={s}>
+            {STATUS_LABELS[s]}
+          </option>
+        ))}
+      </Select>
+      <Select
+        label="Sale state"
+        value={filters.sale}
+        className={compact}
+        onChange={(e) => set({ sale: e.target.value as SaleFilter })}
+      >
+        <option value="">Any sale state</option>
+        {(Object.keys(SALE_FILTER_LABELS) as (keyof typeof SALE_FILTER_LABELS)[]).map((s) => (
+          <option key={s} value={s}>
+            {SALE_FILTER_LABELS[s]}
+          </option>
+        ))}
+      </Select>
+      <Select
+        label="Venue"
+        value={filters.venue}
+        className={compact}
+        onChange={(e) => set({ venue: e.target.value })}
+      >
+        <option value="">All venues</option>
+        {options.venues.map((v) => (
+          <option key={v.value} value={v.value}>
+            {v.label}
+          </option>
+        ))}
+      </Select>
+      <Select
+        label="Category"
+        value={filters.category}
+        className={compact}
+        onChange={(e) => set({ category: e.target.value })}
+      >
+        <option value="">All categories</option>
+        {options.categories.map((c) => (
+          <option key={c} value={c}>
+            {c}
+          </option>
+        ))}
+      </Select>
+      <Input
+        type="date"
+        label="On or after"
+        value={filters.from}
+        className={compact}
+        max={filters.to || undefined}
+        onChange={(e) => set({ from: e.target.value })}
+      />
+      <Input
+        type="date"
+        label="On or before"
+        value={filters.to}
+        className={compact}
+        min={filters.from || undefined}
+        onChange={(e) => set({ to: e.target.value })}
+      />
+    </>
+  );
+
+  const countLine = (
+    <p className="text-ui text-text-secondary" aria-live="polite">
+      {isLoading ? (
+        'Loading events'
+      ) : (
+        <>
+          {shown === 'calendar' ? (
+            `${rows.length} of ${all.length} events in the calendar`
+          ) : (
+            <>
+              Showing{' '}
+              <span className="font-semibold tabular-nums text-text-primary">{rows.length}</span> of{' '}
+              <span className="tabular-nums">{all.length}</span> event
+              {all.length === 1 ? '' : 's'}
+            </>
+          )}
+          {pending > 0 ? ` (checking sale state for ${pending} more)` : ''}
+        </>
+      )}
+      {activeFilters || filters.q ? (
+        <>
+          {' - '}
+          <button
+            type="button"
+            className="inline-flex items-center gap-0.5 rounded-sm font-semibold text-action-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={() => set(NO_FILTERS)}
+          >
+            <X className="h-3.5 w-3.5" aria-hidden />
+            Clear filters
+          </button>
+        </>
+      ) : null}
+    </p>
+  );
+
+  const finder = wide ? (
+    <section
+      aria-label="Find events"
+      className="space-y-3 rounded-lg border border-border bg-background-surface p-4 shadow-xs"
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        {searchForm}
+        {filtersButton}
+        {viewSwitch}
+      </div>
+
+      {/*
+        Below `md` the filters fold behind one button: six stacked fields pushed the first event
+        below the fold. From `md` up they are always shown, in one row from `xl`.
+      */}
+      <div
+        id="event-filters"
+        className={`${filtersOpen ? 'grid' : 'hidden'} grid-cols-2 gap-3 md:grid md:grid-cols-3 xl:grid-cols-6`}
+      >
+        {filterFields}
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t border-border pt-3">
+        {countLine}
+        {shown !== 'calendar' ? (
+          <div className="flex items-center gap-2">
+            <label htmlFor="event-sort" className="text-caption font-medium text-text-secondary">
+              Sort by
+            </label>
+            <select
+              id="event-sort"
+              value={sort}
+              onChange={(e) => onSort(e.target.value)}
+              className="h-9 cursor-pointer rounded-md border border-border-input bg-background-surface px-2.5 text-ui text-text-primary focus:border-ring focus:outline-none focus:ring-4 focus:ring-ring/15"
+            >
+              {sortOptions}
+            </select>
+          </div>
+        ) : null}
+      </div>
+    </section>
+  ) : (
+    <>
+      {/*
+        Sticky under the top bar, so search is always one tap away in a long list. While the
+        filters are open the panel scrolls inside itself rather than covering the page for good.
+      */}
+      <section
+        aria-label="Find events"
+        className="sticky top-[calc(3.75rem+1px+env(safe-area-inset-top))] z-20 -mx-4 max-h-[calc(100dvh-4.5rem)] overflow-y-auto border-b border-border bg-background-canvas/95 px-4 py-2 backdrop-blur supports-[backdrop-filter]:bg-background-canvas/80"
+      >
+        <div className="flex items-center gap-2">
+          {searchForm}
+          {filtersButton}
+        </div>
+        <div
+          id="event-filters"
+          hidden={!filtersOpen}
+          className="mt-3 space-y-3 rounded-lg border border-border bg-background-surface p-3 shadow-xs"
+        >
+          <div className="space-y-1.5">
+            {viewSwitch}
+            {tableNote}
+          </div>
+          <div className="grid grid-cols-1 gap-3 min-[480px]:grid-cols-2">
+            {filterFields}
+            {shown !== 'calendar' ? (
+              <Select
+                label="Sort by"
+                value={sort}
+                className={compact}
+                onChange={(e) => onSort(e.target.value)}
+              >
+                {sortOptions}
+              </Select>
+            ) : null}
+          </div>
+        </div>
+      </section>
+      {/*
+        "Showing 223 of 223" says nothing the pager under the list does not; the line earns its
+        row on screen once a search or filter narrows the list (and carries "Clear filters").
+      */}
+      {/* Kept for a screen reader either way: it is the live region that says what changed. */}
+      <div className={activeFilters || filters.q || pending > 0 || isLoading ? '' : 'sr-only'}>
+        {countLine}
+      </div>
+    </>
+  );
+
   return (
     <div className="min-w-0 space-y-4">
       <PageHeader
         title="Events"
+        /*
+          On a phone the count line under the search says the same thing, and without it the
+          title and "Create event" share one row.
+        */
         description={
-          isLoading
+          isLoading || !wide
             ? undefined
             : `${all.length} event${all.length === 1 ? '' : 's'} in ${activeOrg.name}`
         }
@@ -297,205 +582,7 @@ export default function OrganizerEvents() {
         }
       />
 
-      <section
-        aria-label="Find events"
-        className="space-y-3 rounded-lg border border-border bg-background-surface p-3 shadow-xs sm:p-4"
-      >
-        <div className="flex flex-wrap items-center gap-2">
-          <form
-            role="search"
-            className="relative min-w-0 flex-1 basis-56"
-            onSubmit={(e) => e.preventDefault()}
-          >
-            <Search
-              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted"
-              aria-hidden
-            />
-            <input
-              type="search"
-              value={filters.q}
-              onChange={(e) => set({ q: e.target.value })}
-              placeholder="Search events…"
-              aria-label="Search events by title, venue or city"
-              className="h-10 w-full rounded-md border border-border-input bg-background-surface pl-9 pr-3 text-ui text-text-primary placeholder:text-text-muted focus:border-ring focus:outline-none focus:ring-4 focus:ring-ring/15"
-            />
-          </form>
-          <Button
-            variant="outline"
-            size="sm"
-            className="!h-10 md:hidden"
-            aria-expanded={filtersOpen}
-            aria-controls="event-filters"
-            onClick={() => setFiltersOpen((o) => !o)}
-          >
-            <SlidersHorizontal className="h-4 w-4" aria-hidden />
-            Filters{activeFilters ? ` (${activeFilters})` : ''}
-          </Button>
-          <div
-            role="group"
-            aria-label="Show events as"
-            className="inline-flex rounded-md border border-border bg-background-subtle p-0.5"
-          >
-            {VIEWS.map(({ value, label, icon: Icon }) => (
-              <button
-                key={value}
-                type="button"
-                aria-pressed={view === value}
-                className={toggleButton(view === value)}
-                onClick={() => setView(value)}
-              >
-                <Icon className="h-4 w-4" aria-hidden />
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/*
-          Below `md` the filters fold behind one button: six stacked fields pushed the first
-          event below the fold of a phone. From `md` up they are always shown, in one row from
-          `xl`.
-        */}
-        <div
-          id="event-filters"
-          className={`${filtersOpen ? 'grid' : 'hidden'} grid-cols-1 gap-3 min-[480px]:grid-cols-2 md:grid md:grid-cols-3 xl:grid-cols-6`}
-        >
-          <Select
-            label="Status"
-            value={filters.status}
-            className={compact}
-            onChange={(e) => set({ status: e.target.value })}
-          >
-            <option value="">All statuses</option>
-            {STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {STATUS_LABELS[s]}
-              </option>
-            ))}
-          </Select>
-          <Select
-            label="Sale state"
-            value={filters.sale}
-            className={compact}
-            onChange={(e) => set({ sale: e.target.value as SaleFilter })}
-          >
-            <option value="">Any sale state</option>
-            {(Object.keys(SALE_FILTER_LABELS) as (keyof typeof SALE_FILTER_LABELS)[]).map((s) => (
-              <option key={s} value={s}>
-                {SALE_FILTER_LABELS[s]}
-              </option>
-            ))}
-          </Select>
-          <Select
-            label="Venue"
-            value={filters.venue}
-            className={compact}
-            onChange={(e) => set({ venue: e.target.value })}
-          >
-            <option value="">All venues</option>
-            {options.venues.map((v) => (
-              <option key={v.value} value={v.value}>
-                {v.label}
-              </option>
-            ))}
-          </Select>
-          <Select
-            label="Category"
-            value={filters.category}
-            className={compact}
-            onChange={(e) => set({ category: e.target.value })}
-          >
-            <option value="">All categories</option>
-            {options.categories.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </Select>
-          <Input
-            type="date"
-            label="On or after"
-            value={filters.from}
-            className={compact}
-            max={filters.to || undefined}
-            onChange={(e) => set({ from: e.target.value })}
-          />
-          <Input
-            type="date"
-            label="On or before"
-            value={filters.to}
-            className={compact}
-            min={filters.from || undefined}
-            onChange={(e) => set({ to: e.target.value })}
-          />
-        </div>
-
-        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t border-border pt-3">
-          <p className="text-ui text-text-secondary" aria-live="polite">
-            {isLoading ? (
-              'Loading events'
-            ) : (
-              <>
-                {shown === 'calendar' ? (
-                  `${rows.length} of ${all.length} events in the calendar`
-                ) : (
-                  <>
-                    Showing{' '}
-                    <span className="font-semibold tabular-nums text-text-primary">
-                      {rows.length}
-                    </span>{' '}
-                    of <span className="tabular-nums">{all.length}</span> event
-                    {all.length === 1 ? '' : 's'}
-                  </>
-                )}
-                {pending > 0 ? ` (checking sale state for ${pending} more)` : ''}
-              </>
-            )}
-            {activeFilters || filters.q ? (
-              <>
-                {' - '}
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-0.5 rounded-sm font-semibold text-action-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  onClick={() => set(NO_FILTERS)}
-                >
-                  <X className="h-3.5 w-3.5" aria-hidden />
-                  Clear filters
-                </button>
-              </>
-            ) : null}
-          </p>
-          {shown !== 'calendar' ? (
-            <div className="flex items-center gap-2">
-              <label htmlFor="event-sort" className="text-caption font-medium text-text-secondary">
-                Sort by
-              </label>
-              <select
-                id="event-sort"
-                value={sort}
-                onChange={(e) => {
-                  setSort(e.target.value as EventSort);
-                  setPage(1);
-                }}
-                className="h-9 cursor-pointer rounded-md border border-border-input bg-background-surface px-2.5 text-ui text-text-primary focus:border-ring focus:outline-none focus:ring-4 focus:ring-ring/15"
-              >
-                {(Object.keys(SORT_LABELS) as EventSort[])
-                  .filter((s) => s !== 'gross' || showSales)
-                  .map((s) => (
-                    <option key={s} value={s}>
-                      {SORT_LABELS[s]}
-                    </option>
-                  ))}
-              </select>
-            </div>
-          ) : null}
-        </div>
-        {view === 'table' && !wide ? (
-          <p className="text-caption text-text-muted">
-            The table needs a wider screen, so events show as cards here.
-          </p>
-        ) : null}
-      </section>
+      {finder}
 
       {isError ? (
         <ErrorState
@@ -532,6 +619,29 @@ export default function OrganizerEvents() {
             </Button>
           }
         />
+      ) : shown === 'cards' && !wide ? (
+        /*
+          A phone gets compact rows - four and more to a screen - rather than the image cards,
+          which fit one: the same facts and controls, see EventCardCompact.
+        */
+        <ul className="space-y-2" aria-label="Events">
+          {pageRows.map((e, i) => {
+            const sale = saleOf(e.id);
+            return (
+              <li key={e.id} className="min-w-0">
+                <EventCardCompact
+                  event={e}
+                  selling={sale.selling}
+                  saleUnavailable={sale.unavailable}
+                  priority={i < 5}
+                  duplicating={duplicatingId === e.id}
+                  onDuplicate={() => duplicate.mutate(e.id)}
+                  onDelete={() => setDeleting(e)}
+                />
+              </li>
+            );
+          })}
+        </ul>
       ) : shown === 'cards' ? (
         <ul className={GRID} aria-label="Events">
           {pageRows.map((e, i) => {

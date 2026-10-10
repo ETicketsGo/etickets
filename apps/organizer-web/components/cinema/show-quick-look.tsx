@@ -151,7 +151,7 @@ export function ShowQuickLook({
         </section>
 
         <Section id="ql-sale" title="Online sales">
-          {verdict ? <SalePill verdict={verdict} wrap /> : null}
+          {verdict ? <SalePill verdict={verdict} /> : null}
           {verdict?.detail ? <p className="text-text-secondary">{verdict.detail}</p> : null}
           <div className="flex flex-wrap gap-x-4 gap-y-1">
             {verdict?.fixPath ? (

@@ -31,7 +31,16 @@ import { AccountContact, accountContactText } from '../../../components/account-
  * empty box), and that granting `ADMIN_MANAGE` effectively grants everything, because an
  * account that can change permissions can change its own.
  */
-const RISKY = new Set(['ADMIN_MANAGE', 'REFUND_APPROVE', 'PLATFORM_CONFIG', 'PAYOUT_MANAGE']);
+const RISKY = new Set([
+  'ADMIN_MANAGE',
+  'REFUND_APPROVE',
+  'PLATFORM_CONFIG',
+  'PAYOUT_MANAGE',
+  // Replays jobs and syncs, and lets a compensation execute or a money finding close.
+  'OPS_EXECUTE',
+  'FINANCE_APPROVE',
+  'FINANCE_RESOLVE',
+]);
 
 /**
  * What a brand-new back-office account starts with: nothing.

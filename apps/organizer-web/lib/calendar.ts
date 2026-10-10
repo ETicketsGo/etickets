@@ -1,5 +1,13 @@
 import { marketFor } from '@eticketsgo/shared-types';
-import type { OrganizerCalendarSession } from '@eticketsgo/web-kit';
+import {
+  calendarDisplayStatus,
+  calendarFocusTarget,
+  calendarStatusText,
+  calendarStatusTone,
+  type CalendarEntry,
+  type CalendarTone,
+  type OrganizerCalendarSession,
+} from '@eticketsgo/web-kit';
 import { venueInputZone } from './zoned-time';
 
 /**
@@ -42,55 +50,28 @@ export const CALENDAR_STATUSES = [
 ] as const;
 
 /**
- * How a status reads on the calendar: its words and the tone of its dot and pill.
- *
- * The words are the console's lifecycle vocabulary (DESIGN-DIRECTION): "In review", not "Under
- * review"; COMPLETED is "Ended". PAUSED and SOLD_OUT keep their own words because they are what
- * the event row says, not a claim about sale eligibility - that comes only from the server's
- * unified eligibility, which the calendar does not read. The admin calendar's `lib/calendar.ts`
- * holds the same table, so a status looks the same in both consoles.
+ * How a status reads on the calendar - its words and the tone of its dot and pill - is the
+ * shared table in web-kit's `calendar-status.ts`, which the admin calendar draws by too, so a
+ * status looks the same in both consoles. These names keep this file's callers and tests.
  */
-export type StatusTone = 'success' | 'warning' | 'error' | 'info' | 'neutral';
-
-const STATUS_LOOK: Record<string, { label: string; tone: StatusTone }> = {
-  DRAFT: { label: 'Draft', tone: 'neutral' },
-  UNDER_REVIEW: { label: 'In review', tone: 'warning' },
-  PUBLISHED: { label: 'Published', tone: 'success' },
-  PAUSED: { label: 'Paused', tone: 'warning' },
-  SOLD_OUT: { label: 'Sold out', tone: 'info' },
-  CANCELLED: { label: 'Cancelled', tone: 'error' },
-  COMPLETED: { label: 'Ended', tone: 'neutral' },
-  ARCHIVED: { label: 'Ended', tone: 'neutral' },
-};
+export type StatusTone = CalendarTone;
 
 /** "In review", for a filter option or a status line. */
-export function statusText(status: string): string {
-  const known = STATUS_LOOK[status];
-  if (known) return known.label;
-  const words = status.toLowerCase().replaceAll('_', ' ');
-  return words.charAt(0).toUpperCase() + words.slice(1);
-}
+export const statusText = calendarStatusText;
 
-/** The tone a status is drawn in. A status this table does not know is neutral, never green. */
-export function statusTone(status: string): StatusTone {
-  return STATUS_LOOK[status]?.tone ?? 'neutral';
-}
+/** The tone a status is drawn in. A status the table does not know is neutral, never green. */
+export const statusTone = calendarStatusTone;
 
 /**
- * The status a session is DRAWN with, and its words.
- *
- * The event's status, unless the session itself was cancelled or paused: a cancelled 21:00 show
- * inside a published event must not look like it is on sale. The filter still follows the
- * event's status, because that is the status an organizer manages.
+ * The status a session is DRAWN with, and its words: the event's, unless the session itself was
+ * cancelled or paused. The filter still follows the event's status, because that is the status
+ * an organizer manages.
  */
 export function displayStatus(s: { eventStatus: string; sessionStatus: string }): {
   status: string;
   label: string;
 } {
-  if (s.sessionStatus === 'CANCELLED' || s.sessionStatus === 'PAUSED') {
-    return { status: s.sessionStatus, label: `Session ${s.sessionStatus.toLowerCase()}` };
-  }
-  return { status: s.eventStatus, label: statusText(s.eventStatus) };
+  return calendarDisplayStatus(s.eventStatus, s.sessionStatus, 'Session');
 }
 
 /** One session, with everything the calendar shows about it already resolved. */
@@ -245,28 +226,8 @@ export function weekStartFor(country: string | null | undefined): WeekStart {
   return code === 'US' || code === 'CA' ? 0 : 1;
 }
 
-/**
- * Which day a keyboard key moves focus to in the month grid, or null for a key it ignores.
- * Arrows move by a day or a week; Home and End go to the ends of the focused day's week.
- */
-export function focusTarget(day: DayKey, key: string, weekStart: WeekStart): DayKey | null {
-  switch (key) {
-    case 'ArrowLeft':
-      return addDays(day, -1);
-    case 'ArrowRight':
-      return addDays(day, 1);
-    case 'ArrowUp':
-      return addDays(day, -7);
-    case 'ArrowDown':
-      return addDays(day, 7);
-    case 'Home':
-      return startOfWeek(day, weekStart);
-    case 'End':
-      return addDays(startOfWeek(day, weekStart), 6);
-    default:
-      return null;
-  }
-}
+/** Which day a keyboard key moves focus to in the month grid; shared with the admin calendar. */
+export const focusTarget = calendarFocusTarget;
 
 // ─── Instants into venue-local days ───
 
@@ -588,4 +549,53 @@ export function splitSpanning(segments: DaySegment[]): {
   const spanning: DaySegment[] = [];
   for (const s of segments) (s.continuesBefore || s.continuesAfter ? spanning : timed).push(s);
   return { timed, spanning };
+}
+
+// ─── Into the shared calendar's entries ───
+
+/**
+ * Everything a screen-reader user needs about a session, in one accessible name - time WITH
+ * its zone, title, place and status - so a chip is not read as scattered fragments.
+ */
+export function sessionLabel(s: CalendarSession): string {
+  const time = `${formatClock(s.startsAt, s.zone)} ${zoneAbbrev(s.zone, s.startsAt)}`;
+  const place = [s.venueName, s.city].filter(Boolean).join(', ');
+  return `${time}, ${s.title}${place ? `, ${place}` : ''}. ${displayStatus(s).label}`;
+}
+
+/** "19:00 - 22:00 IST", or the start alone for a session stored with no length. */
+export function segmentTime(seg: DaySegment): string {
+  const s = seg.session;
+  const zone = zoneAbbrev(s.zone, s.startsAt);
+  if (seg.continuesBefore) return `Until ${formatClock(s.endsAt, s.zone)} ${zone}`;
+  if (seg.endMin <= seg.startMin && !seg.continuesAfter)
+    return `${formatClock(s.startsAt, s.zone)} ${zone}`;
+  return `${formatClock(s.startsAt, s.zone)} - ${formatClock(s.endsAt, s.zone)} ${zone}`;
+}
+
+/** One day's share of a session, in the words web-kit's shared calendar draws. */
+export function entryFor(seg: DaySegment): CalendarEntry<CalendarSession> {
+  const s = seg.session;
+  const shown = displayStatus(s);
+  return {
+    id: s.id,
+    title: s.title,
+    start: seg.continuesBefore ? 'cont.' : formatClock(s.startsAt, s.zone),
+    time: segmentTime(seg),
+    detail: [s.venueName, s.city].filter(Boolean).join(', ') || undefined,
+    tone: statusTone(shown.status),
+    statusLabel: shown.label,
+    struck: shown.status === 'CANCELLED',
+    label: sessionLabel(s),
+    source: s,
+  };
+}
+
+/** Every day's segments as entries, in the same order. */
+export function entriesByDay(
+  byDay: Map<DayKey, DaySegment[]>,
+): Map<DayKey, CalendarEntry<CalendarSession>[]> {
+  const out = new Map<DayKey, CalendarEntry<CalendarSession>[]>();
+  for (const [day, list] of byDay) out.set(day, list.map(entryFor));
+  return out;
 }

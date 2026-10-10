@@ -347,3 +347,16 @@ export function upcomingEventCount(
     (e) => !['CANCELLED', 'ARCHIVED'].includes(e.status) && (e.schedule?.upcomingSessions ?? 0) > 0,
   ).length;
 }
+
+/**
+ * "Calendar, sales and payouts" - what the phone's "Show more" folds, as the button says it.
+ * Lower-case parts in, a sentence out; nothing for nothing.
+ */
+export function listSentence(parts: string[]): string {
+  if (parts.length === 0) return '';
+  const text =
+    parts.length === 1
+      ? parts[0]
+      : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}

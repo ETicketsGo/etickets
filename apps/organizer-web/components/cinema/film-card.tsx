@@ -189,7 +189,7 @@ export function FilmCard({
           </div>
           <div className="flex min-w-0 flex-wrap items-center gap-1.5">
             <FilmLifecycle status={m.status} size="sm" />
-            {f.sale ? <SalePill verdict={f.sale} size="sm" wrap /> : null}
+            {f.sale ? <SalePill verdict={f.sale} size="sm" /> : null}
           </div>
           <Facts f={f} />
           <Exceptions f={f} />

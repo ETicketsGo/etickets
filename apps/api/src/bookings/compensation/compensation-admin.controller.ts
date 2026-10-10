@@ -106,7 +106,14 @@ export class CompensationAdminController {
     return this.admin.dryRun(this.scope(user, tenantId, ip), body);
   }
 
+  /*
+    The class guard is FINANCE_READ, which is what the reads (and the dry run, which persists
+    nothing) need. Approving, retrying or releasing a compensation lets it EXECUTE, so those
+    need FINANCE_APPROVE; parking one for manual review is a recorded finding, FINANCE_RESOLVE.
+    All four used to inherit FINANCE_READ, so anybody who could see revenue could approve one.
+  */
   @Post(':id/approve')
+  @RequiresAdmin(AdminPermission.FINANCE_APPROVE)
   @ApiOperation({ summary: 'Approve a SAFE non-financial compensation → READY.' })
   approve(
     @CurrentUser() user: RequestUser,
@@ -118,6 +125,7 @@ export class CompensationAdminController {
   }
 
   @Post(':id/retry')
+  @RequiresAdmin(AdminPermission.FINANCE_APPROVE)
   @ApiOperation({ summary: 'Retry a SAFE non-financial compensation.' })
   retry(
     @CurrentUser() user: RequestUser,
@@ -129,6 +137,7 @@ export class CompensationAdminController {
   }
 
   @Post(':id/manual-review')
+  @RequiresAdmin(AdminPermission.FINANCE_RESOLVE)
   @ApiOperation({ summary: 'Move a compensation to manual review.' })
   manualReview(
     @CurrentUser() user: RequestUser,
@@ -141,6 +150,7 @@ export class CompensationAdminController {
   }
 
   @Post(':id/release-lease')
+  @RequiresAdmin(AdminPermission.FINANCE_APPROVE)
   @ApiOperation({ summary: 'Release a stale/held lease on a processing compensation.' })
   releaseLease(
     @CurrentUser() user: RequestUser,
