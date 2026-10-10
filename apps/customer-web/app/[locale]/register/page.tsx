@@ -2,7 +2,7 @@
 
 import { useSearchParams } from 'next/navigation';
 import { useRouter } from '@/i18n/navigation';
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect, useId, useState } from 'react';
 import { api, tokenStore, ApiRequestError } from '@/lib/api';
 import { Button, Card, Input, Select } from '@/components/ui';
 import {
@@ -53,6 +53,27 @@ function RegisterForm() {
   const [smsConsent, setSmsConsent] = useState(false);
   const [phoneError, setPhoneError] = useState<string | null>(null);
   const passwordCopy = usePasswordCopy();
+  /*
+    ONE ID PER COPY OF THE FORM, NOT ONE PER PAGE.
+
+    This form can exist twice for a moment. The server streams it into a hidden
+    `<div hidden id="S:1">` that an inline script later swaps into place; if React has already
+    rendered the boundary on the client by then (a parent updated before it hydrated), the
+    page briefly holds the client's copy AND the server's. With fixed ids that meant two
+    `#sms-consent` checkboxes, and the A2P opt-in test failed on main whenever it looked during
+    that window. `useId` gives the server render and a client render different ids, so an id
+    always names exactly one control. Each label still wraps its own checkbox, so the
+    association never depended on the id.
+  */
+  const uid = useId();
+  const ids = {
+    name: `${uid}name`,
+    email: `${uid}email`,
+    password: `${uid}password`,
+    phoneCountry: `${uid}phone-country`,
+    phone: `${uid}phone`,
+    smsConsent: `${uid}sms-consent`,
+  };
 
   /*
     After hydration, never during render: the browser's time zone does not exist on the
@@ -181,7 +202,7 @@ function RegisterForm() {
 
       <form className="space-y-4" onSubmit={submit}>
         <Input
-          id="name"
+          id={ids.name}
           label={a('fullName')}
           autoFocus
           value={fullName}
@@ -189,7 +210,7 @@ function RegisterForm() {
           required
         />
         <Input
-          id="email"
+          id={ids.email}
           label={a('email')}
           type="email"
           value={email}
@@ -201,7 +222,7 @@ function RegisterForm() {
           required
         />
         <PasswordField
-          id="password"
+          id={ids.password}
           value={password}
           onChange={(nextPassword) => {
             setPassword(nextPassword);
@@ -232,7 +253,7 @@ function RegisterForm() {
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-[11rem_minmax(0,1fr)]">
             <Select
-              id="phone-country"
+              id={ids.phoneCountry}
               label="Country"
               value={phoneCountry}
               onChange={(e) => {
@@ -248,7 +269,7 @@ function RegisterForm() {
               ))}
             </Select>
             <Input
-              id="phone"
+              id={ids.phone}
               label="Mobile number"
               type="tel"
               inputMode="tel"
@@ -262,7 +283,7 @@ function RegisterForm() {
           <label className="flex cursor-pointer items-start gap-3">
             <input
               type="checkbox"
-              id="sms-consent"
+              id={ids.smsConsent}
               checked={smsConsent}
               onChange={(e) => {
                 setSmsConsent(e.target.checked);

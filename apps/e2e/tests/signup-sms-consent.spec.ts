@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { API, CUSTOMER, NEW_ACCOUNT_PASSWORD } from './helpers';
 
 /**
@@ -14,19 +14,62 @@ import { API, CUSTOMER, NEW_ACCOUNT_PASSWORD } from './helpers';
 
 const unique = () => `a2p-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 
+/*
+  -- WHY NOTHING HERE SELECTS BY A FIXED ID ----------------------------------------------
+  The form sits in a Suspense boundary that the server STREAMS: its HTML arrives in a hidden
+  `<div hidden id="S:1">` and an inline script swaps it into place. When React has already
+  rendered that boundary on the client, the page holds two copies of the form for a moment -
+  the client's, visible, and the server's, hidden, waiting for the swap. With the old fixed
+  ids that window held two `#sms-consent` checkboxes, and the strict-mode locator for it
+  failed on main (f0dedcb, 0298781) on a page that was fine a millisecond later.
+
+  The page now gives each copy its own ids. This file finds the controls the way a person
+  does - by role and label, which skips the hidden copy - waits for the page to settle to
+  one form, and then asserts that every id it uses names exactly one element.
+*/
+const consentBox = (page: Page) =>
+  page.getByRole('checkbox', { name: /Send me transactional text messages/i });
+const mobileGroup = (page: Page) => page.getByRole('group', { name: /Mobile number/i });
+const fields = (page: Page) => ({
+  name: page.getByLabel('Full name', { exact: true }),
+  email: page.getByLabel('Email', { exact: true }),
+  password: page.getByLabel('Password', { exact: true }),
+  country: mobileGroup(page).getByLabel('Country', { exact: true }),
+  phone: mobileGroup(page).getByLabel('Mobile number', { exact: true }),
+  consent: consentBox(page),
+});
+
+/** Opens the signup page and waits until it holds exactly one form with unique ids. */
+async function openSignup(page: Page) {
+  const res = await page.goto(`${CUSTOMER}/register`);
+  await expect(consentBox(page)).toBeVisible();
+  // The streamed copy is gone: one checkbox on the page, so one form.
+  await expect(page.locator('input[type="checkbox"]')).toHaveCount(1);
+  const f = fields(page);
+  for (const control of Object.values(f)) {
+    const id = await control.getAttribute('id');
+    expect(id, 'every control on the opt-in form has an id').toBeTruthy();
+    await expect(page.locator(`[id="${id}"]`), `id "${id}" names exactly one element`).toHaveCount(
+      1,
+    );
+  }
+  // The label is the control's accessible name, so the association is checked by the role
+  // query above; this pins that the box is the SMS one and not some other checkbox.
+  expect(await f.consent.getAttribute('id')).toMatch(/sms-consent$/);
+  return { res, f };
+}
+
 test.describe('signup as the A2P opt-in evidence', () => {
   test('a reviewer can see every required disclosure without signing in', async ({ page }) => {
-    const res = await page.goto(`${CUSTOMER}/register`);
+    /*
+      The form renders inside a Suspense boundary. Reading the body as soon as navigation
+      settles raced it, and failed main twice (9c4913c, f4ef929) on an unchanged page.
+      `openSignup` waits for the one settled form; then this reads what a reviewer reads.
+    */
+    const { res, f } = await openSignup(page);
     expect(res?.status()).toBe(200);
     expect(page.url(), 'the opt-in page must not require a session').not.toMatch(/\/login/);
 
-    /*
-      The form renders inside a Suspense boundary: the server sends a "Loading..." card and the
-      form mounts after hydration. Reading the body as soon as navigation settles raced that,
-      and failed main twice (9c4913c, f4ef929) on an unchanged page. Wait for the form, then
-      read what a reviewer reads.
-    */
-    await expect(page.locator('#sms-consent')).toBeVisible();
     const text = await page.locator('body').innerText();
     expect(text).toMatch(/Send me transactional text messages from ETicketsGo/i);
     expect(text).toMatch(/bookings, tickets, event updates, cancellations, refunds/i);
@@ -37,9 +80,9 @@ test.describe('signup as the A2P opt-in evidence', () => {
     expect(text).toMatch(/Consent is not a condition of purchase/i);
 
     // The controls themselves.
-    await expect(page.locator('#phone')).toBeVisible();
-    await expect(page.locator('#phone-country')).toBeVisible();
-    await expect(page.locator('#sms-consent')).toBeVisible();
+    await expect(f.phone).toBeVisible();
+    await expect(f.country).toBeVisible();
+    await expect(f.consent).toBeVisible();
     await expect(page.getByRole('button', { name: /create account/i })).toBeVisible();
 
     // Policy links, adjacent to the disclosure and actually resolving.
@@ -57,17 +100,17 @@ test.describe('signup as the A2P opt-in evidence', () => {
       a campaign submitted on the strength of a form that pre-ticks it is submitted on a
       false claim.
     */
-    await page.goto(`${CUSTOMER}/register`);
-    await expect(page.locator('#sms-consent')).not.toBeChecked();
+    const { f } = await openSignup(page);
+    await expect(f.consent).not.toBeChecked();
   });
 
   test('consent is a separate control from accepting the terms', async ({ page }) => {
     // There is exactly one checkbox on this form, and it is the SMS one. Accepting the terms
     // is not a checkbox that could be bundled with it.
-    await page.goto(`${CUSTOMER}/register`);
+    await openSignup(page);
     const boxes = page.locator('input[type="checkbox"]');
     await expect(boxes).toHaveCount(1);
-    await expect(boxes.first()).toHaveAttribute('id', 'sms-consent');
+    await expect(boxes.first()).toHaveAccessibleName(/Send me transactional text messages/i);
   });
 
   test('ticking the box with no number complains about the NUMBER', async ({ page }) => {
@@ -75,11 +118,11 @@ test.describe('signup as the A2P opt-in evidence', () => {
       The error belongs on the empty field. Pointing at the checkbox would tell somebody to
       undo the thing they just asked for.
     */
-    await page.goto(`${CUSTOMER}/register`);
-    await page.locator('#name').fill('A Reviewer');
-    await page.locator('#email').fill(`${unique()}@example.com`);
-    await page.locator('#password').fill(NEW_ACCOUNT_PASSWORD);
-    await page.locator('#sms-consent').check();
+    const { f } = await openSignup(page);
+    await f.name.fill('A Reviewer');
+    await f.email.fill(`${unique()}@example.com`);
+    await f.password.fill(NEW_ACCOUNT_PASSWORD);
+    await f.consent.check();
     await page.getByRole('button', { name: /create account/i }).click();
 
     await expect(page.locator('body')).toContainText(/Add your mobile number/i);
@@ -89,10 +132,10 @@ test.describe('signup as the A2P opt-in evidence', () => {
 
   test('an account can be created with no phone and no consent', async ({ page }) => {
     // The floor: a mobile number is never required to have an account.
-    await page.goto(`${CUSTOMER}/register`);
-    await page.locator('#name').fill('No Phone');
-    await page.locator('#email').fill(`${unique()}@example.com`);
-    await page.locator('#password').fill(NEW_ACCOUNT_PASSWORD);
+    const { f } = await openSignup(page);
+    await f.name.fill('No Phone');
+    await f.email.fill(`${unique()}@example.com`);
+    await f.password.fill(NEW_ACCOUNT_PASSWORD);
     await page.getByRole('button', { name: /create account/i }).click();
 
     await page.waitForURL((u) => !u.pathname.includes('/register'), { timeout: 20000 });
@@ -107,13 +150,13 @@ test.describe('signup as the A2P opt-in evidence', () => {
       started writing a consent row - the platform would be inferring agreement from a
       contact detail, which is the thing the consent record exists to make impossible.
     */
-    await page.goto(`${CUSTOMER}/register`);
-    await page.locator('#name').fill('Phone No Consent');
-    await page.locator('#email').fill(`${unique()}@example.com`);
-    await page.locator('#password').fill(NEW_ACCOUNT_PASSWORD);
-    await page.locator('#phone-country').selectOption('US');
-    await page.locator('#phone').fill('5551234567');
-    await expect(page.locator('#sms-consent')).not.toBeChecked();
+    const { f } = await openSignup(page);
+    await f.name.fill('Phone No Consent');
+    await f.email.fill(`${unique()}@example.com`);
+    await f.password.fill(NEW_ACCOUNT_PASSWORD);
+    await f.country.selectOption('US');
+    await f.phone.fill('5551234567');
+    await expect(f.consent).not.toBeChecked();
     await page.getByRole('button', { name: /create account/i }).click();
 
     await page.waitForURL((u) => !u.pathname.includes('/register'), { timeout: 20000 });
@@ -121,13 +164,13 @@ test.describe('signup as the A2P opt-in evidence', () => {
   });
 
   test('a number WITH the box creates the account and records the consent', async ({ page }) => {
-    await page.goto(`${CUSTOMER}/register`);
-    await page.locator('#name').fill('Phone And Consent');
-    await page.locator('#email').fill(`${unique()}@example.com`);
-    await page.locator('#password').fill(NEW_ACCOUNT_PASSWORD);
-    await page.locator('#phone-country').selectOption('US');
-    await page.locator('#phone').fill('5551234567');
-    await page.locator('#sms-consent').check();
+    const { f } = await openSignup(page);
+    await f.name.fill('Phone And Consent');
+    await f.email.fill(`${unique()}@example.com`);
+    await f.password.fill(NEW_ACCOUNT_PASSWORD);
+    await f.country.selectOption('US');
+    await f.phone.fill('5551234567');
+    await f.consent.check();
     await page.getByRole('button', { name: /create account/i }).click();
 
     await page.waitForURL((u) => !u.pathname.includes('/register'), { timeout: 20000 });

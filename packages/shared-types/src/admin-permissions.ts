@@ -46,7 +46,18 @@ export const AdminPermission = {
   EVENT_REVIEW: 'EVENT_REVIEW',
 
   // ── Money and configuration ────────────────────────────────────────────────────
-  /** Change platform fee rules, tax rules and payment routing. Affects every sale. */
+  /**
+   * See platform fee rules, tax rules and cinema pricing policies. Changes nothing.
+   *
+   * Separate from `PLATFORM_CONFIG` so somebody who has to explain a charge (finance, an
+   * auditor) can read the rules without being able to change them. Neither implies the other:
+   * an editor is granted both, on purpose, by whoever holds `ADMIN_MANAGE`.
+   */
+  PLATFORM_CONFIG_READ: 'PLATFORM_CONFIG_READ',
+  /**
+   * Change platform fee rules, tax rules, cinema pricing policies and maintenance mode.
+   * Affects every sale.
+   */
   PLATFORM_CONFIG: 'PLATFORM_CONFIG',
   /** Release settlements and run payouts. */
   PAYOUT_MANAGE: 'PAYOUT_MANAGE',
@@ -70,6 +81,9 @@ export const ALL_ADMIN_PERMISSIONS = Object.values(AdminPermission) as AdminPerm
 
 /**
  * Ready-made bundles, so a new starter is useful in one click rather than twelve.
+ *
+ * None of them carries `PLATFORM_CONFIG_READ` or `PLATFORM_CONFIG`: who may see or change
+ * what the platform charges is decided per person by whoever grants it, not by a default.
  *
  * These are a convenience at ASSIGNMENT time only. Once granted, the account holds the
  * individual capabilities — so editing a bundle later never silently changes what an
