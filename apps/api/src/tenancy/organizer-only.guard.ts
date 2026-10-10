@@ -1,6 +1,5 @@
 import { CanActivate, ExecutionContext, HttpStatus, Injectable, SetMetadata } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { Role } from '@eticketsgo/shared-types';
 import type { Request } from 'express';
 import { AppException, ErrorCodes } from '../common/errors';
 import type { RequestUser } from '../common/decorators';
@@ -23,20 +22,17 @@ export const ORGANIZER_ONLY_KEY = 'organizerOnly';
  */
 export const OrganizerOnly = (operation: string) => SetMetadata(ORGANIZER_ONLY_KEY, operation);
 
-/** Global roles an organization's own people carry. */
-const ORGANIZER_ROLES: readonly string[] = [
-  Role.ORGANIZER_OWNER,
-  Role.ORGANIZER_MANAGER,
-  Role.CHECKIN_STAFF,
-];
-
 /**
  * Enforces {@link OrganizerOnly}. Runs before RolesGuard, so the refusal is recorded rather
  * than lost as a plain role mismatch.
  *
- * A staff account that ALSO carries an organizer role (somebody who registered an organization
- * of their own) is let through to the handler, where membership of the TARGET organization is
+ * A staff account that is an ACTIVE member of some organization (somebody who registered one of
+ * their own) is let through to the handler, where membership of the TARGET organization is
  * asserted from the resource - so it can work its own organization and no other.
+ *
+ * Membership, not the global ORGANIZER_* role, is what lets it through: on QA the seeded super
+ * admin carries ORGANIZER_OWNER while belonging to no organization at all, and a role check
+ * would have waved it past the door.
  */
 @Injectable()
 export class OrganizerOnlyGuard implements CanActivate {
@@ -56,7 +52,7 @@ export class OrganizerOnlyGuard implements CanActivate {
     const user = req.user;
     // Unauthenticated callers are JwtAuthGuard's to refuse; organizers are RolesGuard's.
     if (!user || !this.access.isPlatformAdmin(user)) return true;
-    if (user.roles.some((r) => ORGANIZER_ROLES.includes(r))) return true;
+    if ((await this.access.managedOrganizationIds(user)).length > 0) return true;
 
     /*
       The organization the request NAMES, recorded as named. It is not trusted for anything:

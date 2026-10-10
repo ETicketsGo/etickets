@@ -225,9 +225,11 @@ money fields, attendee contact details, refund requests and refund lists.
 4. **Money and identity routes refuse staff at the door.** On a route marked `@OrganizerOnly`,
    `OrganizerOnlyGuard` refuses a staff account before the handler runs, and records the attempt.
    The guard runs before `RolesGuard`. `ADMIN` and `SUPER_ADMIN` are removed from the `@Roles` of
-   these routes. One exception: a staff account that also has an organizer role (because it
-   registered its own organization) goes on to the handler. There, membership of the target
-   organization decides.
+   these routes. One exception: a staff account that is an ACTIVE member of some organization
+   (because it registered its own) goes on to the handler. There, membership of the target
+   organization decides. The door checks membership, not the global `ORGANIZER_*` role. The
+   seeded super admin on QA carries `ORGANIZER_OWNER` but belongs to no organization, and a role
+   check would let it past.
 5. **Super admin.** A super admin holds every capability by role, so it passes every **named**
    policy below. Where no policy is named, it is refused. At the `@OrganizerOnly` door it is
    refused like any other staff account. There is no "super admin can do anything on the
@@ -429,9 +431,12 @@ from the resource. The exceptions:
   manager, check-in staff and another organization's owner are also tested.
 
   **Load-bearing:**
-  - old bypass, old `@Roles` and the door disabled: 44 of its 60 tests fail;
+  - old bypass, old `@Roles` and the door disabled: 44 of its then 60 tests fail;
   - the bypass alone restored: 29 tests fail across this spec and the unit spec;
-  - the door alone disabled: 6 tests fail.
+  - the door alone disabled: 6 tests fail;
+  - the door checking the global organizer role instead of membership: the QA-shaped super admin
+    (with `ORGANIZER_OWNER` and no organization) gets past it, and 2 tests fail. One of them is
+    collect-cash, where the handler ran and answered 404.
 
 - `apps/api/src/tenancy/organizer-route-policy.spec.ts` checks every non-admin route against its
   written staff policy:

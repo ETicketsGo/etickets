@@ -69,6 +69,8 @@ type ActorKey =
   | 'supportAdmin'
   | 'moderator'
   | 'superAdmin'
+  | 'qaSuperAdmin'
+  | 'staffOwnerB'
   | 'ownerA'
   | 'managerA'
   | 'checkinA'
@@ -78,7 +80,13 @@ type ActorKey =
 const STAFF: Record<
   Extract<
     ActorKey,
-    'zeroAdmin' | 'readOnlyAdmin' | 'financeAdmin' | 'supportAdmin' | 'moderator' | 'superAdmin'
+    | 'zeroAdmin'
+    | 'readOnlyAdmin'
+    | 'financeAdmin'
+    | 'supportAdmin'
+    | 'moderator'
+    | 'superAdmin'
+    | 'qaSuperAdmin'
   >,
   { roles: string[]; grants: string[] }
 > = {
@@ -101,6 +109,11 @@ const STAFF: Record<
   moderator: { roles: ['ADMIN'], grants: [...ADMIN_PRESETS.MODERATOR.grants] },
   /** Holds every capability by role, with no grant rows. */
   superAdmin: { roles: ['ADMIN', 'SUPER_ADMIN'], grants: [] },
+  /**
+   * The seeded super admin exactly as QA has it: it ALSO carries the global ORGANIZER_OWNER role
+   * while belonging to no organization. A door that trusted the role would let it past.
+   */
+  qaSuperAdmin: { roles: ['ADMIN', 'SUPER_ADMIN', 'ORGANIZER_OWNER'], grants: [] },
 };
 const STAFF_KEYS = Object.keys(STAFF) as (keyof typeof STAFF)[];
 
@@ -171,6 +184,8 @@ describe('integration-real-postgres: platform staff on organizer routes', () => 
     await makeUser('managerA', ['CUSTOMER', 'ORGANIZER_MANAGER']);
     await makeUser('checkinA', ['CUSTOMER', 'CHECKIN_STAFF']);
     await makeUser('ownerB', ['CUSTOMER', 'ORGANIZER_OWNER']);
+    // Staff who registered an organization of their own: a member of B, nothing of A.
+    await makeUser('staffOwnerB', ['ADMIN', 'ORGANIZER_OWNER'], [AdminPermission.PAYOUT_MANAGE]);
 
     const a = await prisma.organization.create({
       data: { name: `Org A ${suffix}`, slug: `org-a-${suffix}`, legalName: 'Org A Legal' },
@@ -185,6 +200,7 @@ describe('integration-real-postgres: platform staff on organizer routes', () => 
       ['managerA', orgA, 'ORGANIZER_MANAGER'],
       ['checkinA', orgA, 'CHECKIN_STAFF'],
       ['ownerB', orgB, 'ORGANIZER_OWNER'],
+      ['staffOwnerB', orgB, 'ORGANIZER_OWNER'],
     ];
     for (const [key, organizationId, role] of members) {
       await prisma.organizationMember.create({
@@ -395,6 +411,7 @@ describe('integration-real-postgres: platform staff on organizer routes', () => 
       supportAdmin: 200,
       moderator: 200,
       superAdmin: 200,
+      qaSuperAdmin: 200,
     };
     for (const actor of STAFF_KEYS) {
       const res = await call(actor, 'GET', `/organizations/${orgA}`);
@@ -493,6 +510,23 @@ describe('integration-real-postgres: platform staff on organizer routes', () => 
     expect(
       (await call('checkinA', 'POST', `/payments/ck${suffix}nobooking/collect-cash`)).status,
     ).toBe(404);
+  });
+
+  it('staff who own an organization work their own as members, and still nothing of another', async () => {
+    if (skipIfUnavailable()) return;
+    // Past the door on their OWN organization, as its owner: membership decides, not the role.
+    const own = await call('staffOwnerB', 'POST', '/payouts/accounts', {
+      ...bankBody(),
+      organizationId: orgB,
+    });
+    expect(own.status).toBe(201);
+    // PAYOUT_MANAGE and an OWNER membership elsewhere open nothing in organization A.
+    expect((await call('staffOwnerB', 'POST', '/payouts/accounts', bankBody())).status).toBe(403);
+    expect(
+      (await call('staffOwnerB', 'PATCH', `/events/${eventA}`, { title: 'Defaced' })).status,
+    ).toBe(403);
+    const denied = await auditRows('staffOwnerB', PLATFORM_ORGANIZER_ACCESS_DENIED);
+    expect(denied.some((r) => r.organizationId === orgA)).toBe(true);
   });
 
   it('an owner of ANOTHER organization gets nothing of this one, even naming it', async () => {
