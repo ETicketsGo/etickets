@@ -39,7 +39,7 @@ import {
 import { useOrg } from '@/components/org-context';
 import { isForbidden } from '@/lib/org-permissions';
 import { relativeTime } from '@/lib/notification-feed-view';
-import { formatClock, localPlace, sessionZone, todayKey, zoneAbbrev } from '@/lib/calendar';
+import { formatClock, localPlace, sessionZone, zoneAbbrev } from '@/lib/calendar';
 import {
   moneyFor,
   pendingActions,
@@ -840,7 +840,8 @@ function ProgrammeRow({
   */
   const { zone } = sessionZone(s);
   const day = localPlace(s.startsAt, zone).day;
-  const isToday = day === todayKey(new Date(), zone);
+  // "Today" at the VENUE: the date on its wall now, the same zone the show time is in.
+  const isToday = day === localPlace(new Date(), zone).day;
   const date = new Date(`${day}T12:00:00Z`);
   const weekday = new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', weekday: 'short' }).format(
     date,

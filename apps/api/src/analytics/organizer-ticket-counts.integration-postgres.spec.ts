@@ -213,14 +213,17 @@ describe('integration-real-postgres: organizer ticket figures reconcile with the
       120_000,
     );
 
-  maybe('"Tickets sold" is exactly the ACTIVE and CHECKED_IN tickets of this organization', async () => {
-    const a = await svc.organizer(owner, mineId);
-    const direct = await db!.ticket.count({
-      where: { organizationId: mineId, status: { in: ['ACTIVE', 'CHECKED_IN'] } },
-    });
-    expect(direct).toBe(5);
-    expect(a.attendance.issued).toBe(direct);
-  });
+  maybe(
+    '"Tickets sold" is exactly the ACTIVE and CHECKED_IN tickets of this organization',
+    async () => {
+      const a = await svc.organizer(owner, mineId);
+      const direct = await db!.ticket.count({
+        where: { organizationId: mineId, status: { in: ['ACTIVE', 'CHECKED_IN'] } },
+      });
+      expect(direct).toBe(5);
+      expect(a.attendance.issued).toBe(direct);
+    },
+  );
 
   maybe('"Checked in" is exactly the CHECKED_IN tickets among them', async () => {
     const a = await svc.organizer(owner, mineId);
