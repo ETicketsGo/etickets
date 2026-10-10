@@ -6,6 +6,7 @@ import {
   TicketStatus,
 } from '@eticketsgo/shared-types';
 import { RefundsService } from './refunds.service';
+import { OrgAccessService } from '../tenancy/org-access.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import type { RequestUser } from '../common/decorators';
 import { MetricsService } from '../metrics/metrics.service';
@@ -17,11 +18,20 @@ const ADMIN: RequestUser = {
   roles: ['ADMIN'] as never,
 };
 
-/** Platform-admin access stub so authz is bypassed and we test the money path. */
+/** Access stub for the request() suite, which tests the money path as the booking's buyer. */
 const accessStub = () => ({
   isPlatformAdmin: jest.fn().mockReturnValue(true),
   assertMember: jest.fn().mockResolvedValue(undefined),
+  recordPlatformRefusal: jest.fn().mockResolvedValue(undefined),
 });
+
+/** The booking's own buyer (setupRequest's booking belongs to u1). */
+const BOOKING_BUYER: RequestUser = {
+  id: 'u1',
+  email: 'u1@example.test',
+  fullName: 'Buyer',
+  roles: ['CUSTOMER'] as never,
+};
 
 // ---------------------------------------------------------------------------
 // process()
@@ -80,7 +90,7 @@ function setupProcess(opts: ProcessOpts = {}) {
     // admin, not a super admin, so the grant is genuinely looked up — held here so this
     // suite keeps testing the MONEY path. Refusal without it is covered separately below.
     adminGrant: {
-      findFirst: jest.fn().mockResolvedValue({ id: 'grant-1' }),
+      findMany: jest.fn().mockResolvedValue([{ permission: 'REFUND_APPROVE' }]),
     },
     refund: {
       findUnique: jest.fn().mockResolvedValue(refund),
@@ -109,8 +119,9 @@ function setupProcess(opts: ProcessOpts = {}) {
           .fn()
           .mockResolvedValue({ providerRef: 'rf_abc', status: opts.providerStatus ?? 'COMPLETED' }),
   };
-  const access = accessStub();
   const audit = { record: jest.fn().mockResolvedValue(undefined) };
+  // The real tenant check, so the REFUND_APPROVE rule below is the production one.
+  const access = new OrgAccessService(prisma as never, audit as never);
   const notifications = {
     send: jest.fn().mockResolvedValue(undefined),
     // Critical notifications are written IN the domain transaction now, so the stub
@@ -405,7 +416,7 @@ describe('RefundsService.request hardening', () => {
       ticketIds: ['tk1'],
     });
     await expect(
-      service.request(ADMIN, { bookingId: 'b1', ticketIds: ['tk1'] } as never),
+      service.request(BOOKING_BUYER, { bookingId: 'b1', ticketIds: ['tk1'] } as never),
     ).rejects.toMatchObject({ code: ErrorCodes.REFUND_NOT_ELIGIBLE });
   });
 
@@ -414,7 +425,9 @@ describe('RefundsService.request hardening', () => {
       bookingTickets: [{ id: 'tk1', status: TicketStatus.ACTIVE, ticketTypeId: 't1' }],
       priorRefunds: [{ ticketIds: ['tk1'], amountMinor: 5000, status: RefundStatus.REQUESTED }],
     });
-    await expect(service.request(ADMIN, { bookingId: 'b1' } as never)).rejects.toMatchObject({
+    await expect(
+      service.request(BOOKING_BUYER, { bookingId: 'b1' } as never),
+    ).rejects.toMatchObject({
       code: ErrorCodes.REFUND_NOT_ELIGIBLE,
     });
   });
@@ -425,7 +438,9 @@ describe('RefundsService.request hardening', () => {
       totalMinor: 1000, // booking only paid 1000
       items: [{ ticketTypeId: 't1', unitPriceMinor: 5000 }], // ticket priced 5000
     });
-    await expect(service.request(ADMIN, { bookingId: 'b1' } as never)).rejects.toMatchObject({
+    await expect(
+      service.request(BOOKING_BUYER, { bookingId: 'b1' } as never),
+    ).rejects.toMatchObject({
       code: ErrorCodes.REFUND_NOT_ELIGIBLE,
     });
   });
@@ -444,7 +459,7 @@ describe('RefundsService.request hardening', () => {
       totalMinor: 100000,
       items: [{ ticketTypeId: 't1', unitPriceMinor: 5000 }],
     });
-    await service.request(ADMIN, { bookingId: 'b1' } as never);
+    await service.request(BOOKING_BUYER, { bookingId: 'b1' } as never);
     expect(prisma.refund.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ amountMinor: 5000, taxMinor: 0 }),
@@ -462,7 +477,7 @@ describe('RefundsService.request hardening', () => {
         { label: 'Fixture tax', rateBasisPoints: 1000, baseMinor: 6000, amountMinor: 600 },
       ],
     });
-    await service.request(ADMIN, { bookingId: 'b1' } as never);
+    await service.request(BOOKING_BUYER, { bookingId: 'b1' } as never);
     // The rate re-applied to the 5000 actually being returned — 500, not the full 600 that
     // was charged on a base that also included the non-refunded fee.
     expect(prisma.refund.create).toHaveBeenCalledWith(
@@ -483,7 +498,7 @@ describe('RefundsService.request hardening', () => {
         { label: 'Fee-only tax', rateBasisPoints: 1000, baseMinor: 1000, amountMinor: 100 },
       ],
     });
-    await service.request(ADMIN, { bookingId: 'b1' } as never);
+    await service.request(BOOKING_BUYER, { bookingId: 'b1' } as never);
     expect(prisma.refund.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ taxMinor: 100 }) }),
     );
@@ -499,7 +514,7 @@ describe('RefundsService.request hardening', () => {
         { label: 'Provincial', rateBasisPoints: 700, baseMinor: 5000, amountMinor: 350 },
       ],
     });
-    await service.request(ADMIN, { bookingId: 'b1' } as never);
+    await service.request(BOOKING_BUYER, { bookingId: 'b1' } as never);
     expect(prisma.refund.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ amountMinor: 5600, taxMinor: 600 }),
@@ -557,7 +572,7 @@ describe('RefundsService.request hardening', () => {
 
     it('refunds the ticket price, with its GST inside it — not ₹578.76, and not refused', async () => {
       const { service, prisma } = qaBooking();
-      await service.request(ADMIN, { bookingId: 'b1' } as never);
+      await service.request(BOOKING_BUYER, { bookingId: 'b1' } as never);
       expect(prisma.refund.create).toHaveBeenCalledWith(
         expect.objectContaining({
           // ₹499 back. The ₹76.12 of ticket GST is recorded as the tax inside it; the fee and
@@ -586,7 +601,7 @@ describe('RefundsService.request hardening', () => {
           },
         ],
       });
-      await service.request(ADMIN, { bookingId: 'b1', ticketIds: ['tk1'] } as never);
+      await service.request(BOOKING_BUYER, { bookingId: 'b1', ticketIds: ['tk1'] } as never);
       expect(prisma.refund.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({ amountMinor: 49_900, taxMinor: 3_806 }),
@@ -610,7 +625,7 @@ describe('RefundsService.request hardening', () => {
           },
         ],
       });
-      await service.request(ADMIN, { bookingId: 'b1' } as never);
+      await service.request(BOOKING_BUYER, { bookingId: 'b1' } as never);
       expect(prisma.refund.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({ amountMinor: 5_500, taxMinor: 500 }),
@@ -639,7 +654,7 @@ describe('RefundsService.request hardening', () => {
 
     it('refunds a ticket at what was paid for it, not its pre-coupon price', async () => {
       const { service, prisma } = couponBooking();
-      await service.request(ADMIN, { bookingId: 'b1', ticketIds: ['tk1'] } as never);
+      await service.request(BOOKING_BUYER, { bookingId: 'b1', ticketIds: ['tk1'] } as never);
       expect(prisma.refund.create).toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ amountMinor: 25_000 }) }),
       );
@@ -649,7 +664,7 @@ describe('RefundsService.request hardening', () => {
       const { service, prisma } = couponBooking({
         priorRefunds: [{ ticketIds: ['tk1'], amountMinor: 25_000, status: RefundStatus.COMPLETED }],
       });
-      await service.request(ADMIN, { bookingId: 'b1', ticketIds: ['tk2'] } as never);
+      await service.request(BOOKING_BUYER, { bookingId: 'b1', ticketIds: ['tk2'] } as never);
       expect(prisma.refund.create).toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ amountMinor: 25_000 }) }),
       );
@@ -670,7 +685,7 @@ describe('RefundsService.request hardening', () => {
       subtotalMinor: 1_000,
       totalMinor: 1_000,
     });
-    await service.request(ADMIN, { bookingId: 'b1' } as never);
+    await service.request(BOOKING_BUYER, { bookingId: 'b1' } as never);
     expect(prisma.refund.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ amountMinor: 1_000 }) }),
     );
@@ -747,7 +762,7 @@ describe('RefundsService.request hardening', () => {
       bookingTickets: [{ id: 'tk1', status: TicketStatus.ACTIVE, ticketTypeId: 't1' }],
       paymentMethod: 'CASH',
     });
-    await expect(service.request(ADMIN, { bookingId: 'b1' } as never)).rejects.toThrow(
+    await expect(service.request(BOOKING_BUYER, { bookingId: 'b1' } as never)).rejects.toThrow(
       /at the venue/,
     );
     expect(prisma.refund.create).not.toHaveBeenCalled();
@@ -758,7 +773,7 @@ describe('RefundsService.request hardening', () => {
     const { service, prisma, tx } = setupRequest({
       bookingTickets: [{ id: 'tk1', status: TicketStatus.ACTIVE, ticketTypeId: 't1' }],
     });
-    await service.request(ADMIN, { bookingId: 'b1' } as never);
+    await service.request(BOOKING_BUYER, { bookingId: 'b1' } as never);
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
     const lockedAt = tx.$executeRaw.mock.invocationCallOrder[0];
@@ -772,7 +787,7 @@ describe('RefundsService.request hardening', () => {
       totalMinor: 100000,
       items: [{ ticketTypeId: 't1', unitPriceMinor: 5000 }],
     });
-    await service.request(ADMIN, { bookingId: 'b1' } as never);
+    await service.request(BOOKING_BUYER, { bookingId: 'b1' } as never);
     expect(prisma.refund.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ amountMinor: 5000, ticketIds: ['tk1'] }),
@@ -789,21 +804,50 @@ describe('RefundsService.request hardening', () => {
 describe('RefundsService.process — platform staff need REFUND_APPROVE', () => {
   it('refuses an admin who holds no grant', async () => {
     const { service, prisma } = setupProcess({ approveClaimCount: 1 });
-    (prisma.adminGrant.findFirst as jest.Mock).mockResolvedValue(null);
+    (prisma.adminGrant.findMany as jest.Mock).mockResolvedValue([]);
     await expect(service.process(ADMIN, 'rf-1', 'APPROVE')).rejects.toThrow(/REFUND_APPROVE/);
   });
 
   it('refuses them for a rejection too, since both are deciding the request', async () => {
     const { service, prisma } = setupProcess({ approveClaimCount: 1 });
-    (prisma.adminGrant.findFirst as jest.Mock).mockResolvedValue(null);
+    (prisma.adminGrant.findMany as jest.Mock).mockResolvedValue([]);
     await expect(service.process(ADMIN, 'rf-1', 'REJECT')).rejects.toThrow(/REFUND_APPROVE/);
   });
 
   it('lets a super admin through without any grant row', async () => {
     // By role, not by rows — the recovery path must not be lockable away.
     const { service, prisma } = setupProcess({ approveClaimCount: 1 });
-    (prisma.adminGrant.findFirst as jest.Mock).mockResolvedValue(null);
+    (prisma.adminGrant.findMany as jest.Mock).mockResolvedValue([]);
     const superAdmin = { ...ADMIN, roles: ['ADMIN', 'SUPER_ADMIN'] as never };
     await expect(service.process(superAdmin, 'rf-1', 'APPROVE')).resolves.toBeDefined();
   });
+});
+
+/*
+  Platform staff used to open refunds on ANY customer's booking by role alone, as `staff` -
+  which lifts the transferred-ticket rule and cancels a free booking's tickets on the spot.
+  No capability opens it now; the attempt is refused and recorded.
+*/
+describe('RefundsService.request - platform staff on a customer booking', () => {
+  for (const roles of [['ADMIN'], ['ADMIN', 'SUPER_ADMIN']]) {
+    it(`refuses ${roles.join('+')} and creates nothing, recording the refusal`, async () => {
+      const { service, prisma } = setupRequest({
+        bookingTickets: [{ id: 'tk1', status: TicketStatus.ACTIVE, ticketTypeId: 't1' }],
+      });
+      const access = (service as unknown as { access: ReturnType<typeof accessStub> }).access;
+      await expect(
+        service.request({ ...ADMIN, roles: roles as never }, { bookingId: 'b1' } as never),
+      ).rejects.toMatchObject({ code: ErrorCodes.FORBIDDEN });
+      expect(prisma.refund.create).not.toHaveBeenCalled();
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(access.recordPlatformRefusal).toHaveBeenCalledWith(
+        expect.objectContaining({ id: ADMIN.id }),
+        expect.objectContaining({
+          organizationId: 'org-1',
+          entityId: 'b1',
+          operation: 'refund.request-for-customer',
+        }),
+      );
+    });
+  }
 });

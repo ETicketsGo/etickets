@@ -5,15 +5,18 @@ import { createConnectAccountSchema, type CreateConnectAccountInput } from '@eti
 import { OrganizerConnectService } from './organizer-connect.service';
 import { CurrentUser, Roles, type RequestUser } from '../../common/decorators';
 import { ZodValidationPipe } from '../../common/zod-validation.pipe';
+import { OrganizerOnly } from '../../tenancy/organizer-only.guard';
 
 /**
  * Organizer self-service Stripe Connect onboarding. The service enforces the
  * per-organization tenant check (assertMember); this class-level guard limits the
- * surface to organizer roles + platform admins.
+ * surface to organizer roles (platform staff are refused: see OrganizerOnly).
  */
 @ApiTags('organizer-payments')
 @ApiBearerAuth()
-@Roles(Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER, Role.ADMIN, Role.SUPER_ADMIN)
+@Roles(Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER)
+// Which account an organizer is paid into. Staff use the merchant onboarding pages on /admin.
+@OrganizerOnly('payments.stripe-connect')
 @Controller('organizers/:organizerId/payments')
 export class OrganizerConnectController {
   constructor(private readonly connect: OrganizerConnectService) {}

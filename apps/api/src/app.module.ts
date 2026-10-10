@@ -60,6 +60,7 @@ import { CompensationModule } from './bookings/compensation/compensation.module'
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
 import { CorrelationIdMiddleware } from './common/correlation-id.middleware';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
+import { OrganizerOnlyGuard } from './tenancy/organizer-only.guard';
 import { RolesGuard } from './auth/roles.guard';
 import { AdminPermissionGuard } from './auth/admin-permission.guard';
 import { MaintenanceGuard } from './ops/maintenance.guard';
@@ -176,6 +177,9 @@ import { HttpObservationMiddleware } from './common/http-observation.middleware'
     { provide: APP_GUARD, useClass: MaintenanceGuard },
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
+    // Before RolesGuard, so platform staff refused an organizer-only money or identity route
+    // are refused WITH an audit row, not lost as a plain role mismatch. See the guard.
+    { provide: APP_GUARD, useClass: OrganizerOnlyGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
     // Runs after RolesGuard: a route is first checked for "are you staff at all", then for
     // "may you do this specific thing". Both must pass.

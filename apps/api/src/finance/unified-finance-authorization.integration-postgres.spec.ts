@@ -130,7 +130,10 @@ describe('integration-real-postgres: Unified Finance authorization', () => {
     }
 
     // The real tenancy service, deciding from real memberships.
-    finance = new UnifiedFinanceService(db as never, new OrgAccessService(db as never));
+    finance = new UnifiedFinanceService(
+      db as never,
+      new OrgAccessService(db as never, { record: async () => undefined } as never),
+    );
 
     const uA = await makeUser('owner-a');
     const uB = await makeUser('owner-b');

@@ -13,6 +13,7 @@ import { CurrentUser, RequiresAdmin, Roles, type RequestUser } from '../common/d
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { groupScopeFields, type GroupScope } from '../admin/group-scope';
 import { listFilterFields, refineDateOrder, type ListFilters } from '../admin/list-filters';
+import { OrganizerOnly } from '../tenancy/organizer-only.guard';
 
 @ApiTags('refunds')
 @ApiBearerAuth()
@@ -66,7 +67,9 @@ export class OrganizationRefundsController {
   constructor(private readonly refunds: RefundsService) {}
 
   @Get()
-  @Roles(Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER, Role.ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER)
+  // Staff read refunds on /admin/refunds (REFUND_REVIEW).
+  @OrganizerOnly('organization.refunds.list')
   @ApiOperation({ summary: "List one organization's refunds." })
   list(
     @CurrentUser() user: RequestUser,

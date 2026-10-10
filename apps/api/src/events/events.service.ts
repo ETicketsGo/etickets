@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import * as QRCode from 'qrcode';
 import { createHash, randomBytes } from 'node:crypto';
 import {
+  AdminPermission,
   BookingStatus,
   EventStatus,
   Role,
@@ -18,7 +19,7 @@ import type {
   ReviewDecisionInput,
 } from '@eticketsgo/validation';
 import { PrismaService } from '../prisma/prisma.service';
-import { OrgAccessService } from '../tenancy/org-access.service';
+import { OrgAccessService, type PlatformPolicy } from '../tenancy/org-access.service';
 import { AuditService } from '../audit/audit.service';
 import { AdminAudienceService } from '../notifications/admin-audience.service';
 import { AppException, ErrorCodes } from '../common/errors';
@@ -199,11 +200,24 @@ export class EventsService {
     });
   }
 
-  private async loadOwnedEvent(user: RequestUser, id: string, roles = ORGANIZER_ROLES) {
+  /**
+   * The event, if the caller may act on it. The organization is the EVENT's, read here, never
+   * one the client named.
+   *
+   * `platform` is passed only by the two operations platform staff have a workflow for (the
+   * admin console's event page reads an event and can delete one); every other caller leaves
+   * it out, which closes the operation to staff who are not members. See `OrgAccessService`.
+   */
+  private async loadOwnedEvent(
+    user: RequestUser,
+    id: string,
+    roles = ORGANIZER_ROLES,
+    platform?: PlatformPolicy,
+  ) {
     const event = await this.prisma.event.findUnique({ where: { id } });
     if (!event)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Event not found.', HttpStatus.NOT_FOUND);
-    await this.access.assertMember(user, event.organizationId, roles);
+    await this.access.assertMember(user, event.organizationId, roles, platform);
     return event;
   }
 
@@ -725,9 +739,11 @@ export class EventsService {
     }));
   }
 
-  /** True when the caller may see money: a platform admin, or an org OWNER or MANAGER. */
+  /**
+   * True when the caller may see money: an org OWNER or MANAGER. Platform staff are not a case
+   * here: the list this serves is closed to staff who are not members (see `OrgAccessService`).
+   */
   private async canViewFinancials(user: RequestUser, organizationId: string): Promise<boolean> {
-    if (this.access.isPlatformAdmin(user)) return true;
     const membership = await this.prisma.organizationMember.findUnique({
       where: { organizationId_userId: { organizationId, userId: user.id } },
       select: { role: true, status: true },
@@ -740,7 +756,11 @@ export class EventsService {
   }
 
   async getForOrg(user: RequestUser, id: string) {
-    const event = await this.loadOwnedEvent(user, id);
+    // The admin console's event page reads this, so staff holding ORGANIZER_READ may too.
+    const event = await this.loadOwnedEvent(user, id, ORGANIZER_ROLES, {
+      permission: AdminPermission.ORGANIZER_READ,
+      operation: 'event.read',
+    });
     const row = await this.prisma.event.findUnique({
       where: { id: event.id },
       include: {
@@ -1470,7 +1490,15 @@ export class EventsService {
    * An event that cannot be deleted can still be paused, which stops sales.
    */
   async remove(user: RequestUser, id: string) {
-    const event = await this.loadOwnedEvent(user, id);
+    /*
+      The admin console can delete an event nobody bought into - taking down a spam or
+      duplicate listing is moderation, so platform staff need EVENT_REVIEW, the capability that
+      already approves, rejects and pauses events. Every rule below still applies to them.
+    */
+    const event = await this.loadOwnedEvent(user, id, ORGANIZER_ROLES, {
+      permission: AdminPermission.EVENT_REVIEW,
+      operation: 'event.delete',
+    });
     /*
       Not while the platform team has it paused. Deleting would take the event out of moderation
       by a route the admin pause is meant to close — the same reason resume and submit refuse it.

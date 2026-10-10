@@ -70,7 +70,7 @@ describe('integration-real-postgres: organizer event list', () => {
 
     events = new EventsService(
       db as never,
-      new OrgAccessService(db as never),
+      new OrgAccessService(db as never, { record: async () => undefined } as never),
       noAudit,
       noAudience,
       cfg,

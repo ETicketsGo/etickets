@@ -36,7 +36,7 @@ const LEGAL = {
   grievanceOfficerPhone: '+91 98765 43211',
 };
 
-function setup({ managedIds }: { managedIds: string[] | null }) {
+function setup({ managedIds }: { managedIds: string[] }) {
   const prisma = {
     organization: {
       findMany: jest.fn().mockResolvedValue([
@@ -94,11 +94,14 @@ describe('the organizations a member can work in', () => {
     );
   });
 
-  it('gives a platform administrator no role, because none limits what they may do', async () => {
-    const { service, prisma } = setup({ managedIds: null });
-    const orgs = await service.listMine(MEMBER);
-    expect(orgs.map((o) => o.myRole)).toEqual([null, null]);
-    expect(prisma.organizationMember.findMany).not.toHaveBeenCalled();
+  it('lists only the memberships, whoever asks: there is no "every organization" answer', async () => {
+    // Platform staff used to get every organization with myRole null. Now the access service
+    // returns memberships for everybody, and the query is always scoped to them.
+    const { service, prisma } = setup({ managedIds: [] });
+    await service.listMine(MEMBER);
+    expect(prisma.organization.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: { in: [] } } }),
+    );
   });
 });
 

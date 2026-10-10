@@ -319,6 +319,23 @@ export class OfflineCommandCenterService {
         HttpStatus.BAD_REQUEST,
       );
     }
+    /*
+      The session must be this organization's, checked against the session itself - the same
+      rule `snapshot` applies. The acknowledgement is keyed on (session, alertKey) and the
+      snapshot reads it by session alone, so without this a manager of one organization could
+      mark another organization's live gate alerts as acknowledged, or overwrite who did.
+    */
+    const session = await this.prisma.eventSession.findUnique({
+      where: { id: input.eventSessionId },
+      select: { event: { select: { organizationId: true } } },
+    });
+    if (!session || session.event.organizationId !== input.organizationId) {
+      throw new AppException(
+        ErrorCodes.NOT_FOUND,
+        'Session not found in this organization.',
+        HttpStatus.NOT_FOUND,
+      );
+    }
     const ack = await this.prisma.offlineAlertAck.upsert({
       where: {
         eventSessionId_alertKey: {

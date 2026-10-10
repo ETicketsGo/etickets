@@ -139,7 +139,22 @@ export class RefundsService {
    */
   async request(user: RequestUser, input: RefundRequestInput) {
     const booking = await this.loadForRefund(input.bookingId);
-    if (booking.userId !== user.id && !this.access.isPlatformAdmin(user)) {
+    /*
+      The buyer, and nobody else, on this route. Platform staff used to pass here for ANY
+      booking on the platform, by role alone and with no capability - and as `staff`, which
+      lifts the transferred-ticket rule and, on a free booking, cancels the tickets on the spot.
+      No console uses it: staff work refunds from the admin queue. It is refused, and the
+      attempt recorded, until somebody decides which capability should open it.
+    */
+    if (booking.userId !== user.id) {
+      if (this.access.isPlatformAdmin(user)) {
+        await this.access.recordPlatformRefusal(user, {
+          organizationId: booking.organizationId,
+          entityType: 'Booking',
+          entityId: booking.id,
+          operation: 'refund.request-for-customer',
+        });
+      }
       /*
         The holder of a transferred ticket, told why rather than refused as a stranger.
 
@@ -169,7 +184,8 @@ export class RefundsService {
     return this.createRequest(
       {
         userId: user.id,
-        staff: this.access.isPlatformAdmin(user),
+        // Only the buyer reaches this point, so never staff; see the check above.
+        staff: false,
         holds: (ticket) => currentHolderUserId({ booking, invites: ticket.invites }) === user.id,
         via: 'ACCOUNT',
         notifyBuyer: false,
@@ -672,8 +688,20 @@ export class RefundsService {
     const booking = await this.prisma.booking.findUnique({ where: { id: bookingId } });
     if (!booking)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Booking not found.', HttpStatus.NOT_FOUND);
-    if (booking.userId !== user.id && !this.access.isPlatformAdmin(user)) {
-      throw new AppException(ErrorCodes.FORBIDDEN, 'Forbidden.', HttpStatus.FORBIDDEN);
+    if (booking.userId !== user.id) {
+      // The admin console's booking page lists these. A read of a customer's booking, so the
+      // capability that reads bookings, checked and audited rather than granted by role.
+      if (!this.access.isPlatformAdmin(user)) {
+        throw new AppException(ErrorCodes.FORBIDDEN, 'Forbidden.', HttpStatus.FORBIDDEN);
+      }
+      await this.access.assertPlatformCapability(user, {
+        permission: AdminPermission.BOOKING_READ,
+        operation: 'refund.list-for-booking',
+        organizationId: booking.organizationId,
+        entityType: 'Booking',
+        entityId: booking.id,
+        message: 'Forbidden.',
+      });
     }
     return this.prisma.refund.findMany({ where: { bookingId }, orderBy: { createdAt: 'desc' } });
   }
@@ -818,19 +846,20 @@ export class RefundsService {
    * A super admin holds it by role. Everyone else needs the grant — which is the whole
    * point of the split: a refund desk can investigate a request and cannot pay it out.
    */
-  private async assertMayApproveAsStaff(user: RequestUser) {
-    if (user.roles.includes(Role.SUPER_ADMIN)) return;
-    const held = await this.prisma.adminGrant.findFirst({
-      where: { userId: user.id, permission: AdminPermission.REFUND_APPROVE },
-      select: { id: true },
+  private async assertMayApproveAsStaff(
+    user: RequestUser,
+    refund: { id: string; organizationId: string },
+  ) {
+    // The same rule as before (super admin by role, anybody else by grant), now through the
+    // shared check so the decision - allowed or refused - is on the audit log as well.
+    await this.access.assertPlatformCapability(user, {
+      permission: AdminPermission.REFUND_APPROVE,
+      operation: 'refund.decide',
+      organizationId: refund.organizationId,
+      entityType: 'Refund',
+      entityId: refund.id,
+      message: 'Approving a refund needs the REFUND_APPROVE permission.',
     });
-    if (!held) {
-      throw new AppException(
-        ErrorCodes.FORBIDDEN,
-        'Approving a refund needs the REFUND_APPROVE permission.',
-        HttpStatus.FORBIDDEN,
-      );
-    }
   }
 
   async process(user: RequestUser, refundId: string, decision: 'APPROVE' | 'REJECT') {
@@ -849,7 +878,7 @@ export class RefundsService {
       caller, and gating the route locked organizers out of their own console.
     */
     if (this.access.isPlatformAdmin(user)) {
-      await this.assertMayApproveAsStaff(user);
+      await this.assertMayApproveAsStaff(user, refund);
     } else {
       await this.access.assertMember(user, refund.organizationId, [Role.ORGANIZER_OWNER]);
     }
