@@ -21,6 +21,7 @@ import {
   MARKETS,
   marketFor,
 } from '@eticketsgo/web-kit';
+import { NO_READ_ACCESS, READ_ONLY_NOTE, useConfigAccess } from '@/lib/capabilities';
 
 /**
  * The cinema pricing rule table, as an administrator edits it.
@@ -335,6 +336,9 @@ export default function CinemaPricingPolicies() {
   const qc = useQueryClient();
   const toast = useToast();
   const [drafting, setDrafting] = useState(false);
+  // Opened with PLATFORM_CONFIG_READ; drafting, activating and disabling need PLATFORM_CONFIG.
+  const access = useConfigAccess();
+  const mayEdit = access.mayEdit;
   const [inspect, setInspect] = useState({
     country: 'India',
     region: 'Andhra Pradesh',
@@ -348,11 +352,13 @@ export default function CinemaPricingPolicies() {
   const q = useQuery({
     queryKey: ['cinema-pricing-policies'],
     queryFn: () => api.admin.cinemaPricingPolicies(),
+    enabled: access.mayRead,
   });
 
   const inspectQ = useQuery({
     queryKey: ['cinema-pricing-inspect', inspect],
     queryFn: () => api.admin.inspectCinemaPricing(inspect),
+    enabled: access.mayRead,
   });
 
   const act = useMutation({
@@ -369,7 +375,7 @@ export default function CinemaPricingPolicies() {
     onError: (e) => toast.push(errorMessage(e)),
   });
 
-  const columns: Column<CinemaPricingPolicyRow>[] = [
+  const allColumns: Column<CinemaPricingPolicyRow>[] = [
     {
       key: 'scope',
       header: 'Scope',
@@ -477,6 +483,22 @@ export default function CinemaPricingPolicies() {
     },
   ];
 
+  const columns = mayEdit ? allColumns : allColumns.filter((c) => c.key !== 'actions');
+
+  // Until the operator is known nothing is fetched, so say so rather than show an empty list.
+  if (!access.known || !access.mayRead) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Cinema pricing policies" />
+        <Card>
+          <p className="text-sm text-text-secondary">
+            {access.known ? NO_READ_ACCESS : 'Loading...'}
+          </p>
+        </Card>
+      </div>
+    );
+  }
+
   if (q.isError)
     return <ErrorState message={errorMessage(q.error)} onRetry={() => void q.refetch()} />;
 
@@ -485,8 +507,10 @@ export default function CinemaPricingPolicies() {
       <PageHeader
         title="Cinema pricing policies"
         description="Government orders as configuration. History is superseded, never edited."
-        action={<Button onClick={() => setDrafting(true)}>New policy</Button>}
+        action={mayEdit ? <Button onClick={() => setDrafting(true)}>New policy</Button> : undefined}
       />
+
+      {!mayEdit && <p className="text-sm text-text-secondary">{READ_ONLY_NOTE}</p>}
 
       {/*
         ── THERE WAS NO WAY TO ADD ONE ───────────────────────────────────────────────

@@ -114,6 +114,8 @@ export function EventGalleryEditor({
   const hintId = useId();
   const input = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
+  /* Said when a dropped or picked file is not a picture we take, instead of ignoring it. */
+  const [skipped, setSkipped] = useState<string | null>(null);
   const ready = tiles.filter((tile) => !tile.status);
   const uploading = tiles.filter((tile) => tile.status === 'uploading').length;
   const full = ready.length + uploading >= max;
@@ -128,6 +130,12 @@ export function EventGalleryEditor({
 
   const accept = (files: File[]) => {
     const images = files.filter((file) => EVENT_IMAGE_TYPES.includes(file.type));
+    const left = files.length - images.length;
+    setSkipped(
+      left > 0
+        ? `${left === 1 ? 'One file was' : `${left} files were`} not added: only JPG, PNG or WebP images can be used.`
+        : null,
+    );
     if (images.length) onAdd(images);
   };
 
@@ -297,6 +305,11 @@ export function EventGalleryEditor({
       {error && (
         <p role="alert" className="text-caption text-status-error">
           {error}
+        </p>
+      )}
+      {skipped && (
+        <p role="alert" className="text-caption text-status-error">
+          {skipped}
         </p>
       )}
     </div>

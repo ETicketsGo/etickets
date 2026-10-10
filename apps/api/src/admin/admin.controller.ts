@@ -295,13 +295,27 @@ export class AdminController {
     return this.grouping.grouped('organizers', q.groupBy, q);
   }
 
+  /*
+    ── PLATFORM CONFIGURATION: EVERY ROUTE NAMES ITS OWN CAPABILITY ────────────────────
+    Fee rules, tax rules and cinema pricing policies used to inherit this class's
+    `BOOKING_READ`, so the support desk - whose job is reading bookings - could also add a fee
+    band, switch on a tax rate or activate a regulated price ceiling. Each of those changes what
+    every later buyer pays.
+
+    Reads need `PLATFORM_CONFIG_READ` and writes need `PLATFORM_CONFIG`, declared on each
+    handler rather than inherited. A handler's `@RequiresAdmin` REPLACES the class's (the guard
+    reads it with `getAllAndOverride`), so a route here without its own decorator silently
+    falls back to `BOOKING_READ`; `admin-config-authz.spec.ts` fails if one does.
+  */
   @Get('fee-rules')
+  @RequiresAdmin(AdminPermission.PLATFORM_CONFIG_READ)
   @ApiOperation({ summary: 'List platform fee rules (admin).' })
   feeRules() {
     return this.admin.feeRules();
   }
 
   @Post('fee-rules')
+  @RequiresAdmin(AdminPermission.PLATFORM_CONFIG)
   @ApiOperation({ summary: 'Create a platform fee-rule band (admin).' })
   createFeeRule(
     @CurrentUser() user: { id: string },
@@ -311,6 +325,7 @@ export class AdminController {
   }
 
   @Patch('fee-rules/:id')
+  @RequiresAdmin(AdminPermission.PLATFORM_CONFIG)
   @ApiOperation({ summary: 'Update a platform fee rule (admin).' })
   updateFeeRule(
     @CurrentUser() user: { id: string },
@@ -328,6 +343,7 @@ export class AdminController {
     old rate stays on file. See TaxRulesService for why that matters.
   */
   @Get('tax-rules')
+  @RequiresAdmin(AdminPermission.PLATFORM_CONFIG_READ)
   @ApiOperation({ summary: 'List tax rules, with whether each is in force right now (admin).' })
   taxRules() {
     return this.taxRules_.list();
@@ -340,12 +356,14 @@ export class AdminController {
     than the one editing in place would solve.
   */
   @Get('cinema-pricing-policies')
+  @RequiresAdmin(AdminPermission.PLATFORM_CONFIG_READ)
   @ApiOperation({ summary: 'Every cinema pricing policy, all statuses (admin).' })
   cinemaPricingPolicies() {
     return this.cinemaPolicies.list();
   }
 
   @Get('cinema-pricing-policies/inspect')
+  @RequiresAdmin(AdminPermission.PLATFORM_CONFIG_READ)
   @ApiOperation({ summary: 'Which policy would apply to a cinema right now, and why.' })
   inspectCinemaPricing(@Query() q: Record<string, string>) {
     return this.cinemaPolicies.inspect({
@@ -363,12 +381,14 @@ export class AdminController {
   }
 
   @Post('cinema-pricing-policies')
+  @RequiresAdmin(AdminPermission.PLATFORM_CONFIG)
   @ApiOperation({ summary: 'Create a DRAFT cinema pricing policy (admin).' })
   createCinemaPricingPolicy(@CurrentUser() admin: RequestUser, @Body() body: PolicyInput) {
     return this.cinemaPolicies.create(admin.id, this.coercePolicyDates(body));
   }
 
   @Patch('cinema-pricing-policies/:id')
+  @RequiresAdmin(AdminPermission.PLATFORM_CONFIG)
   @ApiOperation({ summary: 'Edit a DRAFT policy. Refused once it is ACTIVE (admin).' })
   updateCinemaPricingPolicy(
     @CurrentUser() admin: RequestUser,
@@ -379,6 +399,7 @@ export class AdminController {
   }
 
   @Get('cinema-pricing-policies/:id/preflight')
+  @RequiresAdmin(AdminPermission.PLATFORM_CONFIG_READ)
   @ApiOperation({
     summary: 'Everything blocking activation of this policy, before anyone presses activate.',
   })
@@ -387,12 +408,14 @@ export class AdminController {
   }
 
   @Post('cinema-pricing-policies/:id/activate')
+  @RequiresAdmin(AdminPermission.PLATFORM_CONFIG)
   @ApiOperation({ summary: 'DRAFT to ACTIVE, refusing an ambiguous scope (admin).' })
   activateCinemaPricingPolicy(@CurrentUser() admin: RequestUser, @Param('id') id: string) {
     return this.cinemaPolicies.activate(admin.id, id);
   }
 
   @Post('cinema-pricing-policies/:id/supersede')
+  @RequiresAdmin(AdminPermission.PLATFORM_CONFIG)
   @ApiOperation({ summary: 'Replace an ACTIVE policy with a new version (admin).' })
   supersedeCinemaPricingPolicy(
     @CurrentUser() admin: RequestUser,
@@ -403,6 +426,7 @@ export class AdminController {
   }
 
   @Post('cinema-pricing-policies/:id/disable')
+  @RequiresAdmin(AdminPermission.PLATFORM_CONFIG)
   @ApiOperation({ summary: 'Withdraw a policy. Its scope then fails closed (admin).' })
   disableCinemaPricingPolicy(@CurrentUser() admin: RequestUser, @Param('id') id: string) {
     return this.cinemaPolicies.disable(admin.id, id);
@@ -418,6 +442,7 @@ export class AdminController {
   }
 
   @Get('tax-rules/readiness')
+  @RequiresAdmin(AdminPermission.PLATFORM_CONFIG_READ)
   @ApiOperation({
     summary: 'How many active organizers would collect tax without a tax registration.',
   })
@@ -426,6 +451,7 @@ export class AdminController {
   }
 
   @Post('tax-rules')
+  @RequiresAdmin(AdminPermission.PLATFORM_CONFIG)
   @ApiOperation({ summary: 'Create a tax rule. Inactive unless explicitly activated (admin).' })
   createTaxRule(
     @CurrentUser() user: { id: string },
@@ -435,6 +461,7 @@ export class AdminController {
   }
 
   @Patch('tax-rules/:id')
+  @RequiresAdmin(AdminPermission.PLATFORM_CONFIG)
   @ApiOperation({
     summary: 'Update a draft tax rule, or switch one on/off. A live rate must be superseded.',
   })
@@ -447,6 +474,7 @@ export class AdminController {
   }
 
   @Post('tax-rules/:id/supersede')
+  @RequiresAdmin(AdminPermission.PLATFORM_CONFIG)
   @ApiOperation({ summary: 'Close a rule at a date and open its successor at a new rate.' })
   supersedeTaxRule(
     @CurrentUser() user: { id: string },
@@ -457,6 +485,7 @@ export class AdminController {
   }
 
   @Delete('tax-rules/:id')
+  @RequiresAdmin(AdminPermission.PLATFORM_CONFIG)
   @ApiOperation({ summary: 'Delete a tax rule that is switched off (admin).' })
   deleteTaxRule(@CurrentUser() user: { id: string }, @Param('id') id: string) {
     return this.taxRules_.remove(user.id, id);

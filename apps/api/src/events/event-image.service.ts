@@ -14,6 +14,7 @@ import { AppException, ErrorCodes } from '../common/errors';
 import { ObjectStoreService } from '../storage/object-store.service';
 import { eventImageKey } from '../storage/object-keys';
 import type { RequestUser } from '../common/decorators';
+import { isUniqueViolation } from './request-key';
 import {
   EVENT_IMAGE_MAX_BYTES,
   EVENT_IMAGE_MAX_COUNT,
@@ -84,9 +85,28 @@ export class EventImageService {
     private readonly objects: ObjectStoreService,
   ) {}
 
-  /** Adds one image at the end of the event's images. The first image ever added is the cover. */
-  async add(user: RequestUser, eventId: string, file: UploadedImageFile | undefined) {
+  /**
+   * Adds one image at the end of the event's images. The first image ever added is the cover.
+   *
+   * ── ONE IMAGE PER KEY ──────────────────────────────────────────────────────────────
+   * The console uploads an event's images after creating it, and a browser can lose the
+   * response to an upload that did arrive: the tab reloaded, the connection dropped. Retrying
+   * that file must not put the picture on the event twice. With an `idempotencyKey` (one per
+   * file the organizer picked), a repeat answers with the gallery as it is. The key is claimed
+   * inside the transaction that writes the image row, so a key exists exactly when its image
+   * does: an upload that failed half way leaves the key free for the retry, and two copies of
+   * one request racing end with one image. Without a key nothing changes.
+   */
+  async add(
+    user: RequestUser,
+    eventId: string,
+    file: UploadedImageFile | undefined,
+    idempotencyKey?: string,
+  ) {
     const event = await this.changeableEvent(user, eventId);
+    const keyed = idempotencyKey ? { scope: `event-image:${eventId}`, key: idempotencyKey } : null;
+    // Already done: answered before the file is decoded and cut again for nothing.
+    if (keyed && (await this.keyUsed(keyed))) return this.gallery(eventId);
     if (!file?.buffer?.length) {
       throw new AppException(
         ErrorCodes.VALIDATION_FAILED,
@@ -140,38 +160,49 @@ export class EventImageService {
       The count and the new position are read and written together, so two uploads landing at
       once cannot both see nine images and make twelve, or both take the same position.
     */
-    const created = await this.prisma.$transaction(async (tx) => {
-      const existing = await tx.eventImage.findMany({
-        where: { eventId },
-        select: { position: true },
+    let created: { id: string };
+    try {
+      created = await this.prisma.$transaction(async (tx) => {
+        // First, so a repeat stops here - before the count, which a repeat must not trip.
+        if (keyed) await tx.idempotencyRecord.create({ data: { ...keyed, status: 'COMPLETED' } });
+        const existing = await tx.eventImage.findMany({
+          where: { eventId },
+          select: { position: true },
+        });
+        if (existing.length >= EVENT_IMAGE_MAX_COUNT) {
+          throw new AppException(
+            ErrorCodes.CONFLICT,
+            `An event can have up to ${EVENT_IMAGE_MAX_COUNT} images. Remove one to add another.`,
+            HttpStatus.CONFLICT,
+          );
+        }
+        const position = existing.reduce((next, row) => Math.max(next, row.position + 1), 0);
+        return tx.eventImage.create({
+          data: {
+            eventId,
+            position,
+            contentType,
+            // One of these two, never both - the database enforces it. `stored` is null while
+            // the driver is the database, which is what every environment runs by default.
+            bytes: stored ? null : file.buffer,
+            storageKey: stored,
+            sizeBytes: file.buffer.length,
+            sha256,
+            uploadedByUserId: user.id,
+            // In the same statement as the image, so there is never an image whose copies are
+            // half written: it has all of them or, if this fails, it does not exist.
+            variants: { create: variantRows },
+          },
+          select: { id: true },
+        });
       });
-      if (existing.length >= EVENT_IMAGE_MAX_COUNT) {
-        throw new AppException(
-          ErrorCodes.CONFLICT,
-          `An event can have up to ${EVENT_IMAGE_MAX_COUNT} images. Remove one to add another.`,
-          HttpStatus.CONFLICT,
-        );
+    } catch (err) {
+      // The same file under the same key, committed first by an earlier copy of this request.
+      if (keyed && isUniqueViolation(err) && (await this.keyUsed(keyed))) {
+        return this.gallery(eventId);
       }
-      const position = existing.reduce((next, row) => Math.max(next, row.position + 1), 0);
-      return tx.eventImage.create({
-        data: {
-          eventId,
-          position,
-          contentType,
-          // One of these two, never both - the database enforces it. `stored` is null while
-          // the driver is the database, which is what every environment runs by default.
-          bytes: stored ? null : file.buffer,
-          storageKey: stored,
-          sizeBytes: file.buffer.length,
-          sha256,
-          uploadedByUserId: user.id,
-          // In the same statement as the image, so there is never an image whose copies are
-          // half written: it has all of them or, if this fails, it does not exist.
-          variants: { create: variantRows },
-        },
-        select: { id: true },
-      });
-    });
+      throw err;
+    }
 
     await this.audit.record({
       actorUserId: user.id,
@@ -182,6 +213,14 @@ export class EventImageService {
       metadata: { imageId: created.id, contentType, sizeBytes: file.buffer.length },
     });
     return this.gallery(eventId);
+  }
+
+  private async keyUsed(keyed: { scope: string; key: string }): Promise<boolean> {
+    const record = await this.prisma.idempotencyRecord.findUnique({
+      where: { scope_key: keyed },
+      select: { id: true },
+    });
+    return record !== null;
   }
 
   async remove(user: RequestUser, eventId: string, imageId: string) {
