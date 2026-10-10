@@ -317,6 +317,17 @@ const PILL: Record<PillTone, { pill: string; dot: string }> = {
  * an image - the reference puts "Upcoming" on the artwork of an event card. Every pair is in
  * `token-contrast.test.ts`. Prefer the vocabulary components below; this is the primitive
  * they are built on, for a status that is not one of them.
+ *
+ * ── IT WRAPS, IT NEVER CUTS ──────────────────────────────────────────────────────────
+ * A pill used to truncate with an ellipsis, so "Partly selling: Telangana pricing rules" reached
+ * an organizer as "Partly selling: Telangana prici..." - the restriction, the one useful half,
+ * was exactly what was cut. Now the words wrap onto the next line, balanced, as wide as the
+ * container allows. Words break only between words (`break-words` leaves the pill's narrowest
+ * width at its longest word), so a squeezed pill grows a line rather than a column of letters.
+ * The radius is a fixed 11px, not `rounded-full`: one line still reads as a pill, and two lines
+ * keep their corners inside the tint instead of a stadium that clips the first and last letters.
+ * Where a column is genuinely too narrow for a sentence, use `SellingPill layout="stacked"`:
+ * the state word in the pill and the reason as visible text under it - never a tooltip alone.
  */
 export function StatusPill({
   tone = 'neutral',
@@ -331,20 +342,23 @@ export function StatusPill({
   dot?: boolean;
   size?: 'sm' | 'md';
   className?: string;
-  /** The full text when the visible words are truncated. */
+  /** A hover note. Never the only place a word is shown: the pill prints all of its words. */
   title?: string;
 }) {
   return (
     <span
       title={title}
-      className={`inline-flex max-w-full items-center gap-1.5 whitespace-nowrap rounded-full font-semibold ${
-        size === 'sm' ? 'px-2 py-0.5 text-[0.6875rem]' : 'px-2.5 py-0.5 text-micro'
+      className={`inline-flex max-w-full items-start gap-1.5 rounded-[0.6875rem] font-semibold ${
+        size === 'sm' ? 'px-2 py-0.5 text-[0.6875rem] leading-4' : 'px-2.5 py-0.5 text-micro'
       } ${PILL[tone].pill} ${className}`}
     >
       {dot && (
-        <span aria-hidden className={`h-1.5 w-1.5 shrink-0 rounded-full ${PILL[tone].dot}`} />
+        <span
+          aria-hidden
+          className={`mt-[0.3125rem] h-1.5 w-1.5 shrink-0 rounded-full ${PILL[tone].dot}`}
+        />
       )}
-      <span className="min-w-0 truncate">{children}</span>
+      <span className="min-w-0 whitespace-normal break-words [text-wrap:balance]">{children}</span>
     </span>
   );
 }
@@ -430,13 +444,46 @@ export function sellingLabel(s: SellingState): string {
   return `${s.state === 'partly' ? 'Partly selling' : 'Not selling'}: ${s.reason}`;
 }
 
-export function SellingPill({ size, ...s }: SellingState & { size?: 'sm' | 'md' }) {
-  const label = sellingLabel(s as SellingState);
+/** The state alone, for the pill of a stacked layout: "Selling", "Partly selling", "Not selling". */
+export function sellingWord(state: SellingState['state']): string {
+  return state === 'selling' ? 'Selling' : state === 'partly' ? 'Partly selling' : 'Not selling';
+}
+
+/**
+ * The selling state as a pill. Every word of the reason is always on screen:
+ *
+ * - `layout="pill"` (default): the whole sentence in the pill, wrapping onto a second line when
+ *   the container is narrow.
+ * - `layout="stacked"`: for dense cells (a week column, a table cell) where a two-line sentence
+ *   in a pill is a block of tint. The state word is the pill and the reason is plain text under
+ *   it - still visible, still read as one sentence ("Partly selling: <reason>") by a screen
+ *   reader. The reason is never moved into a tooltip: a restriction on sale must not be
+ *   something a reader has to hover to find.
+ */
+export function SellingPill({
+  size,
+  layout = 'pill',
+  ...s
+}: SellingState & { size?: 'sm' | 'md'; layout?: 'pill' | 'stacked' }) {
   const tone: PillTone =
     s.state === 'selling' ? 'success' : s.state === 'partly' ? 'warning' : 'neutral';
+  if (layout === 'stacked' && s.state !== 'selling') {
+    const reason = (s as { reason: string }).reason;
+    return (
+      <span className="inline-flex min-w-0 max-w-full flex-col items-start gap-0.5">
+        <StatusPill tone={tone} size={size}>
+          {sellingWord(s.state)}
+          <span className="sr-only">: </span>
+        </StatusPill>
+        <span className="min-w-0 max-w-full whitespace-normal break-words text-micro text-text-secondary">
+          {reason}
+        </span>
+      </span>
+    );
+  }
   return (
-    <StatusPill tone={tone} size={size} title={label}>
-      {label}
+    <StatusPill tone={tone} size={size}>
+      {sellingLabel(s as SellingState)}
     </StatusPill>
   );
 }

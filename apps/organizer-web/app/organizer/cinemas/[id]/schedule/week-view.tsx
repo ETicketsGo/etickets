@@ -173,7 +173,7 @@ export function WeekView({
                               {show.movieTitle ?? 'Untitled'}
                             </span>
                             <span className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
-                              <SalePill verdict={verdict} size="sm" />
+                              <SalePill verdict={verdict} size="sm" layout="stacked" />
                               {show.seatsTotal > 0 ? (
                                 <span className="text-micro tabular-nums text-text-muted">
                                   {show.seatsSold}/{show.seatsTotal} sold

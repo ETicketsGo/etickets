@@ -11,30 +11,25 @@ import { pillSellingOf, type SaleVerdict } from './cinema-model';
  * pill says so in neutral words ("Checking sale status", "Sale status unavailable"); it never
  * falls back to "Selling".
  *
- * `wrap` lets the reason run onto a second line where the pill sits in a narrow column and the
- * reason is the useful half - the design-system pill truncates, with the full words in `title`.
+ * The design-system pill wraps rather than truncating, so the reason is always on screen. In a
+ * dense cell (a week column), `layout="stacked"` puts the state word in the pill and the reason
+ * as plain text under it, instead of a two-line block of tint.
  */
 export function SalePill({
   verdict,
   size = 'md',
-  wrap = false,
+  layout = 'pill',
 }: {
   verdict: Pick<SaleVerdict, 'state' | 'label'>;
   size?: 'sm' | 'md';
-  wrap?: boolean;
+  layout?: 'pill' | 'stacked';
 }) {
   const s = pillSellingOf(verdict);
-  const pill = s ? (
-    <SellingPill {...s} size={size} />
+  return s ? (
+    <SellingPill {...s} size={size} layout={layout} />
   ) : (
     <StatusPill tone="neutral" size={size}>
       {verdict.label}
     </StatusPill>
-  );
-  if (!wrap) return pill;
-  return (
-    <span className="inline-flex max-w-full [&>span]:h-auto [&>span]:whitespace-normal [&>span>span:last-child]:whitespace-normal [&>span>span:last-child]:[overflow-wrap:anywhere]">
-      {pill}
-    </span>
   );
 }

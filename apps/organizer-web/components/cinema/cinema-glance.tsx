@@ -61,7 +61,7 @@ export function CinemaGlanceStrip({
                   {g.cinemaName}
                 </h3>
                 <div className="mt-1.5">
-                  <SalePill verdict={verdictOf(g.cinemaId)} size="sm" wrap />
+                  <SalePill verdict={verdictOf(g.cinemaId)} size="sm" />
                 </div>
               </div>
             </div>
