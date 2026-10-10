@@ -41,10 +41,39 @@ export const CALENDAR_STATUSES = [
   'COMPLETED',
 ] as const;
 
-/** "Under review", for a filter option or a status line. */
+/**
+ * How a status reads on the calendar: its words and the tone of its dot and pill.
+ *
+ * The words are the console's lifecycle vocabulary (DESIGN-DIRECTION): "In review", not "Under
+ * review"; COMPLETED is "Ended". PAUSED and SOLD_OUT keep their own words because they are what
+ * the event row says, not a claim about sale eligibility - that comes only from the server's
+ * unified eligibility, which the calendar does not read. The admin calendar's `lib/calendar.ts`
+ * holds the same table, so a status looks the same in both consoles.
+ */
+export type StatusTone = 'success' | 'warning' | 'error' | 'info' | 'neutral';
+
+const STATUS_LOOK: Record<string, { label: string; tone: StatusTone }> = {
+  DRAFT: { label: 'Draft', tone: 'neutral' },
+  UNDER_REVIEW: { label: 'In review', tone: 'warning' },
+  PUBLISHED: { label: 'Published', tone: 'success' },
+  PAUSED: { label: 'Paused', tone: 'warning' },
+  SOLD_OUT: { label: 'Sold out', tone: 'info' },
+  CANCELLED: { label: 'Cancelled', tone: 'error' },
+  COMPLETED: { label: 'Ended', tone: 'neutral' },
+  ARCHIVED: { label: 'Ended', tone: 'neutral' },
+};
+
+/** "In review", for a filter option or a status line. */
 export function statusText(status: string): string {
+  const known = STATUS_LOOK[status];
+  if (known) return known.label;
   const words = status.toLowerCase().replaceAll('_', ' ');
   return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/** The tone a status is drawn in. A status this table does not know is neutral, never green. */
+export function statusTone(status: string): StatusTone {
+  return STATUS_LOOK[status]?.tone ?? 'neutral';
 }
 
 /**

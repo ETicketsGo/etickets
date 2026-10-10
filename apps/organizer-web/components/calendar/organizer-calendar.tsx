@@ -3,13 +3,20 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
+import {
+  CalendarDays,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  SlidersHorizontal,
+} from 'lucide-react';
 import {
   api,
   Button,
   ButtonLink,
   EmptyState,
   ErrorState,
+  IconButton,
   Input,
   PageHeader,
   Select,
@@ -40,6 +47,7 @@ import {
   type DayKey,
 } from '@/lib/calendar';
 import { AgendaView } from './agenda-view';
+import { DayPanel } from './day-panel';
 import { MonthView } from './month-view';
 import { PreviewDrawer } from './preview-drawer';
 import { TimeGrid } from './time-grid';
@@ -111,6 +119,7 @@ export function OrganizerCalendar() {
     [params, pathname, router],
   );
 
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [focusedDay, setFocusedDay] = useState<DayKey>(anchor);
   const [agendaFocus, setAgendaFocus] = useState<DayKey | null>(null);
   useEffect(() => setFocusedDay(anchor), [anchor]);
@@ -187,6 +196,7 @@ export function OrganizerCalendar() {
     <ButtonLink href="/organizer/events/new">Create event</ButtonLink>
   ) : undefined;
   const filtersOn = Boolean(status || venueId || category);
+  const activeFilters = [status, venueId, category].filter(Boolean).length;
 
   if (!view) return <Skeleton className="h-96 w-full" />;
 
@@ -204,45 +214,137 @@ export function OrganizerCalendar() {
     eventsQ.isSuccess &&
     eventsQ.data.every((e) => e._count.sessions === 0);
 
+  const monthSegments = byDay.get(focusedDay) ?? [];
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
+      {/*
+        No "Create event" here: the top bar carries the console's one primary action, for the
+        same members this page would have offered it to. Two of them on one screen was the
+        defect the design-system review named. The empty state below still offers it, because
+        there it is the only sensible next step.
+      */}
       <PageHeader
         title="Calendar"
         description="Every session at the local time of its venue, with the venue's time zone."
-        action={createButton}
       />
 
-      {/* ── Toolbar ── */}
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="flex items-center gap-2">
+      {/* ── Toolbar: where you are, how you look at it, and what is shown ── */}
+      <section
+        aria-label="Calendar controls"
+        className="rounded-lg border border-border bg-background-surface p-4 shadow-xs sm:p-5"
+      >
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-3">
+          <div className="flex items-center gap-1">
+            <IconButton
+              variant="outline"
+              size="sm"
+              icon={ChevronLeft}
+              label={`Previous ${STEP_NAMES[view]}`}
+              onClick={() => goTo(stepAnchor(view, anchor, -1))}
+            />
+            <IconButton
+              variant="outline"
+              size="sm"
+              icon={ChevronRight}
+              label={`Next ${STEP_NAMES[view]}`}
+              onClick={() => goTo(stepAnchor(view, anchor, 1))}
+            />
+          </div>
+          <h2
+            className="min-w-0 flex-1 font-display text-title font-bold text-text-primary"
+            aria-live="polite"
+            data-testid="calendar-range-title"
+          >
+            {rangeTitle(view, anchor, weekStart)}
+          </h2>
           <Button variant="outline" size="sm" onClick={() => goTo(today)}>
             Today
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            aria-label={`Previous ${STEP_NAMES[view]}`}
-            onClick={() => goTo(stepAnchor(view, anchor, -1))}
+          <div
+            role="group"
+            aria-label="Calendar view"
+            className="inline-flex max-w-full rounded-md border border-border bg-background-subtle p-1"
           >
-            <ChevronLeft className="h-4 w-4" aria-hidden />
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            aria-label={`Next ${STEP_NAMES[view]}`}
-            onClick={() => goTo(stepAnchor(view, anchor, 1))}
-          >
-            <ChevronRight className="h-4 w-4" aria-hidden />
-          </Button>
+            {VIEWS.map((v) => (
+              <button
+                key={v.id}
+                type="button"
+                aria-pressed={view === v.id}
+                onClick={() => setParams({ view: v.id })}
+                className={`rounded-sm px-3 py-1.5 text-caption font-semibold transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                  view === v.id
+                    ? 'bg-background-surface text-action-primary shadow-xs'
+                    : 'text-text-secondary hover:text-text-primary'
+                }`}
+              >
+                {v.label}
+              </button>
+            ))}
+          </div>
         </div>
-        <h2
-          className="min-w-0 flex-1 text-title font-semibold text-text-primary"
-          aria-live="polite"
-          data-testid="calendar-range-title"
+
+        {/*
+          On a phone the four filters were a screen of form before the first date. They fold
+          behind one button there, which says how many are on; from `sm` up they are always
+          shown. The URL still holds them either way.
+        */}
+        <button
+          type="button"
+          aria-expanded={filtersOpen}
+          aria-controls="calendar-filters"
+          onClick={() => setFiltersOpen((o) => !o)}
+          className="mt-4 inline-flex w-full items-center justify-between rounded-md border border-border px-3 py-2 text-caption font-semibold text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:hidden"
         >
-          {rangeTitle(view, anchor, weekStart)}
-        </h2>
-        <div className="w-40">
+          <span className="inline-flex items-center gap-2">
+            <SlidersHorizontal className="h-4 w-4 text-text-secondary" aria-hidden />
+            {activeFilters > 0 ? `Filters, ${activeFilters} on` : 'Filters and date'}
+          </span>
+          <ChevronDown
+            className={`h-4 w-4 text-text-secondary transition-transform ${filtersOpen ? 'rotate-180' : ''}`}
+            aria-hidden
+          />
+        </button>
+        <div
+          id="calendar-filters"
+          className={`mt-4 gap-3 border-border sm:grid sm:grid-cols-2 sm:border-t sm:pt-4 xl:grid-cols-4 ${filtersOpen ? 'grid' : 'hidden'}`}
+        >
+          <Select
+            label="Status"
+            value={status}
+            onChange={(e) => setParams({ status: e.target.value || null })}
+          >
+            <option value="">All statuses</option>
+            {CALENDAR_STATUSES.map((s) => (
+              <option key={s} value={s}>
+                {statusText(s)}
+              </option>
+            ))}
+          </Select>
+          <Select
+            label="Venue"
+            value={venueId}
+            onChange={(e) => setParams({ venue: e.target.value || null })}
+          >
+            <option value="">All venues</option>
+            {options.venues.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.label}
+              </option>
+            ))}
+          </Select>
+          <Select
+            label="Category"
+            value={category}
+            onChange={(e) => setParams({ category: e.target.value || null })}
+          >
+            <option value="">All categories</option>
+            {options.categories.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </Select>
           <Input
             type="date"
             label="Go to date"
@@ -252,80 +354,38 @@ export function OrganizerCalendar() {
             }}
           />
         </div>
-        <div
-          role="group"
-          aria-label="Calendar view"
-          className="inline-flex rounded-md border border-border-input bg-background-surface p-0.5"
-        >
-          {VIEWS.map((v) => (
-            <button
-              key={v.id}
-              type="button"
-              aria-pressed={view === v.id}
-              onClick={() => setParams({ view: v.id })}
-              className={`rounded px-3 py-1.5 text-button font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                view === v.id
-                  ? 'bg-action-primary text-action-primary-foreground'
-                  : 'text-text-secondary hover:bg-background-subtle hover:text-text-primary'
-              }`}
-            >
-              {v.label}
-            </button>
-          ))}
+
+        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-caption text-text-muted">
+          <p data-testid="calendar-today-zone">
+            Today is marked in your time zone, {viewerZoneLabel(viewer)}. Each session sits on the
+            date at its venue.
+          </p>
+          {!loading && !sessionsQ.isError && !nothingAtAll && (
+            <p aria-live="polite">
+              {inRange === 0
+                ? `No sessions in this view${filtersOn ? ' match the filters' : ''}.`
+                : `${inRange} ${inRange === 1 ? 'session' : 'sessions'} in this view.`}{' '}
+              {sessionsQ.isPlaceholderData ? 'Loading...' : ''}
+              {inRange === 0 && filtersOn && (
+                <button
+                  type="button"
+                  className="ml-1 rounded-sm font-semibold text-action-primary underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={() => setParams({ status: null, venue: null, category: null })}
+                >
+                  Clear filters
+                </button>
+              )}
+            </p>
+          )}
         </div>
-      </div>
 
-      <p className="text-caption text-text-muted" data-testid="calendar-today-zone">
-        Today is marked in your time zone, {viewerZoneLabel(viewer)}. Each session sits on the date
-        at its venue.
-      </p>
-
-      {/* ── Filters ── */}
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Select
-          label="Status"
-          value={status}
-          onChange={(e) => setParams({ status: e.target.value || null })}
-        >
-          <option value="">All statuses</option>
-          {CALENDAR_STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {statusText(s)}
-            </option>
-          ))}
-        </Select>
-        <Select
-          label="Venue"
-          value={venueId}
-          onChange={(e) => setParams({ venue: e.target.value || null })}
-        >
-          <option value="">All venues</option>
-          {options.venues.map((v) => (
-            <option key={v.id} value={v.id}>
-              {v.label}
-            </option>
-          ))}
-        </Select>
-        <Select
-          label="Category"
-          value={category}
-          onChange={(e) => setParams({ category: e.target.value || null })}
-        >
-          <option value="">All categories</option>
-          {options.categories.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-        </Select>
-      </div>
-
-      {sessionsQ.data?.truncated && (
-        <p className="text-caption text-status-warning" data-testid="calendar-cap-note">
-          This range has more than {sessionsQ.data.limit} sessions, so the latest ones are not
-          shown. Pick a shorter view or a venue to see them all.
-        </p>
-      )}
+        {sessionsQ.data?.truncated && (
+          <p className="mt-3 text-caption text-status-warning" data-testid="calendar-cap-note">
+            This range has more than {sessionsQ.data.limit} sessions, so the latest ones are not
+            shown. Pick a shorter view or a venue to see them all.
+          </p>
+        )}
+      </section>
 
       {/* ── Body ── */}
       {sessionsQ.isError ? (
@@ -334,7 +394,10 @@ export function OrganizerCalendar() {
           onRetry={() => void sessionsQ.refetch()}
         />
       ) : loading ? (
-        <Skeleton className="h-96 w-full" />
+        <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_20rem]">
+          <Skeleton className="h-[32rem] w-full rounded-lg" />
+          {view === 'month' && <Skeleton className="hidden h-72 w-full rounded-lg xl:block" />}
+        </div>
       ) : nothingAtAll ? (
         <EmptyState
           icon={CalendarDays}
@@ -348,37 +411,32 @@ export function OrganizerCalendar() {
         />
       ) : (
         <>
-          <p className="text-caption text-text-muted" aria-live="polite">
-            {inRange === 0
-              ? `No sessions in this view${filtersOn ? ' match the filters' : ''}.`
-              : `${inRange} ${inRange === 1 ? 'session' : 'sessions'} in this view.`}{' '}
-            {sessionsQ.isPlaceholderData ? 'Loading...' : ''}
-            {inRange === 0 && filtersOn && (
-              <button
-                type="button"
-                className="ml-1 font-medium text-action-primary underline"
-                onClick={() => setParams({ status: null, venue: null, category: null })}
-              >
-                Clear filters
-              </button>
-            )}
-          </p>
-
           {view === 'month' && (
-            <MonthView
-              weeks={monthGrid(anchor, weekStart)}
-              month={anchor.slice(0, 7)}
-              byDay={byDay}
-              today={today}
-              focusedDay={focusedDay}
-              weekStart={weekStart}
-              onFocusDay={(day, viaKeyboard) => {
-                setFocusedDay(day);
-                if (viaKeyboard && day.slice(0, 7) !== anchor.slice(0, 7)) goTo(day);
-              }}
-              onOpen={openSession}
-              onShowDay={(day) => goTo(day, 'day')}
-            />
+            <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_20rem]">
+              <div className="min-w-0 rounded-lg border border-border bg-background-surface p-2 shadow-xs sm:p-3">
+                <MonthView
+                  weeks={monthGrid(anchor, weekStart)}
+                  month={anchor.slice(0, 7)}
+                  byDay={byDay}
+                  today={today}
+                  focusedDay={focusedDay}
+                  weekStart={weekStart}
+                  onFocusDay={(day, viaKeyboard) => {
+                    setFocusedDay(day);
+                    if (viaKeyboard && day.slice(0, 7) !== anchor.slice(0, 7)) goTo(day);
+                  }}
+                  onOpen={openSession}
+                  onShowDay={(day) => goTo(day, 'day')}
+                />
+              </div>
+              <DayPanel
+                day={focusedDay}
+                segments={monthSegments}
+                today={today}
+                onOpen={openSession}
+                onShowDay={(day) => goTo(day, 'day')}
+              />
+            </div>
           )}
           {(view === 'week' || view === 'day') && (
             <TimeGrid
@@ -402,8 +460,18 @@ export function OrganizerCalendar() {
                 focusDay={agendaFocus}
                 onOpen={openSession}
               />
-              {inRange === 0 && !filtersOn && createButton && (
-                <div className="flex justify-center py-6">{createButton}</div>
+              {inRange === 0 && (
+                <EmptyState
+                  icon={CalendarDays}
+                  compact
+                  title={filtersOn ? 'No sessions match the filters' : 'No sessions this month'}
+                  hint={
+                    filtersOn
+                      ? 'Clear the filters, or move to another month.'
+                      : 'Move to another month, or add sessions to an event.'
+                  }
+                  action={!filtersOn ? createButton : undefined}
+                />
               )}
             </>
           )}
