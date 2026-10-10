@@ -23,6 +23,7 @@ import {
   type DiscrepancyStatusValue,
 } from '@eticketsgo/web-kit';
 import { useUrlFilters } from '../../../components/list-filters';
+import { missingDutyNote, useHolds } from '@/lib/capabilities';
 
 /*
   The queue is read by a finance person, not by the code that files the rows, so the row says
@@ -84,6 +85,12 @@ export default function FinanceReconciliationPage() {
     status; this page never asked it to.
   */
   const filters = useUrlFilters(STATUS_KEYS);
+  /*
+    The queue opens with FINANCE_READ. Running detection and resolving or ignoring a row are
+    decisions about money findings, so they need FINANCE_RESOLVE; a reader sees no buttons the
+    API would refuse, and one line saying why.
+  */
+  const mayResolve = useHolds('FINANCE_RESOLVE');
   const status = (filters.values.status || undefined) as DiscrepancyStatusValue | undefined;
   const list = useQuery({
     queryKey: ['admin', 'discrepancies', status ?? 'all'],
@@ -159,7 +166,7 @@ export default function FinanceReconciliationPage() {
       mobileLabel: 'Next step',
       className: 'whitespace-nowrap',
       render: (r) =>
-        r.status === 'OPEN' || r.status === 'ASSIGNED' ? (
+        mayResolve && (r.status === 'OPEN' || r.status === 'ASSIGNED') ? (
           <div className="flex justify-end gap-2">
             <Button
               size="sm"
@@ -194,12 +201,19 @@ export default function FinanceReconciliationPage() {
             <Button variant="outline" onClick={downloadCsv}>
               <Download className="h-4 w-4" aria-hidden /> Export CSV
             </Button>
-            <Button onClick={() => detect.mutate()} loading={detect.isPending}>
-              <RefreshCw className="h-4 w-4" aria-hidden /> Run detection
-            </Button>
+            {mayResolve && (
+              <Button onClick={() => detect.mutate()} loading={detect.isPending}>
+                <RefreshCw className="h-4 w-4" aria-hidden /> Run detection
+              </Button>
+            )}
           </div>
         }
       />
+      {!mayResolve && (
+        <p className="text-caption text-text-muted">
+          {missingDutyNote('run detection or resolve discrepancies', 'FINANCE_RESOLVE')}
+        </p>
+      )}
 
       {/*
         How long the open exceptions have waited, as the API buckets them. Counts only: the aging
@@ -267,7 +281,11 @@ export default function FinanceReconciliationPage() {
             ) : (
               <EmptyState
                 title="Nothing to reconcile"
-                hint="Everything the last detection run compared agreed. Run detection again to check now."
+                hint={
+                  mayResolve
+                    ? 'Everything the last detection run compared agreed. Run detection again to check now.'
+                    : 'Everything the last detection run compared agreed.'
+                }
               />
             )
           }

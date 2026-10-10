@@ -49,3 +49,22 @@ export const NO_READ_ACCESS =
 /** The line a read-only operator sees where the write controls would be. ASCII only. */
 export const READ_ONLY_NOTE =
   'You can see these settings but not change them. Changing them needs the Platform configuration duty.';
+
+/**
+ * A capability as the Staff & duties screen names it: OPS_EXECUTE reads "Ops execute". The same
+ * rule as that screen, so the note below names a duty an operator can find there and ask for.
+ */
+export function dutyName(capability: string): string {
+  return capability.charAt(0) + capability.slice(1).toLowerCase().replace(/_/g, ' ');
+}
+
+/**
+ * The line shown where an action's controls would be, to somebody who can read the page but not
+ * act on it. Never a dead button: a disabled control with no reason reads as a fault, and an
+ * enabled one ends in "you may not do that". ASCII only.
+ *
+ * `action` finishes "You can see this but cannot ...", e.g. "retry failed jobs".
+ */
+export function missingDutyNote(action: string, capability: string): string {
+  return `You can see this but cannot ${action}. That needs the ${dutyName(capability)} duty.`;
+}

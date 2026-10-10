@@ -25,7 +25,13 @@ function parseDate(raw: string | undefined, fallback: Date): Date {
 export class FinanceReconciliationController {
   constructor(private readonly finance: FinanceReconciliationService) {}
 
+  /*
+    Reading the queue (list, CSV, aging) is FINANCE_READ, the class guard. Running detection files
+    new discrepancy rows, and assign / resolve / ignore close or hand off a money finding - each
+    an audited decision - so they need FINANCE_RESOLVE. All four used to inherit FINANCE_READ.
+  */
   @Post('detect')
+  @RequiresAdmin(AdminPermission.FINANCE_RESOLVE)
   @ApiOperation({ summary: 'Run discrepancy detection over a window (admin).' })
   detect(@Query('from') from?: string, @Query('to') to?: string) {
     const toDate = parseDate(to, new Date());
@@ -54,6 +60,7 @@ export class FinanceReconciliationController {
   }
 
   @Post('discrepancies/:id/assign')
+  @RequiresAdmin(AdminPermission.FINANCE_RESOLVE)
   assign(
     @CurrentUser() user: RequestUser,
     @Ip() ip: string,
@@ -64,6 +71,7 @@ export class FinanceReconciliationController {
   }
 
   @Post('discrepancies/:id/resolve')
+  @RequiresAdmin(AdminPermission.FINANCE_RESOLVE)
   resolve(
     @CurrentUser() user: RequestUser,
     @Ip() ip: string,
@@ -74,6 +82,7 @@ export class FinanceReconciliationController {
   }
 
   @Post('discrepancies/:id/ignore')
+  @RequiresAdmin(AdminPermission.FINANCE_RESOLVE)
   ignore(
     @CurrentUser() user: RequestUser,
     @Ip() ip: string,

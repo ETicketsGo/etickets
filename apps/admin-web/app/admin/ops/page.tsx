@@ -26,7 +26,7 @@ import {
   type OpsQueueCheck,
   type OpsFailedJob,
 } from '@eticketsgo/web-kit';
-import { useHolds } from '@/lib/capabilities';
+import { missingDutyNote, useHolds } from '@/lib/capabilities';
 
 function statusTone(status: string): BadgeTone {
   switch (status) {
@@ -117,6 +117,11 @@ export default function AdminOps() {
     PLATFORM_CONFIG, because it takes the storefront offline for everybody.
   */
   const mayToggleMaintenance = useHolds('PLATFORM_CONFIG');
+  /*
+    Retrying re-runs a job that already ran once, so it needs OPS_EXECUTE; seeing the queue is
+    OPS_READ. Without it the Retry buttons are not drawn at all - the API would refuse them.
+  */
+  const mayRetry = useHolds('OPS_EXECUTE');
 
   // Maintenance dialog state.
   const [maintOpen, setMaintOpen] = useState(false);
@@ -212,16 +217,26 @@ export default function AdminOps() {
         </div>
       ),
     },
-    {
-      key: 'action',
-      header: '',
-      className: 'whitespace-nowrap',
-      render: (r) => (
-        <Button variant="outline" size="sm" loading={busy} onClick={() => void doRetryJob(r.id)}>
-          Retry
-        </Button>
-      ),
-    },
+    // The Retry column exists only for somebody who may retry (see `mayRetry`).
+    ...(mayRetry
+      ? [
+          {
+            key: 'action',
+            header: '',
+            className: 'whitespace-nowrap',
+            render: (r: OpsFailedJob) => (
+              <Button
+                variant="outline"
+                size="sm"
+                loading={busy}
+                onClick={() => void doRetryJob(r.id)}
+              >
+                Retry
+              </Button>
+            ),
+          },
+        ]
+      : []),
   ];
 
   const h = health.data;
@@ -291,14 +306,20 @@ export default function AdminOps() {
       <Card
         title="Queue health — holds"
         action={
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={(q?.counts.failed ?? 0) === 0}
-            onClick={() => setRetryAllOpen(true)}
-          >
-            Retry all failed
-          </Button>
+          mayRetry ? (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={(q?.counts.failed ?? 0) === 0}
+              onClick={() => setRetryAllOpen(true)}
+            >
+              Retry all failed
+            </Button>
+          ) : (
+            <p className="max-w-xs text-caption text-text-muted">
+              {missingDutyNote('retry failed jobs', 'OPS_EXECUTE')}
+            </p>
+          )
         }
       >
         {queues.isLoading ? (
