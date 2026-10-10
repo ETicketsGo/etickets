@@ -216,7 +216,8 @@ test.describe('scheduling workspace accessibility', () => {
       // "10:00" alone forces a screen-reader user to explore to learn anything.
       expect(name).toMatch(/\d{2}:\d{2}/);
       expect(name).toContain('Screen A');
-      expect(name).toMatch(/On sale|Sales paused|Cancelled|Not open yet|Booking closed|Finished/);
+      // The server's unified sale state, in its three sentences (or the loading words).
+      expect(name).toMatch(/Selling|Partly selling: |Not selling: |Checking sale status/);
     }
   });
 
@@ -233,9 +234,10 @@ test.describe('scheduling workspace accessibility', () => {
       sr-only copy of the same words, so assistive tech read "Sales paused Sales paused".
       The accessible name is the single source, and the badge inside it must not repeat.
     */
-    const card = page.getByRole('button', { name: /Sales paused/ }).first();
+    const card = page.getByRole('button', { name: /sales paused/ }).first();
+    await expect(card).toBeVisible({ timeout: 20_000 });
     const name = (await card.getAttribute('aria-label')) ?? '';
-    const occurrences = name.match(/Sales paused/g)?.length ?? 0;
+    const occurrences = name.match(/Not selling: sales paused/g)?.length ?? 0;
     expect(occurrences).toBe(1);
   });
 

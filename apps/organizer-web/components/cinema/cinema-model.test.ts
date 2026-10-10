@@ -2,12 +2,15 @@ import { describe, expect, it } from 'vitest';
 import type { Movie, ShowRow } from '@eticketsgo/web-kit';
 import {
   cinemaSaleVerdict,
+  cinemaUseOf,
   dayHeading,
   filmSaleSummary,
   filterFilms,
   formatRuntime,
   glanceByCinema,
   groupByDay,
+  libraryStats,
+  pillSellingOf,
   programmeOf,
   showSaleVerdict,
   zoneShort,
@@ -340,5 +343,91 @@ describe('zoneShort', () => {
     expect(zoneShort('2026-10-10T13:30:00Z', 'Asia/Kolkata')).toBe('IST');
     expect(zoneShort('2026-10-10T13:30:00Z', 'America/Denver')).toBe('MDT');
     expect(zoneShort('2026-10-10T13:30:00Z', undefined)).toBe('');
+  });
+});
+
+describe('pillSellingOf: the verdict as the design-system pill takes it', () => {
+  const v = (sale: Parameters<typeof showSaleVerdict>[0]['sale']) =>
+    showSaleVerdict({ show: show(), timeZone: 'Asia/Kolkata', sale });
+
+  it('is selling only when the server said SELLING', () => {
+    expect(pillSellingOf(v(SELLING))).toEqual({ state: 'selling' });
+  });
+
+  it('keeps a partly selling show partly selling, with its reason', () => {
+    expect(pillSellingOf(v(UNMAPPED))).toEqual({
+      state: 'partly',
+      reason: 'seat classes not mapped',
+    });
+  });
+
+  it('says not selling with the plain reason for a Telangana show', () => {
+    expect(pillSellingOf(v(TELANGANA))).toEqual({
+      state: 'not',
+      reason: 'Telangana pricing rules not configured',
+    });
+  });
+
+  it('keeps the bookings-open refinement as the reason', () => {
+    const r = pillSellingOf(
+      showSaleVerdict({
+        show: show({ salesStartAt: '2026-10-12T04:30:00Z' }),
+        timeZone: 'Asia/Kolkata',
+        sale: {
+          state: 'NOT_SELLING',
+          reasons: [why('SALES_NOT_STARTED', 'bookings not open yet')],
+        },
+      }),
+    );
+    expect(r).toEqual({ state: 'not', reason: 'bookings open Mon 12 Oct, 10:00' });
+  });
+
+  it('draws no selling pill at all without a server answer', () => {
+    expect(pillSellingOf(v(undefined))).toBeNull();
+    expect(pillSellingOf(v(null))).toBeNull();
+  });
+});
+
+describe('libraryStats', () => {
+  it('sums only what loaded, and counts each cinema once', () => {
+    const a = programmeOf([show(), show({ sessionId: 's2', cinemaId: 'c2' })], NOW);
+    const b = programmeOf([show({ sessionId: 's3', seatsSold: 5, seatsTotal: 50 })], NOW);
+    const stats = libraryStats([
+      { movie: { status: 'PUBLISHED' }, programme: a },
+      { movie: { status: 'PUBLISHED' }, programme: b },
+      { movie: { status: 'DRAFT' }, programme: null },
+      { movie: { status: 'PUBLISHED' }, programme: programmeOf([], NOW) },
+    ]);
+    expect(stats).toEqual({
+      films: 4,
+      published: 3,
+      playing: 2,
+      upcomingShows: 3,
+      cinemas: 2,
+      sold: 25,
+      total: 250,
+    });
+  });
+});
+
+describe('cinemaUseOf', () => {
+  it('lists each cinema with its screens, busiest first, from upcoming shows only', () => {
+    const rows = [
+      show({ sessionId: 'a', cinemaId: 'c1', screenId: 'x', screenName: 'Audi 1' }),
+      show({ sessionId: 'b', cinemaId: 'c1', screenId: 'y', screenName: 'Audi 2' }),
+      show({ sessionId: 'c', cinemaId: 'c1', screenId: 'y', screenName: 'Audi 2' }),
+      show({ sessionId: 'd', cinemaId: 'c2', cinemaName: 'Second' }),
+      show({ sessionId: 'e', cinemaId: 'c2', cinemaName: 'Second', status: 'CANCELLED' }),
+      show({ sessionId: 'f', cinemaId: 'c3', startsAt: '2026-10-01T10:00:00Z' }),
+    ];
+    const uses = cinemaUseOf(rows, NOW);
+    expect(uses.map((u) => [u.cinemaId, u.shows])).toEqual([
+      ['c1', 3],
+      ['c2', 1],
+    ]);
+    expect(uses[0]!.screens).toEqual([
+      { screenId: 'y', screenName: 'Audi 2', shows: 2 },
+      { screenId: 'x', screenName: 'Audi 1', shows: 1 },
+    ]);
   });
 });
