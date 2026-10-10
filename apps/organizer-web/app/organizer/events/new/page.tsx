@@ -19,6 +19,7 @@ import {
   api,
   addDays,
   Button,
+  Dialog,
   Input,
   Select,
   Textarea,
@@ -96,6 +97,13 @@ import { CinemaRoute } from '@/components/create-event/cinema-route';
 import { CreateSteps } from '@/components/create-event/create-steps';
 import { VenuePicker } from '@/components/create-event/venue-picker';
 import { BuyerPreview, type PreviewImage } from '@/components/create-event/buyer-preview';
+import {
+  ImageUploadList,
+  eventImageOutbox,
+  uploadProgressWords,
+  useImageUploads,
+} from '@/components/image-upload-status';
+import { summarize } from '@/lib/image-uploads';
 import { CoverFocus } from '@/components/create-event/cover-focus';
 
 /*
@@ -343,6 +351,32 @@ function NewEventWizard() {
   const [hydrated, setHydrated] = useState(false);
   /* Set once the event really exists, so nothing can write the draft back. */
   const committed = useRef(false);
+  /*
+    ── ONE EVENT PER PRESS, HOWEVER MANY PRESSES ──────────────────────────────────────
+    `committing` stops a second click landing before the first has re-rendered the buttons as
+    busy. `createKey` is sent with the create as its Idempotency-Key and kept for the life of
+    this page, so a retry after a network error whose first attempt DID arrive gets that event
+    back instead of a second one. A venue typed in here is remembered once made, so the retry
+    does not make it twice either.
+  */
+  const committing = useRef(false);
+  const createKey = useRef<string | null>(null);
+  const createdVenueId = useRef<string | null>(null);
+  /* Whether this page is still on screen; a commit outliving it must not navigate or toast. */
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  /*
+    The event whose images are going up, which is what opens the upload dialog, and the
+    organizer's answer when some did not make it: retry them, or carry on without them.
+  */
+  const [uploadingTo, setUploadingTo] = useState<string | null>(null);
+  const [uploadChoice, setUploadChoice] = useState<((retry: boolean) => void) | null>(null);
+  const uploadQueue = useImageUploads(uploadingTo);
   /* When the draft was last written, for the "Saved" line. Changes only when the answers do. */
   const lastSaved = useRef<{ json: string; at: number } | null>(null);
   const [, setTick] = useState(0);
@@ -640,6 +674,8 @@ function NewEventWizard() {
       );
       return;
     }
+    if (committing.current) return;
+    committing.current = true;
     setBusy(true);
     setError(null);
     /*
@@ -649,7 +685,9 @@ function NewEventWizard() {
     let createdId: string | null = null;
     try {
       let finalVenueId = venueId;
-      if (venueMode === 'new') {
+      if (venueMode === 'new' && createdVenueId.current) {
+        finalVenueId = createdVenueId.current;
+      } else if (venueMode === 'new') {
         /* ONE payload, shared with /organizer/venues and onboarding. */
         const created = await api.venues.create({
           organizationId: activeOrg.id,
@@ -662,21 +700,33 @@ function NewEventWizard() {
           }),
         });
         finalVenueId = created.id;
+        createdVenueId.current = created.id;
       }
-      const event = await api.events.create({
-        organizationId: activeOrg.id,
-        venueId: finalVenueId,
-        title: basics.title,
-        category: basics.category,
-        description: basics.description || undefined,
-        refundPolicy: basics.refundPolicy || undefined,
-        refundsEnabled: basics.refundsEnabled,
-        refundCutoffHours: Number(basics.refundCutoffHours),
-        feeMode,
-        isFree,
-        ...eventDetailsBody(details),
-      });
+      createKey.current ??= crypto.randomUUID();
+      const event = await api.events.create(
+        {
+          organizationId: activeOrg.id,
+          venueId: finalVenueId,
+          title: basics.title,
+          category: basics.category,
+          description: basics.description || undefined,
+          refundPolicy: basics.refundPolicy || undefined,
+          refundsEnabled: basics.refundsEnabled,
+          refundCutoffHours: Number(basics.refundCutoffHours),
+          feeMode,
+          isFree,
+          ...eventDetailsBody(details),
+        },
+        createKey.current,
+      );
       createdId = event.id;
+      /*
+        The event exists from here on, so the draft goes now and is never written back - not
+        after the images, which the organizer may walk away from. A draft offered back later
+        would create the same event a second time.
+      */
+      committed.current = true;
+      clearEventDraft();
       const sessionIds: string[] = [];
       // Only reserved seating sends a room; see `sessionsToSend`.
       for (const s of sessionsToSend({ admission, sessions })) {
@@ -705,29 +755,39 @@ function NewEventWizard() {
         });
       }
       /*
-        Attached before submitting, in the organizer's order, so the first uploaded is the
-        cover. Then the cover's focus point, with the same call the edit page uses. A failed
-        upload does not undo an event that now exists; the organizer is told.
+        ── THE IMAGES GO UP BEFORE THIS PAGE LETS GO ──────────────────────────────────
+        Handed to the tab's image outbox, which keeps each picture on this device FIRST and
+        then uploads them in the organizer's order (the first is the cover, with its crop).
+        Meanwhile a dialog shows every file's progress and the tab warns before a reload or
+        close. Leaving anyway cannot lose them: moving to another console page keeps the
+        upload going, and after a reload the event's own page lists what did not arrive with
+        Retry. Each file's key is its Idempotency-Key, so a retry never adds a picture twice.
+
+        Before submitting, as before, so a reviewer sees the event with its pictures. If some
+        fail the organizer decides: retry, or carry on and add them later. A failed image
+        never undoes the event, and - as before - never stops the submission.
       */
-      let imageFailed: string | null = null;
-      let imagesFailed = 0;
-      for (const [index, image] of images.entries()) {
-        try {
-          const gallery = await api.events.addImage(event.id, image.blob);
-          const point = focal[image.key];
-          const coverId = gallery.images[0]?.id;
-          if (
-            index === 0 &&
-            coverId &&
-            point &&
-            (point.x !== CENTRE_FOCAL_POINT.x || point.y !== CENTRE_FOCAL_POINT.y)
-          ) {
-            await api.events.setImageFocalPoint(event.id, coverId, point);
-          }
-        } catch (err) {
-          imagesFailed += 1;
-          imageFailed = errorMessage(err);
+      let imagesMissing = 0;
+      if (images.length > 0) {
+        const outbox = eventImageOutbox();
+        setUploadingTo(event.id);
+        let queue = await outbox.enqueue(
+          event.id,
+          images.map((image, index) => ({
+            key: image.key,
+            blob: image.blob,
+            focal: index === 0 ? (focal[image.key] ?? null) : null,
+          })),
+        );
+        while (!summarize(queue).complete && mounted.current) {
+          const retry = await new Promise<boolean>((resolve) => setUploadChoice(() => resolve));
+          setUploadChoice(null);
+          if (!retry) break;
+          queue = await outbox.retry(event.id);
         }
+        const summary = summarize(queue);
+        imagesMissing = summary.total - summary.done;
+        if (imagesMissing === 0) outbox.clearDone(event.id);
       }
       /*
         A refused submission leaves a complete DRAFT, not a failed creation. Staying here with
@@ -741,10 +801,6 @@ function NewEventWizard() {
           submitRefused = errorMessage(err);
         }
       }
-      // Stop saving FIRST - the toast below re-renders this page, and that render would
-      // write the draft back.
-      committed.current = true;
-      clearEventDraft();
       if (submitRefused) {
         toast.push(
           `Your event was saved as a draft, but it could not be submitted yet: ${submitRefused}`,
@@ -760,13 +816,14 @@ function NewEventWizard() {
           'success',
         );
       }
-      if (imageFailed) {
+      if (imagesMissing > 0) {
         toast.push(
-          `${imagesFailed === 1 ? 'An image was' : `${imagesFailed} images were`} not uploaded: ${imageFailed} Add ${imagesFailed === 1 ? 'it' : 'them'} from Edit event.`,
+          `${imagesMissing === 1 ? 'An image is' : `${imagesMissing} images are`} not on the event yet. Retry from the event page.`,
           'error',
         );
       }
-      router.push(`/organizer/events/${event.id}`);
+      // Not if the organizer has already gone elsewhere in the console: that is where they want to be.
+      if (mounted.current) router.push(`/organizer/events/${event.id}`);
     } catch (err) {
       if (createdId) {
         committed.current = true;
@@ -775,9 +832,10 @@ function NewEventWizard() {
           `Your event was created as a draft, but not everything was added: ${errorMessage(err)} Finish it from the event page.`,
           'error',
         );
-        router.push(`/organizer/events/${createdId}`);
+        if (mounted.current) router.push(`/organizer/events/${createdId}`);
         return;
       }
+      committing.current = false;
       setError(errorMessage(err));
       setBusy(false);
     }
@@ -2175,6 +2233,46 @@ function NewEventWizard() {
           </div>
         </aside>
       </div>
+
+      {/*
+        ── ADDING THE IMAGES ──────────────────────────────────────────────────────────────
+        Modal on purpose: the event exists and its pictures are on their way, and this is the
+        one moment a click elsewhere in the console used to lose them. It cannot be dismissed
+        while files are moving (Escape and the backdrop do nothing); once they have settled
+        with a failure, the organizer chooses Retry or carries on without them.
+      */}
+      <Dialog
+        open={uploadingTo !== null && uploadQueue !== undefined}
+        onClose={() => undefined}
+        title="Adding your images"
+        footer={
+          uploadChoice ? (
+            <>
+              <Button variant="outline" size="sm" onClick={() => uploadChoice(false)}>
+                Continue without them
+              </Button>
+              <Button size="sm" onClick={() => uploadChoice(true)}>
+                Retry upload
+              </Button>
+            </>
+          ) : undefined
+        }
+      >
+        {uploadQueue ? (
+          <div className="space-y-3">
+            <p>
+              Your event is saved as a draft.{' '}
+              {uploadChoice
+                ? 'Some images did not upload. Retry now, or continue and retry from the event page. They stay on this device until then.'
+                : 'Keep this page open while its images upload.'}
+            </p>
+            <p role="status" className="text-sm font-medium text-text-primary">
+              {uploadProgressWords(uploadQueue)}
+            </p>
+            <ImageUploadList queue={uploadQueue} />
+          </div>
+        ) : null}
+      </Dialog>
     </div>
   );
 }

@@ -1,4 +1,7 @@
 import type {
+  EventSaleState,
+  SaleReason,
+  SaleStateKind,
   CinemaFormat,
   CinemaPricingPolicyStatus,
   ClimateType,
@@ -1305,21 +1308,42 @@ export const api = {
       request<{ sessions: OrganizerSessionSaleEligibility[] }>(
         `/organizer-calendar/sale-eligibility${qs({ organizationId, sessionIds: sessionIds.join(',') })}`,
       ),
+    /**
+     * Whether each event is selling, partly selling or not, over its upcoming shows. At most 50
+     * ids per call; the console pages a longer list. Owners and managers only.
+     */
+    saleStates: (organizationId: string, eventIds: string[]) =>
+      request<{ events: EventSaleState[] }>(
+        `/organizer-calendar/event-sale-eligibility${qs({ organizationId, eventIds: eventIds.join(',') })}`,
+      ),
     get: (id: string) => request<OrgEventDetail>(`/events/${id}`),
-    create: (body: CreateEventBody) =>
-      request<OrgEventDetail>('/events', { method: 'POST', body: JSON.stringify(body) }),
+    /**
+     * Create a draft event. With `idempotencyKey`, a repeat of the same request (a double
+     * click, a retry after a lost response) answers with the event the first one made.
+     */
+    create: (body: CreateEventBody, idempotencyKey?: string) =>
+      request<OrgEventDetail>('/events', {
+        method: 'POST',
+        body: JSON.stringify(body),
+        headers: idempotencyKey ? { 'idempotency-key': idempotencyKey } : undefined,
+      }),
     update: (id: string, body: Partial<CreateEventBody>) =>
       request<OrgEventDetail>(`/events/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
     /** Delete an event with no bookings. Refused (409) with the reason when it has any. */
     remove: (id: string) => request<{ ok: boolean }>(`/events/${id}`, { method: 'DELETE' }),
     /**
      * Add one image after the event's existing ones (the first image is the cover). JPG, PNG or
-     * WebP, at most 2 MB — resize before sending. Up to ten per event.
+     * WebP, at most 2 MB — resize before sending. Up to ten per event. With `idempotencyKey`
+     * (one per picked file), a retried upload answers with the gallery instead of a second copy.
      */
-    addImage: (id: string, image: Blob, filename = 'event-image.jpg') => {
+    addImage: (id: string, image: Blob, filename = 'event-image.jpg', idempotencyKey?: string) => {
       const form = new FormData();
       form.append('file', image, filename);
-      return request<EventGallery>(`/events/${id}/images`, { method: 'POST', body: form });
+      return request<EventGallery>(`/events/${id}/images`, {
+        method: 'POST',
+        body: form,
+        headers: idempotencyKey ? { 'idempotency-key': idempotencyKey } : undefined,
+      });
     },
     removeImage: (id: string, imageId: string) =>
       request<EventGallery>(`/events/${id}/images/${imageId}`, { method: 'DELETE' }),
@@ -3692,6 +3716,8 @@ export interface ScheduleShowBody {
 
 export interface ShowRow {
   sessionId: string;
+  /** The cinema listing (event) it belongs to. Absent from an API older than 2026-10-10. */
+  eventId?: string;
   startsAt: string;
   endsAt: string;
   screenId: string | null;
@@ -3998,6 +4024,15 @@ export interface OrganizerSessionSaleEligibility {
     fixPath: string | null;
     subject?: string;
   }[];
+  /**
+   * The unified answer every organizer screen renders: SELLING, PARTIAL or NOT_SELLING over
+   * everything checkout reads. Put into words with `saleStateLabel`; never re-derived.
+   */
+  state: SaleStateKind;
+  reasons: SaleReason[];
+  openTicketTypeIds: string[];
+  closedTicketTypeIds: string[];
+  eventId: string;
 }
 export interface EventPromotion {
   eventId: string;

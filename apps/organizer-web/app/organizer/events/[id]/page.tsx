@@ -1,6 +1,6 @@
 'use client';
 
-import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
@@ -17,6 +17,7 @@ import {
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
 import { SellabilityPanel } from '@/components/sellability-panel';
+import { PendingImageUploads } from '@/components/image-upload-status';
 import { ReadMore } from '@/components/events/read-more';
 import {
   QuickLinks,
@@ -26,11 +27,9 @@ import {
 } from '@/components/events/overview-sections';
 import { ManageTiles, OverviewLead } from '@/components/events/overview-lead';
 import { timeAtVenue } from '@/components/events/event-list-model';
-import { sessionBreakdown } from '@/components/events/event-overview-model';
 import {
   hasSessionToday,
   nextStepOf,
-  onlineSaleOf,
   saleStateOf,
   setupOf,
 } from '@/components/events/event-lifecycle';
@@ -58,7 +57,7 @@ export default function EventOverview() {
     queryKey: ['event', id],
     queryFn: () => api.events.get(id),
   });
-  // The server's own sale check - the same rules checkout refuses a purchase by.
+  // The configuration check, for the setup checklist and what to fix.
   const sellability = useQuery({
     queryKey: ['event-sellability', id],
     queryFn: () => api.events.sellability(id),
@@ -67,30 +66,20 @@ export default function EventOverview() {
   });
 
   /*
-    Online-sale eligibility, show by show, from the same rule checkout refuses by (the show's
-    public summary carries it as `onlineBooking`). Asked only for a published event - the
-    public read refuses anything else - and only for the next few shows: one open show is
-    enough to say "Selling", and a season of 148 screenings is not 148 requests.
+    Whether it is selling: the server's unified answer over every upcoming show (the event and
+    show status, each ticket type's window and places, and checkout's sale-eligibility rule).
+    The same answer the Overview and the event list show, so the three cannot disagree.
+    Owners and managers only; anybody else sees "Sale check unavailable", never a guess.
   */
-  const upcomingIds = useMemo(() => {
-    if (!event || event.status !== 'PUBLISHED') return [];
-    return sessionBreakdown(event.sessions, Date.now())
-      .upcoming.slice(0, 8)
-      .map((s) => s.id);
-  }, [event]);
-  const showReads = useQueries({
-    queries: upcomingIds.map((sessionId) => ({
-      queryKey: ['public-show-summary', sessionId],
-      queryFn: () => api.publicShows.summary(sessionId),
-      retry: false,
-      staleTime: 0,
-    })),
+  const orgId = event?.organizationId;
+  const saleQ = useQuery({
+    queryKey: ['organizer-event-sale-states', orgId, id],
+    queryFn: () => api.events.saleStates(orgId!, [id]),
+    enabled: !!orgId,
+    staleTime: 0,
+    retry: false,
   });
-  // A show whose summary could not be read is left out rather than guessed either way.
-  const online = onlineSaleOf(
-    showReads.filter((r) => !r.isError).map((r) => r.data),
-    showReads.length > 0 && showReads.every((r) => r.isError),
-  );
+  const saleAnswer = saleQ.data?.events.find((e) => e.eventId === id);
 
   const owningOrg = orgSentenceName(event?.organizationId);
 
@@ -98,6 +87,7 @@ export default function EventOverview() {
     toast.push(`${label} succeeded.`, 'success');
     qc.invalidateQueries({ queryKey: ['event', id] });
     qc.invalidateQueries({ queryKey: ['event-sellability', id] });
+    qc.invalidateQueries({ queryKey: ['organizer-event-sale-states'] });
   };
   const onError = (e: unknown) => toast.push(errorMessage(e), 'error');
 
@@ -142,16 +132,8 @@ export default function EventOverview() {
   const state = useMemo(() => {
     if (!event) return null;
     const now = Date.now();
-    const { upcoming } = sessionBreakdown(event.sessions, now);
     const check = sellability.data;
-    const sale = saleStateOf({
-      status: event.status,
-      pausedByAdmin: event.pausedByAdmin,
-      upcomingSessions: upcoming.length,
-      check,
-      checkFailed: sellability.isError,
-      online,
-    });
+    const sale = saleStateOf({ answer: saleAnswer, failed: saleQ.isError });
     const issues = check ? [...check.blockers, ...check.warnings] : [];
     const setup = setupOf({
       eventId: event.id,
@@ -170,7 +152,7 @@ export default function EventOverview() {
       ownBlockers,
     });
     return { sale, setup, next, hasIssues: issues.length > 0 };
-  }, [event, sellability.data, sellability.isError, online]);
+  }, [event, sellability.data, saleAnswer, saleQ.isError]);
 
   if (isError)
     return (
@@ -190,6 +172,12 @@ export default function EventOverview() {
         onPause={() => pause.mutate()}
         onDelete={() => setConfirmDelete(true)}
         busy={{ submit: submit.isPending, resume: resume.isPending, pause: pause.isPending }}
+      />
+
+      {/* Images picked in the wizard that are not on the event yet, on the device that has them. */}
+      <PendingImageUploads
+        eventId={id}
+        onUploaded={() => qc.invalidateQueries({ queryKey: ['event', id] })}
       />
 
       <ManageTiles event={event} />

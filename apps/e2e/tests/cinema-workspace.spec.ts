@@ -14,8 +14,8 @@ import { API, ORGANIZER, apiLogin, seedBrowserAuth, type AuthTokens } from './he
  * Telangana: the seeded database has no ACTIVE India pricing policies, and no test may add or
  * activate one. So, like `sale-eligibility-buyer.spec.ts`, the server's real answer for a
  * Telangana show is put in flight - the readiness SALES blocker with the sentence the API
- * writes, and the public summary's `onlineBooking.open: false` - and what is under test is
- * what the console does with them.
+ * writes, and the unified sale state of the show and of its cinema listing (NOT_SELLING, the
+ * same reason) - and what is under test is what the console does with them.
  */
 
 const TG_MESSAGE =
@@ -28,6 +28,8 @@ interface Fixture {
   apScreen: { id: string; name: string };
   tgCinema: { id: string; name: string };
   tgSessionId: string;
+  /** The Telangana show's cinema listing (one event per film per venue). */
+  tgEventId: string;
 }
 
 /** A Kolkata wall-clock date N days out, as the date input wants it. */
@@ -112,6 +114,12 @@ async function fixture(request: APIRequestContext, tokens: AuthTokens): Promise<
     })
   ).json();
   expect(tgShow.sessionId, `show scheduling failed: ${JSON.stringify(tgShow)}`).toBeTruthy();
+  const listed = await (
+    await request.get(`${API}/movies/${movie.id}/shows`, { headers: auth })
+  ).json();
+  const tgEventId = listed.find((r: { sessionId: string }) => r.sessionId === tgShow.sessionId)
+    ?.eventId as string;
+  expect(tgEventId, 'the show row names its listing').toBeTruthy();
 
   return {
     title,
@@ -120,6 +128,7 @@ async function fixture(request: APIRequestContext, tokens: AuthTokens): Promise<
     apScreen: { id: apScreen.id, name: apScreen.name },
     tgCinema: { id: tg.id, name: tg.name },
     tgSessionId: tgShow.sessionId,
+    tgEventId,
   };
 }
 
@@ -144,15 +153,59 @@ async function telanganaRefuses(page: Page, fx: Fixture) {
     });
     await route.fulfill({ response, json: report });
   });
-  await page.route(`**/public/shows/${fx.tgSessionId}`, async (route) => {
+  /*
+    The show's unified sale state, as the API answers it for a Telangana show: NOT_SELLING with
+    the platform's reason. The showtimes and the quick look render this answer and nothing else.
+  */
+  await page.route('**/organizer-calendar/sale-eligibility?*', async (route) => {
     const response = await route.fetch();
-    const summary = await response.json();
-    summary.onlineBooking = {
-      open: false,
-      message: 'Online booking is not open for this show yet.',
-      closedTicketTypeIds: [],
-    };
-    await route.fulfill({ response, json: summary });
+    const body = await response.json();
+    for (const s of body.sessions ?? []) {
+      if (s.sessionId !== fx.tgSessionId) continue;
+      const all = [...s.openTicketTypeIds, ...s.closedTicketTypeIds];
+      Object.assign(s, {
+        open: false,
+        sellable: false,
+        state: 'NOT_SELLING',
+        reasons: [
+          {
+            code: 'NO_PRICING_POLICY',
+            text: 'Telangana pricing rules not configured',
+            message: TG_MESSAGE,
+            owner: 'PLATFORM',
+            fixPath: null,
+            ticketTypeIds: all,
+            affectedSessions: 1,
+          },
+        ],
+        openTicketTypeIds: [],
+        closedTicketTypeIds: all,
+      });
+    }
+    await route.fulfill({ response, json: body });
+  });
+  // And the Telangana listing's, which the film card and the cinema strip fold.
+  await page.route('**/organizer-calendar/event-sale-eligibility?*', async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    for (const e of body.events ?? []) {
+      if (e.eventId !== fx.tgEventId) continue;
+      Object.assign(e, {
+        state: 'NOT_SELLING',
+        reasons: [
+          {
+            code: 'NO_PRICING_POLICY',
+            text: 'Telangana pricing rules not configured',
+            message: TG_MESSAGE,
+            owner: 'PLATFORM',
+            fixPath: null,
+            ticketTypeIds: [],
+            affectedSessions: e.sessions?.upcoming ?? 1,
+          },
+        ],
+      });
+    }
+    await route.fulfill({ response, json: body });
   });
 }
 

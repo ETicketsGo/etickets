@@ -34,11 +34,10 @@ import { SaleChip } from '@/components/cinema/sale-chip';
 import { Showtimes } from '@/components/cinema/showtimes';
 import { ShowQuickLook } from '@/components/cinema/show-quick-look';
 import { filmFacts } from '@/components/cinema/film-card';
-import { useCinemaSales, useCinemas } from '@/components/cinema/use-cinema-data';
+import { useCinemas, useListingSales } from '@/components/cinema/use-cinema-data';
 import {
   filmSaleSummary,
   filmStatusLabel,
-  isUpcoming,
   percentSold,
   programmeOf,
   type SaleVerdict,
@@ -53,6 +52,8 @@ const splitList = (v: string): string[] =>
     .map((s) => s.trim())
     .filter(Boolean);
 
+/** A stable empty list, so the listing hook does not see a new array every render. */
+const NO_ROWS: ShowRow[] = [];
 export default function EditMoviePage() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
@@ -297,12 +298,7 @@ export default function EditMoviePage() {
 
   const [now] = useState(() => new Date());
   const programme = useMemo(() => programmeOf(showsQ.data, now), [showsQ.data, now]);
-  const upcomingCinemaIds = useMemo(
-    () =>
-      (showsQ.data ?? []).filter((s) => isUpcoming(s, now) && s.cinemaId).map((s) => s.cinemaId!),
-    [showsQ.data, now],
-  );
-  const sales = useCinemaSales(upcomingCinemaIds, cinemasQ.byId);
+  const sales = useListingSales(activeOrg.id, showsQ.data ?? NO_ROWS, now);
 
   if (isError)
     return (
@@ -324,7 +320,7 @@ export default function EditMoviePage() {
     );
 
   const status = filmStatusLabel(movie.status);
-  const sale = filmSaleSummary(movie, programme, showsQ.data, now, sales.stateOf);
+  const sale = filmSaleSummary(movie, programme, showsQ.data, now, sales.listing);
   const pct = percentSold(programme.sold, programme.total);
   const statusItems = [
     ...(movie.status !== 'PUBLISHED'
@@ -487,9 +483,7 @@ export default function EditMoviePage() {
             loading={showsQ.isLoading}
             error={showsQ.isError}
             onRetry={() => showsQ.refetch()}
-            filmStatus={movie.status}
             zoneOf={cinemasQ.zoneOf}
-            cinemaState={sales.stateOf}
             onOpen={(show, verdict) => setPeek({ show, verdict })}
             onEdit={(show) => setEditing(show)}
             onSchedule={() => (noCinemas ? openSchedule() : setRunOpen(true))}

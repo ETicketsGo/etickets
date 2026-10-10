@@ -1,13 +1,15 @@
 import type { BadgeTone, SellabilityIssue } from '@eticketsgo/web-kit';
+import { saleStateLabel, type EventSaleState, type SaleStateKind } from '@eticketsgo/shared-types';
 import { eventZone, localDate } from './event-list-model';
+import { saleTone } from '../../lib/sale-state';
 
 /**
  * The three separate things an organizer asks about an event, kept apart on purpose:
  *
  * - LIFECYCLE: where it is on the road from draft to ended (Draft, In review, Approved,
  *   Published, Ended, Cancelled).
- * - SALE STATE: whether a buyer can buy right now ("Selling" or "Not selling: <reason>"),
- *   read from the event's status and the server's own sale check - never guessed here.
+ * - SALE STATE: whether a buyer can buy right now ("Selling", "Partly selling: <reason>" or
+ *   "Not selling: <reason>"), the server's unified answer - never worked out here.
  * - SETUP: what is still the organizer's to do ("Setup complete" or "<n> things to set up").
  *
  * The old console said "Ready to sell" for a draft, because it answered the third question
@@ -76,91 +78,48 @@ export function lifecycleOf(e: LifecycleInput): Lifecycle {
 }
 
 export interface SaleState {
-  /** True only when the server's check says a purchase would succeed. Null while unknown. */
+  /** The server's unified state; null while it has not answered or could not be read. */
+  state: SaleStateKind | null;
+  /** True only for SELLING. PARTIAL is false: some of it would be refused. Null while unknown. */
   selling: boolean | null;
-  /** "Selling", "Not selling: <reason>", or a sentence saying the check has not answered. */
+  /** "Selling", "Partly selling: <reason>", "Not selling: <reason>", or why there is no answer. */
   label: string;
-}
-
-/** The server's sale check, as far as this needs it. Undefined while loading. */
-export interface SaleCheck {
-  sellable: boolean;
-  blockers: Pick<SellabilityIssue, 'message' | 'owner'>[];
+  /** The server's full sentence for the lead reason, when there is one. */
+  detail?: string;
+  tone: BadgeTone;
 }
 
 const stripStop = (s: string) => s.trim().replace(/\.$/, '');
-const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
 
 /**
- * Whether a buyer can buy, with the reason when not.
+ * Whether a buyer can buy, with the reason when not - the server's answer, in words.
  *
- * Status speaks first because it is decisive: a draft cannot sell however well it is set up.
- * Only a published event with something to come is put to the server's check, and only the
- * server's "sellable" turns this into "Selling". A check that has not answered is said to be
- * unanswered, never assumed either way.
+ * The event's status, its upcoming shows, each ticket type's window and places and checkout's
+ * sale-eligibility rule are all weighed ONCE, by the API (`GET /organizer-calendar/
+ * event-sale-eligibility`, `sale-state.ts` in shared-types). This used to combine the
+ * configuration check with each show's public `onlineBooking` here, and called an event
+ * "Selling" when any one show was open - including a show whose Standard seats were refused.
+ * PARTIAL is never "Selling"; no answer is "Checking sales", never a guess.
  */
 export function saleStateOf(input: {
-  status: string;
-  pausedByAdmin?: boolean;
-  upcomingSessions: number;
-  check: SaleCheck | undefined;
-  checkFailed?: boolean;
-  /**
-   * Online-sale eligibility for the upcoming shows (the server's sale-eligibility rule, as each
-   * show's public summary reports it in `onlineBooking`). Undefined while loading. The
-   * configuration check above does NOT include it: a cinema in a state with no active price
-   * rules passes configuration and is still refused at checkout, so it must not read "Selling".
-   */
-  online?: OnlineSale;
-}): SaleState {
-  const no = (reason: string): SaleState => ({ selling: false, label: `Not selling: ${reason}` });
-  switch (input.status) {
-    case 'CANCELLED':
-      return no('the event is cancelled');
-    case 'COMPLETED':
-      return no('the event has ended');
-    case 'DRAFT':
-      return no('not published yet');
-    case 'UNDER_REVIEW':
-      return no('waiting for approval');
-    case 'PAUSED':
-      return no(input.pausedByAdmin ? 'paused by the platform team' : 'you paused sales');
-    case 'SOLD_OUT':
-      return no('sold out');
-  }
-  if (input.upcomingSessions === 0) return no('no sessions to come');
-  if (input.checkFailed) return { selling: null, label: 'Sale check unavailable' };
-  if (!input.check) return { selling: null, label: 'Checking sales' };
-  if (!input.check.sellable) {
-    const first = input.check.blockers[0];
-    return no(first ? lowerFirst(stripStop(first.message)) : 'a sale would be refused');
-  }
-  if (!input.online) return { selling: null, label: 'Checking sales' };
-  if (input.online.failed) return { selling: null, label: 'Sale check unavailable' };
-  if (input.online.openShows === 0) return no('online booking is not open for any upcoming show');
-  return { selling: true, label: 'Selling' };
-}
-
-/** How many upcoming shows the server says a buyer can book online, of those asked. */
-export interface OnlineSale {
-  checkedShows: number;
-  openShows: number;
+  answer: Pick<EventSaleState, 'state' | 'reasons'> | undefined;
   failed?: boolean;
-}
-
-/**
- * Fold the shows' `onlineBooking` answers into one. A show whose answer has no
- * `onlineBooking` (an API from before the rule) counts as open, as the storefront treats it.
- */
-export function onlineSaleOf(
-  answers: ({ onlineBooking?: { open: boolean } } | undefined)[],
-  failed: boolean,
-): OnlineSale | undefined {
-  if (failed) return { checkedShows: 0, openShows: 0, failed: true };
-  if (answers.some((a) => a === undefined)) return undefined;
+}): SaleState {
+  const { answer } = input;
+  if (!answer)
+    return {
+      state: null,
+      selling: null,
+      label: input.failed ? 'Sale check unavailable' : 'Checking sales',
+      tone: 'neutral',
+    };
+  const lead = answer.reasons[0];
   return {
-    checkedShows: answers.length,
-    openShows: answers.filter((a) => a!.onlineBooking?.open !== false).length,
+    state: answer.state,
+    selling: answer.state === 'SELLING',
+    label: saleStateLabel(answer),
+    tone: saleTone(answer),
+    ...(answer.state !== 'SELLING' && lead ? { detail: lead.message } : {}),
   };
 }
 
