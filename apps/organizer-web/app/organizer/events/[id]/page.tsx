@@ -27,6 +27,7 @@ import {
 } from '@/components/events/overview-sections';
 import { ManageTiles, OverviewLead } from '@/components/events/overview-lead';
 import { timeAtVenue } from '@/components/events/event-list-model';
+import { useEventSaleState } from '@/components/events/event-header';
 import {
   hasSessionToday,
   nextStepOf,
@@ -72,13 +73,7 @@ export default function EventOverview() {
     Owners and managers only; anybody else sees "Sale check unavailable", never a guess.
   */
   const orgId = event?.organizationId;
-  const saleQ = useQuery({
-    queryKey: ['organizer-event-sale-states', orgId, id],
-    queryFn: () => api.events.saleStates(orgId!, [id]),
-    enabled: !!orgId,
-    staleTime: 0,
-    retry: false,
-  });
+  const saleQ = useEventSaleState(id, orgId);
   const saleAnswer = saleQ.data?.events.find((e) => e.eventId === id);
 
   const owningOrg = orgSentenceName(event?.organizationId);

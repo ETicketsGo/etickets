@@ -2,8 +2,7 @@
 
 import Link from 'next/link';
 import { Armchair, Eye, Lock, Users } from 'lucide-react';
-import { Badge, Button, StatusBadge, money } from '@eticketsgo/web-kit';
-import { MoreMenu, type MoreMenuItem } from './more-menu';
+import { Badge, Button, Menu, StatusBadge, money, type MenuItem } from '@eticketsgo/web-kit';
 import { layoutLabel, type SessionSeating } from './seating-model';
 
 /**
@@ -35,9 +34,7 @@ export function SessionSeatingCard({
   const headingId = `seating-${sessionId}`;
   const owner = seating.owner;
 
-  const more: MoreMenuItem[] = [
-    { kind: 'link', label: 'Edit ticket prices', href: `${base}/tickets` },
-  ];
+  const more: MenuItem[] = [{ kind: 'link', label: 'Edit ticket prices', href: `${base}/tickets` }];
   if (owner?.layoutsHref)
     more.push({
       kind: 'link',
@@ -98,7 +95,7 @@ export function SessionSeatingCard({
               Preview buyer seat map
             </Button>
           ) : null}
-          <MoreMenu items={more} ariaLabel={`More seating actions for ${when}`} />
+          <Menu items={more} ariaLabel={`More seating actions for ${when}`} />
         </div>
       </div>
 
