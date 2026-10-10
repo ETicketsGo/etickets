@@ -18,6 +18,7 @@ import {
   type Column,
   type FeeRule,
 } from '@eticketsgo/web-kit';
+import { NO_READ_ACCESS, READ_ONLY_NOTE, useConfigAccess } from '@/lib/capabilities';
 
 /**
  * A readable name for each market currency. Editing never changes a rule's currency.
@@ -158,10 +159,17 @@ export default function AdminSettings() {
   // Non-null while adding a band; holds the currency the new band belongs to.
   const [creatingCurrency, setCreatingCurrency] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
+  /*
+    The page opens with PLATFORM_CONFIG_READ; adding or editing a band needs PLATFORM_CONFIG.
+    Without it the bands are shown and the controls that the API would refuse are not.
+  */
+  const access = useConfigAccess();
+  const mayEdit = access.mayEdit;
 
   const { data, isLoading } = useQuery({
     queryKey: ['admin', 'fee-rules'],
     queryFn: () => api.admin.feeRules(),
+    enabled: access.mayRead,
   });
 
   const save = useMutation({
@@ -274,7 +282,7 @@ export default function AdminSettings() {
         !optionalInteger(draft.maxFeeMinor) ||
         floorAboveCeiling);
 
-  const columns = (currency: string): Column<FeeRule>[] => [
+  const allColumns = (currency: string): Column<FeeRule>[] => [
     { key: 'label', header: 'Band', render: (r) => r.label },
     {
       key: 'scope',
@@ -304,6 +312,9 @@ export default function AdminSettings() {
     },
   ];
 
+  const columns = (currency: string) =>
+    mayEdit ? allColumns(currency) : allColumns(currency).filter((c) => c.key !== 'actions');
+
   // Group by currency: bands only make sense compared against others in the same currency,
   // and fees are resolved per currency at booking time.
   const byCurrency = (data ?? []).reduce<Record<string, FeeRule[]>>((acc, rule) => {
@@ -325,6 +336,20 @@ export default function AdminSettings() {
   // than assuming an existing rule. Amounts are minor units, and the labels/preview must
   // name the right currency or an admin can enter cents thinking they are paise.
   const dialogCurrency = creatingCurrency ?? editing?.currency ?? null;
+
+  // Until the operator is known nothing is fetched, so say so rather than show an empty list.
+  if (!access.known || !access.mayRead) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Booking fees" />
+        <Card>
+          <p className="text-sm text-text-secondary">
+            {access.known ? NO_READ_ACCESS : 'Loading...'}
+          </p>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -350,15 +375,19 @@ export default function AdminSettings() {
               rows={byCurrency[currency]}
               rowKey={(r) => r.id}
             />
-            <div className="mt-3 flex justify-end">
-              <Button size="sm" variant="secondary" onClick={() => openCreator(currency)}>
-                Add band
-              </Button>
-            </div>
+            {mayEdit && (
+              <div className="mt-3 flex justify-end">
+                <Button size="sm" variant="secondary" onClick={() => openCreator(currency)}>
+                  Add band
+                </Button>
+              </div>
+            )}
           </Card>
         ))}
 
-      {!isLoading && unconfigured.length > 0 && (
+      {!mayEdit && <p className="text-sm text-text-secondary">{READ_ONLY_NOTE}</p>}
+
+      {mayEdit && !isLoading && unconfigured.length > 0 && (
         <Card title="Set up fees for another market">
           <p className="mb-3 text-sm text-text-secondary">
             These markets have no fee bands of their own yet, so they use the built-in defaults. Add
