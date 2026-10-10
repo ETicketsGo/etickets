@@ -1,14 +1,13 @@
 'use client';
 
+import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import {
   Banknote,
   CalendarClock,
   Clock,
   Info,
-  Percent,
   ReceiptText,
-  Ticket,
   Undo2,
   Wallet,
   type LucideIcon,
@@ -18,7 +17,6 @@ import {
   ButtonLink,
   DataTable,
   ErrorState,
-  IconTile,
   MARKETS,
   PageHeader,
   SectionCard,
@@ -50,11 +48,11 @@ import { FinanceNotices } from './finance-notices';
  * screen and the payout the ledger would actually raise cannot disagree - which is the failure
  * this whole programme has been avoiding.
  *
- * ── THE SAME WORDS AS THE DASHBOARD ────────────────────────────────────────────────
- * Gross sales, fees, refunds and what is left lead each currency in that order, in the
- * dashboard's words, so an organizer reading both screens is not left wondering whether "gross
- * ticket value" and "gross sales" are two different things. Here they cover the money the payout
- * ledger is settling, which the caption on each figure says.
+ * ── NOT THE OVERVIEW'S SALES ───────────────────────────────────────────────────────
+ * The Overview shows what was SOLD. This page follows that money through the payout ledger -
+ * held, payable, in a payout, paid - so no figure here is labelled "Gross sales": the same words
+ * over a different quantity read as a contradiction. Neither endpoint returns a total sold, and
+ * none is computed here; the page points to the Overview for it instead.
  *
  * ── WHAT IT DELIBERATELY DOES NOT SHOW ─────────────────────────────────────────────
  *   Tax. `Receipt.taxMinor` is buyer-side and its relationship to organizer proceeds is not
@@ -73,10 +71,10 @@ import { FinanceNotices } from './finance-notices';
  *   that contract exists to prevent.
  */
 const LADDER: { key: keyof PayoutSummaryCurrency; label: string; negative?: boolean }[] = [
-  { key: 'gross', label: 'Gross sales' },
+  { key: 'gross', label: 'Gross from shows ready to pay out' },
   { key: 'discount', label: 'Less discounts', negative: true },
   { key: 'organizerFee', label: 'Less your platform fee', negative: true },
-  { key: 'refund', label: 'Less refunds', negative: true },
+  { key: 'refund', label: 'Less refunds on these shows', negative: true },
 ];
 
 /*
@@ -114,31 +112,60 @@ function Amount({
   );
 }
 
+/*
+  ── FOUR STAGES, NOT FOUR PARTS OF ONE TOTAL ─────────────────────────────────────
+  Review caught the defect this layout replaces: the page led with "Gross sales ₹0" beside an
+  Overview reading "Gross sales ₹19,787" and, lower down, "Held ₹20,187". Every number was right.
+  `gross` here is not the organizer's sales: it is the gross of shows that have finished, passed
+  the holding period and are NOT yet in a payout - the one input of the next payout. With the
+  dashboard's label it read as a contradiction.
+
+  So each currency now leads with where its money stands, in the order it moves (see the
+  `PayoutSummaryCurrency` field docs in the payouts service):
+    held     - ticket sales of shows not yet payable (gross, before fees and refunds)
+    net      - payable now and not in a payout yet (after fees and refunds)
+    pending  - in a payout that has not been sent (that payout's net)
+    paid     - in a payout that has been sent (that payout's net)
+  They are four separate buckets of the ledger, shown side by side and never added up here: held
+  is a gross and the other three are nets, so a sum would mix the two.
+*/
 function CurrencyBlock({ row }: { row: PayoutSummaryCurrency }) {
-  const where: { label: string; value: number; hint: string; icon: LucideIcon; tile: TileTone }[] =
-    [
-      {
-        label: 'Paid',
-        value: row.paid,
-        hint: 'Already sent to you.',
-        icon: Banknote,
-        tile: 'teal',
-      },
-      {
-        label: 'Pending',
-        value: row.pending,
-        hint: 'Raised, not yet sent.',
-        icon: Clock,
-        tile: 'blue',
-      },
-      {
-        label: 'Held',
-        value: row.held,
-        hint: 'Not payable until the show has finished.',
-        icon: CalendarClock,
-        tile: 'amber',
-      },
-    ];
+  const stages: {
+    label: string;
+    value: number;
+    hint: string;
+    icon: LucideIcon;
+    tile: TileTone;
+  }[] = [
+    {
+      label: 'Held until shows finish',
+      value: row.held,
+      hint: 'Ticket sales, before fees and refunds. Not payable yet.',
+      icon: CalendarClock,
+      tile: 'amber',
+    },
+    {
+      label: 'Ready to pay out now',
+      value: row.net,
+      hint: 'Payable, not in a payout yet. After fees and refunds.',
+      icon: Wallet,
+      tile: 'teal',
+    },
+    {
+      label: 'In a payout, not sent',
+      value: row.pending,
+      hint: 'Raised and on its way to you.',
+      icon: Clock,
+      tile: 'blue',
+    },
+    {
+      label: 'Paid to you',
+      value: row.paid,
+      hint: 'Payouts already sent.',
+      icon: Banknote,
+      tile: 'purple',
+    },
+  ];
 
   return (
     <section aria-labelledby={`finance-${row.currency}`} className="space-y-4">
@@ -150,41 +177,24 @@ function CurrencyBlock({ row }: { row: PayoutSummaryCurrency }) {
         {currencyTitle(row.currency)}
       </h2>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard
-          label="Gross sales"
-          value={money(row.gross, row.currency)}
-          icon={Ticket}
-          tile="blue"
-          hint="Ticket value in these figures"
-        />
-        <StatCard
-          label="Your fees"
-          value={<Amount value={row.organizerFee} currency={row.currency} negative />}
-          icon={Percent}
-          tile="purple"
-          hint="Your platform fee"
-        />
-        <StatCard
-          label="Refunds"
-          value={<Amount value={row.refund} currency={row.currency} negative />}
-          icon={Undo2}
-          tile="rose"
-          hint="Returned to buyers"
-        />
-        <StatCard
-          label="Ready to pay out now"
-          value={money(row.net, row.currency)}
-          icon={Wallet}
-          tile="teal"
-          hint="What a payout raised today would come to"
-        />
-      </div>
+      <ol className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Where this money is">
+        {stages.map((s) => (
+          <li key={s.label} className="min-w-0">
+            <StatCard
+              label={s.label}
+              value={money(s.value, row.currency)}
+              icon={s.icon}
+              tile={s.tile}
+              hint={s.hint}
+            />
+          </li>
+        ))}
+      </ol>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
         <SectionCard
-          title="How it adds up"
-          description="From the payout ledger, in the order amounts come off."
+          title="How 'Ready to pay out now' is worked out"
+          description="Only shows that have finished and passed the holding period, and are not in a payout yet."
           headingLevel={3}
         >
           <dl className="divide-y divide-border rounded-md border border-border text-ui">
@@ -205,23 +215,22 @@ function CurrencyBlock({ row }: { row: PayoutSummaryCurrency }) {
           </dl>
 
           {/*
-            ── WHY THIS SENTENCE IS HERE ──────────────────────────────────────────────────
-            Browser QA showed the real failure mode of the old label. The ladder read "Your net 0"
-            directly above "Pending 1,598" and "Held 4,596" - every figure correct, and the page
-            appearing to say the organizer has nothing while naming two amounts they do have.
-
-            The endpoint answers "what would a payout raised right now come to", so a zero means
-            everything is ALREADY raised or still held, not that there is no money. The heading
-            says which question it answers, and this line says where the rest of it went.
+            A zero here means everything is ALREADY in a payout or still held, not that there is
+            no money - browser QA once showed "Your net 0" above "Pending 1,598" and "Held 4,596".
+            This line says where the rest went.
           */}
           <p className="mt-3 text-caption text-text-muted">
-            What a payout raised today would come to. Money already raised, or still held until a
-            show finishes, is under &quot;Where the rest is&quot; rather than here.
+            Money from shows that have not finished is under &quot;Held until shows finish&quot;.
+            Money already in a payout is under &quot;In a payout, not sent&quot; or &quot;Paid to
+            you&quot;.
           </p>
+        </SectionCard>
 
-          <h4 className="mb-2 mt-5 text-caption font-semibold text-text-secondary">
-            Paid by the buyer, not taken from you
-          </h4>
+        <SectionCard
+          title="Paid by the buyer, not taken from you"
+          description="Charged on top of the ticket price for the same shows. Not deducted above."
+          headingLevel={3}
+        >
           <dl className="divide-y divide-border rounded-md border border-border text-ui">
             {BUYER_FEES.map(({ key, label }) => (
               <div key={key} className="flex items-baseline justify-between gap-4 px-4 py-2.5">
@@ -232,26 +241,6 @@ function CurrencyBlock({ row }: { row: PayoutSummaryCurrency }) {
               </div>
             ))}
           </dl>
-        </SectionCard>
-
-        <SectionCard title="Where the rest is" headingLevel={3}>
-          <ul className="grid gap-3 md:grid-cols-3 xl:grid-cols-1">
-            {where.map((b) => (
-              <li
-                key={b.label}
-                className="flex flex-wrap items-center gap-3 rounded-md border border-border px-3 py-3"
-              >
-                <IconTile icon={b.icon} tone={b.tile} />
-                <div className="min-w-[8rem] flex-1">
-                  <p className="text-ui font-medium text-text-primary">{b.label}</p>
-                  <p className="text-caption text-text-muted">{b.hint}</p>
-                </div>
-                <p className="ml-auto shrink-0 font-display text-title font-bold tabular-nums text-text-primary">
-                  {money(b.value, row.currency)}
-                </p>
-              </li>
-            ))}
-          </ul>
         </SectionCard>
       </div>
     </section>
@@ -268,7 +257,7 @@ const HELD_COLUMNS: Column<HeldRow>[] = [
   },
   {
     key: 'gross',
-    header: 'Gross sales',
+    header: 'Ticket sales',
     className: 'whitespace-nowrap tabular-nums',
     render: (h) => money(h.grossMinor, h.currency),
   },
@@ -308,6 +297,22 @@ export default function FinancePage() {
           </nav>
         }
       />
+
+      {/*
+        The bridge to the Overview, said before any figure: the Overview counts what was sold, and
+        this page follows that same money through the ledger. Without it the two screens read as
+        disagreeing about one number.
+      */}
+      <p className="-mt-4 rounded-lg border border-border bg-background-surface px-4 py-3 text-ui text-text-secondary">
+        <span className="font-semibold text-text-primary">Sales so far:</span> see{' '}
+        <Link
+          href="/organizer"
+          className="rounded-sm font-semibold text-action-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          Overview
+        </Link>
+        . This page follows that money from held, to payable, to paid.
+      </p>
 
       {isLoading && (
         <div className="space-y-4" role="status" aria-busy="true" aria-label="Loading finance">
