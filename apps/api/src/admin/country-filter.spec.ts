@@ -7,7 +7,14 @@ import { AdminService } from './admin.service';
 import { AdminGroupingService } from './admin-grouping.service';
 import { OrganizationsService } from '../organizations/organizations.service';
 import { EventsService } from '../events/events.service';
-import { countryFilterField, countryWhere } from './country-filter';
+import {
+  countryFilterField,
+  countryGroupLabel,
+  countryKeyMatch,
+  countryKeySql,
+  countryWhere,
+  storedCountryMarket,
+} from './country-filter';
 
 /**
  * The admin country filter.
@@ -95,8 +102,11 @@ describe('each list applies it in the database, beside the group scope', () => {
     });
 
     const where = whereOf(count);
-    // The grouped scope survives ...
-    expect(where.event).toEqual({ venue: { country: 'India' } });
+    // The grouped scope survives ... and a key that is a stored spelling ("India", from a link
+    // made when groups were spellings) is read as the whole market it names.
+    expect(where.event).toEqual({
+      venue: { country: { in: expect.arrayContaining(['in', 'india']), mode: 'insensitive' } },
+    });
     // ... and the filter sits beside it rather than over it.
     expect(where.AND).toEqual([
       {
@@ -213,7 +223,11 @@ describe('the grouped summary filters by the same country as its list', () => {
 
     const [sql, ...params] = $queryRawUnsafe.mock.calls[0];
     expect(sql).toContain('LOWER(o."registeredCountry") = ANY($2::text[])');
-    expect(params).toEqual(['APPROVED', expect.arrayContaining(['united kingdom', 'uk'])]);
+    // The filter's parameters come first; the group key's market spellings follow them.
+    expect(params.slice(0, 2)).toEqual([
+      'APPROVED',
+      expect.arrayContaining(['united kingdom', 'uk']),
+    ]);
   });
 
   it('the money queues filter their summary by the venue country, as their lists do', async () => {
@@ -264,5 +278,69 @@ describe('organizer review signals: a phone-only owner has no email domain', () 
 
   it('reports none for the placeholder', async () => {
     expect(await domainFor('phone+919876543210@users.eticketsgo.internal')).toBeNull();
+  });
+});
+
+/*
+  ── A COUNTRY GROUP IS A MARKET ─────────────────────────────────────────────────────
+  The owner saw "USA" and "United States" as two groups on the bookings and payments summaries.
+  These pin the one mapping both the summary's SQL and the list's scope are built from. The real
+  rows, through both queries, are in `country-groups.integration-postgres.spec.ts`.
+*/
+describe('the market a stored country value is in', () => {
+  it.each([
+    ['US', 'US'],
+    ['USA', 'US'],
+    ['United States', 'US'],
+    ['United States of America', 'US'],
+    ['u.s.a.', 'US'],
+    ['India', 'IN'],
+    ['IN', 'IN'],
+    ['india', 'IN'],
+    ['UK', 'GB'],
+    ['United Kingdom', 'GB'],
+    ['GB', 'GB'],
+    ['Canada', 'CA'],
+    ['CA', 'CA'],
+  ])('%p is %p', (stored, code) => {
+    expect(storedCountryMarket(stored)).toBe(code);
+  });
+
+  it.each(['Atlantis', 'Inida', 'United Statess', 'America', ' US ', ''])(
+    '%p is no market: no fuzzy matching, and no trimming the SQL does not do',
+    (stored) => {
+      expect(storedCountryMarket(stored)).toBeNull();
+    },
+  );
+
+  it('is labelled with the market name, an unknown value as itself, and null as not recorded', () => {
+    expect(countryGroupLabel('US')).toBe('United States');
+    expect(countryGroupLabel('GB')).toBe('United Kingdom');
+    expect(countryGroupLabel('Atlantis')).toBe('Unknown (Atlantis)');
+    expect(countryGroupLabel('')).toBe('Unknown (blank)');
+    expect(countryGroupLabel(null)).toBe('Not recorded');
+  });
+
+  it('scopes a market key to every spelling, and an unknown key to itself exactly', () => {
+    expect(countryKeyMatch('US')).toEqual({
+      in: expect.arrayContaining(['us', 'usa', 'united states', 'u.s.a.']),
+      mode: 'insensitive',
+    });
+    expect(countryKeyMatch('Atlantis')).toBe('Atlantis');
+    expect(countryKeyMatch(null)).toBeNull();
+  });
+
+  it('builds the SQL key from bound parameters only, one branch per market', () => {
+    const params: unknown[] = ['already-bound'];
+    const sql = countryKeySql('v.country', params);
+    expect(sql).toContain('WHEN LOWER(v.country) = ANY($2::text[]) THEN $3::text');
+    expect(sql).toContain('ELSE v.country END');
+    // The filter's parameter is untouched; each market adds its spellings and its code.
+    expect(params[0]).toBe('already-bound');
+    expect(params[1]).toEqual(expect.arrayContaining(['in', 'india']));
+    expect(params[2]).toBe('IN');
+    expect(params).toContain('US');
+    // No spelling reaches the SQL text itself.
+    expect(sql).not.toMatch(/india|united/i);
   });
 });

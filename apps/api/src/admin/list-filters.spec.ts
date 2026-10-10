@@ -210,7 +210,8 @@ describe('each list applies every filter, inside AND', () => {
     const where = whereOf(count);
     expect(where.AND).toEqual([
       // The group scope survives beside the filters that also reach through `booking`.
-      { booking: { event: { venue: { country: 'India' } } } },
+      // A key that is a stored spelling is read as its market.
+      { booking: { event: { venue: { country: INDIA } } } },
       { status: 'SUCCEEDED' },
       { booking: { event: { venue: { country: INDIA } } } },
       { booking: { organizationId: ORG } },
@@ -334,7 +335,7 @@ describe('the grouped summary filters on the same columns as its list', () => {
 
   it('a queue whose list has no such filter ignores it, as its list does', async () => {
     const { service, $queryRawUnsafe } = grouping();
-    await service.grouped('bookings', 'country', { organizationId: ORG, from: '2026-10-01' });
+    await service.grouped('bookings', 'organizer', { organizationId: ORG, from: '2026-10-01' });
     const [sql, ...params] = $queryRawUnsafe.mock.calls[0];
     expect(sql).not.toContain('WHERE');
     expect(params).toEqual([]);
