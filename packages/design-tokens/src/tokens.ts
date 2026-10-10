@@ -42,12 +42,19 @@ export const spacing = {
   scale: [0, 1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 20, 24, 32],
 } as const;
 
-/** Radius scale (rem). Buttons/inputs 14px, cards 20px, dialogs 24px, pills full. */
+/**
+ * Radius scale, as the CSS variables in tokens.css with the storefront value as fallback.
+ *
+ * Variables rather than fixed rems so the consoles can be tighter than the storefront without
+ * a second preset: the storefront gets buttons 14px, cards 20px, dialogs 24px; a console
+ * (`data-console`) gets 10 / 14 / 16, the reference's proportions. The fallback is what the
+ * storefront always rendered, so an app that never loads tokens.css is unchanged too.
+ */
 export const radius = {
-  sm: '0.5rem',
-  md: '0.875rem',
-  lg: '1.25rem',
-  xl: '1.5rem',
+  sm: 'var(--radius-sm, 0.5rem)',
+  md: 'var(--radius-md, 0.875rem)',
+  lg: 'var(--radius-lg, 1.25rem)',
+  xl: 'var(--radius-xl, 1.5rem)',
   full: '9999px',
 } as const;
 
@@ -103,6 +110,28 @@ export const typeScale: Record<string, FontSizeValue> = {
   body: ['1rem', { lineHeight: '1.6' }],
   caption: ['0.8125rem', { lineHeight: '1.45' }],
   button: ['0.9375rem', { lineHeight: '1', letterSpacing: '0.005em', fontWeight: '600' }],
+
+  /*
+    ── THE CONSOLE SCALE: 30 / 24 / 20 / 16 / 14 / 13 / 12 ───────────────────────────
+    DESIGN-DIRECTION's scale for the organizer and admin consoles. 20, 16 and 13 are `title`,
+    `body` and `caption` above; these are the four it adds. `display` and `headline` are set in
+    Plus Jakarta Sans (`font-display`) by the components that use them - a size here does not
+    choose a face, so a page that wants Inter at 24px can still have it.
+  */
+  // Page titles and the big number in a stat card: 24px on a 360px phone, 30px from 640px.
+  display: [
+    'clamp(1.5rem, 1.0179rem + 2.1429vw, 1.875rem)',
+    { lineHeight: '1.2', letterSpacing: '-0.02em', fontWeight: '700' },
+  ],
+  // A section or card heading that leads a page region: 20px -> 24px.
+  headline: [
+    'clamp(1.25rem, 0.9286rem + 1.4286vw, 1.5rem)',
+    { lineHeight: '1.3', letterSpacing: '-0.01em', fontWeight: '650' },
+  ],
+  // Dense interface text: nav items, table cells, menu items, field text.
+  ui: ['0.875rem', { lineHeight: '1.45' }],
+  // Labels, pills, table headers and the sidebar's group headings.
+  micro: ['0.75rem', { lineHeight: '1.35' }],
 };
 
 export const breakpoints = {

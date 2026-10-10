@@ -46,9 +46,16 @@ function reachable(route: string, items: NavItem[]): boolean {
 /** Pages that are paper, not screens: they render with no shell at all, by design. */
 const PRINT = (route: string) => route.endsWith('/print');
 
+/**
+ * Pages that are deliberately not screens an organizer uses: the design-system style page
+ * exists only on a development server (every built app answers 404) and is for the people
+ * building pages, so a menu item for it would be a door to nothing in production.
+ */
+const NOT_FOR_ORGANIZERS = new Set(['/organizer/design-system']);
+
 describe('the organizer sidebar', () => {
   const owner = navFor({ doesFilmBusiness: true, can: { financials: true, ownerActions: true } });
-  const routes = pageRoutes(APP).filter((r) => !PRINT(r));
+  const routes = pageRoutes(APP).filter((r) => !PRINT(r) && !NOT_FOR_ORGANIZERS.has(r));
 
   it('found the pages to check', () => {
     // A path mistake here would make every assertion below vacuous.

@@ -46,6 +46,8 @@ import {
 */
 
 const FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
+/** Inside the navy sidebar and drawer the ring is the light teal, which reads on navy. */
+const NAV_FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nav-accent';
 
 /** "Ctrl K" or "⌘ K" in words a screen reader can say; decided after mount. */
 function useShortcutLabel(): { visual: string; spoken: string } {
@@ -57,7 +59,16 @@ function useShortcutLabel(): { visual: string; spoken: string } {
 }
 
 /** The visible search field at the top of the sidebar and the drawer. It opens quick nav. */
-export function QuickNavTrigger({ onOpen, compact }: { onOpen: () => void; compact?: boolean }) {
+export function QuickNavTrigger({
+  onOpen,
+  compact,
+  tone = 'surface',
+}: {
+  onOpen: () => void;
+  compact?: boolean;
+  /** `surface` in the top bar; `nav` on the navy of the phone drawer. */
+  tone?: 'surface' | 'nav';
+}) {
   const key = useShortcutLabel();
   if (compact) {
     return (
@@ -82,12 +93,20 @@ export function QuickNavTrigger({ onOpen, compact }: { onOpen: () => void; compa
       type="button"
       onClick={onOpen}
       aria-keyshortcuts="Control+K Meta+K"
-      className={`group flex h-10 w-full items-center gap-2.5 rounded-md border border-border-input/60 bg-background-canvas px-3 text-left text-[0.875rem] text-text-muted transition-colors duration-150 hover:border-border-input hover:text-text-secondary ${FOCUS}`}
+      className={`group flex h-10 w-full items-center gap-2.5 rounded-md border px-3 text-left text-ui transition-colors duration-150 ${
+        tone === 'nav'
+          ? `border-nav-border bg-nav-hover text-nav-foreground hover:border-nav-muted ${NAV_FOCUS}`
+          : `border-border bg-background-canvas text-text-muted hover:border-border-input hover:text-text-secondary ${FOCUS}`
+      }`}
     >
       <Search className="h-4 w-4 shrink-0" aria-hidden />
       <span className="flex-1 truncate">Find a page</span>
       <kbd
-        className="hidden rounded border border-border bg-background-surface px-1.5 py-0.5 font-sans text-[0.6875rem] font-medium text-text-muted sm:inline"
+        className={`hidden rounded border px-1.5 py-0.5 font-sans text-[0.6875rem] font-medium sm:inline ${
+          tone === 'nav'
+            ? 'border-nav-border bg-nav text-nav-muted'
+            : 'border-border bg-background-surface text-text-muted'
+        }`}
         aria-hidden
       >
         {key.visual}
@@ -136,24 +155,31 @@ export function NavTree({
         href={item.href}
         onClick={onNavigate}
         aria-current={isCurrent ? 'page' : undefined}
-        className={`relative flex min-h-[2.75rem] min-w-0 flex-1 items-center gap-3 rounded-md px-3 transition-colors duration-150 lg:min-h-[2.125rem] ${FOCUS} ${
-          depth === 1 ? 'text-[0.8125rem]' : 'text-[0.875rem]'
+        className={`group/link relative flex min-h-[2.75rem] min-w-0 flex-1 items-center gap-3 rounded-md px-3 transition-colors duration-150 lg:min-h-[2.375rem] ${NAV_FOCUS} ${
+          depth === 1 ? 'text-[0.8125rem]' : 'text-ui'
         } ${
           isCurrent
-            ? 'bg-tint-primary font-semibold text-action-primary'
+            ? 'bg-nav-active font-semibold text-nav-active-foreground'
             : isSection
-              ? 'font-semibold text-text-primary hover:bg-background-subtle'
-              : 'text-text-secondary hover:bg-background-subtle hover:text-text-primary'
+              ? 'font-semibold text-white hover:bg-nav-hover'
+              : 'text-nav-foreground hover:bg-nav-hover hover:text-white'
         }`}
       >
         {isCurrent && (
           // A bar as well as the tint: the current page is told apart by shape, not colour alone.
           <span
-            className="absolute inset-y-1.5 left-0 w-[3px] rounded-full bg-action-primary"
+            className="absolute inset-y-2 left-0 w-[3px] rounded-full bg-nav-accent"
             aria-hidden
           />
         )}
-        {Icon && depth === 0 && <Icon className="h-4 w-4 shrink-0" aria-hidden />}
+        {Icon && depth === 0 && (
+          <Icon
+            className={`h-[1.125rem] w-[1.125rem] shrink-0 ${
+              isCurrent ? 'text-nav-accent' : 'text-nav-muted group-hover/link:text-nav-foreground'
+            }`}
+            aria-hidden
+          />
+        )}
         <span className="truncate">{item.label}</span>
       </Link>
     );
@@ -176,7 +202,7 @@ export function NavTree({
                   aria-controls={kidsId}
                   aria-label={`${open ? 'Hide' : 'Show'} more ${item.label} pages`}
                   onClick={() => setKidsOpen((s) => ({ ...s, [item.href]: !open }))}
-                  className={`flex h-11 w-9 shrink-0 items-center justify-center rounded-md text-text-muted transition-colors duration-150 hover:bg-background-subtle hover:text-text-primary lg:h-[2.125rem] ${FOCUS}`}
+                  className={`flex h-11 w-9 shrink-0 items-center justify-center rounded-md text-nav-muted transition-colors duration-150 hover:bg-nav-hover hover:text-white lg:h-[2.375rem] ${NAV_FOCUS}`}
                 >
                   <ChevronDown
                     className={`h-4 w-4 transition-transform duration-150 motion-reduce:transition-none ${open ? 'rotate-180' : ''}`}
@@ -188,7 +214,7 @@ export function NavTree({
             {kids.length > 0 && open && (
               <ul
                 id={kidsId}
-                className="mb-1 ml-[1.35rem] mt-0.5 space-y-0.5 border-l border-border pl-2"
+                className="mb-1 ml-[1.45rem] mt-0.5 space-y-0.5 border-l border-nav-border pl-2"
               >
                 {kids.map((kid) => (
                   <li key={kid.href} className="flex">
@@ -204,7 +230,7 @@ export function NavTree({
   );
 
   return (
-    <div className="space-y-0.5">
+    <div className="space-y-1">
       {sections.map((section, si) => {
         const listId = `${baseId}-g${si}`;
         if (!section.label) return <div key={`s${si}`}>{list(section, listId, false)}</div>;
@@ -217,18 +243,15 @@ export function NavTree({
               aria-expanded={open}
               aria-controls={listId}
               onClick={() => setGroupOpen((s) => ({ ...s, [section.label!]: !open }))}
-              className={`flex h-11 w-full items-center justify-between gap-2 rounded-md px-3 text-left lg:h-8 text-[0.75rem] font-semibold uppercase tracking-[0.06em] transition-colors duration-150 hover:bg-background-subtle hover:text-text-primary ${FOCUS} ${
-                isActive ? 'text-text-primary' : 'text-text-muted'
+              className={`flex h-11 w-full items-center justify-between gap-2 rounded-md px-3 text-left text-micro font-semibold uppercase tracking-[0.05em] transition-colors duration-150 hover:bg-nav-hover hover:text-white lg:h-[1.875rem] ${NAV_FOCUS} ${
+                isActive ? 'text-nav-foreground' : 'text-nav-muted'
               }`}
             >
               <span className="flex min-w-0 items-center gap-2">
                 <span className="truncate">{section.label}</span>
                 {isActive && !open && (
                   // Folded with the current page inside: say so, so it is not lost.
-                  <span
-                    className="h-1.5 w-1.5 shrink-0 rounded-full bg-action-primary"
-                    aria-hidden
-                  />
+                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-nav-accent" aria-hidden />
                 )}
               </span>
               <ChevronRight
@@ -416,10 +439,10 @@ export function NavRail({ items, pathname }: { items: NavItem[]; pathname: strin
                       aria-label={item.label}
                       aria-current={item.href === current ? 'page' : undefined}
                       {...tip}
-                      className={`flex h-10 w-10 items-center justify-center rounded-md transition-colors duration-150 ${FOCUS} ${
+                      className={`flex h-10 w-10 items-center justify-center rounded-md transition-colors duration-150 ${NAV_FOCUS} ${
                         isCurrent
-                          ? 'bg-tint-primary text-action-primary'
-                          : 'text-text-secondary hover:bg-background-subtle hover:text-text-primary'
+                          ? 'bg-nav-active text-nav-accent'
+                          : 'text-nav-muted hover:bg-nav-hover hover:text-white'
                       }`}
                     >
                       {Icon && <Icon className="h-[1.125rem] w-[1.125rem]" aria-hidden />}
@@ -449,12 +472,12 @@ export function NavRail({ items, pathname }: { items: NavItem[]; pathname: strin
                   onClick={() => (isOpen ? close(false) : openAt(si, false))}
                   onKeyDown={onButtonKey(si)}
                   {...tip}
-                  className={`relative flex h-10 w-10 items-center justify-center rounded-md transition-colors duration-150 ${FOCUS} ${
+                  className={`relative flex h-10 w-10 items-center justify-center rounded-md transition-colors duration-150 ${NAV_FOCUS} ${
                     isActive
-                      ? 'bg-tint-primary text-action-primary'
+                      ? 'bg-nav-active text-nav-accent'
                       : isOpen
-                        ? 'bg-background-subtle text-text-primary'
-                        : 'text-text-secondary hover:bg-background-subtle hover:text-text-primary'
+                        ? 'bg-nav-hover text-white'
+                        : 'text-nav-muted hover:bg-nav-hover hover:text-white'
                   }`}
                 >
                   {Icon && <Icon className="h-[1.125rem] w-[1.125rem]" aria-hidden />}

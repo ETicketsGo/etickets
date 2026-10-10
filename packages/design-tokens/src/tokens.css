@@ -131,6 +131,45 @@
   --tint-marquee: 44 90% 91%;
   --marquee-fill: 42 96% 52%;
 
+  /*
+    ── THE CONSOLE NAVIGATION ────────────────────────────────────────────────────────
+    The deep navy sidebar of the organizer and admin consoles (DESIGN-DIRECTION). Defined
+    here rather than in a console block because it is its own small palette that never
+    changes with the page around it: the storefront never paints `bg-nav`, so it costs the
+    storefront nothing, and the consoles get one set of pairs to verify.
+
+    `--nav-muted` is the group headings (WORKSPACE, OPERATIONS): smaller and quieter than
+    the links, and still 4.5:1 on the navy because it is text a person reads. The active
+    item is a teal-tinted pill with WHITE text plus a teal bar - shape as well as colour.
+    `token-contrast.test.ts` holds every one of these pairs.
+  */
+  --nav-background: 215 49% 15.3%; /* #14243A */
+  --nav-foreground: 213 27% 84%; /* #CBD5E1 - 10.5:1 on the navy */
+  --nav-muted: 214 22% 64%; /* #8FA1B8 - 5.9:1 */
+  --nav-hover: 216 48% 21%; /* #1C3150 */
+  --nav-active: 189 58% 19.6%; /* #15464F - white on it 10.4:1 */
+  --nav-active-foreground: 0 0% 100%;
+  --nav-accent: 172 66% 50.4%; /* #2DD4BF - the active bar and focus ring on the navy */
+  --nav-border: 215 40% 22%; /* #22354F - decoration only */
+
+  /*
+    ── PASTEL TILES ──────────────────────────────────────────────────────────────────
+    The soft blue / purple / amber / teal / rose squares behind the icon of a stat card or a
+    quick action. A tile is a background for an ICON and at most a short label in its own
+    foreground colour - never for body text. Each foreground clears 4.5:1 on its tile in both
+    themes, so a label inside a tile is legible as well as the icon.
+  */
+  --tile-blue: 214 100% 95.5%; /* #E8F2FF */
+  --tile-blue-foreground: 224 76% 48%; /* #1D4ED8 - 5.9:1 */
+  --tile-purple: 256 100% 96.3%; /* #F1ECFF */
+  --tile-purple-foreground: 263 70% 50.4%; /* #6D28D9 - 6.2:1 */
+  --tile-amber: 39 100% 93.1%; /* #FFF3DC */
+  --tile-amber-foreground: 28 92% 31.4%; /* #9A4A06 - 5.7:1 */
+  --tile-teal: 169 47% 93.3%; /* #E6F6F3 */
+  --tile-teal-foreground: 175 77% 26.1%; /* #0F766E - 4.9:1 */
+  --tile-rose: 350 100% 95.5%; /* #FFE8EC */
+  --tile-rose-foreground: 345 83% 40.8%; /* #BE123C - 5.4:1 */
+
   /* radii */
   --radius-sm: 0.5rem; /* 8px */
   --radius-md: 0.875rem; /* 14px — buttons, inputs */
@@ -206,6 +245,31 @@
   --tint-marquee: 40 40% 15%;
   --marquee-fill: 42 92% 56%;
 
+  /*
+    The navy goes darker than the dark canvas, so the sidebar still reads as its own band
+    rather than dissolving into the page. Same text colours: they were chosen against navy.
+  */
+  --nav-background: 218 53% 9.2%; /* #0B1424 */
+  --nav-foreground: 213 27% 84%;
+  --nav-muted: 214 22% 64%;
+  --nav-hover: 217 47% 15.5%; /* #15233A */
+  --nav-active: 187 56% 16.1%; /* #123B40 */
+  --nav-active-foreground: 0 0% 100%;
+  --nav-accent: 172 66% 50.4%;
+  --nav-border: 218 42% 15.5%;
+
+  /* Tiles as deep, low-key tints with a light icon - a pastel on a dark page glares. */
+  --tile-blue: 219 53% 19%; /* #17294A */
+  --tile-blue-foreground: 217 100% 77.6%; /* #8DB8FF */
+  --tile-purple: 249 38% 19.6%; /* #251F45 */
+  --tile-purple-foreground: 255 100% 84.5%; /* #C4B0FF */
+  --tile-amber: 36 53% 14.9%; /* #3A2A12 */
+  --tile-amber-foreground: 38 87% 69%; /* #F5C26B */
+  --tile-teal: 178 49% 13.9%; /* #123534 */
+  --tile-teal-foreground: 171 77% 64.3%; /* #5EEAD4 */
+  --tile-rose: 343 40% 17.1%; /* #3D1A24 */
+  --tile-rose-foreground: 349 96% 81.8%; /* #FDA4B4 */
+
   --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.4);
   --shadow-sm: 0 1px 3px rgb(0 0 0 / 0.4);
   --shadow-md: 0 6px 16px -6px rgb(0 0 0 / 0.5);
@@ -237,19 +301,24 @@
   `token-contrast.test.ts` reads both blocks and holds them to the same pairs as a theme.
 */
 :root[data-console]:not([data-accent]) {
-  --action-primary: 172 72% 26%; /* #137265 - 5.80:1 under white */
-  --action-primary-hover: 172 72% 21%;
+  /*
+    #0F766E, not the reference's #0D9488. White on #0D9488 measures 3.74:1 - a primary
+    button whose label fails AA - so the brand teal is kept for fills, dots and the focus
+    ring (3:1 is the bar there) and the button takes the next step down the same ramp.
+  */
+  --action-primary: 175 77% 26.1%; /* #0F766E - 5.47:1 under white */
+  --action-primary-hover: 176 69% 21.8%; /* #115E59 */
   --action-primary-foreground: 0 0% 100%;
-  --tint-primary: 172 45% 95%; /* #EDF8F6 */
-  --ring: 172 72% 26%;
+  --tint-primary: 169 47% 93.3%; /* #E6F6F3 - 4.91:1 under the primary */
+  --ring: 175 84% 31.6%; /* #0D9488 */
 }
 
 :root.dark[data-console]:not([data-accent]) {
-  --action-primary: 172 62% 44%; /* #2BB6A3 - not neon: 62% saturation on the dark canvas */
-  --action-primary-hover: 172 62% 50%;
-  --action-primary-foreground: 224 32% 7%;
-  --tint-primary: 172 30% 16%; /* #1D3532 */
-  --ring: 172 62% 44%;
+  --action-primary: 172 66% 50.4%; /* #2DD4BF, lifted for the dark canvas */
+  --action-primary-hover: 171 77% 64.3%; /* #5EEAD4 */
+  --action-primary-foreground: 216 48% 11.4%; /* the canvas navy - 9.4:1 on the teal */
+  --tint-primary: 187 56% 16.1%; /* #123B40 */
+  --ring: 172 66% 50.4%;
 }
 
 /*
@@ -258,10 +327,15 @@
   accent an organization chose: a palette in Settings changes the brand colour, never the
   room it sits in.
 
-  Light is a faintly cool off-white canvas under white cards with hairline borders, and ink
-  that is near-black with a slight teal lean, so the page reads as one considered colour
-  rather than as the storefront's grey. Dark is a deep teal-black, cards one step lighter,
-  raised surfaces two, and off-white text - never pure white on black, which glares.
+  Light is the reference's bright, cool off-white canvas (#F5F7FB) under white cards with a
+  #E5EAF1 hairline, and navy ink (#17243B) rather than black, so the page and the navy
+  sidebar read as one considered colour. The secondary grey is a step darker than the
+  reference's #64748B, which measures 4.44:1 on that canvas - a hair under AA for the
+  descriptions and captions that use it most.
+
+  Dark is a deep blue-navy (#0F1A2B) with cards one step lighter (#16233A), and off-white
+  text - never pure white on black, which glares. The field outline is solved here too:
+  the shared one measured 2.81:1 on this subtle panel, under the 3:1 a control needs.
 
   `:root.dark[data-console]` is more specific than `:root[data-console]`, which is more
   specific than `.dark`: without the dark selector here the LIGHT console surfaces would win
@@ -269,25 +343,40 @@
   pair to the same numbers as the shared surfaces.
 */
 :root[data-console] {
-  --background-canvas: 200 22% 97%;
+  --background-canvas: 220 43% 97.3%; /* #F5F7FB */
   --background-surface: 0 0% 100%;
-  --background-subtle: 195 20% 95%;
+  --background-subtle: 213 36% 95.1%; /* #EEF2F7 */
   --background-elevated: 0 0% 100%;
-  --text-primary: 192 32% 10%;
-  --text-secondary: 194 12% 34%;
-  --text-muted: 194 8% 41%;
-  --border-default: 195 18% 90%;
-  --border-strong: 195 14% 82%;
+  --text-primary: 218 44% 16.1%; /* #17243B */
+  --text-secondary: 216 19% 37.8%; /* #4E5D73 - 6.2:1 on the canvas */
+  --text-muted: 215 17.6% 43.3%; /* #5B6B82 - 4.8:1 on the subtle panel */
+  --border-default: 215 30% 92.2%; /* #E5EAF1 */
+  --border-strong: 215 27% 86.5%; /* #D3DBE6 */
 }
 
 :root.dark[data-console] {
-  --background-canvas: 194 32% 6%;
-  --background-surface: 194 24% 9.5%;
-  --background-subtle: 194 20% 14%;
-  --background-elevated: 194 22% 12.5%;
-  --text-primary: 180 14% 94%;
-  --text-secondary: 190 10% 74%;
-  --text-muted: 190 8% 62%;
-  --border-default: 194 18% 17%;
-  --border-strong: 194 14% 26%;
+  --background-canvas: 216 48% 11.4%; /* #0F1A2B */
+  --background-surface: 218 45% 15.7%; /* #16233A */
+  --background-subtle: 218 41% 19.2%; /* #1D2C45 */
+  --background-elevated: 218 43% 17.5%;
+  --text-primary: 215 52% 93.5%; /* #E6EDF7 */
+  --text-secondary: 215 20% 67.1%; /* #9AA8BC */
+  --text-muted: 216 18% 62.2%; /* #8D9BB0 */
+  --border-default: 218 37% 22.5%; /* #24344F */
+  --border-strong: 217 32% 30%;
+  --border-input: 218 16.4% 52.2%; /* #718099 - 3.50:1 on the subtle panel */
+}
+
+/*
+  ── THE CONSOLE GEOMETRY ───────────────────────────────────────────────────────────
+  Tighter corners than the storefront. A shop window can afford 20px cards; a console that
+  shows forty of them on a screen reads as a pile of pillows. 14px cards, 10px controls and
+  16px dialogs are the reference's proportions. The storefront keeps the values above
+  because it never sets `data-console`.
+*/
+:root[data-console] {
+  --radius-sm: 0.5rem; /* 8px - chips, small controls */
+  --radius-md: 0.625rem; /* 10px - buttons, inputs, nav pills */
+  --radius-lg: 0.875rem; /* 14px - cards */
+  --radius-xl: 1rem; /* 16px - dialogs, drawers */
 }

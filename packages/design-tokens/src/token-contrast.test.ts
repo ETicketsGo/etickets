@@ -423,11 +423,96 @@ describe.each(['light', 'dark'] as const)('console surfaces, %s mode, clear WCAG
     },
   );
 
+  /*
+    `border-input` is allowed here and nowhere else in the list. It is not decoration: it is
+    the 3:1 outline of a field, solved against the surfaces it sits on, so when the surfaces
+    move it may have to move with them - the dark console's subtle panel took the shared
+    outline to 2.81:1. CONTROL_PAIRS above holds whatever value it ends up with.
+  */
   it('redefines surfaces and ink only, never the accent or a status colour', () => {
     const block = consoleSurfaces(mode);
-    for (const other of ['action-', 'status-', 'tint-', 'ring', 'border-input']) {
+    for (const other of ['action-', 'status-', 'tint-', 'ring', 'nav-', 'tile-']) {
       expect(block, `console surfaces redefine --${other}*`).not.toContain(`--${other}`);
     }
+  });
+});
+
+/**
+ * The console sidebar: light text on deep navy, in both themes.
+ *
+ * Its own palette, so its own pairs. The group headings are the quiet ones and the easiest to
+ * let slide below AA "because they are only labels" - but a heading is what somebody scans
+ * for, so they are held to 4.5:1 like the links. The teal bar and the focus ring on the navy
+ * are non-text (3:1); the active pill's label is text.
+ */
+const NAV_PAIRS: { fg: string; bg: string; min: number; what: string }[] = [
+  { fg: 'nav-foreground', bg: 'nav-background', min: AA_NORMAL, what: 'a nav link' },
+  { fg: 'nav-foreground', bg: 'nav-hover', min: AA_NORMAL, what: 'a nav link, hovered' },
+  { fg: 'nav-muted', bg: 'nav-background', min: AA_NORMAL, what: 'a group heading' },
+  { fg: 'nav-muted', bg: 'nav-hover', min: AA_NORMAL, what: 'a group heading, hovered' },
+  {
+    fg: 'nav-active-foreground',
+    bg: 'nav-active',
+    min: AA_NORMAL,
+    what: 'the current page pill',
+  },
+  { fg: 'nav-accent', bg: 'nav-background', min: AA_NON_TEXT, what: 'focus ring on the navy' },
+  { fg: 'nav-accent', bg: 'nav-active', min: AA_NON_TEXT, what: 'the current-page bar' },
+];
+
+describe.each(['light', 'dark'] as const)('the console sidebar, %s mode', (mode) => {
+  const block = themeBlocks()[mode];
+  it.each(NAV_PAIRS)('$what - $fg on $bg', ({ fg, bg, min }) => {
+    const ratio = contrast(readToken(block, fg), readToken(block, bg));
+    expect(
+      Number(ratio.toFixed(2)),
+      `${mode}: --${fg} on --${bg} is ${ratio.toFixed(2)}:1, below ${min}:1`,
+    ).toBeGreaterThanOrEqual(min);
+  });
+});
+
+/**
+ * Pastel tiles: the icon (and any short label) in each tile's own colour, on the tile.
+ *
+ * Held to 4.5:1 rather than the 3:1 an icon alone would need, so a page team can put a word
+ * in a tile - "Create event" in a quick-action tile - without re-checking anything.
+ */
+const TILES = ['blue', 'purple', 'amber', 'teal', 'rose'];
+
+describe.each(['light', 'dark'] as const)('pastel tiles, %s mode', (mode) => {
+  const block = themeBlocks()[mode];
+  it.each(TILES)('the %s tile', (tile) => {
+    const ratio = contrast(
+      readToken(block, `tile-${tile}-foreground`),
+      readToken(block, `tile-${tile}`),
+    );
+    expect(
+      Number(ratio.toFixed(2)),
+      `${mode}: --tile-${tile}-foreground on --tile-${tile} is ${ratio.toFixed(2)}:1`,
+    ).toBeGreaterThanOrEqual(AA_NORMAL);
+  });
+});
+
+describe('the console palettes exist in both themes', () => {
+  /*
+    The same trap as the tints: a token defined only in light mode is UNSET in dark mode, and
+    `bg-nav` on an unset variable is transparent - a sidebar of light text on a light page.
+  */
+  const { light, dark } = themeBlocks();
+  const names = [
+    'nav-background',
+    'nav-foreground',
+    'nav-muted',
+    'nav-hover',
+    'nav-active',
+    'nav-active-foreground',
+    'nav-accent',
+    'nav-border',
+    ...TILES.flatMap((t) => [`tile-${t}`, `tile-${t}-foreground`]),
+  ];
+  it.each(names)('--%s', (name) => {
+    expect(light, `--${name} missing from :root`).toContain(`--${name}:`);
+    expect(dark, `--${name} missing from .dark`).toContain(`--${name}:`);
   });
 });
 

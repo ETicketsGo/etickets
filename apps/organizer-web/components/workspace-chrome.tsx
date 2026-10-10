@@ -2,8 +2,11 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { orgPermissions, type OrgPermissions } from '@/lib/org-permissions';
-import { Monitor, Moon, Sun } from 'lucide-react';
-import { api, useColorScheme, WorkspaceAccent, type ColorScheme } from '@eticketsgo/web-kit';
+import {
+  api,
+  ColorSchemeSwitch as SharedColorSchemeSwitch,
+  WorkspaceAccent,
+} from '@eticketsgo/web-kit';
 import { useActiveOrgId } from './org-context';
 
 /**
@@ -37,6 +40,8 @@ export function useWorkspace(): {
    * deciding; this only stops the console offering what will be refused.
    */
   can: OrgPermissions;
+  /** This member's role in THIS organization, in words: the line under their name. */
+  roleLabel: string | null;
 } {
   const activeId = useActiveOrgId();
   const { data } = useQuery({
@@ -60,8 +65,16 @@ export function useWorkspace(): {
       while briefly hiding one a person is entitled to looks like the feature is missing.
     */
     can: orgPermissions(org?.myRole),
+    roleLabel: ORG_ROLE_LABEL[org?.myRole ?? ''] ?? null,
   };
 }
+
+/** A member's role in an organization, as the top bar says it under their name. */
+const ORG_ROLE_LABEL: Record<string, string> = {
+  ORGANIZER_OWNER: 'Owner',
+  ORGANIZER_MANAGER: 'Manager',
+  CHECKIN_STAFF: 'Check-in staff',
+};
 
 /** Applies the organization's palette. Renders nothing. */
 export function WorkspaceTheme() {
@@ -69,53 +82,10 @@ export function WorkspaceTheme() {
   return <WorkspaceAccent accent={accent} />;
 }
 
-const OPTIONS: { value: ColorScheme; label: string; Icon: typeof Sun }[] = [
-  { value: 'light', label: 'Light', Icon: Sun },
-  { value: 'dark', label: 'Dark', Icon: Moon },
-  { value: 'system', label: 'Match system', Icon: Monitor },
-];
-
 /**
- * Light, dark, or whatever the machine is doing.
- *
- * Three states rather than a two-way toggle. A toggle has to decide what "off" means before
- * the person has expressed a preference, and whichever it picks is wrong for half of them;
- * "match system" is a real answer and it is the default.
- *
- * A segmented control rather than a dropdown because it is three short options that people
- * flip between, and because the current one should be readable without opening anything.
+ * Light, dark, or whatever the machine is doing: the shared web-kit control, with its words
+ * unless `compact`. Kept under this name because the settings page imports it from here.
  */
 export function ColorSchemeSwitch({ compact = false }: { compact?: boolean }) {
-  const { scheme, setScheme } = useColorScheme();
-
-  return (
-    <div
-      role="radiogroup"
-      aria-label="Appearance"
-      className="flex items-center gap-0.5 rounded-md border border-border p-0.5"
-    >
-      {OPTIONS.map(({ value, label, Icon }) => {
-        const active = scheme === value;
-        return (
-          <button
-            key={value}
-            type="button"
-            role="radio"
-            aria-checked={active}
-            aria-label={label}
-            title={label}
-            onClick={() => setScheme(value)}
-            className={`flex items-center gap-1.5 rounded px-2 py-1.5 text-caption font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${
-              active
-                ? 'bg-tint-primary text-action-primary'
-                : 'text-text-muted hover:bg-background-subtle hover:text-text-primary'
-            }`}
-          >
-            <Icon className="h-3.5 w-3.5" aria-hidden />
-            {!compact && <span className="hidden lg:inline">{label}</span>}
-          </button>
-        );
-      })}
-    </div>
-  );
+  return <SharedColorSchemeSwitch labels={!compact} />;
 }
