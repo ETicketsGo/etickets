@@ -47,33 +47,33 @@ export const WIZARD_STEPS: readonly WizardStep[] = [
   {
     id: 'basics',
     title: 'Basics',
-    intro: 'What the event is called and what kind of event it is.',
-    required: 'Required: a title and a category.',
+    intro: 'What the event is called and how buyers will find it.',
+    required: 'Needed: a title and a category.',
   },
   {
     id: 'where',
     title: 'Where and when',
     intro: 'The venue, and each date and time the event happens.',
-    required: 'Required: a venue, and at least one session with a start and an end time.',
+    required: 'Needed: a venue, and a start and end time for each date.',
   },
   {
     id: 'tickets',
-    title: 'Tickets and pricing',
+    title: 'Tickets',
     intro: 'How people get in, what you sell and for how much.',
     required:
-      'Required: free, paid or reserved seating. Free and paid need at least one ticket type with a name and a quantity, and paid needs a price. Reserved seating needs a seat map for each session.',
+      'Needed: free, paid or reserved seating. Free and paid need at least one ticket with a name and a quantity.',
   },
   {
     id: 'details',
-    title: 'Image and details',
+    title: 'Details',
     intro: 'Pictures, age limit, performers, terms and refunds. You can change all of these later.',
     required: 'Nothing here is required.',
   },
   {
     id: 'review',
-    title: 'Review and create',
-    intro: 'Check your answers. Use Edit to change anything.',
-    required: 'Nothing is created until you press Save draft or Submit for approval.',
+    title: 'Review',
+    intro: 'Check what buyers will see, then create the event.',
+    required: 'Nothing is created until you press one of the buttons at the end.',
   },
 ];
 
@@ -309,12 +309,19 @@ export function validateStep(stepId: WizardStepId, a: WizardAnswers): FieldError
  * list at the top of the step, or on Review, the same sentence needs to say WHICH name - so a
  * session's or a ticket type's problem is prefixed with which one it is.
  */
-export function describeProblems(errors: FieldErrors): string[] {
+export function describeProblems(
+  errors: FieldErrors,
+  /*
+    What this event calls a date and a kind of ticket. A conference's problem list says "Pass
+    2", not "Ticket type 2", because "Pass 2" is the heading the organizer is looking at.
+  */
+  nouns: { session: string; ticket: string } = { session: 'Session', ticket: 'Ticket type' },
+): string[] {
   return Object.entries(errors).map(([key, message]) => {
     let m = /^s(\d+)(Start|End|Seat)$/.exec(key);
-    if (m) return `Session ${Number(m[1]) + 1}: ${message}`;
+    if (m) return `${nouns.session} ${Number(m[1]) + 1}: ${message}`;
     m = /^t(\d+)(Name|Price|Qty|Max)$/.exec(key);
-    if (m) return `Ticket type ${Number(m[1]) + 1}: ${message}`;
+    if (m) return `${nouns.ticket} ${Number(m[1]) + 1}: ${message}`;
     return message;
   });
 }
@@ -413,15 +420,18 @@ export function whatHappensNext(autoApprove: boolean): {
   saveDraft: string;
   submit: string;
   checks: string;
+  /** What the event's status will be after Submit, in the status vocabulary. */
+  submitStatus: 'In review' | 'Published';
 } {
   return {
     checks:
       'Before an event goes live we check that every ticket can actually be bought. If something would stop a sale, the event stays a draft and its page tells you what to fix.',
     saveDraft:
-      'Save draft creates the event as a draft. Nobody else can see it and no tickets are sold. You can submit it later from its page.',
+      'Create draft event creates the event as a draft. Nobody else can see it and no tickets are sold. You can submit it later from its page.',
     submit: autoApprove
-      ? 'Submit for approval publishes the event at once, because your organization is trusted to publish without a review. Tickets go on sale straight away.'
-      : 'Submit for approval sends the event to our team. Tickets go on sale when it is approved, and you are told whether it was.',
+      ? 'Submit and publish publishes the event at once, because an administrator has set your organization to publish without a review. Tickets go on sale straight away.'
+      : 'Submit for approval sends the event to our team. Its status is In review until then. Tickets go on sale when it is approved, and you are told whether it was.',
+    submitStatus: autoApprove ? 'Published' : 'In review',
   };
 }
 
@@ -464,6 +474,11 @@ export function buyerFeeNote(admission: Admission, feeMode: string): string {
 
 /** Everything the wizard keeps between visits. Images are deliberately not in it. */
 export interface WizardDraft {
+  /**
+   * What the organizer said they are organizing (an id from components/create-event), or ''
+   * before they have said. Words and defaults only: nothing sent to the API depends on it.
+   */
+  experience: string;
   step: number;
   /** The furthest step reached, so the indicator can offer the same jumps after a reload. */
   furthest: number;
@@ -498,6 +513,9 @@ export function serializeWizardDraft(draft: WizardDraft): string {
 
 /** What a starter template fills in before the organizer has typed anything. */
 export interface WizardSeed {
+  experience?: string;
+  /** The first ticket row's name - "Standard pass" for a conference. */
+  ticketName?: string;
   title?: string;
   category?: string;
   description?: string;
@@ -516,6 +534,7 @@ export interface WizardSeed {
  */
 export function initialWizardDraft(seed: WizardSeed = {}): WizardDraft {
   return {
+    experience: seed.experience ?? '',
     step: 0,
     furthest: 0,
     basics: {
@@ -537,7 +556,13 @@ export function initialWizardDraft(seed: WizardSeed = {}): WizardDraft {
     feeMode: 'CUSTOMER_PAYS',
     sessions: [{ ...EMPTY_SESSION }],
     tickets: [
-      { sessionIndex: 0, name: 'General', priceMajor: '', quantityTotal: '100', maxPerOrder: '6' },
+      {
+        sessionIndex: 0,
+        name: seed.ticketName ?? 'General',
+        priceMajor: '',
+        quantityTotal: '100',
+        maxPerOrder: '6',
+      },
     ],
   };
 }
@@ -617,6 +642,9 @@ export function restoreWizardDraft(raw: unknown): WizardDraft | null {
   const step = clampStep(d.step);
   const furthest = Math.max(step, clampStep(d.furthest));
   return {
+    // Absent on a draft from before the first question existed; the page works it out from
+    // the category, which is what the organizer did answer.
+    experience: str(d.experience),
     step,
     furthest,
     basics: {

@@ -333,6 +333,15 @@ describe('the problems, in words', () => {
     ]);
   });
 
+  it("names a session and a ticket the way this event's headings do", () => {
+    expect(
+      describeProblems(
+        { s0Start: 'Start time is required.', t1Name: 'Name is required.' },
+        { session: 'Day', ticket: 'Pass' },
+      ),
+    ).toEqual(['Day 1: Start time is required.', 'Pass 2: Name is required.']);
+  });
+
   it('lists nothing for a step with nothing missing', () => {
     expect(describeProblems(validateStep('tickets', valid()))).toEqual([]);
   });
@@ -418,6 +427,11 @@ describe('what happens next', () => {
     expect(whatHappensNext(false).saveDraft).toMatch(/draft/);
   });
 
+  it('names the status the event will have after Submit, in the console vocabulary', () => {
+    expect(whatHappensNext(false).submitStatus).toBe('In review');
+    expect(whatHappensNext(true).submitStatus).toBe('Published');
+  });
+
   it('is plain ASCII', () => {
     const all = Object.values(whatHappensNext(false)).concat(Object.values(whatHappensNext(true)));
     // eslint-disable-next-line no-control-regex
@@ -427,6 +441,7 @@ describe('what happens next', () => {
 
 describe('the saved draft', () => {
   const draft: WizardDraft = {
+    experience: 'community',
     step: 2,
     furthest: 3,
     basics: {
@@ -460,6 +475,12 @@ describe('the saved draft', () => {
   it('comes back exactly as it was saved', () => {
     expect(restoreWizardDraft(serializeWizardDraft(draft))).toEqual(draft);
     expect(restoreWizardDraft(JSON.parse(serializeWizardDraft(draft)))).toEqual(draft);
+  });
+
+  it('restores a draft saved before the experience question with no experience', () => {
+    // The page then works it out from the category; the lib does not guess.
+    const { experience: _gone, ...old } = draft;
+    expect(restoreWizardDraft(old)?.experience).toBe('');
   });
 
   it('is refused whole when it is not a draft at all', () => {
@@ -549,6 +570,12 @@ describe('whether a draft is worth restoring', () => {
     ];
     for (const change of changes)
       expect(isMeaningfulDraft({ ...blank, ...change }, blank)).toBe(true);
+  });
+
+  it("takes the experience's name for the first ticket row, still with no price", () => {
+    const pass = initialWizardDraft({ experience: 'conference', ticketName: 'Standard pass' });
+    expect(pass.experience).toBe('conference');
+    expect(pass.tickets[0]).toMatchObject({ name: 'Standard pass', priceMajor: '' });
   });
 
   it('starts with one General row of 100 tickets and no price typed for the organizer', () => {

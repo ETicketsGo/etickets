@@ -36,23 +36,44 @@ test.describe('creating an event', () => {
     await seedBrowserAuth(context, organizerTokens);
   });
 
-  test('1: the category is picked from a list, with a way out for anything else', async ({
+  test('1: what is being organized comes first, then a category from its own short list', async ({
     page,
   }) => {
     await page.goto(`${ORGANIZER}/organizer/events/new`, { waitUntil: 'networkidle' });
 
-    // Asked first, as visible choices rather than a closed dropdown.
-    const kinds = page.getByRole('group', { name: 'What are you organizing?' });
+    /*
+      Asked first, as seven cards, each saying what it sets up. Choosing one does not move on by
+      itself - arrow keys select as they move - so Continue is a separate press.
+    */
+    const kinds = page.getByRole('group', { name: 'Choose an experience to get started' });
     await expect(kinds).toBeVisible({ timeout: 30_000 });
-    await kinds.getByRole('radio', { name: 'Comedy' }).check();
+    await expect(kinds.getByRole('radio')).toHaveCount(7);
+    await expect(page.getByText('Sessions, registrations and passes')).toBeVisible();
+    // Continue with nothing chosen says why it did not move on.
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await expect(page.getByText('Choose the kind of event you are organizing')).toBeVisible();
+
+    await kinds.getByRole('radio', { name: 'Comedy or theatre' }).check();
+    await page.getByRole('button', { name: 'Continue' }).click();
+
+    // Only this experience's categories, with the first already chosen.
+    const category = page.getByRole('group', { name: 'Category' });
+    await expect(category.getByRole('radio', { name: 'Comedy' })).toBeChecked();
+    await expect(category.getByRole('radio')).toHaveCount(2);
+    await category.getByRole('radio', { name: 'Theatre' }).check();
 
     /*
-      "Something else…" stays, and reveals a text box. A list that cannot express what
-      somebody is actually running just gets the nearest wrong answer picked, which is worse
-      for browse than a new value typed on purpose.
+      "Something else" stays - under "Community or other" - and reveals a text box. A list
+      that cannot express what somebody is running just gets the nearest wrong answer picked.
     */
+    await page.getByRole('button', { name: 'Change kind of event' }).click();
+    await page.getByRole('radio', { name: 'Community or other' }).check();
+    await page.getByRole('button', { name: 'Continue' }).click();
     await expect(page.getByLabel('Your category')).toBeHidden();
-    await kinds.getByRole('radio', { name: 'Something else' }).check();
+    await page
+      .getByRole('group', { name: 'Category' })
+      .getByRole('radio', { name: 'Something else' })
+      .check();
     await expect(page.getByLabel('Your category')).toBeVisible();
   });
 
@@ -63,19 +84,69 @@ test.describe('creating an event', () => {
       the organizer entered is offered back.
     */
     await page.goto(`${ORGANIZER}/organizer/events/new`, { waitUntil: 'networkidle' });
-    await expect(page.getByLabel('Event title')).toBeVisible({ timeout: 30_000 });
+    const first = page.getByRole('radio', { name: 'Concert or live music' });
+    await expect(first).toBeVisible({ timeout: 30_000 });
     await page.reload({ waitUntil: 'networkidle' });
-    await expect(page.getByLabel('Event title')).toHaveValue('');
+    await expect(first).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText(/Picked up where you left off/)).toHaveCount(0);
 
     // Something typed IS offered back, and "Start over" throws it away.
+    await first.check();
+    await page.getByRole('button', { name: 'Continue' }).click();
     await page.getByLabel('Event title').fill('Half-written event');
     await page.reload({ waitUntil: 'networkidle' });
-    await expect(page.getByText(/Picked up where you left off/)).toBeVisible();
+    await expect(page.getByText(/Picked up where you left off/)).toBeVisible({ timeout: 30_000 });
     await expect(page.getByLabel('Event title')).toHaveValue('Half-written event');
     await page.getByRole('button', { name: 'Start over' }).click();
-    await expect(page.getByLabel('Event title')).toHaveValue('', { timeout: 30_000 });
+    await expect(page.getByRole('radio', { name: 'Concert or live music' })).toBeVisible({
+      timeout: 30_000,
+    });
     await expect(page.getByText(/Picked up where you left off/)).toHaveCount(0);
+  });
+
+  test('1c: Save draft is on every step, and leaving a field points out its problem', async ({
+    page,
+  }) => {
+    await page.goto(`${ORGANIZER}/organizer/events/new`, { waitUntil: 'networkidle' });
+    await page.getByRole('radio', { name: 'Sports' }).check();
+    await page.getByRole('button', { name: 'Continue' }).click();
+
+    // Nothing is called a mistake before anything is typed...
+    await expect(page.getByText('Title must be at least 3 characters.')).toHaveCount(0);
+    // ...but leaving the field short says so, there and then.
+    await page.getByLabel('Event title').fill('Go');
+    await page.getByLabel('Description').focus();
+    await expect(page.getByText('Title must be at least 3 characters.')).toBeVisible();
+    await page.getByLabel('Event title').fill('Go Karts');
+    await expect(page.getByText('Title must be at least 3 characters.')).toHaveCount(0);
+
+    await page.getByRole('button', { name: 'Save draft' }).click();
+    await expect(
+      page.getByRole('status').filter({ hasText: 'Draft saved on this device' }),
+    ).toBeVisible();
+    // A sports event's dates are matches.
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await expect(page.getByRole('group', { name: 'Match 1' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Save draft' })).toBeVisible();
+    await page.evaluate(() => localStorage.removeItem('etg_event_draft'));
+  });
+
+  test('1d: a film goes to the cinema workflow instead of this form', async ({ page }) => {
+    await page.goto(`${ORGANIZER}/organizer/events/new`, { waitUntil: 'networkidle' });
+    await page.getByRole('radio', { name: 'Movie screening' }).check();
+    await expect(
+      page.getByRole('heading', { name: 'Films are scheduled in Movies' }),
+    ).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Add a film' })).toHaveAttribute(
+      'href',
+      '/organizer/movies/new',
+    );
+    await expect(page.getByRole('link', { name: 'Go to Movies' })).toHaveAttribute(
+      'href',
+      '/organizer/movies',
+    );
+    // No way into the event form from here: Continue is not offered for a film.
+    await expect(page.getByRole('button', { name: 'Continue' })).toHaveCount(0);
   });
 
   test('2: marking it free removes every price from the rest of the wizard', async ({
@@ -84,18 +155,20 @@ test.describe('creating an event', () => {
   }) => {
     await page.goto(`${ORGANIZER}/organizer/events/new`, { waitUntil: 'networkidle' });
 
+    await page.getByRole('radio', { name: 'Community or other' }).check();
+    await page.getByRole('button', { name: 'Continue' }).click();
     await page.getByLabel('Event title').fill('Community Open Day');
-    await page.getByRole('radio', { name: 'Community' }).check();
+    await page.getByRole('button', { name: 'Continue' }).click();
 
-    // `exact` because the Next.js dev-tools button in the corner also matches "Next".
-    // Straight through venue and sessions - one "Where and when" step - to the money.
-    await page.getByRole('button', { name: 'Next', exact: true }).click();
-    await page.getByLabel('Venue').selectOption({ index: 1 });
-    await page.locator('#ss0').fill(dayAfter(300));
-    await page.locator('#ss0-time').selectOption('18:00');
-    await page.locator('#se0').fill(dayAfter(300));
-    await page.locator('#se0-time').selectOption('20:00');
-    await page.getByRole('button', { name: 'Next', exact: true }).click();
+    // Where and when: the first saved venue, and one session, by label.
+    await page.getByRole('group', { name: 'Venue' }).getByRole('radio').first().check();
+    const start = page
+      .getByRole('group', { name: 'Session 1' })
+      .getByRole('group', { name: 'Starts at' });
+    await start.getByLabel('Date').fill(dayAfter(300));
+    await start.getByLabel('Time', { exact: true }).selectOption('18:00');
+    await page.getByRole('button', { name: '+2h' }).click();
+    await page.getByRole('button', { name: 'Continue' }).click();
 
     /*
       Declared on the tickets step, as the first answer to "How do people get in?". Nothing
@@ -103,7 +176,7 @@ test.describe('creating an event', () => {
     */
     const kinds = page.getByRole('group', { name: 'How do people get in?' });
     await expect(kinds).toBeVisible();
-    await page.getByRole('button', { name: 'Next', exact: true }).click();
+    await page.getByRole('button', { name: 'Continue' }).click();
     await expect(
       page.getByText('Choose how people get in: free, paid or reserved seating.').first(),
     ).toBeVisible();
@@ -120,15 +193,12 @@ test.describe('creating an event', () => {
     await expect(first.getByLabel(/^Price/)).toHaveCount(0);
 
     /*
-      And a free event is never asked who pays the fees, because there are none to pay.
-
-      That used to be a step of its own saying so. The step is gone - it asked every paid
-      organizer to settle fee incidence before publishing - and the question now sits on
-      Review, where a free event simply does not show it. The assertion is the same one: the
-      question is never put to somebody for whom it has no true answer.
+      And a free event is never asked who pays the fees, because there are none to pay. The
+      question sits on Review, where a free event simply does not show it.
     */
-    await page.getByRole('button', { name: 'Next', exact: true }).click(); // image and details - nothing required
-    await page.getByRole('button', { name: 'Next', exact: true }).click(); // review
+    await page.getByRole('button', { name: 'Continue' }).click(); // details - nothing required
+    await page.getByRole('button', { name: 'Continue' }).click(); // review
+    await expect(page.getByText('Setup complete').first()).toBeVisible();
     await expect(page.getByText('Free - no payment taken')).toBeVisible();
     await expect(page.getByLabel('Who pays the booking fee?')).toBeHidden();
     // The buyer's view says so too, in the card's price and the fee line.
@@ -139,11 +209,11 @@ test.describe('creating an event', () => {
       And it is actually created that way.
 
       Stopping at the review screen would only prove the wizard renders. What matters is what
-      the commit sends: the free flag ON and every ticket type at zero — the API refuses the
+      the commit sends: the free flag ON and every ticket type at zero - the API refuses the
       two in disagreement, so a wizard that sent a stale price box would fail the whole
       creation with an error about something the organizer cannot see.
     */
-    await page.getByRole('button', { name: 'Save draft' }).click();
+    await page.getByRole('button', { name: 'Create draft event' }).click();
     /*
       `[^/]+` alone also matches the page we are standing on — /organizer/events/NEW — so it
       passed instantly and the id read back was the literal string "new". Excluding it is
