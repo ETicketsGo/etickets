@@ -1,17 +1,33 @@
 'use client';
 
+import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
-import { Info } from 'lucide-react';
+import {
+  Banknote,
+  CalendarClock,
+  Clock,
+  Info,
+  ReceiptText,
+  Undo2,
+  Wallet,
+  type LucideIcon,
+} from 'lucide-react';
 import {
   api,
   ButtonLink,
-  Card,
+  DataTable,
   ErrorState,
+  MARKETS,
   PageHeader,
+  SectionCard,
   Skeleton,
+  StatCard,
   money,
   dateOnly,
+  type Column,
+  type PayoutSummary,
   type PayoutSummaryCurrency,
+  type TileTone,
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
 import { ProviderSettled } from './provider-settled';
@@ -32,6 +48,12 @@ import { FinanceNotices } from './finance-notices';
  * screen and the payout the ledger would actually raise cannot disagree - which is the failure
  * this whole programme has been avoiding.
  *
+ * ── NOT THE OVERVIEW'S SALES ───────────────────────────────────────────────────────
+ * The Overview shows what was SOLD. This page follows that money through the payout ledger -
+ * held, payable, in a payout, paid - so no figure here is labelled "Gross sales": the same words
+ * over a different quantity read as a contradiction. Neither endpoint returns a total sold, and
+ * none is computed here; the page points to the Overview for it instead.
+ *
  * ── WHAT IT DELIBERATELY DOES NOT SHOW ─────────────────────────────────────────────
  *   Tax. `Receipt.taxMinor` is buyer-side and its relationship to organizer proceeds is not
  *   modelled. In an inclusive-tax market like India it is not deducted from what the organizer
@@ -49,88 +71,205 @@ import { FinanceNotices } from './finance-notices';
  *   that contract exists to prevent.
  */
 const LADDER: { key: keyof PayoutSummaryCurrency; label: string; negative?: boolean }[] = [
-  { key: 'gross', label: 'Gross ticket value' },
-  { key: 'discount', label: 'Discounts', negative: true },
-  { key: 'bookingFee', label: 'Booking fees' },
-  { key: 'paymentFee', label: 'Payment fees' },
-  { key: 'organizerFee', label: 'Your platform fee', negative: true },
-  { key: 'refund', label: 'Refunds', negative: true },
+  { key: 'gross', label: 'Gross from shows ready to pay out' },
+  { key: 'discount', label: 'Less discounts', negative: true },
+  { key: 'organizerFee', label: 'Less your platform fee', negative: true },
+  { key: 'refund', label: 'Less refunds on these shows', negative: true },
 ];
 
-function CurrencyCard({ row }: { row: PayoutSummaryCurrency }) {
+/*
+  Booking and payment fees are shown and NOT deducted, which is correct rather than an oversight:
+  the gross is the ticket value net to the organizer and those two are borne by the customer on
+  top of it. They sit in their own group, under a heading that says so, so nobody reads the
+  column and assumes the arithmetic is wrong.
+*/
+const BUYER_FEES: { key: keyof PayoutSummaryCurrency; label: string }[] = [
+  { key: 'bookingFee', label: 'Booking fees' },
+  { key: 'paymentFee', label: 'Payment fees' },
+];
+
+/** "India - INR", from the market list, so a block names its market and not only its unit. */
+function currencyTitle(currency: string): string {
+  const names = MARKETS.filter((m) => m.currency === currency).map((m) => m.name);
+  return names.length ? `${names.join(' / ')} - ${currency}` : currency;
+}
+
+/** An amount that comes off, written "- ₹55.82". Zero is never given a sign. */
+function Amount({
+  value,
+  currency,
+  negative,
+}: {
+  value: number;
+  currency: string;
+  negative?: boolean;
+}) {
   return (
-    <Card title={`${row.currency}`}>
-      <dl className="divide-y divide-border">
-        {LADDER.map(({ key, label, negative }) => (
-          <div key={key} className="flex items-baseline justify-between gap-4 py-2">
-            <dt className="text-sm text-text-secondary">
-              {label}
-              {/*
-                Booking and payment fees are shown and NOT deducted, which is correct rather than
-                an oversight: the gross is the ticket value net to the organizer and those two are
-                borne by the customer on top of it. Said here so nobody reads the column and
-                assumes the arithmetic is wrong.
-              */}
-              {(key === 'bookingFee' || key === 'paymentFee') && (
-                <span className="ml-2 text-caption text-text-muted">paid by the buyer</span>
-              )}
-            </dt>
-            <dd className="font-medium tabular-nums text-text-primary">
-              {negative && row[key] !== 0 ? '−' : ''}
-              {money(Math.abs(row[key] as number), row.currency)}
-            </dd>
-          </div>
-        ))}
-        <div className="flex items-baseline justify-between gap-4 py-3">
-          <dt className="font-semibold text-text-primary">Ready to pay out now</dt>
-          <dd className="text-lg font-semibold tabular-nums text-text-primary">
-            {money(row.net, row.currency)}
-          </dd>
-        </div>
-      </dl>
-
-      {/*
-        ── WHY THIS SENTENCE IS HERE ──────────────────────────────────────────────────
-        Browser QA showed the real failure mode of the old label. The ladder read "Your net 0"
-        directly above "Pending 1,598" and "Held 4,596" - every figure correct, and the page
-        appearing to say the organizer has nothing while naming two amounts they do have.
-
-        The endpoint answers "what would a payout raised right now come to", so a zero means
-        everything is ALREADY raised or still held, not that there is no money. The heading now
-        says which question it answers, and this line says where the rest of it went.
-      */}
-      <p className="mt-2 text-caption text-text-muted">
-        What a payout raised today would come to. Money already raised, or still held until a show
-        finishes, is counted below rather than here.
-      </p>
-
-      <dl className="mt-3 grid gap-2 sm:grid-cols-3">
-        {[
-          { label: 'Paid', value: row.paid, hint: 'Already sent to you.' },
-          { label: 'Pending', value: row.pending, hint: 'Raised, not yet sent.' },
-          { label: 'Held', value: row.held, hint: 'Not payable until the show has finished.' },
-        ].map((b) => (
-          <div key={b.label} className="rounded-md border border-border px-3 py-2">
-            <dt className="text-caption text-text-muted">{b.label}</dt>
-            {/*
-              The hint lives INSIDE the dd. A `p` as a direct child of a definition list's group
-              is invalid, and axe flagged it serious - a screen reader meets a paragraph where it
-              expects a description.
-            */}
-            <dd className="mt-0.5">
-              <span className="font-medium tabular-nums text-text-primary">
-                {money(b.value, row.currency)}
-              </span>
-              <span className="mt-0.5 block text-caption font-normal text-text-muted">
-                {b.hint}
-              </span>
-            </dd>
-          </div>
-        ))}
-      </dl>
-    </Card>
+    <>
+      {negative && value !== 0 ? '- ' : ''}
+      {money(Math.abs(value), currency)}
+    </>
   );
 }
+
+/*
+  ── FOUR STAGES, NOT FOUR PARTS OF ONE TOTAL ─────────────────────────────────────
+  Review caught the defect this layout replaces: the page led with "Gross sales ₹0" beside an
+  Overview reading "Gross sales ₹19,787" and, lower down, "Held ₹20,187". Every number was right.
+  `gross` here is not the organizer's sales: it is the gross of shows that have finished, passed
+  the holding period and are NOT yet in a payout - the one input of the next payout. With the
+  dashboard's label it read as a contradiction.
+
+  So each currency now leads with where its money stands, in the order it moves (see the
+  `PayoutSummaryCurrency` field docs in the payouts service):
+    held     - ticket sales of shows not yet payable (gross, before fees and refunds)
+    net      - payable now and not in a payout yet (after fees and refunds)
+    pending  - in a payout that has not been sent (that payout's net)
+    paid     - in a payout that has been sent (that payout's net)
+  They are four separate buckets of the ledger, shown side by side and never added up here: held
+  is a gross and the other three are nets, so a sum would mix the two.
+*/
+function CurrencyBlock({ row }: { row: PayoutSummaryCurrency }) {
+  const stages: {
+    label: string;
+    value: number;
+    hint: string;
+    icon: LucideIcon;
+    tile: TileTone;
+  }[] = [
+    {
+      label: 'Held until shows finish',
+      value: row.held,
+      hint: 'Ticket sales, before fees and refunds. Not payable yet.',
+      icon: CalendarClock,
+      tile: 'amber',
+    },
+    {
+      label: 'Ready to pay out now',
+      value: row.net,
+      hint: 'Payable, not in a payout yet. After fees and refunds.',
+      icon: Wallet,
+      tile: 'teal',
+    },
+    {
+      label: 'In a payout, not sent',
+      value: row.pending,
+      hint: 'Raised and on its way to you.',
+      icon: Clock,
+      tile: 'blue',
+    },
+    {
+      label: 'Paid to you',
+      value: row.paid,
+      hint: 'Payouts already sent.',
+      icon: Banknote,
+      tile: 'purple',
+    },
+  ];
+
+  return (
+    <section aria-labelledby={`finance-${row.currency}`} className="space-y-4">
+      <h2
+        id={`finance-${row.currency}`}
+        className="flex items-center gap-2 text-micro font-semibold uppercase tracking-[0.08em] text-text-muted"
+      >
+        <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-action-primary" />
+        {currencyTitle(row.currency)}
+      </h2>
+
+      <ol className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Where this money is">
+        {stages.map((s) => (
+          <li key={s.label} className="min-w-0">
+            <StatCard
+              label={s.label}
+              value={money(s.value, row.currency)}
+              icon={s.icon}
+              tile={s.tile}
+              hint={s.hint}
+            />
+          </li>
+        ))}
+      </ol>
+
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+        <SectionCard
+          title="How 'Ready to pay out now' is worked out"
+          description="Only shows that have finished and passed the holding period, and are not in a payout yet."
+          headingLevel={3}
+        >
+          <dl className="divide-y divide-border rounded-md border border-border text-ui">
+            {LADDER.map(({ key, label, negative }) => (
+              <div key={key} className="flex items-baseline justify-between gap-4 px-4 py-2.5">
+                <dt className="text-text-secondary">{label}</dt>
+                <dd className="tabular-nums text-text-primary">
+                  <Amount value={row[key] as number} currency={row.currency} negative={negative} />
+                </dd>
+              </div>
+            ))}
+            <div className="flex items-baseline justify-between gap-4 rounded-b-md bg-background-subtle px-4 py-3">
+              <dt className="font-semibold text-text-primary">Ready to pay out now</dt>
+              <dd className="font-display text-title font-bold tabular-nums text-text-primary">
+                {money(row.net, row.currency)}
+              </dd>
+            </div>
+          </dl>
+
+          {/*
+            A zero here means everything is ALREADY in a payout or still held, not that there is
+            no money - browser QA once showed "Your net 0" above "Pending 1,598" and "Held 4,596".
+            This line says where the rest went.
+          */}
+          <p className="mt-3 text-caption text-text-muted">
+            Money from shows that have not finished is under &quot;Held until shows finish&quot;.
+            Money already in a payout is under &quot;In a payout, not sent&quot; or &quot;Paid to
+            you&quot;.
+          </p>
+        </SectionCard>
+
+        <SectionCard
+          title="Paid by the buyer, not taken from you"
+          description="Charged on top of the ticket price for the same shows. Not deducted above."
+          headingLevel={3}
+        >
+          <dl className="divide-y divide-border rounded-md border border-border text-ui">
+            {BUYER_FEES.map(({ key, label }) => (
+              <div key={key} className="flex items-baseline justify-between gap-4 px-4 py-2.5">
+                <dt className="text-text-secondary">{label}</dt>
+                <dd className="tabular-nums text-text-primary">
+                  {money(row[key] as number, row.currency)}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </SectionCard>
+      </div>
+    </section>
+  );
+}
+
+type HeldRow = PayoutSummary['heldRevenue'][number];
+
+const HELD_COLUMNS: Column<HeldRow>[] = [
+  {
+    key: 'event',
+    header: 'Event',
+    render: (h) => <span className="font-medium">{h.eventTitle}</span>,
+  },
+  {
+    key: 'gross',
+    header: 'Ticket sales',
+    className: 'whitespace-nowrap tabular-nums',
+    render: (h) => money(h.grossMinor, h.currency),
+  },
+  {
+    key: 'from',
+    header: 'Payable from',
+    className: 'whitespace-nowrap tabular-nums',
+    render: (h) => dateOnly(h.payableFrom),
+    sortable: true,
+    sortValue: (h) => h.payableFrom,
+  },
+];
 
 export default function FinancePage() {
   const { activeOrg, activeOrgSentenceName } = useOrg();
@@ -140,13 +279,51 @@ export default function FinancePage() {
   });
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <PageHeader
         title="Finance"
         description={`What ${activeOrgSentenceName} has earned, what has been paid, and what is still to come.`}
+        action={
+          <nav aria-label="Finance pages" className="flex flex-wrap gap-2">
+            <ButtonLink href="/organizer/payouts" variant="outline" size="sm" icon={Banknote}>
+              Payouts
+            </ButtonLink>
+            <ButtonLink href="/organizer/receipts" variant="outline" size="sm" icon={ReceiptText}>
+              Receipts
+            </ButtonLink>
+            <ButtonLink href="/organizer/refunds" variant="outline" size="sm" icon={Undo2}>
+              Refunds
+            </ButtonLink>
+          </nav>
+        }
       />
 
-      {isLoading && <Skeleton className="h-64 w-full" />}
+      {/*
+        The bridge to the Overview, said before any figure: the Overview counts what was sold, and
+        this page follows that same money through the ledger. Without it the two screens read as
+        disagreeing about one number.
+      */}
+      <p className="-mt-4 rounded-lg border border-border bg-background-surface px-4 py-3 text-ui text-text-secondary">
+        <span className="font-semibold text-text-primary">Sales so far:</span> see{' '}
+        <Link
+          href="/organizer"
+          className="rounded-sm font-semibold text-action-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          Overview
+        </Link>
+        . This page follows that money from held, to payable, to paid.
+      </p>
+
+      {isLoading && (
+        <div className="space-y-4" role="status" aria-busy="true" aria-label="Loading finance">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton key={i} className="h-28 w-full" />
+            ))}
+          </div>
+          <Skeleton className="h-64 w-full" />
+        </div>
+      )}
 
       {/*
         A failure is not a financial state. Showing an empty ladder because a request failed
@@ -166,44 +343,61 @@ export default function FinancePage() {
             connected provider these totals understate reality - possibly to zero.
           */}
           {data.excluded.providerSettledEvents > 0 && (
-            <Card className="border-status-warning/30">
-              <div className="flex items-start gap-3">
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-tint-warning text-status-warning">
-                  <Info className="h-4 w-4" aria-hidden />
-                </span>
-                <p className="text-sm text-text-secondary">
-                  <span className="font-medium text-text-primary">
-                    {data.excluded.providerSettledEvents === 1
-                      ? 'One event is settled through your connected payment provider'
-                      : `${data.excluded.providerSettledEvents} events are settled through your connected payment provider`}
-                    .
-                  </span>{' '}
-                  That money is paid to you by the provider directly, so these figures are lower
-                  than your full position. It is shown separately below.
-                </p>
-              </div>
-            </Card>
+            <div
+              role="note"
+              className="flex items-start gap-3 rounded-lg border border-border bg-tint-warning p-4"
+            >
+              <Info className="mt-0.5 h-5 w-5 shrink-0 text-status-warning" aria-hidden />
+              <p className="text-ui text-text-secondary">
+                <span className="font-semibold text-text-primary">
+                  {data.excluded.providerSettledEvents === 1
+                    ? 'One event is settled through your connected payment provider'
+                    : `${data.excluded.providerSettledEvents} events are settled through your connected payment provider`}
+                  .
+                </span>{' '}
+                That money is paid to you by the provider directly, so these figures are lower than
+                your full position. It is shown separately below.
+              </p>
+            </div>
           )}
 
           {data.currencies.length === 0 ? (
-            <Card>
-              <p className="text-sm text-text-secondary">
+            <SectionCard title="Nothing to settle yet">
+              <p className="text-ui text-text-secondary">
                 Nothing has been sold yet, so there is nothing to settle.{' '}
                 <span className="text-text-muted">
                   Figures appear here once an event has finished and its holding period has passed.
                 </span>
               </p>
-            </Card>
+            </SectionCard>
           ) : (
             /*
-              One card per currency, never a combined total. A rupee and a dollar do not add up,
+              One block per currency, never a combined total. A rupee and a dollar do not add up,
               and a dashboard that summed them was a real defect in this product once.
             */
-            <div className="grid gap-4 lg:grid-cols-2">
+            <div className="space-y-10">
               {data.currencies.map((row) => (
-                <CurrencyCard key={row.currency} row={row} />
+                <CurrencyBlock key={row.currency} row={row} />
               ))}
             </div>
+          )}
+
+          {data.heldRevenue.length > 0 && (
+            <SectionCard
+              title="Held until the show has finished"
+              description={`An event's revenue becomes payable once it has finished and its holding period of ${data.holdDays} day${data.holdDays === 1 ? '' : 's'} has passed.`}
+            >
+              <DataTable
+                caption="Revenue held until the show has finished"
+                columns={HELD_COLUMNS}
+                rows={data.heldRevenue}
+                rowKey={(h) => `${h.eventId}-${h.currency}`}
+                density="compact"
+                // Three short columns read fine as a table on a phone; as cards, a busy season of
+                // held events became a page several screens long.
+                stickyHeader
+              />
+            </SectionCard>
           )}
 
           {/*
@@ -218,41 +412,6 @@ export default function FinancePage() {
             provider section, where an organization with no provider route never saw them at all.
           */}
           <FinanceNotices organizationId={activeOrg.id} />
-
-          {data.heldRevenue.length > 0 && (
-            <Card title="Held until the show has finished">
-              <p className="-mt-2 mb-3 text-caption text-text-secondary">
-                An event&rsquo;s revenue becomes payable once it has finished and its holding period
-                of {data.holdDays} day{data.holdDays === 1 ? '' : 's'} has passed.
-              </p>
-              <ul className="divide-y divide-border">
-                {data.heldRevenue.map((h) => (
-                  <li
-                    key={`${h.eventId}-${h.currency}`}
-                    className="flex flex-wrap items-baseline justify-between gap-2 py-2"
-                  >
-                    <span className="text-sm text-text-primary">{h.eventTitle}</span>
-                    <span className="text-sm text-text-muted">
-                      {money(h.grossMinor, h.currency)} &middot; payable from{' '}
-                      {dateOnly(h.payableFrom)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </Card>
-          )}
-
-          <div className="flex flex-wrap gap-2">
-            <ButtonLink href="/organizer/payouts" variant="outline">
-              Payouts
-            </ButtonLink>
-            <ButtonLink href="/organizer/receipts" variant="outline">
-              Receipts
-            </ButtonLink>
-            <ButtonLink href="/organizer/refunds" variant="outline">
-              Refunds
-            </ButtonLink>
-          </div>
         </>
       )}
     </div>

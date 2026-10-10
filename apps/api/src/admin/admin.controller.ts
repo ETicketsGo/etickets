@@ -183,14 +183,17 @@ export class AdminController {
   bookings(
     @Query(
       new ZodValidationPipe(
-        paginationSchema.extend({
-          status: z.string().optional(),
-          q: z.string().optional(),
-          // Scope to one row of the grouped summary. See `group-scope.ts`.
-          ...groupScopeFields,
-          // Every spelling of one market, by ISO code. See `country-filter.ts`.
-          country: countryFilterField,
-        }),
+        paginationSchema
+          .extend({
+            status: z.string().optional(),
+            q: z.string().optional(),
+            // Scope to one row of the grouped summary. See `group-scope.ts`.
+            ...groupScopeFields,
+            // Market (every spelling, by ISO code), organizer, event and a UTC day window on
+            // when the booking was made. See `list-filters.ts`.
+            ...listFilterFields,
+          })
+          .superRefine(refineDateOrder),
       ),
     )
     q: {
@@ -198,8 +201,8 @@ export class AdminController {
       pageSize: number;
       status?: string;
       q?: string;
-      country?: string;
-    } & GroupScope,
+    } & GroupScope &
+      ListFilters,
   ) {
     return this.admin.bookings(q);
   }

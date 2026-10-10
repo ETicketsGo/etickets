@@ -1,22 +1,23 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { RefreshCw } from 'lucide-react';
+import { Download, RefreshCw, Timer } from 'lucide-react';
 import {
   api,
-  Badge,
   Button,
   Card,
   DataTable,
   EmptyState,
-  MetricCard,
   PageHeader,
   Select,
+  Skeleton,
+  StatCard,
+  StatusPill,
+  type PillTone,
   money,
   tokenStore,
   useToast,
   errorMessage,
-  type BadgeTone,
   type Column,
   type DiscrepancyRow,
   type DiscrepancyStatusValue,
@@ -49,7 +50,7 @@ const STATUS_LABELS: Record<DiscrepancyStatusValue, string> = {
   IGNORED: 'Ignored',
 };
 
-const STATUS_TONE: Record<DiscrepancyStatusValue, BadgeTone> = {
+const STATUS_TONE: Record<DiscrepancyStatusValue, PillTone> = {
   OPEN: 'error',
   ASSIGNED: 'warning',
   RESOLVED: 'success',
@@ -148,11 +149,14 @@ export default function FinanceReconciliationPage() {
       key: 'status',
       header: 'Status',
       className: 'whitespace-nowrap',
-      render: (r) => <Badge tone={STATUS_TONE[r.status]}>{STATUS_LABELS[r.status]}</Badge>,
+      render: (r) => (
+        <StatusPill tone={STATUS_TONE[r.status]}>{STATUS_LABELS[r.status]}</StatusPill>
+      ),
     },
     {
       key: 'actions',
       header: '',
+      mobileLabel: 'Next step',
       className: 'whitespace-nowrap',
       render: (r) =>
         r.status === 'OPEN' || r.status === 'ASSIGNED' ? (
@@ -184,23 +188,48 @@ export default function FinanceReconciliationPage() {
     <div className="space-y-6">
       <PageHeader
         title="Finance reconciliation"
-        description="Discrepancy triage queue. Financial records are never auto-corrected — resolution is a human, audited action."
+        description="Discrepancy triage queue. Financial records are never corrected automatically: resolving one is a person's audited decision."
+        action={
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={downloadCsv}>
+              <Download className="h-4 w-4" aria-hidden /> Export CSV
+            </Button>
+            <Button onClick={() => detect.mutate()} loading={detect.isPending}>
+              <RefreshCw className="h-4 w-4" aria-hidden /> Run detection
+            </Button>
+          </div>
+        }
       />
 
-      <div className="flex flex-wrap gap-3">
-        <Button onClick={() => detect.mutate()} loading={detect.isPending}>
-          <RefreshCw className="h-4 w-4" /> Run detection
-        </Button>
-        <Button variant="secondary" onClick={downloadCsv}>
-          Export CSV
-        </Button>
-      </div>
-
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
-        {aging.data?.map((b) => (
-          <MetricCard key={b.bucket} label={b.bucket} value={String(b.count)} />
-        ))}
-      </div>
+      {/*
+        How long the open exceptions have waited, as the API buckets them. Counts only: the aging
+        report carries no amounts, and an amount across buckets would add currencies together.
+      */}
+      <section aria-labelledby="aging-heading" className="space-y-3">
+        <h2 id="aging-heading" className="font-display text-title font-bold text-text-primary">
+          How long they have waited
+        </h2>
+        {aging.isLoading ? (
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Skeleton key={i} className="h-24 w-full" />
+            ))}
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
+            {aging.data?.map((b, i) => (
+              <StatCard
+                key={b.bucket}
+                label={b.bucket}
+                value={b.count.toLocaleString()}
+                icon={Timer}
+                // Older buckets warm up: the longer an exception waits, the more it needs somebody.
+                tile={i === 0 ? 'teal' : i === 1 ? 'blue' : i === 2 ? 'purple' : 'amber'}
+              />
+            ))}
+          </div>
+        )}
+      </section>
 
       <Card
         title="Discrepancies"
@@ -222,6 +251,9 @@ export default function FinanceReconciliationPage() {
         }
       >
         <DataTable
+          caption="Discrepancies"
+          density="compact"
+          mobile="cards"
           columns={columns}
           rows={list.data}
           loading={list.isLoading}

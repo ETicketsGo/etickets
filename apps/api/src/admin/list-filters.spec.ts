@@ -58,6 +58,13 @@ function statusOf(fn: () => unknown): number | undefined {
 
 /** Every list and summary this change filters, and a valid status for each. */
 const ROUTES: { name: string; controller: Ctor; method: string; base: Record<string, string> }[] = [
+  { name: 'bookings', controller: AdminController, method: 'bookings', base: {} },
+  {
+    name: 'bookings summary',
+    controller: AdminController,
+    method: 'groupedBookings',
+    base: { groupBy: 'country' },
+  },
   {
     name: 'payments',
     controller: AdminController,
@@ -220,6 +227,28 @@ describe('each list applies every filter, inside AND', () => {
     ]);
   });
 
+  it('bookings: venue country, its organizer and event, and when it was made', async () => {
+    const count = jest.fn();
+    const prisma = {
+      $transaction: jest.fn().mockResolvedValue([0, []]),
+      booking: { count, findMany: jest.fn() },
+    };
+    await new AdminService(prisma as never, {} as never).bookings({
+      page: 1,
+      pageSize: 15,
+      status: 'CONFIRMED',
+      ...FILTERS,
+    });
+    const where = whereOf(count);
+    expect(where.status).toBe('CONFIRMED');
+    expect(where.AND).toEqual([
+      { event: { venue: { country: INDIA } } },
+      { organizationId: ORG },
+      { eventId: EVENT },
+      { createdAt: DAY },
+    ]);
+  });
+
   it('refunds: venue country, the refund’s own organizer, the booking’s event, when asked', async () => {
     const count = jest.fn();
     const prisma = {
@@ -308,12 +337,15 @@ describe('the grouped summary filters on the same columns as its list', () => {
   }
 
   it.each([
+    // Bookings take the same filters now (the bookings queue gained organizer, event and dates).
+    ['bookings', 'b."organizationId"', 'b."eventId"', 'b."createdAt"'],
     ['payments', 'b."organizationId"', 'b."eventId"', 'p."createdAt"'],
     ['refunds', 'r."organizationId"', 'b."eventId"', 'r."createdAt"'],
     ['settlements', 's."organizationId"', 's."eventId"', 's."createdAt"'],
   ])('%s', async (resource, organizer, event, created) => {
     const { service, $queryRawUnsafe } = grouping();
-    await service.grouped(resource, 'currency', FILTERS);
+    // Bookings have no currency grouping; the WHERE does not depend on the grouping.
+    await service.grouped(resource, resource === 'bookings' ? 'organizer' : 'currency', FILTERS);
 
     // Both statements - the counts and the money - carry the same WHERE.
     expect($queryRawUnsafe).toHaveBeenCalledTimes(2);
@@ -335,7 +367,7 @@ describe('the grouped summary filters on the same columns as its list', () => {
 
   it('a queue whose list has no such filter ignores it, as its list does', async () => {
     const { service, $queryRawUnsafe } = grouping();
-    await service.grouped('bookings', 'organizer', { organizationId: ORG, from: '2026-10-01' });
+    await service.grouped('events', 'organizer', { organizationId: ORG, from: '2026-10-01' });
     const [sql, ...params] = $queryRawUnsafe.mock.calls[0];
     expect(sql).not.toContain('WHERE');
     expect(params).toEqual([]);

@@ -1,7 +1,14 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { api, Card, ErrorState, Skeleton, money, moneyFractionDigits } from '@eticketsgo/web-kit';
+import {
+  api,
+  ErrorState,
+  SectionCard,
+  Skeleton,
+  money,
+  moneyFractionDigits,
+} from '@eticketsgo/web-kit';
 import { providerSections } from '@/lib/finance-view';
 
 /**
@@ -46,10 +53,10 @@ function Figure({
   fractionDigits: number;
 }) {
   return (
-    <div className="rounded-md border border-border px-3 py-2">
-      <dt className="text-caption text-text-muted">{label}</dt>
-      <dd className="mt-0.5">
-        <span className="font-medium tabular-nums text-text-primary">
+    <div className="rounded-md border border-border bg-background-surface px-4 py-3">
+      <dt className="text-caption font-medium text-text-secondary">{label}</dt>
+      <dd className="mt-1">
+        <span className="font-display text-title font-bold tabular-nums text-text-primary">
           {/*
             Null means the route does not report this concept - not that it is zero. A dash says
             so; a currency figure would state something the server declined to.
@@ -87,11 +94,10 @@ export function ProviderSettled({ organizationId }: { organizationId: string }) 
   if (sections.length === 0) return null;
 
   return (
-    <Card title="Settled by your payment provider">
-      <p className="-mt-2 mb-3 text-caption text-text-secondary">
-        Your provider pays this money to you directly, so it is not part of the figures above.
-      </p>
-
+    <SectionCard
+      title="Settled by your payment provider"
+      description="Your provider pays this money to you directly, so it is not part of the figures above."
+    >
       <div className="space-y-5">
         {sections.map((section) => {
           /*
@@ -114,12 +120,12 @@ export function ProviderSettled({ organizationId }: { organizationId: string }) 
             <section key={section.currency} aria-labelledby={`provider-${section.currency}`}>
               <h3
                 id={`provider-${section.currency}`}
-                className="mb-2 text-sm font-semibold text-text-primary"
+                className="mb-2 text-micro font-semibold uppercase tracking-[0.08em] text-text-muted"
               >
                 {section.currency}
               </h3>
 
-              <dl className="grid gap-2 sm:grid-cols-2">
+              <dl className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                 <Figure
                   label="Yours from these events"
                   amountMinor={section.entitlementMinor}
@@ -168,6 +174,6 @@ export function ProviderSettled({ organizationId }: { organizationId: string }) 
           );
         })}
       </div>
-    </Card>
+    </SectionCard>
   );
 }

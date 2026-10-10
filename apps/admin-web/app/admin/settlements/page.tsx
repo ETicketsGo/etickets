@@ -6,8 +6,9 @@ import {
   api,
   Button,
   DataTable,
+  Badge,
+  Card,
   Dialog,
-  StatusBadge,
   Pagination,
   PageHeader,
   GroupedSummary,
@@ -30,6 +31,8 @@ import {
   useFilterDescription,
   useUrlFilters,
 } from '../../../components/list-filters';
+import { MoneyStatusPill } from '../../../components/money-status';
+import { moneyStatusLabel } from '../../../lib/money-status';
 
 const STATUSES = [
   'PENDING',
@@ -84,104 +87,139 @@ export default function AdminSettlements() {
       }),
   });
 
+  /*
+    ── WHOSE, HOW MUCH, AND WHERE IT GOT TO ──────────────────────────────────────────
+    Eight columns - organizer, event, four amounts, status, date - were wider than the box on a
+    laptop. The event and its organizer are one fact (whose money), and the gross and refunds are
+    the working behind the payable figure, so they read as its detail line. The payable amount
+    and what has actually been transferred stay side by side: that pair is what an operator
+    compares.
+  */
   const columns: Column<SettlementRow>[] = [
     {
-      key: 'organization',
-      header: 'Organizer',
-      render: (s) => s.organization?.name ?? s.organizationId.slice(0, 8),
-    },
-    {
-      key: 'event',
-      header: 'Event',
-      render: (s) => s.event?.title ?? s.eventId.slice(0, 8),
-    },
-    {
-      key: 'gross',
-      header: 'Gross',
-      render: (s) => money(s.grossSalesMinor, s.currency),
-      sortable: true,
-      sortValue: (s) => s.grossSalesMinor,
-    },
-    {
-      key: 'refunds',
-      header: 'Refunds',
-      render: (s) => money(s.refundsMinor, s.currency),
+      key: 'settlement',
+      header: 'Settlement',
+      render: (s) => (
+        <div className="min-w-0 space-y-1">
+          <p className="font-medium text-text-primary">{s.event?.title ?? s.eventId.slice(0, 8)}</p>
+          <p className="text-caption text-text-secondary">
+            {s.organization?.name ?? s.organizationId.slice(0, 8)}
+          </p>
+          <p className="text-caption text-text-muted">Created {dateTime(s.createdAt)}</p>
+        </div>
+      ),
     },
     {
       key: 'payable',
       header: 'Payable',
-      render: (s) => <span className="font-semibold">{money(s.payableMinor, s.currency)}</span>,
+      className: 'whitespace-nowrap tabular-nums',
+      render: (s) => (
+        <div className="space-y-1">
+          <p className="font-semibold">{money(s.payableMinor, s.currency)}</p>
+          <p className="text-caption text-text-muted">
+            Gross {money(s.grossSalesMinor, s.currency)}
+          </p>
+          <p className="text-caption text-text-muted">
+            Refunds {money(s.refundsMinor, s.currency)}
+          </p>
+        </div>
+      ),
       sortable: true,
       sortValue: (s) => s.payableMinor,
     },
     {
       key: 'transferred',
       header: 'Transferred',
+      className: 'whitespace-nowrap tabular-nums',
       render: (s) => money(s.transferredMinor, s.currency),
     },
-    { key: 'status', header: 'Status', render: (s) => <StatusBadge status={s.status} /> },
-    { key: 'created', header: 'Created', render: (s) => dateTime(s.createdAt) },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (s) => <MoneyStatusPill entity="settlement" status={s.status} />,
+    },
   ];
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <PageHeader
         title="Settlements"
-        description="Marketplace payout ledger. Review, approve, release, or block organizer settlements."
+        description="Marketplace payout ledger. Review, approve, release or block organizer settlements."
       />
-      <div className="rounded-lg border border-border bg-background-surface p-4">
+      <Card>
         <FilterBar
           filters={filters}
           statuses={STATUSES}
+          statusName={(s) => moneyStatusLabel('settlement', s)}
           countryHint="Where the event took place. Dates are when the settlement was created."
         />
-      </div>
+      </Card>
 
-      <CurrencyTotals
-        resource="settlements"
-        status={status || undefined}
-        filters={scope}
-        enabled={!filters.invalidWindow}
-      />
-
-      <GroupedSummary
-        resource="settlements"
-        options={['country', 'organizer', 'event', 'currency']}
-        value={group}
-        status={status || undefined}
-        filters={scope}
-        onChange={(next) => {
-          // Page 1: the page number belonged to the previous scope, and page 4 of a group with
-          // two rows is an empty table that looks like "no results".
-          setGroup(next);
-          setPage(1);
-        }}
-      />
-      <DataTable
-        columns={columns}
-        rows={data?.data}
-        loading={isLoading}
-        error={isError ? "We couldn't load settlements. Please try again." : undefined}
-        onRetry={() => refetch()}
-        empty={
-          <EmptyState
-            title="No settlements match these filters"
-            hint={described ? `Nothing matches ${described}.` : undefined}
-            action={
-              filters.active ? (
-                <Button variant="outline" onClick={filters.clear}>
-                  Clear filters
-                </Button>
-              ) : undefined
-            }
-          />
+      <Card
+        title="Settlements"
+        action={
+          data ? (
+            <Badge tone="neutral">{data.meta.total.toLocaleString()} matching</Badge>
+          ) : undefined
         }
-        rowKey={(s) => s.id}
-        onRowClick={(s) => setSelectedId(s.id)}
-      />
-      {data && (
-        <Pagination page={data.meta.page} totalPages={data.meta.totalPages} onChange={setPage} />
-      )}
+      >
+        <div className="mb-3">
+          <CurrencyTotals
+            resource="settlements"
+            status={status || undefined}
+            filters={scope}
+            enabled={!filters.invalidWindow}
+          />
+        </div>
+
+        <GroupedSummary
+          resource="settlements"
+          options={['country', 'organizer', 'event', 'currency']}
+          value={group}
+          status={status || undefined}
+          filters={scope}
+          onChange={(next) => {
+            // Page 1: the page number belonged to the previous scope, and page 4 of a group with
+            // two rows is an empty table that looks like "no results".
+            setGroup(next);
+            setPage(1);
+          }}
+        />
+        <DataTable
+          caption="Settlements"
+          density="compact"
+          mobile="cards"
+          columns={columns}
+          rows={data?.data}
+          loading={isLoading}
+          error={isError ? "We couldn't load settlements. Please try again." : undefined}
+          onRetry={() => refetch()}
+          empty={
+            <EmptyState
+              title="No settlements match these filters"
+              hint={described ? `Nothing matches ${described}.` : undefined}
+              action={
+                filters.active ? (
+                  <Button variant="outline" onClick={filters.clear}>
+                    Clear filters
+                  </Button>
+                ) : undefined
+              }
+            />
+          }
+          rowKey={(s) => s.id}
+          onRowClick={(s) => setSelectedId(s.id)}
+        />
+        {data && data.meta.totalPages > 1 && (
+          <div className="mt-4">
+            <Pagination
+              page={data.meta.page}
+              totalPages={data.meta.totalPages}
+              onChange={setPage}
+            />
+          </div>
+        )}
+      </Card>
 
       {selectedId && <SettlementDetailDialog id={selectedId} onClose={() => setSelectedId(null)} />}
     </div>
@@ -190,9 +228,13 @@ export default function AdminSettlements() {
 
 function LedgerRow({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
   return (
-    <div className="flex items-center justify-between py-1.5 text-sm">
-      <span className="text-text-secondary">{label}</span>
-      <span className={strong ? 'font-semibold text-text-primary' : 'text-text-primary'}>
+    <div className="flex items-center justify-between py-2 text-ui">
+      <span className={strong ? 'font-semibold text-text-primary' : 'text-text-secondary'}>
+        {label}
+      </span>
+      <span
+        className={`tabular-nums ${strong ? 'font-semibold text-text-primary' : 'text-text-primary'}`}
+      >
         {value}
       </span>
     </div>
@@ -371,7 +413,7 @@ function SettlementDetailDialog({ id, onClose }: { id: string; onClose: () => vo
                 {detail.organization?.name ?? detail.organizationId}
               </p>
             </div>
-            <StatusBadge status={detail.status} />
+            <MoneyStatusPill entity="settlement" status={detail.status} />
           </div>
 
           <div className="rounded-lg border border-border">
@@ -438,7 +480,7 @@ function SettlementDetailDialog({ id, onClose }: { id: string; onClose: () => vo
                       <span className="text-text-primary">
                         {money(p.amountMinor, detail.currency)}
                       </span>
-                      <StatusBadge status={p.status} />
+                      <MoneyStatusPill entity="payment" status={p.status} size="sm" />
                     </span>
                   </li>
                 ))}
