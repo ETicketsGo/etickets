@@ -15,6 +15,14 @@ import {
   performanceFor,
   pickCurrency,
   recentActivity,
+  eventsStartingWithin,
+  homeWindow,
+  showsOnDay,
+  showsPerDay,
+  showsToday,
+  upcomingEventCount,
+  upcomingEventShows,
+  viewerToday,
 } from './model';
 
 const analytics = {
@@ -245,5 +253,87 @@ describe('the next show per event', () => {
   it('keeps the week out of a longer window', () => {
     const rows = [at('a', 'e1', '2026-10-12T10:00:00Z'), at('b', 'e1', '2026-10-30T10:00:00Z')];
     expect(startingWithin(rows, 7, now).map((s) => s.id)).toEqual(['a']);
+  });
+});
+
+describe('the premium Overview', () => {
+  const ev = (id: string, status = 'PUBLISHED') => ({
+    id,
+    title: id,
+    category: 'MUSIC',
+    status,
+    experienceType: 'EVENT',
+  });
+  // 10 Oct 2026, 12:00 UTC = 17:30 in Kolkata; 06:00 in Boise (America/Boise, MDT).
+  const now = new Date('2026-10-10T12:00:00Z');
+
+  it('reads this month and the next four weeks, inside the API 62-day ceiling', () => {
+    for (const today of ['2026-10-01', '2026-10-10', '2026-10-31', '2026-02-28', '2026-12-31']) {
+      const w = homeWindow(today);
+      const days = (Date.parse(w.to) - Date.parse(w.from)) / 86_400_000;
+      expect(days).toBeLessThanOrEqual(62);
+      expect(w.from <= `${today.slice(0, 8)}01T00:00:00.000Z`).toBe(true);
+      // Four weeks ahead are always covered, so "Upcoming events" never goes blank on the 30th.
+      expect(Date.parse(w.to)).toBeGreaterThanOrEqual(
+        Date.parse(`${today}T00:00:00Z`) + 27 * 86_400_000,
+      );
+    }
+  });
+
+  it("names today in the viewer's zone, not UTC", () => {
+    const late = new Date('2026-10-10T20:00:00Z');
+    expect(viewerToday(late, 'UTC')).toBe('2026-10-10');
+    expect(viewerToday(late, 'Asia/Kolkata')).toBe('2026-10-11');
+  });
+
+  it('puts a show on the date AT ITS VENUE, and never counts a cancelled one', () => {
+    const rows = [
+      // 23:30 in Kolkata on the 10th is 18:00 UTC: still the 10th at the venue.
+      show('late-kolkata', '2026-10-10T18:00:00Z'),
+      show('next-day', '2026-10-10T19:00:00Z'),
+      show('off', '2026-10-10T14:00:00Z', { status: 'CANCELLED' }),
+    ];
+    const perDay = showsPerDay(rows);
+    expect(perDay.get('2026-10-10')).toBe(1);
+    expect(perDay.get('2026-10-11')).toBe(1);
+    expect(showsOnDay(rows, '2026-10-11').map((s) => s.id)).toEqual(['next-day']);
+  });
+
+  it('lists today the shows still to start, each judged by the date at its own venue', () => {
+    const rows = [
+      show('evening', '2026-10-10T14:00:00Z'),
+      show('started', '2026-10-10T11:00:00Z'),
+      show('tomorrow-in-kolkata', '2026-10-10T19:00:00Z'),
+      // 18:00 in Boise on the 10th: tomorrow in Kolkata and in UTC, but today at the venue.
+      show('boise', '2026-10-11T00:00:00Z', {
+        venue: { id: 'b', name: 'B', city: 'Boise', country: 'US', timezone: 'America/Boise' },
+      }),
+    ];
+    expect(showsToday(rows, now).map((s) => s.id)).toEqual(['evening', 'boise']);
+  });
+
+  it('shows one card per event: its next show still to start, soonest first', () => {
+    const rows = [
+      show('a-2', '2026-10-12T10:00:00Z', { event: ev('a') }),
+      show('b-1', '2026-10-11T10:00:00Z', { event: ev('b') }),
+      show('a-1', '2026-10-10T13:00:00Z', { event: ev('a') }),
+      show('c-running', '2026-10-10T11:00:00Z', { event: ev('c') }),
+      show('d-1', '2026-10-13T10:00:00Z', { event: ev('d') }),
+    ];
+    expect(upcomingEventShows(rows, now, 3).map((s) => s.id)).toEqual(['a-1', 'b-1', 'd-1']);
+    expect(eventsStartingWithin(rows, 7, now)).toBe(3);
+    expect(eventsStartingWithin(rows, 1, now)).toBe(2);
+  });
+
+  it('counts upcoming events from the event list, however far ahead, never a cancelled one', () => {
+    expect(
+      upcomingEventCount([
+        { status: 'PUBLISHED', schedule: { upcomingSessions: 2 } },
+        { status: 'DRAFT', schedule: { upcomingSessions: 1 } },
+        { status: 'CANCELLED', schedule: { upcomingSessions: 3 } },
+        { status: 'PUBLISHED', schedule: { upcomingSessions: 0 } },
+        { status: 'PUBLISHED' },
+      ]),
+    ).toBe(2);
   });
 });
