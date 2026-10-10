@@ -297,7 +297,7 @@ export function OfflineCheckin({
           <div
             role="alert"
             data-testid="durability-warning"
-            className="rounded-md border border-status-error/30 bg-status-error/10 px-3 py-2 text-caption text-status-error"
+            className="rounded-md border border-status-error/30 bg-tint-error px-3 py-2 text-caption text-status-error"
           >
             Durable offline queueing is unavailable in this browser (IndexedDB disabled). Do not
             rely on offline mode here — use a supported browser, or stay online.
@@ -359,8 +359,8 @@ export function OfflineCheckin({
             data-testid="offline-result"
             className={`rounded-md border px-3 py-2 text-[0.9375rem] font-medium ${
               lastResult === 'VALID'
-                ? 'border-status-success/30 bg-status-success/10 text-status-success'
-                : 'border-status-warning/30 bg-status-warning/10 text-status-warning'
+                ? 'border-status-success/30 bg-tint-success text-status-success'
+                : 'border-status-warning/30 bg-tint-warning text-status-warning'
             }`}
           >
             {lastResult === 'VALID' ? 'Valid — queued offline' : lastResult.replaceAll('_', ' ')}
@@ -380,7 +380,7 @@ export function OfflineCheckin({
         {blocked > 0 && (
           <div
             role="alert"
-            className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-status-error/30 bg-status-error/10 px-3 py-2 text-caption text-status-error"
+            className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-status-error/30 bg-tint-error px-3 py-2 text-caption text-status-error"
             data-testid="deadletter-banner"
           >
             <span>

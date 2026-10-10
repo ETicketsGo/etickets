@@ -47,10 +47,10 @@ export function PricingCompliancePanel({ cinemaId }: { cinemaId: string }) {
         role="status"
         className={`rounded-md px-3 py-2 text-[0.9375rem] ${
           blocked
-            ? 'bg-status-error/10 text-status-error'
+            ? 'bg-tint-error text-status-error'
             : review
-              ? 'bg-status-warning/10 text-status-warning'
-              : 'bg-status-success/10 text-status-success'
+              ? 'bg-tint-warning text-status-warning'
+              : 'bg-tint-success text-status-success'
         }`}
       >
         {c.summary}
