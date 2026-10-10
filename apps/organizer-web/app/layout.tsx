@@ -1,19 +1,9 @@
 import type { Metadata } from 'next';
-import { Inter, Plus_Jakarta_Sans } from 'next/font/google';
 import './globals.css';
 import { WebProviders, workspaceThemeScript } from '@eticketsgo/web-kit';
-
-const inter = Inter({ subsets: ['latin'], variable: '--font-inter', display: 'swap' });
-/*
-  The console's display face: page titles and the big numbers only (DESIGN-DIRECTION). Inter
-  stays the face for everything a person reads at length.
-*/
-const display = Plus_Jakarta_Sans({
-  subsets: ['latin'],
-  variable: '--font-display',
-  weight: ['600', '700'],
-  display: 'swap',
-});
+// Self-hosted, so `next build` never downloads fonts; the display face is for titles only.
+import { inter } from '@eticketsgo/web-kit/fonts/inter';
+import { display } from '@eticketsgo/web-kit/fonts/display';
 
 export const metadata: Metadata = {
   title: 'ETicketsGo — Organizer',

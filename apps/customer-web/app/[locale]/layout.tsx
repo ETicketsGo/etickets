@@ -1,5 +1,4 @@
 import type { Metadata, Viewport } from 'next';
-import { Inter } from 'next/font/google';
 import '../globals.css';
 import { notFound } from 'next/navigation';
 import { hasLocale, NextIntlClientProvider } from 'next-intl';
@@ -11,8 +10,8 @@ import { SiteChrome } from '@/components/site-chrome';
 import { SkipToContent } from '@/components/skip-to-content';
 import { SwRegister } from '@/components/sw-register';
 import { serverSessionHint } from '@/lib/session-hint';
-
-const inter = Inter({ subsets: ['latin'], variable: '--font-inter', display: 'swap' });
+// Self-hosted, so `next build` never downloads fonts.
+import { inter } from '@eticketsgo/web-kit/fonts/inter';
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://eticketsgo.com';
 
