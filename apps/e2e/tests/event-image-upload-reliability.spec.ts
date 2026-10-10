@@ -83,6 +83,9 @@ async function fillWizard(page: Page, title: string, open: 'load' | 'in-app' = '
   await page.getByRole('radio', { name: 'Concert or live music' }).check();
   await page.getByRole('button', { name: 'Continue' }).click();
   await page.getByLabel('Event title').fill(title);
+  // The pictures are on the first step, with the title, so the preview has them throughout.
+  await page.getByLabel('Event images').setInputFiles([pixel('poster.png'), pixel('stage.png')]);
+  await expect(page.getByRole('img', { name: /^Event image \d of 2/ })).toHaveCount(2);
   await page.getByRole('button', { name: 'Continue' }).click();
 
   await page.getByRole('group', { name: 'Venue' }).getByRole('radio').first().check();
@@ -102,10 +105,7 @@ async function fillWizard(page: Page, title: string, open: 'load' | 'in-app' = '
     .getByRole('group', { name: 'Ticket type 1' })
     .getByLabel(/^Price/)
     .fill('499');
-  await page.getByRole('button', { name: 'Continue' }).click();
-
-  await page.getByLabel('Event images').setInputFiles([pixel('poster.png'), pixel('stage.png')]);
-  await expect(page.getByRole('img', { name: /^Event image \d of 2/ })).toHaveCount(2);
+  await page.getByRole('button', { name: 'Continue' }).click(); // details - nothing required
   await page.getByRole('button', { name: 'Continue' }).click();
   await expect(page.getByRole('button', { name: 'Create draft event' })).toBeEnabled();
 }

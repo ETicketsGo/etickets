@@ -1,52 +1,36 @@
-import {
-  CheckCircle2,
-  CircleDashed,
-  Clock,
-  Flag,
-  PauseCircle,
-  Ticket,
-  XCircle,
-  type LucideIcon,
-} from 'lucide-react';
+import { statusTone, type StatusTone } from '@/lib/calendar';
 
 /**
- * How each status LOOKS on the calendar: a colour and an icon, never the colour alone.
+ * How each status LOOKS on the calendar: a coloured dot beside the session, and a pill with
+ * the words wherever there is room for them.
  *
- * The tones follow the console's StatusBadge (published is green, under review and paused amber,
- * cancelled red, draft grey) so a status reads the same here as on the events list. Statuses
- * sharing a tone are told apart by the icon and by the words every chip carries in its
- * accessible name. Only semantic tokens: `bg-tint-*` pairs with `text-status-*` at a contrast
- * `token-contrast.test.ts` asserts, and a restyle of the tokens restyles the calendar.
+ * The dot is never the only carrier of the status. Every chip and block names it in its
+ * accessible name, and the day panel, the agenda and the preview print it as a pill - so the
+ * colour is a scanning aid for a sighted reader, not the information itself. Only semantic
+ * tokens: `bg-status-*` for the dot, and the web-kit `StatusPill` for the words, whose pairs
+ * `token-contrast.test.ts` asserts. The admin calendar uses the same table and classes.
  */
-interface StatusLook {
-  icon: LucideIcon;
-  /** Chip background and left rule. */
-  chip: string;
-  /** The icon's colour, readable on `chip`. */
-  accent: string;
+const DOT: Record<StatusTone, string> = {
+  success: 'bg-status-success',
+  warning: 'bg-status-warning',
+  error: 'bg-status-error',
+  info: 'bg-status-info',
+  neutral: 'bg-text-muted',
+};
+
+/** The rule down the left of a block in the week and day grid. */
+const RULE: Record<StatusTone, string> = {
+  success: 'border-l-status-success',
+  warning: 'border-l-status-warning',
+  error: 'border-l-status-error',
+  info: 'border-l-status-info',
+  neutral: 'border-l-text-muted',
+};
+
+export function statusDot(status: string): string {
+  return DOT[statusTone(status)];
 }
 
-const SUCCESS = {
-  chip: 'bg-tint-success border-status-success',
-  accent: 'text-status-success',
-};
-const WARNING = {
-  chip: 'bg-tint-warning border-status-warning',
-  accent: 'text-status-warning',
-};
-const ERROR = { chip: 'bg-tint-error border-status-error', accent: 'text-status-error' };
-const NEUTRAL = { chip: 'bg-background-subtle border-text-muted', accent: 'text-text-secondary' };
-
-const LOOKS: Record<string, StatusLook> = {
-  DRAFT: { icon: CircleDashed, ...NEUTRAL },
-  UNDER_REVIEW: { icon: Clock, ...WARNING },
-  PUBLISHED: { icon: CheckCircle2, ...SUCCESS },
-  PAUSED: { icon: PauseCircle, ...WARNING },
-  SOLD_OUT: { icon: Ticket, ...WARNING },
-  CANCELLED: { icon: XCircle, ...ERROR },
-  COMPLETED: { icon: Flag, ...SUCCESS },
-};
-
-export function statusLook(status: string): StatusLook {
-  return LOOKS[status] ?? { icon: CircleDashed, ...NEUTRAL };
+export function statusRule(status: string): string {
+  return RULE[statusTone(status)];
 }

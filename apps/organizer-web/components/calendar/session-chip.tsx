@@ -8,7 +8,7 @@ import {
   type CalendarSession,
   type DaySegment,
 } from '@/lib/calendar';
-import { statusLook } from './status-style';
+import { statusDot, statusRule } from './status-style';
 
 export type OpenSession = (session: CalendarSession, trigger: HTMLElement) => void;
 
@@ -22,7 +22,13 @@ export function sessionLabel(s: CalendarSession): string {
   return `${time}, ${s.title}${place ? `, ${place}` : ''}. ${displayStatus(s).label}`;
 }
 
-/** A compact session for a month cell: icon, time, title. */
+/**
+ * A compact session for a month cell: status dot and time, the title under them.
+ *
+ * Quiet by design. A busy month is a wall of these, and thirty tinted boxes read as noise;
+ * a dot and a line of text scan like the reference's calendar card. The words of the status
+ * are in the accessible name and in the day panel beside the grid.
+ */
 export function SessionChip({
   segment,
   onOpen,
@@ -33,8 +39,7 @@ export function SessionChip({
   tabbable: boolean;
 }) {
   const s = segment.session;
-  const look = statusLook(displayStatus(s).status);
-  const Icon = look.icon;
+  const shown = displayStatus(s);
   return (
     <button
       type="button"
@@ -46,13 +51,20 @@ export function SessionChip({
         e.stopPropagation();
         onOpen(s, e.currentTarget);
       }}
-      className={`flex w-full min-w-0 items-center gap-1 rounded border-l-2 px-1 py-0.5 text-left text-caption text-text-primary hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${look.chip}`}
+      className="block w-full min-w-0 rounded-md px-1.5 py-0.5 text-left text-micro leading-[1.125rem] text-text-primary transition-colors duration-150 hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
-      <Icon className={`h-3 w-3 shrink-0 ${look.accent}`} aria-hidden />
-      <span className="shrink-0 font-mono tabular-nums">
-        {segment.continuesBefore ? 'cont.' : formatClock(s.startsAt, s.zone)}
+      <span className="flex items-center gap-1.5">
+        <span aria-hidden className={`h-2 w-2 shrink-0 rounded-full ${statusDot(shown.status)}`} />
+        <span className="font-semibold tabular-nums">
+          {segment.continuesBefore ? 'cont.' : formatClock(s.startsAt, s.zone)}
+        </span>
       </span>
-      <span className="hidden min-w-0 truncate sm:inline">{s.title}</span>
+      {/* The title on its own line: beside the time, a month cell leaves it a few letters. */}
+      <span
+        className={`block truncate pl-3.5 text-text-secondary ${shown.status === 'CANCELLED' ? 'line-through' : ''}`}
+      >
+        {s.title}
+      </span>
     </button>
   );
 }
@@ -72,8 +84,6 @@ export function SessionBlock({
 }) {
   const s = segment.session;
   const shown = displayStatus(s);
-  const look = statusLook(shown.status);
-  const Icon = look.icon;
   const start = segment.continuesBefore ? 'cont.' : formatClock(s.startsAt, s.zone);
   return (
     <button
@@ -83,16 +93,15 @@ export function SessionBlock({
       title={sessionLabel(s)}
       onClick={(e) => onOpen(s, e.currentTarget)}
       style={style}
-      className={`absolute flex flex-col justify-start overflow-hidden rounded border-l-4 px-1.5 py-1 text-left text-caption leading-tight text-text-primary shadow-xs hover:z-10 hover:brightness-95 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${look.chip}`}
+      className={`absolute flex flex-col justify-start overflow-hidden rounded-md border border-l-[3px] border-border bg-background-surface px-2 py-1 text-left text-micro leading-tight text-text-primary shadow-xs transition-shadow duration-150 hover:z-10 hover:shadow-md focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${statusRule(shown.status)}`}
     >
       <span className="flex items-center gap-1">
-        <Icon className={`h-3 w-3 shrink-0 ${look.accent}`} aria-hidden />
-        <span className="font-mono tabular-nums">{start}</span>
+        <span className="font-semibold tabular-nums">{start}</span>
         {!narrow && (
-          <span className="truncate text-text-secondary">{zoneAbbrev(s.zone, s.startsAt)}</span>
+          <span className="truncate text-text-muted">{zoneAbbrev(s.zone, s.startsAt)}</span>
         )}
       </span>
-      <span className="block truncate font-medium">{s.title}</span>
+      <span className="block truncate font-semibold">{s.title}</span>
       {!narrow && (
         <>
           <span className="block truncate text-text-secondary">

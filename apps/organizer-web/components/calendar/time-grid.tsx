@@ -58,10 +58,10 @@ export function TimeGrid({
   const single = days.length === 1;
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-border bg-background-surface">
+    <div className="overflow-x-auto rounded-lg border border-border bg-background-surface shadow-xs">
       <div className={single ? '' : 'min-w-[44rem]'}>
         <div
-          className="grid border-b border-border bg-background-subtle"
+          className="grid border-b border-border"
           style={{ gridTemplateColumns: `3.5rem repeat(${days.length}, minmax(0, 1fr))` }}
         >
           <div />
@@ -70,15 +70,19 @@ export function TimeGrid({
             return (
               <div
                 key={d}
-                className="border-l border-border px-2 py-2 text-caption"
+                className="border-l border-border px-2 py-2.5 text-caption"
                 data-testid={`grid-day-${d}`}
               >
                 <span
-                  className={`font-semibold ${d === today ? 'text-action-primary' : 'text-text-primary'}`}
+                  className={`inline-flex items-center gap-1.5 font-semibold ${d === today ? 'text-action-primary' : 'text-text-primary'}`}
                 >
                   {single ? formatDayLong(d) : formatDayShort(d)}
+                  {d === today && (
+                    <span className="rounded-full bg-tint-primary px-2 py-0.5 text-[0.6875rem] font-semibold text-action-primary ring-1 ring-action-primary">
+                      Today
+                    </span>
+                  )}
                 </span>
-                {d === today && <span className="ml-1 text-text-secondary">(today)</span>}
                 <span className="block text-text-muted">
                   {total === 0 ? 'No sessions' : total === 1 ? '1 session' : `${total} sessions`}
                 </span>
