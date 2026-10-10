@@ -3,8 +3,8 @@
 import { useCallback, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api, type Cinema, type ShowRow } from '@eticketsgo/web-kit';
-import { eventSaleStates } from '../../lib/sale-state';
-import { isUpcoming, type MaybeSale } from './cinema-model';
+import { eventSaleStates, sessionSaleStates } from '../../lib/sale-state';
+import { isUpcoming, showSaleVerdict, type MaybeSale, type SaleVerdict } from './cinema-model';
 
 /** The organization's cinemas, with lookups for each one's zone and state. */
 export function useCinemas(organizationId: string) {
@@ -61,4 +61,53 @@ export function useListingSales(organizationId: string, rows: ShowRow[], now: Da
     [q.isError, q.data, byId],
   );
   return { listing, loading: q.isLoading };
+}
+
+/**
+ * The server's unified sale state for each of these shows, as a verdict in words - the same
+ * answer the Overview, the event pages and checkout read. One request per 50 shows.
+ *
+ * `undefined` while loading ("Checking sale status"), `null` when it could not be read - an
+ * operator without access, or an older API ("Sale status unavailable"). Never a guess.
+ */
+export function useShowVerdicts(
+  organizationId: string,
+  rows: ShowRow[],
+  zoneOf: (cinemaId: string | null | undefined) => string | undefined,
+) {
+  const ids = useMemo(() => [...new Set(rows.map((s) => s.sessionId))].sort(), [rows]);
+  /*
+    The key carries what each row says about itself, not only its id. A show paused, reopened,
+    cancelled or moved comes back from its own list with a new status or window, and its sale
+    state has to be asked again: keyed on ids alone, a paused show kept saying "Selling" for
+    as long as the cached answer lived.
+  */
+  const facts = useMemo(
+    () =>
+      [...rows]
+        .sort((a, b) => a.sessionId.localeCompare(b.sessionId))
+        .map(
+          (s) =>
+            `${s.sessionId}:${s.status}:${s.startsAt}:${s.salesStartAt ?? ''}:${s.salesEndAt ?? ''}`,
+        )
+        .join(','),
+    [rows],
+  );
+  const q = useQuery({
+    queryKey: ['organizer-sale-eligibility', organizationId, facts],
+    queryFn: () => sessionSaleStates(organizationId, ids),
+    enabled: ids.length > 0,
+    staleTime: 30_000,
+    retry: false,
+  });
+  const bySession = useMemo(() => new Map((q.data ?? []).map((a) => [a.sessionId, a])), [q.data]);
+  return useCallback(
+    (s: ShowRow): SaleVerdict =>
+      showSaleVerdict({
+        show: s,
+        timeZone: zoneOf(s.cinemaId),
+        sale: q.isError ? null : q.data ? (bySession.get(s.sessionId) ?? null) : undefined,
+      }),
+    [q.isError, q.data, bySession, zoneOf],
+  );
 }

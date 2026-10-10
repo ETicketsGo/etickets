@@ -1,15 +1,15 @@
 'use client';
 
 import Link from 'next/link';
-import { ArrowRight, Building2 } from 'lucide-react';
-import { Meter } from '@eticketsgo/web-kit';
+import { ArrowRight, Building2, Clock } from 'lucide-react';
+import { IconTile, ProgressMeter } from '@eticketsgo/web-kit';
 import {
   formatClock,
-  percentSold,
+  zoneShort,
   type CinemaGlance as Glance,
   type SaleVerdict,
 } from './cinema-model';
-import { SaleChip } from './sale-chip';
+import { SalePill } from './sale-pill';
 
 /**
  * Today and the coming week at each cinema, built from the showtimes already loaded.
@@ -35,97 +35,91 @@ export function CinemaGlanceStrip({
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2
           id="glance-heading"
-          className="text-title font-semibold tracking-tight text-text-primary"
+          className="font-display text-[1.0625rem] font-bold text-text-primary"
         >
           This week at your cinemas
         </h2>
         {glances.length > limit ? (
           <Link
-            href="/organizer/cinemas"
-            className="rounded text-caption font-medium text-action-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            href="/organizer/venues"
+            className="inline-flex items-center gap-1 rounded-sm text-ui font-medium text-action-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            All {glances.length} cinemas
+            All {glances.length} cinemas <ArrowRight className="h-4 w-4" aria-hidden />
           </Link>
         ) : null}
       </div>
-      <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {shown.map((g) => {
-          const pct = percentSold(g.today.sold, g.today.total);
-          const weekPct = percentSold(g.week.sold, g.week.total);
-          return (
-            <li
-              key={g.cinemaId}
-              className="flex min-w-0 flex-col gap-3 rounded-lg border border-border bg-background-surface p-4"
-            >
-              <div className="flex min-w-0 items-start gap-2.5">
-                <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-tint-primary text-action-primary">
-                  <Building2 className="h-4 w-4" aria-hidden />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <h3 className="line-clamp-2 break-words text-[0.9375rem] font-semibold text-text-primary">
-                    {g.cinemaName}
-                  </h3>
-                  <SaleChip verdict={verdictOf(g.cinemaId)} className="mt-1" />
+      <ul className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        {shown.map((g) => (
+          <li
+            key={g.cinemaId}
+            className="flex min-w-0 flex-col gap-4 rounded-lg border border-border bg-background-surface p-4 shadow-xs sm:p-5"
+          >
+            <div className="flex min-w-0 items-start gap-3">
+              <IconTile icon={Building2} tone="blue" />
+              <div className="min-w-0 flex-1">
+                <h3 className="line-clamp-2 break-words text-[0.9375rem] font-semibold leading-snug text-text-primary">
+                  {g.cinemaName}
+                </h3>
+                <div className="mt-1.5">
+                  <SalePill verdict={verdictOf(g.cinemaId)} size="sm" wrap />
                 </div>
               </div>
-              <dl className="grid grid-cols-2 gap-3 text-[0.875rem]">
-                <div className="min-w-0">
-                  <dt className="text-caption text-text-muted">Today</dt>
-                  <dd className="font-semibold tabular-nums text-text-primary">
-                    {g.today.shows} {g.today.shows === 1 ? 'show' : 'shows'}
-                  </dd>
-                  {g.today.total > 0 ? (
-                    <dd className="mt-1 space-y-1">
-                      <span className="block text-caption tabular-nums text-text-secondary">
-                        {g.today.sold} of {g.today.total} seats{pct !== null ? ` (${pct}%)` : ''}
-                      </span>
-                      <Meter
-                        value={g.today.sold}
-                        max={g.today.total}
-                        label={`Seats sold today at ${g.cinemaName}`}
-                      />
-                    </dd>
-                  ) : null}
-                </div>
-                <div className="min-w-0">
-                  <dt className="text-caption text-text-muted">Next 7 days</dt>
-                  <dd className="font-semibold tabular-nums text-text-primary">
-                    {g.week.shows} {g.week.shows === 1 ? 'show' : 'shows'}
-                  </dd>
-                  {g.week.total > 0 ? (
-                    <dd className="mt-1 text-caption tabular-nums text-text-secondary">
-                      {g.week.sold} of {g.week.total} seats
-                      {weekPct !== null ? ` (${weekPct}%)` : ''}
-                    </dd>
-                  ) : null}
-                </div>
-              </dl>
-              <div className="mt-auto flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3 text-caption">
-                <span className="min-w-0 text-text-secondary">
-                  {g.nextToday ? (
-                    <>
-                      Next today{' '}
-                      <span className="font-semibold tabular-nums text-text-primary">
-                        {formatClock(g.nextToday.startsAt, g.timeZone)}
-                      </span>{' '}
-                      <span className="break-words">{g.nextToday.movieTitle}</span>
-                    </>
-                  ) : (
-                    'Nothing more today'
-                  )}
-                </span>
-                <Link
-                  href={`/organizer/cinemas/${g.cinemaId}/schedule`}
-                  aria-label={`Open the schedule for ${g.cinemaName}`}
-                  className="inline-flex items-center gap-1 rounded font-medium text-action-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  Schedule
-                  <ArrowRight className="h-3.5 w-3.5" aria-hidden />
-                </Link>
+            </div>
+            <dl className="grid grid-cols-2 gap-4">
+              <div className="min-w-0">
+                <dt className="text-caption text-text-muted">Today</dt>
+                <dd className="font-display text-[1.375rem] font-bold leading-tight tabular-nums text-text-primary">
+                  {g.today.shows}
+                  <span className="ml-1 font-sans text-caption font-normal text-text-muted">
+                    {g.today.shows === 1 ? 'show' : 'shows'}
+                  </span>
+                </dd>
               </div>
-            </li>
-          );
-        })}
+              <div className="min-w-0">
+                <dt className="text-caption text-text-muted">Next 7 days</dt>
+                <dd className="font-display text-[1.375rem] font-bold leading-tight tabular-nums text-text-primary">
+                  {g.week.shows}
+                  <span className="ml-1 font-sans text-caption font-normal text-text-muted">
+                    {g.week.shows === 1 ? 'show' : 'shows'}
+                  </span>
+                </dd>
+              </div>
+            </dl>
+            {g.week.total > 0 ? (
+              <ProgressMeter
+                value={g.week.sold}
+                max={g.week.total}
+                size="sm"
+                unit="seats sold this week"
+                label={`Seats sold in the next 7 days at ${g.cinemaName}`}
+              />
+            ) : null}
+            <div className="mt-auto flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3 text-caption">
+              <span className="flex min-w-0 items-center gap-1.5 text-text-secondary">
+                <Clock className="h-3.5 w-3.5 shrink-0 text-text-muted" aria-hidden />
+                {g.nextToday ? (
+                  <span className="min-w-0 break-words">
+                    Next today{' '}
+                    <span className="font-semibold tabular-nums text-text-primary">
+                      {formatClock(g.nextToday.startsAt, g.timeZone)}
+                    </span>{' '}
+                    {zoneShort(g.nextToday.startsAt, g.timeZone)} - {g.nextToday.movieTitle}
+                  </span>
+                ) : (
+                  'Nothing more today'
+                )}
+              </span>
+              <Link
+                href={`/organizer/cinemas/${g.cinemaId}/schedule`}
+                aria-label={`Open the schedule for ${g.cinemaName}`}
+                className="inline-flex items-center gap-1 rounded-sm font-medium text-action-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                Schedule
+                <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+              </Link>
+            </div>
+          </li>
+        ))}
       </ul>
     </section>
   );

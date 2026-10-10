@@ -477,3 +477,130 @@ export function cinemaSaleVerdict(
   if (folded === null) return unconfirmed(false);
   return saleViewOf(folded);
 }
+
+// ── The design system's words for a verdict ───────────────────────────────────────
+
+/** The three states `SellingPill` draws. Mirrors web-kit's `SellingState`. */
+export type PillSelling =
+  { state: 'selling' } | { state: 'partly'; reason: string } | { state: 'not'; reason: string };
+
+/**
+ * A verdict as the design system's selling pill takes it, or null while there is no server
+ * answer to draw ("Checking sale status", "Sale status unavailable").
+ *
+ * The reason is the verdict's own words after the colon, so a refinement such as "bookings
+ * open Sat 24 Oct, 10:00" survives. A PARTIAL answer is never turned into plain "selling".
+ */
+export function pillSellingOf(v: Pick<SaleVerdict, 'state' | 'label'>): PillSelling | null {
+  const at = v.label.indexOf(': ');
+  const reason = at >= 0 ? v.label.slice(at + 2) : v.label;
+  switch (v.state) {
+    case 'SELLING':
+      return { state: 'selling' };
+    case 'PARTIAL':
+      return { state: 'partly', reason };
+    case 'NOT_SELLING':
+      return { state: 'not', reason };
+    default:
+      return null;
+  }
+}
+
+// ── The library's figures ─────────────────────────────────────────────────────────
+
+export interface LibraryStats {
+  films: number;
+  published: number;
+  /** Films with at least one upcoming show. */
+  playing: number;
+  upcomingShows: number;
+  /** Distinct cinemas with an upcoming show of any film. */
+  cinemas: number;
+  sold: number;
+  total: number;
+}
+
+/**
+ * The four figures over the library, summed from the per-film programmes already loaded.
+ * Nothing is estimated: a film whose showtimes have not loaded yet adds nothing, and the page
+ * says it is still loading rather than printing a total that will change.
+ */
+export function libraryStats(
+  films: { movie: Pick<Movie, 'status'>; programme: FilmProgramme | null }[],
+): LibraryStats {
+  const cinemas = new Set<string>();
+  const out: LibraryStats = {
+    films: films.length,
+    published: 0,
+    playing: 0,
+    upcomingShows: 0,
+    cinemas: 0,
+    sold: 0,
+    total: 0,
+  };
+  for (const f of films) {
+    if (f.movie.status === 'PUBLISHED') out.published += 1;
+    const p = f.programme;
+    if (!p || p.upcoming === 0) continue;
+    out.playing += 1;
+    out.upcomingShows += p.upcoming;
+    out.sold += p.sold;
+    out.total += p.total;
+    for (const c of p.cinemas) cinemas.add(c.id);
+  }
+  out.cinemas = cinemas.size;
+  return out;
+}
+
+export interface ScreenUse {
+  screenId: string;
+  screenName: string;
+  shows: number;
+}
+
+export interface CinemaUse {
+  cinemaId: string;
+  cinemaName: string;
+  shows: number;
+  next: ShowRow;
+  screens: ScreenUse[];
+}
+
+/**
+ * Where a film plays from now on: each cinema with its screens and how many shows each has,
+ * busiest first. The film page's "Where it plays" panel.
+ */
+export function cinemaUseOf(rows: ShowRow[] | undefined, now: Date): CinemaUse[] {
+  const byCinema = new Map<string, CinemaUse & { byScreen: Map<string, ScreenUse> }>();
+  const upcoming = (rows ?? [])
+    .filter((s) => isUpcoming(s, now))
+    .sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+  for (const s of upcoming) {
+    const id = s.cinemaId ?? 'unknown';
+    let c = byCinema.get(id);
+    if (!c) {
+      c = {
+        cinemaId: id,
+        cinemaName: s.cinemaName ?? 'Unknown cinema',
+        shows: 0,
+        next: s,
+        screens: [],
+        byScreen: new Map(),
+      };
+      byCinema.set(id, c);
+    }
+    c.shows += 1;
+    const sid = s.screenId ?? 'unassigned';
+    const scr = c.byScreen.get(sid);
+    if (scr) scr.shows += 1;
+    else c.byScreen.set(sid, { screenId: sid, screenName: s.screenName ?? 'No screen', shows: 1 });
+  }
+  return [...byCinema.values()]
+    .map(({ byScreen, ...c }) => ({
+      ...c,
+      screens: [...byScreen.values()].sort(
+        (a, b) => b.shows - a.shows || a.screenName.localeCompare(b.screenName),
+      ),
+    }))
+    .sort((a, b) => b.shows - a.shows || a.cinemaName.localeCompare(b.cinemaName));
+}
