@@ -93,9 +93,23 @@ test('organizer logs in and creates + submits an event via the wizard', async ({
   ).toBeVisible();
   await page.getByRole('button', { name: 'Submit for approval' }).click();
 
-  // Redirected to the event overview, now under review
-  await expect(page).toHaveURL(/\/organizer\/events\/.+/, { timeout: 20_000 });
-  await expect(page.getByText('In review').first()).toBeVisible({ timeout: 20_000 });
+  /*
+    Redirected to the event overview, now under review.
+
+    The URL must be the EVENT's, not the wizard's: `/organizer/events/new` also matches
+    `/organizer/events/.+`, and the wizard's review step itself says "In review" ("Its status
+    is In review until then"). With the loose pattern both checks passed while the wizard was
+    still uploading the images, and the next navigation cancelled the upload. The status is
+    read from the event header - its title as the page heading, and its stage badge - which
+    only the event's own pages draw.
+  */
+  await expect(page).toHaveURL(/\/organizer\/events\/(?!new(?:[/?#]|$))[^/?#]+$/, {
+    timeout: 20_000,
+  });
+  await expect(page.getByRole('heading', { level: 1, name: title })).toBeVisible({
+    timeout: 20_000,
+  });
+  await expect(page.getByText('Stage: In review').first()).toBeVisible();
   const eventId = new URL(page.url()).pathname.split('/').filter(Boolean).pop()!;
 
   // It shows up in the events list
