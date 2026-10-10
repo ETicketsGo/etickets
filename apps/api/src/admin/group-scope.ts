@@ -2,6 +2,7 @@ import { HttpStatus } from '@nestjs/common';
 import { z } from 'zod';
 import { AppException, ErrorCodes } from '../common/errors';
 import { GROUPABLE } from './admin-grouping.service';
+import { countryKeyMatch } from './country-filter';
 
 /**
  * Scoping an admin list to one group of its grouped summary.
@@ -52,6 +53,10 @@ export interface GroupScope {
 /**
  * How each resource reaches each grouping in Prisma.
  *
+ * A country key is a MARKET (`US`), or the stored value itself for a value that names no market;
+ * `countryKeyMatch` turns it back into every stored spelling, the same comparison the summary's
+ * SQL grouped by. See `country-filter.ts`.
+ *
  * The relation paths mirror `SHAPES` in `admin-grouping.service.ts` - the SQL there and the
  * `where` here must select the same rows, or a group would report a count the list does not
  * show. `group-scope.spec.ts` holds them to that by proving every declared grouping has a path.
@@ -60,12 +65,12 @@ type ScopeBuilder = (key: string | null) => Record<string, unknown>;
 
 const SCOPES: Record<string, Record<string, ScopeBuilder>> = {
   bookings: {
-    country: (k) => ({ event: { venue: { country: k } } }),
+    country: (k) => ({ event: { venue: { country: countryKeyMatch(k) } } }),
     organizer: (k) => ({ organizationId: k }),
     event: (k) => ({ eventId: k }),
   },
   payments: {
-    country: (k) => ({ booking: { event: { venue: { country: k } } } }),
+    country: (k) => ({ booking: { event: { venue: { country: countryKeyMatch(k) } } } }),
     organizer: (k) => ({ booking: { organizationId: k } }),
     event: (k) => ({ booking: { eventId: k } }),
     currency: (k) => ({ currency: k }),
@@ -73,21 +78,21 @@ const SCOPES: Record<string, Record<string, ScopeBuilder>> = {
   refunds: {
     // A refund's own `organizationId` is authoritative; its country and event come through the
     // booking, because a Refund row records neither.
-    country: (k) => ({ booking: { event: { venue: { country: k } } } }),
+    country: (k) => ({ booking: { event: { venue: { country: countryKeyMatch(k) } } } }),
     organizer: (k) => ({ organizationId: k }),
     event: (k) => ({ booking: { eventId: k } }),
     // A refund has no currency column; it is paid back in its booking's.
     currency: (k) => ({ booking: { currency: k } }),
   },
   events: {
-    country: (k) => ({ venue: { country: k } }),
+    country: (k) => ({ venue: { country: countryKeyMatch(k) } }),
     organizer: (k) => ({ organizationId: k }),
   },
   organizers: {
-    country: (k) => ({ registeredCountry: k }),
+    country: (k) => ({ registeredCountry: countryKeyMatch(k) }),
   },
   settlements: {
-    country: (k) => ({ event: { venue: { country: k } } }),
+    country: (k) => ({ event: { venue: { country: countryKeyMatch(k) } } }),
     organizer: (k) => ({ organizationId: k }),
     event: (k) => ({ eventId: k }),
     currency: (k) => ({ currency: k }),

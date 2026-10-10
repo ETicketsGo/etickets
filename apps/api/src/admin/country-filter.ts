@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { countryAliases } from '@eticketsgo/shared-types';
+import { MARKETS, marketSpellings } from '@eticketsgo/shared-types';
 
 /**
  * One country filter, meaning the same thing on every admin list that offers it.
@@ -11,9 +11,11 @@ import { countryAliases } from '@eticketsgo/shared-types';
  * wrong for a filter somebody picks from a list of markets and expects to mean the whole market.
  *
  * So this takes an ISO alpha-2 code, which is what a market is, and matches every spelling of
- * that country through `countryAliases` - the same tolerance the account directory and discovery
- * already use. It is ANDed with the grouped scope rather than replacing it, so the two can be
- * used together ("India, grouped by organizer, this organizer").
+ * that country through `marketSpellings` - the spellings `marketFor` accepts, which is also what
+ * every country label in the console is resolved through, so a row the list LABELS "United
+ * States" is a row the "United States" filter finds. It is ANDed with the grouped scope rather
+ * than replacing it, so the two can be used together ("India, grouped by organizer, this
+ * organizer").
  *
  * ── WHY A CODE AND NOT ANY SPELLING ────────────────────────────────────────────────
  * The value lives in the URL so it survives a refresh and can be sent to a colleague. A code is
@@ -71,7 +73,72 @@ export function countryWhere(
   code: string | undefined,
 ): Record<string, unknown> | null {
   if (!code) return null;
-  return PATHS[resource]({ in: countryAliases(code), mode: 'insensitive' });
+  return PATHS[resource](marketMatch(code));
+}
+
+/** Every stored spelling of one market, compared case-insensitively. */
+function marketMatch(code: string) {
+  return { in: marketSpellings(code), mode: 'insensitive' };
+}
+
+/*
+  ── A COUNTRY GROUP IS A MARKET, NOT A SPELLING ─────────────────────────────────────
+  The grouped summaries used to group by the stored text, so "USA", "United States" and "US" were
+  three chips with three totals, each one a third of the truth. They now group by the market a
+  value names - its ISO alpha-2 code - and are labelled with the market's name.
+
+  The three functions below are the one definition of that, used by the summary's SQL and by the
+  list's Prisma scope, which must select the same rows or the chip's count is not the list's.
+  Both compare the stored value LOWER-CASED AND UNTRIMMED against `marketSpellings`: SQL's
+  `LOWER(col) = ANY(...)` and Prisma's `in` + `mode: 'insensitive'` agree on exactly that and on
+  nothing looser, so a value stored with stray spaces is an unknown value in both rather than a
+  market in one and nothing in the other.
+
+  A value that names no market is never folded into one. It keeps its own spelling as its key and
+  is labelled "Unknown (<value>)", so a typo stays visible as a typo.
+*/
+
+/** The market a stored country value names, by the comparison the SQL makes, or null. */
+export function storedCountryMarket(stored: string): string | null {
+  const needle = stored.toLowerCase();
+  return MARKETS.find((m) => marketSpellings(m.code).includes(needle))?.code ?? null;
+}
+
+/**
+ * The SQL expression for a country group's key: the market code, else the stored value.
+ *
+ * Every spelling list and code is a positional parameter, pushed onto `params`. The only text
+ * that reaches the SQL is `column`, chosen by the caller from its own constant table.
+ */
+export function countryKeySql(column: string, params: unknown[]): string {
+  const branches = MARKETS.map((m) => {
+    params.push(marketSpellings(m.code));
+    const spellings = params.length;
+    params.push(m.code);
+    return `WHEN LOWER(${column}) = ANY($${spellings}::text[]) THEN $${params.length}::text`;
+  });
+  return `(CASE ${branches.join(' ')} ELSE ${column} END)`;
+}
+
+/** What a country group is called: the market's name, "Unknown (<value>)", or "Not recorded". */
+export function countryGroupLabel(key: string | null): string {
+  if (key === null) return 'Not recorded';
+  const market = MARKETS.find((m) => m.code === key);
+  if (market) return market.name;
+  return `Unknown (${key.trim() ? key : 'blank'})`;
+}
+
+/**
+ * The Prisma value that selects one country group's rows: every spelling of the market for a
+ * market key, the exact stored value for an unknown one, null for "Not recorded".
+ *
+ * A key that is itself a stored spelling ("India", from a link made before groups were markets)
+ * is read as its market, which is what the person who made the link was looking at.
+ */
+export function countryKeyMatch(key: string | null): unknown {
+  if (key === null) return null;
+  const code = storedCountryMarket(key);
+  return code ? marketMatch(code) : key;
 }
 
 /**

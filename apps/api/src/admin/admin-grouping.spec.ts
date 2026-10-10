@@ -1,4 +1,4 @@
-import { GROUPABLE, GROUPING_SHAPES } from './admin-grouping.service';
+import { AdminGroupingService, GROUPABLE, GROUPING_SHAPES } from './admin-grouping.service';
 import { GROUP_KEY_NONE, GROUP_SCOPES, groupScopeWhere } from './group-scope';
 
 /**
@@ -153,5 +153,68 @@ describe('scoping a list to one group', () => {
 
   it('refuses a key with no grouping, which selects nothing under any reading', () => {
     expect(() => groupScopeWhere('bookings', { groupKey: 'India' })).toThrow(/needs the groupBy/);
+  });
+});
+
+describe('a country grouping groups by market', () => {
+  it('marks every country grouping, and only those', () => {
+    const wrong: string[] = [];
+    for (const [name, shape] of Object.entries(GROUPING_SHAPES)) {
+      const isCountry = name.endsWith(':country');
+      if (Boolean(shape.country) !== isCountry) wrong.push(name);
+    }
+    expect(wrong).toEqual([]);
+  });
+
+  it('groups by the market code and names each group for its market', async () => {
+    const $queryRawUnsafe = jest
+      .fn()
+      .mockResolvedValueOnce([
+        { key: 'US', label: 'US', count: BigInt(5) },
+        { key: 'Atlantis', label: 'Atlantis', count: BigInt(1) },
+        { key: null, label: null, count: BigInt(2) },
+      ])
+      .mockResolvedValueOnce([
+        { key: 'US', currency: 'USD', total: BigInt(500) },
+        { key: 'Atlantis', currency: 'USD', total: BigInt(70) },
+      ]);
+    const service = new AdminGroupingService({ $queryRawUnsafe } as never);
+
+    const summary = await service.grouped('bookings', 'country', { q: 'x' });
+
+    const [countSql, ...countParams] = $queryRawUnsafe.mock.calls[0];
+    const [moneySql, ...moneyParams] = $queryRawUnsafe.mock.calls[1];
+    expect(countSql).toContain('CASE WHEN LOWER(v.country) = ANY($2::text[]) THEN $3::text');
+    expect(countSql).toContain('GROUP BY 1, 2');
+    expect(moneySql).toContain('GROUP BY 1, 2');
+    // The search stays the first parameter, and both statements bind the same list.
+    expect(countParams[0]).toBe('%x%');
+    expect(moneyParams).toEqual(countParams);
+    expect(summary.groups).toEqual([
+      {
+        key: 'US',
+        label: 'United States',
+        count: 5,
+        totals: [{ currency: 'USD', totalMinor: 500 }],
+      },
+      {
+        key: 'Atlantis',
+        label: 'Unknown (Atlantis)',
+        count: 1,
+        totals: [{ currency: 'USD', totalMinor: 70 }],
+      },
+      { key: null, label: 'Not recorded', count: 2, totals: [] },
+    ]);
+  });
+
+  it('leaves the other groupings keyed and labelled as stored', async () => {
+    const $queryRawUnsafe = jest
+      .fn()
+      .mockResolvedValueOnce([{ key: 'org-1', label: 'Aurora Live', count: BigInt(3) }])
+      .mockResolvedValueOnce([]);
+    const service = new AdminGroupingService({ $queryRawUnsafe } as never);
+    const summary = await service.grouped('bookings', 'organizer');
+    expect($queryRawUnsafe.mock.calls[0][0]).not.toContain('CASE');
+    expect(summary.groups[0]).toMatchObject({ key: 'org-1', label: 'Aurora Live' });
   });
 });
