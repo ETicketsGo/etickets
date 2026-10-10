@@ -122,8 +122,13 @@ export function FeedbackForm({
           )}
         </div>
       )}
+      {/*
+        No fixed ids on these fields. /help renders this form twice (contact us, and the
+        how-are-we-doing rating), and a hard-coded `fb-email` gave the page two elements with
+        one id, so the second form's label pointed at the first form's field. The kit's fields
+        generate a unique id per instance when none is passed.
+      */}
       <Input
-        id="fb-email"
         type="email"
         label={user ? 'Reply-to email' : 'Your email'}
         value={email}
@@ -135,7 +140,6 @@ export function FeedbackForm({
       />
       {showSubject && (
         <Input
-          id="fb-subject"
           label="Subject"
           value={subject}
           onChange={(e) => setSubject(e.target.value)}
@@ -145,7 +149,6 @@ export function FeedbackForm({
         />
       )}
       <Textarea
-        id="fb-message"
         label={messageLabel}
         value={message}
         onChange={(e) => setMessage(e.target.value)}
