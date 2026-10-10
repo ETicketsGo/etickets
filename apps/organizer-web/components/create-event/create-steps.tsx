@@ -28,9 +28,32 @@ export function CreateSteps({
   onVisit: (index: number) => void;
 }) {
   const attention = statuses.filter((s) => s === 'error').length;
+  const tone = (status: StepStatus) =>
+    status === 'error'
+      ? 'bg-status-error'
+      : status === 'complete' || status === 'current'
+        ? 'bg-action-primary'
+        : 'bg-border';
   return (
     <nav aria-label="Event creation steps">
-      <ol className="flex items-start">
+      {/*
+        Below md, a deliberate compact form: the step named in words, then five segments (one
+        per step, coloured by state, each a button once reached). From md up, numbered steps
+        with their names on ONE line - "Where and when" wrapping onto two lines pushed its
+        connector off the line of the circles.
+      */}
+      <p className="mb-2 flex flex-wrap items-baseline gap-x-2 text-caption md:hidden">
+        <span className="text-text-muted">
+          Step {current + 1} of {steps.length}
+        </span>
+        <span className="font-semibold text-text-primary">{steps[current]?.title}</span>
+        {attention > 0 ? (
+          <span className="font-medium text-status-error">
+            {attention} step{attention === 1 ? ' needs' : 's need'} attention
+          </span>
+        ) : null}
+      </p>
+      <ol className="flex items-center gap-1.5 md:gap-0">
         {steps.map((step, i) => {
           const status = statuses[i];
           const visitable = status !== 'current' && canVisit(i);
@@ -45,9 +68,17 @@ export function CreateSteps({
           const spoken = `Step ${i + 1} of ${steps.length}: ${step.title}, ${state}`;
           const inner = (
             <>
+              {/* Phone: a segment. */}
               <span
                 aria-hidden="true"
-                className={`relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-caption font-semibold tabular-nums transition-colors ${
+                className={`block h-1.5 w-full rounded-full md:hidden ${tone(status)} ${
+                  status === 'current' ? 'ring-2 ring-action-primary/30' : ''
+                }`}
+              />
+              {/* md and up: circle and name. */}
+              <span
+                aria-hidden="true"
+                className={`relative z-10 hidden h-7 w-7 shrink-0 items-center justify-center rounded-full text-caption font-semibold tabular-nums transition-colors md:flex ${
                   status === 'error'
                     ? 'bg-tint-error text-status-error ring-2 ring-status-error'
                     : status === 'complete'
@@ -67,7 +98,7 @@ export function CreateSteps({
               </span>
               <span
                 aria-hidden="true"
-                className={`hidden text-left text-caption leading-tight md:block ${
+                className={`hidden whitespace-nowrap text-caption md:inline ${
                   status === 'current'
                     ? 'font-semibold text-text-primary'
                     : status === 'error'
@@ -76,21 +107,23 @@ export function CreateSteps({
                 }`}
               >
                 {step.title}
-                {status === 'error' ? (
-                  <span className="block font-normal">Needs attention</span>
-                ) : null}
               </span>
             </>
           );
           const last = i === steps.length - 1;
+          const box =
+            'flex min-w-0 flex-1 items-center gap-2 rounded-md py-2 md:flex-none md:px-1 md:py-1';
           return (
-            <li key={step.title} className={`flex min-w-0 items-center ${last ? '' : 'flex-1'}`}>
+            <li
+              key={step.title}
+              className={`flex min-w-0 flex-1 items-center ${last ? 'md:flex-none' : ''}`}
+            >
               {visitable ? (
                 <button
                   type="button"
                   onClick={() => onVisit(i)}
                   aria-label={spoken}
-                  className="flex min-w-0 items-center gap-2 rounded-md p-1 transition-colors hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-action-primary"
+                  className={`${box} transition-colors hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-action-primary`}
                 >
                   {inner}
                 </button>
@@ -99,7 +132,7 @@ export function CreateSteps({
                   role="img"
                   aria-label={spoken}
                   aria-current={status === 'current' ? 'step' : undefined}
-                  className="flex min-w-0 items-center gap-2 p-1"
+                  className={box}
                 >
                   {inner}
                 </span>
@@ -107,7 +140,7 @@ export function CreateSteps({
               {!last ? (
                 <span
                   aria-hidden="true"
-                  className={`mx-1 h-px min-w-3 flex-1 ${
+                  className={`mx-2 hidden h-px min-w-4 flex-1 md:block ${
                     i < current ? 'bg-action-primary' : 'bg-border'
                   }`}
                 />
@@ -116,10 +149,6 @@ export function CreateSteps({
           );
         })}
       </ol>
-      <p className="mt-2 text-caption text-text-secondary md:sr-only">
-        Step {current + 1} of {steps.length}: {steps[current]?.title}
-        {attention > 0 && ` - ${attention} step${attention === 1 ? ' needs' : 's need'} attention`}
-      </p>
     </nav>
   );
 }

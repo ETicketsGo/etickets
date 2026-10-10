@@ -166,7 +166,7 @@ test.describe('creating an event', () => {
       .getByRole('group', { name: 'Session 1' })
       .getByRole('group', { name: 'Starts at' });
     await start.getByLabel('Date').fill(dayAfter(300));
-    await start.getByLabel('Time', { exact: true }).selectOption('18:00');
+    await start.getByLabel('Time').selectOption('18:00');
     await page.getByRole('button', { name: '+2h' }).click();
     await page.getByRole('button', { name: 'Continue' }).click();
 

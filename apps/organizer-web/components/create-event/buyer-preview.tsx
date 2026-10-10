@@ -1,11 +1,10 @@
 'use client';
 
-import { Building2, CalendarDays, Heart, MapPin } from 'lucide-react';
+import { Building2, CalendarDays, Heart, MapPin, type LucideIcon } from 'lucide-react';
 import {
   Badge,
   EVENT_IMAGE_ASPECT,
   focalObjectPosition,
-  gradientFor,
   type FocalPoint,
 } from '@eticketsgo/web-kit';
 
@@ -17,8 +16,6 @@ export interface PreviewImage {
 }
 
 export interface BuyerPreviewProps {
-  /** Picks the fallback gradient, as the event id does on the storefront. */
-  seed: string;
   title: string;
   category: string;
   image: PreviewImage | null;
@@ -28,6 +25,8 @@ export interface BuyerPreviewProps {
   price: string;
   /** "From" sits beside a price, and not beside "Free". */
   showFrom: boolean;
+  /** The experience's icon, drawn on the placeholder when there is no picture. */
+  icon: LucideIcon;
 }
 
 /** `object-position` that keeps the chosen point in view, by the arithmetic the API crops with. */
@@ -46,8 +45,10 @@ function position(image: PreviewImage, aspect: number): string {
  * and the heart is a picture. Crops use `focalObjectPosition`, the arithmetic the API cuts the
  * real copies with, so the crop shown is the crop buyers get.
  *
- * With no picture the storefront draws the event's gradient and its first letter, and so does
- * this - a preview that looked better than the real page would be a promise it cannot keep.
+ * With no picture both shapes show ONE branded placeholder - the console tint, a faint dot
+ * pattern and the experience's icon - per the console design direction, never a lone initial.
+ * The same placeholder on every step, so the organizer is not shown two different "no image"
+ * looks. It says plainly that a picture is still to come.
  */
 export function BuyerPreview(props: BuyerPreviewProps) {
   return (
@@ -59,7 +60,6 @@ export function BuyerPreview(props: BuyerPreviewProps) {
 }
 
 export function PreviewCard({
-  seed,
   title,
   category,
   image,
@@ -67,6 +67,7 @@ export function PreviewCard({
   where,
   price,
   showFrom,
+  icon,
 }: BuyerPreviewProps) {
   return (
     <div
@@ -74,9 +75,7 @@ export function PreviewCard({
       aria-label="Preview of your event card"
       className="overflow-hidden rounded-lg border border-border bg-background-surface"
     >
-      <div
-        className={`relative flex aspect-[4/3] items-center justify-center overflow-hidden bg-gradient-to-br ${gradientFor(seed)}`}
-      >
+      <div className="relative flex aspect-[4/3] items-center justify-center overflow-hidden">
         {image ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -86,11 +85,7 @@ export function PreviewCard({
             style={{ objectPosition: position(image, EVENT_IMAGE_ASPECT.card) }}
           />
         ) : (
-          <span
-            aria-hidden="true"
-            data-initial={title.trim().charAt(0) || '?'}
-            className="select-none text-4xl font-bold uppercase text-text-primary/25 before:content-[attr(data-initial)]"
-          />
+          <NoImage icon={icon} />
         )}
         {category ? (
           <div className="absolute left-3 top-3">
@@ -125,7 +120,14 @@ export function PreviewCard({
   );
 }
 
-export function PreviewHeader({ title, category, image, where, organizer }: BuyerPreviewProps) {
+export function PreviewHeader({
+  title,
+  category,
+  image,
+  where,
+  organizer,
+  icon,
+}: BuyerPreviewProps) {
   return (
     <div
       role="group"
@@ -143,10 +145,9 @@ export function PreviewHeader({ title, category, image, where, organizer }: Buye
           />
         </div>
       ) : (
-        <div
-          aria-hidden="true"
-          className="h-16 bg-gradient-to-br from-action-primary/25 via-action-primary/10 to-background-subtle"
-        />
+        <div className="relative flex aspect-[16/5] items-center justify-center overflow-hidden">
+          <NoImage icon={icon} compact />
+        </div>
       )}
       <div className="p-4">
         {category ? <Badge tone="info">{category}</Badge> : null}
@@ -164,6 +165,34 @@ export function PreviewHeader({ title, category, image, where, organizer }: Buye
           </span>
         </p>
       </div>
+    </div>
+  );
+}
+
+/** The one placeholder for "no picture yet": tint, dot pattern, icon, and the words. */
+function NoImage({ icon: Icon, compact = false }: { icon: LucideIcon; compact?: boolean }) {
+  return (
+    <div
+      className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-tint-primary text-action-primary"
+      style={{
+        backgroundImage:
+          'radial-gradient(hsl(var(--action-primary) / 0.14) 1px, transparent 1.5px)',
+        backgroundSize: '14px 14px',
+      }}
+    >
+      <span
+        aria-hidden="true"
+        className={`flex items-center justify-center rounded-full bg-background-surface shadow-sm ${
+          compact ? 'h-9 w-9' : 'h-14 w-14'
+        }`}
+      >
+        <Icon className={compact ? 'h-4 w-4' : 'h-6 w-6'} />
+      </span>
+      {compact ? null : (
+        <span className="rounded-full bg-background-surface px-2.5 py-0.5 text-caption font-medium text-text-secondary">
+          No image yet
+        </span>
+      )}
     </div>
   );
 }

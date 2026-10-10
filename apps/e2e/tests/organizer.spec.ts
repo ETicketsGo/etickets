@@ -33,8 +33,8 @@ test('organizer logs in and creates + submits an event via the wizard', async ({
   const ends = performance.getByRole('group', { name: 'Ends at' });
   await starts.getByLabel('Date').fill(startDate);
   await ends.getByLabel('Date').fill(endDate);
-  await starts.getByLabel('Time', { exact: true }).selectOption(startTime);
-  await ends.getByLabel('Time', { exact: true }).selectOption(endTime);
+  await starts.getByLabel('Time').selectOption(startTime);
+  await ends.getByLabel('Time').selectOption(endTime);
 
   /*
     The readback is the whole reason the field exists: it is what catches a mistyped year

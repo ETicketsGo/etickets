@@ -844,7 +844,7 @@ function NewEventWizard() {
     : null;
   const preview = (
     <BuyerPreview
-      seed={basics.title || 'new event'}
+      icon={experience?.icon ?? Ticket}
       title={basics.title || 'Your event title'}
       category={basics.category}
       image={previewImage}
