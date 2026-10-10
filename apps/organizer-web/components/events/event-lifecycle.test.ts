@@ -3,6 +3,7 @@ import {
   hasSessionToday,
   lifecycleOf,
   nextStepOf,
+  onlineSaleOf,
   saleStateOf,
   setupOf,
   type SaleState,
@@ -42,7 +43,8 @@ describe('lifecycleOf: the console vocabulary', () => {
 });
 
 describe('saleStateOf: Selling only when the server says so', () => {
-  const base = { upcomingSessions: 2, check: SELLABLE };
+  const OPEN = { checkedShows: 2, openShows: 2 };
+  const base = { upcomingSessions: 2, check: SELLABLE, online: OPEN };
 
   it('never says Selling for a draft, however well it is set up', () => {
     // The owner's complaint: "Ready to sell" on a DRAFT event.
@@ -60,6 +62,37 @@ describe('saleStateOf: Selling only when the server says so', () => {
       selling: true,
       label: 'Selling',
     });
+  });
+
+  it('is never Selling for a draft, even with every check passing', () => {
+    for (const status of ['DRAFT', 'UNDER_REVIEW', 'PAUSED', 'CANCELLED', 'COMPLETED']) {
+      expect(saleStateOf({ ...base, status }).selling).toBe(false);
+      expect(saleStateOf({ ...base, status }).label).not.toBe('Selling');
+    }
+  });
+
+  it('is not Selling when setup passes but sale eligibility is closed (a Telangana cinema)', () => {
+    // GET /events/:id/sellability is configuration only; checkout's eligibility rule is separate.
+    const closed = onlineSaleOf(
+      [{ onlineBooking: { open: false } }, { onlineBooking: { open: false } }],
+      false,
+    );
+    expect(saleStateOf({ ...base, status: 'PUBLISHED', online: closed })).toEqual({
+      selling: false,
+      label: 'Not selling: online booking is not open for any upcoming show',
+    });
+  });
+
+  it('waits for eligibility, and counts an older API answer as open', () => {
+    expect(saleStateOf({ ...base, status: 'PUBLISHED', online: undefined }).selling).toBeNull();
+    expect(onlineSaleOf([{ onlineBooking: { open: true } }, undefined], false)).toBeUndefined();
+    expect(onlineSaleOf([{}, { onlineBooking: { open: false } }], false)).toEqual({
+      checkedShows: 2,
+      openShows: 1,
+    });
+    expect(
+      saleStateOf({ ...base, status: 'PUBLISHED', online: onlineSaleOf([], true) }).selling,
+    ).toBeNull();
   });
 
   it('gives the server blocker as the reason, in its own words', () => {

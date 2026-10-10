@@ -105,6 +105,13 @@ export function saleStateOf(input: {
   upcomingSessions: number;
   check: SaleCheck | undefined;
   checkFailed?: boolean;
+  /**
+   * Online-sale eligibility for the upcoming shows (the server's sale-eligibility rule, as each
+   * show's public summary reports it in `onlineBooking`). Undefined while loading. The
+   * configuration check above does NOT include it: a cinema in a state with no active price
+   * rules passes configuration and is still refused at checkout, so it must not read "Selling".
+   */
+  online?: OnlineSale;
 }): SaleState {
   const no = (reason: string): SaleState => ({ selling: false, label: `Not selling: ${reason}` });
   switch (input.status) {
@@ -124,9 +131,37 @@ export function saleStateOf(input: {
   if (input.upcomingSessions === 0) return no('no sessions to come');
   if (input.checkFailed) return { selling: null, label: 'Sale check unavailable' };
   if (!input.check) return { selling: null, label: 'Checking sales' };
-  if (input.check.sellable) return { selling: true, label: 'Selling' };
-  const first = input.check.blockers[0];
-  return no(first ? lowerFirst(stripStop(first.message)) : 'a sale would be refused');
+  if (!input.check.sellable) {
+    const first = input.check.blockers[0];
+    return no(first ? lowerFirst(stripStop(first.message)) : 'a sale would be refused');
+  }
+  if (!input.online) return { selling: null, label: 'Checking sales' };
+  if (input.online.failed) return { selling: null, label: 'Sale check unavailable' };
+  if (input.online.openShows === 0) return no('online booking is not open for any upcoming show');
+  return { selling: true, label: 'Selling' };
+}
+
+/** How many upcoming shows the server says a buyer can book online, of those asked. */
+export interface OnlineSale {
+  checkedShows: number;
+  openShows: number;
+  failed?: boolean;
+}
+
+/**
+ * Fold the shows' `onlineBooking` answers into one. A show whose answer has no
+ * `onlineBooking` (an API from before the rule) counts as open, as the storefront treats it.
+ */
+export function onlineSaleOf(
+  answers: ({ onlineBooking?: { open: boolean } } | undefined)[],
+  failed: boolean,
+): OnlineSale | undefined {
+  if (failed) return { checkedShows: 0, openShows: 0, failed: true };
+  if (answers.some((a) => a === undefined)) return undefined;
+  return {
+    checkedShows: answers.length,
+    openShows: answers.filter((a) => a!.onlineBooking?.open !== false).length,
+  };
 }
 
 export interface SetupItem {

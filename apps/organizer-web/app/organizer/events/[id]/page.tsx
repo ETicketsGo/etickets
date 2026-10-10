@@ -1,6 +1,6 @@
 'use client';
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
@@ -30,6 +30,7 @@ import { sessionBreakdown } from '@/components/events/event-overview-model';
 import {
   hasSessionToday,
   nextStepOf,
+  onlineSaleOf,
   saleStateOf,
   setupOf,
 } from '@/components/events/event-lifecycle';
@@ -64,6 +65,32 @@ export default function EventOverview() {
     staleTime: 0,
     retry: false,
   });
+
+  /*
+    Online-sale eligibility, show by show, from the same rule checkout refuses by (the show's
+    public summary carries it as `onlineBooking`). Asked only for a published event - the
+    public read refuses anything else - and only for the next few shows: one open show is
+    enough to say "Selling", and a season of 148 screenings is not 148 requests.
+  */
+  const upcomingIds = useMemo(() => {
+    if (!event || event.status !== 'PUBLISHED') return [];
+    return sessionBreakdown(event.sessions, Date.now())
+      .upcoming.slice(0, 8)
+      .map((s) => s.id);
+  }, [event]);
+  const showReads = useQueries({
+    queries: upcomingIds.map((sessionId) => ({
+      queryKey: ['public-show-summary', sessionId],
+      queryFn: () => api.publicShows.summary(sessionId),
+      retry: false,
+      staleTime: 0,
+    })),
+  });
+  // A show whose summary could not be read is left out rather than guessed either way.
+  const online = onlineSaleOf(
+    showReads.filter((r) => !r.isError).map((r) => r.data),
+    showReads.length > 0 && showReads.every((r) => r.isError),
+  );
 
   const owningOrg = orgSentenceName(event?.organizationId);
 
@@ -123,6 +150,7 @@ export default function EventOverview() {
       upcomingSessions: upcoming.length,
       check,
       checkFailed: sellability.isError,
+      online,
     });
     const issues = check ? [...check.blockers, ...check.warnings] : [];
     const setup = setupOf({
@@ -142,7 +170,7 @@ export default function EventOverview() {
       ownBlockers,
     });
     return { sale, setup, next, hasIssues: issues.length > 0 };
-  }, [event, sellability.data, sellability.isError]);
+  }, [event, sellability.data, sellability.isError, online]);
 
   if (isError)
     return (
