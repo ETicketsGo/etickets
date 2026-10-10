@@ -36,6 +36,7 @@ for (const app of [
     groupLink: 'Finance & payouts',
     // The page whose open group is the longest: the worst case for a short window.
     tallest: '/organizer/payouts',
+    drawer: 'Navigation',
   },
   {
     name: 'admin',
@@ -47,6 +48,7 @@ for (const app of [
     group: 'Payouts & reconciliation',
     groupLink: 'Payouts',
     tallest: '/admin/payment-config',
+    drawer: 'Admin menu',
   },
 ]) {
   test.describe(`${app.name} navigation`, () => {
@@ -160,6 +162,88 @@ for (const app of [
       const last = nav.getByRole('button').last();
       const box = await last.boundingBox();
       expect(box && box.y + box.height).toBeLessThanOrEqual(768);
+    });
+
+    test('collapse and expand on desktop, and the choice holds across navigation', async ({
+      page,
+    }) => {
+      await setRail(page, false);
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await page.goto(`${app.base}${app.home}`);
+      const collapse = page.getByRole('button', { name: 'Collapse sidebar' });
+      await expect(collapse).toHaveAttribute('aria-expanded', 'true', { timeout: 30_000 });
+      await collapse.click();
+
+      // Collapsed: the toggle says so, keeps focus, and the rail shows named group buttons.
+      const expand = page.getByRole('button', { name: 'Expand sidebar' });
+      await expect(expand).toHaveAttribute('aria-expanded', 'false');
+      await expect(expand).toBeFocused();
+      const nav = page.getByRole('navigation', { name: app.nav });
+      const group = nav.getByRole('button', { name: app.group, exact: true });
+      await expect(group).toBeVisible();
+
+      // Navigate through a flyout; the rail is still a rail on the next page.
+      await group.click();
+      await page
+        .getByRole('group', { name: app.group, exact: true })
+        .getByRole('link', { name: app.groupLink, exact: true })
+        .click();
+      await expect(page).not.toHaveURL(new RegExp(`${app.home}$`));
+      await expect(page.getByRole('button', { name: 'Expand sidebar' })).toBeVisible();
+      await expect(page.getByRole('group', { name: app.group, exact: true })).toBeHidden();
+      // And the current page's group says so in its name.
+      await expect(
+        nav.getByRole('button', { name: `${app.group}, current section`, exact: true }),
+      ).toBeVisible();
+
+      // Expand again: the labels are back and the current page is marked.
+      await page.getByRole('button', { name: 'Expand sidebar' }).click();
+      await expect(page.getByRole('button', { name: 'Collapse sidebar' })).toBeFocused();
+      await expect(nav.locator('[aria-current="page"]')).toHaveCount(1);
+      await expect(nav.getByRole('button', { name: app.group, exact: true })).toHaveAttribute(
+        'aria-expanded',
+        'true',
+      );
+    });
+
+    test('on a phone the drawer opens, closes and hands focus back', async ({ page }) => {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.goto(`${app.base}${app.home}`);
+      const toggle = page.getByRole('button', { name: 'Toggle navigation' });
+      await expect(toggle).toBeVisible({ timeout: 30_000 });
+      // No desktop sidebar at this width: the drawer is the only navigation.
+      await expect(page.getByRole('button', { name: 'Collapse sidebar' })).toBeHidden();
+
+      const drawer = page.getByRole('dialog', { name: app.drawer });
+      // Escape closes it and focus returns to the menu button.
+      await toggle.click();
+      await expect(drawer).toBeVisible();
+      await expect(drawer.locator('[aria-current="page"]')).toBeFocused();
+      await page.keyboard.press('Escape');
+      await expect(drawer).toBeHidden();
+      await expect(toggle).toBeFocused();
+
+      // The close button does the same.
+      await toggle.click();
+      await drawer.getByRole('button', { name: 'Close navigation' }).click();
+      await expect(drawer).toBeHidden();
+      await expect(toggle).toBeFocused();
+
+      // A link in a folded group: open the group, follow the link, the drawer closes itself.
+      await toggle.click();
+      await drawer.getByRole('button', { name: app.group, exact: true }).click();
+      await drawer.getByRole('link', { name: app.groupLink, exact: true }).click();
+      await expect(page).not.toHaveURL(new RegExp(`${app.home}$`));
+      await expect(drawer).toBeHidden();
+
+      // Reopened on the new page: its group is open and the new page is the current one.
+      await toggle.click();
+      await expect(drawer.getByRole('button', { name: app.group, exact: true })).toHaveAttribute(
+        'aria-expanded',
+        'true',
+      );
+      await expect(drawer.locator('[aria-current="page"]')).toHaveText(app.groupLink);
+      await page.keyboard.press('Escape');
     });
   });
 }

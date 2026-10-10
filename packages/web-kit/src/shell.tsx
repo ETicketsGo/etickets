@@ -288,11 +288,22 @@ export function AppShell({
             {headerAccessory}
             {user && (
               <div className="flex items-center gap-2.5">
-                <div className="hidden text-right md:block">
-                  <p className="text-[0.8125rem] font-medium leading-tight text-text-primary">
+                {/*
+                  Capped and truncated, like the masthead: a long name or address is the other
+                  way the header used to push its own controls into each other. The full text
+                  stays readable to assistive technology and on hover.
+                */}
+                <div
+                  data-testid="account-name"
+                  className="hidden min-w-0 max-w-[11rem] text-right lg:block xl:max-w-[14rem]"
+                  title={[user.fullName, user.email].filter(Boolean).join(', ')}
+                >
+                  <p className="truncate text-[0.8125rem] font-medium leading-tight text-text-primary">
                     {user.fullName}
                   </p>
-                  <p className="text-caption leading-tight text-text-muted">{user.email}</p>
+                  <p className="truncate text-caption leading-tight text-text-muted">
+                    {user.email}
+                  </p>
                 </div>
                 <div
                   className="hidden h-9 w-9 items-center justify-center rounded-full bg-tint-primary text-[0.8125rem] font-semibold text-action-primary sm:flex"
