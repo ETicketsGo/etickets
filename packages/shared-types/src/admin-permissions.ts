@@ -33,6 +33,34 @@ export const AdminPermission = {
   /** See queue depth, outbox, sync health and other operational internals. */
   OPS_READ: 'OPS_READ',
 
+  // ── Acting on what the reads show, split from them on purpose ──────────────────
+  /*
+    Each of these used to ride on the READ capability of its page, because the handlers sat on a
+    controller whose class guard was the read. "May see the outbox" then also meant "may replay
+    every dead-lettered event", and "may see revenue" meant "may approve a compensation". Like
+    PLATFORM_CONFIG_READ / PLATFORM_CONFIG, neither half implies the other: somebody who acts on
+    a queue is granted the read as well, on purpose, by whoever holds ADMIN_MANAGE.
+  */
+  /**
+   * Retry or replay failed background jobs, retry / cancel / park outbox events and recover their
+   * leases, and reprocess, retry, reconcile, re-map or reset the checkpoint of an inventory sync.
+   * Each re-runs work that already ran once - side effects included.
+   */
+  OPS_EXECUTE: 'OPS_EXECUTE',
+  /**
+   * Approve, retry or release the lease of a booking compensation, which lets it execute.
+   * Seeing compensations is FINANCE_READ.
+   */
+  FINANCE_APPROVE: 'FINANCE_APPROVE',
+  /**
+   * Work the finance exception queues: run discrepancy detection, assign, resolve or ignore a
+   * discrepancy, and park a compensation for manual review. Closes a money finding without
+   * moving money; the decision is audited.
+   */
+  FINANCE_RESOLVE: 'FINANCE_RESOLVE',
+  /** Change the status of a support submission or complaint. Seeing them is BOOKING_READ. */
+  SUPPORT_MANAGE: 'SUPPORT_MANAGE',
+
   // ── Refunds, split on purpose ──────────────────────────────────────────────────
   /** See the refund queue and record a decision that does NOT move money. */
   REFUND_REVIEW: 'REFUND_REVIEW',
@@ -84,6 +112,9 @@ export const ALL_ADMIN_PERMISSIONS = Object.values(AdminPermission) as AdminPerm
  *
  * None of them carries `PLATFORM_CONFIG_READ` or `PLATFORM_CONFIG`: who may see or change
  * what the platform charges is decided per person by whoever grants it, not by a default.
+ * Nor `OPS_EXECUTE`, `FINANCE_APPROVE`, `FINANCE_RESOLVE` or `SUPPORT_MANAGE`: those were split
+ * out of the reads without granting them to anybody, and which bundle should carry them is the
+ * owner's decision (docs/security/ADMIN-PERMISSION-MATRIX.md lists the proposals).
  *
  * These are a convenience at ASSIGNMENT time only. Once granted, the account holds the
  * individual capabilities — so editing a bundle later never silently changes what an

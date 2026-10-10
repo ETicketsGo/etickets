@@ -431,7 +431,7 @@ export default function EditMoviePage() {
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
             <FilmLifecycle status={movie.status} />
-            <SalePill verdict={sale} wrap />
+            <SalePill verdict={sale} />
           </div>
           {sale.partial && sale.exceptions.length > 0 ? (
             <ul className="space-y-0.5 text-caption text-status-warning">

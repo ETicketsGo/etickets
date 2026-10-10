@@ -79,12 +79,18 @@ export function UpcomingEventCard({
   row,
   selling,
   priority = false,
+  compact = false,
 }: {
   show: OrganizerCalendarSession;
   /** The event's row from the event list, for its artwork and how many more shows it has. */
   row?: EventListRow;
   selling: Selling;
   priority?: boolean;
+  /**
+   * The phone's card: a square thumbnail beside the title, date and venue, then the pills,
+   * the meter and the actions - about 230px tall where the image card is about 390px.
+   */
+  compact?: boolean;
 }) {
   const { zone } = sessionZone(show);
   const day = venueDay(show);
@@ -95,6 +101,118 @@ export function UpcomingEventCard({
     : null;
   const more = Math.max(0, (row?.schedule?.upcomingSessions ?? 1) - 1);
   const titleId = `upcoming-${show.event.id}`;
+  const category = categoryOf(show.event.category, show.event.experienceType);
+  const title = (
+    <Link
+      href={href}
+      className="rounded-sm hover:text-action-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      {show.event.title}
+    </Link>
+  );
+  const when = (
+    <>
+      {shortDay(day)}, {formatClock(show.startsAt, zone)} {zoneShortName(show.startsAt, zone)}
+      {more > 0 ? (
+        <span className="text-text-muted">
+          {' '}
+          +{more} more {more === 1 ? 'show' : 'shows'}
+        </span>
+      ) : null}
+    </>
+  );
+  const where = `${show.venue.name}${show.venue.city ? `, ${show.venue.city}` : ''}`;
+  const meter =
+    show.sold != null ? (
+      <ProgressMeter
+        value={show.sold}
+        max={show.capacity ?? 0}
+        size="sm"
+        label={`${show.event.title}, next show: ${show.sold} of ${show.capacity ?? 0} sold`}
+      />
+    ) : (
+      <p className="text-micro text-text-muted">No tickets on this show yet</p>
+    );
+  const moreMenu = (
+    <Menu
+      trigger="icon"
+      label={`More actions for ${show.event.title}`}
+      align="end"
+      items={[
+        { kind: 'link', label: 'Orders', href: `${href}/orders` },
+        { kind: 'link', label: 'Attendees', href: `${href}/attendees` },
+        { kind: 'link', label: 'Shows and dates', href: `${href}/sessions` },
+        { kind: 'separator' },
+        {
+          kind: 'link',
+          label: 'See this day on the calendar',
+          href: `/organizer/calendar?view=day&date=${day}`,
+        },
+      ]}
+    />
+  );
+
+  if (compact)
+    return (
+      <article
+        aria-labelledby={titleId}
+        className="flex w-full min-w-0 flex-col gap-2.5 rounded-lg border border-border bg-background-surface p-3 shadow-xs"
+      >
+        <div className="flex min-w-0 gap-3">
+          <ImageFrame
+            src={image?.src}
+            srcSet={image?.srcSet}
+            sizes="80px"
+            alt=""
+            ratio="1:1"
+            category={category}
+            placeholderLabel=""
+            priority={priority}
+            rounded="md"
+            className="!w-[4.5rem] shrink-0"
+          />
+          <div className="min-w-0 flex-1">
+            <h3
+              id={titleId}
+              className="line-clamp-2 break-words font-display text-ui font-bold leading-snug text-text-primary"
+              title={show.event.title}
+            >
+              {title}
+            </h3>
+            <dl className="mt-1 space-y-0.5 text-caption text-text-secondary">
+              <div className="flex min-w-0 items-center gap-1.5">
+                <dt>
+                  <CalendarDays className="h-3.5 w-3.5 text-text-muted" aria-hidden />
+                  <span className="sr-only">Next show</span>
+                </dt>
+                <dd className="min-w-0 truncate tabular-nums">{when}</dd>
+              </div>
+              <div className="flex min-w-0 items-center gap-1.5">
+                <dt>
+                  <MapPin className="h-3.5 w-3.5 text-text-muted" aria-hidden />
+                  <span className="sr-only">Venue</span>
+                </dt>
+                <dd className="min-w-0 truncate" title={where}>
+                  {where}
+                </dd>
+              </div>
+            </dl>
+          </div>
+        </div>
+        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+          {lifecycle ? <LifecyclePill status={lifecycle} size="sm" /> : null}
+          <SaleStatePill selling={selling} size="sm" />
+        </div>
+        {meter}
+        <div className="flex items-center gap-2">
+          <ButtonLink href={href} variant="tinted" size="sm" className="flex-1">
+            Manage
+          </ButtonLink>
+          {moreMenu}
+        </div>
+      </article>
+    );
+
   return (
     <article
       aria-labelledby={titleId}
@@ -106,7 +224,7 @@ export function UpcomingEventCard({
         sizes="(min-width: 1280px) 300px, (min-width: 768px) 33vw, 80vw"
         alt=""
         ratio="16:9"
-        category={categoryOf(show.event.category, show.event.experienceType)}
+        category={category}
         priority={priority}
         className="rounded-b-none"
         overlay={lifecycle ? <LifecyclePill status={lifecycle} size="sm" /> : undefined}
@@ -117,12 +235,7 @@ export function UpcomingEventCard({
           className="line-clamp-2 break-words font-display text-[0.9375rem] font-bold leading-snug text-text-primary"
           title={show.event.title}
         >
-          <Link
-            href={href}
-            className="rounded-sm hover:text-action-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            {show.event.title}
-          </Link>
+          {title}
         </h3>
         <dl className="mt-2 space-y-1 text-caption text-text-secondary">
           <div className="flex min-w-0 items-center gap-2">
@@ -130,25 +243,15 @@ export function UpcomingEventCard({
               <CalendarDays className="h-3.5 w-3.5 text-text-muted" aria-hidden />
               <span className="sr-only">Next show</span>
             </dt>
-            <dd className="min-w-0 truncate tabular-nums">
-              {shortDay(day)}, {formatClock(show.startsAt, zone)}{' '}
-              {zoneShortName(show.startsAt, zone)}
-              {more > 0 ? (
-                <span className="text-text-muted">
-                  {' '}
-                  +{more} more {more === 1 ? 'show' : 'shows'}
-                </span>
-              ) : null}
-            </dd>
+            <dd className="min-w-0 truncate tabular-nums">{when}</dd>
           </div>
           <div className="flex min-w-0 items-center gap-2">
             <dt>
               <MapPin className="h-3.5 w-3.5 text-text-muted" aria-hidden />
               <span className="sr-only">Venue</span>
             </dt>
-            <dd className="min-w-0 truncate" title={`${show.venue.name}, ${show.venue.city}`}>
-              {show.venue.name}
-              {show.venue.city ? `, ${show.venue.city}` : ''}
+            <dd className="min-w-0 truncate" title={where}>
+              {where}
             </dd>
           </div>
         </dl>
@@ -156,36 +259,12 @@ export function UpcomingEventCard({
           <SaleStatePill selling={selling} size="sm" />
         </div>
         <div className="mt-auto pt-3">
-          {show.sold != null ? (
-            <ProgressMeter
-              value={show.sold}
-              max={show.capacity ?? 0}
-              size="sm"
-              label={`${show.event.title}, next show: ${show.sold} of ${show.capacity ?? 0} sold`}
-            />
-          ) : (
-            <p className="text-micro text-text-muted">No tickets on this show yet</p>
-          )}
+          {meter}
           <div className="mt-3 flex items-center gap-2">
             <ButtonLink href={href} variant="tinted" size="sm" className="flex-1">
               Manage
             </ButtonLink>
-            <Menu
-              trigger="icon"
-              label={`More actions for ${show.event.title}`}
-              align="end"
-              items={[
-                { kind: 'link', label: 'Orders', href: `${href}/orders` },
-                { kind: 'link', label: 'Attendees', href: `${href}/attendees` },
-                { kind: 'link', label: 'Shows and dates', href: `${href}/sessions` },
-                { kind: 'separator' },
-                {
-                  kind: 'link',
-                  label: 'See this day on the calendar',
-                  href: `/organizer/calendar?view=day&date=${day}`,
-                },
-              ]}
-            />
+            {moreMenu}
           </div>
         </div>
       </div>
