@@ -18,9 +18,24 @@ interface DependencyCheck {
 interface QueueCheck {
   status: 'ok' | 'degraded' | 'down';
   latencyMs: number;
+  /** Every failed job BullMQ still holds, however old. */
   failed?: number;
+  /** Failed in the last RECENT_FAILURE_HOURS - the only ones that make the queue degraded. */
+  recentFailed?: number;
+  /** When the most recent failure happened (ISO), so "20 failed" can say "last on 9 Aug". */
+  lastFailedAt?: string | null;
   error?: string;
 }
+
+/**
+ * How recent a failed job must be to count against health.
+ *
+ * BullMQ keeps failed jobs until somebody removes them. QA showed "Queue Degraded" on
+ * 2026-10-10 for 20 jobs that failed during a database outage on 9 Aug - two months of a red
+ * health tile for something long over. Old failures stay listed (and retryable); they no longer
+ * claim the system is unhealthy now.
+ */
+export const RECENT_FAILURE_HOURS = 24;
 
 export interface OpsHealth {
   status: 'ok' | 'degraded';
@@ -30,6 +45,11 @@ export interface OpsHealth {
   storage: { status: 'not_configured' };
   uptime: number;
   nodeEnv: string;
+  /**
+   * Which environment this is (LOCAL / QA / UAT / PRODUCTION). QA and UAT run NODE_ENV=production,
+   * so labelling by NODE_ENV told an admin on QA they were looking at "production".
+   */
+  appEnv: string | null;
 }
 
 export interface QueueCounts {
@@ -97,6 +117,7 @@ export class OpsService implements OnModuleDestroy {
       storage: { status: 'not_configured' },
       uptime: process.uptime(),
       nodeEnv: this.config.get<string>('NODE_ENV', 'development'),
+      appEnv: this.config.get<string>('APP_ENV') ?? null,
     };
   }
 
@@ -128,7 +149,30 @@ export class OpsService implements OnModuleDestroy {
     try {
       const counts = await this.queue.getJobCounts('waiting', 'active', 'failed', 'delayed');
       const failed = Number(counts.failed ?? 0);
-      return { status: failed > 0 ? 'degraded' : 'ok', latencyMs: Date.now() - start, failed };
+      if (failed === 0) {
+        return {
+          status: 'ok',
+          latencyMs: Date.now() - start,
+          failed,
+          recentFailed: 0,
+          lastFailedAt: null,
+        };
+      }
+      // Newest first is not guaranteed, so read a bounded page and take the latest finish time.
+      const jobs = await this.queue.getFailed(0, 199);
+      const finishedAt = jobs
+        .map((j) => Number(j.finishedOn ?? j.processedOn ?? j.timestamp ?? 0))
+        .filter((t) => t > 0);
+      const cutoff = Date.now() - RECENT_FAILURE_HOURS * 3600 * 1000;
+      const recentFailed = finishedAt.filter((t) => t >= cutoff).length;
+      const last = finishedAt.length ? Math.max(...finishedAt) : null;
+      return {
+        status: recentFailed > 0 ? 'degraded' : 'ok',
+        latencyMs: Date.now() - start,
+        failed,
+        recentFailed,
+        lastFailedAt: last ? new Date(last).toISOString() : null,
+      };
     } catch (err) {
       return { status: 'down', latencyMs: Date.now() - start, error: errorMessage(err) };
     }
