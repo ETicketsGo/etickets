@@ -1,9 +1,10 @@
 'use client';
 
 import { useCallback, useMemo } from 'react';
-import { useQueries, useQuery } from '@tanstack/react-query';
-import { api, type Cinema } from '@eticketsgo/web-kit';
-import { cinemaSaleState, type CinemaSaleState } from './cinema-model';
+import { useQuery } from '@tanstack/react-query';
+import { api, type Cinema, type ShowRow } from '@eticketsgo/web-kit';
+import { eventSaleStates } from '../../lib/sale-state';
+import { isUpcoming, type MaybeSale } from './cinema-model';
 
 /** The organization's cinemas, with lookups for each one's zone and state. */
 export function useCinemas(organizationId: string) {
@@ -28,39 +29,36 @@ export const regionOf = (c: Cinema | undefined): string | null =>
   c?.region ?? c?.venue?.region ?? null;
 
 /**
- * Whether checkout would sell at each of these cinemas, from the server.
+ * The server's unified sale state of every cinema listing (one event per film per venue) these
+ * upcoming shows belong to - the same answer the Overview and the event pages read.
  *
- * One readiness report per cinema that actually has upcoming shows - its SALES section runs
- * `saleEligibility` over every upcoming show there (#280). An operator without access to the
- * report (the server allows owners and managers) gets UNKNOWN, which the pages render as "not
- * confirmed", never as "Selling".
+ * One request per 50 listings; a library is tens of films at a handful of cinemas. `listing`
+ * answers `undefined` while loading and `null` when the answer could not be read (an operator
+ * without access - owners and managers only - or an older API), which the pages render as
+ * "not confirmed", never as "Selling".
  */
-export function useCinemaSales(cinemaIds: string[], byId: Map<string, Cinema>) {
-  const ids = useMemo(() => [...new Set(cinemaIds)].sort(), [cinemaIds]);
-  const { reports, loading } = useQueries({
-    queries: ids.map((id) => ({
-      queryKey: ['cinema', id, 'pilot-readiness'],
-      queryFn: () => api.cinemas.pilotReadiness(id),
-      staleTime: 60_000,
-      retry: false,
-    })),
-    combine: (results) => ({
-      reports: results.map((r) => r.data),
-      loading: results.some((r) => r.isLoading),
-    }),
-  });
-  const states = useMemo(() => {
-    const m = new Map<string, CinemaSaleState>();
-    ids.forEach((id, i) => {
-      const report = reports[i];
-      m.set(id, report ? cinemaSaleState(report, regionOf(byId.get(id))) : { kind: 'UNKNOWN' });
-    });
-    return m;
-  }, [ids, byId, reports]);
-  const stateOf = useCallback(
-    (id: string | null | undefined): CinemaSaleState =>
-      (id ? states.get(id) : undefined) ?? { kind: 'UNKNOWN' },
-    [states],
+export function useListingSales(organizationId: string, rows: ShowRow[], now: Date) {
+  const ids = useMemo(
+    () =>
+      [
+        ...new Set(
+          rows.filter((s) => isUpcoming(s, now) && s.eventId).map((s) => s.eventId as string),
+        ),
+      ].sort(),
+    [rows, now],
   );
-  return { stateOf, loading };
+  const q = useQuery({
+    queryKey: ['organizer-event-sale-states', organizationId, ids.join(',')],
+    queryFn: () => eventSaleStates(organizationId, ids),
+    enabled: ids.length > 0,
+    staleTime: 60_000,
+    retry: false,
+  });
+  const byId = useMemo(() => new Map((q.data ?? []).map((e) => [e.eventId, e])), [q.data]);
+  const listing = useCallback(
+    (eventId: string): MaybeSale =>
+      q.isError ? null : q.data ? (byId.get(eventId) ?? null) : undefined,
+    [q.isError, q.data, byId],
+  );
+  return { listing, loading: q.isLoading };
 }

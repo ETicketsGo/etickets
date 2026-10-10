@@ -3,7 +3,6 @@ import {
   hasSessionToday,
   lifecycleOf,
   nextStepOf,
-  onlineSaleOf,
   saleStateOf,
   setupOf,
   type SaleState,
@@ -11,7 +10,6 @@ import {
 
 const NOW = Date.parse('2026-10-09T12:00:00.000Z');
 const HOUR = 3_600_000;
-const SELLABLE = { sellable: true, blockers: [] };
 
 describe('lifecycleOf: the console vocabulary', () => {
   it.each([
@@ -42,96 +40,63 @@ describe('lifecycleOf: the console vocabulary', () => {
   });
 });
 
-describe('saleStateOf: Selling only when the server says so', () => {
-  const OPEN = { checkedShows: 2, openShows: 2 };
-  const base = { upcomingSessions: 2, check: SELLABLE, online: OPEN };
-
-  it('never says Selling for a draft, however well it is set up', () => {
-    // The owner's complaint: "Ready to sell" on a DRAFT event.
-    expect(saleStateOf({ ...base, status: 'DRAFT' })).toEqual({
-      selling: false,
-      label: 'Not selling: not published yet',
-    });
-    expect(saleStateOf({ ...base, status: 'UNDER_REVIEW' }).label).toBe(
-      'Not selling: waiting for approval',
-    );
+describe('saleStateOf: the server answer, in words', () => {
+  const reason = (code: string, text: string, message: string) => ({
+    code: code as never,
+    text,
+    message,
+    owner: 'ORGANIZER' as const,
+    fixPath: null,
+    ticketTypeIds: [],
+    affectedSessions: 1,
   });
 
-  it('is Selling for a published event the sale check passes', () => {
-    expect(saleStateOf({ ...base, status: 'PUBLISHED' })).toEqual({
+  it('is Selling only when the server says SELLING', () => {
+    expect(saleStateOf({ answer: { state: 'SELLING', reasons: [] } })).toEqual({
+      state: 'SELLING',
       selling: true,
       label: 'Selling',
+      tone: 'success',
     });
   });
 
-  it('is never Selling for a draft, even with every check passing', () => {
-    for (const status of ['DRAFT', 'UNDER_REVIEW', 'PAUSED', 'CANCELLED', 'COMPLETED']) {
-      expect(saleStateOf({ ...base, status }).selling).toBe(false);
-      expect(saleStateOf({ ...base, status }).label).not.toBe('Selling');
-    }
-  });
-
-  it('is not Selling when setup passes but sale eligibility is closed (a Telangana cinema)', () => {
-    // GET /events/:id/sellability is configuration only; checkout's eligibility rule is separate.
-    const closed = onlineSaleOf(
-      [{ onlineBooking: { open: false } }, { onlineBooking: { open: false } }],
-      false,
-    );
-    expect(saleStateOf({ ...base, status: 'PUBLISHED', online: closed })).toEqual({
-      selling: false,
-      label: 'Not selling: online booking is not open for any upcoming show',
-    });
-  });
-
-  it('waits for eligibility, and counts an older API answer as open', () => {
-    expect(saleStateOf({ ...base, status: 'PUBLISHED', online: undefined }).selling).toBeNull();
-    expect(onlineSaleOf([{ onlineBooking: { open: true } }, undefined], false)).toBeUndefined();
-    expect(onlineSaleOf([{}, { onlineBooking: { open: false } }], false)).toEqual({
-      checkedShows: 2,
-      openShows: 1,
-    });
-    expect(
-      saleStateOf({ ...base, status: 'PUBLISHED', online: onlineSaleOf([], true) }).selling,
-    ).toBeNull();
-  });
-
-  it('gives the server blocker as the reason, in its own words', () => {
-    const state = saleStateOf({
-      ...base,
-      status: 'PUBLISHED',
-      check: {
-        sellable: false,
-        blockers: [{ message: 'This show has no ticket types.', owner: 'ORGANIZER' }],
+  it('never says bare Selling for a partly selling event', () => {
+    const s = saleStateOf({
+      answer: {
+        state: 'PARTIAL',
+        reasons: [
+          reason('SEAT_CLASS_UNMAPPED', 'seat classes not mapped', 'Map Standard to a class.'),
+        ],
       },
     });
-    expect(state).toEqual({
+    expect(s).toEqual({
+      state: 'PARTIAL',
       selling: false,
-      label: 'Not selling: this show has no ticket types',
+      label: 'Partly selling: seat classes not mapped',
+      tone: 'info',
+      detail: 'Map Standard to a class.',
     });
   });
 
-  it('does not guess while the check is pending or failed', () => {
-    expect(saleStateOf({ status: 'PUBLISHED', upcomingSessions: 1, check: undefined })).toEqual({
+  it('says why it is not selling, from the server, including a draft', () => {
+    expect(
+      saleStateOf({
+        answer: {
+          state: 'NOT_SELLING',
+          reasons: [reason('EVENT_NOT_PUBLISHED', 'draft, not submitted', 'Publish it.')],
+        },
+      }).label,
+    ).toBe('Not selling: draft, not submitted');
+  });
+
+  it('does not guess while the answer is pending or failed', () => {
+    expect(saleStateOf({ answer: undefined })).toEqual({
+      state: null,
       selling: null,
       label: 'Checking sales',
+      tone: 'neutral',
     });
-    expect(
-      saleStateOf({ status: 'PUBLISHED', upcomingSessions: 1, check: undefined, checkFailed: true })
-        .selling,
-    ).toBeNull();
-  });
-
-  it('is not selling with nothing to come, paused, sold out or ended', () => {
-    expect(saleStateOf({ ...base, status: 'PUBLISHED', upcomingSessions: 0 }).label).toBe(
-      'Not selling: no sessions to come',
-    );
-    expect(saleStateOf({ ...base, status: 'PAUSED', pausedByAdmin: true }).label).toBe(
-      'Not selling: paused by the platform team',
-    );
-    expect(saleStateOf({ ...base, status: 'SOLD_OUT' }).label).toBe('Not selling: sold out');
-    expect(saleStateOf({ ...base, status: 'COMPLETED' }).label).toBe(
-      'Not selling: the event has ended',
-    );
+    expect(saleStateOf({ answer: undefined, failed: true }).label).toBe('Sale check unavailable');
   });
 });
 
@@ -183,7 +148,12 @@ describe('hasSessionToday', () => {
 });
 
 describe('nextStepOf: one thing to do next', () => {
-  const selling: SaleState = { selling: true, label: 'Selling' };
+  const selling: SaleState = {
+    state: 'SELLING',
+    selling: true,
+    label: 'Selling',
+    tone: 'success',
+  };
   const base = { eventId: 'e1', sessionToday: false, sale: selling, ownBlockers: 0 };
 
   it('submits a clean draft, and fixes a broken one first', () => {

@@ -211,6 +211,7 @@ function toShowRow(
       venue?: { id: string; name: string } | null;
       cinema?: { id: string; name: string } | null;
     } | null;
+    eventId: string;
     event: { movieId: string | null; movie: { title: string } | null };
     ticketTypes?: { salesStartAt: Date | null; salesEndAt: Date | null }[];
   },
@@ -226,6 +227,7 @@ function toShowRow(
   const ends = types.map((t) => t.salesEndAt).filter((d): d is Date => d !== null);
   return {
     sessionId: s.id,
+    eventId: s.eventId,
     startsAt: s.startsAt,
     endsAt: s.endsAt,
     screenId: s.screen?.id ?? null,
@@ -291,6 +293,11 @@ export interface ShowRowView {
    * screen or render sales state, and would have to infer both — which is how a paused
    * show ends up looking bookable to the person who paused it.
    */
+  /**
+   * The cinema listing (event) the show belongs to: one per film per venue. Lets the console
+   * ask the unified sale state of a film's listings in one request instead of one per show.
+   */
+  eventId: string;
   screenId: string | null;
   screenName: string | null;
   cinemaId: string | null;

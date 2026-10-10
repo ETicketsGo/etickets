@@ -1,6 +1,6 @@
 'use client';
 
-import { useQueries, useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
@@ -49,21 +49,17 @@ import {
   comingUp,
   comingUpWindow,
   COMING_UP_DAYS,
-  NEXT_SHOW_DAYS,
-  nextShowByEvent,
   startingWithin,
   type MarketChoice,
   type MarketMoney,
 } from './_dashboard/model';
 import {
-  eventSelling,
   lifecycleLabel,
   lifecycleTone,
+  sellingOf,
   sellingTone,
-  sessionSelling,
   setupSummary,
   type Selling,
-  type ShowSaleInput,
   type SetupSummary,
 } from './_dashboard/status';
 
@@ -155,12 +151,12 @@ export default function OrganizerDashboard() {
   });
   /*
     What is on next: the calendar's own endpoint, one request for every show of the
-    organization in the next 60 days (NEXT_SHOW_DAYS), with sold and capacity per show. The week's
-    programme is the first seven days of it; the rest is each event's NEXT show, which is what
-    "is this event selling" is judged by. The window is fixed at mount so the query key does
+    organization in the next week, with sold and capacity per show. Whether an EVENT is selling
+    is no longer judged from its next show here - the server answers over all its upcoming
+    shows - so a longer window would be read for nothing. Fixed at mount so the query key does
     not change on every render.
   */
-  const [horizon] = useState(() => comingUpWindow(new Date(), NEXT_SHOW_DAYS));
+  const [horizon] = useState(() => comingUpWindow(new Date(), COMING_UP_DAYS));
   const upcomingQ = useQuery({
     queryKey: ['organizer-calendar', activeOrg.id, horizon.from, horizon.to],
     queryFn: () => api.events.calendar(activeOrg.id, horizon.from, horizon.to),
@@ -189,78 +185,42 @@ export default function OrganizerDashboard() {
       ),
     [upcomingQ.data],
   );
-  const nextShows = useMemo(() => nextShowByEvent(upcomingQ.data?.sessions), [upcomingQ.data]);
   const recentEvents = useMemo(() => events.slice(0, 6), [events]);
 
   /*
-    ── IS IT SELLING: TWO SERVER CHECKS, BOTH REQUIRED ───────────────────────────────
-    1. GET /events/:id/sellability - is the event CONFIGURED so a sale can be made (dates,
-       ticket types, seat classes). Cached under the key the event page uses.
-    2. GET /organizer-calendar/sale-eligibility - would checkout sell this SHOW now, by the
-       sale-eligibility rules it refuses a cart by (#280): state price rules, ceilings. The
-       first check does not ask these, and on QA a Telangana cinema show with no state price
-       rules read "Selling" while every checkout answered SALE_NOT_OPEN.
-    Only PUBLISHED events are asked about at all - a draft answers "Not selling: draft" from
-    its status - and only the shows on this page: the week's programme and each listed
-    event's next show, a dozen at most.
+    ── IS IT SELLING: ONE SERVER ANSWER ──────────────────────────────────────────────
+    The API's unified sale state, built from the facts checkout refuses a cart by: the event
+    and show status, each ticket type's window and places, and the sale-eligibility rules
+    (#280). Per show for the week's programme, per event for "Your events" - judged over ALL
+    its upcoming shows, not just the next one, so an event with one paused date among ten
+    reads "Partly selling", never "Selling". This page decides nothing about it.
+
+    The shows and events on this page only: a dozen ids at most, well under the caps.
   */
-  const publishedIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const s of upcoming) if (s.event.status === 'PUBLISHED') ids.add(s.event.id);
-    for (const e of recentEvents) if (e.status === 'PUBLISHED') ids.add(e.id);
-    return [...ids];
-  }, [upcoming, recentEvents]);
-  const sellabilityQs = useQueries({
-    queries: publishedIds.map((id) => ({
-      queryKey: ['event-sellability', id],
-      queryFn: () => api.events.sellability(id),
-      staleTime: 60_000,
-      retry: 1,
-    })),
-  });
-  const askedSessionIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const s of upcoming) if (s.event.status === 'PUBLISHED') ids.add(s.id);
-    for (const e of recentEvents) {
-      const next = nextShows.get(e.id);
-      if (e.status === 'PUBLISHED' && next) ids.add(next.id);
-    }
-    return [...ids].sort();
-  }, [upcoming, recentEvents, nextShows]);
-  const eligibilityQ = useQuery({
+  const askedSessionIds = useMemo(() => upcoming.map((s) => s.id).sort(), [upcoming]);
+  const sessionStatesQ = useQuery({
     queryKey: ['organizer-sale-eligibility', activeOrg.id, askedSessionIds.join(',')],
     queryFn: () => api.events.saleEligibility(activeOrg.id, askedSessionIds),
     enabled: askedSessionIds.length > 0,
     staleTime: 60_000,
     retry: 1,
   });
-  const eligibilityBySession = useMemo(
-    () => new Map((eligibilityQ.data?.sessions ?? []).map((e) => [e.sessionId, e])),
-    [eligibilityQ.data],
+  const sessionState = useMemo(
+    () => new Map((sessionStatesQ.data?.sessions ?? []).map((e) => [e.sessionId, e])),
+    [sessionStatesQ.data],
   );
-
-  /** Both checks for one show, in the shape the status rules take. */
-  const showInput = (s: OrganizerCalendarSession): ShowSaleInput => {
-    const i = publishedIds.indexOf(s.event.id);
-    return {
-      sessionStatus: s.status,
-      startsAt: s.startsAt,
-      sold: s.sold,
-      capacity: s.capacity,
-      sessionId: s.id,
-      sellability: i < 0 ? undefined : sellabilityQs[i]?.data,
-      eligibility: eligibilityBySession.get(s.id),
-    };
-  };
-  /** A check that could not be read is said as such, never as Selling. */
-  const failedFor = (eventId: string) => {
-    const i = publishedIds.indexOf(eventId);
-    return eligibilityQ.isError || (i >= 0 && !!sellabilityQs[i]?.isError);
-  };
-  const unknown = (s: Selling, failed: boolean): Selling =>
-    failed && s.selling === null && s.label === 'Checking sales'
-      ? { selling: null, label: 'Sales status unavailable' }
-      : s;
+  const askedEventIds = useMemo(() => recentEvents.map((e) => e.id).sort(), [recentEvents]);
+  const eventStatesQ = useQuery({
+    queryKey: ['organizer-event-sale-states', activeOrg.id, askedEventIds.join(',')],
+    queryFn: () => api.events.saleStates(activeOrg.id, askedEventIds),
+    enabled: askedEventIds.length > 0,
+    staleTime: 60_000,
+    retry: 1,
+  });
+  const eventState = useMemo(
+    () => new Map((eventStatesQ.data?.events ?? []).map((e) => [e.eventId, e])),
+    [eventStatesQ.data],
+  );
 
   /*
     ── MONEY IS PER MARKET, AND THE ORGANIZER PICKS WHICH ONE ────────────────────────
@@ -464,10 +424,7 @@ export default function OrganizerDashboard() {
                       <ProgrammeRow
                         key={s.id}
                         session={s}
-                        selling={unknown(
-                          sessionSelling({ ...showInput(s), eventStatus: s.event.status }),
-                          failedFor(s.event.id),
-                        )}
+                        selling={sellingOf(sessionState.get(s.id), sessionStatesQ.isError)}
                       />
                     );
                   })}
@@ -500,15 +457,7 @@ export default function OrganizerDashboard() {
               ) : (
                 <ul className="divide-y divide-border border-t border-border">
                   {recentEvents.map((e) => {
-                    const next = nextShows.get(e.id);
-                    const selling = unknown(
-                      eventSelling(
-                        e.status,
-                        upcomingQ.isLoading ? undefined : next ? showInput(next) : null,
-                        NEXT_SHOW_DAYS,
-                      ),
-                      failedFor(e.id) || upcomingQ.isError,
-                    );
+                    const selling = sellingOf(eventState.get(e.id), eventStatesQ.isError);
                     return (
                       <li
                         key={e.id}
@@ -805,7 +754,7 @@ function Figure({
  * Never colour alone: the dot and the word both say it.
  */
 function SellingChip({ selling }: { selling: Selling }) {
-  if (selling.selling === true) {
+  if (selling.state === 'SELLING') {
     return (
       <span className="inline-flex items-center gap-1.5 rounded-full bg-tint-marquee px-2.5 py-0.5 text-caption font-semibold text-marquee">
         <span className="h-1.5 w-1.5 rounded-full bg-marquee-fill" aria-hidden />

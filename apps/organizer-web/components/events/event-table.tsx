@@ -7,6 +7,8 @@ import { EventStateBadges } from './event-state-badges';
 import { EventActions } from './event-actions';
 import { SalesLines, SoldMeter } from './event-card';
 import { scheduleSummary, type EventListRow } from './event-list-model';
+import { SaleChip } from '../cinema/sale-chip';
+import type { SaleView } from '../../lib/sale-state';
 
 /**
  * The same events as rows, for scanning many at once.
@@ -24,6 +26,7 @@ import { scheduleSummary, type EventListRow } from './event-list-model';
 export function EventTable({
   rows,
   showSales,
+  saleOf,
   duplicatingId,
   onDuplicate,
   onDelete,
@@ -31,6 +34,8 @@ export function EventTable({
   rows: EventListRow[];
   /** False for a member who may not see money: the column is left out, not shown empty. */
   showSales: boolean;
+  /** The server's unified sale state per event, said under its stage. */
+  saleOf?: (eventId: string) => SaleView | undefined;
   duplicatingId: string | null;
   onDuplicate: (e: EventListRow) => void;
   onDelete: (e: EventListRow) => void;
@@ -96,7 +101,15 @@ export function EventTable({
     {
       key: 'status',
       header: 'Status',
-      render: (e) => <EventStateBadges event={e} />,
+      render: (e) => {
+        const sale = saleOf?.(e.id);
+        return (
+          <div className="flex min-w-0 max-w-[16rem] flex-col items-start gap-1.5">
+            <EventStateBadges event={e} />
+            {sale ? <SaleChip verdict={sale} /> : null}
+          </div>
+        );
+      },
     },
     {
       key: 'tickets',

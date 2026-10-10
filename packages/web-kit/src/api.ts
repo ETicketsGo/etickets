@@ -1,4 +1,7 @@
 import type {
+  EventSaleState,
+  SaleReason,
+  SaleStateKind,
   CinemaFormat,
   CinemaPricingPolicyStatus,
   ClimateType,
@@ -1304,6 +1307,14 @@ export const api = {
     saleEligibility: (organizationId: string, sessionIds: string[]) =>
       request<{ sessions: OrganizerSessionSaleEligibility[] }>(
         `/organizer-calendar/sale-eligibility${qs({ organizationId, sessionIds: sessionIds.join(',') })}`,
+      ),
+    /**
+     * Whether each event is selling, partly selling or not, over its upcoming shows. At most 50
+     * ids per call; the console pages a longer list. Owners and managers only.
+     */
+    saleStates: (organizationId: string, eventIds: string[]) =>
+      request<{ events: EventSaleState[] }>(
+        `/organizer-calendar/event-sale-eligibility${qs({ organizationId, eventIds: eventIds.join(',') })}`,
       ),
     get: (id: string) => request<OrgEventDetail>(`/events/${id}`),
     create: (body: CreateEventBody) =>
@@ -3692,6 +3703,8 @@ export interface ScheduleShowBody {
 
 export interface ShowRow {
   sessionId: string;
+  /** The cinema listing (event) it belongs to. Absent from an API older than 2026-10-10. */
+  eventId?: string;
   startsAt: string;
   endsAt: string;
   screenId: string | null;
@@ -3998,6 +4011,15 @@ export interface OrganizerSessionSaleEligibility {
     fixPath: string | null;
     subject?: string;
   }[];
+  /**
+   * The unified answer every organizer screen renders: SELLING, PARTIAL or NOT_SELLING over
+   * everything checkout reads. Put into words with `saleStateLabel`; never re-derived.
+   */
+  state: SaleStateKind;
+  reasons: SaleReason[];
+  openTicketTypeIds: string[];
+  closedTicketTypeIds: string[];
+  eventId: string;
 }
 export interface EventPromotion {
   eventId: string;

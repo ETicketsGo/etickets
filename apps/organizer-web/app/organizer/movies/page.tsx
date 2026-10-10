@@ -20,12 +20,12 @@ import {
 import { useOrg } from '@/components/org-context';
 import { FilmCard, FilmRow, type FilmSummary } from '@/components/cinema/film-card';
 import { CinemaGlanceStrip } from '@/components/cinema/cinema-glance';
-import { useCinemaSales, useCinemas } from '@/components/cinema/use-cinema-data';
+import { useCinemas, useListingSales } from '@/components/cinema/use-cinema-data';
 import {
+  cinemaSaleVerdict,
   filmSaleSummary,
   filterFilms,
   glanceByCinema,
-  isUpcoming,
   languagesOf,
   programmeOf,
 } from '@/components/cinema/cinema-model';
@@ -89,10 +89,7 @@ export default function OrganizerMovies() {
   */
   const [now] = useState(() => new Date());
   const allRows = showsByFilm.flatMap((rows) => rows ?? []) as ShowRow[];
-  const upcomingCinemaIds = allRows
-    .filter((s) => isUpcoming(s, now) && s.cinemaId)
-    .map((s) => s.cinemaId!);
-  const sales = useCinemaSales(upcomingCinemaIds, cinemas.byId);
+  const sales = useListingSales(activeOrg.id, allRows, now);
   const glances = glanceByCinema(allRows, cinemas.zoneOf, now);
 
   const summaries: FilmSummary[] = (movies ?? []).map((movie, i) => {
@@ -101,7 +98,7 @@ export default function OrganizerMovies() {
     return {
       movie,
       programme,
-      sale: programme ? filmSaleSummary(movie, programme, rows, now, sales.stateOf) : null,
+      sale: programme ? filmSaleSummary(movie, programme, rows, now, sales.listing) : null,
       zoneOf: cinemas.zoneOf,
     };
   });
@@ -163,7 +160,10 @@ export default function OrganizerMovies() {
           ))}
         </div>
       ) : (
-        <CinemaGlanceStrip glances={glances} stateOf={(id) => sales.stateOf(id)} />
+        <CinemaGlanceStrip
+          glances={glances}
+          verdictOf={(id) => cinemaSaleVerdict(id, allRows, now, sales.listing)}
+        />
       )}
 
       <section aria-labelledby="library-heading" className="space-y-3">

@@ -1,9 +1,6 @@
-import type {
-  BadgeTone,
-  EventSellability,
-  OrganizerAction,
-  OrganizerSessionSaleEligibility,
-} from '@eticketsgo/web-kit';
+import type { BadgeTone, OrganizerAction } from '@eticketsgo/web-kit';
+import { saleStateLabel, type EventSaleState, type SaleStateKind } from '@eticketsgo/shared-types';
+import { saleTone } from '../../../lib/sale-state';
 
 /**
  * The three separate questions the Overview answers about an event, kept separate.
@@ -15,13 +12,12 @@ import type {
  * third one, where the event is in its life:
  *
  *   1. Lifecycle:    Draft -> In review -> Published -> Ended / Cancelled  (the event's status)
- *   2. Selling:      "Selling" | "Not selling: <reason>"  (status AND the server's sale check)
+ *   2. Selling:      "Selling" | "Partly selling: <reason>" | "Not selling: <reason>"
+ *                    (the server's unified sale state, which already weighs the status)
  *   3. Setup:        "Setup complete" | "<n> things to set up"  (the organization's actions)
  *
- * "Selling" is only ever said when the event is PUBLISHED, the show is still ahead and not
- * full, and BOTH server checks have answered with nothing in the way: the configuration check
- * (sellability) and checkout's own sale-eligibility rules. Until both answer the honest word
- * is "Checking", never "Selling".
+ * "Selling" is only ever said when the server has answered SELLING. Until it answers, the
+ * honest word is "Checking", never "Selling".
  *
  * Every rule here is a reading of fields the API returns; nothing is inferred from colour,
  * counted twice, or guessed. `status.test.ts` pins the rules, draft-is-never-selling first.
@@ -59,139 +55,47 @@ export function lifecycleTone(status: string): BadgeTone {
 }
 
 export interface Selling {
-  /** True only when somebody could buy right now; null while the server has not answered. */
-  selling: boolean | null;
-  /** "Selling", "Checking sales" or "Not selling: <plain reason>". */
+  /** The server's state; null while it has not answered or could not be read. */
+  state: SaleStateKind | null;
+  /** "Selling", "Partly selling: <reason>", "Not selling: <reason>", or why there is no answer. */
   label: string;
-  /** The server's full sentence for a refusal, when there is one. */
+  /** The server's full sentence for the lead reason, when there is one. */
   detail?: string;
-}
-
-const not = (reason: string): Selling => ({ selling: false, label: `Not selling: ${reason}` });
-
-/** Why an event in this status is not on sale, or null when its status allows selling. */
-function statusReason(eventStatus: string): string | null {
-  switch (eventStatus) {
-    case 'PUBLISHED':
-      return null;
-    case 'DRAFT':
-      return 'draft, not submitted';
-    case 'UNDER_REVIEW':
-      return 'waiting for review';
-    case 'PAUSED':
-      return 'paused';
-    case 'SOLD_OUT':
-      return 'sold out';
-    case 'CANCELLED':
-      return 'cancelled';
-    case 'COMPLETED':
-    case 'ARCHIVED':
-      return 'ended';
-    default:
-      return 'not published';
-  }
-}
-
-/** The blockers that stop THIS show: ones naming it, and ones that belong to no show at all. */
-function blockersFor(sellability: EventSellability, sessionId?: string) {
-  return sellability.blockers.filter((b) => {
-    if (!sessionId) return true;
-    const sessions = b.sessions;
-    // An older API without `sessions`, or a fault with none: it is about the whole event.
-    if (!sessions || sessions.length === 0)
-      return !b.eventSessionId || b.eventSessionId === sessionId;
-    return sessions.some((s) => s.id === sessionId);
-  });
-}
-
-function blockerReason(count: number): string {
-  return count === 1 ? '1 problem to fix' : `${count} problems to fix`;
+  tone: BadgeTone;
 }
 
 /**
- * A few words for a sale-eligibility refusal, for the chip. The server's full sentence for the
- * organizer travels with it as `detail` and is shown beside the chip, never thrown away.
- */
-const ELIGIBILITY_REASON: Record<string, string> = {
-  NO_PRICING_POLICY: 'no state price rules yet',
-  PRICING_POLICY_CONFLICT: 'state price rules need correcting',
-  REGULATORY_PRICING_UNRESOLVED: 'state price rules cannot be applied',
-  CINEMA_NOT_CLASSIFIED: 'cinema type not on record',
-  SEAT_CLASS_UNMAPPED: 'seat class not mapped',
-  PRICE_OVER_CEILING: 'price over the state limit',
-};
-
-/** What one show needs to be judged: its own state, plus the two server checks. */
-export interface ShowSaleInput {
-  sessionStatus: string;
-  startsAt: string;
-  sold: number | null;
-  capacity: number | null;
-  sessionId: string;
-  /** `GET /events/:id/sellability`: is the event configured so a sale can be made. */
-  sellability: EventSellability | undefined;
-  /**
-   * `GET /organizer-calendar/sale-eligibility`: would checkout sell this show NOW, by the
-   * sale-eligibility rules it refuses a cart by (#280) - state price rules, seat classes,
-   * ceilings. The configuration check above does not ask these, which is how a Telangana
-   * cinema show with no state price rules read "Selling" while every checkout refused it.
-   */
-  eligibility: OrganizerSessionSaleEligibility | undefined;
-  now?: Date;
-}
-
-/**
- * Whether ONE SHOW is selling: its event is published, the show is scheduled and has not
- * started (sales close when the show starts), it has places left, checkout's own eligibility
- * rules would sell it, and no configuration blocker names it.
+ * The server's unified sale state for a show or an event, in the console's words.
  *
- * Both server checks must have answered. Either one missing is "Checking sales", never
- * "Selling".
+ * Nothing is worked out here any more. This file used to combine the event status, the show's
+ * clock, sold and capacity, the configuration check and checkout's eligibility rule into its
+ * own "selling" - and said "Not selling: 1 problem to fix" about a Vijayawada show the cinema
+ * workspace called "Selling" and checkout was selling. The API now makes that judgement once
+ * (`GET /organizer-calendar/sale-eligibility` per show, `.../event-sale-eligibility` per event,
+ * both from `sale-state.ts` in shared-types) and every screen reads it. A PARTIAL answer is
+ * never shown as bare "Selling"; no answer is never shown as "Selling" either.
  */
-export function sessionSelling(input: ShowSaleInput & { eventStatus: string }): Selling {
-  const reason = statusReason(input.eventStatus);
-  if (reason) return not(reason);
-  if (input.sessionStatus === 'CANCELLED') return not('show cancelled');
-  if (input.sessionStatus === 'PAUSED') return not('show paused');
-  if (input.sessionStatus === 'COMPLETED') return not('show ended');
-  if (Date.parse(input.startsAt) <= (input.now ?? new Date()).getTime())
-    return not('show has started');
-  if (input.capacity && input.sold != null && input.sold >= input.capacity) return not('sold out');
-  if (!input.sellability || !input.eligibility) return { selling: null, label: 'Checking sales' };
-  if (!input.eligibility.open) {
-    const first = input.eligibility.blockers[0];
-    return {
-      ...not((first && ELIGIBILITY_REASON[first.code]) ?? 'checkout would refuse it'),
-      detail: first?.message,
-    };
-  }
-  const blockers = blockersFor(input.sellability, input.sessionId);
-  if (blockers.length > 0)
-    return { ...not(blockerReason(blockers.length)), detail: blockers[0].message };
-  return { selling: true, label: 'Selling' };
-}
-
-/**
- * Whether an EVENT is selling, judged by its next show.
- *
- * `next` is undefined while the shows are loading, and null when the event has no show in the
- * window the Overview reads. A show further out may well be on sale, so that is said as a
- * fact about dates - never as "Selling", and never as "Not selling".
- */
-export function eventSelling(
-  eventStatus: string,
-  next: ShowSaleInput | null | undefined,
-  horizonDays: number,
+export function sellingOf(
+  answer: Pick<EventSaleState, 'state' | 'reasons'> | undefined,
+  failed = false,
 ): Selling {
-  const reason = statusReason(eventStatus);
-  if (reason) return not(reason);
-  if (next === undefined) return { selling: null, label: 'Checking sales' };
-  if (next === null) return { selling: null, label: `No shows in the next ${horizonDays} days` };
-  return sessionSelling({ ...next, eventStatus });
+  if (!answer)
+    return {
+      state: null,
+      label: failed ? 'Sales status unavailable' : 'Checking sales',
+      tone: 'neutral',
+    };
+  const lead = answer.reasons[0];
+  return {
+    state: answer.state,
+    label: saleStateLabel(answer),
+    tone: saleTone(answer),
+    ...(answer.state !== 'SELLING' && lead ? { detail: lead.message } : {}),
+  };
 }
 
 export function sellingTone(s: Selling): BadgeTone {
-  return s.selling === true ? 'success' : s.selling === null ? 'neutral' : 'warning';
+  return s.tone;
 }
 
 export interface SetupSummary {

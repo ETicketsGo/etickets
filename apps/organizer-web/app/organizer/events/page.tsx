@@ -22,6 +22,7 @@ import {
   errorMessage,
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
+import { eventSaleStates, saleViewOf, type SaleView } from '@/lib/sale-state';
 import { EventCard } from '@/components/events/event-card';
 import { EventTable } from '@/components/events/event-table';
 import {
@@ -160,6 +161,26 @@ export default function OrganizerEvents() {
   const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
   const pageRows = rows.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+
+  /*
+    Whether each event on this page is selling: the server's unified answer over its upcoming
+    shows, the same one the Overview and the event page show. Asked for the page's events only
+    (12, under the server's cap of 50), in one request. Owners and managers may ask; anybody
+    else sees "Sale status unavailable" on each card, never a guess.
+  */
+  const pageIds = useMemo(() => pageRows.map((e) => e.id).sort(), [pageRows]);
+  const salesQ = useQuery({
+    queryKey: ['organizer-event-sale-states', activeOrg.id, pageIds.join(',')],
+    queryFn: () => eventSaleStates(activeOrg.id, pageIds),
+    enabled: pageIds.length > 0,
+    staleTime: 60_000,
+    retry: 1,
+  });
+  const saleOf = (eventId: string): SaleView =>
+    saleViewOf(
+      salesQ.data?.find((s) => s.eventId === eventId),
+      { failed: salesQ.isError },
+    );
 
   const set = (patch: Partial<EventFilters>) => {
     setFilters((f) => ({ ...f, ...patch }));
@@ -393,6 +414,7 @@ export default function OrganizerEvents() {
             <li key={e.id} className="flex min-w-0">
               <EventCard
                 event={e}
+                sale={saleOf(e.id)}
                 duplicating={duplicatingId === e.id}
                 onDuplicate={() => duplicate.mutate(e.id)}
                 onDelete={() => setDeleting(e)}
@@ -404,6 +426,7 @@ export default function OrganizerEvents() {
         <EventTable
           rows={pageRows}
           showSales={showSales}
+          saleOf={saleOf}
           duplicatingId={duplicatingId}
           onDuplicate={(e) => duplicate.mutate(e.id)}
           onDelete={(e) => setDeleting(e)}

@@ -7,6 +7,8 @@ import { EventArtwork } from './event-artwork';
 import { EventStateBadges } from './event-state-badges';
 import { EventActions } from './event-actions';
 import { scheduleSummary, soldOfCapacity, type EventListRow } from './event-list-model';
+import { SaleChip } from '../cinema/sale-chip';
+import type { SaleView } from '../../lib/sale-state';
 
 /** The events' sales, one line per currency. Never a total across currencies. */
 export function SalesLines({ event }: { event: EventListRow }) {
@@ -57,11 +59,14 @@ export function SoldMeter({ event, compact = false }: { event: EventListRow; com
  */
 export function EventCard({
   event,
+  sale,
   duplicating,
   onDuplicate,
   onDelete,
 }: {
   event: EventListRow;
+  /** The server's unified sale state for this event; left out when it is not asked. */
+  sale?: SaleView;
   duplicating: boolean;
   onDuplicate: () => void;
   onDelete: () => void;
@@ -103,6 +108,7 @@ export function EventCard({
             </Link>
           </h2>
           <EventStateBadges event={event} />
+          {sale ? <SaleChip verdict={sale} /> : null}
         </div>
 
         <dl className="min-w-0 space-y-1 text-[0.8125rem] text-text-secondary">

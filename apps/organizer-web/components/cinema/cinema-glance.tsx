@@ -7,32 +7,9 @@ import {
   formatClock,
   percentSold,
   type CinemaGlance as Glance,
-  type CinemaSaleState,
   type SaleVerdict,
 } from './cinema-model';
 import { SaleChip } from './sale-chip';
-
-/** A cinema's verdict in the chip's words. */
-export function cinemaVerdict(
-  state: CinemaSaleState,
-): Pick<SaleVerdict, 'label' | 'tone' | 'selling'> {
-  switch (state.kind) {
-    case 'SELLING':
-      return { label: 'Selling', tone: 'success', selling: true };
-    case 'NOT_SELLING':
-      return { label: `Not selling: ${state.reason}`, tone: 'warning', selling: false };
-    case 'PARTLY':
-      return {
-        label: `Not selling: ${state.reason} (some shows)`,
-        tone: 'warning',
-        selling: false,
-      };
-    case 'NO_SHOWS':
-      return { label: 'No upcoming shows', tone: 'neutral', selling: false };
-    default:
-      return { label: 'Sale status not confirmed', tone: 'neutral', selling: false };
-  }
-}
 
 /**
  * Today and the coming week at each cinema, built from the showtimes already loaded.
@@ -43,11 +20,12 @@ export function cinemaVerdict(
  */
 export function CinemaGlanceStrip({
   glances,
-  stateOf,
+  verdictOf,
   limit = 6,
 }: {
   glances: Glance[];
-  stateOf: (cinemaId: string) => CinemaSaleState;
+  /** The server's unified answer for each cinema, in words. */
+  verdictOf: (cinemaId: string) => SaleVerdict;
   limit?: number;
 }) {
   if (glances.length === 0) return null;
@@ -87,7 +65,7 @@ export function CinemaGlanceStrip({
                   <h3 className="line-clamp-2 break-words text-[0.9375rem] font-semibold text-text-primary">
                     {g.cinemaName}
                   </h3>
-                  <SaleChip verdict={cinemaVerdict(stateOf(g.cinemaId))} className="mt-1" />
+                  <SaleChip verdict={verdictOf(g.cinemaId)} className="mt-1" />
                 </div>
               </div>
               <dl className="grid grid-cols-2 gap-3 text-[0.875rem]">
