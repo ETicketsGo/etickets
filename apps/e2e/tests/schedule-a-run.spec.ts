@@ -230,7 +230,7 @@ test.describe('scheduling a run', () => {
 
     await expect(dialog.getByRole('heading', { name: 'When it plays' })).toBeVisible();
     await expect(dialog.getByRole('heading', { name: 'What it charges' })).toBeVisible();
-    await expect(dialog.getByRole('heading', { name: 'On sale' })).toBeVisible();
+    await expect(dialog.getByRole('heading', { name: 'Pause sales' })).toBeVisible();
     await expect(dialog.getByRole('heading', { name: 'Cancel this show' })).toBeVisible();
 
     // Repricing an unsold show is allowed, and lands.
