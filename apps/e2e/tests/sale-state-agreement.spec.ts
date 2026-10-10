@@ -103,8 +103,8 @@ async function fixture(request: APIRequestContext, tokens: AuthTokens): Promise<
   });
 
   /*
-    Soon - the next half hour - so it is in the Overview's week AND among the first shows its
-    programme lists (it lists six, earliest first, and the seeded organization has many).
+    Soon - the next half hour - so it is the organization's next show still to start: the first
+    of the Overview's "Upcoming events" cards, and on its "Today" list.
   */
   const start = new Date(Math.ceil((Date.now() + 30 * 60_000) / 300_000) * 300_000);
   const show = await (
@@ -167,13 +167,15 @@ async function says(where: Locator, label: string) {
 }
 
 async function everyScreenSays(page: Page, fx: Fixture, label: string) {
-  // 1. The Overview: the week's programme, and "Your events".
+  /*
+    1. The Overview: the event's card under "Upcoming events" (the event's answer, over all its
+    shows) and the show's row in the month card's "Today" list (the show's own answer).
+  */
   await page.goto(`${ORGANIZER}/organizer`);
-  const week = page.getByRole('region', { name: 'This week' });
-  const weekRow = week.getByRole('listitem').filter({ hasText: fx.title });
-  await says(weekRow, label);
-  const yours = page.getByRole('region', { name: 'Your events' });
-  await says(yours.getByRole('listitem').filter({ hasText: fx.title }), label);
+  const upcoming = page.getByRole('region', { name: 'Upcoming events' });
+  await says(upcoming.getByRole('article').filter({ hasText: fx.title }), label);
+  const today = page.getByRole('list', { name: 'Shows today' });
+  await says(today.getByRole('listitem').filter({ hasText: fx.title }), label);
 
   // 2. The event list, as a card.
   await page.goto(`${ORGANIZER}/organizer/events`);

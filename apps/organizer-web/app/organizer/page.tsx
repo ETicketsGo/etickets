@@ -6,62 +6,60 @@ import Link from 'next/link';
 import {
   AlertTriangle,
   ArrowRight,
-  CheckCircle2,
+  Banknote,
+  CalendarClock,
   ChevronDown,
-  Info,
-  OctagonAlert,
-  Plus,
-  type LucideIcon,
+  IndianRupee,
+  Ticket,
+  Wallet,
 } from 'lucide-react';
 import {
   api,
   money,
-  Badge,
-  ButtonLink,
-  EmptyState,
   ErrorState,
-  Meter,
-  PageHeader,
   SectionCard,
   SectionLink,
   SegmentedControl,
   Skeleton,
+  SkeletonCard,
+  StatCard,
   StatusBadge,
   dateOnly,
   MARKETS,
   marketFor,
   useAuthUser,
   type AnalyticsOrganizerMarket,
-  type BadgeTone,
-  type NotificationFeedSeverity,
-  type OrganizerCalendarSession,
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
+import { useWorkspace } from '@/components/workspace-chrome';
 import { isForbidden } from '@/lib/org-permissions';
-import { relativeTime } from '@/lib/notification-feed-view';
-import { formatClock, localPlace, sessionZone, zoneAbbrev } from '@/lib/calendar';
+import { startOfMonth, weekStartFor } from '@/lib/calendar';
+import type { EventListRow } from '@/components/events/event-list-model';
 import {
+  COMING_UP_DAYS,
+  eventsStartingWithin,
+  greetingDate,
+  homeWindow,
   moneyFor,
+  monthWindow,
   pendingActions,
   performanceFor,
   pickCurrency,
   recentActivity,
-  comingUp,
-  comingUpWindow,
-  COMING_UP_DAYS,
-  startingWithin,
+  showsOnDay,
+  showsPerDay,
+  showsToday,
+  upcomingEventCount,
+  upcomingEventShows,
+  viewerToday,
   type MarketChoice,
   type MarketMoney,
 } from './_dashboard/model';
-import {
-  lifecycleLabel,
-  lifecycleTone,
-  sellingOf,
-  sellingTone,
-  setupSummary,
-  type Selling,
-  type SetupSummary,
-} from './_dashboard/status';
+import { sellingOf, setupSummary, type SetupSummary } from './_dashboard/status';
+import { WelcomeHero } from './_dashboard/hero';
+import { NoUpcomingEvents, UpcomingEventCard } from './_dashboard/upcoming-events';
+import { MonthCard } from './_dashboard/month-card';
+import { ActivityTimeline, QuickActions, quickActionsFor } from './_dashboard/side-panels';
 
 /**
  * "India · INR" rather than "INR" - the same label the admin dashboard gives a market.
@@ -74,59 +72,43 @@ function marketName(market: { country: string | null; currency: string }): strin
   return name ? `${name} · ${market.currency}` : market.currency;
 }
 
-const SEVERITY_ICON: Record<NotificationFeedSeverity, LucideIcon> = {
-  CRITICAL: OctagonAlert,
-  WARNING: AlertTriangle,
-  SUCCESS: CheckCircle2,
-  INFO: Info,
-};
-const SEVERITY_TEXT: Record<NotificationFeedSeverity, string> = {
-  CRITICAL: 'text-status-error',
-  WARNING: 'text-status-warning',
-  SUCCESS: 'text-status-success',
-  INFO: 'text-text-muted',
-};
-
 /** The notification centre's own react-query key, so this reads its cache, not a second copy. */
 const FEED_KEY = ['notifications', 'feed', 'organizer'] as const;
 
-const LINK_FOCUS =
-  'rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
+/** Image cards in "Upcoming events": three across on a laptop, a swipeable row on a phone. */
+const UPCOMING_CARDS = 3;
 
-/** How many upcoming shows the programme lists before "See the calendar". */
-const PROGRAMME_LIMIT = 6;
+const count = (n: number) => n.toLocaleString('en-IN');
 
 /**
- * The organizer's Overview, laid out like a venue's programme.
+ * The organizer's Overview, built to the premium console reference.
  *
  * ── WHAT IT IS FOR ─────────────────────────────────────────────────────────────────
  * What an organizer opens this page to learn is short: is anything stopping me, what is on
- * this week and is it selling, how much have I sold and how much of it is mine. The page
- * answers in that order. The shows lead; setup and compliance are calm and secondary.
+ * and is it selling, how much have I sold and how much of it is mine. The page answers in that
+ * order: a genuine blocker first, then the welcome and the four figures, then the next events
+ * as their artwork, the month with today's shows, and the money in detail.
  *
- * ── WHAT CHANGED, AND WHY ──────────────────────────────────────────────────────────
- * The owner's review: "excessive prominence to a long compliance checklist", and the console
- * said "Ready to sell" for a DRAFT event. So:
- *
- * - A genuine blocker (money that cannot be paid out) still leads the page. Everything else
- *   that is merely recommended is ONE line, "4 things to set up", that opens into the list.
- * - Every event and show carries three separate statements, never one blended word: where it
- *   is in its life (Draft, In review, Published...), whether it is selling ("Selling" or "Not
- *   selling: <reason>", from the server's own sale check), and the organization's setup. See
- *   `_dashboard/status.ts`, which `status.test.ts` holds to "a draft is never Selling".
+ * ── THREE STATEMENTS, NEVER ONE BLENDED WORD ───────────────────────────────────────
+ * Where an event is in its life (the lifecycle pill on its artwork), whether it is selling
+ * (the server's unified sale state, "Partly selling: <reason>" never bare "Selling") and the
+ * organization's setup ("<n> things to set up", never "Ready to sell"). See
+ * `_dashboard/status.ts`.
  *
  * ── GROSS IS NOT NET ───────────────────────────────────────────────────────────────
- * The difference is drawn as the sum it is - gross, less the fees taken from you, less
- * refunds, equals what you keep - using the API's own figures, per market, never added
- * across currencies. Nothing about the finance model is computed here.
+ * Two separate figures, per market, never added across currencies; the working (gross, less
+ * the fees taken from you, less refunds) is drawn as the sum it is from the API's own figures.
+ * Nothing about the finance model is computed here.
  *
  * ── NOT SHOWN, BECAUSE THE API DOES NOT SAY ────────────────────────────────────────
- * A sales trend over time (the organizer analytics endpoint returns totals, not a series),
- * revenue per upcoming show (the calendar sends sold and capacity, not money), and an
- * all-markets total (there is no exchange rate). Drawing any of them would be inventing it.
+ * The reference's trend deltas ("+12% vs last 30 days"), its sales trend line and its
+ * "tickets by category" ring. The organizer analytics endpoint returns totals with no prior
+ * period, no time series and no category split, so drawing any of them would be inventing it.
+ * "Sales performance" is the per-event gross the API does return, as bars.
  */
 export default function OrganizerDashboard() {
   const { activeOrg, can } = useOrg();
+  const { doesFilmBusiness } = useWorkspace();
   const { user } = useAuthUser();
 
   const eventsQ = useQuery({
@@ -149,18 +131,36 @@ export default function OrganizerDashboard() {
     queryKey: ['analytics', 'organizer', activeOrg.id],
     queryFn: () => api.analytics.organizer(activeOrg.id),
   });
+
   /*
-    What is on next: the calendar's own endpoint, one request for every show of the
-    organization in the next week, with sold and capacity per show. Whether an EVENT is selling
-    is no longer judged from its next show here - the server answers over all its upcoming
-    shows - so a longer window would be read for nothing. Fixed at mount so the query key does
-    not change on every render.
+    ── ONE CALENDAR READ FOR THE PAGE ─────────────────────────────────────────────────
+    The calendar's own endpoint (owners and managers): this month and the next four weeks, with
+    sold and capacity per show. It feeds the hero's "shows today", the "this week" count, the
+    image cards (each event's next show) and the month card's dots. Fixed at mount so the key
+    does not change on every render; another month in the card is its own read.
   */
-  const [horizon] = useState(() => comingUpWindow(new Date(), COMING_UP_DAYS));
-  const upcomingQ = useQuery({
-    queryKey: ['organizer-calendar', activeOrg.id, horizon.from, horizon.to],
-    queryFn: () => api.events.calendar(activeOrg.id, horizon.from, horizon.to),
+  const [today] = useState(() => viewerToday());
+  const [home] = useState(() => homeWindow(today));
+  const homeQ = useQuery({
+    queryKey: ['organizer-calendar', activeOrg.id, home.from, home.to],
+    queryFn: () => api.events.calendar(activeOrg.id, home.from, home.to),
+    enabled: can.financials,
   });
+  const calendarOk = can.financials && !isForbidden(homeQ.error);
+  const sessions = homeQ.data?.sessions;
+
+  const [month, setMonth] = useState(today);
+  const onHomeMonth = startOfMonth(month) === startOfMonth(today);
+  const otherMonth = useMemo(() => monthWindow(month), [month]);
+  const monthQ = useQuery({
+    queryKey: ['organizer-calendar', activeOrg.id, otherMonth.from, otherMonth.to],
+    queryFn: () => api.events.calendar(activeOrg.id, otherMonth.from, otherMonth.to),
+    enabled: calendarOk && !onHomeMonth,
+  });
+  const monthSessions = onHomeMonth ? sessions : monthQ.data?.sessions;
+  const monthState = onHomeMonth ? homeQ : monthQ;
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
+
   const feedQ = useQuery({
     queryKey: FEED_KEY,
     queryFn: () => api.notifications.feed('ORGANIZER'),
@@ -172,44 +172,33 @@ export default function OrganizerDashboard() {
     staleTime: 30_000,
   });
 
-  const events = useMemo(() => eventsQ.data ?? [], [eventsQ.data]);
+  const events = useMemo(() => (eventsQ.data ?? []) as EventListRow[], [eventsQ.data]);
+  const eventRow = useMemo(() => new Map(events.map((e) => [e.id, e])), [events]);
   const analytics = analyticsQ.data;
   const loading = eventsQ.isLoading || analyticsQ.isLoading;
   const isError = eventsQ.isError || analyticsQ.isError;
+
   const upcoming = useMemo(
-    () =>
-      comingUp(
-        startingWithin(upcomingQ.data?.sessions, COMING_UP_DAYS),
-        new Date(),
-        PROGRAMME_LIMIT,
-      ),
-    [upcomingQ.data],
+    () => upcomingEventShows(sessions, new Date(), UPCOMING_CARDS),
+    [sessions],
   );
-  const recentEvents = useMemo(() => events.slice(0, 6), [events]);
+  const agenda = useMemo(
+    () =>
+      selectedDay === null
+        ? showsToday(sessions, new Date())
+        : showsOnDay(monthSessions, selectedDay),
+    [selectedDay, sessions, monthSessions],
+  );
+  const perDay = useMemo(() => showsPerDay(monthSessions), [monthSessions]);
 
   /*
     ── IS IT SELLING: ONE SERVER ANSWER ──────────────────────────────────────────────
-    The API's unified sale state, built from the facts checkout refuses a cart by: the event
-    and show status, each ticket type's window and places, and the sale-eligibility rules
-    (#280). Per show for the week's programme, per event for "Your events" - judged over ALL
-    its upcoming shows, not just the next one, so an event with one paused date among ten
-    reads "Partly selling", never "Selling". This page decides nothing about it.
-
-    The shows and events on this page only: a dozen ids at most, well under the caps.
+    The API's unified sale state, built from the facts checkout refuses a cart by. Per EVENT
+    for the image cards - judged over ALL its upcoming shows, so an event with one paused date
+    among ten reads "Partly selling", never "Selling" - and per SHOW for the day's agenda. This
+    page decides nothing about it. A handful of ids, well under the caps.
   */
-  const askedSessionIds = useMemo(() => upcoming.map((s) => s.id).sort(), [upcoming]);
-  const sessionStatesQ = useQuery({
-    queryKey: ['organizer-sale-eligibility', activeOrg.id, askedSessionIds.join(',')],
-    queryFn: () => api.events.saleEligibility(activeOrg.id, askedSessionIds),
-    enabled: askedSessionIds.length > 0,
-    staleTime: 60_000,
-    retry: 1,
-  });
-  const sessionState = useMemo(
-    () => new Map((sessionStatesQ.data?.sessions ?? []).map((e) => [e.sessionId, e])),
-    [sessionStatesQ.data],
-  );
-  const askedEventIds = useMemo(() => recentEvents.map((e) => e.id).sort(), [recentEvents]);
+  const askedEventIds = useMemo(() => upcoming.map((s) => s.event.id).sort(), [upcoming]);
   const eventStatesQ = useQuery({
     queryKey: ['organizer-event-sale-states', activeOrg.id, askedEventIds.join(',')],
     queryFn: () => api.events.saleStates(activeOrg.id, askedEventIds),
@@ -220,6 +209,25 @@ export default function OrganizerDashboard() {
   const eventState = useMemo(
     () => new Map((eventStatesQ.data?.events ?? []).map((e) => [e.eventId, e])),
     [eventStatesQ.data],
+  );
+  const askedSessionIds = useMemo(
+    () =>
+      agenda
+        .slice(0, 4)
+        .map((s) => s.id)
+        .sort(),
+    [agenda],
+  );
+  const sessionStatesQ = useQuery({
+    queryKey: ['organizer-sale-eligibility', activeOrg.id, askedSessionIds.join(',')],
+    queryFn: () => api.events.saleEligibility(activeOrg.id, askedSessionIds),
+    enabled: askedSessionIds.length > 0,
+    staleTime: 60_000,
+    retry: 1,
+  });
+  const sessionState = useMemo(
+    () => new Map((sessionStatesQ.data?.sessions ?? []).map((e) => [e.sessionId, e])),
+    [sessionStatesQ.data],
   );
 
   /*
@@ -244,53 +252,53 @@ export default function OrganizerDashboard() {
   const cash = activeCurrency ? moneyFor(analytics, activeCurrency) : null;
   const fmt = (minor: number) => money(minor, activeCurrency ?? undefined);
 
-  const capacity = analytics?.capacity;
   const attendance = analytics?.attendance;
   const performance = performanceFor(analytics, activeCurrency);
-  const pending = pendingActions(feedQ.data).slice(0, 4);
+  const pending = pendingActions(feedQ.data).slice(0, 3);
   const activity = recentActivity(feedQ.data, 4);
   const latestPayout = payoutsQ.data?.[0];
   const setup = setupSummary(actionsQ.data?.actions);
   const firstName = user?.fullName?.trim().split(/\s+/)[0];
+  const upcomingCount = upcomingEventCount(events);
+  const now = new Date();
+  const thisWeek = sessions ? eventsStartingWithin(sessions, COMING_UP_DAYS, now) : null;
 
-  const header = (
-    <PageHeader
-      eyebrow="Overview"
-      title={activeOrg.name}
-      description={`Welcome back${firstName ? `, ${firstName}` : ''}. What is on this week, how it is selling, and anything that needs you.`}
-      meta={
-        <>
-          <StatusBadge status={activeOrg.status} />
-          {activeOrg.verified && <Badge tone="success">Verified</Badge>}
-          {actionsQ.data && (
-            <Badge tone={setup.open === 0 ? 'success' : 'neutral'}>
-              {setup.open === 0 && <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />}
-              {setup.label}
-            </Badge>
-          )}
-        </>
-      }
-      action={
-        <>
-          <Link
-            href="/organizer/events"
-            className={`hidden px-2 text-[0.9375rem] font-medium text-text-secondary hover:text-text-primary sm:inline ${LINK_FOCUS}`}
-          >
-            All events
-          </Link>
-          <ButtonLink href="/organizer/events/new">
-            <Plus className="h-4 w-4" aria-hidden />
-            Create event
-          </ButtonLink>
-        </>
-      }
+  // One sentence about the day, from real counts - or none while they are unknown.
+  const todayCount = sessions ? showsToday(sessions, now).length : null;
+  const dayLine =
+    todayCount === null
+      ? undefined
+      : todayCount === 0
+        ? 'No more shows today'
+        : `${count(todayCount)} more ${todayCount === 1 ? 'show' : 'shows'} today`;
+
+  const canCreate = can.financials || can.ownerActions;
+  const actions = quickActionsFor({
+    canCreate,
+    canManage: can.financials,
+    doesFilmBusiness,
+  });
+  const featured = upcoming
+    .map((s) => eventRow.get(s.event.id))
+    .find((row) => row && (row.imagePath || row.imageVariants));
+
+  const hero = (
+    <WelcomeHero
+      orgName={activeOrg.name}
+      orgStatus={activeOrg.status}
+      verified={!!activeOrg.verified}
+      firstName={firstName}
+      dateLine={greetingDate(now)}
+      dayLine={dayLine}
+      setupOpen={actionsQ.data ? setup.open : null}
+      feature={featured ?? null}
     />
   );
 
   if (isError)
     return (
-      <div>
-        {header}
+      <div className="space-y-6">
+        {hero}
         <ErrorState
           message="We could not load your overview. Please try again."
           onRetry={() => {
@@ -302,202 +310,227 @@ export default function OrganizerDashboard() {
     );
 
   return (
-    <div>
-      {header}
+    <div className="space-y-6">
+      {/*
+        A genuine blocker first: money that cannot reach them is worth reading before anything
+        else. It renders nothing when nothing is blocking; the rest of setup is one line.
+      */}
+      <Attention setup={setup} loading={actionsQ.isLoading} />
 
-      <div className="space-y-6">
-        {/*
-          A genuine blocker first: money that cannot reach them is worth reading before a
-          chart. It renders nothing when nothing is blocking.
-        */}
-        <Blockers setup={setup} />
+      {/* The welcome, with the quick actions beside it on a wide screen. */}
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
+        {hero}
+        <QuickActions actions={actions} />
+      </div>
 
-        {/* Everything else still to do: one line, opening into the list. */}
-        <SetupChecklist setup={setup} loading={actionsQ.isLoading} />
-
-        {/* Figures for the whole organization, one market's money at a time. */}
-        <section aria-labelledby="figures-heading" className="space-y-3">
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <h2 id="figures-heading" className="sr-only">
-              Sales at a glance
-            </h2>
-            {can.financials && choices.length > 1 && activeCurrency && (
-              <SegmentedControl
-                label="Market"
-                options={choices.map((c) => ({ value: c.currency, label: c.label }))}
-                value={activeCurrency}
-                onChange={setMarket}
+      {/* Four figures for the whole organization, one market's money at a time. */}
+      <section aria-labelledby="figures-heading" className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2
+            id="figures-heading"
+            className="font-display text-[1.0625rem] font-bold text-text-primary"
+          >
+            At a glance
+          </h2>
+          {can.financials && choices.length > 1 && activeCurrency && (
+            <SegmentedControl
+              label="Market"
+              options={choices.map((c) => ({ value: c.currency, label: c.label }))}
+              value={activeCurrency}
+              onChange={setMarket}
+            />
+          )}
+        </div>
+        {loading ? (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {Array.from({ length: can.financials ? 4 : 2 }).map((_, i) => (
+              <SkeletonCard key={i} variant="stat" label="Loading figures" />
+            ))}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <StatCard
+              /*
+                Tickets buyers hold now: issued and not refunded, cancelled or voided (the
+                analytics `attendance.issued`), with how many of them have been scanned in.
+              */
+              icon={Ticket}
+              tile="teal"
+              label="Tickets sold"
+              value={count(attendance?.issued ?? 0)}
+              hint={
+                attendance && attendance.issued > 0
+                  ? `${count(attendance.checkedIn)} checked in (${attendance.checkInRate}%)`
+                  : 'Valid tickets buyers hold'
+              }
+            />
+            <StatCard
+              icon={CalendarClock}
+              tile="amber"
+              label="Upcoming events"
+              value={count(upcomingCount)}
+              href="/organizer/events"
+              hint={
+                thisWeek !== null
+                  ? `${count(thisWeek)} in the next 7 days`
+                  : 'With a show still to come'
+              }
+            />
+            {can.financials && (
+              <StatCard
+                icon={currencyIcon(activeCurrency)}
+                tile="blue"
+                label="Gross sales"
+                value={cash ? fmt(cash.grossMinor) : '-'}
+                hint={cash ? 'Before fees and refunds' : 'No sales yet'}
+              />
+            )}
+            {can.financials && (
+              <StatCard
+                icon={Wallet}
+                tile="purple"
+                label="Net proceeds"
+                value={cash ? fmt(cash.netMinor) : '-'}
+                hint="Yours after fees and refunds"
               />
             )}
           </div>
-          {loading ? (
-            <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-              {Array.from({ length: 4 }).map((_, i) => (
-                <Skeleton key={i} className="h-[6.5rem] w-full" />
-              ))}
-            </div>
-          ) : (
-            <dl className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-              <Figure
-                /*
-                  TWO COUNTS, SAID AS TWO THINGS. The figure is tickets buyers hold now (issued
-                  and not refunded, cancelled or voided - the analytics `attendance.issued`).
-                  The line under it is the inventory's places sold (`capacity.sold`), a
-                  counter the booking and refund paths keep in step with the tickets. They were
-                  printed as "41" and "42 of 48,317 places" in one tile, which read as a
-                  contradiction; when they differ, a ticket left the valid set without its place
-                  going back on sale, and the organizer should see both, labelled.
-                */
-                label="Tickets sold"
-                value={(attendance?.issued ?? 0).toLocaleString('en-IN')}
-                hint="Valid tickets buyers hold now"
-                detail={
-                  capacity && capacity.capacity > 0
-                    ? `Places taken: ${capacity.sold.toLocaleString('en-IN')} of ${capacity.capacity.toLocaleString('en-IN')} (${capacity.utilization}%)`
-                    : undefined
-                }
-              />
-              {can.financials && (
-                <Figure
-                  label="Gross sales"
-                  value={cash ? fmt(cash.grossMinor) : '-'}
-                  hint={activeLabel ? `${activeLabel}, before fees and refunds` : 'No sales yet'}
-                />
-              )}
-              {can.financials && (
-                <Figure
-                  label="Net proceeds"
-                  value={cash ? fmt(cash.netMinor) : '-'}
-                  hint="What is yours, after your fees and refunds"
-                  accent
-                />
-              )}
-              <Figure
-                label="Checked in"
-                value={`${attendance?.checkInRate ?? 0}%`}
-                hint={
-                  attendance
-                    ? `${attendance.checkedIn.toLocaleString('en-IN')} of ${attendance.issued.toLocaleString('en-IN')} tickets`
-                    : 'No tickets yet'
-                }
-              />
-            </dl>
-          )}
-        </section>
+        )}
+      </section>
 
-        <div className="grid gap-6 xl:grid-cols-3">
-          <div className="min-w-0 space-y-6 xl:col-span-2">
-            <SectionCard
-              title="This week"
-              description={`Your shows in the next ${COMING_UP_DAYS} days, at each venue's local time.`}
-              flush
-              action={
-                <SectionLink href="/organizer/calendar" srLabel="shows">
-                  Calendar
-                </SectionLink>
-              }
+      {/*
+        Below the figures, two columns on a wide screen: the events and the money on the left,
+        the month, what needs you and what happened on the right. On a narrower screen the
+        columns dissolve (`contents`) and `order` interleaves them, so a phone reads the next
+        events, then the month, then the activity - and the detailed money after that.
+      */}
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:flex xl:items-start">
+        <div className="contents xl:flex xl:min-w-0 xl:flex-1 xl:flex-col xl:gap-6">
+          {calendarOk && (
+            <section
+              aria-labelledby="upcoming-heading"
+              className="order-1 min-w-0 md:col-span-2 xl:order-none"
             >
-              {upcomingQ.isLoading ? (
-                <div className="px-5 pb-4">
-                  <Skeleton className="h-40 w-full" />
-                </div>
-              ) : upcomingQ.isError ? (
-                <div className="px-5 pb-4">
-                  <RetryLine what="your shows" onRetry={() => upcomingQ.refetch()} />
-                </div>
-              ) : upcoming.length === 0 ? (
-                <div className="px-5 pb-5">
-                  <p className="text-[0.9375rem] text-text-muted">
-                    No shows in the next {COMING_UP_DAYS} days.{' '}
-                    <Link
-                      href="/organizer/events"
-                      className={`font-medium text-action-primary underline-offset-2 hover:underline ${LINK_FOCUS}`}
-                    >
-                      Add dates to an event
-                    </Link>
-                  </p>
-                </div>
-              ) : (
-                <ol className="divide-y divide-border border-t border-border">
-                  {upcoming.map((s) => {
-                    return (
-                      <ProgrammeRow
-                        key={s.id}
-                        session={s}
-                        selling={sellingOf(sessionState.get(s.id), sessionStatesQ.isError)}
-                      />
-                    );
-                  })}
-                </ol>
-              )}
-            </SectionCard>
-
-            <SectionCard
-              title="Your events"
-              description="The most recently created, with where each one stands."
-              flush
-              action={
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <h2
+                  id="upcoming-heading"
+                  className="font-display text-[1.0625rem] font-bold text-text-primary"
+                >
+                  Upcoming events
+                </h2>
                 <SectionLink href="/organizer/events" srLabel="events">
                   View all
                 </SectionLink>
-              }
-            >
-              {eventsQ.isLoading ? (
-                <div className="px-5 pb-4">
-                  <Skeleton className="h-32 w-full" />
+              </div>
+              {homeQ.isLoading ? (
+                <div className="grid gap-4 md:grid-cols-3">
+                  {Array.from({ length: UPCOMING_CARDS }).map((_, i) => (
+                    <SkeletonCard
+                      key={i}
+                      variant="media"
+                      label="Loading events"
+                      className={i > 0 ? 'hidden md:block' : ''}
+                    />
+                  ))}
                 </div>
-              ) : events.length === 0 ? (
-                <div className="px-5 pb-4">
-                  <EmptyState
-                    title="No events yet"
-                    hint="Create your first event to start selling tickets."
-                    action={<ButtonLink href="/organizer/events/new">Create event</ButtonLink>}
-                  />
-                </div>
+              ) : homeQ.isError ? (
+                <ErrorState
+                  message="We could not load your upcoming shows."
+                  onRetry={() => homeQ.refetch()}
+                />
+              ) : upcoming.length === 0 ? (
+                <NoUpcomingEvents canCreate={canCreate} />
               ) : (
-                <ul className="divide-y divide-border border-t border-border">
-                  {recentEvents.map((e) => {
-                    const selling = sellingOf(eventState.get(e.id), eventStatesQ.isError);
-                    return (
-                      <li
-                        key={e.id}
-                        className="flex flex-col gap-2 px-5 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
-                      >
-                        <div className="min-w-0">
-                          <Link
-                            href={`/organizer/events/${e.id}`}
-                            className={`block truncate font-medium text-text-primary hover:text-action-primary ${LINK_FOCUS}`}
-                          >
-                            {e.title}
-                          </Link>
-                          <p className="truncate text-caption text-text-muted">
-                            {e.venue.city} · {e._count.sessions}{' '}
-                            {e._count.sessions === 1 ? 'show' : 'shows'} · {e._count.bookings}{' '}
-                            {e._count.bookings === 1 ? 'booking' : 'bookings'}
-                          </p>
-                          {selling.detail && <ReasonLine text={selling.detail} />}
-                        </div>
-                        <div className="flex shrink-0 flex-wrap items-center gap-1.5">
-                          <Badge tone={lifecycleTone(e.status)}>{lifecycleLabel(e.status)}</Badge>
-                          <SellingChip selling={selling} />
-                        </div>
-                      </li>
-                    );
-                  })}
+                /*
+                  A row that swipes on a phone - each card most of the width, so the next one
+                  peeks in and says there is more - and three columns from a tablet up.
+                */
+                <ul
+                  className="relative -mx-4 flex snap-x snap-mandatory gap-4 overflow-x-auto px-4 pb-2 [scrollbar-width:thin] sm:-mx-6 sm:px-6 md:mx-0 md:grid md:grid-cols-3 md:overflow-visible md:px-0 md:pb-0"
+                  aria-label="Your next events"
+                >
+                  {upcoming.map((s, i) => (
+                    <li
+                      key={s.event.id}
+                      className="flex w-[78%] max-w-[20rem] shrink-0 snap-start md:w-auto md:max-w-none"
+                    >
+                      <UpcomingEventCard
+                        show={s}
+                        row={eventRow.get(s.event.id)}
+                        selling={sellingOf(eventState.get(s.event.id), eventStatesQ.isError)}
+                        priority={i === 0}
+                      />
+                    </li>
+                  ))}
                 </ul>
               )}
-            </SectionCard>
+            </section>
+          )}
 
-            {/*
-              Money only for members who may see it. The API leaves revenue out for check-in
-              staff, and cards that printed zero for figures that were not zero were found by QA.
-            */}
-            {can.financials && (
+          {can.financials && (
+            <div className="order-5 grid min-w-0 gap-6 md:col-span-2 lg:grid-cols-2 xl:order-none">
               <SectionCard
-                title="Sales and proceeds"
+                title="Sales performance"
                 description={
                   activeLabel
-                    ? `${activeLabel}. Amounts in other currencies are never added in.`
+                    ? `Top events by gross sales, ${activeLabel}`
+                    : 'Top events by gross sales'
+                }
+                action={
+                  <SectionLink href="/organizer/finance" srLabel="finance">
+                    Finance
+                  </SectionLink>
+                }
+              >
+                {loading ? (
+                  <Skeleton className="h-40 w-full" />
+                ) : performance.length === 0 ? (
+                  <p className="text-caption text-text-muted">
+                    No paid bookings in this market yet. Events appear here once they sell.
+                  </p>
+                ) : (
+                  <ol className="space-y-3.5">
+                    {performance.map((e, i) => (
+                      <li key={e.eventId} className="min-w-0">
+                        <div className="flex items-baseline justify-between gap-3">
+                          <Link
+                            href={`/organizer/events/${e.eventId}`}
+                            className="min-w-0 truncate rounded-sm text-ui font-medium text-text-primary hover:text-action-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            title={e.title}
+                          >
+                            <span className="mr-1.5 tabular-nums text-text-muted">{i + 1}.</span>
+                            {e.title}
+                          </Link>
+                          <span className="shrink-0 text-ui font-semibold tabular-nums text-text-primary">
+                            {money(e.grossMinor, e.currency)}
+                          </span>
+                        </div>
+                        <div className="mt-1.5 flex items-center gap-3">
+                          {/* The bar is the figure beside it, drawn: decoration for assistive tech. */}
+                          <div
+                            aria-hidden
+                            className="h-2 flex-1 overflow-hidden rounded-full bg-background-subtle"
+                          >
+                            <div
+                              className="h-full rounded-full bg-action-primary"
+                              style={{ width: `${Math.max(e.relative, 2)}%` }}
+                            />
+                          </div>
+                          <span className="w-[5.5rem] shrink-0 text-right text-micro tabular-nums text-text-muted">
+                            {count(e.bookings)} {e.bookings === 1 ? 'booking' : 'bookings'}
+                          </span>
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
+                )}
+              </SectionCard>
+
+              <SectionCard
+                title="Gross to net"
+                description={
+                  activeLabel
+                    ? `${activeLabel}. Other currencies are never added in.`
                     : 'No sales yet.'
                 }
               >
@@ -506,68 +539,20 @@ export default function OrganizerDashboard() {
                 ) : cash ? (
                   <MoneyBreakdown cash={cash} fmt={fmt} />
                 ) : (
-                  <p className="text-[0.9375rem] text-text-muted">
+                  <p className="text-caption text-text-muted">
                     Sales appear here once your first booking is paid.
                   </p>
                 )}
               </SectionCard>
-            )}
+            </div>
+          )}
 
-            {can.financials && (
-              <SectionCard
-                title="Event performance"
-                description={
-                  activeLabel
-                    ? `Top events by gross sales in ${activeLabel}.`
-                    : 'Top events by gross sales.'
-                }
-              >
-                {loading ? (
-                  <Skeleton className="h-32 w-full" />
-                ) : performance.length === 0 ? (
-                  <p className="text-[0.9375rem] text-text-muted">
-                    No paid bookings in this market yet. Events appear here once they sell.
-                  </p>
-                ) : (
-                  <ol className="space-y-4">
-                    {performance.map((e, i) => (
-                      <li key={e.eventId} className="min-w-0">
-                        <div className="flex items-baseline justify-between gap-3">
-                          <Link
-                            href={`/organizer/events/${e.eventId}`}
-                            className={`min-w-0 truncate text-[0.9375rem] font-medium text-text-primary hover:text-action-primary ${LINK_FOCUS}`}
-                          >
-                            <span className="mr-2 tabular-nums text-text-muted">{i + 1}.</span>
-                            {e.title}
-                          </Link>
-                          <span className="shrink-0 text-[0.9375rem] font-semibold tabular-nums text-text-primary">
-                            {money(e.grossMinor, e.currency)}
-                          </span>
-                        </div>
-                        <div className="mt-1.5 flex items-center gap-3">
-                          <div className="flex-1">
-                            <Meter
-                              label={`${e.title}, gross sales against your best event`}
-                              value={e.relative}
-                              max={100}
-                            />
-                          </div>
-                          <span className="w-24 shrink-0 text-right text-caption tabular-nums text-text-muted">
-                            {e.bookings} {e.bookings === 1 ? 'booking' : 'bookings'}
-                          </span>
-                        </div>
-                      </li>
-                    ))}
-                  </ol>
-                )}
-              </SectionCard>
-            )}
-
-            {/*
-              Every market side by side: "where am I selling at all, and where are payments
-              failing". Each amount is in its own row's currency, and rows are never totalled.
-            */}
-            {can.financials && markets.length > 0 && (
+          {/*
+            Every market side by side: "where am I selling at all, and where are payments
+            failing". Each amount is in its own row's currency, and rows are never totalled.
+          */}
+          {can.financials && markets.length > 0 && (
+            <div className="order-6 min-w-0 md:col-span-2 xl:order-none">
               <SectionCard title="By market" flush>
                 {/*
                   A focusable, named region: on a phone the table scrolls sideways, and a
@@ -579,13 +564,13 @@ export default function OrganizerDashboard() {
                   role="region"
                   aria-label="Sales by market"
                 >
-                  <table className="w-full text-left text-[0.875rem]">
+                  <table className="w-full text-left text-ui">
                     <caption className="sr-only">
                       Sales, refunds, bookings and payment failures for each market
                     </caption>
                     <thead>
-                      <tr className="border-y border-border bg-background-subtle text-caption text-text-secondary">
-                        <th scope="col" className="whitespace-nowrap px-5 py-2 font-semibold">
+                      <tr className="border-y border-border bg-background-subtle text-micro uppercase tracking-wide text-text-secondary">
+                        <th scope="col" className="whitespace-nowrap px-5 py-2.5 font-semibold">
                           Market
                         </th>
                         {[
@@ -599,7 +584,7 @@ export default function OrganizerDashboard() {
                           <th
                             key={h}
                             scope="col"
-                            className="whitespace-nowrap px-5 py-2 text-right font-semibold"
+                            className="whitespace-nowrap px-5 py-2.5 text-right font-semibold"
                           >
                             {h}
                           </th>
@@ -611,53 +596,80 @@ export default function OrganizerDashboard() {
                         <tr key={m.currency}>
                           <th
                             scope="row"
-                            className="whitespace-nowrap px-5 py-2.5 font-medium text-text-primary"
+                            className="whitespace-nowrap px-5 py-3 font-medium text-text-primary"
                           >
                             {marketName(m)}
                           </th>
-                          <td className="whitespace-nowrap px-5 py-2.5 text-right tabular-nums">
+                          <td className="whitespace-nowrap px-5 py-3 text-right tabular-nums">
                             {money(m.grossMinor, m.currency)}
                           </td>
-                          <td className="whitespace-nowrap px-5 py-2.5 text-right tabular-nums">
+                          <td className="whitespace-nowrap px-5 py-3 text-right tabular-nums">
                             {money(m.netMinor, m.currency)}
                           </td>
-                          <td className="whitespace-nowrap px-5 py-2.5 text-right tabular-nums">
+                          <td className="whitespace-nowrap px-5 py-3 text-right tabular-nums">
                             {money(m.refundsMinor, m.currency)}
                           </td>
-                          <td className="px-5 py-2.5 text-right tabular-nums">{m.paidBookings}</td>
-                          <td className="px-5 py-2.5 text-right tabular-nums">{m.totalBookings}</td>
-                          <td className="px-5 py-2.5 text-right tabular-nums">
-                            {m.paymentFailures}
-                          </td>
+                          <td className="px-5 py-3 text-right tabular-nums">{m.paidBookings}</td>
+                          <td className="px-5 py-3 text-right tabular-nums">{m.totalBookings}</td>
+                          <td className="px-5 py-3 text-right tabular-nums">{m.paymentFailures}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
               </SectionCard>
-            )}
-          </div>
+            </div>
+          )}
+        </div>
 
-          <div className="min-w-0 space-y-6">
-            <SectionCard
-              title="Needs you"
-              description="Problems your notifications say are still open."
-              action={
-                <SectionLink href="/organizer/notifications" srLabel="notifications">
-                  All
-                </SectionLink>
-              }
-            >
-              <FeedList
-                loading={feedQ.isLoading}
+        <div className="contents xl:flex xl:w-[22rem] xl:shrink-0 xl:flex-col xl:gap-6">
+          {calendarOk && (
+            <div className="order-2 min-w-0 xl:order-none">
+              <MonthCard
+                month={month}
+                onMonth={(next) => {
+                  setMonth(next);
+                  setSelectedDay(null);
+                }}
+                today={today}
+                selected={selectedDay}
+                onSelect={setSelectedDay}
+                weekStart={weekStartFor(activeOrg.registeredCountry)}
+                perDay={perDay}
+                loading={monthState.isLoading}
+                failed={monthState.isError}
+                onRetry={() => monthState.refetch()}
+                agenda={agenda}
+                agendaLoading={selectedDay === null ? homeQ.isLoading : monthState.isLoading}
+                sellingFor={(id) => sellingOf(sessionState.get(id), sessionStatesQ.isError)}
+              />
+            </div>
+          )}
+
+          <div className="order-3 min-w-0 space-y-6 xl:order-none">
+            {/* What the notifications say is still open - only when something is. */}
+            {(pending.length > 0 || feedQ.isError) && (
+              <ActivityTimeline
+                title="Needs you"
+                groups={pending}
+                loading={false}
                 error={feedQ.isError}
                 onRetry={() => feedQ.refetch()}
-                groups={pending}
                 empty="Nothing needs you right now."
               />
-            </SectionCard>
+            )}
+            <ActivityTimeline
+              title="Recent activity"
+              groups={activity}
+              loading={feedQ.isLoading}
+              error={feedQ.isError}
+              onRetry={() => feedQ.refetch()}
+              empty="Nothing has happened yet."
+            />
+          </div>
 
-            {showPayouts && (
+          {showPayouts && (
+            <div className="order-7 min-w-0 xl:order-none">
               <SectionCard
                 title="Latest payout"
                 action={
@@ -669,9 +681,18 @@ export default function OrganizerDashboard() {
                 {payoutsQ.isLoading ? (
                   <Skeleton className="h-20 w-full" />
                 ) : payoutsQ.isError ? (
-                  <RetryLine what="payouts" onRetry={() => payoutsQ.refetch()} />
+                  <p className="text-caption text-text-muted">
+                    We could not load payouts.{' '}
+                    <button
+                      type="button"
+                      onClick={() => payoutsQ.refetch()}
+                      className="rounded-sm font-semibold text-action-primary underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      Try again
+                    </button>
+                  </p>
                 ) : latestPayout ? (
-                  <dl className="space-y-2 text-[0.9375rem]">
+                  <dl className="space-y-2.5 text-ui">
                     <div className="flex items-center justify-between gap-3">
                       <dt className="text-text-muted">Status</dt>
                       <dd>
@@ -680,7 +701,7 @@ export default function OrganizerDashboard() {
                     </div>
                     <div className="flex justify-between gap-3">
                       <dt className="text-text-muted">Net amount</dt>
-                      <dd className="font-semibold tabular-nums text-text-primary">
+                      <dd className="font-display text-[1.0625rem] font-bold tabular-nums text-text-primary">
                         {money(latestPayout.netMinor, latestPayout.currency)}
                       </dd>
                     </div>
@@ -690,299 +711,148 @@ export default function OrganizerDashboard() {
                     </div>
                   </dl>
                 ) : (
-                  <p className="text-[0.9375rem] text-text-muted">
+                  <p className="text-caption text-text-muted">
                     No payouts yet. Settlements are made from the Payouts page.
                   </p>
                 )}
               </SectionCard>
-            )}
-
-            <SectionCard title="Recent activity">
-              <FeedList
-                loading={feedQ.isLoading}
-                error={feedQ.isError}
-                onRetry={() => feedQ.refetch()}
-                groups={activity}
-                empty="Nothing has happened yet."
-              />
-            </SectionCard>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/** One figure in the strip at the top: a label, a big number in the display face, a hint. */
-function Figure({
-  label,
-  value,
-  hint,
-  detail,
-  accent = false,
-}: {
-  label: string;
-  value: string;
-  hint: string;
-  /** A second, separately labelled fact - never a different count of the same thing. */
-  detail?: string;
-  accent?: boolean;
-}) {
-  return (
-    <div
-      className={`min-w-0 rounded-lg border bg-background-surface px-3.5 py-3 sm:px-4 sm:py-3.5 ${
-        accent ? 'border-action-primary/40' : 'border-border'
-      }`}
-    >
-      <dt
-        className={`text-[0.8125rem] font-medium ${accent ? 'text-action-primary' : 'text-text-secondary'}`}
-      >
-        {label}
-      </dt>
-      <dd className="mt-1 break-words font-display text-[1.1875rem] font-bold sm:text-[1.5rem] leading-tight tracking-tight tabular-nums text-text-primary">
-        {value}
-      </dd>
-      <dd className="mt-0.5 text-caption text-text-muted">{hint}</dd>
-      {detail && <dd className="mt-0.5 text-caption text-text-secondary">{detail}</dd>}
-    </div>
-  );
-}
-
-/**
- * "Selling" in the warm marquee accent - the one moment on the page that is about the show
- * being on sale - and every "Not selling" reason in plain words with the warning tone.
- * Never colour alone: the dot and the word both say it.
- */
-function SellingChip({ selling }: { selling: Selling }) {
-  if (selling.state === 'SELLING') {
-    return (
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-tint-marquee px-2.5 py-0.5 text-caption font-semibold text-marquee">
-        <span className="h-1.5 w-1.5 rounded-full bg-marquee-fill" aria-hidden />
-        {selling.label}
-      </span>
-    );
-  }
-  const tone: BadgeTone = sellingTone(selling);
-  return <Badge tone={tone}>{selling.label}</Badge>;
-}
-
-/**
- * The server's own sentence for why something is not selling, under the chip that names it
- * in a few words. Never dropped: "Not selling: no state price rules yet" is only actionable
- * with "Contact support" beside it.
- */
-function ReasonLine({ text }: { text: string }) {
-  return <p className="mt-1 text-caption text-status-warning">{text}</p>;
-}
-
-/** A show in the week's programme: date tile, title, time and place, sales, status. */
-function ProgrammeRow({
-  session: s,
-  selling,
-}: {
-  session: OrganizerCalendarSession;
-  selling: Selling;
-}) {
-  /*
-    In the zone the show was typed in - the calendar's own rule - so the time here is the
-    time on the wall at the venue, whatever this browser's zone.
-  */
-  const { zone } = sessionZone(s);
-  const day = localPlace(s.startsAt, zone).day;
-  // "Today" at the VENUE: the date on its wall now, the same zone the show time is in.
-  const isToday = day === localPlace(new Date(), zone).day;
-  const date = new Date(`${day}T12:00:00Z`);
-  const weekday = new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', weekday: 'short' }).format(
-    date,
-  );
-  const month = new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', month: 'short' }).format(date);
-  return (
-    <li className="flex gap-4 px-5 py-3.5">
-      <div
-        className={`flex w-14 shrink-0 flex-col items-center justify-center rounded-md border py-1.5 text-center ${
-          isToday ? 'border-marquee-fill bg-tint-marquee' : 'border-border bg-background-subtle'
-        }`}
-      >
-        <span
-          className={`text-[0.6875rem] font-semibold uppercase tracking-wide ${isToday ? 'text-marquee' : 'text-text-muted'}`}
-        >
-          {isToday ? 'Today' : weekday}
-        </span>
-        <span className="font-display text-[1.25rem] font-bold leading-none tabular-nums text-text-primary">
-          {date.getUTCDate()}
-        </span>
-        <span className="text-[0.6875rem] text-text-muted">{month}</span>
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-col gap-1.5 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
-          <div className="min-w-0">
-            <Link
-              href={`/organizer/events/${s.event.id}`}
-              className={`block truncate font-medium text-text-primary hover:text-action-primary ${LINK_FOCUS}`}
-            >
-              {s.event.title}
-            </Link>
-            <p className="truncate text-caption text-text-muted">
-              <span className="tabular-nums">{formatClock(s.startsAt, zone)}</span>{' '}
-              {zoneAbbrev(zone, s.startsAt)} · {s.venue.name}
-              {s.venue.city ? `, ${s.venue.city}` : ''}
-            </p>
-            {selling.detail && <ReasonLine text={selling.detail} />}
-          </div>
-          <div className="flex shrink-0 flex-wrap items-center gap-1.5">
-            {/* The lifecycle only when it is news: a published event's row says so by selling. */}
-            {s.event.status !== 'PUBLISHED' && (
-              <Badge tone={lifecycleTone(s.event.status)}>{lifecycleLabel(s.event.status)}</Badge>
-            )}
-            <SellingChip selling={selling} />
-          </div>
-        </div>
-        {s.sold != null && s.capacity ? (
-          <div className="mt-2 flex items-center gap-3">
-            <div className="flex-1">
-              <Meter label={`${s.event.title}, tickets sold`} value={s.sold} max={s.capacity} />
             </div>
-            <span className="shrink-0 text-caption tabular-nums text-text-secondary">
-              {s.sold} of {s.capacity} sold
-            </span>
-          </div>
-        ) : null}
-      </div>
-    </li>
-  );
-}
-
-/**
- * What actually stops something: money that cannot be paid out, an account the platform
- * cannot sell for. Always open, always first, and absent when there is none.
- */
-function Blockers({ setup }: { setup: SetupSummary }) {
-  if (setup.blockers.length === 0) return null;
-  return (
-    <section
-      aria-labelledby="blockers-heading"
-      className="rounded-lg border border-status-error/40 bg-background-surface"
-    >
-      <div className="flex items-start gap-3 px-5 pt-4">
-        <span
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-tint-error text-status-error"
-          aria-hidden
-        >
-          <AlertTriangle className="h-4 w-4" />
-        </span>
-        <div className="min-w-0">
-          <h2 id="blockers-heading" className="text-[1.0625rem] font-semibold text-text-primary">
-            Needs your attention
-          </h2>
-          <p className="text-caption text-text-secondary">
-            Something here stops the platform doing what you expect.
-          </p>
+          )}
         </div>
       </div>
-      <ul className="mt-2 divide-y divide-border">
-        {setup.blockers.map((a) => (
-          <li key={a.key}>
-            <Link
-              href={a.fixPath}
-              className="group flex items-start gap-3 px-5 py-3 transition-colors hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-            >
-              <div className="min-w-0 flex-1">
-                <p className="font-medium text-text-primary group-hover:text-action-primary">
-                  {a.title}
-                </p>
-                <p className="text-caption text-text-muted">{a.consequence}</p>
-              </div>
-              <span className="hidden shrink-0 rounded-full bg-tint-error px-2 py-0.5 text-caption font-medium text-status-error sm:inline">
-                Blocking
-              </span>
-              <span className="inline-flex shrink-0 items-center gap-1 text-caption font-semibold text-action-primary">
-                {a.actionLabel}
-                <ArrowRight
-                  className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none"
-                  aria-hidden
-                />
-              </span>
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </section>
+    </div>
   );
 }
 
+/** The rupee sign on a rupee figure; any other currency gets a neutral banknote. */
+function currencyIcon(currency: string | null) {
+  return currency === 'INR' ? IndianRupee : Banknote;
+}
+
 /**
- * Everything recommended but not blocking, as one line that opens into the list.
+ * What actually stops something - money that cannot be paid out, an account the platform
+ * cannot sell for - always open and first; and everything merely recommended folded into one
+ * line, "<n> things to set up", that opens into the list. Nothing at all when nothing is open.
  *
- * Closed by default: none of it stops a sale, and the old full-height card made a profile
- * picture look as urgent as a bank account. The count is in the button's name, so it is
- * the first thing a screen reader hears too.
+ * The old Overview put a bank account nobody can be paid without and a profile picture in one
+ * tall red-bordered card above everything else, so the page opened on a compliance checklist.
  */
-function SetupChecklist({ setup, loading }: { setup: SetupSummary; loading: boolean }) {
+function Attention({ setup, loading }: { setup: SetupSummary; loading: boolean }) {
   const [open, setOpen] = useState(false);
-  if (loading) return <Skeleton className="h-16 w-full" />;
-  if (setup.todo.length === 0) return null;
+  if (loading) return null;
+  if (setup.blockers.length === 0 && setup.todo.length === 0) return null;
   const listId = 'setup-checklist';
+  const blocked = setup.blockers.length > 0;
   const TONE: Record<string, string> = {
     IMPORTANT: 'bg-tint-warning text-status-warning',
     SUGGESTED: 'bg-background-subtle text-text-secondary',
   };
+  /*
+    The "<n> things to set up" switch. In the blocker strip's header when there is one (so the
+    whole panel is two short rows), on its own slim card when there is not.
+  */
+  const toggle = setup.todo.length > 0 && (
+    <button
+      type="button"
+      aria-expanded={open}
+      aria-controls={listId}
+      onClick={() => setOpen((o) => !o)}
+      className="inline-flex min-h-[2.25rem] shrink-0 items-center gap-2 rounded-md px-2.5 text-left text-caption font-semibold text-text-primary transition-colors hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <span>{setup.open > 0 ? setup.label : 'Optional extras'}</span>
+      <ChevronDown
+        className={`h-4 w-4 shrink-0 text-text-muted transition-transform duration-150 motion-reduce:transition-none ${open ? 'rotate-180' : ''}`}
+        aria-hidden
+      />
+    </button>
+  );
   return (
-    <section className="rounded-lg border border-border bg-background-surface">
-      <h2 className="sr-only">Setup</h2>
-      <button
-        type="button"
-        aria-expanded={open}
-        aria-controls={listId}
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-3 rounded-lg px-5 py-4 text-left transition-colors hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        <span className="min-w-0 flex-1">
-          <span className="block font-semibold text-text-primary">
-            {setup.open > 0 ? setup.label : 'Optional extras'}
-          </span>
-          <span className="block text-caption text-text-muted">
-            {setup.blockers.length > 0
-              ? 'Recommended. The blocking ones are above.'
-              : 'Recommended. None of these stops you selling.'}
-          </span>
-        </span>
-        <ChevronDown
-          className={`h-4 w-4 shrink-0 text-text-muted transition-transform duration-150 motion-reduce:transition-none ${open ? 'rotate-180' : ''}`}
-          aria-hidden
-        />
-      </button>
-      <ul id={listId} hidden={!open} className="divide-y divide-border border-t border-border">
-        {setup.todo.map((a) => (
-          <li key={a.key}>
-            <Link
-              href={a.fixPath}
-              className="group flex items-start gap-3 px-5 py-3 transition-colors hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-            >
-              <div className="min-w-0 flex-1">
-                <p className="text-[0.9375rem] font-medium text-text-primary group-hover:text-action-primary">
-                  {a.title}
-                </p>
-                <p className="text-caption text-text-muted">{a.consequence}</p>
-              </div>
-              <span
-                className={`shrink-0 rounded-full px-2 py-0.5 text-caption font-medium ${
-                  a.optional ? TONE.SUGGESTED : (TONE[a.severity] ?? TONE.SUGGESTED)
-                }`}
+    <div
+      className={`overflow-hidden rounded-lg border bg-background-surface shadow-xs ${
+        blocked ? 'border-status-error/40' : 'border-border'
+      }`}
+    >
+      {blocked ? (
+        <section aria-labelledby="blockers-heading">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 border-b border-border bg-tint-error/40 px-4 py-2 sm:px-5">
+            <AlertTriangle className="h-4 w-4 shrink-0 text-status-error" aria-hidden />
+            <h2 id="blockers-heading" className="text-ui font-bold text-text-primary">
+              Needs your attention
+            </h2>
+            <p className="hidden text-caption text-text-secondary md:block">
+              Something here stops the platform doing what you expect.
+            </p>
+            <span className="-mr-2.5 ml-auto">{toggle}</span>
+          </div>
+          <ul className="divide-y divide-border">
+            {setup.blockers.map((a) => (
+              <li key={a.key}>
+                <Link
+                  href={a.fixPath}
+                  className="group flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-3 transition-colors hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:flex-nowrap sm:px-5"
+                >
+                  <div className="min-w-0 flex-1 basis-full sm:basis-auto">
+                    <p className="text-ui font-semibold text-text-primary group-hover:text-action-primary">
+                      {a.title}
+                    </p>
+                    <p className="text-caption text-text-muted">{a.consequence}</p>
+                  </div>
+                  <span className="shrink-0 rounded-full bg-tint-error px-2 py-0.5 text-micro font-semibold text-status-error">
+                    Blocking
+                  </span>
+                  <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-tint-primary px-3 py-1.5 text-caption font-semibold text-action-primary">
+                    {a.actionLabel}
+                    <ArrowRight
+                      className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none"
+                      aria-hidden
+                    />
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : (
+        <section className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-4 py-2 sm:px-5">
+          <h2 className="sr-only">Setup</h2>
+          <p className="min-w-0 text-caption text-text-muted">
+            Recommended. None of these stops you selling.
+          </p>
+          {toggle}
+        </section>
+      )}
+      {setup.todo.length > 0 && (
+        <ul id={listId} hidden={!open} className="divide-y divide-border border-t border-border">
+          {setup.todo.map((a) => (
+            <li key={a.key}>
+              <Link
+                href={a.fixPath}
+                className="group flex items-start gap-3 px-4 py-3 transition-colors hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-5"
               >
-                {a.optional ? 'Optional' : a.severity === 'IMPORTANT' ? 'Important' : 'Suggested'}
-              </span>
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </section>
+                <div className="min-w-0 flex-1">
+                  <p className="text-ui font-medium text-text-primary group-hover:text-action-primary">
+                    {a.title}
+                  </p>
+                  <p className="text-caption text-text-muted">{a.consequence}</p>
+                </div>
+                <span
+                  className={`shrink-0 rounded-full px-2 py-0.5 text-micro font-semibold ${
+                    a.optional ? TONE.SUGGESTED : (TONE[a.severity] ?? TONE.SUGGESTED)
+                  }`}
+                >
+                  {a.optional ? 'Optional' : a.severity === 'IMPORTANT' ? 'Important' : 'Suggested'}
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
 /**
  * Gross, what comes off it, and what is left - as the sum it is.
- *
- * The two totals themselves lead the page in the figure strip; this card is the working.
  *
  * Every figure is the API's: `netMinor` is computed server-side as gross less the organizer's
  * fees less completed refunds, and this only lays the parts beside it. If they ever stopped
@@ -990,9 +860,8 @@ function SetupChecklist({ setup, loading }: { setup: SetupSummary; loading: bool
  */
 function MoneyBreakdown({ cash, fmt }: { cash: MarketMoney; fmt: (minor: number) => string }) {
   return (
-    <div className="space-y-5">
-      {/* The two totals are the figures at the top of the page; this is how one becomes the other. */}
-      <dl className="divide-y divide-border rounded-md border border-border text-[0.9375rem]">
+    <div className="space-y-4">
+      <dl className="divide-y divide-border overflow-hidden rounded-md border border-border text-ui">
         <div className="flex justify-between gap-3 px-4 py-2.5">
           <dt className="text-text-secondary">Gross sales</dt>
           <dd className="tabular-nums text-text-primary">{fmt(cash.grossMinor)}</dd>
@@ -1004,80 +873,19 @@ function MoneyBreakdown({ cash, fmt }: { cash: MarketMoney; fmt: (minor: number)
         <div className="flex justify-between gap-3 px-4 py-2.5">
           <dt className="text-text-secondary">
             Less refunds{' '}
-            <span className="text-caption text-text-muted">({cash.refundRate}% of gross)</span>
+            <span className="text-micro text-text-muted">({cash.refundRate}% of gross)</span>
           </dt>
           <dd className="tabular-nums text-text-primary">- {fmt(cash.refundsMinor)}</dd>
         </div>
-        <div className="flex justify-between gap-3 rounded-b-md bg-background-subtle px-4 py-2.5 font-semibold">
+        <div className="flex justify-between gap-3 bg-tint-primary px-4 py-3 font-semibold">
           <dt className="text-text-primary">Net proceeds</dt>
-          <dd className="tabular-nums text-text-primary">{fmt(cash.netMinor)}</dd>
+          <dd className="font-display tabular-nums text-text-primary">{fmt(cash.netMinor)}</dd>
         </div>
       </dl>
-
       <p className="text-caption text-text-muted">
         Booking fees charged to buyers on these sales: {fmt(cash.bookingFeesMinor)}. They are not
         part of your proceeds.
       </p>
     </div>
-  );
-}
-
-function RetryLine({ what, onRetry }: { what: string; onRetry: () => void }) {
-  return (
-    <p className="text-[0.9375rem] text-text-muted">
-      We could not load {what}.{' '}
-      <button
-        type="button"
-        onClick={onRetry}
-        className={`font-medium text-action-primary underline ${LINK_FOCUS}`}
-      >
-        Try again
-      </button>
-    </p>
-  );
-}
-
-/** A short list of feed cards: icon, title, when. Each opens the fix, or the notification centre. */
-function FeedList({
-  loading,
-  error,
-  onRetry,
-  groups,
-  empty,
-}: {
-  loading: boolean;
-  error: boolean;
-  onRetry: () => void;
-  groups: ReturnType<typeof pendingActions>;
-  empty: string;
-}) {
-  if (loading) return <Skeleton className="h-20 w-full" />;
-  if (error) return <RetryLine what="your notifications" onRetry={onRetry} />;
-  if (groups.length === 0) return <p className="text-[0.9375rem] text-text-muted">{empty}</p>;
-  return (
-    <ul className="space-y-3">
-      {groups.map((g) => {
-        const Icon = SEVERITY_ICON[g.severity];
-        return (
-          <li key={g.key}>
-            <Link
-              href={g.action?.href ?? '/organizer/notifications'}
-              className={`group flex items-start gap-3 ${LINK_FOCUS}`}
-            >
-              <Icon
-                className={`mt-0.5 h-4 w-4 shrink-0 ${SEVERITY_TEXT[g.severity]}`}
-                aria-hidden
-              />
-              <span className="min-w-0">
-                <span className="block text-[0.9375rem] font-medium text-text-primary group-hover:text-action-primary">
-                  {g.title}
-                </span>
-                <span className="block text-caption text-text-muted">{relativeTime(g.lastAt)}</span>
-              </span>
-            </Link>
-          </li>
-        );
-      })}
-    </ul>
   );
 }
