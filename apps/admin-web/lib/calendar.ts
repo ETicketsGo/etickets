@@ -280,3 +280,51 @@ export function inCity<T extends { venue: { city: string } }>(sessions: T[], cit
   if (!city) return sessions;
   return sessions.filter((s) => s.venue.city?.trim().toLowerCase() === city);
 }
+
+/**
+ * How a status reads on the calendar: its words and the tone of its dot and pill.
+ *
+ * The same table as the organizer calendar's `lib/calendar.ts`, so a status looks the same in
+ * both consoles. The words are the lifecycle vocabulary (DESIGN-DIRECTION): "In review", not
+ * "Under review"; COMPLETED and ARCHIVED are "Ended". PAUSED and SOLD_OUT keep their own words:
+ * they are what the event row says, not a claim about sale eligibility, which the calendar does
+ * not read.
+ */
+export type StatusTone = 'success' | 'warning' | 'error' | 'info' | 'neutral';
+
+const STATUS_LOOK: Record<string, { label: string; tone: StatusTone }> = {
+  DRAFT: { label: 'Draft', tone: 'neutral' },
+  UNDER_REVIEW: { label: 'In review', tone: 'warning' },
+  PUBLISHED: { label: 'Published', tone: 'success' },
+  PAUSED: { label: 'Paused', tone: 'warning' },
+  SOLD_OUT: { label: 'Sold out', tone: 'info' },
+  CANCELLED: { label: 'Cancelled', tone: 'error' },
+  COMPLETED: { label: 'Ended', tone: 'neutral' },
+  ARCHIVED: { label: 'Ended', tone: 'neutral' },
+};
+
+export function statusText(status: string): string {
+  const known = STATUS_LOOK[status];
+  if (known) return known.label;
+  const words = status.toLowerCase().replaceAll('_', ' ');
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/** A status this table does not know is neutral, never green. */
+export function statusTone(status: string): StatusTone {
+  return STATUS_LOOK[status]?.tone ?? 'neutral';
+}
+
+/**
+ * The status a show is DRAWN with: the event's, unless the show itself was cancelled or paused -
+ * a cancelled 21:00 show inside a published event must not look like it is on sale. The
+ * organizer calendar's `displayStatus` makes the same call.
+ */
+export function showStatus(s: { status: string; event: { status: string } }): {
+  status: string;
+  label: string;
+} {
+  if (s.status === 'CANCELLED' || s.status === 'PAUSED')
+    return { status: s.status, label: `Show ${s.status.toLowerCase()}` };
+  return { status: s.event.status, label: statusText(s.event.status) };
+}
