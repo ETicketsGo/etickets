@@ -102,7 +102,7 @@ export function ShowCalendar({
               inMonth.length === 1 ? 'day' : 'days'
             }`}
       </p>
-      <table className="mt-3 w-full table-fixed border-separate border-spacing-y-0.5 text-center">
+      <table className="mt-3 w-full table-fixed text-center">
         <caption className="sr-only">Days with upcoming shows</caption>
         <thead>
           <tr>
