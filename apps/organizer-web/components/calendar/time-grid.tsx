@@ -1,16 +1,78 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type CSSProperties } from 'react';
+import {
+  CALENDAR_RULE,
+  CalendarChip,
+  CalendarTodayBadge,
+  type OpenCalendarEntry,
+} from '@eticketsgo/web-kit';
 import {
   capItems,
+  displayStatus,
+  entryFor,
+  formatClock,
   formatDayLong,
   formatDayShort,
   layoutDay,
+  sessionLabel,
   splitSpanning,
+  statusTone,
+  zoneAbbrev,
+  type CalendarSession,
   type DayKey,
   type DaySegment,
 } from '@/lib/calendar';
-import { SessionBlock, SessionChip, type OpenSession } from './session-chip';
+
+type OpenSession = OpenCalendarEntry<CalendarSession>;
+
+/**
+ * A session in the week/day time grid, positioned by the caller. Only the organizer calendar
+ * draws an hour grid, so this block lives here; its dot colours and words are the shared ones.
+ */
+function SessionBlock({
+  segment,
+  onOpen,
+  style,
+  narrow,
+}: {
+  segment: DaySegment;
+  onOpen: OpenSession;
+  style: CSSProperties;
+  /** Shares its column with others: show less so the time and title still fit. */
+  narrow: boolean;
+}) {
+  const s = segment.session;
+  const shown = displayStatus(s);
+  const start = segment.continuesBefore ? 'cont.' : formatClock(s.startsAt, s.zone);
+  return (
+    <button
+      type="button"
+      data-session-id={s.id}
+      aria-label={sessionLabel(s)}
+      title={sessionLabel(s)}
+      onClick={(e) => onOpen(entryFor(segment), e.currentTarget)}
+      style={style}
+      className={`absolute flex flex-col justify-start overflow-hidden rounded-md border border-l-[3px] border-border bg-background-surface px-2 py-1 text-left text-micro leading-tight text-text-primary shadow-xs transition-shadow duration-150 hover:z-10 hover:shadow-md focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${CALENDAR_RULE[statusTone(shown.status)]}`}
+    >
+      <span className="flex items-center gap-1">
+        <span className="font-semibold tabular-nums">{start}</span>
+        {!narrow && (
+          <span className="truncate text-text-muted">{zoneAbbrev(s.zone, s.startsAt)}</span>
+        )}
+      </span>
+      <span className="block truncate font-semibold">{s.title}</span>
+      {!narrow && (
+        <>
+          <span className="block truncate text-text-secondary">
+            {[s.venueName, s.city].filter(Boolean).join(', ')}
+          </span>
+          <span className="block truncate text-text-secondary">{shown.label}</span>
+        </>
+      )}
+    </button>
+  );
+}
 
 const HOUR_PX = 48;
 /** Sessions crossing midnight, listed per day in the strip above the hours. */
@@ -77,11 +139,7 @@ export function TimeGrid({
                   className={`inline-flex items-center gap-1.5 font-semibold ${d === today ? 'text-action-primary' : 'text-text-primary'}`}
                 >
                   {single ? formatDayLong(d) : formatDayShort(d)}
-                  {d === today && (
-                    <span className="rounded-full bg-tint-primary px-2 py-0.5 text-[0.6875rem] font-semibold text-action-primary ring-1 ring-action-primary">
-                      Today
-                    </span>
-                  )}
+                  {d === today && <CalendarTodayBadge />}
                 </span>
                 <span className="block text-text-muted">
                   {total === 0 ? 'No sessions' : total === 1 ? '1 session' : `${total} sessions`}
@@ -103,7 +161,7 @@ export function TimeGrid({
               return (
                 <div key={d} className="min-w-0 space-y-0.5 border-l border-border p-1">
                   {shown.map((seg) => (
-                    <SessionChip key={seg.session.id} segment={seg} onOpen={onOpen} tabbable />
+                    <CalendarChip key={seg.session.id} entry={entryFor(seg)} onOpen={onOpen} />
                   ))}
                   {hidden > 0 && (
                     <button

@@ -278,7 +278,7 @@ export function Showtimes({
                               />
                             </div>
                             <div className="min-w-0">
-                              <SalePill verdict={verdict} size="sm" wrap />
+                              <SalePill verdict={verdict} size="sm" />
                             </div>
                           </div>
                         </div>

@@ -509,7 +509,7 @@ function ShowRowItem({
             are enough to act on.
           */}
           <div className="min-w-0" title={verdict.detail ?? undefined}>
-            <SalePill verdict={verdict} size="sm" wrap />
+            <SalePill verdict={verdict} size="sm" />
           </div>
           <div className="w-full max-w-[11rem]">
             <ProgressMeter
