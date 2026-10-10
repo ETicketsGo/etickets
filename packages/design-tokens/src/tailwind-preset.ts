@@ -15,6 +15,12 @@ const preset: Partial<Config> = {
     extend: {
       fontFamily: {
         sans: ['var(--font-inter)', ...fontFamily.sans],
+        /*
+          Page titles and big numbers only. The consoles load Plus Jakarta Sans into
+          --font-display; anywhere that does not, this falls back to the UI face rather than
+          to a browser default.
+        */
+        display: ['var(--font-display)', 'var(--font-inter)', ...fontFamily.sans],
       },
       maxWidth: {
         /*
@@ -95,6 +101,15 @@ const preset: Partial<Config> = {
           warning: hsl('--tint-warning'),
           error: hsl('--tint-error'),
           info: hsl('--tint-info'),
+          marquee: hsl('--tint-marquee'),
+        },
+        /*
+          The warm second accent: today, on sale now, live check-in. Text and icons use
+          `marquee`; `marquee-fill` is a decorative stripe next to the words. Never a warning.
+        */
+        marquee: {
+          DEFAULT: hsl('--marquee'),
+          fill: hsl('--marquee-fill'),
         },
         ring: hsl('--ring'),
       },

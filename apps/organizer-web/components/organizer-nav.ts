@@ -2,6 +2,10 @@ import type { NavItem } from '@eticketsgo/web-kit';
 import type { OrgPermissions } from '@/lib/org-permissions';
 import {
   Banknote,
+  BriefcaseBusiness,
+  Clapperboard,
+  Gauge,
+  UserCog,
   Bell,
   Building2,
   CalendarDays,
@@ -86,6 +90,8 @@ export function navFor({
   return [
     {
       group: 'Workspace',
+      // The rail shows one button per group; each needs its own picture, not its first item's.
+      groupIcon: Clapperboard,
       label: 'Overview',
       href: '/organizer',
       exact: true,
@@ -123,6 +129,7 @@ export function navFor({
 
     {
       group: 'Operations',
+      groupIcon: Gauge,
       /*
         The box office counter's way in. Distinct from an event's order list, which answers
         "who bought for THIS show" - a counter is holding a phone call about a booking whose
@@ -134,8 +141,19 @@ export function navFor({
       // A distinct icon from Payouts: money you hold in a tin, not money the platform sends.
       children: [{ label: 'Counter', href: '/organizer/counter', icon: Coins }],
     },
-    { label: 'Check-in', href: '/organizer/gate', exact: true, icon: ScanLine },
-    { label: 'Marketing', href: '/organizer/promotions', icon: Megaphone },
+    {
+      label: 'Check-in',
+      href: '/organizer/gate',
+      exact: true,
+      icon: ScanLine,
+      keywords: ['scan', 'gate', 'door'],
+    },
+    {
+      label: 'Marketing',
+      keywords: ['promotions', 'coupons', 'promote'],
+      href: '/organizer/promotions',
+      icon: Megaphone,
+    },
 
     /*
       Finance leads: it is the question an organizer opens this section with - what came in,
@@ -144,6 +162,7 @@ export function navFor({
     */
     {
       group: 'Business',
+      groupIcon: BriefcaseBusiness,
       label: 'Finance & payouts',
       href: '/organizer/finance',
       icon: Wallet,
@@ -157,6 +176,7 @@ export function navFor({
 
     {
       group: 'Account',
+      groupIcon: UserCog,
       label: 'Settings',
       href: '/organizer/settings',
       icon: Settings,

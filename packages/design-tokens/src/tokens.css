@@ -117,6 +117,20 @@
   /* focus ring */
   --ring: 221 83% 53%;
 
+  /*
+    ── MARQUEE ───────────────────────────────────────────────────────────────────────
+    The warm second accent, for the few moments that are about the SHOW rather than the
+    software: today, on sale now, live check-in. Marigold, and kept away from the warning
+    amber on purpose - a warning says "fix this", a marquee says "this is happening", and
+    the two must never be read as each other. Always with words; never for a warning.
+
+    `--marquee` is text and icons (4.5:1 on its tint and on every surface), `--marquee-fill`
+    is a decorative stripe or dot that always sits next to the words it decorates.
+  */
+  --marquee: 40 92% 26%; /* #7E5605 */
+  --tint-marquee: 44 90% 91%;
+  --marquee-fill: 42 96% 52%;
+
   /* radii */
   --radius-sm: 0.5rem; /* 8px */
   --radius-md: 0.875rem; /* 14px — buttons, inputs */
@@ -187,6 +201,11 @@
 
   --ring: 217 92% 62%;
 
+  /* Marquee on dark: a lit marigold, not a highlighter. See the light block. */
+  --marquee: 42 92% 62%;
+  --tint-marquee: 40 40% 15%;
+  --marquee-fill: 42 92% 56%;
+
   --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.4);
   --shadow-sm: 0 1px 3px rgb(0 0 0 / 0.4);
   --shadow-md: 0 6px 16px -6px rgb(0 0 0 / 0.5);
@@ -231,4 +250,44 @@
   --action-primary-foreground: 224 32% 7%;
   --tint-primary: 172 30% 16%; /* #1D3532 */
   --ring: 172 62% 44%;
+}
+
+/*
+  ── THE CONSOLE SURFACES ───────────────────────────────────────────────────────────
+  The consoles' paper and ink, separate from the accent above because it applies whatever
+  accent an organization chose: a palette in Settings changes the brand colour, never the
+  room it sits in.
+
+  Light is a faintly cool off-white canvas under white cards with hairline borders, and ink
+  that is near-black with a slight teal lean, so the page reads as one considered colour
+  rather than as the storefront's grey. Dark is a deep teal-black, cards one step lighter,
+  raised surfaces two, and off-white text - never pure white on black, which glares.
+
+  `:root.dark[data-console]` is more specific than `:root[data-console]`, which is more
+  specific than `.dark`: without the dark selector here the LIGHT console surfaces would win
+  in dark mode. `token-contrast.test.ts` reads both blocks and holds every text and control
+  pair to the same numbers as the shared surfaces.
+*/
+:root[data-console] {
+  --background-canvas: 200 22% 97%;
+  --background-surface: 0 0% 100%;
+  --background-subtle: 195 20% 95%;
+  --background-elevated: 0 0% 100%;
+  --text-primary: 192 32% 10%;
+  --text-secondary: 194 12% 34%;
+  --text-muted: 194 8% 41%;
+  --border-default: 195 18% 90%;
+  --border-strong: 195 14% 82%;
+}
+
+:root.dark[data-console] {
+  --background-canvas: 194 32% 6%;
+  --background-surface: 194 24% 9.5%;
+  --background-subtle: 194 20% 14%;
+  --background-elevated: 194 22% 12.5%;
+  --text-primary: 180 14% 94%;
+  --text-secondary: 190 10% 74%;
+  --text-muted: 190 8% 62%;
+  --border-default: 194 18% 17%;
+  --border-strong: 194 14% 26%;
 }

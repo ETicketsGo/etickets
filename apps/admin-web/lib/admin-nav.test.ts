@@ -1,7 +1,8 @@
 import { readdirSync, statSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { ADMIN_NAV, activeGroupKey, activeHref, allNavLinks } from './admin-nav';
+import { filterQuickNav, quickNavEntries, visibleNav } from '@eticketsgo/web-kit';
+import { ADMIN_NAV, activeGroupKey, activeHref, adminNavItems, allNavLinks } from './admin-nav';
 
 /**
  * The admin menu: every page has a way in, and exactly one item says where you are.
@@ -99,5 +100,93 @@ describe('where you are', () => {
   it('marks nothing for a path outside the menu', () => {
     expect(activeHref('/login')).toBeNull();
     expect(activeGroupKey('/login')).toBeNull();
+  });
+});
+
+/**
+ * Who sees what. The menu, the rail and quick navigation all read `visibleNav(adminNavItems())`,
+ * so these are the rules for every one of them.
+ */
+describe('the menu lists only what the operator can open', () => {
+  const ALL = [
+    'BOOKING_READ',
+    'ORGANIZER_READ',
+    'FINANCE_READ',
+    'OPS_READ',
+    'REFUND_REVIEW',
+    'REFUND_APPROVE',
+    'ORGANIZER_REVIEW',
+    'EVENT_REVIEW',
+    'PLATFORM_CONFIG',
+    'PAYOUT_MANAGE',
+    'PAYMENT_ADMIN',
+    'ADMIN_MANAGE',
+  ];
+  const hrefsFor = (perms: string[]) =>
+    visibleNav(adminNavItems(), { roles: ['ADMIN'], adminPermissions: perms }).map((i) => i.href);
+
+  it('gives somebody holding every capability every page', () => {
+    // A super admin: /auth/me returns all twelve capabilities for SUPER_ADMIN.
+    expect(hrefsFor(ALL).sort()).toEqual(
+      allNavLinks()
+        .map((l) => l.href)
+        .sort(),
+    );
+  });
+
+  it('gives a moderator the review queues and nothing that would refuse them', () => {
+    const hrefs = hrefsFor(['EVENT_REVIEW', 'ORGANIZER_REVIEW']);
+    expect(hrefs).toEqual(['/admin', '/admin/events', '/admin/calendar', '/admin/organizers']);
+  });
+
+  it('gives an account with no duties the landing page only', () => {
+    expect(hrefsFor([])).toEqual(['/admin']);
+  });
+
+  it('never shows money pages to the support desk', () => {
+    const hrefs = hrefsFor(['BOOKING_READ', 'ORGANIZER_READ']);
+    for (const money of [
+      '/admin/payouts',
+      '/admin/settlements',
+      '/admin/payment-config',
+      '/admin/reports',
+    ]) {
+      expect(hrefs).not.toContain(money);
+    }
+    // ORGANIZER_READ is not ORGANIZER_REVIEW: the organizer queue would refuse them.
+    expect(hrefs).not.toContain('/admin/organizers');
+    expect(hrefs).toContain('/admin/bookings');
+  });
+
+  it('keeps each surviving page under its own group heading', () => {
+    // A group's first link can be the one that goes: Approval queue and Refunds both need
+    // more than BOOKING_READ, so Movies and Support carry their groups' names instead.
+    const items = visibleNav(adminNavItems(), {
+      roles: ['ADMIN'],
+      adminPermissions: ['BOOKING_READ'],
+    });
+    expect(items.find((i) => i.href === '/admin/movies')?.group).toBe('Events');
+    expect(items.find((i) => i.href === '/admin/support')?.group).toBe('Refunds & disputes');
+    expect(items.filter((i) => i.group).map((i) => i.group)).toEqual([
+      'Overview',
+      'Events',
+      'Bookings & payments',
+      'Refunds & disputes',
+      'Audit history',
+      'Platform configuration',
+    ]);
+  });
+
+  it('quick navigation cannot find a page the operator cannot open', () => {
+    const moderator = visibleNav(adminNavItems(), {
+      roles: ['ADMIN'],
+      adminPermissions: ['EVENT_REVIEW'],
+    });
+    expect(filterQuickNav(quickNavEntries(moderator), 'payout')).toEqual([]);
+    expect(filterQuickNav(quickNavEntries(moderator), 'calendar').map((e) => e.href)).toEqual([
+      '/admin/calendar',
+    ]);
+    const admin = visibleNav(adminNavItems(), { roles: ['ADMIN'], adminPermissions: ALL });
+    expect(filterQuickNav(quickNavEntries(admin), 'payout')[0].href).toBe('/admin/payouts');
   });
 });

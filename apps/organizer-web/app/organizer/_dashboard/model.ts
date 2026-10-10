@@ -130,9 +130,18 @@ export function recentActivity(
 /** How far ahead "Coming up" looks. A week is what an organizer plans staff and stock around. */
 export const COMING_UP_DAYS = 7;
 
-/** The calendar window for "Coming up": from now, `COMING_UP_DAYS` ahead, as ISO instants. */
-export function comingUpWindow(now: Date = new Date()): { from: string; to: string } {
-  const to = new Date(now.getTime() + COMING_UP_DAYS * 24 * 60 * 60 * 1000);
+/**
+ * How far ahead the Overview looks for an event's NEXT show, to say whether it is selling.
+ * Within the calendar endpoint's 62-day ceiling; a show further out is said as such.
+ */
+export const NEXT_SHOW_DAYS = 60;
+
+/** A calendar window from now, `days` ahead ("Coming up" by default), as ISO instants. */
+export function comingUpWindow(
+  now: Date = new Date(),
+  days: number = COMING_UP_DAYS,
+): { from: string; to: string } {
+  const to = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
   return { from: now.toISOString(), to: to.toISOString() };
 }
 
@@ -158,4 +167,29 @@ export function comingUp(
     )
     .sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt))
     .slice(0, limit);
+}
+
+/** Shows that start before `days` from now: the week's programme out of a longer window. */
+export function startingWithin(
+  sessions: OrganizerCalendarSession[] | undefined,
+  days: number,
+  now: Date = new Date(),
+): OrganizerCalendarSession[] {
+  const until = now.getTime() + days * 24 * 60 * 60 * 1000;
+  return (sessions ?? []).filter((s) => Date.parse(s.startsAt) < until);
+}
+
+/**
+ * Each event's next show that is still to come and not cancelled - what "is this event
+ * selling" is judged by. An event absent from the map has no such show in the window read.
+ */
+export function nextShowByEvent(
+  sessions: OrganizerCalendarSession[] | undefined,
+  now: Date = new Date(),
+): Map<string, OrganizerCalendarSession> {
+  const out = new Map<string, OrganizerCalendarSession>();
+  for (const s of comingUp(sessions, now, Number.POSITIVE_INFINITY)) {
+    if (!out.has(s.event.id)) out.set(s.event.id, s);
+  }
+  return out;
 }

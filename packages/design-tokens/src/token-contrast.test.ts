@@ -365,3 +365,90 @@ describe.each(['light', 'dark'] as const)('console accent, %s mode, clears WCAG 
     }
   });
 });
+
+/**
+ * The console's own surfaces - organizer and admin only - with every pair a page can render
+ * on them: body text, the console accent, the marquee, and the controls.
+ *
+ * Measured against the MERGED values a console actually computes: its surfaces first, then
+ * the accent block, then the shared theme for everything neither redefines (`readToken`
+ * takes the first match, so order is precedence).
+ */
+const CONSOLE_SURFACES_LIGHT = ':root[data-console] {';
+const CONSOLE_SURFACES_DARK = ':root.dark[data-console] {';
+
+function consoleSurfaces(mode: 'light' | 'dark'): string {
+  const selector = mode === 'dark' ? CONSOLE_SURFACES_DARK : CONSOLE_SURFACES_LIGHT;
+  const at = CSS.indexOf(`\n${selector}`);
+  expect(at, `tokens.css has no ${mode} console surfaces block`).toBeGreaterThan(0);
+  const from = at + selector.length + 1;
+  return CSS.slice(from, CSS.indexOf('}', from));
+}
+
+describe.each(['light', 'dark'] as const)('console surfaces, %s mode, clear WCAG AA', (mode) => {
+  const merged = consoleSurfaces(mode) + consoleBlock(mode) + themeBlocks()[mode];
+
+  it.each(PAIRS)('$what - $fg on $bg', ({ fg, bg }) => {
+    const ratio = contrast(readToken(merged, fg), readToken(merged, bg));
+    expect(
+      Number(ratio.toFixed(2)),
+      `console ${mode}: --${fg} on --${bg} is ${ratio.toFixed(2)}:1, below ${AA_NORMAL}:1`,
+    ).toBeGreaterThanOrEqual(AA_NORMAL);
+  });
+
+  it.each(CONTROL_PAIRS)('$what - $control against $behind', ({ control, behind }) => {
+    const ratio = contrast(readToken(merged, control), readToken(merged, behind));
+    expect(
+      Number(ratio.toFixed(2)),
+      `console ${mode}: --${control} against --${behind} is ${ratio.toFixed(2)}:1, below ${AA_NON_TEXT}:1`,
+    ).toBeGreaterThanOrEqual(AA_NON_TEXT);
+  });
+
+  it.each(['background-canvas', 'background-surface', 'background-subtle', 'tint-primary'])(
+    'the accent as text on %s',
+    (behind) => {
+      const ratio = contrast(readToken(merged, 'action-primary'), readToken(merged, behind));
+      expect(Number(ratio.toFixed(2))).toBeGreaterThanOrEqual(AA_NORMAL);
+    },
+  );
+
+  it.each(['background-canvas', 'background-surface', 'background-subtle', 'tint-marquee'])(
+    'the marquee as text on %s',
+    (behind) => {
+      const ratio = contrast(readToken(merged, 'marquee'), readToken(merged, behind));
+      expect(
+        Number(ratio.toFixed(2)),
+        `console ${mode}: --marquee on --${behind} is ${ratio.toFixed(2)}:1`,
+      ).toBeGreaterThanOrEqual(AA_NORMAL);
+    },
+  );
+
+  it('redefines surfaces and ink only, never the accent or a status colour', () => {
+    const block = consoleSurfaces(mode);
+    for (const other of ['action-', 'status-', 'tint-', 'ring', 'border-input']) {
+      expect(block, `console surfaces redefine --${other}*`).not.toContain(`--${other}`);
+    }
+  });
+});
+
+describe.each(['light', 'dark'] as const)(
+  'the marquee, %s mode, on the shared surfaces',
+  (mode) => {
+    const block = themeBlocks()[mode];
+    it.each(['background-canvas', 'background-surface', 'background-subtle', 'tint-marquee'])(
+      'as text on %s',
+      (behind) => {
+        const ratio = contrast(readToken(block, 'marquee'), readToken(block, behind));
+        expect(
+          Number(ratio.toFixed(2)),
+          `${mode}: --marquee on --${behind} is ${ratio.toFixed(2)}:1`,
+        ).toBeGreaterThanOrEqual(AA_NORMAL);
+      },
+    );
+    it('keeps the marquee hue apart from the warning hue', () => {
+      // A marquee that drifts into the warning amber is a warning nobody issued.
+      const hue = (name: string) => Number(new RegExp(`--${name}:\\s*([\\d.]+)`).exec(block)![1]);
+      expect(Math.abs(hue('marquee') - hue('status-warning'))).toBeGreaterThanOrEqual(6);
+    });
+  },
+);
