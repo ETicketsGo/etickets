@@ -5,16 +5,20 @@ import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useWorkspace } from '@/components/workspace-chrome';
+import { Armchair, MapPin, Pencil, Plus, Users } from 'lucide-react';
 import {
   api,
   Button,
   ButtonLink,
   Card,
   Dialog,
+  IconTile,
+  ImageFrame,
   Input,
   LocationFields,
   PageHeader,
   Skeleton,
+  StatusPill,
   defaultLocation,
   locationFrom,
   useToast,
@@ -65,22 +69,33 @@ function SpaceRow({ space }: { space: VenueSpace }) {
   return (
     <li
       data-testid="space-row"
-      className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border px-3 py-2"
+      className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-md border border-border bg-background-canvas px-3 py-2.5"
     >
-      <div className="min-w-0">
-        <Link
-          href={spaceHref(space)}
-          className="rounded font-medium text-text-primary underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-        >
-          {space.name}
-        </Link>
-        <p className="text-caption text-text-muted">{spaceKindLabel(space)}</p>
+      <div className="flex min-w-0 items-center gap-3">
+        <IconTile
+          icon={space.layout ? Armchair : Users}
+          tone={space.layout ? 'teal' : 'blue'}
+          size="sm"
+        />
+        <div className="min-w-0">
+          <Link
+            href={spaceHref(space)}
+            className="break-words rounded-sm font-semibold text-text-primary underline-offset-2 [overflow-wrap:anywhere] hover:text-action-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {space.name}
+          </Link>
+          <p className="break-words text-caption text-text-muted [overflow-wrap:anywhere]">
+            {spaceKindLabel(space)}
+          </p>
+        </div>
       </div>
       {/*
         What it can SELL, not what it is. "No seating plan yet" tells an organizer why their
         space cannot offer a numbered seat, which a status badge never did.
       */}
-      <span className="text-caption text-text-secondary">{spaceCapabilityLabel(space)}</span>
+      <span className="text-caption font-medium text-text-secondary">
+        {spaceCapabilityLabel(space)}
+      </span>
       {/*
         THE LAYOUTS, LISTED.
 
@@ -291,52 +306,79 @@ export default function VenuesPage() {
         of every card empty; the cards are independent, so nothing is lost by reading them
         across as well as down. Narrower than that, it stays one column.
       */}
-      <div className="grid items-start gap-4 min-[1360px]:grid-cols-2">
+      <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-4 min-[1360px]:grid-cols-2">
         {!loading &&
           !failed &&
           grouped.venues.map(({ venue, spaces: inside, seatedCount }) => {
             return (
-              <Card key={venue.id}>
+              <Card key={venue.id} padding="sm">
                 {/*
-                A stable hook for the end-to-end tests. They used to address table cells
-                and rows; this page has neither any more, and pinning them to the div
-                nesting instead would break on the next styling change.
-              */}
-                <div
-                  data-testid="venue-card"
-                  className="flex flex-wrap items-start justify-between gap-3"
-                >
-                  <div className="min-w-0">
-                    <h3 className="font-medium text-text-primary">{venue.name}</h3>
-                    <p className="text-caption text-text-secondary">
-                      {[venue.city, venue.region, venue.country].filter(Boolean).join(', ')}
-                      {venue.capacity != null &&
-                        ` · seats about ${venue.capacity.toLocaleString()}`}
+                  A stable hook for the end-to-end tests. They used to address table cells
+                  and rows; this page has neither any more, and pinning them to the div
+                  nesting instead would break on the next styling change.
+                */}
+                <div data-testid="venue-card" className="flex min-w-0 items-start gap-3 sm:gap-4">
+                  {/*
+                    The venue's picture. Venues carry no photo yet, so every one draws the
+                    branded placeholder with its own name - artwork that says which venue it is,
+                    never a stock photo standing in for the organizer's building. On a phone
+                    the frame is a small square and the name is left to the heading beside it.
+                  */}
+                  <div className="w-16 shrink-0 sm:w-44">
+                    <ImageFrame
+                      alt=""
+                      ratio="3:2"
+                      category="venue"
+                      placeholderLabel={venue.name}
+                      rounded="md"
+                      className="max-sm:aspect-square max-sm:[&_[data-placeholder]>span:last-child]:hidden"
+                    />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
+                      <h3 className="min-w-0 break-words font-display text-title font-semibold text-text-primary [overflow-wrap:anywhere]">
+                        {venue.name}
+                      </h3>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="!h-8 shrink-0 !px-2.5 !text-caption"
+                        onClick={() => openEdit(venue)}
+                      >
+                        <Pencil className="h-3.5 w-3.5" aria-hidden />
+                        Edit venue
+                      </Button>
+                    </div>
+                    <p className="mt-0.5 flex min-w-0 items-start gap-1.5 text-caption text-text-secondary">
+                      <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-text-muted" aria-hidden />
+                      <span className="min-w-0 break-words">
+                        {[venue.address, venue.city, venue.region, venue.country]
+                          .filter(Boolean)
+                          .join(', ')}
+                      </span>
                     </p>
                     {/*
-                    Said on the venue, because "3 spaces" and "3 spaces, 1 of which can sell a
-                    numbered seat" are different facts, and only the second one tells an
-                    organizer whether they are ready to sell reserved seating here.
-                  */}
-                    {inside.length > 0 && (
-                      <p className="text-caption text-text-muted">
-                        {inside.length} space{inside.length === 1 ? '' : 's'}
-                        {seatedCount > 0
-                          ? ` · ${seatedCount} with a seating plan`
-                          : ' · none with a seating plan yet'}
-                      </p>
-                    )}
-                    {venue.address && (
-                      <p className="text-caption text-text-muted">{venue.address}</p>
-                    )}
+                      Said on the venue, because "3 spaces" and "3 spaces, 1 of which can sell a
+                      numbered seat" are different facts, and only the second one tells an
+                      organizer whether they are ready to sell reserved seating here.
+                    */}
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      <StatusPill tone={seatedCount > 0 ? 'primary' : 'neutral'} size="sm">
+                        {inside.length === 0
+                          ? 'No spaces'
+                          : `${inside.length} space${inside.length === 1 ? '' : 's'}${
+                              seatedCount > 0
+                                ? `, ${seatedCount} with a seating plan`
+                                : ', none with a seating plan yet'
+                            }`}
+                      </StatusPill>
+                      {venue.capacity != null ? (
+                        <StatusPill tone="neutral" size="sm" dot={false}>
+                          Seats about {venue.capacity.toLocaleString()}
+                        </StatusPill>
+                      ) : null}
+                    </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => openEdit(venue)}
-                    className="rounded text-caption text-action-primary underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-                  >
-                    Edit venue
-                  </button>
                 </div>
 
                 <div className="mt-4">
@@ -348,24 +390,27 @@ export default function VenuesPage() {
                     </ul>
                   ) : (
                     /*
-                    Said here rather than left blank. "No spaces" is not a fault — a lawn or a
-                    stadium terrace sells fine without one — so this states the consequence
-                    and lets the organizer decide, instead of reading as something undone.
-                  */
+                      Said here rather than left blank. "No spaces" is not a fault - a lawn or a
+                      stadium terrace sells fine without one - so this states the consequence
+                      and lets the organizer decide, instead of reading as something undone.
+                    */
                     <p className="text-caption text-text-secondary">
                       No spaces here. Add one if you want buyers to pick their own seat.
                     </p>
                   )}
                   {/*
-                  Carries the venue, so the space joins this one instead of quietly creating a
-                  second venue with the same name.
-                */}
-                  <Link
+                    Carries the venue, so the space joins this one instead of quietly creating a
+                    second venue with the same name.
+                  */}
+                  <ButtonLink
                     href={`/organizer/cinemas/new?venueId=${venue.id}`}
-                    className="mt-3 inline-block rounded text-caption text-action-primary underline underline-offset-2 hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                    variant="tinted"
+                    size="sm"
+                    icon={Plus}
+                    className="mt-3 !h-8"
                   >
                     Add a space here
-                  </Link>
+                  </ButtonLink>
                 </div>
               </Card>
             );

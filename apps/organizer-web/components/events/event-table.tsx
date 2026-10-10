@@ -1,25 +1,26 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { DataTable, type Column } from '@eticketsgo/web-kit';
-import { EventArtwork } from './event-artwork';
+import { DataTable, ImageFrame, type Column, type SellingState } from '@eticketsgo/web-kit';
 import { EventStateBadges } from './event-state-badges';
 import { EventActions } from './event-actions';
-import { SalesLines, SoldMeter } from './event-card';
-import { scheduleSummary, type EventListRow } from './event-list-model';
-import { SaleChip } from '../cinema/sale-chip';
-import type { SaleView } from '../../lib/sale-state';
+import { SaleStatePill, SalesLines, SoldMeter, cardImage } from './event-card';
+import {
+  imageCategoryOf,
+  scheduleSummary,
+  soldOfCapacity,
+  type EventListRow,
+} from './event-list-model';
 
 /**
  * The same events as rows, for scanning many at once.
  *
  * ── WHY COLUMNS LEAVE RATHER THAN THE TABLE SCROLLING ──────────────────────────────
- * Seven columns do not fit a phone, and a table that scrolls sideways hides its right-hand
- * columns from anybody who does not know to drag it. So the columns that are also said in
- * the first cell step out as the screen narrows. The console's sidebar takes a fixed share, so at
- * 1024 the table has about 750px: the venue and schedule then live under the title, and gross
- * sales (also on each card) appear from `xl`. What always remains is the event, its state and
- * its actions. Below `sm` the page shows cards instead: two columns are a worse card.
+ * A table that scrolls sideways hides its right-hand columns - the actions - from anybody who
+ * does not know to drag it. So the venue lives under the title at every width (a separate venue
+ * column pushed the "..." menu out of view even at 1440), and the next session and gross sales
+ * step out below `xl`, where the schedule moves under the title too. What always remains is the
+ * event, its state and its actions. Below `sm` the page shows cards instead.
  *
  * Ordering is the page's (one sort control for both views), so no column sorts itself.
  */
@@ -35,7 +36,7 @@ export function EventTable({
   /** False for a member who may not see money: the column is left out, not shown empty. */
   showSales: boolean;
   /** The server's unified sale state per event, said under its stage. */
-  saleOf?: (eventId: string) => SaleView | undefined;
+  saleOf: (eventId: string) => { selling: SellingState | null; unavailable: boolean };
   duplicatingId: string | null;
   onDuplicate: (e: EventListRow) => void;
   onDelete: (e: EventListRow) => void;
@@ -49,23 +50,34 @@ export function EventTable({
         const schedule = scheduleSummary(e);
         return (
           <div className="flex min-w-0 items-start gap-3">
-            <EventArtwork
-              category={e.category}
-              imagePath={e.imagePath}
-              imageVariants={e.imageVariants}
-              use="thumb"
-              className="h-10 w-10 rounded-md"
-            />
-            <div className="min-w-0">
-              <p className="line-clamp-2 break-words font-medium text-text-primary">{e.title}</p>
-              <p className="truncate text-caption text-text-muted">{e.category}</p>
-              {/* Said here only where their own columns have stepped out. */}
-              <p className="line-clamp-2 break-words text-caption text-text-muted xl:hidden">
-                {e.venue.name}, {e.venue.city}
+            <div className="w-16 shrink-0">
+              <ImageFrame
+                src={cardImage(e)?.src}
+                alt=""
+                ratio="16:9"
+                category={imageCategoryOf(e.category)}
+                rounded="md"
+              />
+            </div>
+            <div className="min-w-0 max-w-[16rem]">
+              <p className="line-clamp-2 break-words font-semibold text-text-primary [overflow-wrap:anywhere]">
+                {e.title}
               </p>
-              <p className="break-words text-caption text-text-muted xl:hidden">
+              <p
+                className="truncate text-caption text-text-muted"
+                title={`${e.venue.name}, ${e.venue.city}`}
+              >
+                {e.category} - {e.venue.name}, {e.venue.city}
+              </p>
+              {/* Said here only where their own columns have stepped out. */}
+              <p className="break-words text-caption tabular-nums text-text-muted xl:hidden">
                 {schedule.lead ? `${schedule.lead}: ` : ''}
                 {schedule.when}
+              </p>
+              <p className="text-caption tabular-nums text-text-muted xl:hidden">
+                {soldOfCapacity(e.tickets).percent === null
+                  ? soldOfCapacity(e.tickets).label
+                  : `${soldOfCapacity(e.tickets).label} sold`}
               </p>
             </div>
           </div>
@@ -73,24 +85,13 @@ export function EventTable({
       },
     },
     {
-      key: 'venue',
-      header: 'Venue',
-      className: 'hidden xl:table-cell',
-      render: (e) => (
-        <div className="max-w-[14rem]">
-          <p className="line-clamp-2 break-words">{e.venue.name}</p>
-          <p className="text-caption text-text-muted">{e.venue.city}</p>
-        </div>
-      ),
-    },
-    {
       key: 'schedule',
-      header: 'Schedule',
+      header: 'Next session',
       className: 'hidden xl:table-cell',
       render: (e) => {
         const s = scheduleSummary(e);
         return (
-          <div className="max-w-[13rem] text-[0.875rem]">
+          <div className="w-40 text-ui tabular-nums">
             {s.lead ? <span className="text-text-muted">{s.lead}: </span> : null}
             {s.when}
             {s.more ? <p className="text-caption text-text-muted">{s.more}</p> : null}
@@ -102,31 +103,30 @@ export function EventTable({
       key: 'status',
       header: 'Status',
       render: (e) => {
-        const sale = saleOf?.(e.id);
+        const sale = saleOf(e.id);
         return (
-          <div className="flex min-w-0 max-w-[16rem] flex-col items-start gap-1.5">
+          <div className="flex min-w-0 max-w-[11rem] flex-col items-start gap-1.5">
             <EventStateBadges event={e} />
-            {sale ? <SaleChip verdict={sale} /> : null}
+            <SaleStatePill selling={sale.selling} unavailable={sale.unavailable} />
           </div>
         );
       },
     },
     {
       key: 'tickets',
-      header: 'Sold / capacity',
-      className: 'hidden md:table-cell',
-      render: (e) => <SoldMeter event={e} compact />,
+      header: showSales ? 'Sold / gross' : 'Sold / capacity',
+      className: 'hidden xl:table-cell',
+      render: (e) => (
+        <div className="w-32 space-y-1">
+          <SoldMeter event={e} />
+          {showSales ? (
+            <div className="text-caption">
+              <SalesLines event={e} />
+            </div>
+          ) : null}
+        </div>
+      ),
     },
-    ...(showSales
-      ? [
-          {
-            key: 'gross',
-            header: 'Gross sales',
-            className: 'hidden xl:table-cell',
-            render: (e: EventListRow) => <SalesLines event={e} />,
-          },
-        ]
-      : []),
     {
       key: 'actions',
       // `relative` for the same reason as the approval badge: see EventStateBadges.

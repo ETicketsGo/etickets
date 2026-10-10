@@ -3,9 +3,17 @@
 import Link from 'next/link';
 import { useState } from 'react';
 import { Armchair, ArrowRight, ChevronDown, ScanLine, Ticket, Users } from 'lucide-react';
-import { Badge, Button, ButtonLink, type OrgEventDetail } from '@eticketsgo/web-kit';
-import { MoreMenu, type MoreMenuItem } from './more-menu';
-import { lifecycleOf, type NextStep, type SaleState, type Setup } from './event-lifecycle';
+import {
+  Button,
+  ButtonLink,
+  IconTile,
+  Menu,
+  StatusPill,
+  type MenuItem,
+  type OrgEventDetail,
+  type TileTone,
+} from '@eticketsgo/web-kit';
+import { type NextStep, type SaleState, type Setup } from './event-lifecycle';
 import { seatingMix } from './seating-model';
 import { ticketTotals, sessionBreakdown } from './event-overview-model';
 import { timeAtVenue } from './event-list-model';
@@ -41,13 +49,11 @@ export function OverviewLead({
   busy: { submit: boolean; resume: boolean; pause: boolean };
 }) {
   const base = `/organizer/events/${event.id}`;
-  const life = lifecycleOf(event);
   const [setupOpen, setSetupOpen] = useState(false);
   const booked = (event._count?.bookings ?? 0) > 0;
 
-  const more: MoreMenuItem[] = [{ kind: 'link', label: 'Edit details', href: `${base}/edit` }];
-  if (event.status === 'PUBLISHED')
-    more.push({ kind: 'button', label: 'Pause sales', onSelect: onPause });
+  const more: MenuItem[] = [{ kind: 'link', label: 'Edit details', href: `${base}/edit` }];
+  if (event.status === 'PUBLISHED') more.push({ label: 'Pause sales', onSelect: onPause });
   more.push({ kind: 'link', label: 'Open check-in', href: `${base}/checkin` });
   more.push(
     booked
@@ -56,7 +62,7 @@ export function OverviewLead({
           label: 'Delete',
           reason: 'This event has bookings, so it cannot be deleted. Pause it to stop sales.',
         }
-      : { kind: 'button', label: 'Delete event', onSelect: onDelete, danger: true },
+      : { label: 'Delete event', onSelect: onDelete, danger: true },
   );
 
   const primary =
@@ -86,45 +92,33 @@ export function OverviewLead({
       aria-labelledby="next-step-title"
       className="rounded-lg border border-border bg-background-surface p-4 sm:p-5"
     >
-      {/* The three answers, each in words, side by side. */}
-      <dl className="flex flex-wrap gap-x-6 gap-y-2 text-sm">
-        <div className="flex items-center gap-2">
-          <dt className="text-text-muted">Stage</dt>
-          <dd className="flex flex-wrap gap-1.5">
-            <Badge tone={life.tone}>{life.label}</Badge>
-            {life.detail ? <Badge tone={life.detail.tone}>{life.detail.label}</Badge> : null}
-          </dd>
-        </div>
-        <div className="flex min-w-0 items-center gap-2">
-          <dt className="text-text-muted">Sales</dt>
-          <dd className="min-w-0">
-            <Badge tone={sale.tone}>
-              <span className="break-words">{sale.label}</span>
-            </Badge>
-          </dd>
-        </div>
-        <div className="flex items-center gap-2">
-          <dt className="text-text-muted">Setup</dt>
-          <dd>
-            {setup.complete ? (
-              <Badge tone="success">{setup.label}</Badge>
-            ) : (
-              <button
-                type="button"
-                aria-expanded={setupOpen}
-                aria-controls="setup-items"
-                onClick={() => setSetupOpen((o) => !o)}
-                className="inline-flex items-center gap-1 rounded-full bg-background-subtle px-2.5 py-0.5 text-caption font-medium text-text-secondary hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-              >
-                {setup.label}
-                <ChevronDown
-                  aria-hidden
-                  className={`h-3.5 w-3.5 transition-transform motion-reduce:transition-none ${setupOpen ? 'rotate-180' : ''}`}
-                />
-              </button>
-            )}
-          </dd>
-        </div>
+      {/*
+        Stage and sales are in the event's header, on every page of it. What is left here is
+        the third answer - what is still the organizer's to set up - beside the one next step.
+      */}
+      <dl className="flex flex-wrap items-center gap-2 text-ui">
+        <dt className="text-text-muted">Setup</dt>
+        <dd>
+          {setup.complete ? (
+            <StatusPill tone="success" size="sm">
+              {setup.label}
+            </StatusPill>
+          ) : (
+            <button
+              type="button"
+              aria-expanded={setupOpen}
+              aria-controls="setup-items"
+              onClick={() => setSetupOpen((o) => !o)}
+              className="inline-flex items-center gap-1 rounded-full bg-tint-warning px-2.5 py-0.5 text-micro font-semibold text-status-warning hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            >
+              {setup.label}
+              <ChevronDown
+                aria-hidden
+                className={`h-3.5 w-3.5 transition-transform motion-reduce:transition-none ${setupOpen ? 'rotate-180' : ''}`}
+              />
+            </button>
+          )}
+        </dd>
       </dl>
       {/* The server's own sentence for why it is not (fully) selling, beside its few words. */}
       {sale.detail && sale.state !== 'SELLING' ? (
@@ -163,7 +157,7 @@ export function OverviewLead({
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {primary}
-          <MoreMenu items={more} ariaLabel="More event actions" />
+          <Menu items={more} ariaLabel="More event actions" />
         </div>
       </div>
     </section>
@@ -185,18 +179,21 @@ export function ManageTiles({ event }: { event: OrgEventDetail }) {
       label: 'Seating',
       fact: seatingMix(event.sessions),
       icon: Armchair,
+      tone: 'teal' as TileTone,
     },
     {
       href: `${base}/tickets`,
       label: 'Tickets',
       fact: t.types === 0 ? 'No ticket types yet' : `${t.sold} of ${t.capacity} sold`,
       icon: Ticket,
+      tone: 'blue' as TileTone,
     },
     {
       href: `${base}/orders`,
       label: 'Bookings',
       fact: `${bookings} booking${bookings === 1 ? '' : 's'}`,
       icon: Users,
+      tone: 'purple' as TileTone,
     },
     {
       href: `${base}/checkin`,
@@ -205,20 +202,19 @@ export function ManageTiles({ event }: { event: OrgEventDetail }) {
         ? `Next: ${timeAtVenue(upcoming[0].startsAt, event.venue)}`
         : 'Nothing to come',
       icon: ScanLine,
+      tone: 'amber' as TileTone,
     },
   ];
   return (
     <nav aria-label="Manage this event">
       <ul className="grid grid-cols-1 gap-3 min-[480px]:grid-cols-2 xl:grid-cols-4">
-        {tiles.map(({ href, label, fact, icon: Icon }) => (
+        {tiles.map(({ href, label, fact, icon, tone }) => (
           <li key={label} className="min-w-0">
             <Link
               href={href}
-              className="group flex h-full min-h-[4.25rem] items-center gap-3 rounded-lg border border-border bg-background-surface p-3 transition-shadow duration-150 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 motion-reduce:transition-none"
+              className="group flex h-full min-h-[4.5rem] items-center gap-3 rounded-lg border border-border bg-background-surface p-3.5 shadow-xs transition-[box-shadow,transform] duration-150 hover:-translate-y-px hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 motion-reduce:transition-none motion-reduce:hover:translate-y-0"
             >
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-tint-primary text-action-primary">
-                <Icon className="h-4 w-4" aria-hidden />
-              </span>
+              <IconTile icon={icon} tone={tone} />
               <span className="min-w-0 flex-1">
                 <span className="block text-sm font-semibold text-text-primary">{label}</span>
                 <span className="block break-words text-caption tabular-nums text-text-muted">

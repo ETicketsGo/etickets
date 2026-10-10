@@ -1,5 +1,12 @@
-import { dateTime, zoneAbbrev, type BadgeTone, type OrgEventRow } from '@eticketsgo/web-kit';
-import { venueZone } from '@eticketsgo/shared-types';
+import {
+  dateTime,
+  zoneAbbrev,
+  type BadgeTone,
+  type ImageCategory,
+  type OrgEventRow,
+  type SellingState,
+} from '@eticketsgo/web-kit';
+import { venueZone, type EventSaleState, type SaleStateKind } from '@eticketsgo/shared-types';
 
 /**
  * The organizer's event list and overview, as data: what each event is called, when it is on,
@@ -172,7 +179,17 @@ export interface EventFilters {
   /** Inclusive, YYYY-MM-DD at the venue. Empty means open. */
   from: string;
   to: string;
+  /** The server's unified sale state, or empty for any. See `filterBySale`. */
+  sale: SaleFilter;
 }
+
+export type SaleFilter = '' | SaleStateKind;
+
+export const SALE_FILTER_LABELS: Record<SaleStateKind, string> = {
+  SELLING: 'Selling',
+  PARTIAL: 'Partly selling',
+  NOT_SELLING: 'Not selling',
+};
 
 export const NO_FILTERS: EventFilters = {
   q: '',
@@ -181,6 +198,7 @@ export const NO_FILTERS: EventFilters = {
   category: '',
   from: '',
   to: '',
+  sale: '',
 };
 
 /** The venue an event filters by: its id where the API sends one, else its name. */
@@ -319,10 +337,69 @@ export function soldOfCapacity(tickets: { sold: number; capacity: number } | und
   };
 }
 
+/**
+ * The events in one sale state, as the SERVER answered for each.
+ *
+ * Sale state is not on the list row - it is the unified answer from
+ * `event-sale-eligibility`, asked for separately - so this filter runs after the others, over
+ * the answers that have arrived. An event with no answer yet is left out rather than guessed
+ * into a bucket: a "Selling" filter that showed an unchecked event would be the bare
+ * "Selling" the status rules forbid. `pending` says how many were left out for that reason, so
+ * the page can say it is still checking instead of showing a short list as if it were final.
+ */
+export function filterBySale(
+  rows: EventListRow[],
+  sale: SaleFilter,
+  stateOf: (eventId: string) => SaleStateKind | undefined,
+): { rows: EventListRow[]; pending: number } {
+  if (!sale) return { rows, pending: 0 };
+  let pending = 0;
+  const kept = rows.filter((e) => {
+    const state = stateOf(e.id);
+    if (state === undefined) {
+      pending += 1;
+      return false;
+    }
+    return state === sale;
+  });
+  return { rows: kept, pending };
+}
+
+/**
+ * The server's answer as the design system's selling pill: "Selling", "Partly selling:
+ * <reason>" or "Not selling: <reason>" - the same words `saleStateLabel` writes, so the pill,
+ * the overview and checkout's refusal cannot disagree. Null while there is no answer: the
+ * caller says it is checking (or could not check), never "Selling".
+ */
+export function sellingStateOf(
+  answer: Pick<EventSaleState, 'state' | 'reasons'> | undefined,
+): SellingState | null {
+  if (!answer) return null;
+  if (answer.state === 'SELLING') return { state: 'selling' };
+  const lead = answer.reasons[0]?.text;
+  return answer.state === 'PARTIAL'
+    ? { state: 'partly', reason: lead ?? 'some tickets are closed' }
+    : { state: 'not', reason: lead ?? 'checkout would refuse it' };
+}
+
+/**
+ * Which branded placeholder an event without a picture gets. The organizer types the
+ * category, so it is matched loosely; anything unknown is a plain event ticket.
+ */
+export function imageCategoryOf(category: string | null | undefined): ImageCategory {
+  const c = (category ?? '').trim().toLowerCase();
+  if (/movie|film|cinema/.test(c)) return 'movie';
+  if (/music|concert|festival/.test(c)) return 'music';
+  if (/comedy|stand ?up/.test(c)) return 'comedy';
+  if (/sport|kabaddi|cricket|football/.test(c)) return 'sports';
+  if (/conference|tech|workshop|talk|summit/.test(c)) return 'conference';
+  return 'event';
+}
+
 /** The list's view, remembered on this device. */
-export type EventListView = 'cards' | 'table';
+export type EventListView = 'cards' | 'table' | 'calendar';
 export const VIEW_STORAGE_KEY = 'etg_organizer_events_view';
 
 export function parseView(stored: string | null | undefined): EventListView {
-  return stored === 'table' ? 'table' : 'cards';
+  return stored === 'table' || stored === 'calendar' ? stored : 'cards';
 }

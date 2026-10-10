@@ -2,11 +2,14 @@ import { describe, expect, it } from 'vitest';
 import {
   NO_FILTERS,
   approvalOf,
+  filterBySale,
   filterEvents,
   filterOptions,
+  imageCategoryOf,
   localDate,
   parseView,
   scheduleSummary,
+  sellingStateOf,
   soldOfCapacity,
   sortEvents,
   timeAtVenue,
@@ -295,10 +298,86 @@ describe('soldOfCapacity', () => {
 });
 
 describe('parseView', () => {
-  it('remembers the table and defaults to cards for anything else', () => {
+  it('remembers the table and the calendar, and defaults to cards for anything else', () => {
     expect(parseView('table')).toBe('table');
+    expect(parseView('calendar')).toBe('calendar');
     expect(parseView('cards')).toBe('cards');
     expect(parseView(null)).toBe('cards');
     expect(parseView('grid')).toBe('cards');
+  });
+});
+
+describe('filterBySale', () => {
+  const ids = (list: EventListRow[]) => list.map((e) => e.id);
+  const rows = ['a', 'b', 'c', 'd'].map((id) => row({ id }));
+  const states: Record<string, 'SELLING' | 'PARTIAL' | 'NOT_SELLING'> = {
+    a: 'SELLING',
+    b: 'PARTIAL',
+    c: 'NOT_SELLING',
+  };
+  const stateOf = (id: string) => states[id];
+
+  it('is a no-op with no sale filter, whatever has been answered', () => {
+    expect(filterBySale(rows, '', stateOf)).toEqual({ rows, pending: 0 });
+  });
+
+  it('keeps only the events the server put in that state', () => {
+    expect(ids(filterBySale(rows, 'SELLING', stateOf).rows)).toEqual(['a']);
+    expect(ids(filterBySale(rows, 'PARTIAL', stateOf).rows)).toEqual(['b']);
+    expect(ids(filterBySale(rows, 'NOT_SELLING', stateOf).rows)).toEqual(['c']);
+  });
+
+  it('never guesses an unanswered event into a bucket, and counts it as pending', () => {
+    // "d" has no answer yet: not Selling, not Not selling - left out and counted.
+    for (const sale of ['SELLING', 'PARTIAL', 'NOT_SELLING'] as const) {
+      const out = filterBySale(rows, sale, stateOf);
+      expect(ids(out.rows)).not.toContain('d');
+      expect(out.pending).toBe(1);
+    }
+  });
+});
+
+describe('sellingStateOf', () => {
+  const reason = (text: string) => ({
+    code: 'SALES_ENDED' as const,
+    text,
+    message: `${text}.`,
+    owner: 'ORGANIZER' as const,
+    fixPath: null,
+    ticketTypeIds: [],
+    affectedSessions: 1,
+  });
+
+  it('is null with no answer - the caller says it is checking, never "Selling"', () => {
+    expect(sellingStateOf(undefined)).toBeNull();
+  });
+
+  it('maps the three server states to the selling pill, with the lead reason', () => {
+    expect(sellingStateOf({ state: 'SELLING', reasons: [] })).toEqual({ state: 'selling' });
+    expect(
+      sellingStateOf({ state: 'PARTIAL', reasons: [reason('Standard tickets are closed')] }),
+    ).toEqual({ state: 'partly', reason: 'Standard tickets are closed' });
+    expect(
+      sellingStateOf({ state: 'NOT_SELLING', reasons: [reason('waiting for review')] }),
+    ).toEqual({ state: 'not', reason: 'waiting for review' });
+  });
+
+  it('a partial answer with no reason still carries one - never a bare "Selling"', () => {
+    const partial = sellingStateOf({ state: 'PARTIAL', reasons: [] });
+    expect(partial).toEqual({ state: 'partly', reason: 'some tickets are closed' });
+  });
+});
+
+describe('imageCategoryOf', () => {
+  it('matches typed-in categories loosely, and falls back to a plain event', () => {
+    expect(imageCategoryOf('Movie')).toBe('movie');
+    expect(imageCategoryOf('Film festival')).toBe('movie');
+    expect(imageCategoryOf('Music')).toBe('music');
+    expect(imageCategoryOf('Comedy')).toBe('comedy');
+    expect(imageCategoryOf('Sports')).toBe('sports');
+    expect(imageCategoryOf('Tech')).toBe('conference');
+    expect(imageCategoryOf('Workshop')).toBe('conference');
+    expect(imageCategoryOf('Community')).toBe('event');
+    expect(imageCategoryOf(null)).toBe('event');
   });
 });
