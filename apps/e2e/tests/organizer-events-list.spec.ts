@@ -69,7 +69,7 @@ test.describe('organizer events list and overview', () => {
       // Cards by default, with the event's schedule and approval state in words.
       const card = page.getByRole('article', { name: event.title });
       await expect(card).toBeVisible({ timeout: 20_000 });
-      await expect(card).toContainText('Not submitted');
+      await expect(card).toContainText('Draft');
       await expect(card).toContainText('Next:');
 
       // The table, chosen once, is still the table after a reload.

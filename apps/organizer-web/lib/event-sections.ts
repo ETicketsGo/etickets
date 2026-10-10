@@ -47,6 +47,11 @@ export const EVENT_SECTIONS: readonly EventSection[] = [
     label: 'Tickets & seating',
     pages: [
       { seg: '/sessions', label: 'Sessions' },
+      /*
+        Seating sits beside the sessions it describes. It was the half of "Tickets & seating"
+        nobody could find: the section was named for it and had no page about it.
+      */
+      { seg: '/seating', label: 'Seating' },
       { seg: '/tickets', label: 'Tickets' },
       { seg: '/commerce', label: 'Add-ons & bundles' },
     ],

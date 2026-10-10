@@ -207,7 +207,7 @@ export function SessionsSection({ event }: { event: OrgEventDetail }) {
 
 /** What each section is for, in the words an organizer arrives with. */
 const SECTION_PURPOSE: Record<string, string> = {
-  tickets: 'Dates, ticket types, seating and extras',
+  tickets: 'Dates, seat layouts, ticket types and extras',
   bookings: 'Who has booked, and their tickets',
   promotion: 'Share links and a QR code',
   checkin: 'Scan tickets at the door',
