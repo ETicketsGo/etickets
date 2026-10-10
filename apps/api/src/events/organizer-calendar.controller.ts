@@ -6,6 +6,7 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { OrganizerCalendarService } from './organizer-calendar.service';
 import {
   OrganizerSaleEligibilityService,
+  SALE_ELIGIBILITY_MAX_EVENTS,
   SALE_ELIGIBILITY_MAX_SESSIONS,
 } from './organizer-sale-eligibility.service';
 
@@ -32,6 +33,18 @@ const eligibilityQuery = z.object({
     .refine(
       (v) => splitIds(v).every((id) => z.string().cuid().safeParse(id).success),
       'Each show id must be an id.',
+    ),
+});
+
+const eventEligibilityQuery = z.object({
+  organizationId: z.string().cuid(),
+  /** Comma-separated event ids. */
+  eventIds: z
+    .string()
+    .max(SALE_ELIGIBILITY_MAX_EVENTS * 32)
+    .refine(
+      (v) => splitIds(v).every((id) => z.string().cuid().safeParse(id).success),
+      'Each event id must be an id.',
     ),
 });
 
@@ -73,5 +86,18 @@ export class OrganizerCalendarController {
     @Query(new ZodValidationPipe(eligibilityQuery)) q: z.infer<typeof eligibilityQuery>,
   ) {
     return this.saleEligibility.forSessions(user, q.organizationId, splitIds(q.sessionIds));
+  }
+
+  /** Read-only, like the per-show read above, and scoped the same way. */
+  @Get('event-sale-eligibility')
+  @ApiOperation({
+    summary:
+      'Whether each of these events is selling, partly selling or not selling, over its upcoming shows.',
+  })
+  eventEligibility(
+    @CurrentUser() user: RequestUser,
+    @Query(new ZodValidationPipe(eventEligibilityQuery)) q: z.infer<typeof eventEligibilityQuery>,
+  ) {
+    return this.saleEligibility.forEvents(user, q.organizationId, splitIds(q.eventIds));
   }
 }

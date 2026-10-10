@@ -1,5 +1,11 @@
-import type { Movie, PilotReadinessReport, ShowRow } from '@eticketsgo/web-kit';
-import { bookingWindowState } from '../../app/organizer/cinemas/[id]/schedule/show-status';
+import type { Movie, ShowRow } from '@eticketsgo/web-kit';
+import {
+  foldSaleStates,
+  type EventSaleState,
+  type SaleStateKind,
+  type SessionSaleState,
+} from '@eticketsgo/shared-types';
+import { CHECKING_LABEL, saleViewOf } from '../../lib/sale-state';
 
 /**
  * The rules the cinema workspace draws with: films, their showtimes, and whether they sell.
@@ -269,83 +275,27 @@ export function glanceByCinema(
 
 // ── Can it be bought? ─────────────────────────────────────────────────────────────
 
-/**
- * A short reason for a refusal checkout would make, by the server's blocker code.
- *
- * The server's own sentence (`organizerMessage`) is the long form and is always shown beside
- * this where there is room. This is the few words that fit on a chip: "Not selling: Telangana
- * pricing rules not configured".
- */
-export function shortSaleReason(code: string, region: string | null | undefined): string {
-  const place = region?.trim() ? region.trim() : 'state';
-  switch (code.replace(/^SALE_/, '')) {
-    case 'NO_PRICING_POLICY':
-      return `${place} pricing rules not configured`;
-    case 'PRICING_POLICY_CONFLICT':
-      return `${place} pricing rules need correcting`;
-    case 'CINEMA_NOT_CLASSIFIED':
-      return 'cinema type not on record';
-    case 'SEAT_CLASS_UNMAPPED':
-      return 'seat classes not mapped';
-    case 'PRICE_OVER_CEILING':
-      return 'price outside the permitted range';
-    default:
-      return 'pricing not cleared for online sale';
-  }
-}
+/*
+  Every sentence below is the server's unified sale state (`sale-state.ts` in shared-types),
+  put into words - per show from `GET /organizer-calendar/sale-eligibility`, per cinema listing
+  (one event per film per venue) from `.../event-sale-eligibility`. The library card, the film
+  header, the cinema strip, the showtimes and the quick look therefore cannot disagree with
+  each other, or with the Overview and the event pages, about one show.
 
-/** Blockers that are about WHERE the cinema is, so they stop every show there. */
-const CINEMA_WIDE = new Set([
-  'NO_PRICING_POLICY',
-  'PRICING_POLICY_CONFLICT',
-  'CINEMA_NOT_CLASSIFIED',
-  'REGULATORY_PRICING_UNRESOLVED',
-]);
+  This used to read the cinema readiness report (pricing rules only) and the public summary's
+  `onlineBooking.open`, and work the rest out here. On QA a film read "Selling" while one of
+  its shows refused Standard seats, and the Overview said "Not selling" about the same show.
+*/
 
-export type CinemaSaleState =
-  | { kind: 'SELLING' }
-  /** Every upcoming show here is refused at checkout. */
-  | { kind: 'NOT_SELLING'; reason: string; message: string; fixPath: string | null }
-  /** Some seat categories or shows are refused; others sell. */
-  | { kind: 'PARTLY'; reason: string; message: string; fixPath: string | null }
-  /** Nothing upcoming to judge. */
-  | { kind: 'NO_SHOWS' }
-  /** The server was not asked, or would not say (an operator without access to readiness). */
-  | { kind: 'UNKNOWN' };
-
-/**
- * What the server's readiness report says about online sales at one cinema.
- *
- * Read from the SALES section only - the one built on `saleEligibility`, the same function
- * checkout refuses a sale with (#280). Its blocker codes arrive as `SALE_<code>`.
- */
-export function cinemaSaleState(
-  report: PilotReadinessReport | null | undefined,
-  region: string | null | undefined,
-): CinemaSaleState {
-  if (!report) return { kind: 'UNKNOWN' };
-  const sales = report.sections.find((s) => s.section === 'SALES');
-  if (!sales || sales.checks.length === 0) return { kind: 'NO_SHOWS' };
-  const blocked = sales.checks.filter((c) => c.level === 'BLOCKED');
-  if (blocked.length === 0) {
-    return sales.checks.some((c) => c.code === 'SALES_OPEN')
-      ? { kind: 'SELLING' }
-      : { kind: 'UNKNOWN' };
-  }
-  const wide = blocked.find((c) => CINEMA_WIDE.has(c.code.replace(/^SALE_/, '')));
-  const lead = wide ?? blocked[0]!;
-  return {
-    kind: wide ? 'NOT_SELLING' : 'PARTLY',
-    reason: shortSaleReason(lead.code, region),
-    message: lead.message,
-    fixPath: lead.fixPath,
-  };
-}
+/** An answer that may still be loading (undefined) or could not be read (null). */
+export type MaybeSale = Pick<EventSaleState, 'state' | 'reasons'> | null | undefined;
 
 export interface SaleVerdict {
-  /** True only when the server has confirmed a buyer can complete a purchase. */
+  /** The server's unified state; null while unanswered or unreadable. */
+  state?: SaleStateKind | null;
+  /** True only when the server has said SELLING. Never for a partly selling show. */
   selling: boolean;
-  /** "Selling", "Not selling: <reason>", or "Checking sale status". */
+  /** "Selling", "Partly selling: <reason>", "Not selling: <reason>", or "Checking sale status". */
   label: string;
   tone: Tone;
   /** The longer explanation, when there is one. */
@@ -354,17 +304,65 @@ export interface SaleVerdict {
   fixPath: string | null;
 }
 
+/** A cinema's verdict in the chip's words. */
 export interface ShowSaleInput {
   show: ShowRow;
-  now: Date;
   timeZone: string | undefined;
-  filmStatus: string;
   /**
-   * The public show summary's `onlineBooking` - the server's per-show answer.
-   * `undefined` while loading; `null` when it could not be read.
+   * The server's unified answer for this show (`GET /organizer-calendar/sale-eligibility`):
+   * the event and show status, the film, each ticket type's window and places, and checkout's
+   * sale-eligibility rule. `undefined` while loading; `null` when it could not be read.
    */
-  online: { open: boolean; closedTicketTypeIds: string[] } | null | undefined;
-  cinema: CinemaSaleState;
+  sale: Pick<SessionSaleState, 'state' | 'reasons'> | null | undefined;
+}
+
+/**
+ * One answer to "can somebody buy this show right now, and if not, why" - the server's.
+ *
+ * This used to work the answer out here from the show's status, its booking window, the film
+ * and the public `onlineBooking.open`, and called a show "Selling" (with "Some seat categories
+ * cannot be sold" underneath) when checkout refused its Standard seats and sold its Gold ones.
+ * The Overview called the same show "Not selling". Both now read one server answer, and a
+ * partly selling show says so: "Partly selling: seat classes not mapped".
+ */
+export function showSaleVerdict(i: ShowSaleInput): SaleVerdict {
+  if (i.sale === undefined)
+    return {
+      state: null,
+      selling: false,
+      label: CHECKING_LABEL,
+      tone: 'neutral',
+      detail: null,
+      fixPath: null,
+    };
+  if (i.sale === null)
+    // The server's answer could not be read. Say that, rather than guess either way.
+    return {
+      state: null,
+      selling: false,
+      label: 'Sale status unavailable',
+      tone: 'neutral',
+      detail: 'We could not confirm whether this show can be bought. Refresh to try again.',
+      fixPath: null,
+    };
+  const view = saleViewOf(i.sale);
+  const lead = i.sale.reasons[0];
+  /*
+    One refinement of the server's words, never of its decision: a booking window that has not
+    opened is more use with its date, on the cinema's clock.
+  */
+  const label =
+    i.sale.state === 'NOT_SELLING' && lead?.code === 'SALES_NOT_STARTED' && i.show.salesStartAt
+      ? `Not selling: bookings open ${formatShowTime(i.show.salesStartAt, i.timeZone)}`
+      : view.label;
+  return {
+    state: view.state,
+    selling: view.selling,
+    label,
+    tone: view.tone,
+    detail: view.detail,
+    fixPath: view.fixPath,
+  };
 }
 
 const notSelling = (
@@ -373,6 +371,7 @@ const notSelling = (
   tone: Tone = 'neutral',
   fixPath: string | null = null,
 ): SaleVerdict => ({
+  state: 'NOT_SELLING',
   selling: false,
   label: `Not selling: ${reason}`,
   tone,
@@ -380,192 +379,101 @@ const notSelling = (
   fixPath,
 });
 
-/**
- * One answer to "can somebody buy this show right now, and if not, why".
- *
- * Order matters and follows checkout's own order of refusals: the show's state, then its
- * booking window, then the regulatory check. The film being unpublished comes before the
- * regulatory check because a buyer cannot find the show at all.
- *
- * "Selling" needs a positive answer from the server. While that answer is loading the label
- * says so; when it cannot be read the label says THAT - never a hopeful "Selling".
- */
-export function showSaleVerdict(i: ShowSaleInput): SaleVerdict {
-  const { show, now } = i;
-  if (show.status === 'CANCELLED') return notSelling('show cancelled', null, 'error');
-  if (show.status === 'COMPLETED' || new Date(show.startsAt) <= now)
-    return notSelling('show has started', null);
-  const window = bookingWindowState(show, now);
-  if (window === 'SALES_PAUSED')
-    return notSelling(
-      'sales paused',
-      'Sales were paused by your team. Existing tickets stay valid.',
-      'warning',
-    );
-  if (window === 'SALES_NOT_OPEN')
-    return notSelling(
-      `bookings open ${formatShowTime(show.salesStartAt!, i.timeZone)}`,
-      'The booking window has not opened yet.',
-    );
-  if (window === 'BOOKING_CLOSED')
-    return notSelling('booking closed', 'The booking window has closed.');
-  if (i.filmStatus !== 'PUBLISHED')
-    return notSelling(
-      i.filmStatus === 'ARCHIVED' ? 'film archived' : 'film not published',
-      'Buyers cannot find a film until it is published.',
-      'neutral',
-    );
-
-  if (i.online === undefined)
-    return {
-      selling: false,
-      label: 'Checking sale status',
-      tone: 'neutral',
-      detail: null,
-      fixPath: null,
-    };
-
-  if (i.online === null) {
-    // The server's answer could not be read. Say that, rather than guess either way.
-    return {
-      selling: false,
-      label: 'Sale status unavailable',
-      tone: 'neutral',
-      detail: 'We could not confirm whether this show can be bought. Refresh to try again.',
-      fixPath: null,
-    };
-  }
-
-  const known = i.cinema.kind === 'NOT_SELLING' || i.cinema.kind === 'PARTLY' ? i.cinema : null;
-  if (!i.online.open) {
-    return notSelling(
-      known ? known.reason : 'online booking not open',
-      known
-        ? known.message
-        : 'Checkout refuses this show. Open the cinema readiness page for the reason.',
-      'warning',
-      known ? known.fixPath : null,
-    );
-  }
-  return {
-    selling: true,
-    label: 'Selling',
-    tone: 'success',
-    detail:
-      i.online.closedTicketTypeIds.length > 0
-        ? `Some seat categories cannot be sold${known ? `: ${known.message}` : '.'}`
-        : null,
-    fixPath: i.online.closedTicketTypeIds.length > 0 && known ? known.fixPath : null,
-  };
-}
-
 export type FilmSale = SaleVerdict & {
+  /** Cinemas where nothing upcoming can be bought, with the reason. */
   exceptions: { cinema: string; reason: string }[];
   /** Some upcoming shows sell and some do not. Never labelled plain "Selling". */
   partial: boolean;
 };
 
+const unconfirmed = (loading: boolean): SaleVerdict => ({
+  state: null,
+  selling: false,
+  label: loading ? CHECKING_LABEL : 'Sale status not confirmed',
+  tone: 'neutral',
+  detail: null,
+  fixPath: null,
+});
+
 /**
- * A film's sale state across its cinemas, for the library card.
+ * The server's answers for the cinema listings these upcoming shows belong to, folded into one.
+ * `undefined` while any is loading; `null` when any could not be read (or the API sent no
+ * listing id) - never a hopeful guess either way.
+ */
+function foldListings(
+  shows: ShowRow[],
+  listing: (eventId: string) => MaybeSale,
+): ReturnType<typeof foldSaleStates> | null | undefined {
+  const ids = [...new Set(shows.map((s) => s.eventId ?? ''))];
+  const answers = ids.map((id) => (id ? listing(id) : null));
+  if (answers.some((a) => a === null)) return null;
+  if (answers.some((a) => a === undefined)) return undefined;
+  return foldSaleStates(answers as Pick<EventSaleState, 'state' | 'reasons'>[]);
+}
+
+/**
+ * A film's sale state across its cinemas, for the library card and the film header.
  *
- * Built from the cinema verdicts rather than one request per show: a library of thirty films
- * cannot ask about every showtime. It is still the server's answer - the readiness report's
- * SALES section runs the checkout check over every upcoming show at the cinema.
+ * The server's answer for each cinema listing the film's upcoming shows belong to, folded the
+ * way shows fold into an event: all SELLING -> "Selling"; nothing open -> "Not selling:
+ * <reason>"; otherwise "Partly selling: <reason>" - and where the clearest reason is that it
+ * sells at some cinemas and not others, the count is the reason ("at 1 of 2 cinemas").
  */
 export function filmSaleSummary(
   film: Pick<Movie, 'status'>,
   programme: FilmProgramme,
   rows: ShowRow[] | undefined,
   now: Date,
-  cinemaState: (cinemaId: string) => CinemaSaleState,
+  listing: (eventId: string) => MaybeSale,
 ): FilmSale {
   const none = { exceptions: [] as { cinema: string; reason: string }[], partial: false };
-  if (film.status !== 'PUBLISHED')
-    return {
-      ...notSelling(film.status === 'ARCHIVED' ? 'film archived' : 'film not published', null),
-      ...none,
-    };
-  if (programme.upcoming === 0)
-    return {
-      selling: false,
-      label: 'No upcoming shows',
-      tone: 'neutral',
-      detail: null,
-      fixPath: null,
-      ...none,
-    };
+  if (film.status !== 'PUBLISHED') return { ...notSelling('film not published', null), ...none };
+  if (programme.upcoming === 0) return { ...notSelling('no upcoming shows', null), ...none };
 
-  const open = (rows ?? []).filter(
-    (s) => isUpcoming(s, now) && bookingWindowState(s, now) === 'ON_SALE',
-  );
-  if (open.length === 0) return { ...notSelling('no show open for booking', null), ...none };
+  const upcoming = (rows ?? []).filter((s) => isUpcoming(s, now));
+  const folded = foldListings(upcoming, listing);
+  if (folded === undefined) return { ...unconfirmed(true), ...none };
+  if (folded === null) return { ...unconfirmed(false), ...none };
 
-  const openCinemas = [...new Set(open.map((s) => s.cinemaId ?? 'unknown'))];
-  const states = openCinemas.map((id) => ({
-    id,
-    name: programme.cinemas.find((c) => c.id === id)?.name ?? 'Unknown cinema',
-    state: cinemaState(id),
-  }));
-  // Not yet answered, or not answerable for this person: say so, never a hopeful "Selling".
-  if (states.some((s) => s.state.kind === 'UNKNOWN' || s.state.kind === 'NO_SHOWS'))
-    return {
-      selling: false,
-      label: 'Sale status not confirmed',
-      tone: 'neutral',
-      detail: null,
-      fixPath: null,
-      ...none,
-    };
-
-  const exceptions = states
-    .filter((s) => s.state.kind === 'NOT_SELLING' || s.state.kind === 'PARTLY')
-    .map((s) => ({
-      cinema: s.name,
-      reason: (s.state as { reason: string }).reason,
+  // Per cinema, for the exceptions and the "at 1 of 2 cinemas" count.
+  const cinemas = programme.cinemas.map((c) => {
+    const here = foldListings(
+      upcoming.filter((s) => (s.cinemaId ?? 'unknown') === c.id),
+      listing,
+    );
+    return { name: c.name, sale: here ?? null };
+  });
+  const exceptions = cinemas
+    .filter((c) => c.sale?.state === 'NOT_SELLING')
+    .map((c) => ({
+      cinema: c.name,
+      reason: c.sale!.reasons[0]?.text ?? 'checkout would refuse it',
     }));
-  const selling = states.filter((s) => s.state.kind === 'SELLING' || s.state.kind === 'PARTLY');
-  if (selling.length === 0) {
-    const first = states[0]!.state as { reason: string; message: string; fixPath: string | null };
-    return {
-      ...notSelling(first.reason, first.message, 'warning', first.fixPath),
-      exceptions,
-      partial: false,
-    };
-  }
 
-  /*
-    "Selling" alone only when EVERY upcoming show can be bought. A green "Selling" with a
-    "Not selling at Hyderabad" line under it was two answers to one question; a film that sells
-    at one cinema and not another is one state - partly selling - and says so in its own words,
-    in a neutral tone, with the reasons kept beside it.
-  */
-  const allCinemas = programme.cinemas.length;
-  const notOpen = programme.upcoming - open.length;
-  const partialLabel =
-    selling.length < allCinemas
-      ? `Selling at ${selling.length} of ${allCinemas} ${allCinemas === 1 ? 'cinema' : 'cinemas'}`
-      : notOpen > 0
-        ? `Selling ${open.length} of ${programme.upcoming} upcoming shows`
-        : exceptions.length > 0
-          ? 'Selling, with exceptions'
-          : null;
-  if (partialLabel)
-    return {
-      selling: false,
-      label: partialLabel,
-      tone: 'neutral',
-      detail: null,
-      fixPath: null,
-      exceptions,
-      partial: true,
-    };
-  return {
-    selling: true,
-    label: 'Selling',
-    tone: 'success',
-    detail: null,
-    fixPath: null,
-    exceptions,
-    partial: false,
-  };
+  const view = saleViewOf(folded);
+  if (folded.state !== 'PARTIAL') return { ...view, exceptions, partial: false };
+  const openCinemas = cinemas.filter((c) => c.sale && c.sale.state !== 'NOT_SELLING').length;
+  const label =
+    openCinemas < cinemas.length
+      ? `Partly selling: at ${openCinemas} of ${cinemas.length} ${cinemas.length === 1 ? 'cinema' : 'cinemas'}`
+      : view.label;
+  return { ...view, label, exceptions, partial: true };
+}
+
+/**
+ * One cinema's state over the upcoming shows loaded for it, for the "this week at your
+ * cinemas" strip. The same fold as the film, scoped to one place.
+ */
+export function cinemaSaleVerdict(
+  cinemaId: string,
+  rows: ShowRow[],
+  now: Date,
+  listing: (eventId: string) => MaybeSale,
+): SaleVerdict {
+  const upcoming = rows.filter((s) => s.cinemaId === cinemaId && isUpcoming(s, now));
+  if (upcoming.length === 0) return notSelling('no upcoming shows', null);
+  const folded = foldListings(upcoming, listing);
+  if (folded === undefined) return unconfirmed(true);
+  if (folded === null) return unconfirmed(false);
+  return saleViewOf(folded);
 }

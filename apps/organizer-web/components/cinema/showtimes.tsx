@@ -1,10 +1,9 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { useQueries } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { CalendarPlus } from 'lucide-react';
 import {
-  api,
   Button,
   EmptyState,
   ErrorState,
@@ -15,7 +14,8 @@ import {
   dateTime,
   type ShowRow,
 } from '@eticketsgo/web-kit';
-import { bookingWindowState } from '@/app/organizer/cinemas/[id]/schedule/show-status';
+import { useOrg } from '@/components/org-context';
+import { sessionSaleStates } from '@/lib/sale-state';
 import {
   dateLabel,
   dayHeading,
@@ -25,7 +25,6 @@ import {
   localDate,
   showSaleVerdict,
   zoneShort,
-  type CinemaSaleState,
   type SaleVerdict,
 } from './cinema-model';
 import { SaleChip } from './sale-chip';
@@ -38,18 +37,15 @@ const PAGE = 30;
  * Every showtime of one film, by day, across all its cinemas and screens.
  *
  * Each show is read on its cinema's clock and carries the server's answer to "can somebody
- * buy this": the public show summary's `onlineBooking`, the same check checkout refuses with,
- * asked for each upcoming show on screen. Shows that cannot sell for a reason of their own
- * (paused, window closed, film unpublished) are not asked - their reason is already known.
+ * buy this": its unified sale state, built from what checkout reads (status, film, booking
+ * window, places, and the sale-eligibility rule checkout refuses with).
  */
 export function Showtimes({
   rows,
   loading,
   error,
   onRetry,
-  filmStatus,
   zoneOf,
-  cinemaState,
   onOpen,
   onEdit,
   onSchedule,
@@ -58,9 +54,7 @@ export function Showtimes({
   loading: boolean;
   error: boolean;
   onRetry: () => void;
-  filmStatus: string;
   zoneOf: (cinemaId: string | null | undefined) => string | undefined;
-  cinemaState: (cinemaId: string | null | undefined) => CinemaSaleState;
   onOpen: (show: ShowRow, verdict: SaleVerdict) => void;
   onEdit: (show: ShowRow) => void;
   onSchedule: () => void;
@@ -85,48 +79,35 @@ export function Showtimes({
   }, [rows, cinemaId, range, now]);
   const shown = filtered.slice(0, limit);
 
-  // Ask the server only about shows whose answer depends on it.
-  const askable = shown.filter(
-    (s) =>
-      isUpcoming(s, now) &&
-      s.status === 'SCHEDULED' &&
-      bookingWindowState(s, now) === 'ON_SALE' &&
-      filmStatus === 'PUBLISHED',
-  );
-  const online = useQueries({
-    queries: askable.map((s) => ({
-      queryKey: ['public-show', s.sessionId],
-      queryFn: () => api.publicShows.summary(s.sessionId),
-      staleTime: 30_000,
-      retry: false,
-    })),
-    combine: (results) =>
-      new Map(
-        askable.map((s, i) => {
-          const r = results[i];
-          const value = r?.data
-            ? r.data.onlineBooking
-              ? {
-                  open: r.data.onlineBooking.open,
-                  closedTicketTypeIds: r.data.onlineBooking.closedTicketTypeIds,
-                }
-              : null
-            : r?.isError
-              ? null
-              : undefined;
-          return [s.sessionId, value] as const;
-        }),
-      ),
+  /*
+    The server's unified answer for every show on screen - the same one the Overview and the
+    event pages read, so a show cannot be "Selling" here and "Not selling" there. One request
+    per 50 shows (a page is 30). Owners and managers only; anybody else sees "Sale status
+    unavailable", never a guess.
+  */
+  const { activeOrg } = useOrg();
+  const askedIds = useMemo(() => shown.map((s) => s.sessionId).sort(), [shown]);
+  const statesQ = useQuery({
+    queryKey: ['organizer-sale-eligibility', activeOrg.id, askedIds.join(',')],
+    queryFn: () => sessionSaleStates(activeOrg.id, askedIds),
+    enabled: askedIds.length > 0,
+    staleTime: 30_000,
+    retry: false,
   });
+  const stateBySession = useMemo(
+    () => new Map((statesQ.data ?? []).map((a) => [a.sessionId, a])),
+    [statesQ.data],
+  );
 
   const verdictOf = (s: ShowRow): SaleVerdict =>
     showSaleVerdict({
       show: s,
-      now,
       timeZone: zoneOf(s.cinemaId),
-      filmStatus,
-      online: online.has(s.sessionId) ? online.get(s.sessionId) : null,
-      cinema: cinemaState(s.cinemaId),
+      sale: statesQ.isError
+        ? null
+        : statesQ.data
+          ? (stateBySession.get(s.sessionId) ?? null)
+          : undefined,
     });
 
   const days = groupByDay(shown, zoneOf);

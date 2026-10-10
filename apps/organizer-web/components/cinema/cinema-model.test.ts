@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { Movie, PilotReadinessReport, ShowRow } from '@eticketsgo/web-kit';
+import type { Movie, ShowRow } from '@eticketsgo/web-kit';
 import {
-  cinemaSaleState,
+  cinemaSaleVerdict,
   dayHeading,
   filmSaleSummary,
   filterFilms,
@@ -9,10 +9,9 @@ import {
   glanceByCinema,
   groupByDay,
   programmeOf,
-  shortSaleReason,
   showSaleVerdict,
   zoneShort,
-  type CinemaSaleState,
+  type MaybeSale,
 } from './cinema-model';
 
 const NOW = new Date('2026-10-10T06:00:00Z'); // 11:30 in Kolkata
@@ -49,44 +48,27 @@ const movie = (over: Partial<Movie> = {}): Movie => ({
   ...over,
 });
 
-const report = (
-  checks: {
-    code: string;
-    level: 'READY' | 'BLOCKED' | 'WARNING';
-    message?: string;
-    fixPath?: string | null;
-  }[],
-): PilotReadinessReport => ({
-  cinemaId: 'c1',
-  cinemaName: 'Cinema',
-  timezone: 'Asia/Kolkata',
-  overall: 'READY',
-  blockers: 0,
-  warnings: 0,
-  evaluatedAt: NOW.toISOString(),
-  sections: [
-    {
-      section: 'SALES',
-      level: 'READY',
-      checks: checks.map((c) => ({
-        section: 'SALES',
-        code: c.code,
-        level: c.level,
-        message: c.message ?? c.code,
-        fixPath: c.fixPath ?? null,
-      })),
-    },
-  ],
-});
+const TG_MESSAGE =
+  'Ticket sales are paused for cinemas in Telangana: no state price rules are configured yet. Contact support.';
 
-const TELANGANA = report([
-  {
-    code: 'SALE_NO_PRICING_POLICY',
-    level: 'BLOCKED',
-    message:
-      'Ticket sales are paused for cinemas in Telangana: no state price rules are configured yet. Contact support.',
-  },
-]);
+const why = (code: string, text: string, message = text, affectedSessions = 1) => ({
+  code: code as never,
+  text,
+  message,
+  owner: 'PLATFORM' as const,
+  fixPath: null,
+  ticketTypeIds: [],
+  affectedSessions,
+});
+const SELLING = { state: 'SELLING' as const, reasons: [] };
+const TELANGANA = {
+  state: 'NOT_SELLING' as const,
+  reasons: [why('NO_PRICING_POLICY', 'Telangana pricing rules not configured', TG_MESSAGE)],
+};
+const UNMAPPED = {
+  state: 'PARTIAL' as const,
+  reasons: [why('SEAT_CLASS_UNMAPPED', 'seat classes not mapped')],
+};
 
 describe('formatRuntime', () => {
   it('reads like a cinema listing', () => {
@@ -179,117 +161,113 @@ describe('glanceByCinema', () => {
   });
 });
 
-describe('cinemaSaleState', () => {
-  it('reads the SALES section the server builds from saleEligibility', () => {
-    expect(
-      cinemaSaleState(report([{ code: 'SALES_OPEN', level: 'READY' }]), 'Andhra Pradesh'),
-    ).toEqual({ kind: 'SELLING' });
-    const tg = cinemaSaleState(TELANGANA, 'Telangana');
-    expect(tg.kind).toBe('NOT_SELLING');
-    expect(tg.kind === 'NOT_SELLING' && tg.reason).toBe('Telangana pricing rules not configured');
+describe('showSaleVerdict: the server answer for one show, in words', () => {
+  const reason = (code: string, text: string, message: string, fixPath: string | null = null) => ({
+    code: code as never,
+    text,
+    message,
+    owner: (fixPath ? 'ORGANIZER' : 'PLATFORM') as 'ORGANIZER' | 'PLATFORM',
+    fixPath,
+    ticketTypeIds: ['t1'],
+    affectedSessions: 1,
   });
-  it('treats a seat-category problem as partial, not as the whole cinema', () => {
-    const s = cinemaSaleState(
-      report([{ code: 'SALE_SEAT_CLASS_UNMAPPED', level: 'BLOCKED' }]),
-      'Andhra Pradesh',
-    );
-    expect(s.kind).toBe('PARTLY');
-  });
-  it('never claims selling without a report', () => {
-    expect(cinemaSaleState(null, 'Telangana').kind).toBe('UNKNOWN');
-  });
-  it('short reasons fall back to a generic place', () => {
-    expect(shortSaleReason('SALE_NO_PRICING_POLICY', null)).toBe(
-      'state pricing rules not configured',
-    );
-    expect(shortSaleReason('SALE_SOMETHING_NEW', 'X')).toBe('pricing not cleared for online sale');
-  });
-});
+  const base = { show: show(), timeZone: 'Asia/Kolkata' };
 
-describe('showSaleVerdict', () => {
-  const base = {
-    show: show(),
-    now: NOW,
-    timeZone: 'Asia/Kolkata',
-    filmStatus: 'PUBLISHED',
-    online: { open: true, closedTicketTypeIds: [] },
-    cinema: { kind: 'SELLING' } as CinemaSaleState,
-  };
-
-  it('says Selling only when the server says the show is open', () => {
-    expect(showSaleVerdict(base)).toMatchObject({ selling: true, label: 'Selling' });
+  it('says Selling only when the server says SELLING', () => {
+    expect(showSaleVerdict({ ...base, sale: { state: 'SELLING', reasons: [] } })).toMatchObject({
+      selling: true,
+      label: 'Selling',
+      tone: 'success',
+    });
   });
 
-  it('a Telangana show is Not selling, with the reason, even though it is scheduled', () => {
+  it('a show that sells Gold and refuses Standard is Partly selling, never Selling', () => {
+    // The QA drawer: "Selling" with "Some seat categories cannot be sold" under it.
     const v = showSaleVerdict({
       ...base,
-      online: { open: false, closedTicketTypeIds: [] },
-      cinema: cinemaSaleState(TELANGANA, 'Telangana'),
+      sale: {
+        state: 'PARTIAL',
+        reasons: [
+          reason(
+            'SEAT_CLASS_UNMAPPED',
+            'seat classes not mapped',
+            'Seat category Standard needs a regulatory seat class.',
+            '/organizer/cinemas/c1/readiness#seat-classes',
+          ),
+        ],
+      },
     });
     expect(v.selling).toBe(false);
+    expect(v.label).toBe('Partly selling: seat classes not mapped');
+    expect(v.tone).toBe('info');
+    expect(v.detail).toBe('Seat category Standard needs a regulatory seat class.');
+    expect(v.fixPath).toBe('/organizer/cinemas/c1/readiness#seat-classes');
+  });
+
+  it('a Telangana show is Not selling, with the reason and no fix link (it is the platform)', () => {
+    const v = showSaleVerdict({
+      ...base,
+      sale: {
+        state: 'NOT_SELLING',
+        reasons: [
+          reason(
+            'NO_PRICING_POLICY',
+            'Telangana pricing rules not configured',
+            'Ticket sales are paused for cinemas in Telangana: no state price rules are configured yet.',
+          ),
+        ],
+      },
+    });
     expect(v.label).toBe('Not selling: Telangana pricing rules not configured');
     expect(v.detail).toMatch(/no state price rules/);
+    expect(v.fixPath).toBeNull();
   });
 
   it('is never Selling while the answer is loading or unreadable', () => {
-    expect(showSaleVerdict({ ...base, online: undefined })).toMatchObject({
+    expect(showSaleVerdict({ ...base, sale: undefined })).toMatchObject({
       selling: false,
       label: 'Checking sale status',
     });
-    expect(showSaleVerdict({ ...base, online: null })).toMatchObject({
+    expect(showSaleVerdict({ ...base, sale: null })).toMatchObject({
       selling: false,
       label: 'Sale status unavailable',
     });
   });
 
-  it('a closed show without a known reason still says it is not selling', () => {
-    expect(
-      showSaleVerdict({
-        ...base,
-        online: { open: false, closedTicketTypeIds: [] },
-        cinema: { kind: 'UNKNOWN' },
-      }).label,
-    ).toBe('Not selling: online booking not open');
-  });
-
-  it("the show's own state outranks the regulatory answer", () => {
-    expect(showSaleVerdict({ ...base, show: show({ status: 'PAUSED' }) }).label).toBe(
-      'Not selling: sales paused',
-    );
-    expect(showSaleVerdict({ ...base, show: show({ status: 'CANCELLED' }) }).label).toBe(
-      'Not selling: show cancelled',
-    );
-    expect(
-      showSaleVerdict({ ...base, show: show({ startsAt: '2026-10-10T05:00:00Z' }) }).label,
-    ).toBe('Not selling: show has started');
-    expect(
-      showSaleVerdict({ ...base, show: show({ salesStartAt: '2026-10-10T08:00:00Z' }) }).label,
-    ).toBe('Not selling: bookings open Sat 10 Oct, 13:30');
-    expect(showSaleVerdict({ ...base, filmStatus: 'DRAFT' }).label).toBe(
-      'Not selling: film not published',
-    );
-  });
-
-  it('notes seat categories that cannot be sold on a show that otherwise sells', () => {
-    const v = showSaleVerdict({ ...base, online: { open: true, closedTicketTypeIds: ['t1'] } });
-    expect(v.selling).toBe(true);
-    expect(v.detail).toMatch(/Some seat categories cannot be sold/);
+  it('dates a booking window that has not opened, on the cinema clock', () => {
+    const v = showSaleVerdict({
+      ...base,
+      show: show({ salesStartAt: '2026-10-10T08:00:00Z' }),
+      sale: {
+        state: 'NOT_SELLING',
+        reasons: [reason('SALES_NOT_STARTED', 'bookings not open yet', 'Not open yet.')],
+      },
+    });
+    expect(v.label).toBe('Not selling: bookings open Sat 10 Oct, 13:30');
   });
 });
 
-describe('filmSaleSummary', () => {
+describe('filmSaleSummary: the cinema listings folded, never a hopeful Selling', () => {
+  // One listing (event) per film per venue: AP and Telangana here.
   const rows = [
-    show({ sessionId: 'a' }),
-    show({ sessionId: 'b', cinemaId: 'c2', cinemaName: 'Hyderabad Screens' }),
+    show({ sessionId: 'a', eventId: 'e-ap' }),
+    show({ sessionId: 'b', eventId: 'e-tg', cinemaId: 'c2', cinemaName: 'Hyderabad Screens' }),
   ];
   const programme = programmeOf(rows, NOW);
-  const tg = cinemaSaleState(TELANGANA, 'Telangana');
+  const answers =
+    (map: Record<string, unknown>) =>
+    (id: string): MaybeSale =>
+      map[id] as MaybeSale;
 
   it('one cinema selling and one not is ONE partial state, never plain "Selling"', () => {
-    const s = filmSaleSummary(movie(), programme, rows, NOW, (id) =>
-      id === 'c2' ? tg : { kind: 'SELLING' },
+    const s = filmSaleSummary(
+      movie(),
+      programme,
+      rows,
+      NOW,
+      answers({ 'e-ap': SELLING, 'e-tg': TELANGANA }),
     );
-    expect(s.label).toBe('Selling at 1 of 2 cinemas');
+    expect(s.label).toBe('Partly selling: at 1 of 2 cinemas');
     expect(s.label).not.toBe('Selling');
     expect(s.selling).toBe(false);
     expect(s.partial).toBe(true);
@@ -299,59 +277,61 @@ describe('filmSaleSummary', () => {
     ]);
   });
 
-  it('is plain "Selling" only when every upcoming show can be bought', () => {
-    const s = filmSaleSummary(movie(), programme, rows, NOW, () => ({ kind: 'SELLING' }));
+  it('is plain "Selling" only when every listing is', () => {
+    const s = filmSaleSummary(movie(), programme, rows, NOW, () => SELLING);
     expect(s).toMatchObject({ label: 'Selling', selling: true, partial: false, tone: 'success' });
   });
 
-  it('a paused show among selling ones is partial too', () => {
-    const mixed = [rows[0]!, { ...rows[0]!, sessionId: 'p', status: 'PAUSED' }];
-    const s = filmSaleSummary(movie(), programmeOf(mixed, NOW), mixed, NOW, () => ({
-      kind: 'SELLING',
-    }));
-    expect(s.label).toBe('Selling 1 of 2 upcoming shows');
-    expect(s.partial).toBe(true);
-  });
-
-  it('a seat-category problem at the only cinema is partial, not plain "Selling"', () => {
-    const partly = cinemaSaleState(
-      report([{ code: 'SALE_SEAT_CLASS_UNMAPPED', level: 'BLOCKED' }]),
-      'Andhra Pradesh',
-    );
+  it('a seat-category problem at the only cinema is partial, with the reason', () => {
     const one = [rows[0]!];
-    const s = filmSaleSummary(movie(), programmeOf(one, NOW), one, NOW, () => partly);
-    expect(s.label).toBe('Selling, with exceptions');
+    const s = filmSaleSummary(movie(), programmeOf(one, NOW), one, NOW, () => UNMAPPED);
+    expect(s.label).toBe('Partly selling: seat classes not mapped');
     expect(s.partial).toBe(true);
   });
 
   it('is Not selling when no cinema can sell', () => {
-    const s = filmSaleSummary(movie(), programme, rows, NOW, () => tg);
+    const s = filmSaleSummary(movie(), programme, rows, NOW, () => TELANGANA);
     expect(s.selling).toBe(false);
     expect(s.label).toBe('Not selling: Telangana pricing rules not configured');
   });
 
-  it('does not guess while a cinema is unanswered', () => {
-    expect(filmSaleSummary(movie(), programme, rows, NOW, () => ({ kind: 'UNKNOWN' })).label).toBe(
+  it('does not guess while a listing is loading, unreadable or unnamed', () => {
+    expect(filmSaleSummary(movie(), programme, rows, NOW, () => undefined).label).toBe(
+      'Checking sale status',
+    );
+    expect(filmSaleSummary(movie(), programme, rows, NOW, () => null).label).toBe(
+      'Sale status not confirmed',
+    );
+    // An older API sent no listing id.
+    const bare = rows.map((r) => ({ ...r, eventId: undefined }));
+    expect(filmSaleSummary(movie(), programme, bare, NOW, () => SELLING).label).toBe(
       'Sale status not confirmed',
     );
   });
 
   it('a draft film is not selling, and a film with nothing ahead says so', () => {
     expect(
-      filmSaleSummary(movie({ status: 'DRAFT' }), programme, rows, NOW, () => ({ kind: 'SELLING' }))
-        .label,
+      filmSaleSummary(movie({ status: 'DRAFT' }), programme, rows, NOW, () => SELLING).label,
     ).toBe('Not selling: film not published');
-    expect(
-      filmSaleSummary(movie(), programmeOf([], NOW), [], NOW, () => ({ kind: 'SELLING' })).label,
-    ).toBe('No upcoming shows');
+    expect(filmSaleSummary(movie(), programmeOf([], NOW), [], NOW, () => SELLING).label).toBe(
+      'Not selling: no upcoming shows',
+    );
   });
+});
 
-  it('paused shows everywhere mean nothing is open', () => {
-    const paused = rows.map((r) => ({ ...r, status: 'PAUSED' }));
+describe('cinemaSaleVerdict: the cinema strip uses the same three sentences', () => {
+  const rows = [show({ sessionId: 'a', eventId: 'e1' }), show({ sessionId: 'b', eventId: 'e2' })];
+  it('folds the listings at one cinema', () => {
+    expect(cinemaSaleVerdict('c1', rows, NOW, () => SELLING).label).toBe('Selling');
     expect(
-      filmSaleSummary(movie(), programmeOf(paused, NOW), paused, NOW, () => ({ kind: 'SELLING' }))
-        .label,
-    ).toBe('Not selling: no show open for booking');
+      cinemaSaleVerdict('c1', rows, NOW, (id) => (id === 'e1' ? SELLING : UNMAPPED)).label,
+    ).toBe('Partly selling: seat classes not mapped');
+    expect(cinemaSaleVerdict('c1', rows, NOW, () => TELANGANA).label).toBe(
+      'Not selling: Telangana pricing rules not configured',
+    );
+    expect(cinemaSaleVerdict('elsewhere', rows, NOW, () => SELLING).label).toBe(
+      'Not selling: no upcoming shows',
+    );
   });
 });
 

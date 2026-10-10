@@ -98,11 +98,7 @@ export function OverviewLead({
         <div className="flex min-w-0 items-center gap-2">
           <dt className="text-text-muted">Sales</dt>
           <dd className="min-w-0">
-            <Badge
-              tone={
-                sale.selling === true ? 'success' : sale.selling === false ? 'warning' : 'neutral'
-              }
-            >
+            <Badge tone={sale.tone}>
               <span className="break-words">{sale.label}</span>
             </Badge>
           </dd>
@@ -130,6 +126,12 @@ export function OverviewLead({
           </dd>
         </div>
       </dl>
+      {/* The server's own sentence for why it is not (fully) selling, beside its few words. */}
+      {sale.detail && sale.state !== 'SELLING' ? (
+        <p className="mt-2 max-w-prose break-words text-caption text-text-secondary">
+          {sale.detail}
+        </p>
+      ) : null}
       {setupOpen && !setup.complete ? (
         <ul
           id="setup-items"
