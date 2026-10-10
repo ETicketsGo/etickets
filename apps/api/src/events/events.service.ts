@@ -2,7 +2,7 @@ import { HttpStatus, Injectable } from '@nestjs/common';
 import { Prisma, Prisma as PrismaNamespace } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
 import * as QRCode from 'qrcode';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import {
   BookingStatus,
   EventStatus,
@@ -27,6 +27,7 @@ import { requireCommerceCurrency } from '../common/commerce-currency';
 import { EventSellabilityService } from './event-sellability.service';
 import { ShowsService } from '../shows/shows.service';
 import type { RequestUser } from '../common/decorators';
+import { isUniqueViolation } from './request-key';
 import {
   EVENT_IMAGE_URL_SELECT,
   coverImagePath,
@@ -206,8 +207,39 @@ export class EventsService {
     return event;
   }
 
-  async create(user: RequestUser, organizationId: string, input: CreateEventInput) {
+  /**
+   * Creates a DRAFT event.
+   *
+   * ── ONE EVENT PER KEY ──────────────────────────────────────────────────────────────
+   * With an `idempotencyKey`, a repeat of the same request - a double click, or the retry after
+   * a network error whose first attempt did arrive - answers with the event the first one
+   * made instead of a second copy. The key is claimed in the SAME transaction that writes the
+   * event, so the two cannot disagree: a key exists exactly when its event does, and two
+   * requests racing on one key end with one event (the second waits on the unique index, then
+   * reads the winner's answer). Keys are per user, so one person's key can never return
+   * another person's event, and a key reused for a different body is refused rather than
+   * answered with an event that does not match what was sent.
+   */
+  async create(
+    user: RequestUser,
+    organizationId: string,
+    input: CreateEventInput,
+    idempotencyKey?: string,
+  ) {
     await this.access.assertMember(user, organizationId, ORGANIZER_ROLES);
+    const keyed = idempotencyKey
+      ? {
+          scope: `event:create:${user.id}`,
+          key: idempotencyKey,
+          requestHash: createHash('sha256')
+            .update(JSON.stringify({ organizationId, ...input }))
+            .digest('hex'),
+        }
+      : null;
+    if (keyed) {
+      const earlier = await this.createdForKey(keyed);
+      if (earlier) return earlier;
+    }
     const venue = await this.prisma.venue.findUnique({ where: { id: input.venueId } });
     if (!venue || venue.organizationId !== organizationId) {
       throw new AppException(
@@ -216,44 +248,98 @@ export class EventsService {
         HttpStatus.NOT_FOUND,
       );
     }
-    const event = await this.prisma.event.create({
-      data: {
-        organizationId,
-        venueId: input.venueId,
-        title: input.title,
-        slug: slugify(input.title),
-        category: input.category,
-        description: input.description,
-        refundPolicy: input.refundPolicy,
-        /*
-          The refund RULE, at last settable.
+    const data = {
+      organizationId,
+      venueId: input.venueId,
+      title: input.title,
+      slug: slugify(input.title),
+      category: input.category,
+      description: input.description,
+      refundPolicy: input.refundPolicy,
+      /*
+        The refund RULE, at last settable.
 
-          `refundsEnabled` and `refundCutoffHours` have been on this model — and read by the
-          refund path — since the terms stopped being a platform constant. Nothing ever wrote
-          them. Every event took the defaults while its organizer typed their real terms into
-          a free-text box the software ignored, so the prose a buyer read and the behaviour
-          they got were two unrelated things.
+        `refundsEnabled` and `refundCutoffHours` have been on this model — and read by the
+        refund path — since the terms stopped being a platform constant. Nothing ever wrote
+        them. Every event took the defaults while its organizer typed their real terms into
+        a free-text box the software ignored, so the prose a buyer read and the behaviour
+        they got were two unrelated things.
 
-          Omitted still means the schema defaults (refunds on, 48 hours), so an event created
-          by anything that has not been updated behaves exactly as before.
-        */
-        ...(input.refundsEnabled !== undefined ? { refundsEnabled: input.refundsEnabled } : {}),
-        ...(input.refundCutoffHours !== undefined
-          ? { refundCutoffHours: input.refundCutoffHours }
-          : {}),
-        feeMode: input.feeMode,
-        isFree: input.isFree,
-        ...eventDetailsData(input),
-        status: EventStatus.DRAFT,
-      },
-    });
+        Omitted still means the schema defaults (refunds on, 48 hours), so an event created
+        by anything that has not been updated behaves exactly as before.
+      */
+      ...(input.refundsEnabled !== undefined ? { refundsEnabled: input.refundsEnabled } : {}),
+      ...(input.refundCutoffHours !== undefined
+        ? { refundCutoffHours: input.refundCutoffHours }
+        : {}),
+      feeMode: input.feeMode,
+      isFree: input.isFree,
+      ...eventDetailsData(input),
+      status: EventStatus.DRAFT,
+    };
+    /*
+      Without a key, exactly the write this always was. With one, the key is claimed in the
+      same transaction as the event; a unique violation means another request with this key
+      committed first, this one's event was rolled back, and the answer is the winner's.
+    */
+    if (!keyed) {
+      const event = await this.prisma.event.create({ data });
+      await this.recordCreated(user, organizationId, event.id);
+      return event;
+    }
+    let event;
+    try {
+      event = await this.prisma.$transaction(async (tx) => {
+        const created = await tx.event.create({ data });
+        await tx.idempotencyRecord.create({
+          data: { ...keyed, status: 'COMPLETED', responseJson: { eventId: created.id } },
+        });
+        return created;
+      });
+    } catch (err) {
+      if (isUniqueViolation(err)) {
+        const earlier = await this.createdForKey(keyed);
+        if (earlier) return earlier;
+      }
+      throw err;
+    }
+    await this.recordCreated(user, organizationId, event.id);
+    return event;
+  }
+
+  private async recordCreated(user: RequestUser, organizationId: string, eventId: string) {
     await this.audit.record({
       actorUserId: user.id,
       organizationId,
       action: 'EVENT_CREATED',
       entityType: 'Event',
-      entityId: event.id,
+      entityId: eventId,
     });
+  }
+
+  /** The event an earlier create with this key made, or null when the key is new. */
+  private async createdForKey(keyed: { scope: string; key: string; requestHash: string }) {
+    const record = await this.prisma.idempotencyRecord.findUnique({
+      where: { scope_key: { scope: keyed.scope, key: keyed.key } },
+    });
+    if (!record) return null;
+    if (record.requestHash !== keyed.requestHash) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'This request was already used to create a different event. Reload the page and try again.',
+        HttpStatus.CONFLICT,
+      );
+    }
+    const eventId = (record.responseJson as { eventId?: string } | null)?.eventId;
+    const event = eventId ? await this.prisma.event.findUnique({ where: { id: eventId } }) : null;
+    if (!event) {
+      // The event was deleted since. Saying so beats quietly making a new one under an old key.
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'The event this request created has since been deleted. Reload the page and try again.',
+        HttpStatus.CONFLICT,
+      );
+    }
     return event;
   }
 

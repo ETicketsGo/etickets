@@ -51,6 +51,7 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { groupScopeFields, type GroupScope } from '../admin/group-scope';
 import { countryFilterField } from '../admin/country-filter';
 import { adminCalendarQuerySchema, type AdminCalendarQuery } from './admin-event-calendar';
+import { requestKey } from './request-key';
 
 const createEventBody = createEventSchema.extend({ organizationId: z.string().cuid() });
 const updateEventBody = createEventSchema.partial();
@@ -139,14 +140,19 @@ export class EventsController {
     private readonly images: EventImageService,
   ) {}
 
+  /*
+    An optional `Idempotency-Key` makes a repeat of the same create answer with the event the
+    first one made; see EventsService.create.
+  */
   @Post()
   @ApiOperation({ summary: 'Create an event (draft).' })
   create(
     @CurrentUser() user: RequestUser,
     @Body(new ZodValidationPipe(createEventBody)) body: z.infer<typeof createEventBody>,
+    @Headers('idempotency-key') idempotencyKey?: string,
   ) {
     const { organizationId, ...event } = body;
-    return this.events.create(user, organizationId, event);
+    return this.events.create(user, organizationId, event, requestKey(idempotencyKey));
   }
 
   @Get()
@@ -216,8 +222,10 @@ export class EventsController {
     @CurrentUser() user: RequestUser,
     @Param('id') id: string,
     @UploadedFile() file?: UploadedImageFile,
+    // One per picked file: a retried upload answers with the gallery instead of a second copy.
+    @Headers('idempotency-key') idempotencyKey?: string,
   ) {
-    return this.images.add(user, id, file);
+    return this.images.add(user, id, file, requestKey(idempotencyKey));
   }
 
   @Put(':id/images/order')
