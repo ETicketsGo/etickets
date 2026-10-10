@@ -1,9 +1,19 @@
 import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
+import { Inter, Plus_Jakarta_Sans } from 'next/font/google';
 import './globals.css';
 import { WebProviders, workspaceThemeScript } from '@eticketsgo/web-kit';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter', display: 'swap' });
+/*
+  The console's display face: page titles and the big numbers only (DESIGN-DIRECTION). Inter
+  stays the face for everything a person reads at length.
+*/
+const display = Plus_Jakarta_Sans({
+  subsets: ['latin'],
+  variable: '--font-display',
+  weight: ['600', '700'],
+  display: 'swap',
+});
 
 export const metadata: Metadata = {
   title: 'ETicketsGo — Organizer',
@@ -14,7 +24,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     // `data-console` gives the operator consoles their teal accent; see tokens.css. The
     // storefront never sets it, which is what keeps its blue unchanged.
-    <html lang="en" className={inter.variable} data-console="" suppressHydrationWarning>
+    <html
+      lang="en"
+      className={`${inter.variable} ${display.variable}`}
+      data-console=""
+      suppressHydrationWarning
+    >
       <head>
         {/*
           Runs before the first paint, so a workspace opens in its own colours rather than

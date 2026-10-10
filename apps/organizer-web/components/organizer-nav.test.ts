@@ -1,7 +1,7 @@
 import { readdirSync, statSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type { NavItem } from '@eticketsgo/web-kit';
+import { filterQuickNav, navSections, quickNavEntries, type NavItem } from '@eticketsgo/web-kit';
 import { navFor } from './organizer-nav';
 
 /**
@@ -93,5 +93,37 @@ describe('the organizer sidebar', () => {
   it('never lists the same page twice', () => {
     const hrefs = flatten(owner).map((i) => i.href);
     expect(new Set(hrefs).size).toBe(hrefs.length);
+  });
+});
+
+describe('quick navigation and the collapsed rail', () => {
+  const owner = navFor({ doesFilmBusiness: false, can: { financials: true, ownerActions: true } });
+  const staff = navFor({ doesFilmBusiness: true, can: { financials: false, ownerActions: false } });
+
+  it('finds a secondary page by name, with where it sits', () => {
+    const [hit] = filterQuickNav(quickNavEntries(owner), 'payouts');
+    expect(hit.href).toBe('/organizer/payouts');
+    expect(hit.trail).toBe('Business / Finance & payouts');
+  });
+
+  it('finds a page by a word that is not in its name', () => {
+    expect(filterQuickNav(quickNavEntries(owner), 'scan')[0].href).toBe('/organizer/gate');
+  });
+
+  it('cannot take check-in staff anywhere their sidebar does not list', () => {
+    // The search reads the same nav as the sidebar, so a door the sidebar does not show is
+    // not a door the search can open either.
+    expect(filterQuickNav(quickNavEntries(staff), 'finance')).toEqual([]);
+    expect(filterQuickNav(quickNavEntries(staff), 'payouts')).toEqual([]);
+    expect(filterQuickNav(quickNavEntries(staff), '').map((e) => e.href)).toEqual([
+      '/organizer/gate',
+      '/organizer/help',
+    ]);
+  });
+
+  it('gives every rail group its own picture', () => {
+    const icons = navSections(owner).map((s) => s.icon);
+    expect(icons.every(Boolean)).toBe(true);
+    expect(new Set(icons).size).toBe(icons.length);
   });
 });

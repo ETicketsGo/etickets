@@ -80,7 +80,9 @@ test.describe('dashboard: what needs attention', () => {
 });
 
 test.describe('the regrouped menu', () => {
-  test('groups by job, marks exactly one page as current, and folds a group', async ({ page }) => {
+  test('groups by job, marks exactly one page as current, and opens only its group', async ({
+    page,
+  }) => {
     await page.goto(`${ADMIN}/admin/refunds`);
     const menu = page.getByRole('navigation', { name: 'Admin' });
     for (const group of [
@@ -99,23 +101,18 @@ test.describe('the regrouped menu', () => {
     await expect(menu.locator('[aria-current="page"]')).toHaveCount(1);
     await expect(menu.locator('[aria-current="page"]')).toHaveText('Refunds');
 
-    // Fold "Platform configuration": its links go, and the fold survives a reload.
+    /*
+      Only the group holding the current page starts open (the shared console shell): nine
+      open groups were the sidebar's own long scroll bar. A folded group opens on a click.
+    */
+    const refunds = menu.getByRole('button', { name: 'Refunds & disputes' });
+    await expect(refunds).toHaveAttribute('aria-expanded', 'true');
     const config = menu.getByRole('button', { name: 'Platform configuration' });
-    await expect(config).toHaveAttribute('aria-expanded', 'true');
-    await config.click();
     await expect(config).toHaveAttribute('aria-expanded', 'false');
     await expect(menu.getByRole('link', { name: 'Booking fees' })).toBeHidden();
-    await page.reload();
-    await expect(
-      page.getByRole('navigation', { name: 'Admin' }).getByRole('button', {
-        name: 'Platform configuration',
-      }),
-    ).toHaveAttribute('aria-expanded', 'false');
-    // Unfold again, so the next test in this browser profile starts from the default.
-    await page
-      .getByRole('navigation', { name: 'Admin' })
-      .getByRole('button', { name: 'Platform configuration' })
-      .click();
+    await config.click();
+    await expect(config).toHaveAttribute('aria-expanded', 'true');
+    await expect(menu.getByRole('link', { name: 'Booking fees' })).toBeVisible();
   });
 
   test('on a phone the menu is a drawer that Escape closes', async ({ page }) => {
@@ -125,6 +122,8 @@ test.describe('the regrouped menu', () => {
     await toggle.click();
     const drawer = page.getByRole('dialog', { name: 'Admin menu' });
     await expect(drawer).toBeVisible();
+    // The drawer is the same tree: Events is folded on the dashboard and opens on a press.
+    await drawer.getByRole('button', { name: 'Events', exact: true }).click();
     await expect(drawer.getByRole('link', { name: 'Calendar' })).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(drawer).toBeHidden();

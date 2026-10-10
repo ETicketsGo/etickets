@@ -143,6 +143,11 @@ test.describe('admin console', () => {
   test('fee rules are called booking fees, under a Pricing rules section', async ({ page }) => {
     // "Settings" said nothing about what the page holds, which is what the platform adds to a
     // ticket price per market.
+    // Folded until opened: only the group holding the current page starts open.
+    await page
+      .getByRole('navigation', { name: 'Admin' })
+      .getByRole('button', { name: 'Platform configuration' })
+      .click();
     await expect(page.getByRole('link', { name: 'Booking fees' })).toBeVisible();
     await page.getByRole('link', { name: 'Booking fees' }).click();
     await expect(page.getByRole('heading', { name: 'Booking fees', exact: true })).toBeVisible();

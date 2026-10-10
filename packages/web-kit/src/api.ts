@@ -4735,6 +4735,11 @@ export interface SellabilityIssue {
   affectedSessions: number;
   /** The seat category, ticket type or currency the issue is about. */
   subject?: string;
+  /**
+   * The shows it affects; empty for a fault that belongs to no one show (an event with no
+   * dates). Optional for older APIs, which did not send it.
+   */
+  sessions?: { id: string; startsAt: string; timeZone: string | null }[];
 }
 
 export interface EventSellability {

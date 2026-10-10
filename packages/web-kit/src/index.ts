@@ -59,3 +59,4 @@ export * from './ratings';
 export * from './business-details';
 export * from './action-centre';
 export * from './venue-address';
+export * from './sidebar-nav';
