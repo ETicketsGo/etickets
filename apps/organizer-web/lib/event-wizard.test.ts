@@ -80,6 +80,19 @@ describe('the steps', () => {
     }
   });
 
+  it('each offer a few short ASCII tips for the help panel', () => {
+    for (const step of WIZARD_STEPS) {
+      expect(step.tips.length).toBeGreaterThan(0);
+      expect(step.tips.length).toBeLessThanOrEqual(3);
+      for (const tip of step.tips) {
+        // A hint, not a paragraph.
+        expect(tip.length).toBeLessThanOrEqual(120);
+        // eslint-disable-next-line no-control-regex
+        expect(/^[\x20-\x7E]*$/.test(tip)).toBe(true);
+      }
+    }
+  });
+
   it('accept a complete form with no errors anywhere', () => {
     expect(firstInvalidStep(valid())).toBe(-1);
   });
