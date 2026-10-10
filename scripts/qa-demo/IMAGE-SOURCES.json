@@ -1,0 +1,650 @@
+{
+  "downloadedOn": "2026-10-10",
+  "note": "Every image is CC0 1.0 (public domain dedication): commercial use, no attribution required. Authors are credited anyway. The seed script downloads each image from downloadUrl and refuses it if the bytes no longer match sha256.",
+  "images": [
+    {
+      "key": "concert-yellow-stage",
+      "shape": "landscape",
+      "source": "StockSnap",
+      "title": "Concert Show",
+      "author": "Nainoa Shizuru",
+      "sourceUrl": "https://stocksnap.io/photo/concert-show-5FGWJW4Z5D",
+      "downloadUrl": "https://cdn.stocksnap.io/img-thumbs/960w/5FGWJW4Z5D.jpg",
+      "openverseUrl": "https://api.openverse.org/v1/images/d863d233-770b-4588-901c-ef14a5c33b0e/",
+      "licence": "CC0 1.0",
+      "licenceUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "focalPoint": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "bytes": 45217,
+      "width": 960,
+      "height": 640,
+      "sha256": "bc703a0b12786441d1428cb3969c015feced43c68e753d539dc7ee39b1c9c378",
+      "downloadedOn": "2026-10-10",
+      "usedFor": [
+        {
+          "kind": "event",
+          "key": "blr-monsoon-frequencies",
+          "title": "Monsoon Frequencies Live",
+          "role": "cover"
+        }
+      ]
+    },
+    {
+      "key": "concert-red-dome",
+      "shape": "portrait",
+      "source": "StockSnap",
+      "title": "Dark Night",
+      "author": "Aaron Paul",
+      "sourceUrl": "https://stocksnap.io/photo/dark-night-ZBFJ7BNZE4",
+      "downloadUrl": "https://cdn.stocksnap.io/img-thumbs/960w/ZBFJ7BNZE4.jpg",
+      "openverseUrl": "https://api.openverse.org/v1/images/8ff16eb5-43ad-4130-898e-d72cd5c636d9/",
+      "licence": "CC0 1.0",
+      "licenceUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "focalPoint": {
+        "x": 0.5,
+        "y": 0.62
+      },
+      "bytes": 148332,
+      "width": 960,
+      "height": 1280,
+      "sha256": "5eaaa0811cc4558801e905bd69bdc53ff304c5b36e123827646f6ccb60afa156",
+      "downloadedOn": "2026-10-10",
+      "usedFor": [
+        {
+          "kind": "event",
+          "key": "blr-monsoon-frequencies",
+          "title": "Monsoon Frequencies Live",
+          "role": "gallery"
+        },
+        {
+          "kind": "event",
+          "key": "blr-acoustic-evening",
+          "title": "Acoustic Evening at the Arena",
+          "role": "cover"
+        }
+      ]
+    },
+    {
+      "key": "guitarist-teal-spotlight",
+      "shape": "portrait",
+      "source": "StockSnap",
+      "title": "People Man",
+      "author": "Felipe Portella",
+      "sourceUrl": "https://stocksnap.io/photo/people-man-RJ7YH4VY8J",
+      "downloadUrl": "https://cdn.stocksnap.io/img-thumbs/960w/RJ7YH4VY8J.jpg",
+      "openverseUrl": "https://api.openverse.org/v1/images/c00b14ed-7909-4833-951f-306d9ba63ece/",
+      "licence": "CC0 1.0",
+      "licenceUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "focalPoint": {
+        "x": 0.62,
+        "y": 0.4
+      },
+      "bytes": 52143,
+      "width": 960,
+      "height": 1440,
+      "sha256": "cad1a7a044aa46b67104cf65a5a2a084cce2094ebd21f45cabd5b01e9b9f4d06",
+      "downloadedOn": "2026-10-10",
+      "usedFor": [
+        {
+          "kind": "event",
+          "key": "bom-indie-unplugged",
+          "title": "Indie Unplugged: Rooftop Sessions",
+          "role": "cover"
+        }
+      ]
+    },
+    {
+      "key": "microphone-warm-bokeh",
+      "shape": "landscape",
+      "source": "StockSnap",
+      "title": "Microphone Music",
+      "author": "Freestocks.org",
+      "sourceUrl": "https://stocksnap.io/photo/microphone-music-8KQC04JDT0",
+      "downloadUrl": "https://cdn.stocksnap.io/img-thumbs/960w/8KQC04JDT0.jpg",
+      "openverseUrl": "https://api.openverse.org/v1/images/d4683816-9bac-4355-918d-803f378c5b7f/",
+      "licence": "CC0 1.0",
+      "licenceUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "focalPoint": {
+        "x": 0.5,
+        "y": 0.55
+      },
+      "bytes": 26365,
+      "width": 960,
+      "height": 640,
+      "sha256": "36f0179fb548150def3b2735b57804b9d206343f31446b27f891f14f56a6c0f3",
+      "downloadedOn": "2026-10-10",
+      "usedFor": [
+        {
+          "kind": "event",
+          "key": "blr-late-night-laughs",
+          "title": "Late Night Laughs: Open Mic Comedy",
+          "role": "cover"
+        }
+      ]
+    },
+    {
+      "key": "presenter-flipchart",
+      "shape": "landscape",
+      "source": "StockSnap",
+      "title": "Business Presenting",
+      "author": "Direct Media",
+      "sourceUrl": "https://stocksnap.io/photo/business-presenting-XDAR6MIG75",
+      "downloadUrl": "https://cdn.stocksnap.io/img-thumbs/960w/XDAR6MIG75.jpg",
+      "openverseUrl": "https://api.openverse.org/v1/images/7ebd5dd0-7dce-45f4-b6d3-3d5006226bd8/",
+      "licence": "CC0 1.0",
+      "licenceUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "focalPoint": {
+        "x": 0.45,
+        "y": 0.4
+      },
+      "bytes": 454015,
+      "width": 960,
+      "height": 640,
+      "sha256": "b213aa1296b58279634bb05292dc991ed636e8d7b55755dcff0d923e796bdb35",
+      "downloadedOn": "2026-10-10",
+      "usedFor": [
+        {
+          "kind": "event",
+          "key": "blr-product-builders",
+          "title": "Product Builders Summit 2026",
+          "role": "cover"
+        }
+      ]
+    },
+    {
+      "key": "whiteboard-office",
+      "shape": "landscape",
+      "source": "StockSnap",
+      "title": "Office Graph",
+      "author": "Matt Moloney",
+      "sourceUrl": "https://stocksnap.io/photo/office-graph-3PLFDQQZ5M",
+      "downloadUrl": "https://cdn.stocksnap.io/img-thumbs/960w/3PLFDQQZ5M.jpg",
+      "openverseUrl": "https://api.openverse.org/v1/images/a92558a6-8448-4204-9c2b-80ac9327d28e/",
+      "licence": "CC0 1.0",
+      "licenceUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "focalPoint": {
+        "x": 0.45,
+        "y": 0.45
+      },
+      "bytes": 516976,
+      "width": 960,
+      "height": 657,
+      "sha256": "90cd58fa71ad5a2d93b7322c8b3af2b352d26eabe0759765eae2fbab434f195d",
+      "downloadedOn": "2026-10-10",
+      "usedFor": [
+        {
+          "kind": "event",
+          "key": "blr-product-builders",
+          "title": "Product Builders Summit 2026",
+          "role": "gallery"
+        }
+      ]
+    },
+    {
+      "key": "coding-laptop-red",
+      "shape": "landscape",
+      "source": "StockSnap",
+      "title": "Coding Code",
+      "author": "Startup Stock Photos",
+      "sourceUrl": "https://stocksnap.io/photo/coding-code-PFPNV9W5HK",
+      "downloadUrl": "https://cdn.stocksnap.io/img-thumbs/960w/PFPNV9W5HK.jpg",
+      "openverseUrl": "https://api.openverse.org/v1/images/b897b252-d061-41fd-bd27-337c0f2163e6/",
+      "licence": "CC0 1.0",
+      "licenceUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "focalPoint": {
+        "x": 0.55,
+        "y": 0.5
+      },
+      "bytes": 57826,
+      "width": 960,
+      "height": 640,
+      "sha256": "7f95c0e26571f12353dc91340e6761d2259a7584258cdd8c9f152b85405db235",
+      "downloadedOn": "2026-10-10",
+      "usedFor": [
+        {
+          "kind": "event",
+          "key": "bom-web-dev-bootcamp",
+          "title": "Build Your First Web App: Weekend Bootcamp",
+          "role": "cover"
+        }
+      ]
+    },
+    {
+      "key": "pottery-wheel-hands",
+      "shape": "landscape",
+      "source": "rawpixel (public domain collection)",
+      "title": "Free person making pottery image",
+      "author": "rawpixel (no individual author listed)",
+      "sourceUrl": "https://www.rawpixel.com/image/5907112/photo-image-light-public-domain-hands",
+      "downloadUrl": "https://images.rawpixel.com/editor_1024/cHJpdmF0ZS9zdGF0aWMvaW1hZ2Uvd2Vic2l0ZS8yMDIyLTA0L2xyL3B4NjQxNDU3LWltYWdlLWt3dnY5aXk1LmpwZw.jpg",
+      "openverseUrl": "https://api.openverse.org/v1/images/ca1dc089-0335-4435-80ac-e87f18ef9d72/",
+      "licence": "CC0 1.0",
+      "licenceUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "focalPoint": {
+        "x": 0.55,
+        "y": 0.45
+      },
+      "bytes": 265082,
+      "width": 1024,
+      "height": 683,
+      "sha256": "93950d2f1dc7adce43555a260af45f3aeed3713642b4d055c8069c65c171e35c",
+      "downloadedOn": "2026-10-10",
+      "usedFor": [
+        {
+          "kind": "event",
+          "key": "blr-pottery-weekend",
+          "title": "Hands on Clay: Pottery Wheel Basics",
+          "role": "cover"
+        }
+      ]
+    },
+    {
+      "key": "colour-festival-crowd",
+      "shape": "wide",
+      "source": "StockSnap",
+      "title": "People Crowd",
+      "author": "Maxime Bhm",
+      "sourceUrl": "https://stocksnap.io/photo/people-crowd-GQ3TV02RS6",
+      "downloadUrl": "https://cdn.stocksnap.io/img-thumbs/960w/GQ3TV02RS6.jpg",
+      "openverseUrl": "https://api.openverse.org/v1/images/9345945e-b28c-4ee1-af8d-00c07902dea5/",
+      "licence": "CC0 1.0",
+      "licenceUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "focalPoint": {
+        "x": 0.5,
+        "y": 0.6
+      },
+      "bytes": 53962,
+      "width": 960,
+      "height": 473,
+      "sha256": "5d73a37c974549eb70f4c0f2934f67963a82c7848112894c19fa1277c876e4f7",
+      "downloadedOn": "2026-10-10",
+      "usedFor": [
+        {
+          "kind": "event",
+          "key": "bom-colour-run",
+          "title": "Colour Run Community Morning",
+          "role": "cover"
+        }
+      ]
+    },
+    {
+      "key": "market-vegetables",
+      "shape": "landscape",
+      "source": "StockSnap",
+      "title": "Food Eat",
+      "author": "Lisa Davies",
+      "sourceUrl": "https://stocksnap.io/photo/food-eat-RXWC2PDCQQ",
+      "downloadUrl": "https://cdn.stocksnap.io/img-thumbs/960w/RXWC2PDCQQ.jpg",
+      "openverseUrl": "https://api.openverse.org/v1/images/53c7a65a-677f-4937-954d-4cb519542960/",
+      "licence": "CC0 1.0",
+      "licenceUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "focalPoint": {
+        "x": 0.4,
+        "y": 0.5
+      },
+      "bytes": 95002,
+      "width": 960,
+      "height": 640,
+      "sha256": "f1d6167d57e50a89b623fb9fcf6573b7a18a3c00829a8299c0a43e504911bc88",
+      "downloadedOn": "2026-10-10",
+      "usedFor": [
+        {
+          "kind": "event",
+          "key": "blr-farmers-market",
+          "title": "Sunday Farmers Market",
+          "role": "cover"
+        }
+      ]
+    },
+    {
+      "key": "market-grill",
+      "shape": "landscape",
+      "source": "StockSnap",
+      "title": "Fried Chicken",
+      "author": "Andrew Itaga",
+      "sourceUrl": "https://stocksnap.io/photo/fried-chicken-N18XO4WUZZ",
+      "downloadUrl": "https://cdn.stocksnap.io/img-thumbs/960w/N18XO4WUZZ.jpg",
+      "openverseUrl": "https://api.openverse.org/v1/images/8acffb22-d3d7-40ac-ac2e-cf5d1228caf5/",
+      "licence": "CC0 1.0",
+      "licenceUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "focalPoint": {
+        "x": 0.65,
+        "y": 0.4
+      },
+      "bytes": 57678,
+      "width": 960,
+      "height": 640,
+      "sha256": "45867212cefb80daf46b0658aaa6cea254d831f2861c0836d97f4fe985785f9e",
+      "downloadedOn": "2026-10-10",
+      "usedFor": [
+        {
+          "kind": "event",
+          "key": "blr-farmers-market",
+          "title": "Sunday Farmers Market",
+          "role": "gallery"
+        }
+      ]
+    },
+    {
+      "key": "stadium-night-panorama",
+      "shape": "very-wide",
+      "source": "Wikimedia Commons",
+      "title": "File:Pano 2.jpg",
+      "author": "FoUTASportscaster",
+      "sourceUrl": "https://commons.wikimedia.org/wiki/File:Pano_2.jpg",
+      "downloadUrl": "https://commons.wikimedia.org/wiki/Special:FilePath/Pano_2.jpg?width=2000",
+      "openverseUrl": "https://api.openverse.org/v1/images/e590a5ff-fac7-4f8c-87b4-7f96c23ceba1/",
+      "licence": "CC0 1.0",
+      "licenceUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "focalPoint": {
+        "x": 0.5,
+        "y": 0.55
+      },
+      "bytes": 1246267,
+      "width": 3840,
+      "height": 1150,
+      "sha256": "a2bcb9a95706d8167b41e685026f7b1618f356b9a6e459020ca0ebbc22c03ca8",
+      "downloadedOn": "2026-10-10",
+      "usedFor": [
+        {
+          "kind": "event",
+          "key": "bom-night-10k",
+          "title": "Midnight City 10K",
+          "role": "cover"
+        }
+      ]
+    },
+    {
+      "key": "runners-street",
+      "shape": "landscape",
+      "source": "StockSnap",
+      "title": "Running Sprint",
+      "author": "Skitter Photo",
+      "sourceUrl": "https://stocksnap.io/photo/running-sprint-9F84030A1E",
+      "downloadUrl": "https://cdn.stocksnap.io/img-thumbs/960w/9F84030A1E.jpg",
+      "openverseUrl": "https://api.openverse.org/v1/images/c3bc3748-a48b-4c3c-b57c-18f3606a1d8d/",
+      "licence": "CC0 1.0",
+      "licenceUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "focalPoint": {
+        "x": 0.4,
+        "y": 0.45
+      },
+      "bytes": 100099,
+      "width": 960,
+      "height": 639,
+      "sha256": "3ac9711c40e7972d3e6eaa78368aa853d24a3ca152b63fe57605da96f8050956",
+      "downloadedOn": "2026-10-10",
+      "usedFor": [
+        {
+          "kind": "event",
+          "key": "bom-night-10k",
+          "title": "Midnight City 10K",
+          "role": "gallery"
+        }
+      ]
+    },
+    {
+      "key": "football-stadium-floodlit",
+      "shape": "wide",
+      "source": "StockSnap",
+      "title": "Green Field",
+      "author": "Mitch Rosen",
+      "sourceUrl": "https://stocksnap.io/photo/green-field-POIHJNTKDB",
+      "downloadUrl": "https://cdn.stocksnap.io/img-thumbs/960w/POIHJNTKDB.jpg",
+      "openverseUrl": "https://api.openverse.org/v1/images/4dd6f8c5-2486-408a-8747-7ae4fb4167ad/",
+      "licence": "CC0 1.0",
+      "licenceUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "focalPoint": {
+        "x": 0.5,
+        "y": 0.55
+      },
+      "bytes": 91725,
+      "width": 960,
+      "height": 443,
+      "sha256": "820a5ac23f134181ebfcd9c08bc64584a41c7a50cd11877881e9f0fe9f60bfb8",
+      "downloadedOn": "2026-10-10",
+      "usedFor": [
+        {
+          "kind": "event",
+          "key": "bom-football-final",
+          "title": "City Football League Final",
+          "role": "cover"
+        }
+      ]
+    },
+    {
+      "key": "stadium-crowd-panorama",
+      "shape": "very-wide",
+      "source": "Wikimedia Commons",
+      "title": "File:Michigan-stadium-panorama.jpg",
+      "author": "Linguica",
+      "sourceUrl": "https://commons.wikimedia.org/wiki/File:Michigan-stadium-panorama.jpg",
+      "downloadUrl": "https://commons.wikimedia.org/wiki/Special:FilePath/Michigan-stadium-panorama.jpg?width=2400",
+      "openverseUrl": "https://api.openverse.org/v1/images/36dbcc87-dba5-4957-aa41-e4c4458b193c/",
+      "licence": "CC0 1.0",
+      "licenceUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "focalPoint": {
+        "x": 0.45,
+        "y": 0.55
+      },
+      "bytes": 1292719,
+      "width": 3840,
+      "height": 896,
+      "sha256": "763922b75b902f295bfe7fd5dc2228f8c9cf714a67fe4223f5439c7df4c0adeb",
+      "downloadedOn": "2026-10-10",
+      "usedFor": [
+        {
+          "kind": "event",
+          "key": "bom-football-final",
+          "title": "City Football League Final",
+          "role": "gallery"
+        }
+      ]
+    },
+    {
+      "key": "saxophone-player",
+      "shape": "portrait",
+      "source": "StockSnap",
+      "title": "Saxophone Musician",
+      "author": "Matt Bango",
+      "sourceUrl": "https://stocksnap.io/photo/saxophone-musician-4TNMGEC1UM",
+      "downloadUrl": "https://cdn.stocksnap.io/img-thumbs/960w/4TNMGEC1UM.jpg",
+      "openverseUrl": "https://api.openverse.org/v1/images/fcc104a7-49e4-4537-9cdd-1077cf1ab93f/",
+      "licence": "CC0 1.0",
+      "licenceUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "focalPoint": {
+        "x": 0.55,
+        "y": 0.45
+      },
+      "bytes": 976849,
+      "width": 960,
+      "height": 1440,
+      "sha256": "00f5d84a8252f81d12edd02a3283295dba49fa38173c6b730e36939a69cea7ce",
+      "downloadedOn": "2026-10-10",
+      "usedFor": [
+        {
+          "kind": "event",
+          "key": "boi-riverbend-jazz",
+          "title": "Riverbend Jazz Night",
+          "role": "cover"
+        }
+      ]
+    },
+    {
+      "key": "brass-band",
+      "shape": "square",
+      "source": "StockSnap",
+      "title": "Music Band",
+      "author": "Mariusz Prusaczyk",
+      "sourceUrl": "https://stocksnap.io/photo/music-band-TPI9PIV9X8",
+      "downloadUrl": "https://cdn.stocksnap.io/img-thumbs/960w/TPI9PIV9X8.jpg",
+      "openverseUrl": "https://api.openverse.org/v1/images/feb7de64-9f2c-4cd5-8c02-52af4e6f8293/",
+      "licence": "CC0 1.0",
+      "licenceUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "focalPoint": {
+        "x": 0.55,
+        "y": 0.45
+      },
+      "bytes": 77805,
+      "width": 960,
+      "height": 960,
+      "sha256": "8f41ffd2c13c31d51acae439d92cd3737862ff30ab33ede865cfde0fac7a78c4",
+      "downloadedOn": "2026-10-10",
+      "usedFor": [
+        {
+          "kind": "event",
+          "key": "boi-riverbend-jazz",
+          "title": "Riverbend Jazz Night",
+          "role": "gallery"
+        }
+      ]
+    },
+    {
+      "key": "microphone-purple-bokeh",
+      "shape": "landscape",
+      "source": "StockSnap",
+      "title": "Mic Microphone",
+      "author": "Suvan Chowdhury",
+      "sourceUrl": "https://stocksnap.io/photo/mic-microphone-Q0LOIKU7GM",
+      "downloadUrl": "https://cdn.stocksnap.io/img-thumbs/960w/Q0LOIKU7GM.jpg",
+      "openverseUrl": "https://api.openverse.org/v1/images/934ef95b-8d91-45de-9ae0-b484e4f4f600/",
+      "licence": "CC0 1.0",
+      "licenceUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "focalPoint": {
+        "x": 0.45,
+        "y": 0.4
+      },
+      "bytes": 22426,
+      "width": 960,
+      "height": 640,
+      "sha256": "532306ce39e1a426da52f81fe46c4ac343faba6feab6415d6b7817883d95405a",
+      "downloadedOn": "2026-10-10",
+      "usedFor": [
+        {
+          "kind": "event",
+          "key": "boi-old-mill-comedy",
+          "title": "Old Mill Stand-up Showcase",
+          "role": "cover"
+        }
+      ]
+    },
+    {
+      "key": "record-player",
+      "shape": "square",
+      "source": "StockSnap",
+      "title": "Wall Hats",
+      "author": "Seth Doyle",
+      "sourceUrl": "https://stocksnap.io/photo/wall-hats-BDUTHMGVCP",
+      "downloadUrl": "https://cdn.stocksnap.io/img-thumbs/960w/BDUTHMGVCP.jpg",
+      "openverseUrl": "https://api.openverse.org/v1/images/3140f075-efaa-4527-aa20-8bd4e69075e6/",
+      "licence": "CC0 1.0",
+      "licenceUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "focalPoint": {
+        "x": 0.5,
+        "y": 0.55
+      },
+      "bytes": 83327,
+      "width": 960,
+      "height": 960,
+      "sha256": "36459d1ca9855d7bc37f607aaf407ed3d19da1701371e94d3ef81b2899fc901e",
+      "downloadedOn": "2026-10-10",
+      "usedFor": [
+        {
+          "kind": "event",
+          "key": "boi-vinyl-night",
+          "title": "Vinyl Listening Night",
+          "role": "cover"
+        }
+      ]
+    },
+    {
+      "key": "poster-night-sky-torch",
+      "shape": "portrait",
+      "source": "StockSnap",
+      "title": "Guy Man",
+      "author": "Stefan Stefancik",
+      "sourceUrl": "https://stocksnap.io/photo/guy-man-S4LYSG83OB",
+      "downloadUrl": "https://cdn.stocksnap.io/img-thumbs/960w/S4LYSG83OB.jpg",
+      "openverseUrl": "https://api.openverse.org/v1/images/4996e4b8-c88b-479a-afe8-a578089ce644/",
+      "licence": "CC0 1.0",
+      "licenceUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "focalPoint": {
+        "x": 0.4,
+        "y": 0.6
+      },
+      "bytes": 257519,
+      "width": 960,
+      "height": 1449,
+      "sha256": "1d3a06bb581bb9302838c2d79675827ff046209158a2e006ac5215d5019c256f",
+      "downloadedOn": "2026-10-10",
+      "usedFor": [
+        {
+          "kind": "film",
+          "key": "film-kaveri-stars",
+          "title": "Beyond the Kaveri Stars",
+          "role": "poster"
+        }
+      ]
+    },
+    {
+      "key": "poster-ocean-swirl",
+      "shape": "portrait",
+      "source": "StockSnap",
+      "title": "Ocean Water",
+      "author": "Bob Richards",
+      "sourceUrl": "https://stocksnap.io/photo/ocean-water-TM0MQRUYJB",
+      "downloadUrl": "https://cdn.stocksnap.io/img-thumbs/960w/TM0MQRUYJB.jpg",
+      "openverseUrl": "https://api.openverse.org/v1/images/e3c5fa94-1fff-4433-94e3-2dbd6f0bb256/",
+      "licence": "CC0 1.0",
+      "licenceUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "focalPoint": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "bytes": 1593745,
+      "width": 960,
+      "height": 1280,
+      "sha256": "498c2b1e3e7fc758bb72956eba92d3ed9200fffe3bb14d8ad02c5fd82d79fc70",
+      "downloadedOn": "2026-10-10",
+      "usedFor": [
+        {
+          "kind": "film",
+          "key": "film-saltwater-lines",
+          "title": "Saltwater Lines",
+          "role": "poster"
+        }
+      ]
+    },
+    {
+      "key": "poster-abstract-paint",
+      "shape": "portrait",
+      "source": "StockSnap",
+      "title": "Messy Abstract",
+      "author": "Steve Johnson",
+      "sourceUrl": "https://stocksnap.io/photo/messy-abstract-NH46TSWFWC",
+      "downloadUrl": "https://cdn.stocksnap.io/img-thumbs/960w/NH46TSWFWC.jpg",
+      "openverseUrl": "https://api.openverse.org/v1/images/78b7cc64-8093-47f1-a532-c679a4dbe7d4/",
+      "licence": "CC0 1.0",
+      "licenceUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "focalPoint": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "bytes": 1719739,
+      "width": 960,
+      "height": 1216,
+      "sha256": "02804905cc4f42b7a7c52825a48bdf2d137781c52866ea4c7d5f5ef802a11844",
+      "downloadedOn": "2026-10-10",
+      "usedFor": [
+        {
+          "kind": "film",
+          "key": "film-monsoon-canvas",
+          "title": "Monsoon Canvas",
+          "role": "poster"
+        }
+      ]
+    }
+  ]
+}
