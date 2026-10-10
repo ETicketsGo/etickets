@@ -1,10 +1,22 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
+import {
+  Activity,
+  Banknote,
+  CheckCircle2,
+  Clock,
+  Landmark,
+  Percent,
+  Receipt,
+  Repeat,
+  Ticket,
+  Undo2,
+  Wallet,
+} from 'lucide-react';
 import {
   api,
-  Badge,
   Button,
   Card,
   DataTable,
@@ -12,10 +24,13 @@ import {
   ErrorState,
   Input,
   MARKETS,
-  MetricCard,
   PageHeader,
+  SegmentedControl,
   Skeleton,
-  StatusBadge,
+  StatCard,
+  StatusPill,
+  TabPanel,
+  Tabs,
   money,
   titleCase,
   useToast,
@@ -28,6 +43,9 @@ import {
   type SettlementOrgRow,
   type TopExperienceRow,
 } from '@eticketsgo/web-kit';
+import { DayColumns } from '../../../components/day-columns';
+import { MoneyStatusPill } from '../../../components/money-status';
+import { fillDays } from '../../../lib/day-series';
 
 // ─────────────────────────── Shared helpers ───────────────────────────
 
@@ -40,7 +58,7 @@ const TODAY = new Date().toISOString().slice(0, 10);
   ── TEN EQUAL BUTTONS ARE NOT A MENU ─────────────────────────────────────────────────
   Every report was a button in one undifferentiated row, so finding "who owes us money" meant
   reading all ten. They are three different jobs - what was sold, what is owed, and how the
-  platform is doing - and the strip now says so.
+  platform is doing - and each tab now says which job it belongs to in its panel heading.
 
   "By market" comes first and opens by default. It is the question somebody arrives with, and
   it is the one the page used to answer only by implication: a single INR block, with no way to
@@ -59,34 +77,18 @@ const TABS = [
   { key: 'payment-health', label: 'Payments', group: 'Platform health' },
 ] as const;
 type TabKey = (typeof TABS)[number]['key'];
-const TAB_GROUPS = ['Sales', 'Money owed', 'Platform health'] as const;
 
-function BarRow({
-  label,
-  value,
-  max,
-  display,
-}: {
-  label: string;
-  value: number;
-  max: number;
-  display: string;
-}) {
-  const pct = max > 0 ? Math.max(2, Math.round((value / max) * 100)) : 0;
-  return (
-    <div className="flex items-center gap-3 text-sm">
-      <span className="w-28 shrink-0 truncate text-text-muted" title={label}>
-        {label}
-      </span>
-      <div className="h-2.5 flex-1 rounded-full bg-background-subtle" aria-hidden>
-        <div className="h-full rounded-full bg-action-primary" style={{ width: `${pct}%` }} />
-      </div>
-      <span className="w-32 shrink-0 text-right font-medium tabular-nums text-text-primary">
-        {display}
-      </span>
-    </div>
-  );
-}
+/*
+  The quick windows the reports API supports: any from/to of whole days. "Custom" opens the two
+  date fields; a preset applies at once, because choosing it IS the decision.
+*/
+const PRESETS = [
+  { value: '7', label: '7 days' },
+  { value: '30', label: '30 days' },
+  { value: '90', label: '90 days' },
+  { value: 'custom', label: 'Custom' },
+] as const;
+type Preset = (typeof PRESETS)[number]['value'];
 
 function ExportCsvButton({
   report,
@@ -101,6 +103,7 @@ function ExportCsvButton({
     <Button
       variant="outline"
       size="sm"
+      className="shrink-0 whitespace-nowrap"
       loading={busy}
       onClick={async () => {
         setBusy(true);
@@ -126,28 +129,94 @@ function Section<T>({
 }: {
   query: { isLoading: boolean; isError: boolean; data: T | undefined; refetch: () => void };
   isEmpty?: (data: T) => boolean;
-  children: (data: T) => React.ReactNode;
+  children: (data: T) => ReactNode;
 }) {
-  if (query.isLoading) return <Skeleton className="h-64 w-full" />;
+  if (query.isLoading) {
+    return (
+      <div className="space-y-4" role="status" aria-busy="true" aria-label="Loading report">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-24 w-full" />
+          ))}
+        </div>
+        <Skeleton className="h-56 w-full" />
+      </div>
+    );
+  }
   if (query.isError)
     return <ErrorState message="We couldn't load this report." onRetry={() => query.refetch()} />;
   if (!query.data) return null;
   if (isEmpty?.(query.data))
-    return <EmptyState title="No data for this range" hint="Try widening the date range." />;
+    return (
+      <EmptyState
+        title="Nothing in this range"
+        hint="Nothing was recorded between these dates. Try a longer window."
+      />
+    );
   return <>{children(query.data)}</>;
+}
+
+/** Four figures in a row: two across on a tablet, one on a phone. */
+function StatGrid({ children, cols = 4 }: { children: ReactNode; cols?: 2 | 3 | 4 }) {
+  const lg = cols === 4 ? 'xl:grid-cols-4' : cols === 3 ? 'lg:grid-cols-3' : '';
+  return <div className={`grid gap-4 sm:grid-cols-2 ${lg}`}>{children}</div>;
+}
+
+/**
+ * The four money figures every sales report leads with, in the same words and order everywhere:
+ * what was sold, what the platform kept, what went back, and what is left.
+ *
+ * Every figure is the API's own field for ONE currency. Nothing here is added up in the browser.
+ */
+function MoneyStats({
+  currency,
+  grossMinor,
+  platformFeesMinor,
+  refundsMinor,
+  netMinor,
+}: {
+  currency: string;
+  grossMinor: number;
+  platformFeesMinor: number;
+  refundsMinor: number;
+  netMinor: number;
+}) {
+  return (
+    <StatGrid>
+      <StatCard
+        label="Gross sales"
+        value={money(grossMinor, currency)}
+        icon={Ticket}
+        tile="blue"
+        hint="Ticket value sold"
+      />
+      <StatCard
+        label="Platform fees"
+        value={money(platformFeesMinor, currency)}
+        icon={Percent}
+        tile="purple"
+        hint="Booking and payment fees"
+      />
+      <StatCard
+        label="Refunds"
+        value={money(refundsMinor, currency)}
+        icon={Undo2}
+        tile="rose"
+        hint="Completed refunds"
+      />
+      <StatCard
+        label="Net"
+        value={money(netMinor, currency)}
+        icon={Wallet}
+        tile="teal"
+        hint="Gross sales less refunds"
+      />
+    </StatGrid>
+  );
 }
 
 // ─────────────────────────── Sections ───────────────────────────
 
-/**
- * One heading per currency, so nothing on this page is ever two units added together.
- *
- * The report used to be a single set of totals and one chart. That is correct for a platform
- * with one market and arithmetic on incompatible units for a platform with two — a ₹799 sale
- * and a $20 sale came back as 81,900 of something, drawn on one axis with one symbol.
- *
- * A single-currency platform renders exactly one block and reads as it always did.
- */
 /**
  * Which countries price in a currency, so a block can say "India" and not only "INR".
  *
@@ -174,7 +243,8 @@ function currencyLabel(currency: string): string {
 */
 function CurrencyHeading({ currency }: { currency: string }) {
   return (
-    <h3 className="text-caption font-semibold uppercase tracking-wide text-text-muted">
+    <h3 className="flex items-center gap-2 text-micro font-semibold uppercase tracking-[0.08em] text-text-muted">
+      <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-action-primary" />
       {currencyLabel(currency)}
     </h3>
   );
@@ -196,32 +266,24 @@ function MarketCard({ row }: { row: MarketRevenueRow }) {
       title={row.country}
       action={
         <div className="flex items-center gap-2">
-          {!row.configured && <Badge tone="warning">Not a configured market</Badge>}
-          <Badge tone="neutral">{row.currency}</Badge>
+          {!row.configured && <StatusPill tone="warning">Not a configured market</StatusPill>}
+          <StatusPill tone="neutral" dot={false}>
+            {row.currency}
+          </StatusPill>
         </div>
       }
     >
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <MetricCard
-          label="Gross ticket sales"
-          value={money(row.grossMinor, row.currency)}
-          tone="success"
-        />
-        <MetricCard
-          label="Platform fees"
-          value={money(row.platformFeesMinor, row.currency)}
-          tone="info"
-        />
-        <MetricCard
-          label="Refunds"
-          value={money(row.refundsMinor, row.currency)}
-          tone={row.refundsMinor > 0 ? 'warning' : 'neutral'}
-        />
-        <MetricCard label="Net" value={money(row.netMinor, row.currency)} />
-      </div>
-      <p className="mt-4 text-caption text-text-muted">
-        {row.bookings} booking{row.bookings === 1 ? '' : 's'} · {row.organizers} organizer
-        {row.organizers === 1 ? '' : 's'} · {row.events} event{row.events === 1 ? '' : 's'}
+      <MoneyStats
+        currency={row.currency}
+        grossMinor={row.grossMinor}
+        platformFeesMinor={row.platformFeesMinor}
+        refundsMinor={row.refundsMinor}
+        netMinor={row.netMinor}
+      />
+      <p className="mt-4 text-caption tabular-nums text-text-muted">
+        {row.bookings.toLocaleString()} booking{row.bookings === 1 ? '' : 's'} -{' '}
+        {row.organizers.toLocaleString()} organizer{row.organizers === 1 ? '' : 's'} -{' '}
+        {row.events.toLocaleString()} event{row.events === 1 ? '' : 's'}
       </p>
       {!row.configured && (
         <p className="mt-2 text-caption text-status-warning">
@@ -246,7 +308,7 @@ function ByMarketSection({ range }: { range: ReportRange }) {
         return (
           <div className="space-y-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <p className="text-sm text-text-secondary">
+              <p className="text-ui text-text-secondary">
                 {trading.length === 0
                   ? 'No market sold a ticket in this range.'
                   : `Selling in ${trading.length} of ${MARKETS.length} configured market${
@@ -271,12 +333,12 @@ function ByMarketSection({ range }: { range: ReportRange }) {
                   {idle.map((m) => (
                     <li
                       key={`${m.country}:${m.currency}`}
-                      className="flex flex-wrap items-center justify-between gap-2 py-2.5 text-sm"
+                      className="flex flex-wrap items-center justify-between gap-2 py-2.5 text-ui"
                     >
                       <span className="font-medium text-text-primary">{m.country}</span>
-                      <span className="text-caption text-text-muted">
-                        {m.currency} · nothing sold
-                      </span>
+                      <StatusPill tone="neutral" size="sm">
+                        {m.currency} - nothing sold
+                      </StatusPill>
                     </li>
                   ))}
                 </ul>
@@ -299,44 +361,31 @@ function DailyRevenueSection({ range }: { range: ReportRange }) {
       {(d) => (
         <div className="space-y-8">
           {d.byCurrency.map((c) => {
-            /* Scaled within its own currency — a shared axis would compare paise to cents. */
-            const maxGross = Math.max(1, ...c.series.map((s) => s.grossMinor));
+            /* Scaled within its own currency - a shared axis would compare paise to cents. */
+            const days = fillDays(
+              c.series.map((s) => ({ day: s.day, value: s.grossMinor })),
+              d.from ?? range.from,
+              d.to ?? range.to,
+              (day) => ({ day, value: 0 }),
+            );
             return (
-              <div key={c.currency} className="space-y-5">
+              <div key={c.currency} className="space-y-4">
                 <CurrencyHeading currency={c.currency} />
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                  <MetricCard
-                    label="Gross ticket sales"
-                    value={money(c.totals.grossMinor, c.currency)}
-                    tone="success"
-                  />
-                  <MetricCard
-                    label="Platform fees"
-                    value={money(c.totals.platformFeesMinor, c.currency)}
-                    tone="info"
-                  />
-                  <MetricCard
-                    label="Refunds"
-                    value={money(c.totals.refundsMinor, c.currency)}
-                    tone={c.totals.refundsMinor > 0 ? 'warning' : 'neutral'}
-                  />
-                  <MetricCard label="Net GMV" value={money(c.totals.netMinor, c.currency)} />
-                </div>
+                <MoneyStats
+                  currency={c.currency}
+                  grossMinor={c.totals.grossMinor}
+                  platformFeesMinor={c.totals.platformFeesMinor}
+                  refundsMinor={c.totals.refundsMinor}
+                  netMinor={c.totals.netMinor}
+                />
                 <Card
-                  title={`Gross by day - ${currencyLabel(c.currency)}`}
+                  title={`Gross sales by day - ${currencyLabel(c.currency)}`}
                   action={<ExportCsvButton report="daily-revenue" params={range} />}
                 >
-                  <div className="space-y-2.5">
-                    {c.series.map((s) => (
-                      <BarRow
-                        key={s.day}
-                        label={s.day}
-                        value={s.grossMinor}
-                        max={maxGross}
-                        display={money(s.grossMinor, c.currency)}
-                      />
-                    ))}
-                  </div>
+                  <DayColumns
+                    label={`Gross sales by day in ${c.currency}`}
+                    points={days.map((p) => ({ ...p, display: money(p.value, c.currency) }))}
+                  />
                 </Card>
               </div>
             );
@@ -352,17 +401,28 @@ function OrganizerRevenueSection({ range }: { range: ReportRange }) {
     queryKey: ['admin', 'reports', 'organizer-revenue', range],
     queryFn: () => api.admin.reports.organizerRevenue({ ...range, limit: 50 }),
   });
+  /*
+    The currency is part of every amount, and also its own line under the organizer. An
+    organization trading in two markets appears once per market, and sorting "Gross sales" across
+    the table orders rows of one currency meaningfully only - so the currency is never hidden.
+  */
   const columns: Column<OrganizerRevenueRow>[] = [
-    { key: 'org', header: 'Organizer', render: (o) => o.organizationName },
-    /*
-      The currency is a column, not a footnote. An organization trading in two markets appears
-      once per market, and sorting "Gross" across the table would otherwise rank by whichever
-      currency has the smaller minor unit.
-    */
-    { key: 'currency', header: 'Currency', render: (o) => o.currency },
+    {
+      key: 'org',
+      header: 'Organizer',
+      render: (o) => (
+        <div className="min-w-0 space-y-0.5">
+          <p className="font-medium text-text-primary">{o.organizationName}</p>
+          <p className="text-caption text-text-muted">
+            {o.currency} - {o.bookings.toLocaleString()} booking{o.bookings === 1 ? '' : 's'}
+          </p>
+        </div>
+      ),
+    },
     {
       key: 'gross',
-      header: 'Gross',
+      header: 'Gross sales',
+      className: 'whitespace-nowrap tabular-nums',
       render: (o) => money(o.grossMinor, o.currency),
       sortable: true,
       sortValue: (o) => o.grossMinor,
@@ -370,6 +430,7 @@ function OrganizerRevenueSection({ range }: { range: ReportRange }) {
     {
       key: 'fees',
       header: 'Platform fees',
+      className: 'whitespace-nowrap tabular-nums',
       render: (o) => money(o.platformFeesMinor, o.currency),
       sortable: true,
       sortValue: (o) => o.platformFeesMinor,
@@ -377,34 +438,38 @@ function OrganizerRevenueSection({ range }: { range: ReportRange }) {
     {
       key: 'refunds',
       header: 'Refunds',
+      className: 'whitespace-nowrap tabular-nums',
       render: (o) => money(o.refundsMinor, o.currency),
       sortable: true,
       sortValue: (o) => o.refundsMinor,
     },
+    // Not the market report's net: this one also takes off the organizer's own fee, as a payout does.
     {
       key: 'net',
-      header: 'Net',
+      header: 'Net to organizer',
+      className: 'whitespace-nowrap tabular-nums',
       render: (o) => <span className="font-semibold">{money(o.netMinor, o.currency)}</span>,
       sortable: true,
       sortValue: (o) => o.netMinor,
-    },
-    {
-      key: 'bookings',
-      header: 'Bookings',
-      render: (o) => o.bookings,
-      sortable: true,
-      sortValue: (o) => o.bookings,
     },
   ];
   return (
     <Section query={query} isEmpty={(d) => d.organizers.length === 0}>
       {(d) => (
-        <div className="space-y-4">
-          <div className="flex justify-end">
-            <ExportCsvButton report="organizer-revenue" params={{ ...range, limit: 50 }} />
-          </div>
-          <DataTable columns={columns} rows={d.organizers} rowKey={(o) => o.organizationId} />
-        </div>
+        <Card
+          title="Sales by organizer"
+          action={<ExportCsvButton report="organizer-revenue" params={{ ...range, limit: 50 }} />}
+        >
+          <DataTable
+            caption="Sales by organizer"
+            columns={columns}
+            rows={d.organizers}
+            rowKey={(o) => `${o.organizationId}:${o.currency}`}
+            density="compact"
+            mobile="cards"
+            stickyHeader
+          />
+        </Card>
       )}
     </Section>
   );
@@ -421,49 +486,74 @@ function SettlementSection() {
     {
       key: 'outstanding',
       header: 'Outstanding',
+      className: 'whitespace-nowrap tabular-nums',
       render: (o) => (
-        <span className="font-semibold text-status-warning">
-          {money(o.outstandingMinor, o.currency)}
-        </span>
+        <div className="space-y-0.5">
+          <p className="font-semibold text-text-primary">{money(o.outstandingMinor, o.currency)}</p>
+          <p className="text-caption text-text-muted">
+            {o.outstandingCount} open payout{o.outstandingCount === 1 ? '' : 's'}
+          </p>
+        </div>
       ),
       sortable: true,
       sortValue: (o) => o.outstandingMinor,
     },
-    { key: 'oc', header: 'Open payouts', render: (o) => o.outstandingCount },
     {
       key: 'paid',
       header: 'Paid',
-      render: (o) => money(o.paidMinor, o.currency),
+      className: 'whitespace-nowrap tabular-nums',
+      render: (o) => (
+        <div className="space-y-0.5">
+          <p>{money(o.paidMinor, o.currency)}</p>
+          <p className="text-caption text-text-muted">
+            {o.paidCount} settled payout{o.paidCount === 1 ? '' : 's'}
+          </p>
+        </div>
+      ),
       sortable: true,
       sortValue: (o) => o.paidMinor,
     },
-    { key: 'pc', header: 'Settled payouts', render: (o) => o.paidCount },
   ];
   return (
     <Section query={query} isEmpty={(d) => d.byCurrency.length === 0}>
       {(d) => (
         <div className="space-y-8">
           {d.byCurrency.map((c) => (
-            <div key={c.currency} className="space-y-5">
+            <div key={c.currency} className="space-y-4">
               <CurrencyHeading currency={c.currency} />
-              <div className="grid gap-4 sm:grid-cols-3">
-                <MetricCard
+              <StatGrid cols={3}>
+                <StatCard
                   label="Outstanding (unpaid)"
                   value={money(c.totals.outstandingMinor, c.currency)}
+                  icon={Clock}
+                  tile="amber"
                   tone={c.totals.outstandingMinor > 0 ? 'warning' : 'neutral'}
                 />
-                <MetricCard
+                <StatCard
                   label="Paid out"
                   value={money(c.totals.paidMinor, c.currency)}
-                  tone="success"
+                  icon={Banknote}
+                  tile="teal"
                 />
-                <MetricCard label="Total payouts" value={c.totals.payoutCount} />
-              </div>
+                <StatCard
+                  label="Total payouts"
+                  value={c.totals.payoutCount.toLocaleString()}
+                  icon={Receipt}
+                  tile="blue"
+                />
+              </StatGrid>
               <Card
                 title={`Settlement by organizer - ${currencyLabel(c.currency)}`}
                 action={<ExportCsvButton report="settlement" />}
               >
-                <DataTable columns={columns} rows={c.byOrg} rowKey={(o) => o.organizationId} />
+                <DataTable
+                  caption={`Settlement by organizer in ${c.currency}`}
+                  columns={columns}
+                  rows={c.byOrg}
+                  rowKey={(o) => o.organizationId}
+                  density="compact"
+                  mobile="cards"
+                />
               </Card>
             </div>
           ))}
@@ -483,30 +573,43 @@ function RefundsSection({ range }: { range: ReportRange }) {
       {(d) => (
         <div className="space-y-8">
           {d.byCurrency.map((c) => {
-            /* Scaled within its own currency — a shared axis would compare paise to cents. */
-            const maxDay = Math.max(1, ...c.byDay.map((r) => r.amountMinor));
+            const days = fillDays(
+              c.byDay.map((r) => ({ day: r.day, value: r.amountMinor })),
+              d.from ?? range.from,
+              d.to ?? range.to,
+              (day) => ({ day, value: 0 }),
+            );
             return (
-              <div key={c.currency} className="space-y-5">
+              <div key={c.currency} className="space-y-4">
                 <CurrencyHeading currency={c.currency} />
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <MetricCard label="Refunds completed" value={c.totals.count} />
-                  <MetricCard
+                <StatGrid cols={2}>
+                  <StatCard
+                    label="Refunds completed"
+                    value={c.totals.count.toLocaleString()}
+                    icon={CheckCircle2}
+                    tile="teal"
+                  />
+                  <StatCard
                     label="Refund amount"
                     value={money(c.totals.amountMinor, c.currency)}
-                    tone={c.totals.amountMinor > 0 ? 'warning' : 'neutral'}
+                    icon={Undo2}
+                    tile="rose"
                   />
-                </div>
-                <div className="grid gap-5 lg:grid-cols-2">
+                </StatGrid>
+                <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
                   <Card title={`By status - ${c.currency}`}>
                     {c.byStatus.length === 0 ? (
-                      <EmptyState title="No refunds in this range" />
+                      <EmptyState title="No refunds in this range" compact />
                     ) : (
-                      <ul className="divide-y divide-border text-sm">
+                      <ul className="divide-y divide-border text-ui">
                         {c.byStatus.map((s) => (
-                          <li key={s.status} className="flex items-center justify-between py-2.5">
-                            <StatusBadge status={s.status} />
-                            <span className="text-text-muted">
-                              {s.count} · {money(s.amountMinor, c.currency)}
+                          <li
+                            key={s.status}
+                            className="flex flex-wrap items-center justify-between gap-2 py-2.5"
+                          >
+                            <MoneyStatusPill entity="refund" status={s.status} />
+                            <span className="tabular-nums text-text-secondary">
+                              {s.count.toLocaleString()} - {money(s.amountMinor, c.currency)}
                             </span>
                           </li>
                         ))}
@@ -517,21 +620,11 @@ function RefundsSection({ range }: { range: ReportRange }) {
                     title={`Completed by day - ${c.currency}`}
                     action={<ExportCsvButton report="refunds" params={range} />}
                   >
-                    {c.byDay.length === 0 ? (
-                      <EmptyState title="No completed refunds" />
-                    ) : (
-                      <div className="space-y-2.5">
-                        {c.byDay.map((r) => (
-                          <BarRow
-                            key={r.day}
-                            label={r.day}
-                            value={r.amountMinor}
-                            max={maxDay}
-                            display={money(r.amountMinor, c.currency)}
-                          />
-                        ))}
-                      </div>
-                    )}
+                    <DayColumns
+                      label={`Completed refunds by day in ${c.currency}`}
+                      points={days.map((p) => ({ ...p, display: money(p.value, c.currency) }))}
+                      emptyText="No completed refunds in this range."
+                    />
                   </Card>
                 </div>
               </div>
@@ -553,29 +646,28 @@ function PlatformFeesSection({ range }: { range: ReportRange }) {
       {(d) => (
         <div className="space-y-8">
           {d.byCurrency.map((c) => {
-            const maxDay = Math.max(1, ...c.series.map((s) => s.feesMinor));
+            const days = fillDays(
+              c.series.map((s) => ({ day: s.day, value: s.feesMinor })),
+              d.from ?? range.from,
+              d.to ?? range.to,
+              (day) => ({ day, value: 0 }),
+            );
             return (
-              <div key={c.currency} className="space-y-5">
+              <div key={c.currency} className="space-y-4">
                 <CurrencyHeading currency={c.currency} />
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <MetricCard
+                <StatGrid cols={3}>
+                  <StatCard
                     label="Platform fee revenue"
                     value={money(c.totals.platformFeesMinor, c.currency)}
-                    tone="info"
+                    icon={Percent}
+                    tile="purple"
                   />
-                </div>
-                <Card title={`Fees by day - ${c.currency}`}>
-                  <div className="space-y-2.5">
-                    {c.series.map((s) => (
-                      <BarRow
-                        key={s.day}
-                        label={s.day}
-                        value={s.feesMinor}
-                        max={maxDay}
-                        display={money(s.feesMinor, c.currency)}
-                      />
-                    ))}
-                  </div>
+                </StatGrid>
+                <Card title={`Platform fees by day - ${c.currency}`}>
+                  <DayColumns
+                    label={`Platform fees by day in ${c.currency}`}
+                    points={days.map((p) => ({ ...p, display: money(p.value, c.currency) }))}
+                  />
                 </Card>
               </div>
             );
@@ -594,34 +686,49 @@ function TaxSection({ range }: { range: ReportRange }) {
   return (
     <Section query={query}>
       {(d) => (
-        <div className="space-y-5">
+        <div className="space-y-6">
           <div
             role="note"
-            className="rounded-lg border border-status-warning/30 bg-status-warning/5 p-4 text-sm text-text-secondary"
+            className="flex items-start gap-3 rounded-lg border border-border bg-tint-warning p-4 text-ui"
           >
-            <p className="font-semibold text-status-warning">
-              {d.taxModelled ? 'Tax as charged' : 'Tax is not modelled'}
-            </p>
-            <p className="mt-1">{d.note}</p>
+            <Landmark className="mt-0.5 h-5 w-5 shrink-0 text-status-warning" aria-hidden />
+            <div>
+              <p className="font-semibold text-status-warning">
+                {d.taxModelled ? 'Tax as charged' : 'Tax is not modelled'}
+              </p>
+              <p className="mt-1 text-text-secondary">{d.note}</p>
+            </div>
           </div>
           {/* One block per currency: GST in rupees and sales tax in dollars are two figures. */}
           {d.byCurrency.map((c) => (
-            <div key={c.currency} className="space-y-3">
+            <div key={c.currency} className="space-y-4">
               <CurrencyHeading currency={c.currency} />
-              <div className="grid gap-4 sm:grid-cols-3">
-                <MetricCard label="Gross ticket sales" value={money(c.grossMinor, c.currency)} />
-                <MetricCard label="Platform fees" value={money(c.platformFeesMinor, c.currency)} />
-                <MetricCard
+              <StatGrid>
+                <StatCard
+                  label="Gross sales"
+                  value={money(c.grossMinor, c.currency)}
+                  icon={Ticket}
+                  tile="blue"
+                />
+                <StatCard
+                  label="Platform fees"
+                  value={money(c.platformFeesMinor, c.currency)}
+                  icon={Percent}
+                  tile="purple"
+                />
+                <StatCard
                   label="Taxable base"
                   value={money(c.taxableBaseMinor, c.currency)}
-                  tone="info"
+                  icon={Landmark}
+                  tile="amber"
                 />
-                <MetricCard
+                <StatCard
                   label="Tax collected"
                   value={money(c.taxCollectedMinor, c.currency)}
-                  tone="neutral"
+                  icon={Receipt}
+                  tile="teal"
                 />
-              </div>
+              </StatGrid>
             </div>
           ))}
         </div>
@@ -640,25 +747,26 @@ function TopExperiencesSection({ range }: { range: ReportRange }) {
       key: 'title',
       header: 'Experience',
       render: (e) => (
-        <div>
-          <span className="font-medium text-text-primary">{e.movieTitle ?? e.title}</span>
-          <span className="ml-2 text-caption text-text-muted">{titleCase(e.experienceType)}</span>
+        <div className="min-w-0 space-y-0.5">
+          <p className="font-medium text-text-primary">{e.movieTitle ?? e.title}</p>
+          <p className="text-caption text-text-muted">{titleCase(e.experienceType)}</p>
         </div>
       ),
     },
     {
       key: 'bookings',
       header: 'Bookings',
-      render: (e) => e.bookings,
+      className: 'tabular-nums',
+      render: (e) => e.bookings.toLocaleString(),
       sortable: true,
       sortValue: (e) => e.bookings,
     },
-    // The currency sits beside the gross it qualifies, as in Organizer Revenue.
-    { key: 'currency', header: 'Currency', render: (e) => e.currency },
+    // The currency is in the amount, as in Organizer Revenue: rows in two currencies never add.
     {
       key: 'gross',
-      header: 'Gross',
-      render: (e) => money(e.grossMinor, e.currency),
+      header: 'Gross sales',
+      className: 'whitespace-nowrap tabular-nums',
+      render: (e) => <span className="font-semibold">{money(e.grossMinor, e.currency)}</span>,
       sortable: true,
       sortValue: (e) => e.grossMinor,
     },
@@ -666,11 +774,16 @@ function TopExperiencesSection({ range }: { range: ReportRange }) {
   return (
     <Section query={query} isEmpty={(d) => d.experiences.length === 0}>
       {(d) => (
-        <DataTable
-          columns={columns}
-          rows={d.experiences}
-          rowKey={(e) => `${e.eventId}:${e.currency}`}
-        />
+        <Card title="Top experiences">
+          <DataTable
+            caption="Top experiences"
+            columns={columns}
+            rows={d.experiences}
+            rowKey={(e) => `${e.eventId}:${e.currency}`}
+            density="compact"
+            mobile="cards"
+          />
+        </Card>
       )}
     </Section>
   );
@@ -681,76 +794,53 @@ function GrowthSection({ range }: { range: ReportRange }) {
     queryKey: ['admin', 'reports', 'growth', range],
     queryFn: () => api.admin.reports.growth(range),
   });
-  const maxUsers = Math.max(1, ...(query.data?.newUsers.map((u) => u.count) ?? [1]));
-  const maxBookings = Math.max(1, ...(query.data?.newBookings.map((b) => b.count) ?? [1]));
-  const maxOrgs = Math.max(1, ...(query.data?.newOrganizers.map((o) => o.count) ?? [1]));
   return (
     <Section query={query}>
-      {(d) => (
-        <div className="space-y-5">
-          <div className="grid gap-4 sm:grid-cols-3">
-            <MetricCard
-              label="Repeat-customer rate"
-              value={`${d.retention.rate}%`}
-              hint={`${d.retention.repeatCustomers} of ${d.retention.totalCustomers}`}
-              tone="info"
-            />
+      {(d) => {
+        const counts = (rows: { day: string; count: number }[]) =>
+          fillDays(
+            rows.map((r) => ({ day: r.day, value: r.count })),
+            d.from ?? range.from,
+            d.to ?? range.to,
+            (day) => ({ day, value: 0 }),
+          ).map((p) => ({ ...p, display: p.value.toLocaleString() }));
+        return (
+          <div className="space-y-5">
+            <StatGrid cols={3}>
+              <StatCard
+                label="Repeat-customer rate"
+                value={`${d.retention.rate}%`}
+                hint={`${d.retention.repeatCustomers.toLocaleString()} of ${d.retention.totalCustomers.toLocaleString()} customers`}
+                icon={Repeat}
+                tile="teal"
+              />
+            </StatGrid>
+            <div className="grid gap-5 lg:grid-cols-2">
+              <Card title="New bookings by day">
+                <DayColumns
+                  label="New bookings by day"
+                  points={counts(d.newBookings)}
+                  emptyText="No new bookings in this range."
+                />
+              </Card>
+              <Card title="New users by day">
+                <DayColumns
+                  label="New users by day"
+                  points={counts(d.newUsers)}
+                  emptyText="No new users in this range."
+                />
+              </Card>
+              <Card title="New organizers by day">
+                <DayColumns
+                  label="New organizers by day"
+                  points={counts(d.newOrganizers)}
+                  emptyText="No new organizers in this range."
+                />
+              </Card>
+            </div>
           </div>
-          <div className="grid gap-5 lg:grid-cols-2">
-            <Card title="New users by day">
-              {d.newUsers.length === 0 ? (
-                <EmptyState title="No new users in this range" />
-              ) : (
-                <div className="space-y-2.5">
-                  {d.newUsers.map((u) => (
-                    <BarRow
-                      key={u.day}
-                      label={u.day}
-                      value={u.count}
-                      max={maxUsers}
-                      display={String(u.count)}
-                    />
-                  ))}
-                </div>
-              )}
-            </Card>
-            <Card title="New bookings by day">
-              {d.newBookings.length === 0 ? (
-                <EmptyState title="No new bookings in this range" />
-              ) : (
-                <div className="space-y-2.5">
-                  {d.newBookings.map((b) => (
-                    <BarRow
-                      key={b.day}
-                      label={b.day}
-                      value={b.count}
-                      max={maxBookings}
-                      display={String(b.count)}
-                    />
-                  ))}
-                </div>
-              )}
-            </Card>
-            <Card title="New organizers by day">
-              {d.newOrganizers.length === 0 ? (
-                <EmptyState title="No new organizers in this range" />
-              ) : (
-                <div className="space-y-2.5">
-                  {d.newOrganizers.map((o) => (
-                    <BarRow
-                      key={o.day}
-                      label={o.day}
-                      value={o.count}
-                      max={maxOrgs}
-                      display={String(o.count)}
-                    />
-                  ))}
-                </div>
-              )}
-            </Card>
-          </div>
-        </div>
-      )}
+        );
+      }}
     </Section>
   );
 }
@@ -764,28 +854,44 @@ function PaymentHealthSection({ range }: { range: ReportRange }) {
     <Section query={query} isEmpty={(d) => d.providers.length === 0}>
       {(d) => (
         <div className="space-y-5">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <MetricCard
+          <StatGrid cols={3}>
+            <StatCard
               label="Overall success rate"
-              value={d.overallSuccessRate === null ? '—' : `${d.overallSuccessRate}%`}
+              value={d.overallSuccessRate === null ? 'Not enough data' : `${d.overallSuccessRate}%`}
+              icon={Activity}
+              tile="teal"
               tone={
                 d.overallSuccessRate !== null && d.overallSuccessRate >= 95
                   ? 'success'
                   : d.overallSuccessRate !== null && d.overallSuccessRate < 85
                     ? 'warning'
-                    : 'info'
+                    : 'neutral'
               }
             />
-          </div>
+          </StatGrid>
           <Card title="By provider">
-            <ul className="divide-y divide-border text-sm">
+            <ul className="divide-y divide-border text-ui">
               {d.providers.map((p) => (
-                <li key={p.provider} className="flex items-center justify-between py-2.5">
+                <li
+                  key={p.provider}
+                  className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-3"
+                >
                   <span className="font-medium text-text-primary">{p.provider}</span>
-                  <span className="text-text-muted">
-                    {p.successRate === null ? '—' : `${p.successRate}%`} · {p.succeeded} ok ·{' '}
-                    {p.failed} failed
-                    {p.pending > 0 ? ` · ${p.pending} pending` : ''}
+                  <span className="flex flex-wrap items-center gap-2 tabular-nums">
+                    <span className="text-text-secondary">
+                      {p.successRate === null ? 'No rate yet' : `${p.successRate}% succeeded`}
+                    </span>
+                    <StatusPill tone="success" size="sm">
+                      {p.succeeded.toLocaleString()} paid
+                    </StatusPill>
+                    <StatusPill tone={p.failed > 0 ? 'error' : 'neutral'} size="sm">
+                      {p.failed.toLocaleString()} failed
+                    </StatusPill>
+                    {p.pending > 0 && (
+                      <StatusPill tone="info" size="sm">
+                        {p.pending.toLocaleString()} pending
+                      </StatusPill>
+                    )}
                   </span>
                 </li>
               ))}
@@ -799,97 +905,112 @@ function PaymentHealthSection({ range }: { range: ReportRange }) {
 
 // ─────────────────────────── Page ───────────────────────────
 
+const TABS_ID = 'business-reports';
+
 export default function AdminReports() {
   const [tab, setTab] = useState<TabKey>('by-market');
+  const [preset, setPreset] = useState<Preset>('30');
   const [draftFrom, setDraftFrom] = useState(isoDaysAgo(30));
   const [draftTo, setDraftTo] = useState(TODAY);
   const [range, setRange] = useState<ReportRange>({ from: isoDaysAgo(30), to: TODAY });
 
   const rangeApplies = tab !== 'settlement';
+  const current = TABS.find((t) => t.key === tab)!;
+
+  const choosePreset = (next: Preset) => {
+    setPreset(next);
+    if (next === 'custom') return;
+    const from = isoDaysAgo(Number(next));
+    setDraftFrom(from);
+    setDraftTo(TODAY);
+    setRange({ from, to: TODAY });
+  };
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Business reports"
-        description="Read-only operations reporting across the marketplace."
+        description="Read-only operations reporting across the marketplace. Every amount stays in its own currency."
       />
 
-      {rangeApplies && (
-        <Card>
-          <form
-            className="flex flex-wrap items-end gap-3"
-            onSubmit={(e) => {
-              e.preventDefault();
-              setRange({ from: draftFrom, to: draftTo });
-            }}
-          >
-            <Input
-              id="from"
-              label="From"
-              type="date"
-              value={draftFrom}
-              max={draftTo}
-              onChange={(e) => setDraftFrom(e.target.value)}
-              className="w-auto"
-            />
-            <Input
-              id="to"
-              label="To"
-              type="date"
-              value={draftTo}
-              min={draftFrom}
-              max={TODAY}
-              onChange={(e) => setDraftTo(e.target.value)}
-              className="w-auto"
-            />
-            <Button type="submit" variant="outline">
-              Apply range
-            </Button>
-          </form>
-        </Card>
-      )}
+      <Tabs
+        id={TABS_ID}
+        label="Report sections"
+        tabs={TABS.map((t) => ({ value: t.key, label: t.label }))}
+        value={tab}
+        onChange={setTab}
+      />
 
-      <div
-        className="flex flex-wrap gap-x-6 gap-y-3 border-b border-border pb-3"
-        role="tablist"
-        aria-label="Report sections"
-      >
-        {TAB_GROUPS.map((groupName) => (
-          <div key={groupName} className="space-y-1.5">
-            <p className="text-caption font-semibold uppercase tracking-wide text-text-muted">
-              {groupName}
+      <TabPanel tabsId={TABS_ID} value={tab} selected={tab} className="space-y-6">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p className="text-micro font-semibold uppercase tracking-[0.08em] text-text-muted">
+              {current.group}
             </p>
-            <div className="flex flex-wrap gap-1.5">
-              {TABS.filter((t) => t.group === groupName).map((t) => (
-                <button
-                  key={t.key}
-                  role="tab"
-                  aria-selected={tab === t.key}
-                  onClick={() => setTab(t.key)}
-                  className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-                    tab === t.key
-                      ? 'bg-action-primary text-action-primary-foreground'
-                      : 'text-text-secondary hover:bg-background-subtle hover:text-text-primary'
-                  }`}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
+            <h2 className="font-display text-headline font-bold text-text-primary">
+              {current.label}
+            </h2>
           </div>
-        ))}
-      </div>
+          {rangeApplies ? (
+            <SegmentedControl
+              label="Date range, counting back from today"
+              options={PRESETS.map((p) => ({ value: p.value, label: p.label }))}
+              value={preset}
+              onChange={choosePreset}
+            />
+          ) : (
+            <p className="text-caption text-text-muted">
+              Settlement is a position today, so it has no date range.
+            </p>
+          )}
+        </div>
 
-      {tab === 'by-market' && <ByMarketSection range={range} />}
-      {tab === 'daily-revenue' && <DailyRevenueSection range={range} />}
-      {tab === 'organizer-revenue' && <OrganizerRevenueSection range={range} />}
-      {tab === 'settlement' && <SettlementSection />}
-      {tab === 'refunds' && <RefundsSection range={range} />}
-      {tab === 'platform-fees' && <PlatformFeesSection range={range} />}
-      {tab === 'tax' && <TaxSection range={range} />}
-      {tab === 'top-experiences' && <TopExperiencesSection range={range} />}
-      {tab === 'growth' && <GrowthSection range={range} />}
-      {tab === 'payment-health' && <PaymentHealthSection range={range} />}
+        {rangeApplies && preset === 'custom' && (
+          <Card>
+            <form
+              className="flex flex-wrap items-end gap-3"
+              onSubmit={(e) => {
+                e.preventDefault();
+                setRange({ from: draftFrom, to: draftTo });
+              }}
+            >
+              <Input
+                id="from"
+                label="From"
+                type="date"
+                value={draftFrom}
+                max={draftTo}
+                onChange={(e) => setDraftFrom(e.target.value)}
+                className="w-auto"
+              />
+              <Input
+                id="to"
+                label="To"
+                type="date"
+                value={draftTo}
+                min={draftFrom}
+                max={TODAY}
+                onChange={(e) => setDraftTo(e.target.value)}
+                className="w-auto"
+              />
+              <Button type="submit" variant="outline">
+                Apply range
+              </Button>
+            </form>
+          </Card>
+        )}
+
+        {tab === 'by-market' && <ByMarketSection range={range} />}
+        {tab === 'daily-revenue' && <DailyRevenueSection range={range} />}
+        {tab === 'organizer-revenue' && <OrganizerRevenueSection range={range} />}
+        {tab === 'settlement' && <SettlementSection />}
+        {tab === 'refunds' && <RefundsSection range={range} />}
+        {tab === 'platform-fees' && <PlatformFeesSection range={range} />}
+        {tab === 'tax' && <TaxSection range={range} />}
+        {tab === 'top-experiences' && <TopExperiencesSection range={range} />}
+        {tab === 'growth' && <GrowthSection range={range} />}
+        {tab === 'payment-health' && <PaymentHealthSection range={range} />}
+      </TabPanel>
     </div>
   );
 }

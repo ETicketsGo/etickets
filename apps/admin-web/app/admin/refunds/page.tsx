@@ -9,7 +9,6 @@ import {
   Button,
   Card,
   DataTable,
-  StatusBadge,
   SearchInput,
   Pagination,
   PageHeader,
@@ -22,6 +21,8 @@ import {
   type RefundRow,
 } from '@eticketsgo/web-kit';
 import { AccountContact } from '../../../components/account-contact';
+import { MoneyStatusPill } from '../../../components/money-status';
+import { moneyStatusLabel } from '../../../lib/money-status';
 import {
   CurrencyTotals,
   FilterBar,
@@ -107,17 +108,18 @@ export default function AdminRefunds() {
       key: 'amount',
       header: 'Amount',
       className: 'whitespace-nowrap tabular-nums',
-      render: (r) => money(r.amountMinor, r.booking?.currency),
+      render: (r) => (
+        <span className="font-semibold">{money(r.amountMinor, r.booking?.currency)}</span>
+      ),
       sortable: true,
       sortValue: (r) => r.amountMinor,
     },
     {
       key: 'status',
       header: 'Status',
-      className: 'whitespace-nowrap',
       render: (r) => (
         <div className="space-y-1">
-          <StatusBadge status={r.status} />
+          <MoneyStatusPill entity="refund" status={r.status} />
           <p className="text-caption text-text-muted">Asked {dateTime(r.createdAt)}</p>
         </div>
       ),
@@ -143,13 +145,18 @@ export default function AdminRefunds() {
           <FilterBar
             filters={{ ...filters, clear: clearAll }}
             statuses={STATUSES}
+            statusName={(s) => moneyStatusLabel('refund', s)}
             countryHint="Where the event took place."
           />
         </div>
       </Card>
       <Card
         title={status === 'REQUESTED' ? 'Waiting for a decision' : 'Refunds'}
-        action={data ? <Badge tone="neutral">{data.meta.total} matching</Badge> : undefined}
+        action={
+          data ? (
+            <Badge tone="neutral">{data.meta.total.toLocaleString()} matching</Badge>
+          ) : undefined
+        }
       >
         <div className="mb-3">
           <CurrencyTotals
@@ -175,6 +182,9 @@ export default function AdminRefunds() {
           }}
         />
         <DataTable
+          caption="Refunds"
+          density="compact"
+          mobile="cards"
           columns={columns}
           rows={data?.data}
           loading={isLoading}

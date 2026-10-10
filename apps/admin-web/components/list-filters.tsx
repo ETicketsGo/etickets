@@ -3,7 +3,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import { Search, X } from 'lucide-react';
+import { ChevronDown, Search, SlidersHorizontal, X } from 'lucide-react';
 import {
   api,
   Button,
@@ -402,6 +402,7 @@ export function FilterBar({
   statuses,
   statusLabel = 'Status',
   everyStatusLabel = 'Every status',
+  statusName = enumLabel,
   countryHint,
   children,
   show = { organizer: true, event: true },
@@ -417,6 +418,11 @@ export function FilterBar({
   statuses?: readonly string[];
   statusLabel?: string;
   everyStatusLabel?: string;
+  /**
+   * The words for a status in the dropdown. Pass the same function the list's pills use, so the
+   * filter says "Waiting for a decision" over a list that says it too, not "Requested".
+   */
+  statusName?: (status: string) => string;
   /** What "country" means on this queue, when it is not where the sale happened. */
   countryHint?: string;
   /** Queue-specific controls (kind, action), placed after the shared ones. */
@@ -425,16 +431,54 @@ export function FilterBar({
 }) {
   const v = filters.values;
   const today = new Date().toISOString().slice(0, 10);
+  const gridId = useId();
+  const [openOnPhone, setOpenOnPhone] = useState(false);
+  /*
+    How many of the bar's own filters are on, said beside "Clear filters". A filter set last week
+    and forgotten is the usual reason a queue looks empty, and a count is visible from across the
+    page where a filled-in field among seven is not.
+  */
+  const on = (['country', 'organizationId', 'eventId', 'status', 'from', 'to'] as const).filter(
+    (k) => Boolean(v[k]),
+  ).length;
   return (
     <div className="space-y-3">
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      {/*
+        On a phone the six controls stood a full screen tall above the first result. They fold
+        behind one button there, which says how many are on so a forgotten filter is still seen;
+        from `sm` up they are always shown, as before.
+      */}
+      <button
+        type="button"
+        aria-expanded={openOnPhone}
+        aria-controls={gridId}
+        onClick={() => setOpenOnPhone((o) => !o)}
+        className="flex w-full items-center justify-between gap-2 rounded-md border border-border-input bg-background-surface px-3.5 py-2.5 text-ui font-medium text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:hidden"
+      >
+        <span className="inline-flex items-center gap-2">
+          <SlidersHorizontal className="h-4 w-4 text-text-muted" aria-hidden />
+          Filters
+          {on > 0 && (
+            <span className="rounded-full bg-tint-primary px-2 py-0.5 text-micro font-semibold text-action-primary">
+              {on} on
+            </span>
+          )}
+        </span>
+        <ChevronDown
+          className={`h-4 w-4 text-text-muted transition-transform ${openOnPhone ? 'rotate-180' : ''}`}
+          aria-hidden
+        />
+      </button>
+      <div
+        id={gridId}
+        className={`${openOnPhone ? 'grid' : 'hidden'} gap-3 sm:grid sm:grid-cols-2 lg:grid-cols-3`}
+      >
         <div>
           <CountryFilter
             label="Country"
             value={v.country || undefined}
             onChange={(code) => filters.set({ country: code })}
           />
-          {countryHint && <p className="mt-1.5 text-caption text-text-muted">{countryHint}</p>}
         </div>
         {show.organizer !== false && (
           <OrganizerPicker
@@ -461,7 +505,7 @@ export function FilterBar({
             <option value="">{everyStatusLabel}</option>
             {statuses.map((s) => (
               <option key={s} value={s}>
-                {enumLabel(s)}
+                {statusName(s)}
               </option>
             ))}
           </Select>
@@ -486,13 +530,28 @@ export function FilterBar({
         </div>
       </div>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-caption text-text-muted">
+        {/*
+          The country hint lives here with the date rule rather than under the country field. Under
+          the field it made that one cell taller than its row, and every control after it sat out
+          of line with the one beside it.
+        */}
+        <p className={`text-caption text-text-muted ${openOnPhone ? '' : 'hidden sm:block'}`}>
+          {countryHint
+            ? `Country: ${countryHint.charAt(0).toLowerCase()}${countryHint.slice(1)} `
+            : ''}
           Dates are whole days in UTC. Both days are included.
         </p>
         {filters.active && (
-          <Button variant="ghost" size="sm" onClick={filters.clear}>
-            Clear filters
-          </Button>
+          <div className="flex items-center gap-2">
+            {on > 0 && (
+              <span className="rounded-full bg-tint-primary px-2.5 py-0.5 text-micro font-semibold text-action-primary">
+                {on} {on === 1 ? 'filter' : 'filters'} on
+              </span>
+            )}
+            <Button variant="ghost" size="sm" onClick={filters.clear}>
+              Clear filters
+            </Button>
+          </div>
         )}
       </div>
     </div>

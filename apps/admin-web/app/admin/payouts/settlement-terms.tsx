@@ -57,7 +57,7 @@ export function SettlementTerms({
   });
 
   /*
-    An organizer chosen in the payouts list below opens this editor on their row - existing
+    An organizer chosen in the payouts list on this page opens this editor on their row - existing
     terms if they have any, empty (inherited) if they do not. Handled here rather than in a
     second dialog, so there is one place terms are written from.
   */
@@ -196,8 +196,8 @@ export function SettlementTerms({
         <DataTable columns={columns} rows={data.organizations} rowKey={(row) => row.id} />
       ) : (
         <p className="text-caption text-text-muted">
-          No organizer is on different terms. Use &ldquo;Terms&rdquo; on a payout below to give one
-          their own.
+          No organizer is on different terms. Use &quot;Settlement terms&quot; on a payout above to
+          give one their own.
         </p>
       )}
 

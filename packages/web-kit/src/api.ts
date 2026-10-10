@@ -1960,8 +1960,9 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ status }),
       }),
+    /** Organizer, event and a UTC day window on when the booking was made, like the money queues. */
     bookings: (
-      params: PageParams & { status?: string; q?: string; country?: string } & AdminGroupFilter,
+      params: PageParams & { status?: string; q?: string } & AdminGroupFilter & AdminListFilters,
     ) => request<Paged<AdminBookingRow>>(`/admin/bookings${qs(params)}`),
     payments: (
       params: PageParams & { status?: string; q?: string } & AdminGroupFilter & AdminListFilters,

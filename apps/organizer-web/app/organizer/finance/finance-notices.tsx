@@ -2,7 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { AlertTriangle, Info } from 'lucide-react';
-import { api, Card } from '@eticketsgo/web-kit';
+import { api, SectionCard, StatusPill } from '@eticketsgo/web-kit';
 import { currencyNotices } from '@/lib/finance-view';
 
 /**
@@ -39,7 +39,7 @@ export function FinanceNotices({ organizationId }: { organizationId: string }) {
   const multiCurrency = groups.length > 1;
 
   return (
-    <Card title="About these figures">
+    <SectionCard title="About these figures">
       <div className="space-y-3">
         {groups.map((group) => (
           <div key={group.currency}>
@@ -49,7 +49,7 @@ export function FinanceNotices({ organizationId }: { organizationId: string }) {
             )}
             <ul className="space-y-2">
               {group.notices.map((n) => (
-                <li key={n.message} className="flex items-start gap-2">
+                <li key={n.message} className="flex flex-wrap items-start gap-2">
                   <span
                     className={
                       n.tone === 'attention'
@@ -63,13 +63,17 @@ export function FinanceNotices({ organizationId }: { organizationId: string }) {
                       <Info className="h-4 w-4" aria-hidden />
                     )}
                   </span>
-                  <span className="text-caption text-text-secondary">{n.message}</span>
+                  {/* Words as well as an icon, so the difference is never colour or shape alone. */}
+                  <StatusPill tone={n.tone === 'attention' ? 'warning' : 'neutral'} size="sm">
+                    {n.tone === 'attention' ? 'Needs attention' : 'Note'}
+                  </StatusPill>
+                  <span className="min-w-0 flex-1 text-ui text-text-secondary">{n.message}</span>
                 </li>
               ))}
             </ul>
           </div>
         ))}
       </div>
-    </Card>
+    </SectionCard>
   );
 }

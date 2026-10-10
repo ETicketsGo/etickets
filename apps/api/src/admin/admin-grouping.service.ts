@@ -305,7 +305,13 @@ const FILTERS: Record<
   string,
   { status: string; search: string[]; organizer?: string; event?: string; created?: string }
 > = {
-  bookings: { status: 'b.status', search: ['b."buyerEmail"', 'b.reference'] },
+  bookings: {
+    status: 'b.status',
+    search: ['b."buyerEmail"', 'b.reference'],
+    organizer: 'b."organizationId"',
+    event: 'b."eventId"',
+    created: 'b."createdAt"',
+  },
   payments: {
     status: 'p.status',
     search: ['p."providerRef"', 'b."buyerEmail"', 'b.reference'],

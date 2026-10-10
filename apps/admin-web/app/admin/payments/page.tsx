@@ -1,15 +1,16 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { ArrowUpRight } from 'lucide-react';
 import {
   api,
   Badge,
   Button,
+  ButtonLink,
   Card,
   DataTable,
-  StatusBadge,
+  Drawer,
   SearchInput,
   Pagination,
   PageHeader,
@@ -22,6 +23,8 @@ import {
   type AdminPaymentRow,
 } from '@eticketsgo/web-kit';
 import { AccountContact } from '../../../components/account-contact';
+import { MoneyStatusPill } from '../../../components/money-status';
+import { moneyStatusLabel } from '../../../lib/money-status';
 import {
   CurrencyTotals,
   FilterBar,
@@ -58,8 +61,8 @@ const STATUSES = [
 const FILTER_KEYS = ['country', 'organizationId', 'eventId', 'status', 'from', 'to', 'q'] as const;
 
 export default function AdminPayments() {
-  const router = useRouter();
   const [page, setPage] = useState(1);
+  const [open, setOpen] = useState<AdminPaymentRow | null>(null);
   const [group, setGroup] = useState<GroupSelection>({});
   const filters = useUrlFilters(FILTER_KEYS);
   const { status, q: applied } = filters.values;
@@ -105,22 +108,21 @@ export default function AdminPayments() {
       key: 'amount',
       header: 'Amount',
       className: 'whitespace-nowrap tabular-nums',
-      render: (p) => money(p.amountMinor, p.currency),
+      render: (p) => <span className="font-semibold">{money(p.amountMinor, p.currency)}</span>,
       sortable: true,
       sortValue: (p) => p.amountMinor,
     },
     {
       key: 'status',
       header: 'Status',
-      className: 'whitespace-nowrap',
       render: (p) => (
         <div className="space-y-1">
-          <StatusBadge status={p.status} />
+          <MoneyStatusPill entity="payment" status={p.status} />
           <p className="text-caption text-text-muted">
             {/* Which provider took it, and what they call it - the pair you quote when chasing one. */}
             {p.provider}
             {p.providerRef ? ' · ' : ''}
-            <span className="font-mono">{p.providerRef ?? ''}</span>
+            <span className="break-all font-mono">{p.providerRef ?? ''}</span>
           </p>
           <p className="text-caption text-text-muted">{dateTime(p.createdAt)}</p>
         </div>
@@ -154,6 +156,7 @@ export default function AdminPayments() {
               },
             }}
             statuses={STATUSES}
+            statusName={(s) => moneyStatusLabel('payment', s)}
             countryHint="Where the event took place."
           />
         </div>
@@ -161,7 +164,11 @@ export default function AdminPayments() {
 
       <Card
         title="Payments"
-        action={data ? <Badge tone="neutral">{data.meta.total} matching</Badge> : undefined}
+        action={
+          data ? (
+            <Badge tone="neutral">{data.meta.total.toLocaleString()} matching</Badge>
+          ) : undefined
+        }
       >
         <div className="mb-3">
           <CurrencyTotals
@@ -187,6 +194,9 @@ export default function AdminPayments() {
           }}
         />
         <DataTable
+          caption="Payments"
+          density="compact"
+          mobile="cards"
           columns={columns}
           rows={data?.data}
           loading={isLoading}
@@ -216,7 +226,7 @@ export default function AdminPayments() {
             />
           }
           rowKey={(p) => p.id}
-          onRowClick={(p) => router.push(`/admin/bookings/${p.bookingId}`)}
+          onRowClick={(p) => setOpen(p)}
         />
         {data && data.meta.totalPages > 1 && (
           <div className="mt-4">
@@ -228,6 +238,70 @@ export default function AdminPayments() {
           </div>
         )}
       </Card>
+
+      <PaymentQuickLook payment={open} onClose={() => setOpen(null)} />
+    </div>
+  );
+}
+
+/**
+ * One charge without leaving the ledger: the row's own fields, and the way on to its booking.
+ *
+ * The row used to navigate straight to the booking, so checking which provider took a charge
+ * meant leaving the filtered list and finding your place in it again.
+ */
+function PaymentQuickLook({
+  payment,
+  onClose,
+}: {
+  payment: AdminPaymentRow | null;
+  onClose: () => void;
+}) {
+  return (
+    <Drawer
+      open={Boolean(payment)}
+      onClose={onClose}
+      title="Payment"
+      description={payment?.eventTitle}
+      footer={
+        payment ? (
+          <ButtonLink href={`/admin/bookings/${payment.bookingId}`} icon={ArrowUpRight}>
+            Open the booking
+          </ButtonLink>
+        ) : null
+      }
+    >
+      {payment && (
+        <div className="space-y-5">
+          <MoneyStatusPill entity="payment" status={payment.status} />
+          <p className="font-display text-headline font-bold tabular-nums text-text-primary">
+            {money(payment.amountMinor, payment.currency)}
+          </p>
+          <dl className="divide-y divide-border rounded-lg border border-border text-ui">
+            <Fact label="Event">{payment.eventTitle}</Fact>
+            <Fact label="Booking">
+              <span className="font-mono">{payment.bookingReference ?? 'No reference'}</span>
+            </Fact>
+            <Fact label="Buyer">
+              <AccountContact email={payment.buyerEmail} className="text-ui text-text-primary" />
+            </Fact>
+            <Fact label="Provider">{payment.provider}</Fact>
+            <Fact label="Provider reference">
+              <span className="break-all font-mono">{payment.providerRef ?? 'None'}</span>
+            </Fact>
+            <Fact label="Taken">{dateTime(payment.createdAt)}</Fact>
+          </dl>
+        </div>
+      )}
+    </Drawer>
+  );
+}
+
+function Fact({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex items-start justify-between gap-4 px-4 py-2.5">
+      <dt className="shrink-0 text-text-secondary">{label}</dt>
+      <dd className="min-w-0 text-right text-text-primary">{children}</dd>
     </div>
   );
 }

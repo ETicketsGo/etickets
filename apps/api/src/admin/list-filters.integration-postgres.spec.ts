@@ -396,6 +396,37 @@ describe('integration-real-postgres: admin finance and operations filters', () =
     ]);
   });
 
+  it('bookings: list and summary agree under market, organizer, event and window', async () => {
+    if (!guard()) return;
+    const filters = window();
+    const list = await admin.bookings({ page: 1, pageSize: 100, ...filters });
+    // The same six sales the payment ledger finds: one booking per payment, same instants.
+    expect(list.meta.total).toBe(6);
+
+    // Bookings have no currency grouping; per organizer, the one group must be the whole list.
+    const summary = await grouping.grouped('bookings', 'organizer', filters);
+    expect(summary.groups).toEqual([expect.objectContaining({ key: orgA, count: 6 })]);
+
+    // One UTC day and one event: only the 23:59:59.999 row on the last day.
+    const lastDay = await admin.bookings({
+      page: 1,
+      pageSize: 100,
+      ...filters,
+      from: TO,
+      to: TO,
+      eventId: evUsd,
+    });
+    expect(lastDay.meta.total).toBe(1);
+    expect(lastDay.data[0].currency).toBe('USD');
+    const daySummary = await grouping.grouped('bookings', 'event', {
+      ...filters,
+      from: TO,
+      to: TO,
+      eventId: evUsd,
+    });
+    expect(daySummary.groups).toEqual([expect.objectContaining({ key: evUsd, count: 1 })]);
+  });
+
   it('refunds: list and summary agree under status, market, organizer and window', async () => {
     if (!guard()) return;
     for (const status of [undefined, 'REQUESTED', 'COMPLETED']) {

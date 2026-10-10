@@ -4,8 +4,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import {
   api,
+  Badge,
+  Card,
   DataTable,
-  StatusBadge,
   Button,
   Dialog,
   Select,
@@ -24,6 +25,8 @@ import {
 } from '@eticketsgo/web-kit';
 import { SettlementTerms } from './settlement-terms';
 import { BankAccounts } from './bank-accounts';
+import { MoneyStatusPill } from '../../../components/money-status';
+import { moneyStatusLabel } from '../../../lib/money-status';
 
 const STATUSES = ['PENDING', 'SCHEDULED', 'PAID', 'FAILED'];
 const PAGE_SIZE = 15;
@@ -97,11 +100,14 @@ export default function AdminPayouts() {
       key: 'org',
       header: 'Organizer',
       render: (p) => (
-        <div>
-          <p>{p.organization?.name ?? p.organizationId.slice(0, 8)}</p>
+        <div className="min-w-0 space-y-0.5">
+          <p className="font-medium text-text-primary">
+            {p.organization?.name ?? p.organizationId.slice(0, 8)}
+          </p>
+          <p className="text-caption text-text-muted">Raised {dateOnly(p.createdAt)}</p>
           <button
             type="button"
-            className="text-caption text-action-primary hover:underline"
+            className="text-caption font-medium text-action-primary hover:underline"
             onClick={() =>
               setTermsFor({
                 organizationId: p.organizationId,
@@ -109,7 +115,7 @@ export default function AdminPayouts() {
               })
             }
           >
-            Terms
+            Settlement terms
           </button>
         </div>
       ),
@@ -119,26 +125,28 @@ export default function AdminPayouts() {
       compares minor units across currencies, which only orders rows of the same currency
       meaningfully; the currency column sits beside it for that reason.
     */
-    { key: 'currency', header: 'Currency', render: (p) => p.currency },
-    {
-      key: 'gross',
-      header: 'Gross',
-      render: (p) => money(p.grossMinor, p.currency),
-      sortable: true,
-      sortValue: (p) => p.grossMinor,
-    },
     {
       key: 'net',
-      header: 'Net',
-      render: (p) => <span className="font-semibold">{money(p.netMinor, p.currency)}</span>,
+      header: 'Net payout',
+      className: 'whitespace-nowrap tabular-nums',
+      render: (p) => (
+        <div className="space-y-0.5">
+          <p className="font-semibold">{money(p.netMinor, p.currency)}</p>
+          <p className="text-caption text-text-muted">Gross {money(p.grossMinor, p.currency)}</p>
+        </div>
+      ),
       sortable: true,
       sortValue: (p) => p.netMinor,
     },
-    { key: 'status', header: 'Status', render: (p) => <StatusBadge status={p.status} /> },
-    { key: 'created', header: 'Created', render: (p) => dateOnly(p.createdAt) },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (p) => <MoneyStatusPill entity="payout" status={p.status} />,
+    },
     {
       key: 'action',
       header: '',
+      mobileLabel: 'Next step',
       /*
         Only an open payout can be marked paid — the API accepts PENDING and SCHEDULED and
         nothing else. Offering the button on a FAILED payout invited a click that could only
@@ -147,16 +155,16 @@ export default function AdminPayouts() {
       render: (p) =>
         p.status === 'PENDING' || p.status === 'SCHEDULED' ? (
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setConfirm(p)}>
+            <Button variant="outline" size="sm" onClick={() => setConfirm(p)}>
               Mark paid
             </Button>
-            <Button variant="ghost" onClick={() => setFailing(p)}>
+            <Button variant="ghost" size="sm" onClick={() => setFailing(p)}>
               Failed
             </Button>
           </div>
         ) : p.status === 'PAID' ? (
           <div className="text-right">
-            <p className="text-text-muted">{dateOnly(p.paidAt)}</p>
+            <p className="text-caption text-text-secondary">Paid {dateOnly(p.paidAt)}</p>
             {/* The reference is what reconciles this row to a bank statement. */}
             {p.paidReference ? (
               <p className="text-caption text-text-muted">{p.paidReference}</p>
@@ -178,49 +186,65 @@ export default function AdminPayouts() {
   ];
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <PageHeader title="Payouts" description="Organizer settlements across the platform." />
 
+      <Card
+        title="Payouts"
+        action={<Badge tone="neutral">{filtered.length.toLocaleString()} matching</Badge>}
+      >
+        <div className="mb-4 grid gap-3 sm:grid-cols-[1fr_220px]">
+          <SearchInput
+            value={q}
+            onChange={(v) => {
+              setQ(v);
+              setPage(1);
+            }}
+            placeholder="Search organizer…"
+          />
+          <Select
+            aria-label="Status filter"
+            value={status}
+            onChange={(e) => {
+              setStatus(e.target.value);
+              setPage(1);
+            }}
+          >
+            <option value="">Every status</option>
+            {STATUSES.map((s) => (
+              <option key={s} value={s}>
+                {moneyStatusLabel('payout', s)}
+              </option>
+            ))}
+          </Select>
+        </div>
+        <DataTable
+          caption="Payouts"
+          density="compact"
+          mobile="cards"
+          columns={columns}
+          rows={rows}
+          loading={isLoading}
+          error={isError ? "We couldn't load this. Please try again." : undefined}
+          onRetry={() => refetch()}
+          empty={<EmptyState title="No payouts match these filters" />}
+          rowKey={(p) => p.id}
+        />
+        {!isLoading && !isError && totalPages > 1 && (
+          <div className="mt-4">
+            <Pagination page={page} totalPages={totalPages} onChange={setPage} />
+          </div>
+        )}
+      </Card>
+
+      {/*
+        The payout list leads: it is the work. Terms and bank accounts are the configuration
+        behind it and sit below, still one scroll away, and "Settlement terms" on a row still
+        opens that organizer's terms here.
+      */}
       <SettlementTerms openFor={termsFor} onOpenHandled={() => setTermsFor(null)} />
 
       <BankAccounts />
-      <div className="grid gap-3 sm:grid-cols-[1fr_200px]">
-        <SearchInput
-          value={q}
-          onChange={(v) => {
-            setQ(v);
-            setPage(1);
-          }}
-          placeholder="Search organizer…"
-        />
-        <Select
-          aria-label="Status filter"
-          value={status}
-          onChange={(e) => {
-            setStatus(e.target.value);
-            setPage(1);
-          }}
-        >
-          <option value="">All statuses</option>
-          {STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </Select>
-      </div>
-      <DataTable
-        columns={columns}
-        rows={rows}
-        loading={isLoading}
-        error={isError ? "We couldn't load this. Please try again." : undefined}
-        onRetry={() => refetch()}
-        empty={<EmptyState title="No payouts match these filters" />}
-        rowKey={(p) => p.id}
-      />
-      {!isLoading && !isError && (
-        <Pagination page={page} totalPages={totalPages} onChange={setPage} />
-      )}
 
       <Dialog
         open={!!confirm}

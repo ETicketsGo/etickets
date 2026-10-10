@@ -24,9 +24,22 @@ export class AdminService {
       status?: string;
       q?: string;
       country?: string;
-    } & GroupScope,
+    } & GroupScope &
+      ListFilters,
   ) {
     const country = countryWhere('bookings', params.country);
+    const created = dayRangeWhere(params.from, params.to);
+    /*
+      The organizer, event and day window the money queues already filter by. Read-only narrowing
+      of which bookings are listed - the same columns the grouped summary filters on (see
+      `FILTERS` in the grouping service), so the summary above the list still adds up to it.
+    */
+    const narrowing = allOf(
+      country,
+      params.organizationId ? { organizationId: params.organizationId } : null,
+      params.eventId ? { eventId: params.eventId } : null,
+      created ? { createdAt: created } : null,
+    );
     const where = {
       /*
         The group scope is spread FIRST and the search after it, because both can produce a
@@ -46,7 +59,7 @@ export class AdminService {
           }
         : {}),
       // In `AND`, not spread: the group scope can also name `event`, and one must not erase the other.
-      ...(country ? { AND: [country] } : {}),
+      ...(narrowing.length > 0 ? { AND: narrowing } : {}),
     };
     const [total, rows] = await this.prisma.$transaction([
       this.prisma.booking.count({ where }),
