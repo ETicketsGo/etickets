@@ -3,6 +3,7 @@
 import { useEffect, useRef, type KeyboardEvent } from 'react';
 import {
   capItems,
+  displayStatus,
   focusTarget,
   formatDayLong,
   type DayKey,
@@ -10,9 +11,12 @@ import {
   type WeekStart,
 } from '@/lib/calendar';
 import { SessionChip, type OpenSession } from './session-chip';
+import { statusDot } from './status-style';
 
 /** Chips drawn in one day cell before "+N more"; a busy cinema day can hold forty shows. */
 export const MONTH_CELL_CAP = 3;
+/** Dots under a day on a phone, where a cell is too narrow for a title. */
+const DOT_CAP = 4;
 
 const WEEKDAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -24,6 +28,11 @@ const WEEKDAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
  * through `onFocusDay`, which the page answers by moving the anchor. Enter on a day opens its
  * first session; Tab from the focused day reaches the rest of that day's sessions. Chips in
  * other cells stay out of the tab order, or a month would be several hundred tab stops.
+ *
+ * ONE grid at every width. On a phone a cell shows its date and a dot per session (the
+ * reference's calendar card) and the day panel below lists the chosen day; from `sm` up the
+ * same cells show chips. Two grids swapped by breakpoint would mark today twice in the DOM,
+ * and `aria-current="date"` must name exactly one cell.
  */
 export function MonthView({
   weeks,
@@ -81,18 +90,13 @@ export function MonthView({
   const names = Array.from({ length: 7 }, (_, i) => WEEKDAY_NAMES[(i + weekStart) % 7]);
 
   return (
-    <div
-      ref={gridRef}
-      role="grid"
-      aria-label="Month"
-      className="overflow-hidden rounded-lg border border-border bg-background-surface"
-    >
-      <div role="row" className="grid grid-cols-7 border-b border-border bg-background-subtle">
+    <div ref={gridRef} role="grid" aria-label="Month" className="min-w-0">
+      <div role="row" className="grid grid-cols-7 border-b border-border">
         {names.map((n) => (
           <div
             key={n}
             role="columnheader"
-            className="px-1 py-2 text-center text-caption font-medium text-text-secondary sm:px-2 sm:text-left"
+            className="px-1 pb-2 text-center text-micro font-semibold uppercase tracking-wide text-text-muted sm:px-2 sm:text-left"
           >
             {n}
           </div>
@@ -127,25 +131,41 @@ export function MonthView({
                 onFocus={(e) => {
                   if (e.target === e.currentTarget && !isFocused) onFocusDay(day, false);
                 }}
-                className={`min-h-[5.5rem] min-w-0 border-r border-border p-1 last:border-r-0 focus-visible:relative focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:min-h-[7.5rem] sm:p-1.5 ${
-                  inMonth ? '' : 'bg-background-canvas'
+                className={`min-h-[3.5rem] min-w-0 cursor-pointer border-r border-border p-1 transition-colors duration-150 last:border-r-0 focus-visible:relative focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:min-h-[7.25rem] sm:cursor-default sm:p-1.5 ${
+                  isFocused ? 'bg-background-subtle' : inMonth ? '' : 'bg-background-canvas/60'
                 }`}
               >
-                <div className="mb-1 flex items-center justify-between">
+                <div className="mb-1 flex justify-center sm:justify-start">
                   <span
                     aria-hidden
-                    className={`inline-flex h-6 min-w-6 items-center justify-center rounded-full px-1 text-caption tabular-nums ${
+                    className={`inline-flex h-7 min-w-7 items-center justify-center rounded-full px-1 text-caption tabular-nums ${
                       isToday
-                        ? 'bg-action-primary font-semibold text-action-primary-foreground'
+                        ? 'bg-tint-primary font-bold text-action-primary ring-2 ring-action-primary'
                         : inMonth
-                          ? 'text-text-primary'
+                          ? 'font-medium text-text-primary'
                           : 'text-text-muted'
                     }`}
                   >
                     {Number(day.slice(8))}
                   </span>
                 </div>
-                <div className="space-y-0.5">
+                {/* Phones: a dot per session, in its status colour, under the date. */}
+                {count > 0 && (
+                  <div aria-hidden className="flex items-center justify-center gap-0.5 sm:hidden">
+                    {segments.slice(0, DOT_CAP).map((seg) => (
+                      <span
+                        key={seg.session.id}
+                        className={`h-1.5 w-1.5 rounded-full ${statusDot(displayStatus(seg.session).status)}`}
+                      />
+                    ))}
+                    {count > DOT_CAP && (
+                      <span className="text-[0.625rem] font-semibold leading-none text-text-muted">
+                        +
+                      </span>
+                    )}
+                  </div>
+                )}
+                <div className="hidden space-y-0.5 sm:block">
                   {shown.map((seg) => (
                     <SessionChip
                       key={seg.session.id}
@@ -158,9 +178,12 @@ export function MonthView({
                     <button
                       type="button"
                       tabIndex={isFocused ? 0 : -1}
-                      onClick={() => onShowDay(day)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onShowDay(day);
+                      }}
                       aria-label={`${hidden} more on ${formatDayLong(day)}. Open the day`}
-                      className="w-full rounded px-1 text-left text-caption font-medium text-action-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      className="w-full rounded-md px-1.5 text-left text-micro font-semibold text-action-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
                       +{hidden} more
                     </button>

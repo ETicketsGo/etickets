@@ -17,6 +17,22 @@ test('organizer logs in and creates + submits an event via the wizard', async ({
   await expect(
     page.getByRole('group', { name: 'Category' }).getByRole('radio', { name: 'Music' }),
   ).toBeChecked();
+  /*
+    Images, as an organizer adds them - two at once, on the first step beside the title. The
+    picker resizes each in the browser before it is ever sent, so a one-pixel PNG goes up as a
+    JPEG, which is what the API is asserted to store. The first is the cover.
+  */
+  const pixel = (name: string) => ({
+    name,
+    mimeType: 'image/png',
+    buffer: Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+      'base64',
+    ),
+  });
+  await page.getByLabel('Event images').setInputFiles([pixel('poster.png'), pixel('venue.png')]);
+  await expect(page.getByRole('img', { name: /^Event image \d of 2/ })).toHaveCount(2);
+  await expect(page.getByRole('img', { name: 'Event image 1 of 2, the cover' })).toBeVisible();
   await page.getByRole('button', { name: 'Continue' }).click();
 
   // Step 2 - where and when: the venue (the first saved one) and the performances, together
@@ -59,23 +75,7 @@ test('organizer logs in and creates + submits an event via the wizard', async ({
     .fill('499');
   await page.getByRole('button', { name: 'Continue' }).click();
 
-  // Step 4 - details
-  /*
-    Images, as an organizer adds them — two at once. The picker resizes each in the browser
-    before it is ever sent, so a one-pixel PNG goes up as a JPEG, which is what the API is
-    asserted to store. The first is the cover.
-  */
-  const pixel = (name: string) => ({
-    name,
-    mimeType: 'image/png',
-    buffer: Buffer.from(
-      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
-      'base64',
-    ),
-  });
-  await page.getByLabel('Event images').setInputFiles([pixel('poster.png'), pixel('venue.png')]);
-  await expect(page.getByRole('img', { name: /^Event image \d of 2/ })).toHaveCount(2);
-  await expect(page.getByRole('img', { name: 'Event image 1 of 2, the cover' })).toBeVisible();
+  // Step 4 - details: nothing required.
   await page.getByRole('button', { name: 'Continue' }).click();
 
   /*

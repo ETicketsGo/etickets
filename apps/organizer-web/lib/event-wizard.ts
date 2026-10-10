@@ -32,6 +32,11 @@ export interface WizardStep {
    * could not tell what was needed to sell from what could wait; this is that line, per step.
    */
   required: string;
+  /**
+   * Two or three short tips for the help panel beside the form. Hints, not instructions: the
+   * form must be completable without reading them, so nothing here is a rule.
+   */
+  tips: readonly string[];
 }
 
 /*
@@ -39,22 +44,36 @@ export interface WizardStep {
 
   Everybody starting an event knows what it is called. Most know where and when. Prices come
   next, because a price only means something once there is a venue (it decides the currency)
-  and a session (a seated room decides the ticket types). Pictures, performers, terms and the
-  refund rule are the things people come back to fill in, so they are last and nothing on that
-  step is required.
+  and a session (a seated room decides the ticket types). Performers, terms and the refund rule
+  are the things people come back to fill in, so they are last and nothing on that step is
+  required.
+
+  The pictures moved to the first step. They were on the last optional one, so the live preview
+  beside the form showed "no image" for the whole flow, and the most visual part of an event was
+  the part most often skipped. They are still optional and still not sent until the end.
 */
 export const WIZARD_STEPS: readonly WizardStep[] = [
   {
     id: 'basics',
     title: 'Basics',
-    intro: 'What the event is called and how buyers will find it.',
-    required: 'Needed: a title and a category.',
+    intro: 'What the event is called, how buyers find it, and its pictures.',
+    required: 'Needed: a title and a category. Pictures are optional.',
+    tips: [
+      'Put the name buyers would search for first: the artist, the show or the team.',
+      'A wide picture works best. The first one is the cover; click it to choose what always shows.',
+      'You can change all of this later from the event page.',
+    ],
   },
   {
     id: 'where',
     title: 'Where and when',
     intro: 'The venue, and each date and time the event happens.',
     required: 'Needed: a venue, and a start and end time for each date.',
+    tips: [
+      "Times are in the venue's time zone, wherever you are typing from.",
+      'A run of dates is still one event. Add each date here.',
+      "The venue's country sets the currency you sell in.",
+    ],
   },
   {
     id: 'tickets',
@@ -62,18 +81,31 @@ export const WIZARD_STEPS: readonly WizardStep[] = [
     intro: 'How people get in, what you sell and for how much.',
     required:
       'Needed: free, paid or reserved seating. Free and paid need at least one ticket with a name and a quantity.',
+    tips: [
+      'Quantity is how many you sell, not how many the venue holds.',
+      'Reserved seating needs a published seat map at the venue. Its seat categories set the prices.',
+      'Free events have no checkout and no fees.',
+    ],
   },
   {
     id: 'details',
     title: 'Details',
-    intro: 'Pictures, age limit, performers, terms and refunds. You can change all of these later.',
+    intro: 'What buyers should know, and your refund rule. You can change all of these later.',
     required: 'Nothing here is required.',
+    tips: [
+      'Buyers see the age limit and terms before they pay.',
+      'Turning refunds off hides the refund button. Your team can still refund by hand.',
+    ],
   },
   {
     id: 'review',
     title: 'Review',
     intro: 'Check what buyers will see, then create the event.',
     required: 'Nothing is created until you press one of the buttons at the end.',
+    tips: [
+      'A draft is only visible to your team. Nothing is sold.',
+      'Submitting never publishes on its own unless an administrator set your organization to publish without review.',
+    ],
   },
 ];
 
