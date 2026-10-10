@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import {
   TIME_OPTIONS,
   addDays,
@@ -78,6 +78,15 @@ export function DateTimeField({
   const timeId = `${id}-time`;
   const exactId = `${id}-exact`;
   const described = describe(value);
+  /*
+    The exact hour-and-minute box is the escape hatch for 7:15 doors, not a third control every
+    date carries. Shown beside every date it read as a broken duplicate of the list - and at
+    7rem wide the browser clipped it to "07:00 P". Now it appears when the saved time is not on
+    the half-hour list (so that time is never hidden), or when "Other time" is pressed.
+  */
+  const offList = Boolean(time) && !TIME_OPTIONS.some((o) => o.value === time);
+  const [exactOpen, setExactOpen] = useState(false);
+  const showExact = offList || exactOpen;
 
   const shortcuts = useMemo(() => {
     if (relativeTo) {
@@ -160,25 +169,25 @@ export function DateTimeField({
             </option>
           ))}
         </select>
-        <input
-          id={exactId}
-          type="time"
-          aria-label="Or enter hour and minute"
-          value={time}
-          disabled={disabled}
-          onChange={(e) => onChange(join(date, e.target.value))}
-          className={`${inputClass} w-[7rem]`}
-          // The escape hatch for 7:15 doors. Kept beside the list rather than behind a
-          // toggle: an organizer who needs it should not have to discover a mode.
-          //
-          // Not "Exact time": a search for the control called "Time" - by a screen reader's
-          // find, or a test asking by label - matched both, and the half-hour list is the one
-          // people mean. Found by a usability script that could only reach the list by
-          // adding `exact: true`.
-        />
+        {showExact ? (
+          <input
+            id={exactId}
+            type="time"
+            aria-label="Or enter hour and minute"
+            value={time}
+            disabled={disabled}
+            onChange={(e) => onChange(join(date, e.target.value))}
+            /*
+              Wide enough for "07:00 PM" plus the browser's clock icon at any font: 10rem, and
+              never squeezed by its neighbours. Not "Exact time": a search for the control
+              called "Time" would match both.
+            */
+            className={`${inputClass} w-40 shrink-0`}
+          />
+        ) : null}
       </div>
 
-      {shortcuts.length > 0 && !disabled ? (
+      {(shortcuts.length > 0 || !offList) && !disabled ? (
         <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
           {relativeTo ? <span className="text-caption text-text-muted">Runs for</span> : null}
           {shortcuts.map((s) => (
@@ -191,6 +200,17 @@ export function DateTimeField({
               {s.label}
             </button>
           ))}
+          {!offList ? (
+            <button
+              type="button"
+              aria-expanded={exactOpen}
+              aria-controls={exactOpen ? exactId : undefined}
+              onClick={() => setExactOpen((open) => !open)}
+              className="rounded px-1 text-caption font-medium text-action-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            >
+              Other time
+            </button>
+          ) : null}
         </div>
       ) : null}
 

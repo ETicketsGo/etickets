@@ -1,4 +1,4 @@
-import { test, expect, type APIRequestContext } from '@playwright/test';
+import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
 import { API, ORGANIZER, apiLogin, seedBrowserAuth } from './helpers';
 
 /**
@@ -28,7 +28,8 @@ async function roomWithSeats(request: APIRequestContext, accessToken: string) {
   const venues = await (
     await request.get(`${API}/venues?organizationId=${organizationId}`, { headers: auth })
   ).json();
-  const venueId = (Array.isArray(venues) ? venues : venues.data)[0].id;
+  const venue = (Array.isArray(venues) ? venues : venues.data)[0];
+  const venueId = venue.id;
 
   const cinema = await (
     await request.post(`${API}/cinemas`, {
@@ -73,6 +74,7 @@ async function roomWithSeats(request: APIRequestContext, accessToken: string) {
   return {
     organizationId,
     venueId,
+    venueName: venue.name as string,
     roomName: `Wizard Room ${stamp}`,
     screenId: screen.id,
     layoutId: map.id as string,
@@ -103,20 +105,7 @@ test.describe('creating an event with assigned seating', () => {
     request,
   }) => {
     await page.goto(`${ORGANIZER}/organizer/events/new`, { waitUntil: 'networkidle' });
-
-    await page.getByLabel('Event title').fill(`Wizard Seated ${Date.now()}`);
-    await page.getByRole('radio', { name: 'Music' }).check();
-    // `exact` because the Next.js dev-tools button in the corner also matches "Next".
-    await page.getByRole('button', { name: 'Next', exact: true }).click();
-    // Venue and sessions are one "Where and when" step.
-    await page.getByLabel('Venue').selectOption(room.venueId);
-
-    await page.locator('#ss0').fill(dayAfter(120));
-    await page.locator('#ss0-time').selectOption('18:00');
-    await page.locator('#se0').fill(dayAfter(120));
-    await page.locator('#se0-time').selectOption('20:00');
-
-    await page.getByRole('button', { name: 'Next', exact: true }).click();
+    await whereAndWhen(page, `Wizard Seated ${Date.now()}`, room.venueName, 120);
 
     /*
       The control the complaint was about, now one of the three answers to "How do people get
@@ -138,13 +127,13 @@ test.describe('creating an event with assigned seating', () => {
     await expect(page.getByText('Ticket types come from the seat map')).toBeVisible();
     await expect(page.locator('#tn0')).toHaveCount(0);
 
-    await page.getByRole('button', { name: 'Next', exact: true }).click(); // image and details - nothing required
-    await page.getByRole('button', { name: 'Next', exact: true }).click(); // review
+    await page.getByRole('button', { name: 'Continue' }).click(); // details - nothing required
+    await page.getByRole('button', { name: 'Continue' }).click(); // review
 
     // Named, not counted: booking a run into the wrong auditorium is what this page catches.
-    await expect(page.getByText(`Assigned seats — ${room.roomName}`)).toBeVisible();
+    await expect(page.getByText(`Assigned seats: ${room.roomName}`)).toBeVisible();
 
-    await page.getByRole('button', { name: 'Save draft' }).click();
+    await page.getByRole('button', { name: 'Create draft event' }).click();
     // `[^/]+` alone also matches /organizer/events/NEW, so it would pass without a redirect.
     await expect(page).toHaveURL(/\/organizer\/events\/(?!new$)[^/]+$/, { timeout: 30_000 });
 
@@ -173,17 +162,7 @@ test.describe('creating an event with assigned seating', () => {
     // The half that proves the change is additive: the wizard an organizer already knows must
     // behave exactly as it did when they do not touch the new control.
     await page.goto(`${ORGANIZER}/organizer/events/new`, { waitUntil: 'networkidle' });
-
-    await page.getByLabel('Event title').fill(`Wizard Standing ${Date.now()}`);
-    await page.getByRole('radio', { name: 'Music' }).check();
-    await page.getByRole('button', { name: 'Next', exact: true }).click();
-    // Venue and sessions are one "Where and when" step.
-    await page.getByLabel('Venue').selectOption(room.venueId);
-    await page.locator('#ss0').fill(dayAfter(121));
-    await page.locator('#ss0-time').selectOption('18:00');
-    await page.locator('#se0').fill(dayAfter(121));
-    await page.locator('#se0-time').selectOption('20:00');
-    await page.getByRole('button', { name: 'Next', exact: true }).click();
+    await whereAndWhen(page, `Wizard Standing ${Date.now()}`, room.venueName, 121);
 
     // Nothing about tickets is asked until the organizer says how people get in.
     await expect(page.locator('#tn0')).toHaveCount(0);
@@ -233,6 +212,27 @@ test.describe('creating an event with assigned seating', () => {
     await expect(cell).toContainText('Reserved seating');
   });
 });
+
+/**
+ * A concert, through the first two steps to the tickets, by visible labels only: the venue is
+ * found by searching its name, and the time is set with the "+2h" shortcut.
+ */
+async function whereAndWhen(page: Page, title: string, venueName: string, days: number) {
+  await page.getByRole('radio', { name: 'Concert or live music' }).check();
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByLabel('Event title').fill(title);
+  await page.getByRole('button', { name: 'Continue' }).click();
+  const search = page.getByLabel('Search your venues');
+  if (await search.isVisible()) await search.fill(venueName);
+  await page.getByRole('radio', { name: venueName, exact: true }).check();
+  const start = page
+    .getByRole('group', { name: 'Performance 1' })
+    .getByRole('group', { name: 'Starts at' });
+  await start.getByLabel('Date').fill(dayAfter(days));
+  await start.getByLabel('Time').selectOption('18:00');
+  await page.getByRole('button', { name: '+2h' }).click();
+  await page.getByRole('button', { name: 'Continue' }).click();
+}
 
 function dayAfter(n: number): string {
   const d = new Date();
