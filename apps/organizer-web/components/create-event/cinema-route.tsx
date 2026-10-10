@@ -2,8 +2,16 @@
 
 import { useEffect, useRef } from 'react';
 import { useQueries, useQuery } from '@tanstack/react-query';
-import { api, ButtonLink, Skeleton } from '@eticketsgo/web-kit';
-import { CircleAlert, CircleCheck, CircleDashed } from 'lucide-react';
+import {
+  api,
+  ButtonLink,
+  SellingPill,
+  Skeleton,
+  StatusPill,
+  tileClasses,
+} from '@eticketsgo/web-kit';
+import { ArrowRight, Clapperboard } from 'lucide-react';
+import { ExperienceArt } from './experience-art';
 
 /** How many cinemas are asked about. Each answer is one request; an operator with more uses Movies. */
 const MAX_CINEMAS = 6;
@@ -51,16 +59,28 @@ export function CinemaRoute({ organizationId }: { organizationId: string }) {
     <section
       ref={ref}
       aria-labelledby="cinema-route-title"
-      className="space-y-4 rounded-lg border border-border bg-background-surface p-4 sm:p-5"
+      className="space-y-5 overflow-hidden rounded-lg border border-border bg-background-surface p-4 shadow-xs sm:p-6"
     >
-      <div>
-        <h2 id="cinema-route-title" className="text-title font-semibold text-text-primary">
-          Films are scheduled in Movies
-        </h2>
-        <p className="mt-1 text-caption text-text-muted">
-          Movie screenings use the cinema workflow, so showtimes, screens and seat layouts stay in
-          one place. It takes four steps:
-        </p>
+      <div className="flex items-start gap-4">
+        <span
+          aria-hidden="true"
+          className={`relative hidden h-16 w-28 shrink-0 overflow-hidden rounded-md sm:block ${tileClasses('blue')}`}
+        >
+          <ExperienceArt id="movie" className="absolute inset-0 h-full w-full" />
+        </span>
+        <div>
+          <h2
+            id="cinema-route-title"
+            className="flex items-center gap-2 font-display text-title font-bold text-text-primary"
+          >
+            <Clapperboard aria-hidden="true" className="h-5 w-5 text-text-muted sm:hidden" />
+            Films are scheduled in Movies
+          </h2>
+          <p className="mt-1 text-caption text-text-secondary">
+            Movie screenings use the cinema workflow, so showtimes, screens and seat layouts stay in
+            one place. It takes four steps:
+          </p>
+        </div>
       </div>
       <ol className="grid gap-2 sm:grid-cols-2">
         {[
@@ -69,10 +89,10 @@ export function CinemaRoute({ organizationId }: { organizationId: string }) {
           ['Add showtimes', 'One or many, in the cinema time zone.'],
           ['Check the seat layout', 'Seat categories and their prices.'],
         ].map(([title, line], i) => (
-          <li key={title} className="flex gap-3 rounded-md border border-border p-3">
+          <li key={title} className="flex gap-3 rounded-lg border border-border p-3">
             <span
               aria-hidden="true"
-              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-background-subtle text-caption font-semibold tabular-nums text-text-secondary"
+              className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-caption font-bold tabular-nums ${tileClasses('blue')}`}
             >
               {i + 1}
             </span>
@@ -98,40 +118,45 @@ export function CinemaRoute({ organizationId }: { organizationId: string }) {
             allowed where it is, before you schedule anything.
           </p>
         ) : (
-          <ul className="mt-2 space-y-2">
+          <ul className="mt-2 divide-y divide-border">
             {cinemas.map((cinema, i) => {
               const q = readiness[i];
               const sales = q?.data?.sections.find((s) => s.section === 'SALES')?.checks ?? [];
               const blocked = sales.filter((c) => c.level === 'BLOCKED');
               const open = sales.some((c) => c.code === 'SALES_OPEN');
+              /*
+                The server's words, in the console's selling vocabulary. "Selling" only when the
+                cinema's own report says sales are open and nothing blocks them.
+              */
               return (
-                <li key={cinema.id} className="flex gap-2 text-sm">
-                  {q?.isLoading ? (
-                    <CircleDashed aria-hidden="true" className="mt-0.5 h-4 w-4 text-text-muted" />
-                  ) : blocked.length > 0 ? (
-                    <CircleAlert aria-hidden="true" className="mt-0.5 h-4 w-4 text-status-error" />
-                  ) : open ? (
-                    <CircleCheck
-                      aria-hidden="true"
-                      className="mt-0.5 h-4 w-4 text-status-success"
-                    />
-                  ) : (
-                    <CircleDashed aria-hidden="true" className="mt-0.5 h-4 w-4 text-text-muted" />
-                  )}
-                  <span className="min-w-0">
-                    <span className="font-medium text-text-primary">{cinema.name}: </span>
-                    <span className="text-text-secondary">
-                      {q?.isLoading
-                        ? 'Checking...'
-                        : q?.isError
-                          ? 'Could not check. Open the cinema in Movies to see it.'
-                          : blocked.length > 0
-                            ? `Not selling: ${blocked.map((b) => b.message).join(' ')}`
-                            : open
-                              ? 'Selling'
-                              : 'No upcoming shows to check yet.'}
-                    </span>
+                <li
+                  key={cinema.id}
+                  className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 py-2 text-sm"
+                >
+                  <span className="min-w-0 break-words font-medium text-text-primary">
+                    {cinema.name}
                   </span>
+                  {q?.isLoading ? (
+                    <StatusPill tone="neutral" size="sm">
+                      Checking...
+                    </StatusPill>
+                  ) : q?.isError ? (
+                    <span className="text-caption text-text-muted">
+                      Could not check. Open the cinema in Movies to see it.
+                    </span>
+                  ) : blocked.length > 0 ? (
+                    <SellingPill
+                      state="not"
+                      reason={blocked.map((b) => b.message).join(' ')}
+                      size="sm"
+                    />
+                  ) : open ? (
+                    <SellingPill state="selling" size="sm" />
+                  ) : (
+                    <StatusPill tone="neutral" size="sm">
+                      No upcoming shows to check yet
+                    </StatusPill>
+                  )}
                 </li>
               );
             })}
@@ -140,7 +165,9 @@ export function CinemaRoute({ organizationId }: { organizationId: string }) {
       </div>
 
       <div className="flex flex-wrap gap-2">
-        <ButtonLink href="/organizer/movies/new">Add a film</ButtonLink>
+        <ButtonLink href="/organizer/movies/new">
+          Add a film <ArrowRight aria-hidden="true" className="h-4 w-4" />
+        </ButtonLink>
         <ButtonLink href="/organizer/movies" variant="outline">
           Go to Movies
         </ButtonLink>

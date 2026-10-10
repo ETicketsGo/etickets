@@ -7,19 +7,42 @@ import {
   ArrowLeft,
   ArrowRight,
   Armchair,
+  CalendarClock,
   CircleAlert,
   CircleCheck,
+  CircleDashed,
+  ClipboardCheck,
+  FilePen,
   Gift,
+  ImagePlus,
+  Info,
+  Lightbulb,
+  MapPin,
   Plus,
   Save,
+  Send,
+  ShieldCheck,
+  Sparkles,
   Ticket,
   Trash2,
+  Undo2,
+  type LucideIcon,
 } from 'lucide-react';
 import {
   api,
   addDays,
   Button,
   Dialog,
+  EVENT_IMAGE_ASPECT,
+  FOCUS_RING,
+  focalObjectPosition,
+  gradientFor,
+  IconButton,
+  IconTile,
+  LifecyclePill,
+  SetupPill,
+  tileClasses,
+  type TileTone,
   Input,
   Select,
   Textarea,
@@ -72,6 +95,7 @@ import {
   type SessionDraft,
   type TicketDraft,
   type WizardDraft,
+  type WizardStepId,
 } from '@/lib/event-wizard';
 import {
   EMPTY_EVENT_DETAILS,
@@ -105,6 +129,20 @@ import {
 } from '@/components/image-upload-status';
 import { summarize } from '@/lib/image-uploads';
 import { CoverFocus } from '@/components/create-event/cover-focus';
+import { ExperienceArt } from '@/components/create-event/experience-art';
+import { HowItWorks } from '@/components/create-event/how-it-works';
+
+/*
+  Each step's tile in the console's pastel set: the same colour on its heading, in the
+  checklist beside the form and on Review, so "the blue one" is where the venue is.
+*/
+const STEP_LOOK: Record<WizardStepId, { icon: LucideIcon; tone: TileTone }> = {
+  basics: { icon: Sparkles, tone: 'teal' },
+  where: { icon: MapPin, tone: 'blue' },
+  tickets: { icon: Ticket, tone: 'purple' },
+  details: { icon: Info, tone: 'amber' },
+  review: { icon: ClipboardCheck, tone: 'teal' },
+};
 
 /*
   ── START FROM WHAT THEY ARE ORGANIZING, THEN ADAPT ────────────────────────────────
@@ -122,6 +160,19 @@ import { CoverFocus } from '@/components/create-event/cover-focus';
   - Every step has Save draft, and the draft is also saved on every change, as before.
   - Problems are pointed out when a field is left or Continue is pressed, not listed before
     the organizer has typed anything.
+
+  The premium pass (owner: "creation is still a major usability problem"), on the shared
+  console design system:
+  - The seven choices are illustrated cards on the console's pastel tiles, with "How it works"
+    beside them, so the first screen says what the whole flow is before anything is typed.
+  - The pictures moved to Basics: the preview showed "no image" for the entire flow while they
+    sat on the last optional step.
+  - Each step is one card led by its own coloured tile. The side panel holds the buyer's card or
+    event page (behind two tabs, drawn as the storefront really draws them), the setup
+    checklist in the console's words ("Setup complete" / "<n> things to set up") and two or
+    three tips for the step - small hints instead of paragraphs in the form.
+  - Review opens with the event at a glance and ends with what each button does, with the same
+    lifecycle pills as the events list.
 
   What is SENT is unchanged: the same venue, event, session, ticket type, image and submit
   calls, in the same order, with the same values. The rules for each step are in
@@ -900,9 +951,9 @@ function NewEventWizard() {
         focal: focal[cover.key] ?? CENTRE_FOCAL_POINT,
       }
     : null;
-  const preview = (
+  const preview = (id: string) => (
     <BuyerPreview
-      icon={experience?.icon ?? Ticket}
+      id={id}
       title={basics.title || 'Your event title'}
       category={basics.category}
       image={previewImage}
@@ -929,11 +980,13 @@ function NewEventWizard() {
 
   /* ── THE FIRST SCREEN: WHAT ARE YOU ORGANIZING? ───────────────────────────────── */
   if (!inFlow) {
+    const pickedExp = getExperience(picked);
     return (
-      <div className="mx-auto max-w-5xl pb-28">
+      <div className="mx-auto max-w-[76rem] pb-6">
         <PageHeader
           title="Create your event"
-          description="Pick the kind of event. We only ask what that kind of event needs, and you can change it later."
+          eyebrow="New event"
+          description="Start with the kind of event. We only ask what it needs, and you can change it later."
           breadcrumbs={[{ label: 'Events', href: '/organizer/events' }, { label: 'New' }]}
         />
         <div className="space-y-5">
@@ -943,6 +996,7 @@ function NewEventWizard() {
               setPicked(id);
               setPickError(false);
             }}
+            aside={<HowItWorks publishes={happens.submitStatus === 'Published'} />}
           />
           {pickError ? (
             <p role="alert" className="text-caption text-status-error">
@@ -953,11 +1007,22 @@ function NewEventWizard() {
         </div>
         {picked !== 'movie' ? (
           <ActionBar>
-            <span className="hidden text-caption text-text-muted sm:block">
-              {picked
-                ? `Next: the basics of your ${getExperience(picked)?.label.toLowerCase()}.`
-                : 'Choose one to continue.'}
-            </span>
+            {pickedExp ? (
+              <span className="flex min-w-0 items-center gap-2.5 text-caption text-text-secondary">
+                <span
+                  aria-hidden="true"
+                  className={`relative hidden h-9 w-14 shrink-0 overflow-hidden rounded-md min-[400px]:block ${tileClasses(pickedExp.tone)}`}
+                >
+                  <ExperienceArt id={pickedExp.id} className="absolute inset-0 h-full w-full" />
+                </span>
+                <span className="min-w-0">
+                  <span className="block font-semibold text-text-primary">{pickedExp.label}</span>
+                  <span className="hidden sm:block">Next: title, category and pictures.</span>
+                </span>
+              </span>
+            ) : (
+              <span className="text-caption text-text-muted">Choose one to continue.</span>
+            )}
             <Button onClick={() => startExperience(picked)} className="ml-auto">
               Continue{' '}
               <ArrowRight aria-hidden="true" className="hidden h-4 w-4 min-[360px]:inline" />
@@ -969,7 +1034,6 @@ function NewEventWizard() {
   }
 
   const exp = experience!;
-  const ExpIcon = exp.icon;
   const intro =
     current.id === 'where'
       ? `The venue, and the date and time of each ${nouns.session.toLowerCase()}.`
@@ -977,8 +1041,10 @@ function NewEventWizard() {
         ? 'How people register: free, paid passes, or reserved seats.'
         : current.intro;
 
+  const look = STEP_LOOK[current.id];
+
   return (
-    <div className="mx-auto max-w-6xl pb-6">
+    <div className="mx-auto max-w-[76rem] pb-6">
       <PageHeader
         title="Create event"
         eyebrow={exp.label}
@@ -986,7 +1052,7 @@ function NewEventWizard() {
         action={saveStatus}
       />
 
-      <div className="xl:grid xl:grid-cols-[minmax(0,44rem)_20rem] xl:items-start xl:justify-center xl:gap-8">
+      <div className="xl:grid xl:grid-cols-[minmax(0,45rem)_minmax(18rem,21rem)] xl:items-start xl:justify-between xl:gap-8">
         <div className="min-w-0 space-y-5">
           <CreateSteps
             steps={stepTitles}
@@ -1023,19 +1089,31 @@ function NewEventWizard() {
 
           <section
             aria-labelledby="step-heading"
-            className="rounded-lg border border-border bg-background-surface p-4 sm:p-6"
+            className="rounded-lg border border-border bg-background-surface p-4 shadow-xs sm:p-6"
           >
-            <div className="mb-5">
-              <h2
-                id="step-heading"
-                ref={headingRef}
-                tabIndex={-1}
-                className="text-xl font-semibold tracking-tight text-text-primary focus:outline-none"
-              >
-                {current.title}
-              </h2>
-              <p className="mt-1 text-sm text-text-secondary">{intro}</p>
-              <p className="mt-1 text-caption text-text-muted">{current.required}</p>
+            <div className="mb-6 border-b border-border pb-5">
+              <div className="flex items-start gap-3 sm:gap-4">
+                <IconTile icon={look.icon} tone={look.tone} size="lg" />
+                <div className="min-w-0">
+                  {/* The compact indicator above already says this on a phone. */}
+                  <p className="hidden text-micro font-semibold uppercase tracking-[0.08em] text-text-muted md:block">
+                    Step {step + 1} of {stepTitles.length}
+                  </p>
+                  <h2
+                    id="step-heading"
+                    ref={headingRef}
+                    tabIndex={-1}
+                    className="font-display text-title font-bold tracking-tight text-text-primary focus:outline-none sm:text-headline"
+                  >
+                    {current.title}
+                  </h2>
+                  <p className="mt-0.5 text-ui text-text-secondary">{intro}</p>
+                </div>
+              </div>
+              <p className="mt-3 flex items-start gap-1.5 text-caption text-text-muted">
+                <Info aria-hidden="true" className="mt-px h-3.5 w-3.5 shrink-0" />
+                {current.required}
+              </p>
               {/*
                 What is wrong, in one list, after Continue was refused. Not before: listing
                 "Title must be at least 3 characters" over an empty form told a new organizer
@@ -1062,12 +1140,20 @@ function NewEventWizard() {
 
             {current.id === 'basics' && (
               <div className="space-y-5">
-                <div className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-background-subtle px-3 py-2">
-                  <span className="inline-flex items-center gap-2 text-sm text-text-primary">
-                    <ExpIcon aria-hidden="true" className="h-4 w-4 text-action-primary" />
-                    <span>
-                      <span className="sr-only">Kind of event: </span>
-                      {exp.label}
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-background-subtle p-2 pr-3">
+                  <span className="inline-flex min-w-0 items-center gap-3 text-ui text-text-primary">
+                    <span
+                      aria-hidden="true"
+                      className={`relative h-10 w-16 shrink-0 overflow-hidden rounded-md ${tileClasses(exp.tone)}`}
+                    >
+                      <ExperienceArt id={exp.id} className="absolute inset-0 h-full w-full" />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-micro font-medium uppercase tracking-[0.08em] text-text-muted">
+                        Kind of event
+                      </span>
+                      <span className="sr-only">: </span>
+                      <span className="font-semibold">{exp.label}</span>
                     </span>
                   </span>
                   <Button
@@ -1176,16 +1262,76 @@ function NewEventWizard() {
                   value={basics.description}
                   onChange={(e) => setBasics({ ...basics, description: e.target.value })}
                 />
+
+                {/*
+                  ── THE PICTURES, ON THE FIRST STEP ──────────────────────────────────────
+                  Held here, already resized, until the event exists; sent at the end by the
+                  image outbox (see commit). The first is the cover, and its focus point is
+                  chosen right below it, against the two crops buyers will see.
+                */}
+                <section
+                  aria-labelledby="basics-images"
+                  className="space-y-4 border-t border-border pt-5"
+                >
+                  <div className="flex items-start gap-3">
+                    <IconTile icon={ImagePlus} tone="blue" size="sm" />
+                    <div>
+                      <h3 id="basics-images" className="text-ui font-semibold text-text-primary">
+                        Cover and pictures
+                      </h3>
+                      <p className="text-caption text-text-muted">
+                        Optional, and the quickest way to make the event look real.
+                      </p>
+                    </div>
+                  </div>
+                  <EventGalleryEditor
+                    tiles={images.map((image) => ({ key: image.key, url: image.url }))}
+                    busy={preparingImages}
+                    error={imageError}
+                    note={
+                      restoredAt !== null && images.length === 0
+                        ? 'Images are not kept in a saved draft. Add them again if you had some.'
+                        : null
+                    }
+                    onAdd={(files) => void addImages(files)}
+                    onRemove={(key) =>
+                      setImages((current) => {
+                        const gone = current.find((image) => image.key === key);
+                        if (gone) URL.revokeObjectURL(gone.url);
+                        return current.filter((image) => image.key !== key);
+                      })
+                    }
+                    onReorder={(keys) =>
+                      setImages((current) =>
+                        keys
+                          .map((key) => current.find((image) => image.key === key))
+                          .filter((image): image is WizardImage => Boolean(image)),
+                      )
+                    }
+                  />
+                  {cover && cover.width > 0 ? (
+                    <CoverFocus
+                      url={cover.url}
+                      width={cover.width}
+                      height={cover.height}
+                      value={focal[cover.key] ?? CENTRE_FOCAL_POINT}
+                      onChange={(point) => setFocal((f) => ({ ...f, [cover.key]: point }))}
+                    />
+                  ) : null}
+                </section>
               </div>
             )}
 
             {current.id === 'where' && (
               <div className="space-y-6">
                 <section aria-labelledby="where-venue" className="space-y-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <h3 id="where-venue" className="text-sm font-semibold text-text-primary">
-                      Where
-                    </h3>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <IconTile icon={MapPin} tone="blue" size="sm" />
+                      <h3 id="where-venue" className="text-ui font-semibold text-text-primary">
+                        Where
+                      </h3>
+                    </div>
                     <div
                       role="radiogroup"
                       aria-label="Venue source"
@@ -1289,10 +1435,16 @@ function NewEventWizard() {
                   )}
                 </section>
 
-                <section aria-labelledby="where-when" className="space-y-3">
-                  <h3 id="where-when" className="text-sm font-semibold text-text-primary">
-                    When
-                  </h3>
+                <section
+                  aria-labelledby="where-when"
+                  className="space-y-3 border-t border-border pt-6"
+                >
+                  <div className="flex items-center gap-3">
+                    <IconTile icon={CalendarClock} tone="purple" size="sm" />
+                    <h3 id="where-when" className="text-ui font-semibold text-text-primary">
+                      When
+                    </h3>
+                  </div>
                   <p className="text-caption text-text-muted">
                     {sessions.length === 1
                       ? `One date for now. For a run of dates, add another ${nouns.session.toLowerCase()} below - it is still one event.`
@@ -1300,8 +1452,11 @@ function NewEventWizard() {
                     Times are at the venue.
                   </p>
                   {sessions.map((s, i) => (
-                    <fieldset key={i} className="rounded-md border border-border p-3 sm:p-4">
-                      <legend className="px-1 text-caption font-semibold text-text-secondary">
+                    <fieldset
+                      key={i}
+                      className="rounded-lg border border-border bg-background-canvas/40 p-3 sm:p-4"
+                    >
+                      <legend className="rounded-full border border-border bg-background-surface px-2.5 py-0.5 text-caption font-semibold text-text-primary">
                         {nouns.session} {i + 1}
                       </legend>
                       <div className="grid gap-4 sm:grid-cols-2">
@@ -1406,10 +1561,10 @@ function NewEventWizard() {
                   session and no ticket types at all. Radios underneath: one tab stop.
                 */}
                 <fieldset>
-                  <legend className="mb-2 text-[0.9375rem] font-medium text-text-primary">
+                  <legend className="mb-3 text-ui font-semibold text-text-primary">
                     How do people get in?
                   </legend>
-                  <div className="grid gap-2 sm:grid-cols-3">
+                  <div className="grid gap-3 sm:grid-cols-3">
                     {ADMISSION_CHOICES.map((choice, i) => {
                       const checked = admission === choice.value;
                       const unavailable = choice.value === 'seated' && !seatingAvailable;
@@ -1434,12 +1589,12 @@ function NewEventWizard() {
                       return (
                         <label
                           key={choice.value}
-                          className={`relative flex min-h-11 gap-2.5 rounded-md border px-3 py-2.5 text-sm transition-colors focus-within:ring-2 focus-within:ring-action-primary focus-within:ring-offset-1 ${
+                          className={`relative flex min-h-11 gap-3 rounded-lg border p-3 text-sm transition-[box-shadow,border-color] duration-150 focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 focus-within:ring-offset-background-surface sm:flex-col sm:p-4 ${
                             unavailable
-                              ? 'cursor-not-allowed border-border bg-background-subtle text-text-muted'
+                              ? 'cursor-not-allowed border-dashed border-border bg-background-subtle text-text-muted'
                               : checked
-                                ? 'cursor-pointer border-action-primary bg-tint-primary text-text-primary'
-                                : 'cursor-pointer border-border-input bg-background-surface text-text-secondary hover:bg-background-subtle'
+                                ? 'cursor-pointer border-action-primary bg-background-surface text-text-primary shadow-sm ring-1 ring-action-primary'
+                                : 'cursor-pointer border-border bg-background-surface text-text-secondary hover:border-border-strong hover:shadow-sm'
                           }`}
                         >
                           <input
@@ -1455,12 +1610,30 @@ function NewEventWizard() {
                             aria-describedby={`admission-${choice.value}-hint`}
                             onChange={() => chooseAdmission(choice.value)}
                           />
-                          <Icon
-                            aria-hidden="true"
-                            className={`mt-0.5 h-4 w-4 shrink-0 ${checked ? 'text-action-primary' : ''}`}
+                          <IconTile
+                            icon={Icon}
+                            tone={
+                              unavailable
+                                ? 'neutral'
+                                : choice.value === 'free'
+                                  ? 'teal'
+                                  : choice.value === 'paid'
+                                    ? 'purple'
+                                    : 'blue'
+                            }
+                            size="sm"
                           />
-                          <span className="flex flex-col">
-                            <span id={`admission-${choice.value}`} className="font-medium">
+                          {checked ? (
+                            <CircleCheck
+                              aria-hidden="true"
+                              className="absolute right-3 top-3 h-4 w-4 text-action-primary"
+                            />
+                          ) : null}
+                          <span className="flex flex-col pr-5 sm:pr-0">
+                            <span
+                              id={`admission-${choice.value}`}
+                              className="font-semibold text-text-primary"
+                            >
                               {choice.label}
                             </span>
                             <span
@@ -1590,10 +1763,24 @@ function NewEventWizard() {
                         One group per ticket type, named "Ticket type 2" (or "Pass 2"). Every
                         row has a "Name" and a "Price", and the group tells them apart.
                       */
-                      <fieldset key={i} className="rounded-md border border-border p-3 sm:p-4">
-                        <legend className="px-1 text-caption font-semibold text-text-secondary">
+                      <fieldset
+                        key={i}
+                        className="relative rounded-lg border border-border bg-background-canvas/40 p-3 sm:p-4"
+                      >
+                        <legend className="rounded-full border border-border bg-background-surface px-2.5 py-0.5 text-caption font-semibold text-text-primary">
                           {nouns.ticket} {i + 1}
                         </legend>
+                        {tickets.length > 1 ? (
+                          <div className="absolute -top-1 right-2">
+                            <IconButton
+                              label={`Remove ${nouns.ticket.toLowerCase()} ${i + 1}`}
+                              icon={Trash2}
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setTickets(tickets.filter((_, j) => j !== i))}
+                            />
+                          </div>
+                        ) : null}
                         <div
                           className={`grid grid-cols-2 gap-3 ${isFree ? 'md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)]' : 'md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)]'}`}
                         >
@@ -1681,10 +1868,10 @@ function NewEventWizard() {
                             }
                           />
                         </div>
-                        {(sessions.length > 1 || tickets.length > 1) && (
-                          <div className="mt-3 flex flex-wrap items-end justify-between gap-3">
+                        {sessions.length > 1 && (
+                          <div className="mt-3">
                             {sessions.length > 1 ? (
-                              <div className="min-w-[12rem] flex-1">
+                              <div className="max-w-sm">
                                 <Select
                                   id={`tsi${i}`}
                                   label={`On sale for`}
@@ -1707,20 +1894,7 @@ function NewEventWizard() {
                                   ))}
                                 </Select>
                               </div>
-                            ) : (
-                              <span />
-                            )}
-                            {tickets.length > 1 && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="text-status-error"
-                                onClick={() => setTickets(tickets.filter((_, j) => j !== i))}
-                              >
-                                <Trash2 aria-hidden="true" className="h-4 w-4" />
-                                Remove {nouns.ticket.toLowerCase()} {i + 1}
-                              </Button>
-                            )}
+                            ) : null}
                           </div>
                         )}
                       </fieldset>
@@ -1733,7 +1907,14 @@ function NewEventWizard() {
                       The running total, per session: several ticket types make "how many am I
                       letting in" a sum the organizer would otherwise do in their head.
                     */}
-                    <p role="status" className="text-sm font-medium tabular-nums text-text-primary">
+                    <p
+                      role="status"
+                      className="flex items-start gap-2 rounded-lg bg-background-subtle px-3 py-2.5 text-sm font-medium tabular-nums text-text-primary"
+                    >
+                      <Ticket
+                        aria-hidden="true"
+                        className="mt-0.5 h-4 w-4 shrink-0 text-text-muted"
+                      />
                       {sessions.length === 1
                         ? `Total on sale: ${totals[0].toLocaleString()} ${totals[0] === 1 ? 'place' : 'places'}`
                         : `Total on sale: ${totals
@@ -1788,48 +1969,17 @@ function NewEventWizard() {
 
             {current.id === 'details' && (
               <div className="space-y-5">
-                <EventGalleryEditor
-                  tiles={images.map((image) => ({ key: image.key, url: image.url }))}
-                  busy={preparingImages}
-                  error={imageError}
-                  note={
-                    restoredAt !== null && images.length === 0
-                      ? 'Images are not kept in a saved draft. Add them again if you had some.'
-                      : null
-                  }
-                  onAdd={(files) => void addImages(files)}
-                  onRemove={(key) =>
-                    setImages((current) => {
-                      const gone = current.find((image) => image.key === key);
-                      if (gone) URL.revokeObjectURL(gone.url);
-                      return current.filter((image) => image.key !== key);
-                    })
-                  }
-                  onReorder={(keys) =>
-                    setImages((current) =>
-                      keys
-                        .map((key) => current.find((image) => image.key === key))
-                        .filter((image): image is WizardImage => Boolean(image)),
-                    )
-                  }
-                />
-                {cover && cover.width > 0 ? (
-                  <CoverFocus
-                    url={cover.url}
-                    width={cover.width}
-                    height={cover.height}
-                    value={focal[cover.key] ?? CENTRE_FOCAL_POINT}
-                    onChange={(point) => setFocal((f) => ({ ...f, [cover.key]: point }))}
-                  />
-                ) : null}
                 <EventDetailsFields value={details} onChange={setDetails} />
                 {/*
                   ── THE REFUND RULE, THEN THE PROSE ─────────────────────────────────────
                   The two controls that DECIDE come first (`refundsEnabled`, enforced by the
                   refund path), and the box that describes comes after, labelled as words.
                 */}
-                <fieldset className="space-y-3 rounded-md border border-border p-4">
-                  <legend className="px-1 text-sm font-semibold">Refunds</legend>
+                <fieldset className="space-y-3 rounded-lg border border-border p-4 sm:p-5">
+                  <legend className="flex items-center gap-2 px-1 text-ui font-semibold text-text-primary">
+                    <Undo2 aria-hidden="true" className="h-4 w-4 text-text-muted" />
+                    Refunds
+                  </legend>
                   <label className="flex items-start gap-3">
                     <input
                       id="refunds-enabled"
@@ -1877,6 +2027,57 @@ function NewEventWizard() {
             {current.id === 'review' && (
               <div className="space-y-5 text-sm">
                 {/*
+                  The event in one glance before the detail: its cover as the card will crop
+                  it, its name, when and where, and whether anything is still missing.
+                */}
+                <div className="flex gap-3 rounded-lg border border-border bg-background-subtle p-3 sm:gap-4 sm:p-4">
+                  <div
+                    className={`relative aspect-[4/3] w-24 shrink-0 overflow-hidden rounded-md sm:w-36 ${
+                      previewImage ? '' : `bg-gradient-to-br ${gradientFor(basics.title || 'E')}`
+                    }`}
+                  >
+                    {previewImage ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={previewImage.url}
+                        alt=""
+                        className="absolute inset-0 h-full w-full object-cover"
+                        style={{
+                          objectPosition: focalObjectPosition(
+                            previewImage.width,
+                            previewImage.height,
+                            EVENT_IMAGE_ASPECT.card,
+                            previewImage.focal,
+                          ),
+                        }}
+                      />
+                    ) : (
+                      <span
+                        aria-hidden="true"
+                        className="absolute inset-0 flex items-center justify-center text-3xl font-bold text-text-primary/25"
+                      >
+                        {(basics.title.trim().charAt(0) || 'E').toUpperCase()}
+                      </span>
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="line-clamp-2 break-words font-display text-title font-bold text-text-primary">
+                      {basics.title || 'Untitled event'}
+                    </p>
+                    <p className="mt-1 text-caption text-text-secondary">
+                      <span className="tabular-nums">{previewWhen}</span>
+                    </p>
+                    <p className="line-clamp-1 break-all text-caption text-text-secondary">
+                      {previewWhere}
+                    </p>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <SetupPill missing={thingsToSetUp} />
+                      <span className="text-caption text-text-muted">{previewPrice}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/*
                   ── READY OR NOT, IN ONE LINE ───────────────────────────────────────────
                   "Setup complete" or "<n> things to set up" - the console's words for this
                   everywhere - with each missing thing and a way straight to it. The create
@@ -1914,12 +2115,7 @@ function NewEventWizard() {
                       ))}
                     </ul>
                   </section>
-                ) : (
-                  <p className="flex items-center gap-2 rounded-md border border-status-success/40 bg-tint-success px-4 py-3 font-semibold text-status-success">
-                    <CircleCheck aria-hidden="true" className="h-4 w-4" />
-                    Setup complete
-                  </p>
-                )}
+                ) : null}
 
                 {/*
                   What the SERVER says the organization still needs before anything sells -
@@ -1941,7 +2137,7 @@ function NewEventWizard() {
                         .map((item) => (
                           <li key={item.key} className="text-text-primary">
                             <span className="font-medium">{item.title}.</span>{' '}
-                            <span className="text-text-secondary">{item.consequence}</span>{' '}
+                            <span>{item.consequence}</span>{' '}
                             <a
                               href={item.fixPath}
                               target="_blank"
@@ -1954,7 +2150,8 @@ function NewEventWizard() {
                           </li>
                         ))}
                     </ul>
-                    <p className="mt-2 text-caption text-text-secondary">
+                    {/* Ink, not the secondary grey: grey on the warning tint fails AA in dark mode. */}
+                    <p className="mt-2 text-caption text-text-primary">
                       You can still create the event now.
                     </p>
                   </section>
@@ -1965,13 +2162,18 @@ function NewEventWizard() {
                   <h3 id="review-preview" className="font-semibold text-text-primary">
                     What buyers will see
                   </h3>
-                  <div className="mx-auto max-w-sm">{preview}</div>
+                  <div className="mx-auto max-w-xs">{preview('preview-review')}</div>
                 </section>
 
                 <dl className="divide-y divide-border rounded-md border border-border">
                   <ReviewRow label="Event" onEdit={() => goTo(0)} editLabel="Edit basics">
                     {basics.title || '-'}{' '}
                     <span className="text-text-muted">({basics.category})</span>
+                  </ReviewRow>
+                  <ReviewRow label="Pictures" onEdit={() => goTo(0)} editLabel="Edit pictures">
+                    {images.length === 0
+                      ? 'No pictures yet'
+                      : `${images.length} picture${images.length === 1 ? '' : 's'}, the first is the cover`}
                   </ReviewRow>
                   <ReviewRow label="Venue" onEdit={() => goTo(1)} editLabel="Edit where and when">
                     {venueMode === 'existing'
@@ -2030,9 +2232,6 @@ function NewEventWizard() {
                   )}
                   <ReviewRow label="Details" onEdit={() => goTo(3)} editLabel="Edit details">
                     {[
-                      images.length === 0
-                        ? 'No images'
-                        : `${images.length} image${images.length === 1 ? '' : 's'}`,
                       details.ageLimit ? `${details.ageLimit}+` : 'No age limit',
                       (() => {
                         const n = eventDetailsBody(details).artists.length;
@@ -2088,16 +2287,48 @@ function NewEventWizard() {
                 */}
                 <section
                   aria-labelledby="review-next"
-                  className="rounded-md border border-border bg-background-subtle p-4"
+                  className="rounded-lg border border-border p-4 sm:p-5"
                 >
-                  <h3 id="review-next" className="font-semibold text-text-primary">
+                  <h3 id="review-next" className="text-ui font-semibold text-text-primary">
                     What happens next
                   </h3>
-                  <ul className="mt-2 list-disc space-y-1.5 pl-5 text-text-secondary">
-                    <li>{happens.saveDraft}</li>
-                    <li>{happens.submit}</li>
-                    <li>{happens.checks}</li>
-                  </ul>
+                  {/*
+                    The two buttons and the check after them, each with the status the event
+                    will have - the same pills the events list uses.
+                  */}
+                  <ol className="mt-3 space-y-4">
+                    {(
+                      [
+                        [
+                          FilePen,
+                          'neutral',
+                          <LifecyclePill key="d" status="draft" size="sm" />,
+                          happens.saveDraft,
+                        ],
+                        [
+                          Send,
+                          'teal',
+                          <LifecyclePill
+                            key="s"
+                            status={
+                              happens.submitStatus === 'Published' ? 'published' : 'in-review'
+                            }
+                            size="sm"
+                          />,
+                          happens.submit,
+                        ],
+                        [ShieldCheck, 'blue', null, happens.checks],
+                      ] as const
+                    ).map(([icon, tone, pill, words], i) => (
+                      <li key={i} className="flex gap-3">
+                        <IconTile icon={icon} tone={tone} size="sm" />
+                        <div className="min-w-0 space-y-1">
+                          {pill}
+                          <p className="text-text-secondary">{words}</p>
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
                 </section>
               </div>
             )}
@@ -2118,7 +2349,7 @@ function NewEventWizard() {
                   Show
                 </span>
               </summary>
-              <div className="mx-auto max-w-sm px-4 pb-4">{preview}</div>
+              <div className="mx-auto max-w-sm px-4 pb-4">{preview('preview-inline')}</div>
             </details>
           ) : null}
 
@@ -2184,53 +2415,117 @@ function NewEventWizard() {
           aria-label="Live preview"
           className="hidden xl:sticky xl:top-20 xl:block xl:space-y-4"
         >
-          <div>
-            <h2 className="mb-2 text-caption font-semibold uppercase tracking-wide text-text-muted">
-              What buyers will see
-            </h2>
-            {preview}
+          <div className="rounded-lg border border-border bg-background-surface p-4 shadow-xs">
+            <h2 className="mb-1 text-ui font-semibold text-text-primary">What buyers will see</h2>
+            {preview('preview-panel')}
           </div>
-          <div className="rounded-lg border border-border bg-background-surface p-4">
-            <p
-              className={`flex items-center gap-2 text-sm font-semibold ${
-                thingsToSetUp === 0 ? 'text-status-success' : 'text-text-primary'
-              }`}
-            >
-              {thingsToSetUp === 0 ? (
-                <CircleCheck aria-hidden="true" className="h-4 w-4" />
-              ) : (
-                <CircleAlert aria-hidden="true" className="h-4 w-4 text-text-muted" />
-              )}
-              {thingsToSetUp === 0
-                ? 'Setup complete'
-                : `${thingsToSetUp} ${thingsToSetUp === 1 ? 'thing' : 'things'} to set up`}
-            </p>
-            <ul className="mt-2 space-y-1 text-caption">
+
+          {/*
+            Readiness, in the console's words, with each step one click away once reached -
+            the same rule as the step indicator, because Continue checks the steps between.
+          */}
+          <section
+            aria-labelledby="panel-setup"
+            className="rounded-lg border border-border bg-background-surface p-4 shadow-xs"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <h2 id="panel-setup" className="text-ui font-semibold text-text-primary">
+                Setup
+              </h2>
+              <SetupPill missing={thingsToSetUp} size="sm" />
+            </div>
+            <ul className="mt-3 space-y-1">
               {stepTitles.slice(0, REVIEW_STEP).map((s, i) => {
                 const n = Object.keys(errorsByStep[s.id]).length;
-                return (
-                  <li key={s.id} className="flex justify-between gap-2">
-                    <span className="text-text-secondary">{s.title}</span>
+                const reached = i <= furthest;
+                const state =
+                  n > 0
+                    ? reached
+                      ? `${n} to do`
+                      : 'Not started'
+                    : reached
+                      ? 'Done'
+                      : s.id === 'details'
+                        ? 'Optional'
+                        : 'Not started';
+                const done = n === 0 && reached;
+                const Mark = done ? CircleCheck : n > 0 && reached ? CircleAlert : CircleDashed;
+                const row = (
+                  <>
+                    <Mark
+                      aria-hidden="true"
+                      className={`h-4 w-4 shrink-0 ${
+                        done
+                          ? 'text-status-success'
+                          : n > 0 && reached
+                            ? 'text-status-error'
+                            : 'text-text-muted'
+                      }`}
+                    />
                     <span
-                      className={
-                        n === 0 && i <= furthest ? 'text-status-success' : 'text-text-muted'
-                      }
+                      className={`flex-1 text-left ${i === step ? 'font-semibold text-text-primary' : 'text-text-secondary'}`}
                     >
-                      {n > 0
-                        ? i <= furthest
-                          ? `${n} to do`
-                          : 'Not started'
-                        : i <= furthest
-                          ? 'Done'
-                          : s.id === 'details'
-                            ? 'Optional'
-                            : 'Not started'}
+                      {s.title}
                     </span>
+                    <span
+                      className={`text-caption ${done ? 'text-status-success' : n > 0 && reached ? 'text-status-error' : 'text-text-muted'}`}
+                    >
+                      {state}
+                    </span>
+                  </>
+                );
+                return (
+                  <li key={s.id}>
+                    {canVisitStep(i, furthest) && i !== step ? (
+                      <button
+                        type="button"
+                        onClick={() => goTo(i)}
+                        className={`flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-background-subtle ${FOCUS_RING}`}
+                      >
+                        <span className="sr-only">Go to </span>
+                        {row}
+                      </button>
+                    ) : (
+                      <div
+                        aria-current={i === step ? 'step' : undefined}
+                        className={`flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm ${i === step ? 'bg-background-subtle' : ''}`}
+                      >
+                        {row}
+                      </div>
+                    )}
                   </li>
                 );
               })}
             </ul>
-          </div>
+          </section>
+
+          <section
+            aria-labelledby="panel-tips"
+            className="rounded-lg border border-border bg-background-surface p-4 shadow-xs"
+          >
+            <h2
+              id="panel-tips"
+              className="flex items-center gap-2 text-ui font-semibold text-text-primary"
+            >
+              <span
+                className={`inline-flex h-6 w-6 items-center justify-center rounded-md ${tileClasses('amber')}`}
+              >
+                <Lightbulb aria-hidden="true" className="h-3.5 w-3.5" />
+              </span>
+              Tips for {current.title.toLowerCase()}
+            </h2>
+            <ul className="mt-2.5 space-y-2 text-caption text-text-secondary">
+              {current.tips.map((tip) => (
+                <li key={tip} className="flex gap-2">
+                  <span
+                    aria-hidden="true"
+                    className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-text-muted"
+                  />
+                  {tip}
+                </li>
+              ))}
+            </ul>
+          </section>
         </aside>
       </div>
 

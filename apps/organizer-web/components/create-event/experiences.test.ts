@@ -90,4 +90,19 @@ describe('the category an experience starts with', () => {
   it('opens every starter template on a real experience', () => {
     for (const id of Object.values(TEMPLATE_EXPERIENCE)) expect(getExperience(id)).toBeDefined();
   });
+
+  /*
+    The cards are told apart by their tile colour before a word is read, so no card may share
+    a colour with the one beside it or below it - in the 2, 3 and 4 column grids it is shown in.
+  */
+  it('never puts two cards of the same colour next to each other', () => {
+    for (const columns of [2, 3, 4]) {
+      EXPERIENCES.forEach((e, i) => {
+        const right = i % columns < columns - 1 ? EXPERIENCES[i + 1] : undefined;
+        const below = EXPERIENCES[i + columns];
+        if (right) expect(right.tone, `${e.id} beside ${right.id}`).not.toBe(e.tone);
+        if (below) expect(below.tone, `${e.id} above ${below.id}`).not.toBe(e.tone);
+      });
+    }
+  });
 });

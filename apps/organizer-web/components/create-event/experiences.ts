@@ -8,6 +8,7 @@ import {
   Users,
   type LucideIcon,
 } from 'lucide-react';
+import type { TileTone } from '@eticketsgo/web-kit';
 import { EVENT_CATEGORIES, type EventCategory } from '../../lib/templates';
 
 /**
@@ -42,6 +43,11 @@ export interface Experience {
   /** What choosing it sets up, in the organizer's words. */
   setsUp: string;
   icon: LucideIcon;
+  /**
+   * The pastel tile its card and icon sit on. A grouping cue only - the label says what it is -
+   * picked so that no two neighbouring cards share a colour.
+   */
+  tone: Exclude<TileTone, 'neutral'>;
   /** The categories offered for it, from the list the API already holds. The first is the default. */
   categories: readonly EventCategory[];
   /** Whether "Something else" (a typed category) is offered. */
@@ -68,6 +74,7 @@ export const EXPERIENCES: readonly Experience[] = [
     description: 'Gigs, live bands, DJ nights and music festivals.',
     setsUp: 'Artists, tickets and performances',
     icon: Music,
+    tone: 'purple',
     categories: ['Music', 'Festival'],
     allowOther: false,
     sessionNoun: 'Performance',
@@ -83,6 +90,7 @@ export const EXPERIENCES: readonly Experience[] = [
     description: 'Films in a cinema, with showtimes on screens.',
     setsUp: 'Films, showtimes and seat layouts',
     icon: Clapperboard,
+    tone: 'blue',
     categories: ['Film'],
     allowOther: false,
     sessionNoun: 'Showtime',
@@ -99,6 +107,7 @@ export const EXPERIENCES: readonly Experience[] = [
     description: 'Stand-up, plays, musicals and stage shows.',
     setsUp: 'Performers, shows and seating',
     icon: Drama,
+    tone: 'rose',
     categories: ['Comedy', 'Theatre'],
     allowOther: false,
     sessionNoun: 'Show',
@@ -114,6 +123,7 @@ export const EXPERIENCES: readonly Experience[] = [
     description: 'Talks, summits, classes and hands-on workshops.',
     setsUp: 'Sessions, registrations and passes',
     icon: Presentation,
+    tone: 'teal',
     categories: ['Conference', 'Workshop', 'Tech'],
     allowOther: false,
     sessionNoun: 'Day',
@@ -129,6 +139,7 @@ export const EXPERIENCES: readonly Experience[] = [
     description: 'Matches, races, tournaments and fitness events.',
     setsUp: 'Fixtures, tickets and stands',
     icon: Trophy,
+    tone: 'amber',
     categories: ['Sports'],
     allowOther: false,
     sessionNoun: 'Match',
@@ -144,6 +155,7 @@ export const EXPERIENCES: readonly Experience[] = [
     description: 'Art shows, expos, fairs and trade shows.',
     setsUp: 'Opening days and entry tickets',
     icon: Frame,
+    tone: 'purple',
     categories: ['Exhibition'],
     allowOther: false,
     sessionNoun: 'Opening',
@@ -159,6 +171,7 @@ export const EXPERIENCES: readonly Experience[] = [
     description: 'Meetups, food events, family days and anything else.',
     setsUp: 'Free or paid entry, and dates',
     icon: Users,
+    tone: 'blue',
     categories: ['Community', 'Food & Drink', 'Kids & Family'],
     allowOther: true,
     sessionNoun: 'Session',
