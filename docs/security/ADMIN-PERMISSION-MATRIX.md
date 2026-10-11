@@ -380,7 +380,7 @@ policies are:
 - `ORGANIZER_ONLY`: the routes in the table above.
 - `SELF`: the caller's own account, bookings and tickets.
 - `ADMIN_ROUTE`: `GET /users` and `GET /users/directory-summary` (`@RequiresAdmin(BOOKING_READ)`).
-- `CUSTOMER_RESOURCE_STAFF_BY_ROLE`: see "Not changed, reported".
+- `CUSTOMER_RESOURCE`: the buyer only; staff read a booking on `GET /admin/bookings/:id`.
 
 ### Organizer members (no regression)
 
@@ -463,17 +463,7 @@ from the resource. The exceptions:
 
 ### Not changed, reported
 
-- **Customer resources reached by staff role.** These routes check `ADMIN` directly, with no
-  capability:
-  - `GET /bookings/:id`, `POST /bookings/:id/cancel` and `POST /bookings/:id/pay`;
-  - Razorpay verify;
-  - `GET /tickets/:id`;
-  - attendee assign, invite, transfer, unassign and resend;
-  - share links.
-
-  These are customer resources, not organizer resources. They are listed as
-  `CUSTOMER_RESOURCE_STAFF_BY_ROLE` and need the same fix in a follow-up. The admin console uses
-  `GET /bookings/:id`, so the gate there should be `BOOKING_READ`.
+- **Customer resources reached by staff role.** Fixed; see "Customer resources: platform staff".
 
 - **`POST /refunds` by staff is now refused.** Staff could open a refund request as `staff` on any
   customer's booking. That lifts the transferred-ticket rule, and on a free booking it cancels the
@@ -489,6 +479,104 @@ from the resource. The exceptions:
 - **Event detail needs `ORGANIZER_READ`.** The admin event page opens with `EVENT_REVIEW`, but it
   reads the event with `ORGANIZER_READ`. The MODERATOR preset holds both. A custom account with
   only `EVENT_REVIEW` is now refused on that page.
+
+## Customer resources: platform staff (fixed in this change)
+
+### Root cause
+
+Ten customer-facing checks read the `ADMIN` / `SUPER_ADMIN` role directly. A back-office account
+granted no capability at all passed them, as if it were the buyer, and left no record. Some were
+writes: cancel a booking, open a payment, assign, invite, transfer or unassign an attendee, create
+or change a share link.
+
+### Policy per route, before and after
+
+"Staff" means any account holding `ADMIN` or `SUPER_ADMIN`, with any grants or none. "Buyer" is the
+account on the booking (for a ticket: its current holder). Organizers have no access to these
+routes at all; their organization-scoped routes are in "Organizer API: platform staff".
+
+| Route                                                                                               | Staff before            | Staff after | Customer A on B's resource | Organizer   |
+| --------------------------------------------------------------------------------------------------- | ----------------------- | ----------- | -------------------------- | ----------- |
+| `GET /bookings/:id`                                                                                 | allowed, by role        | 403         | 403                        | 403         |
+| `POST /bookings/:id/cancel` (unpaid)                                                                | allowed, by role        | 403         | 403                        | 403         |
+| `POST /bookings/:id/pay`                                                                            | allowed, by role        | 403         | 403                        | 403         |
+| `POST /bookings/:id/payments/razorpay/verify`                                                       | allowed, by role        | 403         | 403                        | 403         |
+| `POST /bookings/:id/coupon`, `/extend-hold`                                                         | 403 (owner only)        | 403         | 403                        | 403         |
+| `GET /tickets/:id`                                                                                  | allowed, by role        | 403         | 403                        | 403         |
+| `POST /tickets/:id/attendee`, `/invite`, `/transfer`, `/unassign`                                   | allowed, by role        | 403         | 403                        | 403         |
+| `POST /attendee-invites/:id/resend`                                                                 | allowed, by role        | 403         | 403                        | 403         |
+| `GET /bookings/:id/attendees`                                                                       | allowed, by role        | 403         | 403                        | 403         |
+| `POST /tickets/:id/share`, `GET /tickets/:id/shares`, `POST /shares/:id/{revoke,extend,permission}` | allowed, by role        | 403         | 403                        | 403         |
+| `POST /wallet/passes` (reads the ticket through `GET /tickets/:id`)                                 | allowed, by role        | 403         | 403                        | 403         |
+| `POST /refunds`                                                                                     | 403 since #313          | 403         | 403                        | 403         |
+| `GET /refunds/booking/:id`                                                                          | `BOOKING_READ`, audited | unchanged   | 403                        | 403         |
+| `GET /bookings/guest/*`, share-link resolve, attendee-invite accept                                 | token, not role         | unchanged   | token                      | token       |
+| `GET /users/me`, `PATCH /users/me`, `DELETE /users/me`                                              | own account only        | unchanged   | own account                | own account |
+
+The buyer keeps every route above for their own resources. The booking owner check is `userId ===
+caller`, and the ticket check is the current holder (the buyer, or the latest transfer's recipient).
+
+### The one explicit support path
+
+`GET /admin/bookings/:id` (`BOOKING_READ`, the class guard) returns the same view the buyer gets.
+Every read writes `PLATFORM_ORGANIZER_ACCESS_ALLOWED` with operation `booking.admin-read`, the
+booking's organization, the booking id, the actor and the correlation id. The admin console's
+booking page now calls it. The refund list on that page keeps using `GET /refunds/booking/:id`,
+which already checks `BOOKING_READ` and audits (see `refunds.service.ts`). Holders of
+`BOOKING_READ`: the SUPPORT, REFUND_DESK and FINANCE presets and super admin.
+
+### Support workflows affected
+
+- **View a customer's booking: kept**, through the route above. No capability was added.
+- **Cancel a customer's unpaid booking on their behalf: removed, no admin equivalent.** It was only
+  reachable by calling the customer route (the console has no button). An unpaid hold expires by
+  itself. If support needs this, it needs its own admin route with a capability and a reason. It is
+  not built here.
+- **Read a customer's ticket, QR or attendee details: removed, no admin equivalent.** The booking
+  view lists the tickets with their serial, status and seat. The QR and the attendee's contact
+  details are the buyer's.
+- **Act on a ticket whose holder cannot be named** (a guest booking, or a legacy transfer with no
+  recipient): nobody can now. Before, staff could, by role. This is a deliberate fail-closed
+  default and is a gap if support gets such a case.
+- **Open a payment or verify a payment for a customer: removed.** Nothing used it.
+
+### Audit coverage added for operational mutations
+
+Every row carries `actorUserId`, `entityType`, `entityId`, `correlationId` (the request's id), the
+timestamp, and `metadata.outcome`: `ALLOWED` when the operation ran to the end and `FAILED` when it
+threw (the error class only, never its message). Metadata holds counts, ids and status names, no
+customer or payment data.
+
+| Action                          | Route                                                     | Capability        |
+| ------------------------------- | --------------------------------------------------------- | ----------------- |
+| `OPS_QUEUE_RETRY_ALL`           | `POST /admin/ops/queues/retry-failed`                     | `OPS_EXECUTE`     |
+| `OPS_QUEUE_RETRY_JOB`           | `POST /admin/ops/queues/jobs/:id/retry`                   | `OPS_EXECUTE`     |
+| `SYNC_RECONCILE_RUN`            | `POST /admin/inventory-sync/providers/:code/reconcile`    | `OPS_EXECUTE`     |
+| `SUPPORT_TICKET_STATUS_CHANGED` | `PATCH /admin/support/:id` (from, to)                     | `SUPPORT_MANAGE`  |
+| `NOTIFICATION_RATE_CREATED`     | `POST /admin/notifications/analytics/rates`               | `PLATFORM_CONFIG` |
+| `NOTIFICATION_RATE_SUPERSEDED`  | `POST /admin/notifications/analytics/rates/:id/supersede` | `PLATFORM_CONFIG` |
+| `PAYMENT_DISCREPANCY_DETECTION` | `POST /admin/payments/finance/detect`                     | `FINANCE_RESOLVE` |
+
+The last one already existed but was written with no actor; it now names the person who ran it.
+Refusals by the capability guard are not audited (the guard runs before any handler); that is the
+existing behaviour for every admin route.
+
+The grep of every other admin and ops mutation found each one audited already (payment config,
+routes, outage, onboarding, promotion, settlement, payouts, outbox, notification resend, SNS
+confirmation, staff grants, tax rules, fee rules, pricing policies, organization review).
+
+### Found while auditing, fixed
+
+`POST /admin/notifications/analytics/rates/:id/supersede` read the id from the query string
+(`@Query('id')`) although the id is in the path. It was always `undefined`, and Prisma treats
+`id: undefined` as no filter, so the call ended **every open rate** instead of one. It reads the
+path now and refuses a missing id.
+
+### Not changed, reported
+
+- The refund list route for staff is a customer route that admits staff by capability. A separate
+  `/admin/bookings/:id/refunds` would be cleaner; it was left so the console keeps working.
+- Failed capability checks on admin routes are not audited. Only the organizer-API refusals are.
 
 ## Tests that enforce this
 
@@ -544,3 +632,20 @@ from the resource. The exceptions:
 
 - `apps/admin-web/lib/capabilities.test.ts` checks that controls stay hidden from read-only holders
   and that the notes are ASCII.
+
+- `apps/api/src/tenancy/customer-resource-isolation.integration-postgres.spec.ts` sends real HTTP
+  through the whole application with real tokens and Postgres:
+  - five staff shapes (zero grants, every read, SUPPORT, FINANCE, super admin) and another customer
+    are refused on all 20 customer routes above, and the booking, ticket, invites and refunds are
+    read back unchanged;
+  - an organizer owner is refused on the customer routes of a booking in their own organization,
+    and the owner of organization A is refused organization B's print, collect-cash and buyer
+    routes; the owner of A still prints A's booking;
+  - the buyer still reads, shares, assigns an attendee and cancels their own booking;
+  - `GET /admin/bookings/:id` is refused to zero grants, customers and organizers, and allowed and
+    audited for SUPPORT, FINANCE, a read-only account and super admin;
+  - each new audit action is written with actor, entity, correlation id and outcome (including a
+    FAILED row for a job that does not exist), and is not written when the capability guard
+    refuses; the support row carries statuses only; superseding one rate leaves the others open.
+- `apps/api/src/bookings/booking-cancel.spec.ts` and `payments/finance/finance-reconciliation.spec.ts`
+  cover the unit-level cancel refusal and the detection actor.

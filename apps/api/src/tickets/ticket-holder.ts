@@ -50,8 +50,8 @@ export function isTransferred(ticket: TicketHolderFacts): boolean {
  * The account that owns the ticket now: the latest transfer's recipient, else the buyer.
  *
  * Null when nobody can be named — a guest booking, or a legacy transfer whose recipient was
- * never recorded. Null matches no user, so that case fails closed: only a platform admin can
- * act on the ticket.
+ * never recorded. Null matches no user, so that case fails closed: nobody can act on the ticket
+ * through these routes (platform staff no longer pass by role; see the permission matrix).
  */
 export function currentHolderUserId(ticket: TicketHolderFacts): string | null {
   if (!isTransferred(ticket)) return ticket.booking.userId;

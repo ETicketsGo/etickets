@@ -187,6 +187,18 @@ describe('FinanceReconciliationService', () => {
     expect(created[0].type).toBe('DUPLICATE_CAPTURE');
   });
 
+  it('detect names the person who ran it on the audit row', async () => {
+    const { svc, audit } = make();
+    await svc.detect(new Date(0), new Date(), { userId: 'admin_1', ip: '10.0.0.1' });
+    expect(audit.record as jest.Mock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'PAYMENT_DISCREPANCY_DETECTION',
+        actorUserId: 'admin_1',
+        ip: '10.0.0.1',
+      }),
+    );
+  });
+
   it('detect dedupes against an existing open discrepancy', async () => {
     const { svc } = make({ existing: { id: 'd0' } });
     const res = await svc.detect(new Date(0), new Date());
