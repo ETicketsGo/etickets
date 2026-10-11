@@ -1,7 +1,8 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { api, Card, Skeleton, money } from '@eticketsgo/web-kit';
+import { api, Card, Skeleton, money, type PilotReadinessCheck } from '@eticketsgo/web-kit';
+import { bookingFeeWording, complianceHeadline, splitPrices } from './compliance-presentation';
 
 /**
  * What an exhibitor is told about the order their cinema is priced under.
@@ -18,7 +19,14 @@ import { api, Card, Skeleton, money } from '@eticketsgo/web-kit';
  * "treatment unverified". Useful to whoever configures the platform, and actively misleading
  * to an exhibitor deciding whether they may charge ₹150. The API does not send them.
  */
-export function PricingCompliancePanel({ cinemaId }: { cinemaId: string }) {
+export function PricingCompliancePanel({
+  cinemaId,
+  checks,
+}: {
+  cinemaId: string;
+  /** The readiness report's checks: the current, upcoming-show blockers the headline leads with. */
+  checks?: readonly PilotReadinessCheck[];
+}) {
   const q = useQuery({
     queryKey: ['cinema-pricing-compliance', cinemaId],
     queryFn: () => api.cinemas.pricingCompliance(cinemaId),
@@ -34,8 +42,8 @@ export function PricingCompliancePanel({ cinemaId }: { cinemaId: string }) {
   if (q.isError || !q.data) return null;
 
   const c = q.data;
-  const blocked = c.blocksPublishing;
-  const review = c.status === 'REQUIRES_APPROVAL';
+  const headline = complianceHeadline(c, checks);
+  const { current: currentPrices, history: pastPrices } = splitPrices(c.prices);
 
   return (
     <Card title="Regulatory pricing">
@@ -46,14 +54,21 @@ export function PricingCompliancePanel({ cinemaId }: { cinemaId: string }) {
       <p
         role="status"
         className={`rounded-md px-3 py-2 text-[0.9375rem] ${
-          blocked
+          headline.tone === 'error'
             ? 'bg-tint-error text-status-error'
-            : review
+            : headline.tone === 'warning'
               ? 'bg-tint-warning text-status-warning'
               : 'bg-tint-success text-status-success'
         }`}
       >
-        {c.summary}
+        {headline.text}
+        {headline.more > 0 && (
+          <span className="mt-1 block text-caption">
+            {headline.more === 1
+              ? '1 more problem is listed under Online sales above.'
+              : `${headline.more} more problems are listed under Online sales above.`}
+          </span>
+        )}
       </p>
 
       <dl className="mt-4 grid gap-x-6 gap-y-3 text-[0.9375rem] sm:grid-cols-2">
@@ -96,16 +111,19 @@ export function PricingCompliancePanel({ cinemaId }: { cinemaId: string }) {
             hint={c.maintenance.description}
           />
         )}
-        <Row label="Online booking fee" value={c.onlineFee.description} />
+        <Row
+          label="Online booking fee"
+          value={bookingFeeWording(c.onlineFee, (m) => money(m, 'INR'))}
+        />
       </dl>
 
-      {c.prices.length > 0 && (
+      {currentPrices.length > 0 && (
         <div className="mt-5">
           <h3 className="text-caption font-semibold uppercase tracking-wide text-text-secondary">
             Your ticket prices
           </h3>
           <ul className="mt-2 space-y-1">
-            {c.prices.map((p) => (
+            {currentPrices.map((p) => (
               <li
                 key={p.ticketTypeId}
                 className={`flex items-baseline justify-between gap-4 text-[0.9375rem] ${
@@ -123,6 +141,26 @@ export function PricingCompliancePanel({ cinemaId }: { cinemaId: string }) {
             ))}
           </ul>
         </div>
+      )}
+
+      {/* Prices left on shows that have finished. Kept for the record; they cannot be sold. */}
+      {pastPrices.length > 0 && (
+        <details className="mt-5">
+          <summary className="cursor-pointer text-caption font-semibold uppercase tracking-wide text-text-secondary">
+            Earlier shows ({pastPrices.length})
+          </summary>
+          <ul className="mt-2 space-y-1">
+            {pastPrices.map((p) => (
+              <li
+                key={p.ticketTypeId}
+                className="flex items-baseline justify-between gap-4 text-[0.9375rem] text-text-muted"
+              >
+                <span>{p.name}</span>
+                <span className="tabular-nums">{money(p.priceMinor, 'INR')}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
       )}
     </Card>
   );

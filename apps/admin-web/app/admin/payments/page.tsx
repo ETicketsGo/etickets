@@ -1,5 +1,6 @@
 'use client';
 
+import { TableSkeleton } from '@/components/table-skeleton';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState, type ReactNode } from 'react';
 import { ArrowUpRight } from 'lucide-react';
@@ -193,41 +194,44 @@ export default function AdminPayments() {
             setPage(1);
           }}
         />
-        <DataTable
-          caption="Payments"
-          density="compact"
-          mobile="cards"
-          columns={columns}
-          rows={data?.data}
-          loading={isLoading}
-          error={isError ? "We couldn't load this. Please try again." : undefined}
-          onRetry={() => refetch()}
-          empty={
-            <EmptyState
-              title="No payment matches"
-              hint={
-                described
-                  ? `Nothing matches ${described}.`
-                  : 'A provider reference works here too, if you are chasing one charge.'
-              }
-              action={
-                filters.active ? (
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      setQ('');
-                      filters.clear();
-                    }}
-                  >
-                    Clear filters
-                  </Button>
-                ) : undefined
-              }
-            />
-          }
-          rowKey={(p) => p.id}
-          onRowClick={(p) => setOpen(p)}
-        />
+        {isLoading ? (
+          <TableSkeleton columns={7} label="Loading" />
+        ) : (
+          <DataTable
+            caption="Payments"
+            density="compact"
+            mobile="cards"
+            columns={columns}
+            rows={data?.data}
+            error={isError ? "We couldn't load this. Please try again." : undefined}
+            onRetry={() => refetch()}
+            empty={
+              <EmptyState
+                title="No payment matches"
+                hint={
+                  described
+                    ? `Nothing matches ${described}.`
+                    : 'A provider reference works here too, if you are chasing one charge.'
+                }
+                action={
+                  filters.active ? (
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setQ('');
+                        filters.clear();
+                      }}
+                    >
+                      Clear filters
+                    </Button>
+                  ) : undefined
+                }
+              />
+            }
+            rowKey={(p) => p.id}
+            onRowClick={(p) => setOpen(p)}
+          />
+        )}
         {data && data.meta.totalPages > 1 && (
           <div className="mt-4">
             <Pagination

@@ -155,7 +155,10 @@ export default function LaunchReadinessPage() {
         it charges" are the same question to an exhibitor even though different subsystems
         answer them.
       */}
-      <PricingCompliancePanel cinemaId={cinemaId} />
+      <PricingCompliancePanel
+        cinemaId={cinemaId}
+        checks={report?.sections.flatMap((section) => section.checks)}
+      />
       <SeatClassMapping cinemaId={cinemaId} />
     </div>
   );

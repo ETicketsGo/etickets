@@ -5,7 +5,7 @@ import { OrgAccessService } from '../tenancy/org-access.service';
 import { AuditService } from '../audit/audit.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import { CinemaPricingPolicyService } from '../pricing/cinema-policy/cinema-pricing-policy.service';
-import { checkTicketPrice } from '../pricing/cinema-policy/apply-policy';
+import { applyPolicy, checkTicketPrice } from '../pricing/cinema-policy/apply-policy';
 
 /**
  * What an organizer is told about the rules their cinema is priced under.
@@ -50,7 +50,16 @@ export interface ComplianceView {
   /** Null when the resolved policy states no ceiling — which is not the same as no ceiling. */
   maxTicketPriceMinor: number | null;
   ticketPriceRule: string | null;
-  onlineFee: { policy: string; description: string };
+  onlineFee: {
+    policy: string;
+    description: string;
+    /**
+     * The most checkout will add as a booking fee, from the same function checkout uses.
+     * `null` = the platform's ordinary fee schedule applies; `0` = checkout holds the fee at
+     * zero (no rule resolved, or the rule forbids or has not confirmed one).
+     */
+    maxMinor: number | null;
+  };
   /** Per ticket type, when prices were supplied. */
   prices: {
     ticketTypeId: string;
@@ -58,6 +67,11 @@ export interface ComplianceView {
     priceMinor: number;
     ok: boolean;
     reason: string | null;
+    /**
+     * False when the only shows using this ticket type have finished. Such a price can no
+     * longer be sold, so it is history: it must not lead the headline or block anything new.
+     */
+    upcoming: boolean;
   }[];
   /** Whether the server would currently refuse to sell. Reported, not enforced here. */
   blocksPublishing: boolean;
@@ -99,6 +113,7 @@ export class CinemaComplianceService {
         name: true,
         priceMinor: true,
         seatCategory: { select: { name: true, regulatoryClass: true } },
+        eventSession: { select: { startsAt: true } },
       },
       take: 200,
     });
@@ -164,9 +179,12 @@ export class CinemaComplianceService {
           priceMinor: t.priceMinor,
           ok: check.ok,
           reason: check.reason,
+          upcoming: t.eventSession.startsAt.getTime() > at.getTime(),
         };
       }),
     );
+    // Display only: what the headline may blame. A finished show's old price is history.
+    const livePrices = prices.filter((p) => p.upcoming);
 
     return {
       jurisdiction: {
@@ -178,7 +196,7 @@ export class CinemaComplianceService {
       },
       classification: { cinemaFormat: cinema.cinemaFormat, climateType: cinema.climateType },
       status: resolution.status,
-      summary: this.summarise(resolution.status, resolution.explanation, prices),
+      summary: this.summarise(resolution.status, resolution.explanation, livePrices),
       regulatoryReference: policy?.regulatoryReference ?? null,
       effectiveFrom: policy?.effectiveFrom?.toISOString() ?? null,
       maintenance: policy?.maintenanceChargeMinor
@@ -190,10 +208,7 @@ export class CinemaComplianceService {
         : null,
       maxTicketPriceMinor: policy?.ticketPriceMaxMinor ?? null,
       ticketPriceRule: policy?.ticketPriceRule ?? null,
-      onlineFee: {
-        policy: policy?.onlineFeePolicy ?? 'ALLOWED',
-        description: ONLINE_FEE_WORDS[policy?.onlineFeePolicy ?? 'ALLOWED'],
-      },
+      onlineFee: this.onlineFeeView(resolution),
       // Reported so the organizer is not surprised at publish time. The refusal itself lives
       // in the booking and publishing paths, where a client cannot skip it.
       blocksPublishing: BLOCKING.includes(resolution.status) || prices.some((p) => !p.ok),
@@ -212,7 +227,7 @@ export class CinemaComplianceService {
   async seatClassesFor(user: { id: string }, cinemaId: string) {
     const cinema = await this.prisma.cinema.findUnique({
       where: { id: cinemaId },
-      select: { organizationId: true, country: true, venue: { select: { country: true } } },
+      include: { venue: { select: { country: true, region: true, city: true } } },
     });
     if (!cinema) {
       throw new AppException(ErrorCodes.NOT_FOUND, 'Cinema not found.', HttpStatus.NOT_FOUND);
@@ -231,7 +246,25 @@ export class CinemaComplianceService {
       country is not one we sell in, and the screen then shows no price rather than a wrong one.
     */
     const currency = currencyForCountry(cinema.country ?? cinema.venue?.country);
-    return categories.map((c) => ({ ...c, currency, mapped: c.regulatoryClass != null }));
+    /*
+      Which classes this cinema's order actually prices. A class with no rate row resolves to
+      no policy, so choosing it leaves the seat with nothing to be priced against. Read only:
+      the same resolver as above, asked once per class, changing nothing.
+    */
+    const coverage: Record<string, boolean> = {};
+    if (categories.length > 0) {
+      const now = new Date();
+      for (const cls of ['REGULAR', 'RECLINER', 'PREMIUM', 'NON_PREMIUM']) {
+        const r = await this.policies.resolveForCinema(cinema, 'INR', [cls], now);
+        coverage[cls] = r.status === 'NOT_REGULATED' || r.policy != null;
+      }
+    }
+    return categories.map((c) => ({
+      ...c,
+      currency,
+      mapped: c.regulatoryClass != null,
+      classHasRate: coverage,
+    }));
   }
 
   /**
@@ -296,6 +329,30 @@ export class CinemaComplianceService {
       metadata: { name: updated.name, regulatoryClass: updated.regulatoryClass },
     });
     return updated;
+  }
+
+  /**
+   * What checkout does about the booking fee here, not what a missing policy would imply.
+   *
+   * With no policy row this used to say ALLOWED ("a fee may be charged") while checkout held
+   * the fee at zero. The amount comes from `applyPolicy`, the function checkout uses.
+   */
+  private onlineFeeView(resolution: Parameters<typeof applyPolicy>[0]) {
+    const maxMinor = applyPolicy(resolution, 1).maxOnlineFeeMinor;
+    const policy = resolution.policy?.onlineFeePolicy;
+    if (!policy && resolution.status !== 'NOT_REGULATED') {
+      return {
+        policy: 'UNRESOLVED',
+        description:
+          'No pricing rule applies yet, so checkout holds the booking fee at 0 until the rule is configured.',
+        maxMinor,
+      };
+    }
+    return {
+      policy: policy ?? 'ALLOWED',
+      description: ONLINE_FEE_WORDS[policy ?? 'ALLOWED'],
+      maxMinor,
+    };
   }
 
   /** One sentence, in the exhibitor's terms rather than the enum's. */
