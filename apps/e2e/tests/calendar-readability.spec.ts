@@ -62,7 +62,9 @@ test.describe('calendar +N more', () => {
     await seedBrowserAuth(context, tokens);
     const page = await context.newPage();
     try {
-      await page.goto(`${ORGANIZER}/organizer/calendar?view=month&date=${DAY}&category=${category}`);
+      await page.goto(
+        `${ORGANIZER}/organizer/calendar?view=month&date=${DAY}&category=${category}`,
+      );
       const cell = page.getByTestId(`month-day-${DAY}`);
       // Desktop shows three, and the other two are one button.
       await expect(cell.locator('[data-session-id]')).toHaveCount(3);

@@ -196,7 +196,9 @@ describe('CalendarRow, CalendarDayPanel and CalendarDayCard', () => {
         entries: ten.map((t) => t.entry),
         today: '2026-11-10',
         noun: NOUN,
+        showDayLabel: 'Open the day',
         onOpen: noop,
+        onShowDay: noop,
       }),
     );
     expect(html).toContain('Tue, 10 Nov 2026');
