@@ -147,6 +147,24 @@ export class PayoutsController {
     return this.accounts_.listForOrg(user, q.organizationId);
   }
 
+  /**
+   * Every version this organization has saved, masked, newest first. The same people who may
+   * read the accounts may read the history; nobody is shown a full number here or anywhere.
+   */
+  @Get('accounts/history')
+  @ApiOperation({ summary: 'Version history of the payout bank accounts (masked).' })
+  accountHistory(
+    @CurrentUser() user: RequestUser,
+    @Query(
+      new ZodValidationPipe(
+        z.object({ organizationId: z.string().cuid(), currency: z.string().length(3).optional() }),
+      ),
+    )
+    q: { organizationId: string; currency?: string },
+  ) {
+    return this.accounts_.historyForOrg(user, q.organizationId, q.currency);
+  }
+
   @Post('accounts')
   @Roles(Role.ORGANIZER_OWNER)
   /*
@@ -242,10 +260,43 @@ export class AdminPayoutsController {
     return this.accounts_.reveal(admin, id, body.reason);
   }
 
+  @Get('accounts/:id/history')
+  @ApiOperation({ summary: 'Version history of one payout bank account, masked (admin).' })
+  accountHistory(@Param('id') id: string) {
+    return this.accounts_.adminHistory(id);
+  }
+
+  /**
+   * Maker-checker: refused for the person who entered the details and for any member of the
+   * organization. `version` is the version the reviewer was looking at; if the owner saved
+   * something else since, the check is refused rather than applied to the wrong account.
+   */
   @Post('accounts/:id/verified')
   @ApiOperation({ summary: 'Record that the account has been checked (admin).' })
-  verifyAccount(@CurrentUser() admin: RequestUser, @Param('id') id: string) {
-    return this.accounts_.markVerified(admin, id);
+  verifyAccount(
+    @CurrentUser() admin: RequestUser,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(z.object({ version: z.number().int().min(1) })))
+    body: { version: number },
+  ) {
+    return this.accounts_.markVerified(admin, id, body.version);
+  }
+
+  @Post('accounts/:id/reject')
+  @ApiOperation({
+    summary: 'Turn the account details down, with a reason the owner is told (admin).',
+  })
+  rejectAccount(
+    @CurrentUser() admin: RequestUser,
+    @Param('id') id: string,
+    @Body(
+      new ZodValidationPipe(
+        z.object({ reason: z.string().trim().min(1).max(200), version: z.number().int().min(1) }),
+      ),
+    )
+    body: { reason: string; version: number },
+  ) {
+    return this.accounts_.reject(admin, id, body.reason, body.version);
   }
 
   @Post(':id/fail')

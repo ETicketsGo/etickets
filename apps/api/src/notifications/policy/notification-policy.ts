@@ -211,6 +211,18 @@ export const EVENT_POLICY: Partial<Record<NotificationType, EventPolicy>> = {
     guaranteed: [E, A],
   },
 
+  /*
+    Somebody changed where the organization's money is sent. The owners need to see this fast
+    enough to say "that was not me", so it is IMPORTANT and guaranteed on both channels. Email and
+    the console only: a bank account change is no business of a messaging app, and the message
+    carries only a masked summary.
+  */
+  [NotificationType.PAYOUT_ACCOUNT_UPDATED]: {
+    channels: [E, A],
+    urgency: 'IMPORTANT',
+    guaranteed: [E, A],
+  },
+
   /* Organizer money. Their console and their email; not their WhatsApp, not at 3am. */
   [NotificationType.SETTLEMENT_RELEASED]: {
     channels: [E, A],

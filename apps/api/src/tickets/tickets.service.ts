@@ -177,11 +177,10 @@ export class TicketsService {
     });
     if (!ticket)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Ticket not found.', HttpStatus.NOT_FOUND);
-    const isAdmin =
-      user.roles.includes('ADMIN' as never) || user.roles.includes('SUPER_ADMIN' as never);
+    // Platform staff are not on this list: they read a booking's tickets on /admin/bookings/:id.
     // The buyer, anybody it was transferred to, or the assigned attendee may VIEW a ticket.
     // Whether they are handed its QR is a separate question, answered in `decorate`.
-    if (!everHeldBy(ticket, user.id) && ticket.attendeeUserId !== user.id && !isAdmin) {
+    if (!everHeldBy(ticket, user.id) && ticket.attendeeUserId !== user.id) {
       throw new AppException(
         ErrorCodes.FORBIDDEN,
         'You cannot view this ticket.',
@@ -250,7 +249,7 @@ export class TicketsService {
 
       So once a ticket has been transferred, the credential goes only to its current holder and
       to the attendee it is assigned to. Everybody else who may still see the ticket — the
-      buyer, a previous holder, staff printing the booking, a platform admin — sees that it
+      buyer, a previous holder, staff printing the booking — sees that it
       exists and that it was transferred, and nothing that opens a gate. That includes a
       third-party barcode, which IS the gate credential for those tickets.
 

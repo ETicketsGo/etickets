@@ -38,6 +38,31 @@ describe('derivePayoutAccountState', () => {
     basis: string;
   }[] = [
     {
+      name: 'every bank account turned down is the organizer to fix',
+      facts: facts({
+        bankAccounts: [{ currency: 'INR', verifiedAt: null, rejectedAt: VERIFIED_AT }],
+      }),
+      code: PayoutAccountStateCode.ACTION_REQUIRED,
+      organizerActionRequired: true,
+      salesAffected: false,
+      payouts: 'UNAVAILABLE',
+      basis: 'BANK',
+    },
+    {
+      name: 'a rejected account beside one still waiting is still just waiting',
+      facts: facts({
+        bankAccounts: [
+          { currency: 'INR', verifiedAt: null, rejectedAt: VERIFIED_AT },
+          { currency: 'USD', verifiedAt: null },
+        ],
+      }),
+      code: PayoutAccountStateCode.UNDER_REVIEW,
+      organizerActionRequired: false,
+      salesAffected: false,
+      payouts: 'PENDING',
+      basis: 'BANK',
+    },
+    {
       name: 'nothing on file at all',
       facts: facts(),
       code: PayoutAccountStateCode.NO_ACCOUNT,

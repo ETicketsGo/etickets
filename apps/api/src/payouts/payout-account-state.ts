@@ -106,6 +106,8 @@ export interface PayoutAccountState {
 export interface BankAccountFact {
   currency: string;
   verifiedAt: Date | null;
+  /** Staff turned these details down. Absent means "not rejected". */
+  rejectedAt?: Date | null;
 }
 
 /** The provider-held account's own flags, when this organization has one. */
@@ -271,6 +273,29 @@ export function derivePayoutAccountState(facts: PayoutAccountFacts): PayoutAccou
   }
 
   const verified = facts.bankAccounts.filter((a) => a.verifiedAt !== null);
+  const waiting = facts.bankAccounts.filter((a) => a.verifiedAt === null && !a.rejectedAt);
+  if (verified.length === 0 && waiting.length === 0) {
+    /*
+      Every account on file was turned down. This is the one bank state where the wait IS the
+      organizer's: staff cannot fix a wrong number, only the owner can enter another. Saying
+      "we are checking them" here would leave an organizer waiting for a decision already made.
+    */
+    return {
+      code: PayoutAccountStateCode.ACTION_REQUIRED,
+      basis: 'BANK',
+      salesAffected: false,
+      payouts: 'UNAVAILABLE',
+      organizerActionRequired: true,
+      explanation:
+        'We could not verify your bank details. Check them and save your bank account again.',
+      action: {
+        kind: 'ADD_BANK_ACCOUNT',
+        label: 'Check your bank details',
+        href: '/organizer/payouts',
+      },
+      outstandingRequirements: 0,
+    };
+  }
   if (verified.length === 0) {
     /*
       THE CASE THIS MODEL WAS BUILT FOR. A bank account is checked by a person at ETicketsGo

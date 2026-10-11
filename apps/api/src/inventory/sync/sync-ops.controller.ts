@@ -48,8 +48,16 @@ export class SyncOpsController {
 
   @Post('providers/:providerCode/reconcile')
   @RequiresAdmin(AdminPermission.OPS_EXECUTE)
-  reconcile(@Param('providerCode') providerCode: string, @Query('limit') limit?: string) {
-    return this.ops.runReconciliation(providerCode, limit ? Number(limit) : undefined);
+  reconcile(
+    @CurrentUser() user: RequestUser,
+    @Param('providerCode') providerCode: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.ops.runReconciliation(
+      providerCode,
+      limit ? Number(limit) : undefined,
+      user?.id ?? null,
+    );
   }
 
   @Get('providers/:providerCode/health')

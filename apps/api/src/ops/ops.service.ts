@@ -1,4 +1,4 @@
-import { HttpStatus, Inject, Injectable, OnModuleDestroy } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable, OnModuleDestroy, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Queue } from 'bullmq';
 import { FEATURE_DEFAULTS, isFeatureEnabled, type FeatureFlag } from '@eticketsgo/shared-types';
@@ -6,6 +6,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import { HOLDS_QUEUE, HOLDS_QUEUE_NAME } from './holds-queue.provider';
+import { AuditService } from '../audit/audit.service';
+import { audited } from '../audit/audited';
 
 type CheckStatus = 'up' | 'down';
 
@@ -93,6 +95,8 @@ export class OpsService implements OnModuleDestroy {
     private readonly redis: RedisService,
     private readonly config: ConfigService,
     @Inject(HOLDS_QUEUE) private readonly queue: Queue,
+    // Optional so a service built by hand in a unit test needs no audit double.
+    @Optional() private readonly audit?: AuditService,
   ) {}
 
   async onModuleDestroy(): Promise<void> {
@@ -220,7 +224,23 @@ export class OpsService implements OnModuleDestroy {
     return { jobs: jobs.map((job) => this.toFailedJob(job)) };
   }
 
-  async retryFailed(): Promise<{ retried: number; total: number }> {
+  async retryFailed(
+    actorUserId: string | null = null,
+  ): Promise<{ retried: number; total: number }> {
+    return audited(
+      this.audit,
+      {
+        actorUserId,
+        action: 'OPS_QUEUE_RETRY_ALL',
+        entityType: 'Queue',
+        entityId: HOLDS_QUEUE_NAME,
+      },
+      () => this.retryAllFailed(),
+      (r) => ({ retried: r.retried, total: r.total }),
+    );
+  }
+
+  private async retryAllFailed(): Promise<{ retried: number; total: number }> {
     // Bound the batch so a huge backlog can't hang the request.
     const jobs = await this.queue.getFailed(0, 99);
     let retried = 0;
@@ -235,7 +255,24 @@ export class OpsService implements OnModuleDestroy {
     return { retried, total: jobs.length };
   }
 
-  async retryJob(id: string): Promise<{ id: string; retried: boolean }> {
+  async retryJob(
+    id: string,
+    actorUserId: string | null = null,
+  ): Promise<{ id: string; retried: boolean }> {
+    return audited(
+      this.audit,
+      {
+        actorUserId,
+        action: 'OPS_QUEUE_RETRY_JOB',
+        entityType: 'QueueJob',
+        entityId: id,
+        metadata: { queue: HOLDS_QUEUE_NAME },
+      },
+      () => this.retrySingleJob(id),
+    );
+  }
+
+  private async retrySingleJob(id: string): Promise<{ id: string; retried: boolean }> {
     const job = await this.queue.getJob(id);
     if (!job) {
       throw new AppException(

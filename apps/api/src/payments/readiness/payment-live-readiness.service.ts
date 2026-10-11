@@ -158,6 +158,21 @@ export class PaymentLiveReadinessService {
       }),
     ]);
 
+    /*
+      Has ANY signed delivery from this provider ever been accepted?
+
+      Rows in WebhookEvent are written only AFTER the signature verified, so one existing
+      proves the secret we hold matches the one the provider signs with. This is the only
+      evidence available for that, because the provider never returns a webhook secret: it is
+      typed into a dashboard by hand, and a mismatch is silent. On 2026-10-06 a real UPI
+      payment was captured and every delivery was refused for exactly this reason. The check
+      reads one of our own rows; it touches no secret and exposes none.
+    */
+    const deliveredWebhook = await this.prisma.webhookEvent.findFirst({
+      where: { provider: name.toLowerCase() },
+      select: { id: true },
+    });
+
     const certRecent =
       !!cert && Date.now() - new Date(cert.createdAt).getTime() <= this.certMaxAgeMs;
 
@@ -170,6 +185,14 @@ export class PaymentLiveReadinessService {
       key: 'webhook-verified',
       label: 'Webhook endpoint verified',
       passed: !!verifiedWebhook,
+    });
+    checks.push({
+      key: 'webhook-delivered',
+      label: 'A signed webhook delivery has been accepted',
+      passed: !!deliveredWebhook,
+      detail: deliveredWebhook
+        ? undefined
+        : 'No delivery has verified yet, so the webhook signing secret is unproven. Send a test event from the provider dashboard and confirm it is accepted before taking money.',
     });
     checks.push({ key: 'certification', label: 'Recent PASS certification', passed: certRecent });
     checks.push({ key: 'route', label: 'Currency/country route matches', passed: routeCount > 0 });

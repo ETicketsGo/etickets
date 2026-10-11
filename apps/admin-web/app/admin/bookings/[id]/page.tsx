@@ -43,7 +43,10 @@ export default function AdminBookingDetail() {
   const toast = useToast();
   const [confirmApprove, setConfirmApprove] = useState<RefundRow | null>(null);
 
-  const bookingQ = useQuery({ queryKey: ['booking', id], queryFn: () => api.bookings.get(id) });
+  const bookingQ = useQuery({
+    queryKey: ['booking', id],
+    queryFn: () => api.bookings.getAsStaff(id),
+  });
   const refundsQ = useQuery({
     queryKey: ['booking', id, 'refunds'],
     queryFn: () => api.refunds.forBooking(id),

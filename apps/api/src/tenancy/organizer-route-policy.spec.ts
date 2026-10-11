@@ -31,16 +31,19 @@ type StaffPolicy =
   | 'ORGANIZER_ONLY'
   /** The caller's own account, bookings or tickets. No organization is involved. */
   | 'SELF'
-  /**
-   * A customer's booking or ticket, which staff reach by ROLE today (bookings, tickets,
-   * attendee and sharing services check `ADMIN` directly). Not organizer resources and not
-   * changed here; listed so they are visible, and reported as a follow-up.
-   */
-  | 'CUSTOMER_RESOURCE_STAFF_BY_ROLE'
   /** A staff-only route already gated by `@RequiresAdmin` (admin-surface.spec.ts). */
   | 'ADMIN_ROUTE'
   /** A documented staff operation: this capability, audited allowed and refused. */
   | { permission: AdminPermission; operation: string };
+
+/**
+ * Staff operations on routes that are NOT organizer routes (so they have no row above) but that
+ * still name a capability for a record the buyer owns. Same rule: documented here or it fails.
+ */
+const ADMIN_ROUTE_OPERATIONS: Record<string, string> = {
+  // GET /admin/bookings/:id - a customer's booking, read by support. Audited allowed and refused.
+  'booking.admin-read': AdminPermission.BOOKING_READ,
+};
 
 const ORG_READ = (operation: string) => ({ permission: AdminPermission.ORGANIZER_READ, operation });
 
@@ -55,14 +58,14 @@ export const ORGANIZER_ROUTE_POLICY: Record<string, StaffPolicy> = {
   'GET /analytics/venue/:venueId': 'NONE',
   'GET /analytics/customer': 'SELF',
   // ── Attendees ──
-  'POST /tickets/:id/attendee': 'CUSTOMER_RESOURCE_STAFF_BY_ROLE',
-  'POST /tickets/:id/invite': 'CUSTOMER_RESOURCE_STAFF_BY_ROLE',
-  'POST /tickets/:id/transfer': 'CUSTOMER_RESOURCE_STAFF_BY_ROLE',
-  'POST /tickets/:id/unassign': 'CUSTOMER_RESOURCE_STAFF_BY_ROLE',
-  'GET /bookings/:id/attendees': 'CUSTOMER_RESOURCE_STAFF_BY_ROLE',
+  'POST /tickets/:id/attendee': 'SELF',
+  'POST /tickets/:id/invite': 'SELF',
+  'POST /tickets/:id/transfer': 'SELF',
+  'POST /tickets/:id/unassign': 'SELF',
+  'GET /bookings/:id/attendees': 'SELF',
   'POST /attendee-invites/:token/accept': 'SELF',
   'POST /attendee-invites/:token/decline': 'SELF',
-  'POST /attendee-invites/:id/resend': 'CUSTOMER_RESOURCE_STAFF_BY_ROLE',
+  'POST /attendee-invites/:id/resend': 'SELF',
   'GET /events/:id/attendees': 'NONE',
   'GET /events/:id/attendees/export': 'NONE',
   // ── Account ──
@@ -72,13 +75,13 @@ export const ORGANIZER_ROUTE_POLICY: Record<string, StaffPolicy> = {
   // ── Bookings (the buyer's) ──
   'POST /bookings': 'SELF',
   'GET /bookings': 'SELF',
-  'GET /bookings/:id': 'CUSTOMER_RESOURCE_STAFF_BY_ROLE',
+  'GET /bookings/:id': 'SELF',
   'POST /bookings/:id/coupon': 'SELF',
   'POST /bookings/:id/extend-hold': 'SELF',
-  'POST /bookings/:id/pay': 'CUSTOMER_RESOURCE_STAFF_BY_ROLE',
-  'POST /bookings/:id/cancel': 'CUSTOMER_RESOURCE_STAFF_BY_ROLE',
+  'POST /bookings/:id/pay': 'SELF',
+  'POST /bookings/:id/cancel': 'SELF',
   'POST /bookings/guest/:id/claim': 'SELF',
-  'POST /bookings/:bookingId/payments/razorpay/verify': 'CUSTOMER_RESOURCE_STAFF_BY_ROLE',
+  'POST /bookings/:bookingId/payments/razorpay/verify': 'SELF',
   // ── Check-in at the door (ADMIN stays in @Roles; the tenant check refuses non-members) ──
   'POST /checkins': 'NONE',
   'GET /checkins/sessions': 'NONE',
@@ -221,6 +224,7 @@ export const ORGANIZER_ROUTE_POLICY: Record<string, StaffPolicy> = {
   'GET /payouts/summary': 'NONE',
   'GET /payouts/account-state': 'NONE',
   'GET /payouts/accounts': 'NONE',
+  'GET /payouts/accounts/history': 'NONE',
   'POST /payouts/accounts': 'ORGANIZER_ONLY',
   'POST /payouts/generate': 'ORGANIZER_ONLY',
   'GET /receipts/mine': 'SELF',
@@ -248,14 +252,14 @@ export const ORGANIZER_ROUTE_POLICY: Record<string, StaffPolicy> = {
   'POST /reviews': 'SELF',
   'GET /reviews/movies/:slug/mine': 'SELF',
   'GET /reviews/mine': 'SELF',
-  'POST /tickets/:id/share': 'CUSTOMER_RESOURCE_STAFF_BY_ROLE',
-  'GET /tickets/:id/shares': 'CUSTOMER_RESOURCE_STAFF_BY_ROLE',
-  'POST /shares/:id/revoke': 'CUSTOMER_RESOURCE_STAFF_BY_ROLE',
-  'POST /shares/:id/extend': 'CUSTOMER_RESOURCE_STAFF_BY_ROLE',
-  'POST /shares/:id/permission': 'CUSTOMER_RESOURCE_STAFF_BY_ROLE',
+  'POST /tickets/:id/share': 'SELF',
+  'GET /tickets/:id/shares': 'SELF',
+  'POST /shares/:id/revoke': 'SELF',
+  'POST /shares/:id/extend': 'SELF',
+  'POST /shares/:id/permission': 'SELF',
   'GET /tickets': 'SELF',
   'GET /tickets/booking/:bookingId/print': 'NONE',
-  'GET /tickets/:id': 'CUSTOMER_RESOURCE_STAFF_BY_ROLE',
+  'GET /tickets/:id': 'SELF',
   // ── Shows, seat maps and layouts ──
   'POST /screens/:screenId/seatmap': 'NONE',
   'GET /screens/:screenId/seatmap': 'NONE',
@@ -483,6 +487,8 @@ describe('every organizer route has a written staff policy', () => {
     for (const policy of Object.values(ORGANIZER_ROUTE_POLICY)) {
       if (typeof policy === 'object') documented.set(policy.operation, policy.permission);
     }
+    for (const [op, permission] of Object.entries(ADMIN_ROUTE_OPERATIONS))
+      documented.set(op, permission);
     const named = namedStaffOperations();
     // Finding none would mean the scan stopped seeing them, not that there are none.
     expect(named.length).toBeGreaterThanOrEqual(documented.size);

@@ -15,38 +15,33 @@ const owner = { id: 'u-owner', email: 'o@t.test', fullName: 'O', roles: [] } as 
 const admin = { id: 'u-admin', email: 'a@t.test', fullName: 'A', roles: [] } as never;
 
 function makeService(key: string | null = KEY) {
-  const stored: Record<string, unknown>[] = [];
-  const audit = { record: jest.fn().mockResolvedValue(undefined) };
-  const prisma = {
-    organizerPayoutAccount: {
-      findMany: jest.fn(async () => stored),
-      findUnique: jest.fn(
-        async ({ where }: { where: { id: string } }) =>
-          stored.find((row) => row.id === where.id) ?? null,
-      ),
-      upsert: jest.fn(async ({ create }: { create: Record<string, unknown> }) => {
-        const row = { id: 'acc1', verifiedAt: null, updatedAt: new Date(), ...create };
-        stored.push(row);
-        return row;
-      }),
-      update: jest.fn(async ({ data }: { data: Record<string, unknown> }) => ({
-        ...stored[0],
-        ...data,
-      })),
+  // Validation and key handling all happen BEFORE the database is touched, so these tests use a
+  // prisma that fails loudly if anything reaches it. The persisted behaviour (versions, the
+  // maker-checker, notifications) is covered against real Postgres in
+  // payout-account-safeguards.integration-postgres.spec.ts.
+  const prisma = new Proxy(
+    {},
+    {
+      get() {
+        throw new Error('the database must not be reached');
+      },
     },
-  };
+  );
+  const audit = { record: jest.fn().mockResolvedValue(undefined) };
   const access = { assertMember: jest.fn().mockResolvedValue(undefined) };
   const config = { get: () => key };
+  const audience = { notifyOrganizationOwners: jest.fn() };
   return {
     service: new PayoutAccountsService(
       prisma as never,
       access as never,
       audit as never,
       config as never,
+      audience as never,
     ),
-    stored,
     audit,
     access,
+    audience,
   };
 }
 
@@ -92,29 +87,13 @@ describe('the account number at rest', () => {
   });
 });
 
-describe('saving an account', () => {
-  it('stores ciphertext and a mask, never the number', async () => {
-    const { service, stored } = makeService();
-    const view = await service.save(owner, 'org-1', DETAILS);
-    expect(view.accountLast4).toBe('6789');
-    expect(JSON.stringify(view)).not.toContain('50100123456789');
-    const row = stored[0] as { accountCipher: string };
-    expect(row.accountCipher).not.toContain('50100123456789');
-    expect(decryptAccountNumber(row.accountCipher, bankKey(KEY))).toBe('50100123456789');
-  });
-
-  it('keeps the number out of the audit log', async () => {
-    const { service, audit } = makeService();
-    await service.save(owner, 'org-1', DETAILS);
-    expect(JSON.stringify(audit.record.mock.calls[0][0])).not.toContain('50100123456789');
-  });
-
+describe('refusals that happen before anything is stored', () => {
   it('refuses to store anything on an environment with no key', async () => {
     // Better than storing them weaker: an environment without a key simply cannot hold
-    // bank details.
-    const { service, stored } = makeService(null);
+    // bank details. The proxy would throw if the save went on to touch the database.
+    const { service, audience } = makeService(null);
     await expect(service.save(owner, 'org-1', DETAILS)).rejects.toBeInstanceOf(AppException);
-    expect(stored).toHaveLength(0);
+    expect(audience.notifyOrganizationOwners).not.toHaveBeenCalled();
   });
 
   it('refuses an account number that is not one', async () => {
@@ -126,38 +105,22 @@ describe('saving an account', () => {
 
   it('is only the owner who may set where the money goes', async () => {
     const { service, access } = makeService();
-    await service.save(owner, 'org-1', DETAILS);
+    // The proxy throws once the save reaches the database, which is after the owner check.
+    await service.save(owner, 'org-1', DETAILS).catch(() => undefined);
     expect(access.assertMember).toHaveBeenCalledWith(owner, 'org-1', ['ORGANIZER_OWNER']);
   });
-});
 
-describe('revealing an account', () => {
-  it('returns the number and records who asked and why', async () => {
-    const { service, audit } = makeService();
-    await service.save(owner, 'org-1', DETAILS);
-    const revealed = await service.reveal(admin, 'acc1', 'Making the September transfer');
-    expect(revealed.accountNumber).toBe('50100123456789');
-    expect(audit.record).toHaveBeenCalledWith(
-      expect.objectContaining({
-        action: 'PAYOUT_ACCOUNT_REVEALED',
-        metadata: expect.objectContaining({ reason: 'Making the September transfer' }),
-      }),
-    );
-  });
-
-  it('refuses without a reason, because the reason is the point of the record', async () => {
+  it('a reveal refuses without a reason, because the reason is the point of the record', async () => {
     const { service } = makeService();
-    await service.save(owner, 'org-1', DETAILS);
     await expect(service.reveal(admin, 'acc1', '  ')).rejects.toBeInstanceOf(AppException);
   });
 
-  it('says it cannot read rather than guessing, under a different key', async () => {
-    // An account number that decrypts to something else moves money to somebody else.
-    const { service, stored } = makeService();
-    await service.save(owner, 'org-1', DETAILS);
-    const other = makeService(Buffer.alloc(32, 9).toString('base64'));
-    (other.stored as unknown[]).push(stored[0]);
-    await expect(other.service.reveal(admin, 'acc1', 'transfer')).rejects.toBeInstanceOf(
+  it('a reveal or a rejection refuses a reason that carries an account number', async () => {
+    const { service } = makeService();
+    await expect(service.reveal(admin, 'acc1', 'for 5010 0123 4567')).rejects.toBeInstanceOf(
+      AppException,
+    );
+    await expect(service.reject(admin, 'acc1', 'wrong: 501001234567', 1)).rejects.toBeInstanceOf(
       AppException,
     );
   });

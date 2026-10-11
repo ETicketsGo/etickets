@@ -1,5 +1,6 @@
 'use client';
 
+import { TableSkeleton } from '@/components/table-skeleton';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState, type ReactNode } from 'react';
 import { ArrowUpRight } from 'lucide-react';
@@ -190,35 +191,38 @@ export default function AdminBookings() {
             setPage(1);
           }}
         />
-        <DataTable
-          caption="Bookings"
-          columns={columns}
-          rows={data?.data}
-          loading={isLoading}
-          density="compact"
-          mobile="cards"
-          error={isError ? "We couldn't load this. Please try again." : undefined}
-          onRetry={() => refetch()}
-          empty={
-            <EmptyState
-              title="No booking matches"
-              hint={
-                described
-                  ? `Nothing matches ${described}.`
-                  : 'A booking reference or a buyer email works in the search.'
-              }
-              action={
-                filters.active ? (
-                  <Button variant="outline" onClick={clearAll}>
-                    Clear filters
-                  </Button>
-                ) : undefined
-              }
-            />
-          }
-          rowKey={(b) => b.id}
-          onRowClick={(b) => setOpen(b)}
-        />
+        {isLoading ? (
+          <TableSkeleton columns={6} label="Loading" />
+        ) : (
+          <DataTable
+            caption="Bookings"
+            columns={columns}
+            rows={data?.data}
+            density="compact"
+            mobile="cards"
+            error={isError ? "We couldn't load this. Please try again." : undefined}
+            onRetry={() => refetch()}
+            empty={
+              <EmptyState
+                title="No booking matches"
+                hint={
+                  described
+                    ? `Nothing matches ${described}.`
+                    : 'A booking reference or a buyer email works in the search.'
+                }
+                action={
+                  filters.active ? (
+                    <Button variant="outline" onClick={clearAll}>
+                      Clear filters
+                    </Button>
+                  ) : undefined
+                }
+              />
+            }
+            rowKey={(b) => b.id}
+            onRowClick={(b) => setOpen(b)}
+          />
+        )}
         {data && data.meta.totalPages > 1 && (
           <div className="mt-4">
             <Pagination

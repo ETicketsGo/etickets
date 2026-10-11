@@ -56,31 +56,44 @@ export class RazorpayConnectService {
     linkedAccountId: string,
   ): Promise<RazorpayAccountStatus> {
     await this.access.assertMember(user, organizationId, MANAGE_ROLES);
+    linkedAccountId = linkedAccountId.trim();
+    // Refuse early so a taken id costs no provider call; re-checked under a lock below.
+    await this.assertNotOwnedByAnother(this.prisma, user, organizationId, linkedAccountId);
     const snapshot = await this.fetchSnapshot(linkedAccountId);
 
-    const account = await this.prisma.organizerPaymentAccount.upsert({
-      where: { organizationId_provider: { organizationId, provider: PROVIDER } },
-      create: {
-        organizationId,
-        provider: PROVIDER,
-        providerAccountId: linkedAccountId,
-        accountType: 'route_linked',
-        onboardingStatus: snapshot.onboardingStatus,
-        detailsSubmitted: snapshot.detailsSubmitted,
-        chargesEnabled: snapshot.chargesEnabled,
-        payoutsEnabled: snapshot.payoutsEnabled,
-        requirementsDue: snapshot.requirementsDue,
-        country: 'IN',
-        defaultCurrency: 'inr',
-      },
-      update: {
-        providerAccountId: linkedAccountId,
-        onboardingStatus: snapshot.onboardingStatus,
-        detailsSubmitted: snapshot.detailsSubmitted,
-        chargesEnabled: snapshot.chargesEnabled,
-        payoutsEnabled: snapshot.payoutsEnabled,
-        requirementsDue: snapshot.requirementsDue,
-      },
+    const account = await this.prisma.$transaction(async (tx) => {
+      /*
+        Two organizations linking the same id at the same moment would both pass a plain
+        read-then-write check. A transaction-scoped advisory lock keyed on the id serialises
+        them, so the loser sees the winner's row. (A partial unique index would be the real
+        guarantee; it is held back until existing data is known to be clean - see the PR.)
+      */
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`razorpay-linked:${linkedAccountId}`}))`;
+      await this.assertNotOwnedByAnother(tx, user, organizationId, linkedAccountId);
+      return tx.organizerPaymentAccount.upsert({
+        where: { organizationId_provider: { organizationId, provider: PROVIDER } },
+        create: {
+          organizationId,
+          provider: PROVIDER,
+          providerAccountId: linkedAccountId,
+          accountType: 'route_linked',
+          onboardingStatus: snapshot.onboardingStatus,
+          detailsSubmitted: snapshot.detailsSubmitted,
+          chargesEnabled: snapshot.chargesEnabled,
+          payoutsEnabled: snapshot.payoutsEnabled,
+          requirementsDue: snapshot.requirementsDue,
+          country: 'IN',
+          defaultCurrency: 'inr',
+        },
+        update: {
+          providerAccountId: linkedAccountId,
+          onboardingStatus: snapshot.onboardingStatus,
+          detailsSubmitted: snapshot.detailsSubmitted,
+          chargesEnabled: snapshot.chargesEnabled,
+          payoutsEnabled: snapshot.payoutsEnabled,
+          requirementsDue: snapshot.requirementsDue,
+        },
+      });
     });
     await this.audit.record({
       actorUserId: user.id,
@@ -91,6 +104,43 @@ export class RazorpayConnectService {
       metadata: { linkedAccountId },
     });
     return this.toStatus(account);
+  }
+
+  /**
+   * A Razorpay linked account is one legal entity's payee. It belongs to exactly one
+   * organization: settlements pay out to it, and the webhook maps an account event back
+   * to its owner by id (`findFirst`), so a shared id would pay, or report on, the wrong
+   * organization. Re-saving an organization's own id is fine.
+   */
+  private async assertNotOwnedByAnother(
+    db: Pick<PrismaService, 'organizerPaymentAccount'>,
+    user: RequestUser,
+    organizationId: string,
+    linkedAccountId: string,
+  ): Promise<void> {
+    const owner = await db.organizerPaymentAccount.findFirst({
+      where: {
+        provider: PROVIDER,
+        providerAccountId: linkedAccountId,
+        organizationId: { not: organizationId },
+      },
+      select: { id: true, organizationId: true },
+    });
+    if (!owner) return;
+    // The refusal is evidence; it names the owner for staff, never in the response.
+    await this.audit.record({
+      actorUserId: user.id,
+      organizationId,
+      action: 'RAZORPAY_ACCOUNT_LINK_REFUSED',
+      entityType: 'OrganizerPaymentAccount',
+      entityId: owner.id,
+      metadata: { linkedAccountId, ownedByOrganizationId: owner.organizationId },
+    });
+    throw new AppException(
+      ErrorCodes.CONFLICT,
+      'This Razorpay linked account is already connected to another organization.',
+      HttpStatus.CONFLICT,
+    );
   }
 
   async getStatus(user: RequestUser, organizationId: string): Promise<RazorpayAccountStatus> {

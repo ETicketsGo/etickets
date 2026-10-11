@@ -328,7 +328,7 @@ export default function EditMoviePage() {
     );
   if (isLoading || !movie)
     return (
-      <div className="space-y-6" aria-hidden="true">
+      <div className="space-y-6" role="status" aria-busy="true" aria-label="Loading film">
         <div className="flex gap-5 rounded-lg border border-border bg-background-surface p-4 sm:p-6">
           <Skeleton className="aspect-[2/3] w-28 rounded-md sm:w-36" />
           <div className="flex-1 space-y-3">
@@ -337,7 +337,21 @@ export default function EditMoviePage() {
             <Skeleton className="h-6 w-1/2" />
           </div>
         </div>
-        <Skeleton className="h-64 w-full" />
+        {/* The four figures, the tabs, then the showtime rows beside the context column. */}
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-16 w-full rounded-lg" />
+          ))}
+        </div>
+        <Skeleton className="h-10 w-72 max-w-full" />
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
+          <div className="space-y-2">
+            {[0, 1, 2].map((i) => (
+              <Skeleton key={i} className="h-24 w-full rounded-lg" />
+            ))}
+          </div>
+          <Skeleton className="hidden h-64 w-full rounded-lg xl:block" />
+        </div>
       </div>
     );
 
