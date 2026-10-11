@@ -135,3 +135,96 @@ export function calendarWeekdayNames(weekStart: CalendarWeekStart): string[] {
   const names = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   return Array.from({ length: 7 }, (_, i) => names[(i + weekStart) % 7]);
 }
+
+// ─── How many sessions a month cell shows ───
+
+/**
+ * Sessions drawn in one month cell before "+N more", by the width the grid has.
+ *
+ * Desktop 3, tablet 2 then 1, phone 0 (the cell shows dots and the day panel or agenda carries
+ * the words). A cell is a fixed-height box in a grid of seven; every session past the cap is one
+ * keyboard-reachable "+N more" button that selects the day, so nothing is hidden, only folded.
+ */
+export function calendarMonthCap(width: number): number {
+  if (width >= 1024) return 3;
+  if (width >= 768) return 2;
+  if (width >= 640) return 1;
+  return 0;
+}
+
+/** The first `cap` items and how many more there are. */
+export function calendarSplit<T>(items: readonly T[], cap: number): { shown: T[]; hidden: number } {
+  const shown = items.slice(0, Math.max(0, cap));
+  return { shown, hidden: items.length - shown.length };
+}
+
+// ─── Zone wording ───
+
+/** Where a session's management page is, and what the link says. */
+export interface CalendarDestination {
+  href: string;
+  /** "Manage seating", "Open event". */
+  label: string;
+}
+
+function offsetOf(zone: string, at: Date): string {
+  return (
+    new Intl.DateTimeFormat('en-US', { timeZone: zone, timeZoneName: 'longOffset' })
+      .formatToParts(at)
+      .find((p) => p.type === 'timeZoneName')?.value ?? zone
+  );
+}
+
+/**
+ * Whether a venue's clock is the viewer's clock AT THAT INSTANT. Compared by UTC offset, not by
+ * zone name, so Asia/Calcutta and Asia/Kolkata agree and a Denver venue in winter differs from a
+ * viewer in Phoenix even though both say "Mountain".
+ */
+export function calendarSameClock(
+  venueZone: string,
+  viewerZone: string,
+  at: Date | string,
+): boolean {
+  const when = new Date(at);
+  try {
+    return offsetOf(venueZone, when) === offsetOf(viewerZone, when);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * "06:30 MDT for you": the same instant on the viewer's clock, for a venue whose clock is not
+ * theirs. A weekday is added when the viewer's date is not the venue's, so "Sat 06:30" is not
+ * mistaken for the venue's Sunday. Empty when the clocks agree.
+ */
+export function calendarViewerTime(
+  at: Date | string,
+  venueZone: string,
+  viewerZone: string,
+): string {
+  const when = new Date(at);
+  if (calendarSameClock(venueZone, viewerZone, when)) return '';
+  const day = (z: string) =>
+    new Intl.DateTimeFormat('en-CA', {
+      timeZone: z,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(when);
+  const clock = new Intl.DateTimeFormat('en-GB', {
+    timeZone: viewerZone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).format(when);
+  const abbrev =
+    new Intl.DateTimeFormat('en-US', { timeZone: viewerZone, timeZoneName: 'short' })
+      .formatToParts(when)
+      .find((p) => p.type === 'timeZoneName')?.value ?? viewerZone;
+  const weekday =
+    day(venueZone) === day(viewerZone)
+      ? ''
+      : `${new Intl.DateTimeFormat('en-GB', { timeZone: viewerZone, weekday: 'short' }).format(when)} `;
+  return `${weekday}${clock} ${abbrev} for you`;
+}

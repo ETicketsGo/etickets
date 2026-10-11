@@ -66,3 +66,27 @@ export function independenceFailure(input: {
   if (input.actorIsMember) return 'ORGANIZATION_MEMBER';
   return null;
 }
+
+/**
+ * Whether a payout may be marked PAID, judged by the bank account it would be paid into.
+ *
+ * ── THE RULE ──────────────────────────────────────────────────────────────────────
+ * Money may be recorded as sent only to an account that somebody other than its maker has
+ * verified, in its CURRENT version. An account saved or changed since its last verification is
+ * pending, so a payout cannot be marked paid until a second person checks it. A payout that
+ * moves no money to the organizer (net zero or a clawback) is exempt: there is no destination
+ * to protect.
+ */
+export type PayoutDestinationVerdict =
+  | { allowed: true }
+  | { allowed: false; reason: 'NO_ACCOUNT' | 'PENDING_VERIFICATION' | 'REJECTED' };
+
+export function payoutDestinationVerdict(input: {
+  netMinor: number;
+  account: { verifiedAt: Date | null; rejectedAt: Date | null } | null;
+}): PayoutDestinationVerdict {
+  if (input.netMinor <= 0) return { allowed: true };
+  if (!input.account) return { allowed: false, reason: 'NO_ACCOUNT' };
+  if (input.account.verifiedAt) return { allowed: true };
+  return { allowed: false, reason: input.account.rejectedAt ? 'REJECTED' : 'PENDING_VERIFICATION' };
+}

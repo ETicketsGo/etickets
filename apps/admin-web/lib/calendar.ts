@@ -1,8 +1,11 @@
 import { zoneAbbrev } from '@eticketsgo/shared-types';
 import {
   calendarDisplayStatus,
+  calendarSameClock,
+  calendarViewerTime,
   calendarStatusText,
   calendarStatusTone,
+  type CalendarDestination,
   type CalendarEntry,
   type CalendarTone,
 } from '@eticketsgo/web-kit';
@@ -318,25 +321,38 @@ export function toWeeks(days: string[]): string[][] {
 export interface EntrySession extends PlaceableSession {
   status: string;
   endsAt: string;
-  event: { title: string; status: string };
+  event: { id?: string; title: string; status: string };
   organization: { name: string };
   venue: { city: string };
 }
 
-/** "7:30 PM - 10:30 PM IST", at the venue. */
-export function timeRange(s: {
-  startsAt: string;
-  endsAt: string;
-  timezone: string | null;
-}): string {
+/**
+ * "7:30 PM - 10:30 PM IST", at the venue. With `viewerZone`, the zone is named only when the
+ * venue's clock is not the reader's at that instant (and a venue with no zone, shown in UTC, is
+ * always named: its time is a stand-in the reader must be told about).
+ */
+export function timeRange(
+  s: { startsAt: string; endsAt: string; timezone: string | null },
+  viewerZone?: string,
+): string {
   const start = localTime(s.startsAt, s.timezone);
-  const zone = zoneNote(s.startsAt, s.timezone);
-  if (new Date(s.endsAt).getTime() <= new Date(s.startsAt).getTime()) return `${start} ${zone}`;
-  return `${start} - ${localTime(s.endsAt, s.timezone)} ${zone}`;
+  const same =
+    viewerZone !== undefined &&
+    !zoneUnknown(s.timezone) &&
+    calendarSameClock(s.timezone as string, viewerZone, s.startsAt);
+  const zone = same ? '' : ` ${zoneNote(s.startsAt, s.timezone)}`;
+  if (new Date(s.endsAt).getTime() <= new Date(s.startsAt).getTime()) return `${start}${zone}`;
+  return `${start} - ${localTime(s.endsAt, s.timezone)}${zone}`;
+}
+
+/** Where an admin manages a show: the platform's page for its event. */
+export function showDestination(s: { event: { id?: string } }): CalendarDestination | undefined {
+  const id = s.event.id;
+  return id ? { href: `/admin/events/${id}`, label: 'Open event' } : undefined;
 }
 
 /** A show in the words web-kit's shared calendar draws: the venue's clock, the organizer's name. */
-export function entryFor<T extends EntrySession>(s: T): CalendarEntry<T> {
+export function entryFor<T extends EntrySession>(s: T, viewerZone?: string): CalendarEntry<T> {
   const shown = showStatus(s);
   const detail = `${s.organization.name} - ${s.venue.city}`;
   const start = localTime(s.startsAt, s.timezone);
@@ -344,7 +360,12 @@ export function entryFor<T extends EntrySession>(s: T): CalendarEntry<T> {
     id: s.id,
     title: s.event.title,
     start,
-    time: timeRange(s),
+    time: timeRange(s, viewerZone),
+    viewerTime:
+      viewerZone && !zoneUnknown(s.timezone)
+        ? calendarViewerTime(s.startsAt, s.timezone as string, viewerZone) || undefined
+        : undefined,
+    destination: showDestination(s),
     detail,
     tone: statusTone(shown.status),
     statusLabel: shown.label,
@@ -357,8 +378,14 @@ export function entryFor<T extends EntrySession>(s: T): CalendarEntry<T> {
 /** Every drawn day's shows as entries, in the same order. */
 export function entriesByDay<T extends EntrySession>(
   byDay: Record<string, T[]>,
+  viewerZone?: string,
 ): Map<string, CalendarEntry<T>[]> {
   const out = new Map<string, CalendarEntry<T>[]>();
-  for (const [day, list] of Object.entries(byDay)) out.set(day, list.map(entryFor));
+  for (const [day, list] of Object.entries(byDay)) {
+    out.set(
+      day,
+      list.map((s) => entryFor(s, viewerZone)),
+    );
+  }
   return out;
 }

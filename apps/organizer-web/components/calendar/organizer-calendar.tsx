@@ -165,7 +165,7 @@ export function OrganizerCalendar() {
     () => segmentsByDay(filtered, range.from, range.to),
     [filtered, range.from, range.to],
   );
-  const entries = useMemo(() => entriesByDay(byDay), [byDay]);
+  const entries = useMemo(() => entriesByDay(byDay, viewer.zone), [byDay, viewer.zone]);
   const inRange = useMemo(() => {
     const ids = new Set<string>();
     for (const list of byDay.values()) for (const seg of list) ids.add(seg.session.id);
@@ -294,10 +294,7 @@ export function OrganizerCalendar() {
         }
       >
         <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-caption text-text-muted">
-          <CalendarZoneNote
-            zone={viewerZoneLabel(viewer)}
-            extra="Each session sits on the date at its venue."
-          />
+          <CalendarZoneNote zone={viewerZoneLabel(viewer)} />
           {!loading && !sessionsQ.isError && !nothingAtAll && (
             <p aria-live="polite">
               {inRange === 0
@@ -358,13 +355,11 @@ export function OrganizerCalendar() {
                   weekStart={weekStart}
                   formatDay={formatDayLong}
                   noun={NOUN}
-                  showDayLabel="Open the day"
                   onFocusDay={(day, viaKeyboard) => {
                     setFocusedDay(day);
                     if (viaKeyboard && day.slice(0, 7) !== anchor.slice(0, 7)) goTo(day);
                   }}
                   onOpen={openEntry}
-                  onShowDay={(day) => goTo(day, 'day')}
                 />
               }
               panel={

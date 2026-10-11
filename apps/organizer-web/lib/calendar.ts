@@ -2,8 +2,11 @@ import { marketFor } from '@eticketsgo/shared-types';
 import {
   calendarDisplayStatus,
   calendarFocusTarget,
+  calendarSameClock,
   calendarStatusText,
   calendarStatusTone,
+  calendarViewerTime,
+  type CalendarDestination,
   type CalendarEntry,
   type CalendarTone,
   type OrganizerCalendarSession,
@@ -81,6 +84,10 @@ export interface CalendarSession {
   eventId: string;
   title: string;
   category: string;
+  /** `MOVIE` for a film show in a cinema; decides where "manage" goes. */
+  experienceType: string;
+  /** The session sits in a cinema room (reserved seats), not general admission. */
+  seated: boolean;
   /** The EVENT's status - the one the filter and the colour follow. */
   eventStatus: string;
   /** The session's own status, shown only when it says something the event's does not. */
@@ -349,6 +356,8 @@ export function toCalendarSessions(rows: OrganizerCalendarSession[]): CalendarSe
       eventId: r.event.id,
       title: r.event.title,
       category: r.event.category,
+      experienceType: r.event.experienceType,
+      seated: r.cinemaTimezone !== null,
       eventStatus: r.event.status,
       sessionStatus: r.status,
       venueId: r.venue.id,
@@ -563,25 +572,57 @@ export function sessionLabel(s: CalendarSession): string {
   return `${time}, ${s.title}${place ? `, ${place}` : ''}. ${displayStatus(s).label}`;
 }
 
-/** "19:00 - 22:00 IST", or the start alone for a session stored with no length. */
-export function segmentTime(seg: DaySegment): string {
+/**
+ * "19:00 - 22:00 IST", or the start alone for a session stored with no length.
+ *
+ * With `viewerZone`, the zone is named only when the venue's clock is NOT the reader's at that
+ * instant: a Denver organizer reading a Denver show sees "19:00 - 22:00", and the same organizer
+ * reading a Hyderabad show sees "19:00 - 22:00 IST" plus the time for them (`viewerTime`). With
+ * no `viewerZone` the zone is always named.
+ */
+export function segmentTime(seg: DaySegment, viewerZone?: string): string {
   const s = seg.session;
-  const zone = zoneAbbrev(s.zone, s.startsAt);
-  if (seg.continuesBefore) return `Until ${formatClock(s.endsAt, s.zone)} ${zone}`;
+  const named =
+    viewerZone && calendarSameClock(s.zone, viewerZone, s.startsAt)
+      ? ''
+      : ` ${zoneAbbrev(s.zone, s.startsAt)}`;
+  if (seg.continuesBefore) return `Until ${formatClock(s.endsAt, s.zone)}${named}`;
   if (seg.endMin <= seg.startMin && !seg.continuesAfter)
-    return `${formatClock(s.startsAt, s.zone)} ${zone}`;
-  return `${formatClock(s.startsAt, s.zone)} - ${formatClock(s.endsAt, s.zone)} ${zone}`;
+    return `${formatClock(s.startsAt, s.zone)}${named}`;
+  return `${formatClock(s.startsAt, s.zone)} - ${formatClock(s.endsAt, s.zone)}${named}`;
+}
+
+/**
+ * Where an organizer manages a session, by what it is:
+ * - a film show in a cinema: the film's event page, where its screens and shows are run;
+ * - a reserved-seat session: the event's seating page (layout, categories, what has sold);
+ * - everything else (general admission): the event's sessions page.
+ * Always the event's own page, never a guess at an id the calendar does not have.
+ */
+export function sessionDestination(s: {
+  eventId: string;
+  experienceType: string;
+  seated: boolean;
+}): CalendarDestination {
+  const base = `/organizer/events/${s.eventId}`;
+  if (s.experienceType === 'MOVIE') return { href: base, label: 'Open film page' };
+  if (s.seated) return { href: `${base}/seating`, label: 'Manage seating' };
+  return { href: `${base}/sessions`, label: 'Manage sessions' };
 }
 
 /** One day's share of a session, in the words web-kit's shared calendar draws. */
-export function entryFor(seg: DaySegment): CalendarEntry<CalendarSession> {
+export function entryFor(seg: DaySegment, viewerZone?: string): CalendarEntry<CalendarSession> {
   const s = seg.session;
   const shown = displayStatus(s);
   return {
     id: s.id,
     title: s.title,
     start: seg.continuesBefore ? 'cont.' : formatClock(s.startsAt, s.zone),
-    time: segmentTime(seg),
+    time: segmentTime(seg, viewerZone),
+    viewerTime: viewerZone
+      ? calendarViewerTime(s.startsAt, s.zone, viewerZone) || undefined
+      : undefined,
+    destination: sessionDestination(s),
     detail: [s.venueName, s.city].filter(Boolean).join(', ') || undefined,
     tone: statusTone(shown.status),
     statusLabel: shown.label,
@@ -594,8 +635,13 @@ export function entryFor(seg: DaySegment): CalendarEntry<CalendarSession> {
 /** Every day's segments as entries, in the same order. */
 export function entriesByDay(
   byDay: Map<DayKey, DaySegment[]>,
+  viewerZone?: string,
 ): Map<DayKey, CalendarEntry<CalendarSession>[]> {
   const out = new Map<DayKey, CalendarEntry<CalendarSession>[]>();
-  for (const [day, list] of byDay) out.set(day, list.map(entryFor));
+  for (const [day, list] of byDay)
+    out.set(
+      day,
+      list.map((seg) => entryFor(seg, viewerZone)),
+    );
   return out;
 }

@@ -102,6 +102,20 @@ describe('integration-real-postgres: payout generation', () => {
       data: { name: `Payout ${suffix}`, slug: `payout-${suffix}` },
     });
     orgId = org.id;
+    // Marking a payout paid is held until its bank account is verified, so these fixtures give
+    // the organization one. No maker or checker is recorded, which the constraint allows.
+    await db.organizerPayoutAccount.create({
+      data: {
+        organizationId: orgId,
+        currency: 'INR',
+        holderName: 'Fixture',
+        bankName: 'Fixture Bank',
+        bankCode: 'FIXT0000001',
+        accountLast4: '0000',
+        accountCipher: 'fixture',
+        verifiedAt: new Date(),
+      },
+    });
     const venue = await db.venue.create({
       data: { organizationId: orgId, name: `V ${suffix}`, city: 'Bengaluru', country: 'India' },
     });

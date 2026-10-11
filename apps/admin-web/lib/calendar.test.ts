@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   addDays,
   entriesByDay,
+  entryFor,
   cityOptions,
   fetchWindow,
   inCity,
@@ -262,6 +263,28 @@ describe('entries for the shared calendar', () => {
     const e = entriesByDay(byDay).get('2026-10-09')![0];
     expect(e.statusLabel).toBe('Show cancelled');
     expect(e.struck).toBe(true);
+  });
+
+  it("names the zone only when the venue's clock is not the reader's (Kolkata vs Denver)", () => {
+    const k = show('k', '2026-11-06T13:30:00.000Z', 'Asia/Kolkata');
+    expect(entryFor(k, 'America/Denver').time).toBe(
+      `7:00 PM - 9:00 PM ${zoneNote(k.startsAt, 'Asia/Kolkata')}`,
+    );
+    expect(entryFor(k, 'America/Denver').viewerTime).toBe('06:30 MST for you');
+    expect(entryFor(k, 'Asia/Kolkata').time).toBe('7:00 PM - 9:00 PM');
+    expect(entryFor(k, 'Asia/Kolkata').viewerTime).toBeUndefined();
+    // A venue with no zone is shown in UTC and always says so.
+    const none = show('n', '2026-11-06T13:30:00.000Z', null);
+    expect(entryFor(none, 'UTC').time).toBe('1:30 PM - 3:30 PM UTC');
+  });
+
+  it("sends a show to the platform's page for its event", () => {
+    const withId = { ...show('k', '2026-11-06T13:30:00.000Z', 'Asia/Kolkata') };
+    withId.event = { ...withId.event, id: 'ev9' } as typeof withId.event;
+    expect(entryFor(withId).destination).toEqual({
+      href: '/admin/events/ev9',
+      label: 'Open event',
+    });
   });
 
   it('cuts the drawn days into weeks of seven', () => {

@@ -2,6 +2,7 @@ import {
   changedFieldsOf,
   independenceFailure,
   looksLikeAccountNumber,
+  payoutDestinationVerdict,
   reviewStatusOf,
 } from './payout-account-safety';
 
@@ -71,5 +72,28 @@ describe('independenceFailure (maker-checker)', () => {
     expect(
       independenceFailure({ actorUserId: 'u2', savedByUserId: null, actorIsMember: false }),
     ).toBeNull();
+  });
+});
+
+describe('payoutDestinationVerdict (the hold)', () => {
+  const at = new Date();
+  it('allows a payout into a verified account', () => {
+    expect(
+      payoutDestinationVerdict({ netMinor: 100, account: { verifiedAt: at, rejectedAt: null } }),
+    ).toEqual({ allowed: true });
+  });
+  it.each([
+    ['no account', null, 'NO_ACCOUNT'],
+    ['a pending account', { verifiedAt: null, rejectedAt: null }, 'PENDING_VERIFICATION'],
+    ['a rejected account', { verifiedAt: null, rejectedAt: at }, 'REJECTED'],
+  ] as const)('holds a payout with %s', (_name, account, reason) => {
+    expect(payoutDestinationVerdict({ netMinor: 100, account })).toEqual({
+      allowed: false,
+      reason,
+    });
+  });
+  it('never holds a payout that sends nothing to the organizer', () => {
+    expect(payoutDestinationVerdict({ netMinor: 0, account: null })).toEqual({ allowed: true });
+    expect(payoutDestinationVerdict({ netMinor: -1, account: null })).toEqual({ allowed: true });
   });
 });
