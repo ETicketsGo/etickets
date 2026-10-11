@@ -160,6 +160,32 @@ interface SettleResult {
   allocations: Map<string, AllocationDraft[]>;
 }
 
+/**
+ * The ONE `eventId` condition for a payout query: the event asked for, minus any event a provider
+ * transfer has claimed.
+ *
+ * These two rules used to be separate object spreads, `...(eventId ? { eventId } : {})` and
+ * `...(claimed.length ? { eventId: { notIn: claimed } } : {})`. Both write the key `eventId`, so
+ * when both applied the second replaced the first. `settlementScope` narrows the claimed list to
+ * the requested event, so an event-scoped request for a claimed event became "every event EXCEPT
+ * that one": a payout labelled with the claimed event, built from the organization's other
+ * events, which were then paid again by their own payouts.
+ *
+ * Prisma accepts `equals` and `notIn` together on one filter, and both must hold.
+ */
+export function eventIdFilter(
+  eventId: string | undefined,
+  transferredEventIds: string[],
+): { eventId?: string | Prisma.StringFilter } {
+  if (eventId) {
+    return {
+      eventId:
+        transferredEventIds.length > 0 ? { equals: eventId, notIn: transferredEventIds } : eventId,
+    };
+  }
+  return transferredEventIds.length > 0 ? { eventId: { notIn: transferredEventIds } } : {};
+}
+
 /** Everything `payableBookingWhere` needs, so the predicate has one definition. */
 export interface PayableBookingScope {
   organizationId: string;
@@ -192,14 +218,12 @@ export function payableBookingWhere(scope: PayableBookingScope): Prisma.BookingW
   return {
     organizationId: scope.organizationId,
     paymentMethod: 'ONLINE',
-    ...(scope.eventId ? { eventId: scope.eventId } : {}),
-    // The show has happened and the hold has expired, and no provider transfer has claimed this
-    // event's money. Both rules are on the BOOKING's event, so an org-wide payout leaves out the
-    // events that are not ready and settles the ones that are.
+    // The requested event (if any) AND not claimed by a provider transfer: one condition, so
+    // neither rule can overwrite the other. See `eventIdFilter`.
+    ...eventIdFilter(scope.eventId, scope.transferredEventIds),
+    // The show has happened and the hold has expired. Both rules are on the BOOKING's event, so
+    // an org-wide payout leaves out the events that are not ready and settles the ones that are.
     event: scope.eventFilter,
-    ...(scope.transferredEventIds.length > 0
-      ? { eventId: { notIn: scope.transferredEventIds } }
-      : {}),
     OR: scope.bookingWindows,
     ...(scope.eventSettled.length > 0
       ? {
@@ -468,9 +492,8 @@ export class PayoutsService {
           */
           booking: {
             paymentMethod: 'ONLINE',
-            ...(eventId ? { eventId } : {}),
+            ...eventIdFilter(eventId, transferredEventIds),
             event: this.payableEventFilter(until, holdDays),
-            ...(transferredEventIds.length > 0 ? { eventId: { notIn: transferredEventIds } } : {}),
           },
           OR: refundWindows,
           ...(eventSettled.length > 0
@@ -550,14 +573,13 @@ export class PayoutsService {
       where: {
         organizationId,
         paymentMethod: 'ONLINE',
-        ...(eventId ? { eventId } : {}),
+        ...eventIdFilter(eventId, transferredEventIds),
         confirmedAt: { lte: until },
         // Everything the payable filter above leaves out, minus the events that are simply
         // not going ahead: a cancelled show owes refunds, not a payout, and listing it as
         // "held" would promise money that is never coming.
         NOT: { event: this.payableEventFilter(until, holdDays) },
         event: { status: { not: EventStatus.CANCELLED } },
-        ...(transferredEventIds.length > 0 ? { eventId: { notIn: transferredEventIds } } : {}),
       },
       _sum: { subtotalMinor: true },
     });
