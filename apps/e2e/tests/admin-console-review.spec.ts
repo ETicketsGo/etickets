@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { ADMIN, ORGANIZER, apiLogin, seedBrowserAuth, type AuthTokens } from './helpers';
+import { ADMIN, CUSTOMER, ORGANIZER, apiLogin, seedBrowserAuth, type AuthTokens } from './helpers';
 
 /**
  * The admin console after the review: what each screen must now say.
@@ -306,9 +306,21 @@ test.describe('complaints', () => {
   });
 
   test('a customer can raise one from the help center', async ({ page }) => {
-    await page.goto('http://localhost:3000/en/help/complaint');
+    await page.goto(`${CUSTOMER}/en/help/complaint`);
     await expect(page.getByRole('heading', { name: 'Make a complaint' })).toBeVisible();
-    await expect(page.getByLabel(/What went wrong/)).toBeVisible();
+    /*
+      By role, not `getByLabel`, because the page can briefly hold TWO of this form.
+
+      The form sits in a Suspense boundary. The server streams it into a `<div hidden id="S:1">`
+      and React 19 throttles the swap that reveals it (by up to 300ms). If the client renders the
+      boundary first, its own copy is on screen while the server's hidden copy is still in the
+      body - the CI trace shows exactly that. Until #293 both textareas had the fixed id
+      `fb-message`, so both labels pointed at one element and nothing noticed; with an id per
+      instance `getByLabel` finds two, one of them hidden, and fails strict mode (main,
+      2026-10-10, both attempts). A role query skips hidden elements - it finds the field a
+      person can see and type in - and still fails if two are visible.
+    */
+    await expect(page.getByRole('textbox', { name: 'What went wrong?' })).toBeVisible();
   });
 });
 

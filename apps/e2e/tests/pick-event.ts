@@ -27,7 +27,7 @@ export async function openPaidEvent(page: Page): Promise<void> {
   await expect(cards.first()).toBeVisible();
 
   const count = await cards.count();
-  const seated: string[] = [];
+  const skipped: string[] = [];
   for (let i = 0; i < count; i++) {
     const card = cards.nth(i);
     // The card prints "Free" instead of a price when its cheapest ticket costs nothing.
@@ -45,15 +45,20 @@ export async function openPaidEvent(page: Page): Promise<void> {
     const quantity = page.locator('select[aria-label^="Quantity"]').first();
     const seatMap = page.getByText('Pick your seats on the seat map');
     await expect(quantity.or(seatMap).first()).toBeVisible({ timeout: 20_000 });
-    if (await quantity.isVisible()) return;
+    /*
+      Enabled, not just visible: a sold-out ticket keeps its picker on the page, disabled, so
+      "visible" handed callers an event nobody can buy from, and they timed out a minute later
+      in `selectOption`. Seen on a shared database where another suite's event had sold out.
+    */
+    if ((await quantity.isVisible()) && (await quantity.isEnabled())) return;
 
-    seated.push(title);
+    skipped.push(title);
     await page.goto(listing);
     await expect(cards.first()).toBeVisible();
   }
   throw new Error(
-    `No paid, quantity-sold event on this page. ${count} listed; seated: ${
-      seated.join(', ') || 'none'
+    `No paid, quantity-sold event on this page. ${count} listed; seated or sold out: ${
+      skipped.join(', ') || 'none'
     }.`,
   );
 }

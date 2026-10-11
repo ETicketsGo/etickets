@@ -118,6 +118,9 @@ test.describe('the organizer header at every width', () => {
             await expect(shown).toHaveText(LONG_NAME);
           }
         } finally {
+          // The rename goes through `route.fetch()`; a call still in flight when the context
+          // closes would otherwise fail whichever test runs next (see cinema-workspace).
+          await page.unrouteAll({ behavior: 'ignoreErrors' });
           await context.close();
         }
       });

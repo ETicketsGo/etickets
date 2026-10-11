@@ -222,6 +222,17 @@ test.describe('cinema workspace', () => {
     await seedBrowserAuth(context, tokens);
   });
 
+  /*
+    The Telangana routes above call `route.fetch()`, so a request the page fires as a test ends
+    is still waiting on the API when the page closes. That rejection ("route.fetch: Test ended")
+    used to escape the test and land on whichever test the worker ran next - CI pinned it on
+    console-header-long-names "768px", a test that never touches these routes. Drop them, and
+    their in-flight callbacks, before the page goes.
+  */
+  test.afterEach(async ({ page }) => {
+    await page.unrouteAll({ behavior: 'ignoreErrors' });
+  });
+
   test('library -> film -> schedule a show at an AP cinema -> see it -> open its layout preview', async ({
     page,
   }) => {

@@ -50,6 +50,12 @@ async function showWithAFreeSeat(request: APIRequestContext) {
 const seat = (page: Page, name: string) => page.locator(`button[aria-label^="Seat ${name},"]`);
 
 test.describe('a show that cannot be sold online', () => {
+  // A `route.fetch()` below can still be waiting on the API when the test ends; without this its
+  // rejection fails whichever test the worker runs next (see cinema-workspace.spec.ts).
+  test.afterEach(async ({ page }) => {
+    await page.unrouteAll({ behavior: 'ignoreErrors' });
+  });
+
   let show: Awaited<ReturnType<typeof showWithAFreeSeat>>;
 
   test.beforeAll(async ({ request }) => {

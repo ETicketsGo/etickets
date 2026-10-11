@@ -117,6 +117,9 @@ for (const app of [
           }
           expect(await headerCollisions(page)).toEqual([]);
         } finally {
+          // `longNames` answers through `route.fetch()`; a call still waiting on the API when the
+          // context closes would otherwise fail whichever test runs next (see cinema-workspace).
+          await page.unrouteAll({ behavior: 'ignoreErrors' });
           await context.close();
         }
       });
