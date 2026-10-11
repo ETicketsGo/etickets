@@ -121,7 +121,10 @@ Organizers are paid via **Linked Accounts**:
 1. For each organizer, create a **Linked Account** in the dashboard and complete their
    India **KYC** + **bank verification** (Linked Account status must reach `activated`).
 2. The organizer links the resulting account id in ETicketsGo via
-   `POST /api/organizers/:id/payments/razorpay/account`.
+   `POST /api/organizers/:id/payments/razorpay/account`. One linked account belongs to one
+   organization: linking an id another organization already holds is refused (409) and
+   audited as `RAZORPAY_ACCOUNT_LINK_REFUSED`. Two organizations run by one legal entity
+   need two linked accounts.
 3. The API maps status: `created` → onboarding, `needs_clarification` → restricted,
    `activated` → enabled, `suspended` → disabled. Payout is ready only when Route is
    enabled **and** the account is active.
