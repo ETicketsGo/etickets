@@ -8,6 +8,7 @@ import { AppException, ErrorCodes } from '../common/errors';
 import type { RequestUser } from '../common/decorators';
 import { PayoutSettingsService } from './payout-settings.service';
 import { derivePayoutAccountState, type PayoutAccountState } from './payout-account-state';
+import { payoutDestinationVerdict } from './payout-account-safety';
 import {
   calculateCurrencySettlement,
   type CurrencySettlement,
@@ -1065,25 +1066,56 @@ export class PayoutsService {
     if (!payout)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Payout not found.', HttpStatus.NOT_FOUND);
 
-    // Atomic finalize: only an un-paid payout can be marked PAID, so the same
-    // payout can never be paid twice (idempotent under concurrent admins).
-    const claim = await this.prisma.payout.updateMany({
-      where: { id: payoutId, status: { in: [PayoutStatus.PENDING, PayoutStatus.SCHEDULED] } },
-      data: {
-        status: PayoutStatus.PAID,
-        paidAt: new Date(),
-        /*
-          The bank's own reference for the transfer. A payout marked PAID with nothing to
-          point at cannot be reconciled against a statement, which is the one thing anybody
-          has to do with it afterwards. Optional, because a correction posted by hand may
-          genuinely have none and refusing would leave money paid and the ledger disagreeing.
-        */
-        paidReference: trimmed(evidence.reference),
-        note: trimmed(evidence.note),
-        // A payout that failed and was retried successfully must not keep the old reason.
-        failureReason: null,
-      },
+    /*
+      ── THE HOLD ───────────────────────────────────────────────────────────────────────
+      Money is recorded as sent only to a bank account somebody other than its maker has
+      verified, in its current version. The account row is read FOR SHARE inside the same
+      transaction as the claim, so an owner saving different details cannot slip in between the
+      check and the PAID: the save waits for this transaction, and the next attempt then sees a
+      pending account. A refusal is audited and the payout stays exactly as it was.
+    */
+    const outcome = await this.prisma.$transaction(async (tx) => {
+      const rows = await tx.$queryRaw<{ verifiedAt: Date | null; rejectedAt: Date | null }[]>(
+        Prisma.sql`SELECT "verifiedAt", "rejectedAt" FROM "OrganizerPayoutAccount"
+                   WHERE "organizationId" = ${payout.organizationId}
+                     AND "currency" = ${payout.currency}
+                   FOR SHARE`,
+      );
+      const verdict = payoutDestinationVerdict({
+        netMinor: payout.netMinor,
+        account: rows[0] ?? null,
+      });
+      if (!verdict.allowed) return { held: verdict.reason };
+      // Atomic finalize: only an un-paid payout can be marked PAID, so the same
+      // payout can never be paid twice (idempotent under concurrent admins).
+      return { claim: await this.claimPaid(tx, payoutId, evidence) };
     });
+    if ('held' in outcome) {
+      await this.audit.record({
+        actorUserId: admin.id,
+        organizationId: payout.organizationId,
+        action: 'PAYOUT_PAID',
+        entityType: 'Payout',
+        entityId: payoutId,
+        metadata: {
+          outcome: 'REFUSED',
+          reasonCode: `DESTINATION_${outcome.held}`,
+          currency: payout.currency,
+          netMinor: payout.netMinor,
+        },
+      });
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        outcome.held === 'NO_ACCOUNT'
+          ? `This payout is on hold: there is no ${payout.currency} bank account on file for the organizer.`
+          : `This payout is on hold: the ${payout.currency} bank account has not been verified${
+              outcome.held === 'REJECTED' ? ' (it was turned down)' : ''
+            }. Another staff member must verify it on Bank accounts first.`,
+        HttpStatus.CONFLICT,
+        { hold: `DESTINATION_${outcome.held}` },
+      );
+    }
+    const claim = outcome.claim;
     if (claim.count !== 1) {
       throw new AppException(
         ErrorCodes.CONFLICT,
@@ -1104,6 +1136,34 @@ export class PayoutsService {
       },
     });
     return this.prisma.payout.findUnique({ where: { id: payoutId } });
+  }
+
+  /**
+   * The atomic PAID transition, run inside the transaction that also checked the destination.
+   * Only an un-paid payout can be marked PAID, so the same payout can never be paid twice.
+   */
+  private claimPaid(
+    tx: Prisma.TransactionClient,
+    payoutId: string,
+    evidence: { reference?: string | null; note?: string | null },
+  ) {
+    return tx.payout.updateMany({
+      where: { id: payoutId, status: { in: [PayoutStatus.PENDING, PayoutStatus.SCHEDULED] } },
+      data: {
+        status: PayoutStatus.PAID,
+        paidAt: new Date(),
+        /*
+          The bank's own reference for the transfer. A payout marked PAID with nothing to
+          point at cannot be reconciled against a statement, which is the one thing anybody
+          has to do with it afterwards. Optional, because a correction posted by hand may
+          genuinely have none and refusing would leave money paid and the ledger disagreeing.
+        */
+        paidReference: trimmed(evidence.reference),
+        note: trimmed(evidence.note),
+        // A payout that failed and was retried successfully must not keep the old reason.
+        failureReason: null,
+      },
+    });
   }
 
   /**
