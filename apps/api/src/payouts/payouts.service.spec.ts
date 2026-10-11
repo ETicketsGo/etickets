@@ -39,6 +39,9 @@ const openPayout = (id: string, currency: string) => ({
 function withTransaction<T extends object>(prisma: T) {
   return Object.assign(prisma, {
     $executeRaw: jest.fn().mockResolvedValue(1),
+    // The destination the payout would be paid into. VERIFIED unless a test says otherwise:
+    // `markPaid` holds a payout whose bank account is missing, pending or turned down.
+    $queryRaw: jest.fn().mockResolvedValue([{ verifiedAt: new Date(), rejectedAt: null }]),
     $transaction: jest.fn(async (fn: (tx: T) => unknown) => fn(prisma)),
   });
 }
@@ -76,9 +79,13 @@ function makeService(
         id: `p${++created}`,
         ...data,
       })),
-      findUnique: jest
-        .fn()
-        .mockResolvedValue({ id: 'p1', status: PayoutStatus.PENDING, organizationId: 'o1' }),
+      findUnique: jest.fn().mockResolvedValue({
+        id: 'p1',
+        status: PayoutStatus.PENDING,
+        organizationId: 'o1',
+        currency: 'INR',
+        netMinor: 10_000,
+      }),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       ...(overrides.payout as object),
     },
@@ -1088,6 +1095,68 @@ describe('PayoutsService (markPaid)', () => {
     expect(prisma.payout.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ paidReference: null }) }),
     );
+  });
+});
+
+describe('PayoutsService (markPaid hold on an unverified destination)', () => {
+  /*
+    Money is recorded as sent only to a bank account somebody other than its maker has verified,
+    in its current version. Every refusal leaves the payout exactly as it was and is audited.
+  */
+  const accountRow = (over: Record<string, unknown>) => [
+    { verifiedAt: null, rejectedAt: null, ...over },
+  ];
+
+  it.each([
+    ['there is no account', [], 'DESTINATION_NO_ACCOUNT'],
+    ['the account is waiting for verification', accountRow({}), 'DESTINATION_PENDING_VERIFICATION'],
+    ['the account was turned down', accountRow({ rejectedAt: new Date() }), 'DESTINATION_REJECTED'],
+  ])('holds the payout when %s', async (_name, rows, code) => {
+    const { service, prisma, audit } = makeService();
+    prisma.$queryRaw.mockResolvedValue(rows);
+    await expect(service.markPaid(user, 'p1')).rejects.toMatchObject({
+      response: expect.objectContaining({ details: { hold: code } }),
+    });
+    expect(prisma.payout.updateMany).not.toHaveBeenCalled();
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'PAYOUT_PAID',
+        metadata: expect.objectContaining({ outcome: 'REFUSED', reasonCode: code }),
+      }),
+    );
+  });
+
+  it('pays when the account is verified', async () => {
+    const { service, prisma } = makeService();
+    prisma.$queryRaw.mockResolvedValue(accountRow({ verifiedAt: new Date() }));
+    await service.markPaid(user, 'p1');
+    expect(prisma.payout.updateMany).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not hold a payout that sends no money to the organizer (net zero or a clawback)', async () => {
+    const { service, prisma } = makeService({
+      payout: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'p1',
+          status: PayoutStatus.PENDING,
+          organizationId: 'o1',
+          currency: 'INR',
+          netMinor: -500,
+        }),
+      },
+    });
+    prisma.$queryRaw.mockResolvedValue([]);
+    await service.markPaid(user, 'p1');
+    expect(prisma.payout.updateMany).toHaveBeenCalledTimes(1);
+  });
+
+  it('reads the account for the payout currency, in the same transaction as the claim', async () => {
+    const { service, prisma } = makeService();
+    await service.markPaid(user, 'p1');
+    expect(prisma.$transaction).toHaveBeenCalled();
+    const sql = prisma.$queryRaw.mock.calls[0][0];
+    expect(sql.sql).toContain('FOR SHARE');
+    expect(sql.values).toEqual(['o1', 'INR']);
   });
 });
 
