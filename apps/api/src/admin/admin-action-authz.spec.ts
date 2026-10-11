@@ -80,10 +80,25 @@ const EVERY_OLD_CAPABILITY = ALL_ADMIN_PERMISSIONS.filter(
 const ACTORS: Record<string, Actor> = {
   opsReader: { roles: ['ADMIN'], grants: [AdminPermission.OPS_READ] },
   financeReader: { roles: ['ADMIN'], grants: [AdminPermission.FINANCE_READ] },
-  /** The SUPPORT preset, exactly. */
-  supportDesk: { roles: ['ADMIN'], grants: [...ADMIN_PRESETS.SUPPORT.grants] },
-  /** The FINANCE preset, exactly - the account most of the finance routes were used by. */
-  financePreset: { roles: ['ADMIN'], grants: [...ADMIN_PRESETS.FINANCE.grants] },
+  /**
+   * The SUPPORT preset as it was when these actions were split out of the reads - what an
+   * existing support account still holds, because editing a preset changes no account.
+   */
+  supportDesk: {
+    roles: ['ADMIN'],
+    grants: [AdminPermission.BOOKING_READ, AdminPermission.ORGANIZER_READ],
+  },
+  /** The FINANCE preset as it was then - the account most of the finance routes were used by. */
+  financePreset: {
+    roles: ['ADMIN'],
+    grants: [
+      AdminPermission.BOOKING_READ,
+      AdminPermission.FINANCE_READ,
+      AdminPermission.REFUND_REVIEW,
+      AdminPermission.REFUND_APPROVE,
+      AdminPermission.PAYOUT_MANAGE,
+    ],
+  },
   /** Every capability in the catalogue before this change, including ADMIN_MANAGE. */
   everyOldCapability: { roles: ['ADMIN'], grants: EVERY_OLD_CAPABILITY },
   opsExecutor: { roles: ['ADMIN'], grants: [AdminPermission.OPS_EXECUTE] },
@@ -429,9 +444,23 @@ describe('acting on an admin queue needs more than seeing it', () => {
       expect(serviceCalls).toEqual([]);
     });
 
-    it('refuses the ready-made FINANCE and SUPPORT bundles', async () => {
+    it('refuses accounts holding the FINANCE and SUPPORT bundles as they were before approval', async () => {
       expect((await call(base, 'financePreset', method, path, body)).status).toBe(403);
       expect((await call(base, 'supportDesk', method, path, body)).status).toBe(403);
+    });
+
+    it('opens to a ready-made bundle exactly when the bundle carries its capability', async () => {
+      // The owner-approved presets: FINANCE carries FINANCE_APPROVE and FINANCE_RESOLVE,
+      // SUPPORT carries SUPPORT_MANAGE, OPERATIONS carries OPS_EXECUTE, REFUND_DESK none.
+      for (const [key, preset] of Object.entries(ADMIN_PRESETS)) {
+        const actor = `preset:${key}`;
+        ACTORS[actor] = { roles: ['ADMIN'], grants: [...preset.grants] };
+        const { status } = await call(base, actor, method, path, body);
+        expect({ preset: key, allowed: ok(status) }).toEqual({
+          preset: key,
+          allowed: preset.grants.includes(needs),
+        });
+      }
     });
 
     it(`opens to ${needs}`, async () => {
@@ -486,12 +515,23 @@ describe('acting on an admin queue needs more than seeing it', () => {
     expect(ran).toBe(true);
   });
 
-  it('grants the new action capabilities to no ready-made bundle', () => {
-    for (const preset of Object.values(ADMIN_PRESETS)) {
-      for (const action of NEW_ACTION_CAPABILITIES) {
-        expect(preset.grants).not.toContain(action);
-      }
-    }
+  it('grants the action capabilities only to the bundles the owner approved', () => {
+    const carriers = Object.fromEntries(
+      NEW_ACTION_CAPABILITIES.map((action) => [
+        action,
+        Object.entries(ADMIN_PRESETS)
+          .filter(([, p]) => p.grants.includes(action))
+          .map(([key]) => key)
+          .sort(),
+      ]),
+    );
+    expect(carriers).toEqual({
+      [AdminPermission.OPS_EXECUTE]: ['OPERATIONS'],
+      [AdminPermission.FINANCE_APPROVE]: ['FINANCE'],
+      [AdminPermission.FINANCE_RESOLVE]: ['FINANCE'],
+      // Not REFUND_DESK: the owner kept it out.
+      [AdminPermission.SUPPORT_MANAGE]: ['SUPPORT'],
+    });
   });
 
   it('covers every write on these controllers, and none of them rests on a read capability', () => {
