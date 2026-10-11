@@ -1,5 +1,14 @@
 # BACKUP-RUNBOOK (P6.9)
 
+> **Read this first (2026-10-11).** This runbook describes a managed-cloud target (RDS-style PITR,
+> object-storage versioning). The platform actually runs on Railway, where the Postgres volume has
+> **no point-in-time recovery** and a project token cannot enable Railway's volume backups. What
+> exists today is the nightly verified `pg_dump` from the `db-seed` service, described in
+> [database-protection.md](database-protection.md) and
+> [../deployment/RAILWAY_BACKUP_RECOVERY.md](../deployment/RAILWAY_BACKUP_RECOVERY.md), with the
+> current gaps listed in [PRODUCTION-READINESS-2026-10.md](PRODUCTION-READINESS-2026-10.md).
+> Treat the frequency, retention and PITR rows below as targets, not as the production state.
+
 What is backed up, how, and how to restore. PostgreSQL is the only authoritative store; everything
 else is reconstructable. **DR is not "proven" until the restore rehearsal (below) runs against a
 real managed-PG** — currently PENDING (no cloud infra in this environment).
