@@ -1,6 +1,26 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { CUSTOMER, NEW_ACCOUNT_PASSWORD, uniqueEmail } from './helpers';
 import { openPaidEvent } from './pick-event';
+
+/*
+  From a booking's confirmation page to its ticket viewer, through the wallet.
+
+  The confirmation page has a "View tickets" button of its own, and `/View ticket/` matches it.
+  "All my tickets" is a client-side navigation, so it was still in flight when the next line
+  looked for a "View ticket" link - and found the confirmation page's button. Clicking that
+  started a second navigation, racing the first. When the wallet landed last, the URL check had
+  already passed on the viewer's address, and the test waited out its whole minute for a Share
+  or Assign button on the wallet page (CI: "secure sharing" 6 times, "attendee identity" 4).
+
+  So: wait until the wallet is really on screen, then open the ticket by its exact name.
+*/
+async function openTicketViewerFromWallet(page: Page) {
+  await page.getByRole('link', { name: 'All my tickets' }).click();
+  await expect(page).toHaveURL(/\/account\/tickets$/, { timeout: 20_000 });
+  await expect(page.getByRole('heading', { level: 1, name: 'My tickets' })).toBeVisible();
+  await page.getByRole('link', { name: 'View ticket', exact: true }).click();
+  await expect(page).toHaveURL(/\/account\/bookings\/[^/]+\/tickets$/);
+}
 
 test('customer registers, books a ticket, pays, and sees a QR ticket', async ({ page }) => {
   // Register
@@ -120,11 +140,9 @@ test('attendee identity: owner invites, recipient claims, ticket moves to their 
   await expect(page).toHaveURL(/\/booking\/.+\/payment/, { timeout: 20_000 });
   await page.getByRole('button', { name: /Pay/ }).click();
   await expect(page).toHaveURL(/\/booking\/.+\/confirmation/, { timeout: 20_000 });
-  await page.getByRole('link', { name: 'All my tickets' }).click();
 
   // Open the ticket viewer and invite an attendee by email
-  await page.getByRole('link', { name: /View ticket/ }).click();
-  await expect(page).toHaveURL(/\/account\/bookings\/.+\/tickets/);
+  await openTicketViewerFromWallet(page);
   await page.getByRole('button', { name: 'Assign', exact: true }).click();
   const attendeeEmail = uniqueEmail('attendee');
   await page.getByLabel('Attendee email').fill(attendeeEmail);
@@ -171,9 +189,7 @@ test('secure sharing: owner creates a guest link, recipient opens it, then it is
   await expect(page).toHaveURL(/\/booking\/.+\/payment/, { timeout: 20_000 });
   await page.getByRole('button', { name: /Pay/ }).click();
   await expect(page).toHaveURL(/\/booking\/.+\/confirmation/, { timeout: 20_000 });
-  await page.getByRole('link', { name: 'All my tickets' }).click();
-  await page.getByRole('link', { name: /View ticket/ }).click();
-  await expect(page).toHaveURL(/\/account\/bookings\/.+\/tickets/);
+  await openTicketViewerFromWallet(page);
   const viewerUrl = page.url();
 
   // Create a GUEST share link
