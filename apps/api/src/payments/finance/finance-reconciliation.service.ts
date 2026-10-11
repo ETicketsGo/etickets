@@ -40,7 +40,11 @@ export class FinanceReconciliationService {
   }
 
   /** Detect discrepancies in a window and file new ones into the queue. */
-  async detect(from: Date, to: Date): Promise<{ detected: number; created: number }> {
+  async detect(
+    from: Date,
+    to: Date,
+    actor?: Actor,
+  ): Promise<{ detected: number; created: number }> {
     const [payments, refunds] = await Promise.all([
       this.prisma.payment.findMany({
         where: {
@@ -103,6 +107,8 @@ export class FinanceReconciliationService {
     }
 
     await this.audit.record({
+      actorUserId: actor?.userId ?? null,
+      ip: actor?.ip ?? null,
       action: 'PAYMENT_DISCREPANCY_DETECTION',
       entityType: 'ReconciliationDiscrepancy',
       metadata: {

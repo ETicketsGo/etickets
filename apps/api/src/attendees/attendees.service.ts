@@ -55,12 +55,8 @@ export class AttendeesService {
     return randomBytes(8).toString('hex');
   }
 
-  private isAdmin(user: RequestUser): boolean {
-    return user.roles.includes('ADMIN' as never) || user.roles.includes('SUPER_ADMIN' as never);
-  }
-
   /**
-   * Loads a ticket the caller may manage: its CURRENT holder, or a platform admin.
+   * Loads a ticket the caller may manage: its CURRENT holder.
    *
    * The holder is the buyer until a transfer is accepted and the transfer's recipient after it
    * (see `tickets/ticket-holder.ts`). This checked `booking.userId`, so a buyer who had given a
@@ -77,7 +73,7 @@ export class AttendeesService {
     });
     if (!ticket)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Ticket not found.', HttpStatus.NOT_FOUND);
-    if (currentHolderUserId(ticket) !== user.id && !this.isAdmin(user)) {
+    if (currentHolderUserId(ticket) !== user.id) {
       const gaveItAway = isTransferred(ticket) && ticket.booking.userId === user.id;
       throw new AppException(
         ErrorCodes.FORBIDDEN,
@@ -425,7 +421,7 @@ export class AttendeesService {
   }
 
   // ── owner dashboard ───────────────────────────────────────────────────
-  /** Per-booking attendee summary + counts (owner or admin). */
+  /** Per-booking attendee summary + counts (the buyer). */
   async summaryForBooking(user: RequestUser, bookingId: string) {
     const booking = await this.prisma.booking.findUnique({
       where: { id: bookingId },
@@ -433,7 +429,7 @@ export class AttendeesService {
     });
     if (!booking)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Booking not found.', HttpStatus.NOT_FOUND);
-    if (booking.userId !== user.id && !this.isAdmin(user)) {
+    if (booking.userId !== user.id) {
       throw new AppException(
         ErrorCodes.FORBIDDEN,
         'You cannot view this booking.',
@@ -511,8 +507,8 @@ export class AttendeesService {
       tickets: tickets.map((t) => {
         const facts = holderFacts(t.id);
         const transferred = isTransferred(facts);
-        // The holder (a buyer the ticket came back to) and platform admins still see it all.
-        const hidden = transferred && currentHolderUserId(facts) !== user.id && !this.isAdmin(user);
+        // The holder (a buyer the ticket came back to) still sees it all.
+        const hidden = transferred && currentHolderUserId(facts) !== user.id;
         return {
           id: t.id,
           serial: t.serial,

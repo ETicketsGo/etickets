@@ -532,6 +532,11 @@ export const api = {
       }),
     list: () => request<Paged<BookingSummary>>('/bookings?pageSize=50'),
     get: (id: string) => request<BookingDetail>(`/bookings/${id}`),
+    /**
+     * A customer's booking, read by platform staff. Needs BOOKING_READ and is audited. The
+     * customer route above answers only the buyer.
+     */
+    getAsStaff: (id: string) => request<BookingDetail>(`/admin/bookings/${id}`),
     pay: (id: string) => request<PayResult>(`/bookings/${id}/pay`, { method: 'POST' }),
     /**
      * Cancel the signed-in buyer's own unpaid booking, releasing what it holds at once.
@@ -3029,6 +3034,8 @@ export interface SeatClassMapping {
    */
   currency?: string | null;
   mapped: boolean;
+  /** Per class: does this cinema's pricing order have a rate row for it. Absent on an older API. */
+  classHasRate?: Record<string, boolean>;
 }
 
 export interface CinemaComplianceView {
@@ -3047,13 +3054,15 @@ export interface CinemaComplianceView {
   maintenance: { perTicketMinor: number; treatment: string; description: string } | null;
   maxTicketPriceMinor: number | null;
   ticketPriceRule: string | null;
-  onlineFee: { policy: string; description: string };
+  onlineFee: { policy: string; description: string; maxMinor?: number | null };
   prices: {
     ticketTypeId: string;
     name: string;
     priceMinor: number;
     ok: boolean;
     reason: string | null;
+    /** False when only finished shows use this ticket type. Absent on an older API. */
+    upcoming?: boolean;
   }[];
   blocksPublishing: boolean;
 }

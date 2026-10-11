@@ -2,6 +2,7 @@ import { HttpStatus, Inject, Injectable, OnModuleDestroy } from '@nestjs/common'
 import { AppException, ErrorCodes } from '../../common/errors';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../audit/audit.service';
+import { audited } from '../../audit/audited';
 import { INVENTORY_SYNC_QUEUE, type InventorySyncJob } from './sync-queue.provider';
 import { SyncReconciliationService } from './sync-reconciliation.service';
 import { ProviderSyncHealthService } from './sync-health.service';
@@ -291,8 +292,18 @@ export class SyncOpsService implements OnModuleDestroy {
     }
   }
 
-  runReconciliation(providerCode?: string, limit?: number) {
-    return this.reconciliation.reconcile({ providerCode, limit });
+  runReconciliation(providerCode?: string, limit?: number, actorUserId: string | null = null) {
+    return audited(
+      this.audit,
+      {
+        actorUserId,
+        action: 'SYNC_RECONCILE_RUN',
+        entityType: 'InventorySync',
+        entityId: providerCode ?? 'ALL',
+        metadata: { limit: limit ?? null },
+      },
+      () => this.reconciliation.reconcile({ providerCode, limit }),
+    );
   }
 
   providerHealth(providerCode: string) {

@@ -13,6 +13,7 @@ import {
   RotateCcw,
   Ticket,
   Wallet,
+  ChevronDown,
 } from 'lucide-react';
 import { NeedsYou } from '@/components/needs-you';
 import { CinemaPricingSummary } from '@/components/overview/cinema-pricing-summary';
@@ -115,6 +116,10 @@ export default function AdminDashboard() {
     platform-wide.
   */
   const [currency, setCurrency] = useState<string | null>(null);
+  // Below a wide screen the figures are measurements nobody has to act on, and on a tablet they
+  // pushed the page past 3,000px. Folded there, open on desktop. The fold is CSS (`hidden xl:block`),
+  // so nothing is chosen after hydration and nothing moves.
+  const [figuresOpen, setFiguresOpen] = useState(false);
 
   const d = dash.data;
   const markets = d?.money ?? [];
@@ -298,75 +303,101 @@ export default function AdminDashboard() {
         above.
       */}
         {mayReadFigures && (
-          <SectionCard
-            title="How the platform is doing"
-            description="For information. Money is shown one currency at a time and is never added across currencies."
+          <button
+            type="button"
+            onClick={() => setFiguresOpen((o) => !o)}
+            aria-expanded={figuresOpen}
+            aria-controls="platform-figures"
+            className="flex min-h-[3.25rem] w-full items-center gap-3 rounded-lg border border-border bg-background-surface px-4 py-2.5 text-left shadow-xs transition-colors duration-150 hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas motion-reduce:transition-none xl:hidden"
           >
-            {/*
+            <span className="min-w-0 flex-1">
+              <span className="block text-ui font-semibold text-text-primary">
+                {figuresOpen ? 'Hide platform figures' : 'Show platform figures'}
+              </span>
+              <span className="block text-caption text-text-muted">
+                How the platform is doing, and figures by market
+              </span>
+            </span>
+            <ChevronDown
+              className={`h-5 w-5 shrink-0 text-text-muted transition-transform duration-150 motion-reduce:transition-none ${figuresOpen ? 'rotate-180' : ''}`}
+              aria-hidden
+            />
+          </button>
+        )}
+        <div
+          id="platform-figures"
+          className={`space-y-6 ${figuresOpen ? '' : 'hidden xl:block xl:space-y-6'}`}
+        >
+          {mayReadFigures && (
+            <SectionCard
+              title="How the platform is doing"
+              description="For information. Money is shown one currency at a time and is never added across currencies."
+            >
+              {/*
             An error is only an error for somebody who was allowed to ask, and it is this
             section's, not the page's: returning the whole page as "We couldn't load this"
             threw away the queues above, which a person can still act on.
           */}
-            {dash.isError ? (
-              <ErrorState
-                message="We couldn't load the platform figures. Please try again."
-                onRetry={() => dash.refetch()}
-              />
-            ) : (
-              <>
-                {markets.length > 0 && (
-                  <div
-                    className="mb-4 flex flex-wrap items-center gap-2"
-                    role="group"
-                    aria-label="Market"
-                  >
-                    <span className="text-caption text-text-muted">Showing figures for</span>
-                    {markets.map((m) => (
-                      <button
-                        key={m.currency}
-                        type="button"
-                        onClick={() => setCurrency(m.currency)}
-                        aria-pressed={m.currency === market?.currency}
-                        className={`rounded-full border px-3 py-1 text-caption font-semibold transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                          m.currency === market?.currency
-                            ? 'border-action-primary bg-tint-primary text-action-primary'
-                            : 'border-border text-text-secondary hover:bg-background-subtle hover:text-text-primary'
-                        }`}
-                      >
-                        {marketLabel(m)}
-                      </button>
-                    ))}
-                  </div>
-                )}
+              {dash.isError ? (
+                <ErrorState
+                  message="We couldn't load the platform figures. Please try again."
+                  onRetry={() => dash.refetch()}
+                />
+              ) : (
+                <>
+                  {markets.length > 0 && (
+                    <div
+                      className="mb-4 flex flex-wrap items-center gap-2"
+                      role="group"
+                      aria-label="Market"
+                    >
+                      <span className="text-caption text-text-muted">Showing figures for</span>
+                      {markets.map((m) => (
+                        <button
+                          key={m.currency}
+                          type="button"
+                          onClick={() => setCurrency(m.currency)}
+                          aria-pressed={m.currency === market?.currency}
+                          className={`rounded-full border px-3 py-1 text-caption font-semibold transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                            m.currency === market?.currency
+                              ? 'border-action-primary bg-tint-primary text-action-primary'
+                              : 'border-border text-text-secondary hover:bg-background-subtle hover:text-text-primary'
+                          }`}
+                        >
+                          {marketLabel(m)}
+                        </button>
+                      ))}
+                    </div>
+                  )}
 
-                {dash.isLoading || !d ? (
-                  <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:gap-4">
-                    {Array.from({ length: 8 }).map((_, i) => (
-                      <SkeletonCard key={i} variant="stat" />
-                    ))}
-                  </div>
-                ) : (
-                  <>
-                    {/*
+                  {dash.isLoading || !d ? (
+                    <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:gap-4">
+                      {Array.from({ length: 8 }).map((_, i) => (
+                        <SkeletonCard key={i} variant="stat" />
+                      ))}
+                    </div>
+                  ) : (
+                    <>
+                      {/*
                     Compact cards below a wide screen - four across a tablet, two on a phone -
                     where the tall card two across made ten figures ~700px. The card's density
                     is its markup, so both sets are drawn and CSS shows one; the other is
                     `display: none`, unseen by assistive tech.
                   */}
-                    <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4 md:gap-3 xl:hidden">
-                      {statCards('compact')}
-                    </div>
-                    <div className="hidden grid-cols-4 gap-4 xl:grid">
-                      {statCards('comfortable')}
-                    </div>
-                  </>
-                )}
-              </>
-            )}
-          </SectionCard>
-        )}
+                      <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4 md:gap-3 xl:hidden">
+                        {statCards('compact')}
+                      </div>
+                      <div className="hidden grid-cols-4 gap-4 xl:grid">
+                        {statCards('comfortable')}
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
+            </SectionCard>
+          )}
 
-        {/*
+          {/*
         ── "PENDING APPROVALS" WAS REMOVED, NOT MOVED ─────────────────────────────────────
         It listed two counts, "Organizers awaiting review" and "Events under review", with a
         button to each unfiltered list. The action centre at the top of this page now carries
@@ -375,94 +406,95 @@ export default function AdminDashboard() {
         fact twice on one screen, which is two things to reconcile, not reassurance.
       */}
 
-        {/*
+          {/*
         Every market side by side. The cards answer "how is this market doing"; this answers
         "where is the platform selling at all", which is the question a single-market view
         hides. Each amount is formatted in its own row's currency - `money()` without one
         prints rupees - and rows are never totalled, because a sum across currencies is not an
         amount of anything.
       */}
-        {mayReadFigures && markets.length > 0 && (
-          <SectionCard title="By market" flush>
-            {/* Focusable, so a keyboard user can scroll it sideways on a phone (WCAG 2.1.1). */}
-            <div
-              className="overflow-x-auto px-5 pb-3"
-              tabIndex={0}
-              role="region"
-              aria-label="Figures by market"
-            >
-              <table className="w-full text-left text-ui">
-                <caption className="sr-only">
-                  Money, bookings and payment failures for each market
-                </caption>
-                <thead>
-                  <tr className="border-b border-border text-micro uppercase tracking-wide text-text-muted">
-                    <th scope="col" className="whitespace-nowrap py-2.5 pr-4 font-semibold">
-                      Market
-                    </th>
-                    <th
-                      scope="col"
-                      className="whitespace-nowrap py-2.5 pr-4 text-right font-semibold"
-                    >
-                      GMV
-                    </th>
-                    <th
-                      scope="col"
-                      className="whitespace-nowrap py-2.5 pr-4 text-right font-semibold"
-                    >
-                      Platform revenue
-                    </th>
-                    <th
-                      scope="col"
-                      className="whitespace-nowrap py-2.5 pr-4 text-right font-semibold"
-                    >
-                      Refunds
-                    </th>
-                    <th
-                      scope="col"
-                      className="whitespace-nowrap py-2.5 pr-4 text-right font-semibold"
-                    >
-                      Paid bookings
-                    </th>
-                    <th
-                      scope="col"
-                      className="whitespace-nowrap py-2.5 pr-4 text-right font-semibold"
-                    >
-                      All bookings
-                    </th>
-                    <th scope="col" className="whitespace-nowrap py-2.5 text-right font-semibold">
-                      Payment failures
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {markets.map((m) => (
-                    <tr key={m.currency}>
-                      <th
-                        scope="row"
-                        className="whitespace-nowrap py-2.5 pr-4 font-semibold text-text-primary"
-                      >
-                        {marketLabel(m)}
+          {mayReadFigures && markets.length > 0 && (
+            <SectionCard title="By market" flush>
+              {/* Focusable, so a keyboard user can scroll it sideways on a phone (WCAG 2.1.1). */}
+              <div
+                className="overflow-x-auto px-5 pb-3"
+                tabIndex={0}
+                role="region"
+                aria-label="Figures by market"
+              >
+                <table className="w-full text-left text-ui">
+                  <caption className="sr-only">
+                    Money, bookings and payment failures for each market
+                  </caption>
+                  <thead>
+                    <tr className="border-b border-border text-micro uppercase tracking-wide text-text-muted">
+                      <th scope="col" className="whitespace-nowrap py-2.5 pr-4 font-semibold">
+                        Market
                       </th>
-                      <td className="whitespace-nowrap py-2.5 pr-4 text-right tabular-nums">
-                        {money(m.gmvMinor, m.currency)}
-                      </td>
-                      <td className="whitespace-nowrap py-2.5 pr-4 text-right tabular-nums">
-                        {money(m.platformRevenueMinor, m.currency)}
-                      </td>
-                      <td className="whitespace-nowrap py-2.5 pr-4 text-right tabular-nums">
-                        {money(m.refundVolumeMinor, m.currency)}
-                      </td>
-                      <td className="py-2.5 pr-4 text-right tabular-nums">{m.paidBookings}</td>
-                      <td className="py-2.5 pr-4 text-right tabular-nums">{m.totalBookings}</td>
-                      <td className="py-2.5 text-right tabular-nums">{m.paymentFailures}</td>
+                      <th
+                        scope="col"
+                        className="whitespace-nowrap py-2.5 pr-4 text-right font-semibold"
+                      >
+                        GMV
+                      </th>
+                      <th
+                        scope="col"
+                        className="whitespace-nowrap py-2.5 pr-4 text-right font-semibold"
+                      >
+                        Platform revenue
+                      </th>
+                      <th
+                        scope="col"
+                        className="whitespace-nowrap py-2.5 pr-4 text-right font-semibold"
+                      >
+                        Refunds
+                      </th>
+                      <th
+                        scope="col"
+                        className="whitespace-nowrap py-2.5 pr-4 text-right font-semibold"
+                      >
+                        Paid bookings
+                      </th>
+                      <th
+                        scope="col"
+                        className="whitespace-nowrap py-2.5 pr-4 text-right font-semibold"
+                      >
+                        All bookings
+                      </th>
+                      <th scope="col" className="whitespace-nowrap py-2.5 text-right font-semibold">
+                        Payment failures
+                      </th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </SectionCard>
-        )}
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {markets.map((m) => (
+                      <tr key={m.currency}>
+                        <th
+                          scope="row"
+                          className="whitespace-nowrap py-2.5 pr-4 font-semibold text-text-primary"
+                        >
+                          {marketLabel(m)}
+                        </th>
+                        <td className="whitespace-nowrap py-2.5 pr-4 text-right tabular-nums">
+                          {money(m.gmvMinor, m.currency)}
+                        </td>
+                        <td className="whitespace-nowrap py-2.5 pr-4 text-right tabular-nums">
+                          {money(m.platformRevenueMinor, m.currency)}
+                        </td>
+                        <td className="whitespace-nowrap py-2.5 pr-4 text-right tabular-nums">
+                          {money(m.refundVolumeMinor, m.currency)}
+                        </td>
+                        <td className="py-2.5 pr-4 text-right tabular-nums">{m.paidBookings}</td>
+                        <td className="py-2.5 pr-4 text-right tabular-nums">{m.totalBookings}</td>
+                        <td className="py-2.5 text-right tabular-nums">{m.paymentFailures}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </SectionCard>
+          )}
+        </div>
       </div>
     </div>
   );

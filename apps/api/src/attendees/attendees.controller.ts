@@ -55,7 +55,7 @@ export class AttendeesController {
   }
 
   @Get('bookings/:id/attendees')
-  @ApiOperation({ summary: 'Attendee assignment summary for a booking (owner or admin).' })
+  @ApiOperation({ summary: 'Attendee assignment summary for a booking (the buyer).' })
   summary(@CurrentUser() user: RequestUser, @Param('id') id: string) {
     return this.attendees.summaryForBooking(user, id);
   }

@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { HttpStatus, Injectable, Optional } from '@nestjs/common';
 import { FeedbackKind } from '@eticketsgo/shared-types';
 import type {
   ListFeedbackInput,
@@ -6,6 +6,8 @@ import type {
   UpdateFeedbackInput,
 } from '@eticketsgo/validation';
 import { PrismaService } from '../prisma/prisma.service';
+import { AuditService } from '../audit/audit.service';
+import { audited } from '../audit/audited';
 import { AppException, ErrorCodes } from '../common/errors';
 import type { RequestUser } from '../common/decorators';
 import { organizationIdsInCountry } from '../admin/country-filter';
@@ -39,7 +41,11 @@ function paginate(page: number, pageSize: number, total: number) {
 
 @Injectable()
 export class SupportService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // Optional so a service built by hand in a unit test needs no audit double.
+    @Optional() private readonly audit?: AuditService,
+  ) {}
 
   /**
    * Persist a customer-success submission. Anonymous CONTACT submissions must
@@ -223,15 +229,31 @@ export class SupportService {
   }
 
   /** Admin: advance a submission's triage status. */
-  async updateStatus(id: string, input: UpdateFeedbackInput) {
-    const existing = await this.prisma.feedback.findUnique({ where: { id }, select: { id: true } });
+  async updateStatus(id: string, input: UpdateFeedbackInput, actorUserId: string | null = null) {
+    const existing = await this.prisma.feedback.findUnique({
+      where: { id },
+      select: { id: true, status: true },
+    });
     if (!existing) {
       throw new AppException(ErrorCodes.NOT_FOUND, 'Feedback not found.', HttpStatus.NOT_FOUND);
     }
-    return this.prisma.feedback.update({
-      where: { id },
-      data: { status: input.status },
-      select: { id: true, status: true },
-    });
+    // Closing a complaint changes the open count that decides whether an organizer keeps selling,
+    // so who did it, and from what, is on the record. Statuses only: no message text, no contact.
+    return audited(
+      this.audit,
+      {
+        actorUserId,
+        action: 'SUPPORT_TICKET_STATUS_CHANGED',
+        entityType: 'Feedback',
+        entityId: id,
+        metadata: { from: existing.status, to: input.status },
+      },
+      () =>
+        this.prisma.feedback.update({
+          where: { id },
+          data: { status: input.status },
+          select: { id: true, status: true },
+        }),
+    );
   }
 }

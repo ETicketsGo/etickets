@@ -45,9 +45,6 @@ export class SharingService {
     const raw = randomBytes(24).toString('base64url');
     return { raw, hash: this.hash(raw) };
   }
-  private isAdmin(user: RequestUser): boolean {
-    return user.roles.includes('ADMIN' as never) || user.roles.includes('SUPER_ADMIN' as never);
-  }
 
   /**
    * The public address of a share link: the customer site, as configured.
@@ -93,7 +90,7 @@ export class SharingService {
     const resource = await this.registry.resolve(resourceType, resourceId);
     if (!resource)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Resource not found.', HttpStatus.NOT_FOUND);
-    if (resource.ownerUserId !== user.id && !this.isAdmin(user)) {
+    if (resource.ownerUserId !== user.id) {
       throw new AppException(
         ErrorCodes.FORBIDDEN,
         'Only the owner can share this.',
@@ -272,7 +269,7 @@ export class SharingService {
       throw new AppException(ErrorCodes.NOT_FOUND, 'Share not found.', HttpStatus.NOT_FOUND);
     // The ticket's CURRENT holder, not its buyer: once transferred, the buyer may not re-open
     // (extend) or re-scope a link to a ticket that is no longer theirs.
-    if (currentHolderUserId(invite.ticket) !== user.id && !this.isAdmin(user)) {
+    if (currentHolderUserId(invite.ticket) !== user.id) {
       throw new AppException(ErrorCodes.FORBIDDEN, 'Not your share.', HttpStatus.FORBIDDEN);
     }
     return invite;
@@ -363,7 +360,7 @@ export class SharingService {
     if (!ticket)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Ticket not found.', HttpStatus.NOT_FOUND);
     // Share management belongs to whoever holds the ticket now (see `loadOwnedShare`).
-    if (currentHolderUserId(ticket) !== user.id && !this.isAdmin(user)) {
+    if (currentHolderUserId(ticket) !== user.id) {
       throw new AppException(ErrorCodes.FORBIDDEN, 'Not your ticket.', HttpStatus.FORBIDDEN);
     }
     const shares = await this.prisma.ticketInvite.findMany({

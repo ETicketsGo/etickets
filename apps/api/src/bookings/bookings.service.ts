@@ -8,7 +8,6 @@ import {
   EventStatus,
   FeeMode,
   PaymentStatus,
-  Role,
   SessionStatus,
   priceBundle,
   OrganizationStatus,
@@ -1845,8 +1844,8 @@ export class BookingsService {
    *
    * Only PENDING_PAYMENT. A confirmed booking has taken money and issued tickets; undoing that
    * is a refund, with the organizer's terms and the gateway involved, and it goes through the
-   * refund path rather than being re-implemented here. Platform staff may cancel on a buyer's
-   * behalf; nobody else may cancel somebody else's booking. A guest cancels through
+   * refund path rather than being re-implemented here. Only the buyer may cancel; platform
+   * staff no longer can by role alone. A guest cancels through
    * `cancelUnpaidAsGuest`, which proves ownership a different way - see there.
    *
    * ── EXACTLY ONCE ──────────────────────────────────────────────────────────────────
@@ -1874,8 +1873,9 @@ export class BookingsService {
     if (!booking) {
       throw new AppException(ErrorCodes.NOT_FOUND, 'Booking not found.', HttpStatus.NOT_FOUND);
     }
-    const actingAsStaff = user.roles.includes(Role.ADMIN) || user.roles.includes(Role.SUPER_ADMIN);
-    if (booking.userId !== user.id && !actingAsStaff) {
+    // The buyer only. Staff used to pass by role; they have no cancel route, by design (see the
+    // permission matrix, "Customer resources").
+    if (booking.userId !== user.id) {
       throw new AppException(
         ErrorCodes.FORBIDDEN,
         'You cannot cancel this booking.',
@@ -1884,7 +1884,7 @@ export class BookingsService {
     }
     return this.releaseUnpaid(booking, {
       actorUserId: user.id,
-      cancelledBy: booking.userId === user.id ? 'BUYER' : 'PLATFORM_STAFF',
+      cancelledBy: 'BUYER',
     });
   }
 
@@ -2057,7 +2057,41 @@ export class BookingsService {
     }
   }
 
+  /**
+   * A booking, for the person who made it and nobody else.
+   *
+   * Platform staff used to pass here by role alone (`ADMIN` / `SUPER_ADMIN`), with no capability
+   * and no record. They read a customer's booking through `getForStaff` instead, behind
+   * `BOOKING_READ`, on `GET /admin/bookings/:id`, and every read is audited.
+   */
   async getForUser(user: RequestUser, id: string) {
+    return this.bookingView(id, (b) => {
+      if (b.userId !== user.id) {
+        throw new AppException(
+          ErrorCodes.FORBIDDEN,
+          'You cannot view this booking.',
+          HttpStatus.FORBIDDEN,
+        );
+      }
+    });
+  }
+
+  /** The same view for the admin console. `authorize` is the capability check and its audit row. */
+  async getForStaff(
+    id: string,
+    authorize: (b: { id: string; userId: string | null; organizationId: string }) => Promise<void>,
+  ) {
+    return this.bookingView(id, authorize);
+  }
+
+  private async bookingView(
+    id: string,
+    authorize: (b: {
+      id: string;
+      userId: string | null;
+      organizationId: string;
+    }) => Promise<void> | void,
+  ) {
     const booking = await this.prisma.booking.findUnique({
       where: { id },
       include: {
@@ -2144,16 +2178,7 @@ export class BookingsService {
       ]),
     ].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 
-    const isOwner = booking.userId === user.id;
-    const isAdmin =
-      user.roles.includes('ADMIN' as never) || user.roles.includes('SUPER_ADMIN' as never);
-    if (!isOwner && !isAdmin) {
-      throw new AppException(
-        ErrorCodes.FORBIDDEN,
-        'You cannot view this booking.',
-        HttpStatus.FORBIDDEN,
-      );
-    }
+    await authorize(booking);
     return {
       ...booking,
       /*

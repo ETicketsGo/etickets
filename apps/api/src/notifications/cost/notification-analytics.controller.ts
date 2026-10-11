@@ -1,8 +1,8 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
 import { AdminPermission, BillingUnit, Role } from '@eticketsgo/shared-types';
-import { RequiresAdmin, Roles } from '../../common/decorators';
+import { CurrentUser, RequiresAdmin, Roles, type RequestUser } from '../../common/decorators';
 import { ZodValidationPipe } from '../../common/zod-validation.pipe';
 import {
   NotificationAnalyticsService,
@@ -137,14 +137,21 @@ export class NotificationAnalyticsController {
   @Post('rates')
   @RequiresAdmin(AdminPermission.PLATFORM_CONFIG)
   @ApiOperation({ summary: 'Record a provider rate. Refuses an overlapping active period.' })
-  createRate(@Body(new ZodValidationPipe(rateSchema)) body: z.infer<typeof rateSchema>) {
-    return this.rates.create({ ...body, billingUnit: body.billingUnit as BillingUnit });
+  createRate(
+    @CurrentUser() user: RequestUser,
+    @Body(new ZodValidationPipe(rateSchema)) body: z.infer<typeof rateSchema>,
+  ) {
+    return this.rates.create({ ...body, billingUnit: body.billingUnit as BillingUnit }, user.id);
   }
 
   @Post('rates/:id/supersede')
   @RequiresAdmin(AdminPermission.PLATFORM_CONFIG)
   @ApiOperation({ summary: 'End a rate now. Never a delete — past reports stay reproducible.' })
-  supersede(@Query('id') id: string, @Body() body: { at?: string } = {}) {
-    return this.rates.supersede(id, body?.at ? new Date(body.at) : new Date());
+  supersede(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @Body() body: { at?: string } = {},
+  ) {
+    return this.rates.supersede(id, body?.at ? new Date(body.at) : new Date(), user.id);
   }
 }

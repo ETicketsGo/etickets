@@ -1,6 +1,7 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { classHasNoRate, missingRateWarning } from './compliance-presentation';
 import { api, Card, Select, Skeleton, errorMessage, money, useToast } from '@eticketsgo/web-kit';
 
 /**
@@ -108,9 +109,19 @@ export function SeatClassMapping({ cinemaId }: { cinemaId: string }) {
                 {CLASSES.map((o) => (
                   <option key={o.value} value={o.value}>
                     {o.label}
+                    {classHasNoRate(c.classHasRate, o.value) ? ' (no rate for this cinema)' : ''}
                   </option>
                 ))}
               </Select>
+              {/* Read-only: the server's own answer on whether this cinema's order prices the class. */}
+              {missingRateWarning(c) && (
+                <p
+                  role="status"
+                  className="w-full rounded-md bg-tint-warning px-3 py-2 text-caption text-status-warning"
+                >
+                  {missingRateWarning(c)}
+                </p>
+              )}
             </li>
           ))}
         </ul>

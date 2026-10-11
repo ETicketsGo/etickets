@@ -31,7 +31,9 @@ export class RefundsController {
   }
 
   @Get('booking/:bookingId')
-  @ApiOperation({ summary: 'List refunds for a booking (owner/admin).' })
+  @ApiOperation({
+    summary: 'List refunds for a booking (the buyer, or staff holding BOOKING_READ).',
+  })
   listForBooking(@CurrentUser() user: RequestUser, @Param('bookingId') bookingId: string) {
     return this.refunds.listForBookingOwner(user, bookingId);
   }

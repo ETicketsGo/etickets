@@ -1,5 +1,6 @@
 'use client';
 
+import { TableSkeleton } from '@/components/table-skeleton';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Download, RefreshCw, Timer } from 'lucide-react';
 import {
@@ -264,32 +265,35 @@ export default function FinanceReconciliationPage() {
           </div>
         }
       >
-        <DataTable
-          caption="Discrepancies"
-          density="compact"
-          mobile="cards"
-          columns={columns}
-          rows={list.data}
-          loading={list.isLoading}
-          rowKey={(r) => r.id}
-          empty={
-            status ? (
-              <EmptyState
-                title={`No discrepancy is ${STATUS_LABELS[status].toLowerCase()}`}
-                hint="Choose Every status to see the whole history."
-              />
-            ) : (
-              <EmptyState
-                title="Nothing to reconcile"
-                hint={
-                  mayResolve
-                    ? 'Everything the last detection run compared agreed. Run detection again to check now.'
-                    : 'Everything the last detection run compared agreed.'
-                }
-              />
-            )
-          }
-        />
+        {list.isLoading ? (
+          <TableSkeleton columns={5} label="Loading discrepancies" />
+        ) : (
+          <DataTable
+            caption="Discrepancies"
+            density="compact"
+            mobile="cards"
+            columns={columns}
+            rows={list.data}
+            rowKey={(r) => r.id}
+            empty={
+              status ? (
+                <EmptyState
+                  title={`No discrepancy is ${STATUS_LABELS[status].toLowerCase()}`}
+                  hint="Choose Every status to see the whole history."
+                />
+              ) : (
+                <EmptyState
+                  title="Nothing to reconcile"
+                  hint={
+                    mayResolve
+                      ? 'Everything the last detection run compared agreed. Run detection again to check now.'
+                      : 'Everything the last detection run compared agreed.'
+                  }
+                />
+              )
+            }
+          />
+        )}
       </Card>
     </div>
   );
