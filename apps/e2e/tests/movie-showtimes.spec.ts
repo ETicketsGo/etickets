@@ -54,6 +54,12 @@ async function openFilm(page: Page, slug: string) {
 }
 
 test.describe('movie showtimes', () => {
+  // A `route.fetch()` below can still be waiting on the API when the test ends; without this its
+  // rejection fails whichever test the worker runs next (see cinema-workspace.spec.ts).
+  test.afterEach(async ({ page }) => {
+    await page.unrouteAll({ behavior: 'ignoreErrors' });
+  });
+
   test('the date strip offers a week and switches days', async ({ page, request }) => {
     const slug = await findFilm(request, (r) => r.shows.some(bookable));
     expect(slug, 'a film with a bookable show is needed').toBeTruthy();

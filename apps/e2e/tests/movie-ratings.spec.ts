@@ -160,13 +160,24 @@ test.describe('film ratings', () => {
       await withSummary(page, { average: 0, count: 0, distribution: {}, items: [] });
       await withEligibility(page, { review: null, eligibleEventId: ELIGIBLE_EVENT, reason: null });
 
-      let posted: { eventId?: string; rating?: number; comment?: string } | null = null;
+      /*
+        What the page posted, handed over BY the route handler. It used to be a variable the
+        handler set while the test awaited `waitForRequest` - which resolves when the request is
+        issued, not when the handler has run - so now and then the assertion read `null` (CI:
+        twice, on two branches). Awaiting the handler's own answer leaves no gap.
+      */
+      type Posted = { eventId?: string; rating?: number; comment?: string };
+      let markPosted: (body: Posted) => void = () => undefined;
+      const postedBody = new Promise<Posted>((resolve) => {
+        markPosted = resolve;
+      });
       await page.route('**/reviews', async (route) => {
         if (route.request().method() !== 'POST') return route.fallback();
-        posted = route.request().postDataJSON();
+        const posted: Posted = route.request().postDataJSON();
+        markPosted(posted);
         await json(
           route,
-          { id: 'rev_new', rating: posted?.rating, comment: posted?.comment ?? null },
+          { id: 'rev_new', rating: posted.rating, comment: posted.comment ?? null },
           201,
         );
       });
@@ -184,13 +195,9 @@ test.describe('film ratings', () => {
       await page.getByLabel('Your review (optional)').fill('Tense, clever, and gorgeous in IMAX.');
       await expect(submit).toBeEnabled();
 
-      const request = page.waitForRequest(
-        (r) => r.method() === 'POST' && /\/reviews$/.test(new URL(r.url()).pathname),
-      );
       await submit.click();
-      await request;
 
-      expect(posted).toMatchObject({
+      expect(await postedBody).toMatchObject({
         eventId: ELIGIBLE_EVENT,
         rating: 4,
         comment: 'Tense, clever, and gorgeous in IMAX.',
