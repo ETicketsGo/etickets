@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   Building2,
@@ -26,6 +26,7 @@ import {
   ErrorState,
   MARKETS,
   SectionCard,
+  Skeleton,
   SkeletonCard,
   StatCard,
   money,
@@ -76,7 +77,7 @@ function Pending() {
  * own guard.
  */
 export default function AdminDashboard() {
-  const { user } = useAuthUser();
+  const { user, isLoading: userLoading } = useAuthUser();
   const caps = useMemo(() => new Set(user?.adminPermissions ?? []), [user?.adminPermissions]);
   /*
     ── THE FIGURES ARE NOT EVERY OPERATOR'S ───────────────────────────────────────────
@@ -120,195 +121,252 @@ export default function AdminDashboard() {
   const market = markets.find((m) => m.currency === currency) ?? markets[0];
   const a = analytics.data;
 
+  /*
+    ── THE PAGE PAINTS ONCE ───────────────────────────────────────────────────────────
+    The queues and the figures used to land one by one, each growing the page above the next:
+    on a tablet the welcome grew, then the queues, and everything under them jumped (a layout
+    shift of ~0.48 at 768px). Now one skeleton shaped like the page stands in until the user,
+    every queue and the figures have answered, and the page is shown whole. The panels are
+    mounted from the start (hidden), so their own reads run alongside rather than after.
+  */
+  const [queuesSettled, setQueuesSettled] = useState(false);
+  const onQueuesSettled = useCallback(() => setQueuesSettled(true), []);
+  const ready = !userLoading && queuesSettled && !(mayReadFigures && dash.isLoading);
+
+  const statCards = (density: 'compact' | 'comfortable'): ReactNode[] =>
+    d
+      ? [
+          <StatCard
+            key="gmv"
+            density={density}
+            icon={Wallet}
+            tile="blue"
+            label="Gross merchandise value"
+            // A market with nothing paid reads "$0.00", not "-": it is a real zero in a
+            // real currency, and a dash would read as "not loaded".
+            value={market ? money(market.gmvMinor, market.currency) : '-'}
+            hint={
+              market
+                ? market.paidBookings > 0
+                  ? `${plural(market.paidBookings, 'paid booking')} in ${market.currency}`
+                  : `No paid bookings yet in ${market.currency}`
+                : 'No paid bookings yet'
+            }
+          />,
+          <StatCard
+            key="revenue"
+            density={density}
+            icon={Coins}
+            tile="teal"
+            label="Platform revenue"
+            value={market ? money(market.platformRevenueMinor, market.currency) : '-'}
+            hint={market ? `Booking and payment fees, ${market.currency}` : undefined}
+          />,
+          <StatCard
+            key="bookings"
+            density={density}
+            icon={Ticket}
+            tile="purple"
+            label="Total bookings"
+            value={market ? market.totalBookings : d.totalBookings}
+            hint={
+              market
+                ? `${plural(market.totalBookings, 'booking')} in ${market.currency}, ${market.paidBookings} paid`
+                : 'All currencies'
+            }
+            href="/admin/bookings"
+          />,
+          <StatCard
+            key="refunds"
+            density={density}
+            icon={RotateCcw}
+            tile="amber"
+            label="Refund volume"
+            value={market ? money(market.refundVolumeMinor, market.currency) : '-'}
+            hint={market ? `Completed refunds, ${market.currency}` : undefined}
+          />,
+          <StatCard
+            key="failures"
+            density={density}
+            icon={CreditCard}
+            tile="rose"
+            label="Payment failures"
+            value={market ? market.paymentFailures : d.paymentFailures}
+            hint={market ? `On ${market.currency} bookings` : undefined}
+            tone={(market ? market.paymentFailures : d.paymentFailures) > 0 ? 'error' : 'neutral'}
+          />,
+          <StatCard
+            key="organizers"
+            density={density}
+            icon={Building2}
+            tile="blue"
+            label="Active organizers"
+            value={d.activeOrganizers}
+            hint="Platform-wide"
+          />,
+          <StatCard
+            key="events"
+            density={density}
+            icon={CalendarCheck2}
+            tile="teal"
+            label="Published events"
+            value={d.publishedEvents}
+            hint="Platform-wide"
+          />,
+          <StatCard
+            key="payouts"
+            density={density}
+            icon={Landmark}
+            tile="amber"
+            label="Upcoming payouts"
+            value={d.upcomingPayouts}
+            hint="Platform-wide"
+          />,
+          <StatCard
+            key="retention"
+            density={density}
+            icon={Repeat}
+            tile="purple"
+            label="Repeat-customer rate"
+            value={a ? `${a.retention.rate}%` : <Pending />}
+            hint={
+              a
+                ? `${a.retention.repeatCustomers} of ${a.retention.totalCustomers} customers`
+                : undefined
+            }
+          />,
+          <StatCard
+            key="movies"
+            density={density}
+            icon={Clapperboard}
+            tile="rose"
+            label="Movies live"
+            value={a ? a.moviesCount : <Pending />}
+            hint={a ? `${a.funnel.checkedIn} check-ins` : undefined}
+          />,
+        ]
+      : [];
+
   return (
     <div className="space-y-6">
       <WelcomeBand />
 
-      <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_21rem]">
-        <div className="min-w-0 space-y-6">
-          {/*
+      {!ready && <OverviewSkeleton />}
+
+      <div hidden={!ready} className="space-y-6">
+        <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_21rem]">
+          <div className="min-w-0 space-y-6">
+            {/*
             The work first, the measurements after. Everything below this answers "how is the
             platform doing"; this answers "what should I do now", which is the question somebody
             opening the console at the start of a shift is actually asking.
           */}
-          <NeedsYou />
+            <NeedsYou onSettled={onQueuesSettled} />
 
-          {caps.has('EVENT_REVIEW') && <TodayShows />}
+            {caps.has('EVENT_REVIEW') && <TodayShows />}
 
-          {!mayReadFigures && (
-            <SectionCard title="Platform figures">
-              <p className="text-sm text-text-secondary">
-                Your duties do not include reading platform figures, so the money and booking
-                numbers are not shown. Your queues are above.
-              </p>
-            </SectionCard>
-          )}
+            {!mayReadFigures && (
+              <SectionCard title="Platform figures">
+                <p className="text-sm text-text-secondary">
+                  Your duties do not include reading platform figures, so the money and booking
+                  numbers are not shown. Your queues are above.
+                </p>
+              </SectionCard>
+            )}
+          </div>
+
+          {/*
+          A wide screen's side column. On a tablet the four panels are two columns of cards
+          (read down the first, then the second) instead of one column ~1,600px long; on a
+          phone, one column.
+        */}
+          <aside
+            className="min-w-0 space-y-6 md:columns-2 md:gap-6 md:space-y-0 xl:columns-1 xl:space-y-6 [&>*]:break-inside-avoid md:[&>*]:mb-6 xl:[&>*]:mb-0"
+            aria-label="At a glance"
+          >
+            <QuickLinks capabilities={caps} />
+            {caps.has('OPS_READ') && <PlatformHealth />}
+            {caps.has('PLATFORM_CONFIG_READ') && <CinemaPricingSummary />}
+            {mayReadFigures && <RecentActivity />}
+          </aside>
         </div>
 
-        <aside className="min-w-0 space-y-6" aria-label="At a glance">
-          <QuickLinks capabilities={caps} />
-          {caps.has('OPS_READ') && <PlatformHealth />}
-          {caps.has('PLATFORM_CONFIG_READ') && <CinemaPricingSummary />}
-          {mayReadFigures && <RecentActivity />}
-        </aside>
-      </div>
-
-      {/*
+        {/*
         The line between the two halves of the page, said in words. Everything above asks for
         a decision; everything below is a measurement nobody has to act on, and a red number
         down here (payment failures, refunds) is a reading, not a queue - the queues are
         above.
       */}
-      {mayReadFigures && (
-        <SectionCard
-          title="How the platform is doing"
-          description="For information. Money is shown one currency at a time and is never added across currencies."
-        >
-          {/*
+        {mayReadFigures && (
+          <SectionCard
+            title="How the platform is doing"
+            description="For information. Money is shown one currency at a time and is never added across currencies."
+          >
+            {/*
             An error is only an error for somebody who was allowed to ask, and it is this
             section's, not the page's: returning the whole page as "We couldn't load this"
             threw away the queues above, which a person can still act on.
           */}
-          {dash.isError ? (
-            <ErrorState
-              message="We couldn't load the platform figures. Please try again."
-              onRetry={() => dash.refetch()}
-            />
-          ) : (
-            <>
-              {markets.length > 0 && (
-                <div
-                  className="mb-4 flex flex-wrap items-center gap-2"
-                  role="group"
-                  aria-label="Market"
-                >
-                  <span className="text-caption text-text-muted">Showing figures for</span>
-                  {markets.map((m) => (
-                    <button
-                      key={m.currency}
-                      type="button"
-                      onClick={() => setCurrency(m.currency)}
-                      aria-pressed={m.currency === market?.currency}
-                      className={`rounded-full border px-3 py-1 text-caption font-semibold transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                        m.currency === market?.currency
-                          ? 'border-action-primary bg-tint-primary text-action-primary'
-                          : 'border-border text-text-secondary hover:bg-background-subtle hover:text-text-primary'
-                      }`}
-                    >
-                      {marketLabel(m)}
-                    </button>
-                  ))}
-                </div>
-              )}
+            {dash.isError ? (
+              <ErrorState
+                message="We couldn't load the platform figures. Please try again."
+                onRetry={() => dash.refetch()}
+              />
+            ) : (
+              <>
+                {markets.length > 0 && (
+                  <div
+                    className="mb-4 flex flex-wrap items-center gap-2"
+                    role="group"
+                    aria-label="Market"
+                  >
+                    <span className="text-caption text-text-muted">Showing figures for</span>
+                    {markets.map((m) => (
+                      <button
+                        key={m.currency}
+                        type="button"
+                        onClick={() => setCurrency(m.currency)}
+                        aria-pressed={m.currency === market?.currency}
+                        className={`rounded-full border px-3 py-1 text-caption font-semibold transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                          m.currency === market?.currency
+                            ? 'border-action-primary bg-tint-primary text-action-primary'
+                            : 'border-border text-text-secondary hover:bg-background-subtle hover:text-text-primary'
+                        }`}
+                      >
+                        {marketLabel(m)}
+                      </button>
+                    ))}
+                  </div>
+                )}
 
-              {dash.isLoading || !d ? (
-                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                  {Array.from({ length: 6 }).map((_, i) => (
-                    <SkeletonCard key={i} variant="stat" />
-                  ))}
-                </div>
-              ) : (
-                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                  <StatCard
-                    icon={Wallet}
-                    tile="blue"
-                    label="Gross merchandise value"
-                    // A market with nothing paid reads "$0.00", not "-": it is a real zero in a
-                    // real currency, and a dash would read as "not loaded".
-                    value={market ? money(market.gmvMinor, market.currency) : '-'}
-                    hint={
-                      market
-                        ? market.paidBookings > 0
-                          ? `${plural(market.paidBookings, 'paid booking')} in ${market.currency}`
-                          : `No paid bookings yet in ${market.currency}`
-                        : 'No paid bookings yet'
-                    }
-                  />
-                  <StatCard
-                    icon={Coins}
-                    tile="teal"
-                    label="Platform revenue"
-                    value={market ? money(market.platformRevenueMinor, market.currency) : '-'}
-                    hint={market ? `Booking and payment fees, ${market.currency}` : undefined}
-                  />
-                  <StatCard
-                    icon={Ticket}
-                    tile="purple"
-                    label="Total bookings"
-                    value={market ? market.totalBookings : d.totalBookings}
-                    hint={
-                      market
-                        ? `${plural(market.totalBookings, 'booking')} in ${market.currency}, ${market.paidBookings} paid`
-                        : 'All currencies'
-                    }
-                    href="/admin/bookings"
-                  />
-                  <StatCard
-                    icon={RotateCcw}
-                    tile="amber"
-                    label="Refund volume"
-                    value={market ? money(market.refundVolumeMinor, market.currency) : '-'}
-                    hint={market ? `Completed refunds, ${market.currency}` : undefined}
-                  />
-                  <StatCard
-                    icon={CreditCard}
-                    tile="rose"
-                    label="Payment failures"
-                    value={market ? market.paymentFailures : d.paymentFailures}
-                    hint={market ? `On ${market.currency} bookings` : undefined}
-                    tone={
-                      (market ? market.paymentFailures : d.paymentFailures) > 0
-                        ? 'error'
-                        : 'neutral'
-                    }
-                  />
-                  <StatCard
-                    icon={Building2}
-                    tile="blue"
-                    label="Active organizers"
-                    value={d.activeOrganizers}
-                    hint="Platform-wide"
-                  />
-                  <StatCard
-                    icon={CalendarCheck2}
-                    tile="teal"
-                    label="Published events"
-                    value={d.publishedEvents}
-                    hint="Platform-wide"
-                  />
-                  <StatCard
-                    icon={Landmark}
-                    tile="amber"
-                    label="Upcoming payouts"
-                    value={d.upcomingPayouts}
-                    hint="Platform-wide"
-                  />
-                  <StatCard
-                    icon={Repeat}
-                    tile="purple"
-                    label="Repeat-customer rate"
-                    value={a ? `${a.retention.rate}%` : <Pending />}
-                    hint={
-                      a
-                        ? `${a.retention.repeatCustomers} of ${a.retention.totalCustomers} customers`
-                        : undefined
-                    }
-                  />
-                  <StatCard
-                    icon={Clapperboard}
-                    tile="rose"
-                    label="Movies live"
-                    value={a ? a.moviesCount : <Pending />}
-                    hint={a ? `${a.funnel.checkedIn} check-ins` : undefined}
-                  />
-                </div>
-              )}
-            </>
-          )}
-        </SectionCard>
-      )}
+                {dash.isLoading || !d ? (
+                  <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:gap-4">
+                    {Array.from({ length: 8 }).map((_, i) => (
+                      <SkeletonCard key={i} variant="stat" />
+                    ))}
+                  </div>
+                ) : (
+                  <>
+                    {/*
+                    Compact cards below a wide screen - four across a tablet, two on a phone -
+                    where the tall card two across made ten figures ~700px. The card's density
+                    is its markup, so both sets are drawn and CSS shows one; the other is
+                    `display: none`, unseen by assistive tech.
+                  */}
+                    <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4 md:gap-3 xl:hidden">
+                      {statCards('compact')}
+                    </div>
+                    <div className="hidden grid-cols-4 gap-4 xl:grid">
+                      {statCards('comfortable')}
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+          </SectionCard>
+        )}
 
-      {/*
+        {/*
         ── "PENDING APPROVALS" WAS REMOVED, NOT MOVED ─────────────────────────────────────
         It listed two counts, "Organizers awaiting review" and "Events under review", with a
         button to each unfiltered list. The action centre at the top of this page now carries
@@ -317,94 +375,110 @@ export default function AdminDashboard() {
         fact twice on one screen, which is two things to reconcile, not reassurance.
       */}
 
-      {/*
+        {/*
         Every market side by side. The cards answer "how is this market doing"; this answers
         "where is the platform selling at all", which is the question a single-market view
         hides. Each amount is formatted in its own row's currency - `money()` without one
         prints rupees - and rows are never totalled, because a sum across currencies is not an
         amount of anything.
       */}
-      {mayReadFigures && markets.length > 0 && (
-        <SectionCard title="By market" flush>
-          {/* Focusable, so a keyboard user can scroll it sideways on a phone (WCAG 2.1.1). */}
-          <div
-            className="overflow-x-auto px-5 pb-3"
-            tabIndex={0}
-            role="region"
-            aria-label="Figures by market"
-          >
-            <table className="w-full text-left text-ui">
-              <caption className="sr-only">
-                Money, bookings and payment failures for each market
-              </caption>
-              <thead>
-                <tr className="border-b border-border text-micro uppercase tracking-wide text-text-muted">
-                  <th scope="col" className="whitespace-nowrap py-2.5 pr-4 font-semibold">
-                    Market
-                  </th>
-                  <th
-                    scope="col"
-                    className="whitespace-nowrap py-2.5 pr-4 text-right font-semibold"
-                  >
-                    GMV
-                  </th>
-                  <th
-                    scope="col"
-                    className="whitespace-nowrap py-2.5 pr-4 text-right font-semibold"
-                  >
-                    Platform revenue
-                  </th>
-                  <th
-                    scope="col"
-                    className="whitespace-nowrap py-2.5 pr-4 text-right font-semibold"
-                  >
-                    Refunds
-                  </th>
-                  <th
-                    scope="col"
-                    className="whitespace-nowrap py-2.5 pr-4 text-right font-semibold"
-                  >
-                    Paid bookings
-                  </th>
-                  <th
-                    scope="col"
-                    className="whitespace-nowrap py-2.5 pr-4 text-right font-semibold"
-                  >
-                    All bookings
-                  </th>
-                  <th scope="col" className="whitespace-nowrap py-2.5 text-right font-semibold">
-                    Payment failures
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {markets.map((m) => (
-                  <tr key={m.currency}>
-                    <th
-                      scope="row"
-                      className="whitespace-nowrap py-2.5 pr-4 font-semibold text-text-primary"
-                    >
-                      {marketLabel(m)}
+        {mayReadFigures && markets.length > 0 && (
+          <SectionCard title="By market" flush>
+            {/* Focusable, so a keyboard user can scroll it sideways on a phone (WCAG 2.1.1). */}
+            <div
+              className="overflow-x-auto px-5 pb-3"
+              tabIndex={0}
+              role="region"
+              aria-label="Figures by market"
+            >
+              <table className="w-full text-left text-ui">
+                <caption className="sr-only">
+                  Money, bookings and payment failures for each market
+                </caption>
+                <thead>
+                  <tr className="border-b border-border text-micro uppercase tracking-wide text-text-muted">
+                    <th scope="col" className="whitespace-nowrap py-2.5 pr-4 font-semibold">
+                      Market
                     </th>
-                    <td className="whitespace-nowrap py-2.5 pr-4 text-right tabular-nums">
-                      {money(m.gmvMinor, m.currency)}
-                    </td>
-                    <td className="whitespace-nowrap py-2.5 pr-4 text-right tabular-nums">
-                      {money(m.platformRevenueMinor, m.currency)}
-                    </td>
-                    <td className="whitespace-nowrap py-2.5 pr-4 text-right tabular-nums">
-                      {money(m.refundVolumeMinor, m.currency)}
-                    </td>
-                    <td className="py-2.5 pr-4 text-right tabular-nums">{m.paidBookings}</td>
-                    <td className="py-2.5 pr-4 text-right tabular-nums">{m.totalBookings}</td>
-                    <td className="py-2.5 text-right tabular-nums">{m.paymentFailures}</td>
+                    <th
+                      scope="col"
+                      className="whitespace-nowrap py-2.5 pr-4 text-right font-semibold"
+                    >
+                      GMV
+                    </th>
+                    <th
+                      scope="col"
+                      className="whitespace-nowrap py-2.5 pr-4 text-right font-semibold"
+                    >
+                      Platform revenue
+                    </th>
+                    <th
+                      scope="col"
+                      className="whitespace-nowrap py-2.5 pr-4 text-right font-semibold"
+                    >
+                      Refunds
+                    </th>
+                    <th
+                      scope="col"
+                      className="whitespace-nowrap py-2.5 pr-4 text-right font-semibold"
+                    >
+                      Paid bookings
+                    </th>
+                    <th
+                      scope="col"
+                      className="whitespace-nowrap py-2.5 pr-4 text-right font-semibold"
+                    >
+                      All bookings
+                    </th>
+                    <th scope="col" className="whitespace-nowrap py-2.5 text-right font-semibold">
+                      Payment failures
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </SectionCard>
-      )}
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {markets.map((m) => (
+                    <tr key={m.currency}>
+                      <th
+                        scope="row"
+                        className="whitespace-nowrap py-2.5 pr-4 font-semibold text-text-primary"
+                      >
+                        {marketLabel(m)}
+                      </th>
+                      <td className="whitespace-nowrap py-2.5 pr-4 text-right tabular-nums">
+                        {money(m.gmvMinor, m.currency)}
+                      </td>
+                      <td className="whitespace-nowrap py-2.5 pr-4 text-right tabular-nums">
+                        {money(m.platformRevenueMinor, m.currency)}
+                      </td>
+                      <td className="whitespace-nowrap py-2.5 pr-4 text-right tabular-nums">
+                        {money(m.refundVolumeMinor, m.currency)}
+                      </td>
+                      <td className="py-2.5 pr-4 text-right tabular-nums">{m.paidBookings}</td>
+                      <td className="py-2.5 pr-4 text-right tabular-nums">{m.totalBookings}</td>
+                      <td className="py-2.5 text-right tabular-nums">{m.paymentFailures}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </SectionCard>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** The page's shape while the queues and figures load: the queues card, and the side column. */
+function OverviewSkeleton() {
+  return (
+    <div
+      className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_21rem]"
+      role="status"
+      aria-busy="true"
+      aria-label="Loading the overview"
+    >
+      <Skeleton className="h-[30rem] w-full rounded-lg" />
+      <Skeleton className="hidden h-[30rem] w-full rounded-lg xl:block" />
     </div>
   );
 }

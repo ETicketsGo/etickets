@@ -79,18 +79,12 @@ export function UpcomingEventCard({
   row,
   selling,
   priority = false,
-  compact = false,
 }: {
   show: OrganizerCalendarSession;
   /** The event's row from the event list, for its artwork and how many more shows it has. */
   row?: EventListRow;
   selling: Selling;
   priority?: boolean;
-  /**
-   * The phone's card: a square thumbnail beside the title, date and venue, then the pills,
-   * the meter and the actions - about 230px tall where the image card is about 390px.
-   */
-  compact?: boolean;
 }) {
   const { zone } = sessionZone(show);
   const day = venueDay(show);
@@ -152,12 +146,36 @@ export function UpcomingEventCard({
     />
   );
 
-  if (compact)
-    return (
-      <article
-        aria-labelledby={titleId}
-        className="flex w-full min-w-0 flex-col gap-2.5 rounded-lg border border-border bg-background-surface p-3 shadow-xs"
-      >
+  /*
+    ONE card at every width, arranged by CSS. On a phone it is compact - a square thumbnail
+    beside the title, date and venue, then the pills, the meter and the actions, about 230px
+    tall where the image card is about 390px; from a tablet up the artwork sits on top with
+    the lifecycle over it. It used to be two cards picked after hydration, so a phone painted
+    the tall one and then jumped; now nothing is decided in script.
+
+    The two pictures are decoration (`alt=""`) and the one not shown is `display: none`, so a
+    lazy one is never fetched. The selling pill is drawn ONCE: it is the sentence a test and a
+    screen reader read, and a hidden copy would be a second, contradictory answer.
+  */
+  return (
+    <article
+      aria-labelledby={titleId}
+      className="group flex w-full min-w-0 flex-col rounded-lg border border-border bg-background-surface shadow-xs md:transition-[box-shadow,transform] md:duration-150 md:hover:-translate-y-0.5 md:hover:shadow-md motion-reduce:transition-none motion-reduce:hover:translate-y-0"
+    >
+      <div className="hidden md:block">
+        <ImageFrame
+          src={image?.src}
+          srcSet={image?.srcSet}
+          sizes="(min-width: 1280px) 300px, 33vw"
+          alt=""
+          ratio="16:9"
+          category={category}
+          priority={priority}
+          className="rounded-b-none"
+          overlay={lifecycle ? <LifecyclePill status={lifecycle} size="sm" /> : undefined}
+        />
+      </div>
+      <div className="flex min-w-0 flex-1 flex-col p-3 md:p-4">
         <div className="flex min-w-0 gap-3">
           <ImageFrame
             src={image?.src}
@@ -167,27 +185,26 @@ export function UpcomingEventCard({
             ratio="1:1"
             category={category}
             placeholderLabel=""
-            priority={priority}
             rounded="md"
-            className="!w-[4.5rem] shrink-0"
+            className="!w-[4.5rem] shrink-0 md:!hidden"
           />
           <div className="min-w-0 flex-1">
             <h3
               id={titleId}
-              className="line-clamp-2 break-words font-display text-ui font-bold leading-snug text-text-primary"
+              className="line-clamp-2 break-words font-display text-ui font-bold leading-snug text-text-primary md:text-[0.9375rem]"
               title={show.event.title}
             >
               {title}
             </h3>
-            <dl className="mt-1 space-y-0.5 text-caption text-text-secondary">
-              <div className="flex min-w-0 items-center gap-1.5">
+            <dl className="mt-1 space-y-0.5 text-caption text-text-secondary md:mt-2 md:space-y-1">
+              <div className="flex min-w-0 items-center gap-1.5 md:gap-2">
                 <dt>
                   <CalendarDays className="h-3.5 w-3.5 text-text-muted" aria-hidden />
                   <span className="sr-only">Next show</span>
                 </dt>
                 <dd className="min-w-0 truncate tabular-nums">{when}</dd>
               </div>
-              <div className="flex min-w-0 items-center gap-1.5">
+              <div className="flex min-w-0 items-center gap-1.5 md:gap-2">
                 <dt>
                   <MapPin className="h-3.5 w-3.5 text-text-muted" aria-hidden />
                   <span className="sr-only">Venue</span>
@@ -199,68 +216,18 @@ export function UpcomingEventCard({
             </dl>
           </div>
         </div>
-        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-          {lifecycle ? <LifecyclePill status={lifecycle} size="sm" /> : null}
+        <div className="mt-2.5 flex min-w-0 flex-wrap items-center gap-1.5">
+          {/* On a tablet and up the lifecycle is on the artwork instead. */}
+          {lifecycle ? (
+            <span className="md:hidden">
+              <LifecyclePill status={lifecycle} size="sm" />
+            </span>
+          ) : null}
           <SaleStatePill selling={selling} size="sm" />
         </div>
-        {meter}
-        <div className="flex items-center gap-2">
-          <ButtonLink href={href} variant="tinted" size="sm" className="flex-1">
-            Manage
-          </ButtonLink>
-          {moreMenu}
-        </div>
-      </article>
-    );
-
-  return (
-    <article
-      aria-labelledby={titleId}
-      className="group flex min-w-0 flex-col rounded-lg border border-border bg-background-surface shadow-xs transition-[box-shadow,transform] duration-150 hover:-translate-y-0.5 hover:shadow-md motion-reduce:transition-none motion-reduce:hover:translate-y-0"
-    >
-      <ImageFrame
-        src={image?.src}
-        srcSet={image?.srcSet}
-        sizes="(min-width: 1280px) 300px, (min-width: 768px) 33vw, 80vw"
-        alt=""
-        ratio="16:9"
-        category={category}
-        priority={priority}
-        className="rounded-b-none"
-        overlay={lifecycle ? <LifecyclePill status={lifecycle} size="sm" /> : undefined}
-      />
-      <div className="flex min-w-0 flex-1 flex-col p-4">
-        <h3
-          id={titleId}
-          className="line-clamp-2 break-words font-display text-[0.9375rem] font-bold leading-snug text-text-primary"
-          title={show.event.title}
-        >
-          {title}
-        </h3>
-        <dl className="mt-2 space-y-1 text-caption text-text-secondary">
-          <div className="flex min-w-0 items-center gap-2">
-            <dt>
-              <CalendarDays className="h-3.5 w-3.5 text-text-muted" aria-hidden />
-              <span className="sr-only">Next show</span>
-            </dt>
-            <dd className="min-w-0 truncate tabular-nums">{when}</dd>
-          </div>
-          <div className="flex min-w-0 items-center gap-2">
-            <dt>
-              <MapPin className="h-3.5 w-3.5 text-text-muted" aria-hidden />
-              <span className="sr-only">Venue</span>
-            </dt>
-            <dd className="min-w-0 truncate" title={where}>
-              {where}
-            </dd>
-          </div>
-        </dl>
-        <div className="mt-2.5">
-          <SaleStatePill selling={selling} size="sm" />
-        </div>
-        <div className="mt-auto pt-3">
+        <div className="mt-auto pt-2.5 md:pt-3">
           {meter}
-          <div className="mt-3 flex items-center gap-2">
+          <div className="mt-2.5 flex items-center gap-2 md:mt-3">
             <ButtonLink href={href} variant="tinted" size="sm" className="flex-1">
               Manage
             </ButtonLink>
