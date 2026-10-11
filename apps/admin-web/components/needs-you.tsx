@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useQueries } from '@tanstack/react-query';
 import {
   ArrowRight,
@@ -198,7 +198,15 @@ function ActionTile({ item }: { item: AttentionItem }) {
   );
 }
 
-export function NeedsYou() {
+export function NeedsYou({
+  onSettled,
+}: {
+  /**
+   * Told once every queue has answered (or failed) for the first time, so the page can paint
+   * itself once instead of growing as each count lands. Later refetches do not call it again.
+   */
+  onSettled?: () => void;
+} = {}) {
   const { user, isLoading: userLoading } = useAuthUser();
   // One clock per mount, so the 7-day window in the label, the count and the link all agree.
   const now = useMemo(() => new Date(), []);
@@ -218,6 +226,21 @@ export function NeedsYou() {
       retry: false,
     })),
   });
+
+  const items: AttentionItem[] = queues.map((queue, i) => {
+    const r = results[i];
+    const outcome: QueueOutcome = r.isError
+      ? { status: 'error' }
+      : r.data
+        ? { status: 'ok', count: r.data.count, note: r.data.note }
+        : { status: 'loading' };
+    return { queue, outcome };
+  });
+  const s = summarise(items);
+  const settled = !userLoading && items.every((i) => i.outcome.status !== 'loading');
+  useEffect(() => {
+    if (settled) onSettled?.();
+  }, [settled, onSettled]);
 
   if (userLoading) return <SkeletonCard variant="stat" />;
 
@@ -239,17 +262,6 @@ export function NeedsYou() {
       </SectionCard>
     );
   }
-
-  const items: AttentionItem[] = queues.map((queue, i) => {
-    const r = results[i];
-    const outcome: QueueOutcome = r.isError
-      ? { status: 'error' }
-      : r.data
-        ? { status: 'ok', count: r.data.count, note: r.data.note }
-        : { status: 'loading' };
-    return { queue, outcome };
-  });
-  const s = summarise(items);
 
   return (
     <div className="space-y-5">

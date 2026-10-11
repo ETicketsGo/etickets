@@ -83,7 +83,8 @@ export function QuickLinks({ capabilities }: { capabilities: ReadonlySet<string>
   if (links.length === 0) return null;
   return (
     <SectionCard title="Go to">
-      <ul className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
+      {/* Two across a phone held sideways; one in the tablet's half column and the side column. */}
+      <ul className="grid gap-2 sm:grid-cols-2 md:grid-cols-1">
         {links.map((l) => (
           <li key={l.href}>
             <Link

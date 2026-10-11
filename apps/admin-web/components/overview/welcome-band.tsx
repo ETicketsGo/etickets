@@ -65,13 +65,22 @@ export function WelcomeBand() {
             What needs you, and how the marketplace is doing.
           </p>
         </div>
-        <ul className="flex flex-wrap gap-2 text-caption">
-          {now && (
-            <li className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background-surface px-3 py-1 font-medium text-text-primary">
-              <CalendarDays className="h-3.5 w-3.5 text-text-secondary" aria-hidden />
-              {TODAY_FORMAT.format(now)}
-            </li>
-          )}
+        {/*
+          The row is drawn from the first paint, with the date's room held by an invisible
+          stand-in until the reader's clock is known. It used to appear only once mounted, and on
+          a tablet, where it wraps under the title, the band grew 45px and pushed the page down.
+        */}
+        <ul className="flex min-h-[1.875rem] flex-wrap gap-2 text-caption">
+          <li className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background-surface px-3 py-1 font-medium text-text-primary">
+            <CalendarDays className="h-3.5 w-3.5 text-text-secondary" aria-hidden />
+            {now ? (
+              TODAY_FORMAT.format(now)
+            ) : (
+              <span className="invisible" aria-hidden>
+                Wednesday, 30 September 2026
+              </span>
+            )}
+          </li>
           {role && (
             <li className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background-surface px-3 py-1 font-medium text-text-primary">
               <ShieldCheck className="h-3.5 w-3.5 text-text-secondary" aria-hidden />

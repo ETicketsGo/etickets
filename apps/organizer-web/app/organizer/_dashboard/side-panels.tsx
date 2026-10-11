@@ -1,9 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { useId, useState, type ReactNode } from 'react';
+import type { CSSProperties } from 'react';
 import {
-  ArrowRight,
   ChevronDown,
   BadgeCheck,
   Banknote,
@@ -19,7 +18,6 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import {
-  ButtonLink,
   IconTile,
   SectionCard,
   SectionLink,
@@ -79,123 +77,109 @@ export function quickActionsFor({
   return out;
 }
 
-/** The pastel action tiles, as the reference stacks them beside the welcome. */
+/**
+ * The quick actions, as ONE list at every width - arranged by CSS, never swapped by a hook.
+ *
+ * - Phone: "Create event" is the page's one primary button, full width, and the rest are a row
+ *   of small tiles under it. The desktop's 2x2 card of equal tiles took ~200px of a phone and
+ *   made the main action look like any other.
+ * - Tablet: one row of tiles across the page, ~60px tall where the 2x2 card was ~200px.
+ * - Wide screen: the reference's card beside the welcome, two by two.
+ *
+ * It used to be two components, picked after hydration by `usePhone`: a phone painted the
+ * desktop card first and then jumped. One list, styled per breakpoint, paints once.
+ */
 export function QuickActions({ actions }: { actions: QuickAction[] }) {
   if (actions.length === 0) return null;
+  const primaryFirst = actions[0].href === '/organizer/events/new';
+  const others = primaryFirst ? actions.length - 1 : actions.length;
   return (
-    <SectionCard title="Quick actions">
-      {/* One row of four on a laptop, where the card spans the page; two by two beside the welcome. */}
-      <ul className="grid grid-cols-1 gap-2.5 min-[360px]:grid-cols-2 lg:grid-cols-4 xl:grid-cols-2">
-        {actions.map((a, i) => (
-          // An odd last tile takes the whole row rather than leaving a hole beside it.
-          <li
-            key={a.href}
-            className={
-              i === actions.length - 1 && actions.length % 2 === 1 ? 'min-[360px]:col-span-2' : ''
-            }
-          >
-            <Link
-              href={a.href}
-              className={`group flex min-h-[2.75rem] items-center sm:min-h-[3rem] gap-2 rounded-md px-2.5 py-2 text-[0.8125rem] font-semibold sm:px-3 transition-[filter,transform] duration-150 hover:brightness-[0.97] active:translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background-surface motion-reduce:transition-none dark:hover:brightness-125 ${tileClasses(a.tone)}`}
-            >
-              <a.icon className="h-4 w-4 shrink-0" aria-hidden />
-              <span className="min-w-0 flex-1 truncate text-text-primary">{a.label}</span>
-              <ArrowRight
-                className="ml-auto hidden h-4 w-4 shrink-0 transition-transform min-[480px]:block lg:hidden duration-150 group-hover:translate-x-0.5 motion-reduce:transition-none"
-                aria-hidden
-              />
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </SectionCard>
-  );
-}
-
-/**
- * The quick actions on a phone: "Create event" as the one primary button, the rest as a row of
- * small tiles under it. The desktop's 2x2 card of equal tiles took ~200px of a phone and made
- * the page's one main action look like any other.
- */
-export function PhoneActions({ actions }: { actions: QuickAction[] }) {
-  if (actions.length === 0) return null;
-  const [first, ...rest] = actions;
-  const primary = first.href === '/organizer/events/new' ? first : null;
-  const others = primary ? rest : actions;
-  return (
-    <section aria-labelledby="phone-actions-heading" className="space-y-2.5">
-      <h2 id="phone-actions-heading" className="sr-only">
+    <section
+      aria-labelledby="quick-actions-heading"
+      className="min-w-0 xl:rounded-lg xl:border xl:border-border xl:bg-background-surface xl:p-5 xl:shadow-xs"
+      // How many tiles share a row: the phone's row under the button, and the tablet's one row.
+      style={{ '--qa-row': Math.max(others, 1), '--qa-all': actions.length } as CSSProperties}
+    >
+      <h2
+        id="quick-actions-heading"
+        className="sr-only xl:not-sr-only xl:mb-4 xl:font-display xl:text-[1.0625rem] xl:font-bold xl:text-text-primary"
+      >
         Quick actions
       </h2>
-      {primary && (
-        <ButtonLink href={primary.href} icon={primary.icon} size="lg" className="w-full">
-          {primary.label}
-        </ButtonLink>
-      )}
-      {others.length > 0 && (
-        <ul
-          className="grid gap-2"
-          style={{ gridTemplateColumns: `repeat(${others.length}, minmax(0, 1fr))` }}
-        >
-          {others.map((a) => (
-            <li key={a.href} className="min-w-0">
+      <ul className="grid grid-cols-[repeat(var(--qa-row),minmax(0,1fr))] gap-2 md:grid-cols-[repeat(var(--qa-all),minmax(0,1fr))] md:gap-3 xl:grid-cols-2 xl:gap-2.5">
+        {actions.map((a, i) => {
+          const primary = primaryFirst && i === 0;
+          // An odd last tile takes the whole row of the 2x2 card rather than leaving a hole.
+          const oddLast = i === actions.length - 1 && actions.length % 2 === 1;
+          return (
+            <li
+              key={a.href}
+              className={`min-w-0 ${primary ? 'col-span-full md:col-span-1' : ''} ${oddLast ? 'xl:col-span-2' : ''}`}
+            >
               <Link
                 href={a.href}
-                className={`flex h-full min-h-[3.5rem] flex-col items-center justify-center gap-1 rounded-md px-1.5 py-2 text-center text-micro font-semibold leading-tight transition-[filter] duration-150 active:translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas motion-reduce:transition-none ${tileClasses(a.tone)}`}
+                className={`group flex h-full items-center gap-2 rounded-md px-3 py-2 font-semibold transition-[filter,transform] duration-150 hover:brightness-[0.97] active:translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas motion-reduce:transition-none dark:hover:brightness-125 md:min-h-[3rem] md:text-[0.8125rem] ${tileClasses(a.tone)} ${
+                  primary
+                    ? 'max-md:min-h-[3rem] max-md:justify-center max-md:bg-action-primary max-md:text-ui max-md:text-action-primary-foreground max-md:shadow-sm'
+                    : 'max-md:min-h-[3.5rem] max-md:flex-col max-md:justify-center max-md:gap-1 max-md:px-1.5 max-md:text-center max-md:text-micro max-md:leading-tight'
+                }`}
               >
                 <a.icon className="h-4 w-4 shrink-0" aria-hidden />
-                <span className="text-text-primary">{a.label}</span>
+                <span
+                  className={`min-w-0 md:flex-1 md:truncate ${primary ? 'max-md:text-action-primary-foreground' : ''} text-text-primary`}
+                >
+                  {a.label}
+                </span>
               </Link>
             </li>
-          ))}
-        </ul>
-      )}
+          );
+        })}
+      </ul>
     </section>
   );
 }
 
 /**
- * The phone's fold: the Overview's detailed sections behind one real disclosure button.
+ * The Overview's fold: a real disclosure button that says exactly what is behind it.
  *
- * Collapsed by default, because a phone opens this page to see how today is going, not to read
- * the gross-to-net working; the button says exactly what is behind it, so nothing is hidden
- * that the organizer cannot see is there. The button stays above the sections it opens, so it
- * does not move from under the thumb that pressed it.
+ * The page owns whether it is open (one state for every width) and which regions it opens, so a
+ * phone's button and a tablet's can open the same sections. The button stays ABOVE what it opens,
+ * so nothing moves from under the thumb that pressed it.
  */
-export function MoreOnOverview({
+export function FoldButton({
+  open,
+  onToggle,
+  controls,
   parts,
-  children,
+  className = '',
 }: {
+  open: boolean;
+  onToggle: () => void;
+  /** The ids of the regions it shows and hides. */
+  controls: string;
   /** What is folded, in lower case, in the order it appears. */
   parts: string[];
-  children: ReactNode;
+  className?: string;
 }) {
-  const [open, setOpen] = useState(false);
-  const id = useId();
   return (
-    <div className="space-y-4">
-      <button
-        type="button"
-        aria-expanded={open}
-        aria-controls={id}
-        onClick={() => setOpen((o) => !o)}
-        className="flex min-h-[3.25rem] w-full items-center gap-3 rounded-lg border border-border bg-background-surface px-4 py-2.5 text-left shadow-xs transition-colors duration-150 hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas motion-reduce:transition-none"
-      >
-        <span className="min-w-0 flex-1">
-          <span className="block text-ui font-semibold text-text-primary">
-            {open ? 'Show less' : 'Show more'}
-          </span>
-          <span className="block text-caption text-text-muted">{listSentence(parts)}</span>
+    <button
+      type="button"
+      aria-expanded={open}
+      aria-controls={controls}
+      onClick={onToggle}
+      className={`min-h-[3.25rem] w-full items-center gap-3 rounded-lg border border-border bg-background-surface px-4 py-2.5 text-left shadow-xs transition-colors duration-150 hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas motion-reduce:transition-none ${className}`}
+    >
+      <span className="min-w-0 flex-1">
+        <span className="block text-ui font-semibold text-text-primary">
+          {open ? 'Show less' : 'Show more'}
         </span>
-        <ChevronDown
-          className={`h-5 w-5 shrink-0 text-text-muted transition-transform duration-150 motion-reduce:transition-none ${open ? 'rotate-180' : ''}`}
-          aria-hidden
-        />
-      </button>
-      <div id={id} hidden={!open} className="space-y-4">
-        {children}
-      </div>
-    </div>
+        <span className="block text-caption text-text-muted">{listSentence(parts)}</span>
+      </span>
+      <ChevronDown
+        className={`h-5 w-5 shrink-0 text-text-muted transition-transform duration-150 motion-reduce:transition-none ${open ? 'rotate-180' : ''}`}
+        aria-hidden
+      />
+    </button>
   );
 }
 

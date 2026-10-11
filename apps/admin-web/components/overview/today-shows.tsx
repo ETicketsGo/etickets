@@ -2,37 +2,23 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import {
   api,
+  CalendarRow,
   ErrorState,
   SectionCard,
   SectionLink,
   Skeleton,
-  StatusPill,
   type AdminCalendarSession,
+  type OpenCalendarEntry,
 } from '@eticketsgo/web-kit';
 import { viewerToday } from '@eticketsgo/shared-types';
-import {
-  addDays,
-  localTime,
-  placeSessions,
-  showStatus,
-  statusTone,
-  zoneNote,
-  type StatusTone,
-} from '@/lib/calendar';
+import { addDays, entryFor, placeSessions } from '@/lib/calendar';
 
-/** Rows shown before "View the day"; the calendar lists every one. */
+/** Rows shown before "See all"; the calendar lists every one. Even, so a tablet's two columns end level. */
 const LIMIT = 6;
-
-const DOT: Record<StatusTone, string> = {
-  success: 'bg-status-success',
-  warning: 'bg-status-warning',
-  error: 'bg-status-error',
-  info: 'bg-status-info',
-  neutral: 'bg-text-muted',
-};
 
 /**
  * What is on today across the platform: the reference's "Today" agenda, for an operator.
@@ -43,6 +29,7 @@ const DOT: Record<StatusTone, string> = {
  * calendar; the parent decides.
  */
 export function TodayShows() {
+  const router = useRouter();
   // The reader's today, taken again once mounted: the server renders in UTC.
   const [viewer, setViewer] = useState(() => viewerToday(new Date()));
   useEffect(() => setViewer(viewerToday(new Date())), []);
@@ -55,9 +42,16 @@ export function TodayShows() {
   });
 
   const list = useMemo(
-    () => placeSessions(shows.data?.data ?? [], [today]).byDay[today] ?? [],
+    () => (placeSessions(shows.data?.data ?? [], [today]).byDay[today] ?? []).map(entryFor),
     [shows.data, today],
   );
+  /*
+    A row is the calendar's own (web-kit's CalendarRow: status dot, title, venue time, place and
+    the status in words), so this card and the calendar cannot drift apart. Here it opens the
+    event, as the old link did; the calendar's quick look belongs to the calendar.
+  */
+  const open: OpenCalendarEntry<AdminCalendarSession> = (entry) =>
+    router.push(`/admin/events/${entry.source.event.id}`);
 
   return (
     <SectionCard
@@ -71,8 +65,8 @@ export function TodayShows() {
       flush
     >
       {shows.isLoading ? (
-        <div className="px-5 pb-3">
-          <Skeleton className="h-40 w-full" />
+        <div className="px-5 pb-4">
+          <Skeleton className="h-56 w-full md:h-40" />
         </div>
       ) : shows.isError ? (
         <div className="px-5 pb-3">
@@ -82,10 +76,14 @@ export function TodayShows() {
         <p className="px-5 pb-4 text-sm text-text-secondary">No shows on the platform today.</p>
       ) : (
         <>
-          <ul className="divide-y divide-border border-t border-border">
-            {list.slice(0, LIMIT).map((s) => (
-              <li key={s.id}>
-                <Row s={s} />
+          {/*
+            One column of rows on a phone and a wide screen's main column; two on a tablet, where
+            a single column of six rows was a third of the screen for one card.
+          */}
+          <ul className="divide-y divide-border border-t border-border md:grid md:grid-cols-2 md:divide-y-0 md:px-2 md:py-1 xl:block xl:divide-y xl:px-0 xl:py-0">
+            {list.slice(0, LIMIT).map((entry) => (
+              <li key={entry.id} className="min-w-0">
+                <CalendarRow entry={entry} onOpen={open} />
               </li>
             ))}
           </ul>
@@ -104,32 +102,5 @@ export function TodayShows() {
         </>
       )}
     </SectionCard>
-  );
-}
-
-function Row({ s }: { s: AdminCalendarSession }) {
-  const shown = showStatus(s);
-  return (
-    <Link
-      href={`/admin/events/${s.event.id}`}
-      className="flex flex-wrap items-start gap-x-3 gap-y-1.5 px-5 py-3 transition-colors duration-150 hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-    >
-      <span
-        aria-hidden
-        className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${DOT[statusTone(shown.status)]}`}
-      />
-      <span className="min-w-0 flex-1 basis-40">
-        <span className="block truncate text-ui font-semibold text-text-primary">
-          {s.event.title}
-        </span>
-        <span className="block truncate text-caption tabular-nums text-text-secondary">
-          {localTime(s.startsAt, s.timezone)} {zoneNote(s.startsAt, s.timezone)} -{' '}
-          {s.organization.name}, {s.venue.city}
-        </span>
-      </span>
-      <StatusPill tone={statusTone(shown.status)} size="sm" dot={false}>
-        {shown.label}
-      </StatusPill>
-    </Link>
   );
 }
