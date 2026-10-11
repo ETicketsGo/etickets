@@ -63,12 +63,29 @@ export interface World {
 
 export async function makeWorld(db: Client, suffix: string): Promise<World> {
   const sessions: Record<string, string> = {};
-  const org = async (tag: string) =>
-    (
+  const org = async (tag: string) => {
+    const id = (
       await db.organization.create({
         data: { name: `Scope ${tag} ${suffix}`, slug: `scope-${tag}-${suffix}` },
       })
     ).id;
+    // Marking a payout paid is held until its bank account is verified (#324), and these worlds
+    // mark payouts paid to prove conservation. No maker or checker is recorded, which the
+    // constraint allows.
+    await db.organizerPayoutAccount.create({
+      data: {
+        organizationId: id,
+        currency: 'INR',
+        holderName: 'Fixture',
+        bankName: 'Fixture Bank',
+        bankCode: 'FIXT0000001',
+        accountLast4: '0000',
+        accountCipher: 'fixture',
+        verifiedAt: new Date(),
+      },
+    });
+    return id;
+  };
   const orgA = await org('a');
   const orgB = await org('b');
 
@@ -193,5 +210,7 @@ export async function cleanWorld(db: Client, world: World) {
   await db.eventSession.deleteMany({ where: { event: { organizationId: { in: orgs } } } });
   await db.event.deleteMany({ where: { organizationId: { in: orgs } } });
   await db.venue.deleteMany({ where: { organizationId: { in: orgs } } });
+  await db.organizerPayoutAccountVersion.deleteMany({ where: { organizationId: { in: orgs } } });
+  await db.organizerPayoutAccount.deleteMany({ where: { organizationId: { in: orgs } } });
   await db.organization.deleteMany({ where: { id: { in: orgs } } });
 }
