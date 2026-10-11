@@ -61,10 +61,13 @@ describe('EventsService.remove', () => {
   it('checks the caller is an owner or manager of the organization', async () => {
     const { service, access } = setup();
     await service.remove(owner, 'ev1');
-    expect(access.assertMember).toHaveBeenCalledWith(owner, 'org1', [
-      'ORGANIZER_OWNER',
-      'ORGANIZER_MANAGER',
-    ]);
+    expect(access.assertMember).toHaveBeenCalledWith(
+      owner,
+      'org1',
+      ['ORGANIZER_OWNER', 'ORGANIZER_MANAGER'],
+      // Platform staff need EVENT_REVIEW: the admin console deletes spam or duplicate events.
+      { permission: 'EVENT_REVIEW', operation: 'event.delete' },
+    );
   });
 
   it('refuses while the event has any booking, and says so', async () => {

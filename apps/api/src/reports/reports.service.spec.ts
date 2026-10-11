@@ -38,7 +38,7 @@ function makeService(membership: { status: string; role: string } | null) {
     },
     $queryRaw: jest.fn().mockResolvedValue([]),
   };
-  const access = new OrgAccessService(prisma as never);
+  const access = new OrgAccessService(prisma as never, { record: async () => undefined } as never);
   return { prisma, service: new ReportsService(prisma as never, access) };
 }
 
@@ -81,12 +81,14 @@ describe('ReportsService.organizerEventReport financial-read gating', () => {
     });
   });
 
-  it('allows a platform admin (no membership needed)', async () => {
-    const { service, prisma } = makeService(null);
-    await expect(service.organizerEventReport(asUser([Role.ADMIN]), 'ev-1')).resolves.toMatchObject(
-      { event: { id: 'ev-1' } },
-    );
-    expect(prisma.organizationMember.findUnique).not.toHaveBeenCalled();
+  it('refuses a platform admin who is not a member: a platform role opens no organizer report', async () => {
+    const { service } = makeService(null);
+    await expect(service.organizerEventReport(asUser([Role.ADMIN]), 'ev-1')).rejects.toMatchObject({
+      code: 'TENANT_FORBIDDEN',
+    });
+    await expect(
+      service.organizerEventReport(asUser([Role.SUPER_ADMIN]), 'ev-1'),
+    ).rejects.toMatchObject({ code: 'TENANT_FORBIDDEN' });
   });
 
   it('returns null for a missing event (no authz check)', async () => {
