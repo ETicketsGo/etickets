@@ -262,7 +262,14 @@ export default function AdminCalendarPage() {
 
   const filters = useUrlFilters(KEYS);
   const v = filters.values;
-  const view = parseView(v.view);
+  /*
+    With no view in the URL, a phone gets the agenda (a seven-column month is slivers at 320px) and
+    wider screens the month. The width is only known in the browser, so the choice is made once on
+    mount; the month is drawn until then.
+  */
+  const [phone, setPhone] = useState(false);
+  useEffect(() => setPhone(window.innerWidth < 768), []);
+  const view = v.view ? parseView(v.view) : phone ? 'agenda' : 'month';
   /*
     Today is the reader's own date, in the zone their browser reports - the policy in
     shared-types' `viewer-today.ts`, which the organizer calendar follows too. Taken when the page
@@ -301,7 +308,7 @@ export default function AdminCalendarPage() {
   const cities = useMemo(() => cityOptions(all), [all]);
   const shown = useMemo(() => inCity(all, v.city), [all, v.city]);
   const { byDay } = useMemo(() => placeSessions(shown, days), [shown, days]);
-  const entries = useMemo(() => entriesByDay(byDay), [byDay]);
+  const entries = useMemo(() => entriesByDay(byDay, viewer.zone), [byDay, viewer.zone]);
   const visibleCount = days.reduce((n, d) => n + (byDay[d]?.length ?? 0), 0);
   const anyUnknownZone = shown.some((s) => zoneUnknown(s.timezone));
   const activeFilters = [v.country, v.organizationId, v.status, v.city].filter(Boolean).length;
@@ -442,7 +449,6 @@ export default function AdminCalendarPage() {
               {query.isFetching ? ', updating' : ''}.
             </span>
           )}
-          <span>Times are local to each venue.</span>
           <CalendarZoneNote zone={viewerZoneLabel(viewer)} />
         </div>
 
@@ -483,13 +489,11 @@ export default function AdminCalendarPage() {
               weekStart={1}
               formatDay={dayLabel}
               noun={NOUN}
-              showDayLabel="Open in agenda"
               onFocusDay={(day, viaKeyboard) => {
                 setPicked(day);
                 if (viaKeyboard && day.slice(0, 7) !== anchor.slice(0, 7)) go({ date: day });
               }}
               onOpen={open}
-              onShowDay={(day) => go({ view: 'agenda', date: day })}
             />
           }
           panel={
