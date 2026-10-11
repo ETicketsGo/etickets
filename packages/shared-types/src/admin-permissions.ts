@@ -110,11 +110,13 @@ export const ALL_ADMIN_PERMISSIONS = Object.values(AdminPermission) as AdminPerm
 /**
  * Ready-made bundles, so a new starter is useful in one click rather than twelve.
  *
- * None of them carries `PLATFORM_CONFIG_READ` or `PLATFORM_CONFIG`: who may see or change
- * what the platform charges is decided per person by whoever grants it, not by a default.
- * Nor `OPS_EXECUTE`, `FINANCE_APPROVE`, `FINANCE_RESOLVE` or `SUPPORT_MANAGE`: those were split
- * out of the reads without granting them to anybody, and which bundle should carry them is the
- * owner's decision (docs/security/ADMIN-PERMISSION-MATRIX.md lists the proposals).
+ * The contents are the owner's decision, approved 2026-10-10 and recorded in
+ * docs/security/ADMIN-PERMISSION-MATRIX.md; `admin-presets.spec.ts` holds them to it exactly.
+ * In short: FINANCE carries the finance actions split out of FINANCE_READ (FINANCE_APPROVE,
+ * FINANCE_RESOLVE) and may READ the fee and tax rules so it can explain a charge; SUPPORT may
+ * change a support message's status (SUPPORT_MANAGE); the refund desk does not; OPERATIONS
+ * reads and re-runs background work. No bundle carries `PLATFORM_CONFIG`: who may change what
+ * the platform charges is decided per person by whoever grants it.
  *
  * These are a convenience at ASSIGNMENT time only. Once granted, the account holds the
  * individual capabilities — so editing a bundle later never silently changes what an
@@ -127,8 +129,12 @@ export const ADMIN_PRESETS: Record<
   SUPPORT: {
     label: 'Support',
     description:
-      'Can find any booking and see what happened to it. Cannot change or delete anything.',
-    grants: [AdminPermission.BOOKING_READ, AdminPermission.ORGANIZER_READ],
+      'Can find any booking and see what happened to it, and mark a support message or complaint open, triaged or closed. Cannot change a booking, a refund or any money.',
+    grants: [
+      AdminPermission.BOOKING_READ,
+      AdminPermission.ORGANIZER_READ,
+      AdminPermission.SUPPORT_MANAGE,
+    ],
   },
   REFUND_DESK: {
     label: 'Refund desk',
@@ -142,13 +148,17 @@ export const ADMIN_PRESETS: Record<
   },
   FINANCE: {
     label: 'Finance',
-    description: 'Sees the money, approves refunds and releases settlements.',
+    description:
+      'Sees the money and the fee and tax rules, approves refunds and compensations, works the discrepancy queue and releases settlements. Cannot change the fee or tax rules.',
     grants: [
       AdminPermission.BOOKING_READ,
       AdminPermission.FINANCE_READ,
       AdminPermission.REFUND_REVIEW,
       AdminPermission.REFUND_APPROVE,
       AdminPermission.PAYOUT_MANAGE,
+      AdminPermission.FINANCE_APPROVE,
+      AdminPermission.FINANCE_RESOLVE,
+      AdminPermission.PLATFORM_CONFIG_READ,
     ],
   },
   MODERATOR: {
@@ -159,6 +169,12 @@ export const ADMIN_PRESETS: Record<
       AdminPermission.ORGANIZER_REVIEW,
       AdminPermission.EVENT_REVIEW,
     ],
+  },
+  OPERATIONS: {
+    label: 'Operations',
+    description:
+      'Watches the job queues, the outbox and inventory sync, and retries or replays work that failed. Cannot open bookings or payments, and moves no money.',
+    grants: [AdminPermission.OPS_READ, AdminPermission.OPS_EXECUTE],
   },
 };
 
