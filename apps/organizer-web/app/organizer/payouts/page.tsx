@@ -3,7 +3,15 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { AlertTriangle, Banknote, CheckCircle2, ExternalLink, Link2, XCircle } from 'lucide-react';
+import {
+  AlertTriangle,
+  Banknote,
+  CheckCircle2,
+  ExternalLink,
+  Info,
+  Link2,
+  XCircle,
+} from 'lucide-react';
 import {
   api,
   Badge,
@@ -26,7 +34,13 @@ import {
   marketFor,
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
-import { connectWords, PLATFORM_SETTLEMENTS_OFF } from '@/lib/connect-onboarding-words';
+import { connectWords } from '@/lib/connect-onboarding-words';
+import {
+  razorpayPanelMessage,
+  stripePanelMessage,
+  type MarketScope,
+  type PanelMessage,
+} from '@/lib/provider-panel-messages';
 import { BankAccount } from './bank-account';
 import { PayoutStatus } from './payout-status';
 
@@ -62,6 +76,8 @@ function PayoutsInner() {
   const homeIsIndia = home?.code === 'IN';
   const showRazorpay = homeIsIndia || sellsInIndia;
   const showStripe = (!!home && !homeIsIndia) || sellsOutsideIndia;
+  // What each panel may say about selling depends on which markets this organizer trades in.
+  const scope: MarketScope = { inr: homeIsIndia || sellsInIndia, card: showStripe };
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['payouts', activeOrg.id],
@@ -137,8 +153,8 @@ function PayoutsInner() {
         dashboard's own market list is the evidence for. Nothing is hidden that anybody can
         use; what is hidden is a dead end.
       */}
-      {showStripe ? <StripePayoutSetup orgId={activeOrg.id} /> : null}
-      {showRazorpay ? <RazorpayPayoutSetup orgId={activeOrg.id} /> : null}
+      {showStripe ? <StripePayoutSetup orgId={activeOrg.id} scope={scope} /> : null}
+      {showRazorpay ? <RazorpayPayoutSetup orgId={activeOrg.id} scope={scope} /> : null}
       {!showStripe && !showRazorpay ? (
         <Card title="Payout provider">
           <p className="text-sm text-text-secondary">
@@ -224,7 +240,26 @@ function EnabledBadge({ label, on }: { label: string; on: boolean }) {
   );
 }
 
-function StripePayoutSetup({ orgId }: { orgId: string }) {
+/** A provider panel's one sentence about selling and being paid. Words carry the meaning. */
+function PanelNotice({ message }: { message: PanelMessage | null }) {
+  if (!message) return null;
+  const Icon =
+    message.tone === 'warning' ? AlertTriangle : message.tone === 'success' ? CheckCircle2 : Info;
+  const colour =
+    message.tone === 'warning'
+      ? 'border-status-warning/30 bg-status-warning/8 text-status-warning'
+      : message.tone === 'success'
+        ? 'border-status-success/30 bg-status-success/8 text-status-success'
+        : 'border-status-info/30 bg-tint-info text-text-secondary';
+  return (
+    <div className={`flex items-start gap-2 rounded-md border px-4 py-3 text-sm ${colour}`}>
+      <Icon className="mt-0.5 h-4 w-4 shrink-0" />
+      <span>{message.text}</span>
+    </div>
+  );
+}
+
+function StripePayoutSetup({ orgId, scope }: { orgId: string; scope: MarketScope }) {
   const params = useSearchParams();
   const onboarding = params.get('onboarding'); // 'return' | 'refresh' | null
   const toast = useToast();
@@ -304,12 +339,8 @@ function StripePayoutSetup({ orgId }: { orgId: string }) {
       }
     >
       <div className="space-y-4">
-        {!status.canSellPaidTickets && (
-          <div className="flex items-start gap-2 rounded-md border border-status-warning/30 bg-status-warning/8 px-4 py-3 text-sm text-status-warning">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-            <span>You must finish payout setup before you can sell paid tickets.</span>
-          </div>
-        )}
+        {/* Stripe is the provider whose setup gates sales (dollars and Canadian dollars). */}
+        <PanelNotice message={stripePanelMessage(status, scope)} />
 
         <dl className="grid gap-4 sm:grid-cols-2">
           <div>
@@ -370,7 +401,7 @@ function StripePayoutSetup({ orgId }: { orgId: string }) {
  * (non-secret) account id so the platform can settle to it. No API secret is
  * ever shown or requested.
  */
-function RazorpayPayoutSetup({ orgId }: { orgId: string }) {
+function RazorpayPayoutSetup({ orgId, scope }: { orgId: string; scope: MarketScope }) {
   const qc = useQueryClient();
   const toast = useToast();
   const [linkedAccountId, setLinkedAccountId] = useState('');
@@ -431,20 +462,14 @@ function RazorpayPayoutSetup({ orgId }: { orgId: string }) {
     >
       <div className="space-y-4">
         {/*
-          Our configuration, said without making it the organizer's problem.
+          Payouts only. Rupee checkout never reads this account, so nothing here may suggest it
+          blocks a sale - see lib/provider-panel-messages.ts for what the server enforces.
 
-          This read: "Razorpay Route is not yet enabled for this platform - payouts are held;
-          contact support to enable Route settlements." It named the provider and one of its
-          products, stated a setting of OUR platform, and then sent the organizer to support over
-          something only we can change - so the single action it offered was a wasted trip. It
-          also sat directly below a card built to never do any of that.
+          The sentence used to read "Razorpay Route is not yet enabled for this platform -
+          payouts are held; contact support to enable Route settlements", which named a provider
+          product, stated OUR configuration and sent the organizer to support for it.
         */}
-        {!status.routeEnabled && (
-          <div className="flex items-start gap-2 rounded-md border border-status-warning/30 bg-status-warning/8 px-4 py-3 text-sm text-status-warning">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-            <span>{PLATFORM_SETTLEMENTS_OFF}</span>
-          </div>
-        )}
+        <PanelNotice message={razorpayPanelMessage(status, scope)} />
 
         <dl className="grid gap-4 sm:grid-cols-2">
           <div>
