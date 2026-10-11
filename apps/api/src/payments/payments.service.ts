@@ -168,7 +168,7 @@ export class PaymentsService {
     isDummyAllowed(resolvePaymentEnv(process.env.APP_ENV)) &&
     (process.env.PAYMENT_PROVIDER_NAME ?? 'mock') === 'mock';
 
-  /** Create a payment intent for a pending booking (owner or platform admin only). */
+  /** Create a payment intent for a pending booking (the buyer only). */
   async createIntent(bookingId: string, user?: RequestUser) {
     const booking = await this.prisma.booking.findUnique({
       where: { id: bookingId },
@@ -196,9 +196,8 @@ export class PaymentsService {
       if (!user) {
         throw new AppException(ErrorCodes.NOT_FOUND, 'Booking not found.', HttpStatus.NOT_FOUND);
       }
-      const isAdmin =
-        user.roles.includes('ADMIN' as never) || user.roles.includes('SUPER_ADMIN' as never);
-      if (booking.userId !== user.id && !isAdmin) {
+      // The buyer only: paying is the buyer's act, and staff have no payment-on-behalf route.
+      if (booking.userId !== user.id) {
         throw new AppException(
           ErrorCodes.FORBIDDEN,
           'You cannot pay for this booking.',

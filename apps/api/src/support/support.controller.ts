@@ -79,9 +79,10 @@ export class AdminSupportController {
   @RequiresAdmin(AdminPermission.SUPPORT_MANAGE)
   @ApiOperation({ summary: 'Update a support submission status (admin).' })
   update(
+    @CurrentUser() user: RequestUser,
     @Param('id') id: string,
     @Body(new ZodValidationPipe(updateFeedbackSchema)) body: UpdateFeedbackInput,
   ) {
-    return this.support.updateStatus(id, body);
+    return this.support.updateStatus(id, body, user.id);
   }
 }

@@ -2,18 +2,20 @@ import { Module } from '@nestjs/common';
 import { AdminStaffController } from './admin-staff.controller';
 import { AdminStaffService } from './admin-staff.service';
 import { AdminController } from './admin.controller';
+import { AdminBookingViewController } from './admin-booking-view.controller';
 import { TaxRulesService } from './tax-rules.service';
 import { CinemaPricingPoliciesService } from './cinema-pricing-policies.service';
 import { AdminService } from './admin.service';
 import { AdminGroupingService } from './admin-grouping.service';
 import { FirstAdminBootstrap } from './first-admin.bootstrap';
 import { MoviesModule } from '../movies/movies.module';
+import { BookingsModule } from '../bookings/bookings.module';
 // For the one invitation implementation — the staff screen must not grow its own.
 import { OrganizationsModule } from '../organizations/organizations.module';
 
 @Module({
-  imports: [MoviesModule, OrganizationsModule],
-  controllers: [AdminController, AdminStaffController],
+  imports: [MoviesModule, OrganizationsModule, BookingsModule],
+  controllers: [AdminController, AdminBookingViewController, AdminStaffController],
   providers: [
     AdminService,
     AdminGroupingService,

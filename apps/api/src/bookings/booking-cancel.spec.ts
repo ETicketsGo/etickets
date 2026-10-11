@@ -98,10 +98,11 @@ describe('BookingsService.cancelUnpaid', () => {
     );
   });
 
-  it('lets platform staff cancel somebody else’s unpaid booking', async () => {
-    const { service, strategy } = setup();
-    await service.cancelUnpaid(ADMIN, 'bk-1');
-    expect(strategy.release).toHaveBeenCalledTimes(1);
+  it('refuses platform staff: a back-office role is not the buyer', async () => {
+    const { service, strategy, prisma } = setup();
+    await expect(service.cancelUnpaid(ADMIN, 'bk-1')).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(strategy.release).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
   it('refuses a stranger before anything is touched', async () => {

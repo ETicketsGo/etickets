@@ -532,6 +532,11 @@ export const api = {
       }),
     list: () => request<Paged<BookingSummary>>('/bookings?pageSize=50'),
     get: (id: string) => request<BookingDetail>(`/bookings/${id}`),
+    /**
+     * A customer's booking, read by platform staff. Needs BOOKING_READ and is audited. The
+     * customer route above answers only the buyer.
+     */
+    getAsStaff: (id: string) => request<BookingDetail>(`/admin/bookings/${id}`),
     pay: (id: string) => request<PayResult>(`/bookings/${id}/pay`, { method: 'POST' }),
     /**
      * Cancel the signed-in buyer's own unpaid booking, releasing what it holds at once.
