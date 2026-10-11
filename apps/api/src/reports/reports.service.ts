@@ -44,8 +44,8 @@ export class ReportsService {
     const event = await this.prisma.event.findUnique({ where: { id: eventId } });
     if (!event) return null;
     // This report exposes gross/net revenue, fees and refunds — financial data.
-    // Restrict to org owners/managers (+ platform admins, who bypass in
-    // assertMember); CHECKIN_STAFF and other members must not read the money.
+    // Restrict to org owners/managers; CHECKIN_STAFF, other members and platform staff who are
+    // not members must not read the money here.
     await this.access.assertMember(user, event.organizationId, [
       Role.ORGANIZER_OWNER,
       Role.ORGANIZER_MANAGER,

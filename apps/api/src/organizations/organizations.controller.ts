@@ -46,6 +46,7 @@ import {
   OrganizationImagesService,
 } from './organization-images.service';
 import type { UploadedImageFile } from '../events/event-image.service';
+import { OrganizerOnly } from '../tenancy/organizer-only.guard';
 
 @ApiTags('organizations')
 @ApiBearerAuth()
@@ -97,7 +98,7 @@ export class OrganizationsController {
   @Get(':id/readiness')
   @ApiOperation({ summary: 'What this organizer still has to complete.' })
   async readiness(@CurrentUser() user: RequestUser, @Param('id') id: string) {
-    // `get` asserts membership (and lets a platform admin through), so the readiness of an
+    // `get` asserts membership (or ORGANIZER_READ for platform staff), so the readiness of an
     // organization somebody does not belong to is not readable by asking for it directly.
     await this.orgs.get(user, id);
     return this.lifecycle.readiness(id);
@@ -112,7 +113,7 @@ export class OrganizationsController {
   @Get(':id/actions')
   @ApiOperation({ summary: 'One list of what this organizer still has to do.' })
   async actions(@CurrentUser() user: RequestUser, @Param('id') id: string) {
-    // `get` asserts membership (and lets a platform admin through), exactly as readiness does.
+    // `get` asserts membership (or ORGANIZER_READ for platform staff), as readiness does.
     await this.orgs.get(user, id);
     return this.lifecycle.actions(id);
   }
@@ -171,7 +172,9 @@ export class OrganizationsController {
   }
 
   @Patch(':id/legal-identity')
-  @Roles(Role.ORGANIZER_OWNER, Role.ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.ORGANIZER_OWNER)
+  // Staff record legal identity on PATCH /admin/organizers/:id/legal-identity (ORGANIZER_REVIEW).
+  @OrganizerOnly('organization.legal-identity.update')
   @ApiOperation({ summary: "Update the seller's legal + tax identity (owner only)." })
   updateLegalIdentity(
     @CurrentUser() user: RequestUser,

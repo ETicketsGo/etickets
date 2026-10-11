@@ -222,13 +222,18 @@ describe('platform configuration is least-privilege', () => {
     }
   });
 
-  it('gives no ready-made bundle any configuration capability', async () => {
+  it('gives no ready-made bundle the power to CHANGE configuration, and only FINANCE the read', async () => {
     // Presets are what a new starter is handed in one click. None may carry, by default, the
-    // power to see or change what the platform charges.
+    // power to change what the platform charges. Reading it is FINANCE's alone - approved by
+    // the owner so finance can explain a charge.
     for (const preset of Object.values(ADMIN_PRESETS)) {
       expect(preset.grants).not.toContain(AdminPermission.PLATFORM_CONFIG);
-      expect(preset.grants).not.toContain(AdminPermission.PLATFORM_CONFIG_READ);
     }
+    expect(
+      Object.entries(ADMIN_PRESETS)
+        .filter(([, p]) => p.grants.includes(AdminPermission.PLATFORM_CONFIG_READ))
+        .map(([key]) => key),
+    ).toEqual(['FINANCE']);
   });
 
   it('still lets the support desk read bookings and payments (no collateral lock-out)', async () => {

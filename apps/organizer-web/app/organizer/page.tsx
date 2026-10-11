@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import {
   AlertTriangle,
@@ -62,12 +62,10 @@ import { NoUpcomingEvents, UpcomingEventCard } from './_dashboard/upcoming-event
 import { MonthCard } from './_dashboard/month-card';
 import {
   ActivityTimeline,
-  MoreOnOverview,
-  PhoneActions,
+  FoldButton,
   QuickActions,
   quickActionsFor,
 } from './_dashboard/side-panels';
-import { usePhone } from './_dashboard/use-phone';
 
 /**
  * "India · INR" rather than "INR" - the same label the admin dashboard gives a market.
@@ -83,8 +81,10 @@ function marketName(market: { country: string | null; currency: string }): strin
 /** The notification centre's own react-query key, so this reads its cache, not a second copy. */
 const FEED_KEY = ['notifications', 'feed', 'organizer'] as const;
 
-/** Image cards in "Upcoming events": three across on a laptop, a swipeable row on a phone. */
+/** Image cards in "Upcoming events": three across from a tablet up, a swipeable row on a phone. */
 const UPCOMING_CARDS = 3;
+/** What is still open, from the notification feed: the newest few, with the count when there are more. */
+const PENDING_SHOWN = 3;
 
 const count = (n: number) => n.toLocaleString('en-IN');
 
@@ -262,12 +262,14 @@ export default function OrganizerDashboard() {
 
   const attendance = analytics?.attendance;
   const performance = performanceFor(analytics, activeCurrency);
-  const phone = usePhone();
-  const density = phone ? 'compact' : 'comfortable';
-  // A phone shows the two most recent of what is open, and says how many there are in all.
   const pendingAll = pendingActions(feedQ.data);
-  const pending = pendingAll.slice(0, phone ? 2 : 3);
-  const activity = recentActivity(feedQ.data, 4);
+  const pending = pendingAll.slice(0, PENDING_SHOWN);
+  const [more, setMore] = useState(false);
+  const calendarFoldId = useId();
+  const moneyFoldId = useId();
+  const marketsFoldId = useId();
+  // Three, not four: beside the month on a tablet, a fourth entry made the pair ~150px taller.
+  const activity = recentActivity(feedQ.data, 3);
   const latestPayout = payoutsQ.data?.[0];
   const setup = setupSummary(actionsQ.data?.actions);
   const firstName = user?.fullName?.trim().split(/\s+/)[0];
@@ -323,13 +325,79 @@ export default function OrganizerDashboard() {
     );
 
   /*
-    ── THE SECTIONS, ONCE ────────────────────────────────────────────────────────────
-    Each section is built here once and placed twice below: in the desktop's two columns, or
-    in the phone's single column in the phone's own order. Nothing exists on one and not the
-    other; the phone folds the detail behind "Show more" instead of dropping it.
+    ── THE FIRST PAINT IS THE PAGE ────────────────────────────────────────────────────
+    Until the reads that decide the page's shape have answered, one skeleton shaped like the
+    page stands in for all of it. Painting the parts as each read landed is what moved the page:
+    the setup panel arrived above everything and pushed it down, the figures grew from their
+    placeholders, the activity from three rows to four. A read the viewer's role does not make
+    is not waited for (a disabled query is not loading).
   */
+  const booting =
+    eventsQ.isLoading ||
+    analyticsQ.isLoading ||
+    actionsQ.isLoading ||
+    homeQ.isLoading ||
+    feedQ.isLoading ||
+    payoutsQ.isLoading;
+  if (booting) return <OverviewSkeleton financials={can.financials} />;
+
+  /* ── THE SECTIONS, each built once and placed once below. ── */
   // A genuine blocker first: money that cannot reach them is worth reading before anything else.
   const attention = <Attention setup={setup} loading={actionsQ.isLoading} />;
+
+  const statCards = (density: 'compact' | 'comfortable'): ReactNode[] => [
+    <StatCard
+      /*
+        Tickets buyers hold now: issued and not refunded, cancelled or voided (the analytics
+        `attendance.issued`), with how many of them have been scanned in.
+      */
+      key="tickets"
+      density={density}
+      icon={Ticket}
+      tile="teal"
+      label="Tickets sold"
+      value={count(attendance?.issued ?? 0)}
+      hint={
+        attendance && attendance.issued > 0
+          ? `${count(attendance.checkedIn)} checked in (${attendance.checkInRate}%)`
+          : 'Valid tickets buyers hold'
+      }
+    />,
+    <StatCard
+      key="upcoming"
+      density={density}
+      icon={CalendarClock}
+      tile="amber"
+      label="Upcoming events"
+      value={count(upcomingCount)}
+      href="/organizer/events"
+      hint={
+        thisWeek !== null ? `${count(thisWeek)} in the next 7 days` : 'With a show still to come'
+      }
+    />,
+    can.financials && (
+      <StatCard
+        key="gross"
+        density={density}
+        icon={currencyIcon(activeCurrency)}
+        tile="blue"
+        label="Gross sales"
+        value={cash ? fmt(cash.grossMinor) : '-'}
+        hint={cash ? 'Before fees and refunds' : 'No sales yet'}
+      />
+    ),
+    can.financials && (
+      <StatCard
+        key="net"
+        density={density}
+        icon={Wallet}
+        tile="purple"
+        label="Net proceeds"
+        value={cash ? fmt(cash.netMinor) : '-'}
+        hint="Yours after fees and refunds"
+      />
+    ),
+  ];
 
   const figures = (
     <section aria-labelledby="figures-heading" className="space-y-3">
@@ -340,19 +408,19 @@ export default function OrganizerDashboard() {
         >
           At a glance
         </h2>
-        {can.financials &&
-          choices.length > 1 &&
-          activeCurrency &&
-          (phone ? (
-            /*
+        {can.financials && choices.length > 1 && activeCurrency && (
+          <>
+            {/*
               Four markets as a segmented switch wrap to two rows on a phone - taller than the
               figures they choose between. A native select is one row and the phone's own picker.
-            */
+              Both are in the page and CSS shows one: the one not shown is `display: none`, so
+              neither a screen reader nor the tab order meets it.
+            */}
             <select
               aria-label="Market"
               value={activeCurrency}
               onChange={(e) => setMarket(e.target.value)}
-              className="h-9 min-w-0 max-w-[60%] cursor-pointer truncate rounded-md border border-border-input bg-background-surface px-2.5 text-caption font-semibold text-text-primary focus:border-ring focus:outline-none focus:ring-4 focus:ring-ring/15"
+              className="h-9 min-w-0 max-w-[60%] cursor-pointer truncate rounded-md border border-border-input bg-background-surface px-2.5 text-caption font-semibold text-text-primary focus:border-ring focus:outline-none focus:ring-4 focus:ring-ring/15 md:hidden"
             >
               {choices.map((c) => (
                 <option key={c.currency} value={c.currency}>
@@ -360,74 +428,28 @@ export default function OrganizerDashboard() {
                 </option>
               ))}
             </select>
-          ) : (
-            <SegmentedControl
-              label="Market"
-              options={choices.map((c) => ({ value: c.currency, label: c.label }))}
-              value={activeCurrency}
-              onChange={setMarket}
-            />
-          ))}
+            <div className="hidden md:block">
+              <SegmentedControl
+                label="Market"
+                options={choices.map((c) => ({ value: c.currency, label: c.label }))}
+                value={activeCurrency}
+                onChange={setMarket}
+              />
+            </div>
+          </>
+        )}
       </div>
-      {loading ? (
-        <div className={`grid grid-cols-2 xl:grid-cols-4 ${phone ? 'gap-2.5' : 'gap-3 sm:gap-4'}`}>
-          {Array.from({ length: can.financials ? 4 : 2 }).map((_, i) => (
-            <SkeletonCard key={i} variant="stat" label="Loading figures" />
-          ))}
-        </div>
-      ) : (
-        <div className={`grid grid-cols-2 xl:grid-cols-4 ${phone ? 'gap-2.5' : 'gap-3 sm:gap-4'}`}>
-          <StatCard
-            /*
-              Tickets buyers hold now: issued and not refunded, cancelled or voided (the
-              analytics `attendance.issued`), with how many of them have been scanned in.
-            */
-            density={density}
-            icon={Ticket}
-            tile="teal"
-            label="Tickets sold"
-            value={count(attendance?.issued ?? 0)}
-            hint={
-              attendance && attendance.issued > 0
-                ? `${count(attendance.checkedIn)} checked in (${attendance.checkInRate}%)`
-                : 'Valid tickets buyers hold'
-            }
-          />
-          <StatCard
-            density={density}
-            icon={CalendarClock}
-            tile="amber"
-            label="Upcoming events"
-            value={count(upcomingCount)}
-            href="/organizer/events"
-            hint={
-              thisWeek !== null
-                ? `${count(thisWeek)} in the next 7 days`
-                : 'With a show still to come'
-            }
-          />
-          {can.financials && (
-            <StatCard
-              density={density}
-              icon={currencyIcon(activeCurrency)}
-              tile="blue"
-              label="Gross sales"
-              value={cash ? fmt(cash.grossMinor) : '-'}
-              hint={cash ? 'Before fees and refunds' : 'No sales yet'}
-            />
-          )}
-          {can.financials && (
-            <StatCard
-              density={density}
-              icon={Wallet}
-              tile="purple"
-              label="Net proceeds"
-              value={cash ? fmt(cash.netMinor) : '-'}
-              hint="Yours after fees and refunds"
-            />
-          )}
-        </div>
-      )}
+      {/*
+        Four across from a tablet up, two by two on a phone. Below a wide screen the cards are
+        the compact ones (tile and label on one line, the number under them): the tall card
+        four across a tablet left each number a sliver, and two by two it was ~400px of page.
+        The card's density is its markup, not a class, so the two sets are both drawn and CSS
+        shows one; the hidden set is `display: none`, invisible to assistive tech.
+      */}
+      <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4 md:gap-3 xl:hidden">
+        {statCards('compact')}
+      </div>
+      <div className="hidden grid-cols-4 gap-4 xl:grid">{statCards('comfortable')}</div>
     </section>
   );
 
@@ -446,8 +468,13 @@ export default function OrganizerDashboard() {
       </div>
       {homeQ.isLoading ? (
         <div className="grid gap-4 md:grid-cols-3">
-          {Array.from({ length: phone ? 1 : UPCOMING_CARDS }).map((_, i) => (
-            <SkeletonCard key={i} variant="media" label="Loading events" />
+          {Array.from({ length: UPCOMING_CARDS }).map((_, i) => (
+            <SkeletonCard
+              key={i}
+              variant="media"
+              label="Loading events"
+              className={i > 0 ? 'hidden md:block' : ''}
+            />
           ))}
         </div>
       ) : homeQ.isError ? (
@@ -463,24 +490,19 @@ export default function OrganizerDashboard() {
           peeks in and says there is more - and three image cards from a tablet up.
         */
         <ul
-          className={
-            phone
-              ? 'relative -mx-4 flex snap-x snap-mandatory scroll-px-4 gap-3 overflow-x-auto px-4 pb-1 [scrollbar-width:thin] sm:-mx-6 sm:scroll-px-6 sm:px-6'
-              : 'grid gap-4 md:grid-cols-3'
-          }
+          className="relative -mx-4 flex snap-x snap-mandatory scroll-px-4 gap-3 overflow-x-auto px-4 pb-1 [scrollbar-width:thin] sm:-mx-6 sm:scroll-px-6 sm:px-6 md:mx-0 md:grid md:grid-cols-3 md:gap-4 md:overflow-visible md:px-0 md:pb-0"
           aria-label="Your next events"
         >
           {upcoming.map((s, i) => (
             <li
               key={s.event.id}
-              className={phone ? 'flex w-[86%] max-w-[22rem] shrink-0 snap-start' : 'flex min-w-0'}
+              className="flex w-[86%] max-w-[22rem] shrink-0 snap-start md:w-auto md:min-w-0 md:max-w-none"
             >
               <UpcomingEventCard
                 show={s}
                 row={eventRow.get(s.event.id)}
                 selling={sellingOf(eventState.get(s.event.id), eventStatesQ.isError)}
                 priority={i === 0}
-                compact={phone}
               />
             </li>
           ))}
@@ -494,7 +516,7 @@ export default function OrganizerDashboard() {
     pendingAll.length > 0 || feedQ.isError ? (
       <ActivityTimeline
         title={
-          phone && pendingAll.length > pending.length
+          pendingAll.length > pending.length
             ? `Needs you (${count(pendingAll.length)})`
             : 'Needs you'
         }
@@ -765,87 +787,144 @@ export default function OrganizerDashboard() {
   ) : null;
 
   /*
-    ── ON A PHONE: WHAT IS HAPPENING, THEN WHAT TO DO, THEN THE DETAIL ────────────────
-    One column in the order an organizer standing in a foyer asks: is anything blocking me, how
-    am I doing (four figures, two across), what is on next (a swipeable row), what can I do, what
-    needs me. The month, the money in detail, the markets, the activity and the payout follow
-    behind one "Show more" button - folded, not removed: the same sections, one tap away.
+    ── ONE ORDER FOR EVERY WIDTH ──────────────────────────────────────────────────────
+    The sections are in the page ONCE, in the order they are read, and CSS arranges them per
+    width. Nothing is decided by a script after the first paint, so nothing jumps: the old page
+    asked `matchMedia` after hydration and a phone first painted the desktop's order.
+
+    - Phone, one column: is anything blocking me, the welcome, what to do, the four figures,
+      the next events (a swipeable row), what needs me - then one "Show more" for the month,
+      the activity and the money in detail. Folded, not removed: one tap away.
+    - Tablet: the same, roomier. The month and the activity side by side are shown; only the
+      money in detail is behind "Show more". The old tablet page laid every section out in
+      full, ~2,900px at 768.
+    - Wide screen, the reference's rows: welcome | quick actions, the figures, then the next
+      events and the money on the left with the month, what needs you and the activity on the
+      right. Everything is open; the fold buttons are not drawn.
+
+    Reading order is visual order at every width: in the wide two-column rows the right
+    column starts in the same row as the events, so it is read after them and before the
+    money that starts below.
   */
-  if (phone) {
-    const folded = [
-      monthCard && 'calendar',
-      salesCard && 'sales',
-      grossCard && 'gross to net',
-      marketsCard && 'markets',
-      'activity',
-      payoutCard && 'payouts',
-    ].filter((p): p is string => typeof p === 'string');
-    return (
-      <div className="space-y-4">
-        {attention}
-        {hero}
-        {figures}
-        {upcomingSection}
-        <PhoneActions actions={actions} />
-        {needsYou}
-        <MoreOnOverview parts={folded}>
-          {monthCard}
-          {salesCard}
-          {grossCard}
-          {marketsCard}
-          {activityCard}
-          {payoutCard}
-        </MoreOnOverview>
-      </div>
-    );
-  }
+  const phoneParts = [
+    monthCard && 'calendar',
+    'activity',
+    salesCard && 'sales',
+    grossCard && 'gross to net',
+    marketsCard && 'markets',
+    payoutCard && 'payouts',
+  ].filter((p): p is string => typeof p === 'string');
+  const moneyParts = phoneParts.slice(monthCard ? 2 : 1);
+  const hasMoney = moneyParts.length > 0;
+  const moneyCards = !!(salesCard || grossCard || payoutCard);
+  const toggle = () => setMore((o) => !o);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6">
       {attention}
 
-      {/* The welcome, with the quick actions beside it on a wide screen. */}
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
+      <div className="grid grid-cols-1 gap-4 md:gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
         {hero}
         <QuickActions actions={actions} />
       </div>
 
-      {/* Four figures for the whole organization, one market's money at a time. */}
       {figures}
 
-      {/*
-        Below the figures, two columns on a wide screen: the events and the money on the left,
-        the month, what needs you and what happened on the right. On a tablet the columns
-        dissolve (`contents`) and `order` interleaves them, so it reads the next events, then
-        the month, then the activity - and the detailed money after that.
-      */}
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:flex xl:items-start">
-        <div className="contents xl:flex xl:min-w-0 xl:flex-1 xl:flex-col xl:gap-6">
-          {upcomingSection && (
-            <div className="order-1 min-w-0 md:col-span-2 xl:order-none">{upcomingSection}</div>
-          )}
+      <div className="grid grid-cols-1 gap-4 md:gap-6 xl:grid-cols-[minmax(0,1fr)_22rem] xl:items-start">
+        {upcomingSection && <div className="min-w-0">{upcomingSection}</div>}
 
-          {can.financials && (
-            <div className="order-5 grid min-w-0 gap-6 md:col-span-2 md:grid-cols-2 xl:order-none">
-              {salesCard}
-              {grossCard}
-            </div>
-          )}
-
-          {marketsCard && (
-            <div className="order-6 min-w-0 md:col-span-2 xl:order-none">{marketsCard}</div>
-          )}
-        </div>
-
-        <div className="contents xl:flex xl:w-[22rem] xl:shrink-0 xl:flex-col xl:gap-6">
-          {monthCard && <div className="order-2 min-w-0 xl:order-none">{monthCard}</div>}
-
-          <div className="order-3 min-w-0 space-y-6 xl:order-none">
-            {needsYou}
+        <div className={`min-w-0 space-y-4 md:space-y-6 ${upcomingSection ? 'xl:row-span-2' : ''}`}>
+          {needsYou}
+          <FoldButton
+            open={more}
+            onToggle={toggle}
+            controls={[calendarFoldId, moneyCards && moneyFoldId, marketsCard && marketsFoldId]
+              .filter(Boolean)
+              .join(' ')}
+            parts={phoneParts}
+            className="flex md:hidden"
+          />
+          <div
+            id={calendarFoldId}
+            className={`grid grid-cols-1 items-start gap-4 md:grid-cols-2 md:gap-6 xl:grid-cols-1 ${more ? '' : 'max-md:hidden'}`}
+          >
+            {monthCard}
             {activityCard}
           </div>
+        </div>
 
-          {payoutCard && <div className="order-7 min-w-0 xl:order-none">{payoutCard}</div>}
+        {hasMoney && (
+          <FoldButton
+            open={more}
+            onToggle={toggle}
+            controls={[moneyCards && moneyFoldId, marketsCard && marketsFoldId]
+              .filter(Boolean)
+              .join(' ')}
+            parts={moneyParts}
+            className="hidden md:flex xl:hidden"
+          />
+        )}
+
+        {moneyCards && (
+          <div
+            id={moneyFoldId}
+            className={`grid min-w-0 grid-cols-1 items-start gap-4 md:grid-cols-2 md:gap-6 ${more ? '' : 'max-xl:hidden'}`}
+          >
+            {salesCard}
+            <div className="min-w-0 space-y-4 md:space-y-6">
+              {grossCard}
+              {payoutCard}
+            </div>
+          </div>
+        )}
+
+        {/* The table takes the page's full width on a wide screen: seven columns need it. */}
+        {marketsCard && (
+          <div
+            id={marketsFoldId}
+            className={`min-w-0 xl:col-span-2 ${more ? '' : 'max-xl:hidden'}`}
+          >
+            {marketsCard}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The page's shape while its first reads are out: the welcome, the actions, the figures and the
+ * next events, at each width's own size, so the real page lands where the skeleton stood.
+ */
+function OverviewSkeleton({ financials }: { financials: boolean }) {
+  return (
+    <div
+      className="space-y-4 md:space-y-6"
+      role="status"
+      aria-busy="true"
+      aria-label="Loading your overview"
+    >
+      <div className="grid grid-cols-1 gap-4 md:gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
+        <Skeleton className="h-44 w-full rounded-xl md:h-48" />
+        <Skeleton className="h-[7.5rem] w-full rounded-lg md:h-12 xl:h-48" />
+      </div>
+      <div className="space-y-3">
+        <Skeleton className="h-6 w-28" />
+        <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4 md:gap-3 xl:gap-4">
+          {Array.from({ length: financials ? 4 : 2 }).map((_, i) => (
+            <Skeleton key={i} className="h-[6.5rem] w-full rounded-lg xl:h-[7.25rem]" />
+          ))}
+        </div>
+      </div>
+      <div className="space-y-3">
+        <Skeleton className="h-6 w-40" />
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          {Array.from({ length: UPCOMING_CARDS }).map((_, i) => (
+            <Skeleton
+              key={i}
+              className={`h-56 w-full rounded-lg md:h-96 ${i > 0 ? 'hidden md:block' : ''}`}
+            />
+          ))}
         </div>
       </div>
     </div>

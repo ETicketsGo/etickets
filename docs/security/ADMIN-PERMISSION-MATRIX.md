@@ -1,6 +1,6 @@
 # Admin permission matrix
 
-Status: current as of branch `feat/authz-read-write-execute` (base `main` 2358921).
+Status: current as of branch `fix/admin-organizer-bypass` (base `main` eb4534b).
 Source of truth: `packages/shared-types/src/admin-permissions.ts` (catalogue and presets) and the
 `@RequiresAdmin(...)` decorators on each controller. This document describes them. It does not
 replace them.
@@ -21,34 +21,35 @@ replace them.
 
 ## Capability catalogue
 
-"Presets today" lists the ready-made bundles that grant the capability. Seeded and bootstrapped
+"Presets" lists the ready-made bundles that grant the capability, as approved by the owner on
+2026-10-10. Seeded and bootstrapped
 accounts are `SUPER_ADMIN` and hold everything by role, so this column does not list them.
 
-| Capability                    | What it allows                                                                                                                                                               | Presets today                   | Proposed (awaiting owner approval)                                                                                                                                |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BOOKING_READ`                | See bookings, payments, movies, the dashboard, the audit log, the support inbox, and the user directory                                                                      | SUPPORT, REFUND_DESK, FINANCE   | unchanged                                                                                                                                                         |
-| `ORGANIZER_READ`              | See organizations, their events and their status                                                                                                                             | SUPPORT, REFUND_DESK, MODERATOR | unchanged                                                                                                                                                         |
-| `FINANCE_READ`                | See revenue reports, analytics, compensations (and their dry run), discrepancies (list, CSV, aging), disputes, and notification costs                                        | FINANCE                         | unchanged                                                                                                                                                         |
-| `OPS_READ`                    | See queue health, failed jobs, the outbox, inventory sync health and mappings, the maintenance flag, feature flags, and notification delivery and readiness                  | none                            | new OPERATIONS preset: `OPS_READ` (awaiting owner approval)                                                                                                       |
-| `REFUND_REVIEW`               | See the refund queue and record a decision that moves no money                                                                                                               | REFUND_DESK, FINANCE            | unchanged                                                                                                                                                         |
-| `REFUND_APPROVE`              | Approve a refund. Money leaves the platform (checked in `RefundsService`)                                                                                                    | FINANCE                         | unchanged                                                                                                                                                         |
-| `ORGANIZER_REVIEW`            | Approve or reject organizers; suspend, delete, edit legal identity, set auto-approve                                                                                         | MODERATOR                       | unchanged                                                                                                                                                         |
-| `EVENT_REVIEW`                | Approve or reject events, set event status                                                                                                                                   | MODERATOR                       | unchanged                                                                                                                                                         |
-| `PLATFORM_CONFIG_READ` (#291) | See fee rules, tax rules, cinema pricing policies                                                                                                                            | none                            | FINANCE (awaiting owner approval)                                                                                                                                 |
-| `PLATFORM_CONFIG`             | Change fee, tax and cinema pricing rules; maintenance mode; AI console; notification rates, resend and SNS; test sends                                                       | none                            | none. Grant per person only                                                                                                                                       |
-| `PAYOUT_MANAGE`               | Settlements (approve, release, block), payouts (pay, fail, reveal or verify accounts), payout terms                                                                          | FINANCE                         | unchanged                                                                                                                                                         |
-| `PAYMENT_ADMIN`               | Payment provider config, routes, onboarding, promotion, outage; reconciliation findings resolve; unresolved-money recheck                                                    | none                            | unchanged                                                                                                                                                         |
-| `ADMIN_MANAGE`                | Create back-office accounts and change their capabilities                                                                                                                    | none                            | unchanged                                                                                                                                                         |
-| **`OPS_EXECUTE`** (new)       | Retry failed queue jobs; retry, batch-retry, cancel, park and recover outbox events; reprocess, park, retry, reconcile, re-map and reset the checkpoint of an inventory sync | **none**                        | OPERATIONS preset: `OPS_READ` + `OPS_EXECUTE` (**awaiting owner approval**)                                                                                       |
-| **`FINANCE_APPROVE`** (new)   | Approve, retry or release the lease of a booking compensation, which lets it execute                                                                                         | **none**                        | FINANCE (**awaiting owner approval**)                                                                                                                             |
-| **`FINANCE_RESOLVE`** (new)   | Run discrepancy detection; assign, resolve or ignore a discrepancy; park a compensation for manual review                                                                    | **none**                        | FINANCE (**awaiting owner approval**)                                                                                                                             |
-| **`SUPPORT_MANAGE`** (new)    | Change the status (open, triaged, closed) of a support submission or complaint                                                                                               | **none**                        | SUPPORT, REFUND_DESK (**awaiting owner approval**). Note: the SUPPORT preset text says "Cannot change or delete anything", so adding it also changes that promise |
+| Capability                    | What it allows                                                                                                                                                               | Presets                         | Added by the approved preset change (2026-10-10) |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- | ------------------------------------------------ |
+| `BOOKING_READ`                | See bookings, payments, movies, the dashboard, the audit log, the support inbox, and the user directory                                                                      | SUPPORT, REFUND_DESK, FINANCE   | -                                                |
+| `ORGANIZER_READ`              | See organizations, their events and their status                                                                                                                             | SUPPORT, REFUND_DESK, MODERATOR | -                                                |
+| `FINANCE_READ`                | See revenue reports, analytics, compensations (and their dry run), discrepancies (list, CSV, aging), disputes, and notification costs                                        | FINANCE                         | -                                                |
+| `OPS_READ`                    | See queue health, failed jobs, the outbox, inventory sync health and mappings, the maintenance flag, feature flags, and notification delivery and readiness                  | OPERATIONS                      | OPERATIONS                                       |
+| `REFUND_REVIEW`               | See the refund queue and record a decision that moves no money                                                                                                               | REFUND_DESK, FINANCE            | -                                                |
+| `REFUND_APPROVE`              | Approve a refund. Money leaves the platform (checked in `RefundsService`)                                                                                                    | FINANCE                         | -                                                |
+| `ORGANIZER_REVIEW`            | Approve or reject organizers; suspend, delete, edit legal identity, set auto-approve                                                                                         | MODERATOR                       | -                                                |
+| `EVENT_REVIEW`                | Approve or reject events, set event status                                                                                                                                   | MODERATOR                       | -                                                |
+| `PLATFORM_CONFIG_READ` (#291) | See fee rules, tax rules, cinema pricing policies                                                                                                                            | FINANCE                         | FINANCE                                          |
+| `PLATFORM_CONFIG`             | Change fee, tax and cinema pricing rules; maintenance mode; AI console; notification rates, resend and SNS; test sends                                                       | none                            | -                                                |
+| `PAYOUT_MANAGE`               | Settlements (approve, release, block), payouts (pay, fail, reveal or verify accounts), payout terms                                                                          | FINANCE                         | -                                                |
+| `PAYMENT_ADMIN`               | Payment provider config, routes, onboarding, promotion, outage; reconciliation findings resolve; unresolved-money recheck                                                    | none                            | -                                                |
+| `ADMIN_MANAGE`                | Create back-office accounts and change their capabilities                                                                                                                    | none                            | -                                                |
+| `OPS_EXECUTE`                 | Retry failed queue jobs; retry, batch-retry, cancel, park and recover outbox events; reprocess, park, retry, reconcile, re-map and reset the checkpoint of an inventory sync | OPERATIONS                      | OPERATIONS                                       |
+| `FINANCE_APPROVE`             | Approve, retry or release the lease of a booking compensation, which lets it execute                                                                                         | FINANCE                         | FINANCE                                          |
+| `FINANCE_RESOLVE`             | Run discrepancy detection; assign, resolve or ignore a discrepancy; park a compensation for manual review                                                                    | FINANCE                         | FINANCE                                          |
+| `SUPPORT_MANAGE`              | Change the status (open, triaged, closed) of a support submission or complaint                                                                                               | SUPPORT                         | SUPPORT                                          |
 
 Sensitive: `OPS_EXECUTE`, `FINANCE_APPROVE` and `FINANCE_RESOLVE` replay jobs and syncs, let
-compensations execute, or close money findings. This change grants them to **nobody**. No preset
-grants them, no migration assigns them, and no account was touched. `SUPPORT_MANAGE` is not
-sensitive, but it is also granted to nobody, to keep "nothing gains access silently" true for every
-new capability.
+compensations execute, or close money findings. When they were split out of the reads, nobody was
+granted them. The owner has since approved putting them in presets (see "Preset change approved
+by the owner"). A preset applies only when somebody assigns it on Staff & duties. No migration
+assigns a capability, and no existing account changed.
 
 ## Endpoints re-guarded in this change
 
@@ -109,7 +110,7 @@ Over-restrictive reads, which are not defects:
 - payment, payout and organizer-review pages need the write capability to view;
 - SNS pending confirmation needs PLATFORM_CONFIG.
 
-## Who loses access on merge
+## Who lost access when the actions were split from the reads
 
 Every row is a removal. Nobody gains anything.
 
@@ -141,17 +142,103 @@ Every row is a removal. Nobody gains anything.
 - Anybody who works the discrepancy queue needs `FINANCE_RESOLVE`.
 - Anybody who closes complaints needs `SUPPORT_MANAGE`.
 
-Grant these on Staff & duties. A super admin needs nothing.
+Grant these on Staff & duties. A super admin needs nothing. Since the approved preset change,
+assigning FINANCE, SUPPORT or OPERATIONS grants them in one step. Accounts that already exist
+keep what they hold until somebody assigns again.
 
-## Grants awaiting owner approval (not applied)
+## Preset change approved by the owner (2026-10-10, applied)
 
-1. Add `FINANCE_APPROVE` and `FINANCE_RESOLVE` to the FINANCE preset. This only affects new assignments.
-2. Add `SUPPORT_MANAGE` to SUPPORT and REFUND_DESK, and reword the SUPPORT description.
-3. A new OPERATIONS preset: `OPS_READ` + `OPS_EXECUTE`.
-4. From #291: `PLATFORM_CONFIG_READ` for FINANCE, so finance can explain a charge.
+The source is `ADMIN_PRESETS` in `packages/shared-types/src/admin-permissions.ts`. The test
+`apps/api/src/admin/admin-presets.spec.ts` pins each preset to exactly the list below.
 
-None of these is applied. Each needs an owner decision. Even after approval, existing accounts change
-only when somebody grants the capability on Staff & duties.
+| Preset      | Before                                                                   | After                                                           | Change                                                   |
+| ----------- | ------------------------------------------------------------------------ | --------------------------------------------------------------- | -------------------------------------------------------- |
+| FINANCE     | BOOKING_READ, FINANCE_READ, REFUND_REVIEW, REFUND_APPROVE, PAYOUT_MANAGE | before + FINANCE_APPROVE, FINANCE_RESOLVE, PLATFORM_CONFIG_READ | + 3; description now says what it does                   |
+| SUPPORT     | BOOKING_READ, ORGANIZER_READ                                             | before + SUPPORT_MANAGE                                         | + 1; "Cannot change or delete anything" replaced (below) |
+| REFUND_DESK | BOOKING_READ, ORGANIZER_READ, REFUND_REVIEW                              | unchanged                                                       | none (no SUPPORT_MANAGE)                                 |
+| MODERATOR   | ORGANIZER_READ, ORGANIZER_REVIEW, EVENT_REVIEW                           | unchanged                                                       | none                                                     |
+| OPERATIONS  | (did not exist)                                                          | OPS_READ, OPS_EXECUTE                                           | new preset, assigned to nobody                           |
+
+New descriptions (ASCII):
+
+- SUPPORT: "Can find any booking and see what happened to it, and mark a support message or
+  complaint open, triaged or closed. Cannot change a booking, a refund or any money."
+- FINANCE: "Sees the money and the fee and tax rules, approves refunds and compensations, works
+  the discrepancy queue and releases settlements. Cannot change the fee or tax rules."
+- OPERATIONS: "Watches the job queues, the outbox and inventory sync, and retries or replays work
+  that failed. Cannot open bookings or payments, and moves no money."
+
+No preset carries `PLATFORM_CONFIG`, `PAYMENT_ADMIN` or `ADMIN_MANAGE`. These are granted person
+by person.
+
+**Who changes on merge: nobody.** A preset applies only when somebody assigns it on Staff &
+duties. That page sends the preset's list to `PUT /admin/staff/:userId/permissions`. No migration
+or seed was changed, and no staff assignment was modified. An account that already holds the old
+FINANCE bundle keeps exactly its five capabilities. The integration test proves this, and the
+account is still refused FINANCE_APPROVE, FINANCE_RESOLVE and PLATFORM_CONFIG_READ.
+
+### Tests
+
+- `admin-presets.spec.ts` checks:
+  - the set of presets, and each preset's exact capabilities;
+  - that no preset carries `PLATFORM_CONFIG`, `PAYMENT_ADMIN` or `ADMIN_MANAGE`;
+  - that the SUPPORT description is truthful;
+  - that the new text is ASCII.
+
+  **Load-bearing:** adding OPS_EXECUTE to SUPPORT fails it, and also fails the carrier check in
+  `admin-action-authz.spec.ts`.
+
+- `admin-presets.integration-postgres.spec.ts` runs against the real application and Postgres. A
+  super admin assigns each preset through `PUT /admin/staff/:userId/permissions`. For each one,
+  the test then checks three things:
+  - the database rows, the staff list and the account's own `/auth/me` hold exactly the preset;
+  - one probe per capability, through the real guards, is refused (403) exactly where the preset
+    lacks that capability. There are 14 probes. The write probes name records that do not exist,
+    or send bodies that validation rejects, so nothing changes;
+  - an account given the old FINANCE bundle is unchanged.
+
+  **Load-bearing:** removing `@RequiresAdmin(SUPPORT_MANAGE)` from `PATCH /admin/support/:id`
+  fails it for FINANCE and REFUND_DESK. Without the decorator, those presets' BOOKING_READ opens
+  the route.
+
+- `admin-action-authz.spec.ts`:
+  - for each of the 22 action routes, every current preset is allowed exactly when it carries
+    the route's capability;
+  - the carriers of the four action capabilities are exactly OPERATIONS, FINANCE, FINANCE and
+    SUPPORT.
+
+  The checks of the presets "as they were before approval" are kept. They describe what existing
+  accounts still hold.
+
+- `admin-config-authz.spec.ts`: no preset changes configuration. Only FINANCE reads it.
+
+## QA staff, read on 2026-10-10 (read-only)
+
+The QA admin API (`https://api-qa-f580.up.railway.app/api`) was read as `admin@eticketsgo.test`.
+It took one sign-in (`POST /auth/login`), then GET requests only:
+
+- `/auth/me`;
+- `/admin/staff/catalogue`;
+- `/admin/staff`;
+- `/organizations`;
+- `/users?role=ADMIN`.
+
+Nothing was created, changed or deleted, and no assignment was touched.
+
+- **Back-office accounts: one.** `admin@eticketsgo.test`, ACTIVE, `SUPER_ADMIN`, so it holds all
+  17 capabilities by role. No non-super staff account exists. The temporary grants made by
+  `qa-staff-assignment.spec.ts` are not present.
+- **Unexpected: the super admin also carries the global `ORGANIZER_OWNER` role, but is a member of
+  no organization** (`myRole` is null on all 7). The role is not tied to any organization. This
+  is why the `@OrganizerOnly` door in the organizer-bypass fix checks membership and not the
+  global role (see that PR).
+- **The organizer bypass is live on QA.** `GET /organizations` returned all 7 organizations to the
+  super admin, with `myRole: null`. This is the "every organization" answer the organizer-bypass
+  fix removes.
+- No ADMIN account without grants exists, and no non-super account holds a sensitive capability.
+- QA still serves the old presets. The catalogue shows four presets: SUPPORT is "Cannot change or
+  delete anything" and FINANCE has five capabilities. This change reaches QA only when it is
+  deployed.
 
 ## Organizer role matrix (writes)
 
@@ -185,28 +272,215 @@ Listed, not changed (product decisions):
   - return fewer fields from `get`. Do not restrict `get` itself: other routes use it as a membership gate.
 - **Route and service mismatch.** `@Roles` on Stripe and Razorpay linking lists MANAGER, but the
   service allows the owner only. This is harmless, because the service decides.
-- **Defence in depth.** `collect-cash` calls `assertMember` with no role list. It is correct today
-  because only three membership roles exist. Passing the list explicitly would keep it correct if a
-  role is added.
-- **Platform-admin bypass (most important follow-up).** `assertMember` lets any `ADMIN` through
-  with **no capability check**. Any back-office account, even one holding no capability at all, can
-  therefore call organizer-side writes for any organization. Two exceptions are covered:
-  - refund approval is checked in `RefundsService`;
-  - `/admin` routes have their own guard.
+- **Defence in depth (fixed).** `collect-cash` now passes its three roles to `assertMember`
+  explicitly, so it stays correct if a membership role is added.
+- **Platform-admin bypass (fixed).** See "Organizer API: platform staff" below.
 
-  The exposed writes include:
-  - `POST /payouts/accounts` (payout bank account);
-  - `POST /payouts/generate`;
-  - `POST /payments/:id/collect-cash`;
-  - legal identity;
-  - event and coupon edits;
-  - check-in reversal.
+## Organizer API: platform staff
 
-  `admin-surface.spec.ts` deliberately excludes these shared routes, because putting
-  `@RequiresAdmin` on them would lock organizers out. The fix belongs in `OrgAccessService`, for
-  example by requiring a named capability for platform staff acting inside an organization. It
-  touches payout and payment paths, which this change may not modify, so it is reported here for
-  an owner decision.
+### Root cause
+
+`OrgAccessService.assertMember` returned early for any account with the `ADMIN` or `SUPER_ADMIN`
+role. It did not look up a membership and it did not check a capability. Every organizer route
+asserts membership through it. So a back-office account **holding no capability at all** could do
+all of the following, for **every** organization:
+
+- save the payout bank account (`POST /payouts/accounts`);
+- raise a payout (`POST /payouts/generate`);
+- record cash at the counter (`POST /payments/:bookingId/collect-cash`);
+- rewrite legal identity (`PATCH /organizations/:id/legal-identity`);
+- link a Stripe or Razorpay payout account;
+- create, edit, publish, pause and delete events, sessions, ticket types, coupons, add-ons,
+  bundles, venues, cinemas, screens, seat layouts and shows;
+- invite team members, including a new OWNER;
+- reverse check-ins and approve check-in devices;
+- read every organizer report, payout figure, attendee list and export.
+
+`managedOrganizationIds` returned "every organization" for staff, so the organizer console listed
+all of them. Four services also had their own `isPlatformAdmin` shortcut: event and analytics
+money fields, attendee contact details, refund requests and refund lists.
+
+### The rule now
+
+1. **Membership decides.** A member with an allowed role passes, as before. This includes a staff
+   account that is also a member. Members are not audited as platform access.
+2. **A platform role alone opens nothing.** A staff account that is not a member passes only
+   where the call site names a `PlatformPolicy` (`{ permission, operation }`) and the account
+   holds that capability. Most call sites name no policy, so most operations are closed to staff
+   **by default**. A new organizer route is therefore safe even if nobody remembers to close it.
+3. **Every staff attempt is audited**, allowed or refused. See "Audit rows".
+4. **Money and identity routes refuse staff at the door.** On a route marked `@OrganizerOnly`,
+   `OrganizerOnlyGuard` refuses a staff account before the handler runs, and records the attempt.
+   The guard runs before `RolesGuard`. `ADMIN` and `SUPER_ADMIN` are removed from the `@Roles` of
+   these routes. One exception: a staff account that is an ACTIVE member of some organization
+   (because it registered its own) goes on to the handler. There, membership of the target
+   organization decides. The door checks membership, not the global `ORGANIZER_*` role. The
+   seeded super admin on QA carries `ORGANIZER_OWNER` but belongs to no organization, and a role
+   check would let it past.
+5. **Super admin.** A super admin holds every capability by role, so it passes every **named**
+   policy below. Where no policy is named, it is refused. At the `@OrganizerOnly` door it is
+   refused like any other staff account. There is no "super admin can do anything on the
+   organizer API" path. Each operation a super admin can perform is listed in the next table, and
+   each one is audited.
+6. **The organization is resolved on the server.** Each check uses the organization of the
+   resource (event, ticket, booking, device, session). It never uses an id that the client sends
+   next to the resource. One route got this wrong and is fixed here (see "Cross-organization
+   ids").
+
+No new capability was added. Nothing was granted to anybody.
+
+### What platform staff may do on the organizer API
+
+| Route                                                    | Capability       | Operation (audit)           | Why                                              |
+| -------------------------------------------------------- | ---------------- | --------------------------- | ------------------------------------------------ |
+| `GET /organizations/:id` (also `/readiness`, `/actions`) | `ORGANIZER_READ` | `organization.read`         | Admin console organizer page                     |
+| `GET /organizations/:id/members`                         | `ORGANIZER_READ` | `organization.members.read` | Admin console organizer page                     |
+| `GET /events/:id`                                        | `ORGANIZER_READ` | `event.read`                | Admin console event page                         |
+| `DELETE /events/:id`                                     | `EVENT_REVIEW`   | `event.delete`              | Admin console Delete, no bookings (moderation)   |
+| `GET /refunds/booking/:bookingId`                        | `BOOKING_READ`   | `refund.list-for-booking`   | Admin console booking page                       |
+| `POST /refunds/:id/process`                              | `REFUND_APPROVE` | `refund.decide`             | Admin refund queue (same rule, now also audited) |
+
+**Nothing else.** Every other organizer operation is refused to staff who are not members. Staff
+do these on `/admin` instead, where each has its own capability:
+
+- payout accounts: reveal and verify need `PAYOUT_MANAGE`;
+- legal identity needs `ORGANIZER_REVIEW`;
+- event status needs `EVENT_REVIEW`;
+- refunds need `REFUND_REVIEW` or `REFUND_APPROVE`.
+
+### Refused at the door (`@OrganizerOnly`) for every staff account, super admin included
+
+| Route                                                      | Operation (audit)                    |
+| ---------------------------------------------------------- | ------------------------------------ |
+| `POST /payouts/accounts`                                   | `payout.account.save`                |
+| `POST /payouts/generate`                                   | `payout.generate`                    |
+| `POST /payments/:bookingId/collect-cash`                   | `cash.collect`                       |
+| `PATCH /organizations/:id/legal-identity`                  | `organization.legal-identity.update` |
+| `/organizers/:organizerId/payments/stripe/*` and `/status` | `payments.stripe-connect`            |
+| `/organizers/:organizerId/payments/razorpay/*`             | `payments.razorpay-route`            |
+| `GET /organizations/:organizationId/receipts`              | `organization.receipts.list`         |
+| `GET /organizations/:organizationId/refunds`               | `organization.refunds.list`          |
+
+### Every other route
+
+`apps/api/src/tenancy/organizer-route-policy.spec.ts` lists **all 226** non-admin, non-public
+routes, each with its staff policy. If a route is added without an entry, the build fails. The
+policies are:
+
+- `NONE`: organizer operations. The tenant check refuses staff, and the refusal is audited. This
+  covers:
+  - events, sessions, ticket types, images and seating;
+  - add-ons, bundles and coupons;
+  - venues, spaces, cinemas, screens, seat classes, movies, shows, pricing, seat layouts and seat
+    blocks;
+  - check-in, offline devices, drills, activation, reconciliation and the command center;
+  - the calendar, reports, analytics, attendees and exports, and the organizer AI;
+  - payout reads and receipts;
+  - the organization profile, logo, cover, cash switch and team invites.
+- `ORGANIZER_ONLY`: the routes in the table above.
+- `SELF`: the caller's own account, bookings and tickets.
+- `ADMIN_ROUTE`: `GET /users` and `GET /users/directory-summary` (`@RequiresAdmin(BOOKING_READ)`).
+- `CUSTOMER_RESOURCE_STAFF_BY_ROLE`: see "Not changed, reported".
+
+### Organizer members (no regression)
+
+The organizer role matrix above is unchanged. Real HTTP tests prove that:
+
+- the owner can save the bank account and edit legal identity and events;
+- the manager can edit events and read payouts, and cannot change the bank account or legal
+  identity;
+- check-in staff can read their organization and reach collect-cash. They cannot edit events,
+  read payouts or raise a payout;
+- the owner of another organization is refused everything, even when the request names that
+  owner's own organization.
+
+### Payout bank account safeguards
+
+Found:
+
+- The account number is encrypted at rest (`PAYOUT_BANK_ENCRYPTION_KEY`). The API shows only
+  the last 4 digits.
+- Saving an account clears any earlier verification.
+- The save is audited (`PAYOUT_ACCOUNT_SAVED`, last 4 digits only).
+- Verify and reveal are on `/admin/payouts`. They need `PAYOUT_MANAGE` and are audited. A reveal
+  needs a reason.
+
+Missing. These are reported here, not built:
+
+- **No maker-checker.** Nothing stops the person who verifies an account from being the person
+  who entered it. Before this change, one finance account (`PAYOUT_MANAGE`) could save a bank
+  account through the bypass, verify it, and mark a payout paid to it. Blocking staff from the
+  save closes that path. A rule "verifier is not `updatedByUserId`" does not exist yet.
+- The owner gets no notice when bank details change.
+- A changed account can receive a payout at once. There is no cooling-off period and no second
+  approval.
+
+Blocked: `POST /payouts/accounts` for every platform staff account, super admin included. The
+owner's own flow is unchanged.
+
+### Audit rows
+
+`PLATFORM_ORGANIZER_ACCESS_ALLOWED` is written when a staff account passes a named policy.
+`PLATFORM_ORGANIZER_ACCESS_DENIED` is written when the tenant check or the door refuses a staff
+account. Both rows carry:
+
+- `actorUserId`;
+- `organizationId`: the resource's organization;
+- `entityType` and `entityId`;
+- `correlationId`;
+- `metadata`: `result`, `operation`, `permission`, `reason` and `request`.
+
+`reason` is `CAPABILITY_HELD`, `CAPABILITY_MISSING` or `NO_PLATFORM_POLICY`. Where no policy is
+named, `operation` is the request line, for example `PATCH /api/events/...`.
+
+At the door, the organization recorded is the one the request **names**, and the row says so. The
+request is refused whatever it names. For collect-cash, the row records the booking id instead.
+Members are not audited as platform access. Their writes keep the audit rows they had before.
+
+### Cross-organization ids
+
+Every organizer route that takes an organization id together with a resource id was checked.
+Each one either checks that the resource belongs to that organization or takes the organization
+from the resource. The exceptions:
+
+- **Fixed:** `POST /checkin/command-center/alerts/ack`. A manager of org A could send org A's id
+  with a session id of org B. This acknowledged org B's live gate alerts, or overwrote who had
+  acknowledged them. The session's organization is now checked first.
+- **Fixed:** `GET /checkin/offline-readiness` and `GET /checkin/activation` read the manifest by
+  session only. This leaked one bit about another organization's session. They now also filter
+  by organization.
+- **Not fixed (low risk, data only):** `POST /checkin/devices` and `POST /checkin/drills` store an
+  event or session id without checking it. Every read is scoped to the caller's organization, so
+  nothing of the other organization can be read or changed.
+
+### Not changed, reported
+
+- **Customer resources reached by staff role.** These routes check `ADMIN` directly, with no
+  capability:
+  - `GET /bookings/:id`, `POST /bookings/:id/cancel` and `POST /bookings/:id/pay`;
+  - Razorpay verify;
+  - `GET /tickets/:id`;
+  - attendee assign, invite, transfer, unassign and resend;
+  - share links.
+
+  These are customer resources, not organizer resources. They are listed as
+  `CUSTOMER_RESOURCE_STAFF_BY_ROLE` and need the same fix in a follow-up. The admin console uses
+  `GET /bookings/:id`, so the gate there should be `BOOKING_READ`.
+
+- **`POST /refunds` by staff is now refused.** Staff could open a refund request as `staff` on any
+  customer's booking. That lifts the transferred-ticket rule, and on a free booking it cancels the
+  tickets at once. No console uses it. The owner should decide which capability, if any, opens it.
+- **Razorpay linked-account id.** Nothing stops two organizations from linking the same `acc_...`
+  id.
+- **Payout scope bug (payout code, not touched here).** In `payouts.service.ts`, three queries
+  have the same bug: `payableBookingWhere`, the refund query and the held-revenue query. Each one
+  spreads `eventId: scope.eventId`, and then `eventId: { notIn: transferredEventIds }` overwrites
+  it. Suppose an event-scoped payout is raised for an event with a claimed settlement. The payout
+  then settles the bookings of every other event. This should not be reachable while provider
+  transfers are off. The fix is to combine the two conditions with `AND`.
+- **Event detail needs `ORGANIZER_READ`.** The admin event page opens with `EVENT_REVIEW`, but it
+  reads the event with `ORGANIZER_READ`. The MODERATOR preset holds both. A custom account with
+  only `EVENT_REVIEW` is now refused on that page.
 
 ## Tests that enforce this
 
@@ -231,5 +505,34 @@ Listed, not changed (product decisions):
 - `apps/api/src/auth/admin-surface.spec.ts` has a new rule: across **every** controller, no
   staff-only POST, PUT, PATCH or DELETE may resolve to a read capability. The one named exception is
   the compensation dry run. **Load-bearing:** removing the new decorator from `PATCH /admin/support/:id` fails it.
+- `apps/api/src/tenancy/organizer-platform-access.integration-postgres.spec.ts` drives the real
+  application with real signed tokens and real Postgres. It tests six staff accounts: zero grants,
+  every read, the FINANCE preset, the SUPPORT preset, the MODERATOR preset and super admin. Each
+  is refused:
+  - the bank account, payout generation and collect-cash;
+  - legal identity and Razorpay linking;
+  - payout account reads, event edits and team invites.
+
+  For each refusal the test reads Postgres back to prove nothing was written, and checks the
+  audit row. The two documented reads and the EVENT_REVIEW delete are allowed and audited. Owner,
+  manager, check-in staff and another organization's owner are also tested.
+
+  **Load-bearing:**
+  - old bypass, old `@Roles` and the door disabled: 44 of its then 60 tests fail;
+  - the bypass alone restored: 29 tests fail across this spec and the unit spec;
+  - the door alone disabled: 6 tests fail;
+  - the door checking the global organizer role instead of membership: the QA-shaped super admin
+    (with `ORGANIZER_OWNER` and no organization) gets past it, and 2 tests fail. One of them is
+    collect-cash, where the handler ran and answered 404.
+
+- `apps/api/src/tenancy/organizer-route-policy.spec.ts` checks every non-admin route against its
+  written staff policy:
+  - the `@OrganizerOnly` door is on exactly the ORGANIZER_ONLY routes;
+  - `ADMIN` appears in `@Roles` only where it is allowed;
+  - every `{ permission, operation }` in production code is documented.
+
+  **Load-bearing:** removing the door from `POST /payouts/generate` fails it. So does renaming a
+  documented operation.
+
 - `apps/admin-web/lib/capabilities.test.ts` checks that controls stay hidden from read-only holders
   and that the notes are ASCII.

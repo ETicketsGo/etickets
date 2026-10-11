@@ -83,7 +83,7 @@ describe('integration-real-postgres: team invitations', () => {
       return;
     }
 
-    access = new OrgAccessService(db as never);
+    access = new OrgAccessService(db as never, { record: async () => undefined } as never);
     orgs = new OrganizationsService(db as never, access, noAudit, noAudience, cfg);
 
     const org = await db!.organization.create({

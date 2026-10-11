@@ -65,7 +65,7 @@ interface ViewContext {
   organizationId: string;
   slug: string;
   isFree: boolean;
-  /** Owners, managers and platform admins. Gate staff see names, never contact or money. */
+  /** Owners and managers. Gate staff see names, never contact or money. */
   canSeeContact: boolean;
   canExport: boolean;
   /** Each session's zone: its cinema's when it is in one, else the event venue's. */
@@ -211,14 +211,13 @@ export class EventAttendeesService {
     }
     await this.access.assertMember(user, event.organizationId, roles);
 
-    let manager = this.access.isPlatformAdmin(user);
-    if (!manager) {
-      const membership = await this.prisma.organizationMember.findUnique({
-        where: { organizationId_userId: { organizationId: event.organizationId, userId: user.id } },
-        select: { role: true },
-      });
-      manager = EXPORT_ROLES.includes(membership?.role as Role);
-    }
+    // Membership alone decides: platform staff who are not members never get past the
+    // assertion above (see `OrgAccessService`).
+    const membership = await this.prisma.organizationMember.findUnique({
+      where: { organizationId_userId: { organizationId: event.organizationId, userId: user.id } },
+      select: { role: true },
+    });
+    const manager = EXPORT_ROLES.includes(membership?.role as Role);
 
     const zones = new Map<string, string>();
     for (const s of event.sessions) {

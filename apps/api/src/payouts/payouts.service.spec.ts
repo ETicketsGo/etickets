@@ -1151,7 +1151,7 @@ function makeServiceWithAccess(membership: { status: string; role: string } | nu
     organizationMember: { findUnique: jest.fn().mockResolvedValue(membership) },
     payout: { findMany: jest.fn().mockResolvedValue([]) },
   };
-  const access = new OrgAccessService(prisma as never);
+  const access = new OrgAccessService(prisma as never, { record: async () => undefined } as never);
   const audit = { record: jest.fn().mockResolvedValue(undefined) };
   return {
     prisma,
@@ -1189,10 +1189,13 @@ describe('PayoutsService.listForOrg financial-read gating', () => {
     expect(prisma.payout.findMany).toHaveBeenCalled();
   });
 
-  it('allows a platform admin (no membership needed)', async () => {
+  it('refuses a platform admin who is not a member, before reading any payout', async () => {
     const { service, prisma } = makeServiceWithAccess(null);
-    await expect(service.listForOrg(asUser([Role.ADMIN]), 'org-1')).resolves.toEqual([]);
-    expect(prisma.organizationMember.findUnique).not.toHaveBeenCalled();
-    expect(prisma.payout.findMany).toHaveBeenCalled();
+    for (const role of [Role.ADMIN, Role.SUPER_ADMIN]) {
+      await expect(service.listForOrg(asUser([role]), 'org-1')).rejects.toMatchObject({
+        code: 'TENANT_FORBIDDEN',
+      });
+    }
+    expect(prisma.payout.findMany).not.toHaveBeenCalled();
   });
 });

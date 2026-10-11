@@ -48,8 +48,10 @@ export class OfflineCheckinReadinessService {
     });
     let manifestFresh = false;
     if (eventSessionId) {
+      // Scoped to the organization asserted by the caller: the session id comes from the
+      // client, and another organization's manifest must not answer for it.
       const latest = await this.prisma.checkInManifest.findFirst({
-        where: { eventSessionId },
+        where: { eventSessionId, organizationId },
         orderBy: { version: 'desc' },
       });
       manifestFresh = !!latest && latest.expiresAt.getTime() > Date.now();
