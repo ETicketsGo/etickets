@@ -74,7 +74,7 @@ export function NeedsActionCard({
             <>
               {' '}
               <Link
-                href="/organizer/get-started"
+                href="/organizer/onboarding"
                 className="rounded-sm font-semibold text-action-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 {needs.suggestions} optional {needs.suggestions === 1 ? 'step' : 'steps'}
@@ -134,7 +134,7 @@ export function NeedsActionCard({
               )}
               {needs.suggestions > 0 && (
                 <Link
-                  href="/organizer/get-started"
+                  href="/organizer/onboarding"
                   className="rounded-sm hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   {needs.suggestions} optional {needs.suggestions === 1 ? 'step' : 'steps'}
