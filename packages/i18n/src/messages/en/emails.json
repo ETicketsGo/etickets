@@ -103,6 +103,27 @@
     "subject": "'{event}' is live but cannot be sold",
     "body": "Customers can find '{event}' and are turned away at checkout. {reason} Open the event in your organizer console to fix it."
   },
+  "PAYOUT_ACCOUNT_UPDATED": {
+    "saved": {
+      "subject": "Your {currency} payout bank account was changed",
+      "body": "The {currency} payout bank account was saved as {bank}, ending {last4} (version {version}). Changed: {changes}. It shows as waiting for verification until ETicketsGo staff check it. If this was not you, contact support now and change your password."
+    },
+    "verified": {
+      "subject": "Your {currency} payout bank account was verified",
+      "body": "ETicketsGo staff verified the {currency} payout bank account at {bank}, ending {last4} (version {version}). If you did not expect this, contact support now."
+    },
+    "rejected": {
+      "subject": "Your {currency} payout bank account was not accepted",
+      "body": "ETicketsGo staff could not verify the {currency} payout bank account at {bank}, ending {last4} (version {version}).{reason} Check the details and save the account again."
+    },
+    "fields": {
+      "initial": "a new account",
+      "holderName": "account holder name",
+      "bankName": "bank name",
+      "bankCode": "bank code",
+      "accountNumber": "account number"
+    }
+  },
   "generic": {
     "subject": "Notification: {type}",
     "body": "You have a new notification ({type})."

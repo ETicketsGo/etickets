@@ -58,15 +58,15 @@ export class OpsController {
   @Post('queues/retry-failed')
   @RequiresAdmin(AdminPermission.OPS_EXECUTE)
   @ApiOperation({ summary: 'Retry all failed jobs (bounded). Returns the count retried.' })
-  retryFailed() {
-    return this.ops.retryFailed();
+  retryFailed(@CurrentUser() user: RequestUser) {
+    return this.ops.retryFailed(user.id);
   }
 
   @Post('queues/jobs/:id/retry')
   @RequiresAdmin(AdminPermission.OPS_EXECUTE)
   @ApiOperation({ summary: 'Retry a single failed job by id.' })
-  retryJob(@Param('id') id: string) {
-    return this.ops.retryJob(id);
+  retryJob(@CurrentUser() user: RequestUser, @Param('id') id: string) {
+    return this.ops.retryJob(id, user.id);
   }
 
   @Get('maintenance')

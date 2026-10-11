@@ -764,7 +764,7 @@ export class PayoutsService {
     const [bankAccounts, connectRow] = await Promise.all([
       this.prisma.organizerPayoutAccount.findMany({
         where: { organizationId },
-        select: { currency: true, verifiedAt: true },
+        select: { currency: true, verifiedAt: true, rejectedAt: true },
       }),
       this.prisma.organizerPaymentAccount.findFirst({
         where: { organizationId },
