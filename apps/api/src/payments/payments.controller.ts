@@ -14,6 +14,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import { HttpStatus } from '@nestjs/common';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { OrganizerOnly } from '../tenancy/organizer-only.guard';
 
 @ApiTags('payments')
 @Controller('payments')
@@ -34,13 +35,9 @@ export class PaymentsController {
     organization is asserted separately — a role alone would let staff at one venue confirm
     another venue's takings.
   */
-  @Roles(
-    Role.ORGANIZER_OWNER,
-    Role.ORGANIZER_MANAGER,
-    Role.CHECKIN_STAFF,
-    Role.ADMIN,
-    Role.SUPER_ADMIN,
-  )
+  @Roles(Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER, Role.CHECKIN_STAFF)
+  // Recording cash confirms a booking against money only the venue saw. Never platform staff.
+  @OrganizerOnly('cash.collect')
   @Post(':bookingId/collect-cash')
   @ApiOperation({ summary: 'Record cash handed over at the venue, and confirm the booking.' })
   async collectCash(@CurrentUser() user: RequestUser, @Param('bookingId') bookingId: string) {
@@ -51,7 +48,13 @@ export class PaymentsController {
     if (!booking) {
       throw new AppException(ErrorCodes.NOT_FOUND, 'Booking not found.', HttpStatus.NOT_FOUND);
     }
-    await this.access.assertMember(user, booking.organizationId);
+    // The roles named, not implied: correct today because only these three membership roles
+    // exist, and it stays correct if a fourth is added.
+    await this.access.assertMember(user, booking.organizationId, [
+      Role.ORGANIZER_OWNER,
+      Role.ORGANIZER_MANAGER,
+      Role.CHECKIN_STAFF,
+    ]);
     return this.payments.collectCash(bookingId, user.id);
   }
 

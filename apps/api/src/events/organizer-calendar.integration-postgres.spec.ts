@@ -99,7 +99,10 @@ describe('integration-real-postgres: organizer calendar window', () => {
       console.warn('[integration-real-postgres] SKIPPED - DB unavailable');
       return;
     }
-    calendar = new OrganizerCalendarService(db as never, new OrgAccessService(db as never));
+    calendar = new OrganizerCalendarService(
+      db as never,
+      new OrgAccessService(db as never, { record: async () => undefined } as never),
+    );
 
     const org = await db!.organization.create({
       data: { name: `Calendar ${suffix}`, slug: `calendar-${suffix}` },

@@ -43,9 +43,13 @@ describe('OfflineCommandCenterService.acknowledgeAlert (manager, reason, audited
     reason: 'On it — refreshing the manifest.',
   };
 
+  const ownSession = {
+    findUnique: jest.fn().mockResolvedValue({ event: { organizationId: 'org1' } }),
+  };
+
   it('upserts an acknowledgement idempotently and audits it', async () => {
     const upsert = jest.fn().mockResolvedValue({ id: 'ack1' });
-    const { svc, audit } = build({ offlineAlertAck: { upsert } });
+    const { svc, audit } = build({ offlineAlertAck: { upsert }, eventSession: ownSession });
     await svc.acknowledgeAlert(USER, okInput);
     expect(upsert).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -55,6 +59,34 @@ describe('OfflineCommandCenterService.acknowledgeAlert (manager, reason, audited
     expect(audit.record).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'OFFLINE_ALERT_ACKNOWLEDGED' }),
     );
+  });
+
+  it("refuses another organization's session: nothing is acknowledged or overwritten", async () => {
+    // A manager of org1 naming org1 but a session that belongs to org2.
+    const upsert = jest.fn();
+    const { svc, audit } = build({
+      offlineAlertAck: { upsert },
+      eventSession: {
+        findUnique: jest.fn().mockResolvedValue({ event: { organizationId: 'org2' } }),
+      },
+    });
+    await expect(svc.acknowledgeAlert(USER, okInput)).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    });
+    expect(upsert).not.toHaveBeenCalled();
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it('refuses a session that does not exist', async () => {
+    const upsert = jest.fn();
+    const { svc } = build({
+      offlineAlertAck: { upsert },
+      eventSession: { findUnique: jest.fn().mockResolvedValue(null) },
+    });
+    await expect(svc.acknowledgeAlert(USER, okInput)).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    });
+    expect(upsert).not.toHaveBeenCalled();
   });
 
   it('requires a reason', async () => {

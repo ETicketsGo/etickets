@@ -1036,9 +1036,9 @@ export class PayoutsService {
   }
 
   async listForOrg(user: RequestUser, organizationId: string) {
-    // Settlement figures are financial data: restrict to org owners/managers
-    // (+ platform admins, who bypass in assertMember). CHECKIN_STAFF and other
-    // members must not read revenue/payout amounts.
+    // Settlement figures are financial data: restrict to org owners/managers. CHECKIN_STAFF,
+    // other members and platform staff who are not members must not read revenue/payout
+    // amounts here; staff read payouts through /admin/payouts.
     await this.access.assertMember(user, organizationId, [
       Role.ORGANIZER_OWNER,
       Role.ORGANIZER_MANAGER,

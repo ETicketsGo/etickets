@@ -11,6 +11,7 @@ import { OrgAccessService } from '../tenancy/org-access.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import { CurrentUser, Roles, type RequestUser } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { OrganizerOnly } from '../tenancy/organizer-only.guard';
 
 const listQuerySchema = paginationSchema.extend({
   from: z.coerce.date().optional(),
@@ -41,7 +42,7 @@ export class ReceiptsController {
 
   /**
    * Who may see a document: the buyer whose booking it is, or a member of the selling
-   * organization (platform admins pass through `assertMember`).
+   * organization. Platform staff are not a case: `assertMember` no longer lets them through.
    *
    * A guest booking has no `userId`, so the only identity attached to it is the buyer email.
    * Those documents are reachable through the guest booking flow rather than here — this
@@ -150,7 +151,8 @@ export class OrganizationReceiptsController {
   ) {}
 
   @Get()
-  @Roles(Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER, Role.ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER)
+  @OrganizerOnly('organization.receipts.list')
   @ApiOperation({ summary: "An organization's issued receipts, invoices and credit notes." })
   async list(
     @CurrentUser() user: RequestUser,

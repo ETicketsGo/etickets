@@ -22,7 +22,7 @@ function setup(role: string) {
   };
   const controller = new OrganizationReceiptsController(
     receipts as never,
-    new OrgAccessService(prisma as never),
+    new OrgAccessService(prisma as never, { record: async () => undefined } as never),
   );
   return { controller, receipts };
 }

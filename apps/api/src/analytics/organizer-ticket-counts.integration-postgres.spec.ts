@@ -154,7 +154,11 @@ describe('integration-real-postgres: organizer ticket figures reconcile with the
       console.warn('[integration-real-postgres] SKIPPED - DB unavailable');
       return;
     }
-    svc = new AnalyticsService(db as never, new OrgAccessService(db as never), {} as never);
+    svc = new AnalyticsService(
+      db as never,
+      new OrgAccessService(db as never, { record: async () => undefined } as never),
+      {} as never,
+    );
 
     const u = await db!.user.create({
       data: {
