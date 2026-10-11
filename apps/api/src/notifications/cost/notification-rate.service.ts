@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { HttpStatus, Injectable, Optional } from '@nestjs/common';
 import {
   BillingUnit,
   CostSource,
@@ -7,7 +7,25 @@ import {
   normaliseMarket,
 } from '@eticketsgo/shared-types';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AuditService } from '../../audit/audit.service';
+import { audited } from '../../audit/audited';
 import { AppException, ErrorCodes } from '../../common/errors';
+
+export interface RateInput {
+  provider: string;
+  channel: string;
+  country?: string;
+  category?: string;
+  unitPriceMicro: number;
+  currency: string;
+  billingUnit: BillingUnit;
+  effectiveFrom: Date;
+  effectiveTo?: Date | null;
+  priority?: number;
+  active?: boolean;
+  source?: string | null;
+  notes?: string | null;
+}
 
 export interface RateQuery {
   provider: string;
@@ -53,7 +71,11 @@ export interface CostEstimate {
  */
 @Injectable()
 export class NotificationRateService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // Optional so a service built by hand in a unit test needs no audit double.
+    @Optional() private readonly audit?: AuditService,
+  ) {}
 
   /**
    * The rate in force for this send, most specific first.
@@ -180,21 +202,29 @@ export class NotificationRateService {
    * nobody can tell which is right. Refusing at write time is the only point where it is
    * cheap to fix.
    */
-  async create(input: {
-    provider: string;
-    channel: string;
-    country?: string;
-    category?: string;
-    unitPriceMicro: number;
-    currency: string;
-    billingUnit: BillingUnit;
-    effectiveFrom: Date;
-    effectiveTo?: Date | null;
-    priority?: number;
-    active?: boolean;
-    source?: string | null;
-    notes?: string | null;
-  }) {
+  async create(input: RateInput, actorUserId: string | null = null) {
+    // A price the platform pays per message feeds every cost report, so who set it is on the record.
+    return audited(
+      this.audit,
+      {
+        actorUserId,
+        action: 'NOTIFICATION_RATE_CREATED',
+        entityType: 'NotificationRate',
+        metadata: {
+          provider: input.provider,
+          channel: input.channel,
+          country: input.country ?? '*',
+          category: input.category ?? '*',
+          currency: input.currency.toUpperCase(),
+          active: input.active ?? false,
+        },
+      },
+      () => this.createRow(input),
+      (row) => ({ rateId: row.id }),
+    );
+  }
+
+  private async createRow(input: RateInput) {
     const country = input.country ?? '*';
     const category = input.category ?? '*';
 
@@ -258,12 +288,33 @@ export class NotificationRateService {
   }
 
   /** End a rate rather than deleting it, so the period it priced stays reproducible. */
-  async supersede(id: string, at: Date) {
-    const res = await this.prisma.notificationRate.updateMany({
-      where: { id, OR: [{ effectiveTo: null }, { effectiveTo: { gt: at } }] },
-      data: { effectiveTo: at },
-    });
-    return { superseded: res.count === 1 };
+  async supersede(id: string, at: Date, actorUserId: string | null = null) {
+    return audited(
+      this.audit,
+      {
+        actorUserId,
+        action: 'NOTIFICATION_RATE_SUPERSEDED',
+        entityType: 'NotificationRate',
+        entityId: id,
+        metadata: { at: at.toISOString() },
+      },
+      async () => {
+        // `id: undefined` is not a filter in Prisma, it is no filter: it would end EVERY open rate.
+        if (!id) {
+          throw new AppException(
+            ErrorCodes.VALIDATION_FAILED,
+            'A rate id is required.',
+            HttpStatus.BAD_REQUEST,
+          );
+        }
+        const res = await this.prisma.notificationRate.updateMany({
+          where: { id, OR: [{ effectiveTo: null }, { effectiveTo: { gt: at } }] },
+          data: { effectiveTo: at },
+        });
+        return { superseded: res.count === 1 };
+      },
+      (r) => ({ superseded: r.superseded }),
+    );
   }
 
   async list(opts: { provider?: string; channel?: string; activeOnly?: boolean } = {}) {

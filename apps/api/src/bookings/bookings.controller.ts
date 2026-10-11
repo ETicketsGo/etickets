@@ -101,7 +101,7 @@ export class BookingsController {
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Get a booking (owner or admin).' })
+  @ApiOperation({ summary: 'Get a booking (the buyer; staff read it on /admin/bookings/:id).' })
   get(
     @CurrentUser() user: RequestUser,
     @Param('id') id: string,

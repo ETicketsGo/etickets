@@ -135,7 +135,7 @@ export class RazorpayOrderService {
         HttpStatus.NOT_FOUND,
       );
     }
-    if (booking.userId && user && booking.userId !== user.id && !isAdmin(user)) {
+    if (booking.userId && user && booking.userId !== user.id) {
       throw new AppException(
         ErrorCodes.FORBIDDEN,
         'You cannot verify this booking.',
@@ -322,8 +322,4 @@ export class RazorpayOrderService {
       { appEnv },
     );
   }
-}
-
-function isAdmin(user: RequestUser): boolean {
-  return user.roles.includes('ADMIN' as never) || user.roles.includes('SUPER_ADMIN' as never);
 }

@@ -33,10 +33,15 @@ export class FinanceReconciliationController {
   @Post('detect')
   @RequiresAdmin(AdminPermission.FINANCE_RESOLVE)
   @ApiOperation({ summary: 'Run discrepancy detection over a window (admin).' })
-  detect(@Query('from') from?: string, @Query('to') to?: string) {
+  detect(
+    @CurrentUser() user: RequestUser,
+    @Ip() ip: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
     const toDate = parseDate(to, new Date());
     const fromDate = parseDate(from, new Date(toDate.getTime() - 24 * 3600 * 1000));
-    return this.finance.detect(fromDate, toDate);
+    return this.finance.detect(fromDate, toDate, { userId: user.id, ip });
   }
 
   @Get('discrepancies')
