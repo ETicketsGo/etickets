@@ -1,30 +1,17 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { useId, useMemo, useState, type ReactNode } from 'react';
+import { useId, useMemo, useState } from 'react';
 import Link from 'next/link';
-import {
-  AlertTriangle,
-  ArrowRight,
-  Banknote,
-  CalendarClock,
-  ChevronDown,
-  IndianRupee,
-  Ticket,
-  Wallet,
-} from 'lucide-react';
+import { CalendarClock, CheckCheck, FileClock, Ticket, TriangleAlert } from 'lucide-react';
 import {
   api,
   money,
   ErrorState,
   SectionCard,
   SectionLink,
-  SegmentedControl,
   Skeleton,
   SkeletonCard,
-  StatCard,
-  StatusBadge,
-  dateOnly,
   MARKETS,
   marketFor,
   useAuthUser,
@@ -41,24 +28,39 @@ import {
   greetingDate,
   greetingDateShort,
   homeWindow,
-  moneyFor,
   monthWindow,
   pendingActions,
   performanceFor,
-  pickCurrency,
   recentActivity,
   showsOnDay,
   showsPerDay,
   showsToday,
-  upcomingEventCount,
-  upcomingEventShows,
   viewerToday,
-  type MarketChoice,
-  type MarketMoney,
 } from './_dashboard/model';
-import { sellingOf, setupSummary, type SetupSummary } from './_dashboard/status';
-import { WelcomeHero } from './_dashboard/hero';
-import { NoUpcomingEvents, UpcomingEventCard } from './_dashboard/upcoming-events';
+import {
+  KPI_DEFINITIONS,
+  UPCOMING_ROWS,
+  latestDraft,
+  moneyPanels,
+  needsAction,
+  notYetOnSale,
+  upcomingMode,
+  upcomingPublishedCount,
+  upcomingPublishedShows,
+} from './_dashboard/overview-model';
+import { sellingOf, setupSummary } from './_dashboard/status';
+import { WelcomeBand } from './_dashboard/hero';
+import { UpcomingEventCard } from './_dashboard/upcoming-events';
+import {
+  EventRow,
+  FeaturedEventCard,
+  NoUpcomingEvents,
+  hasOwnArtwork,
+} from './_dashboard/event-rows';
+import { NotYetOnSale, NOT_YET_SHOWN } from './_dashboard/not-yet-on-sale';
+import { NeedsActionCard } from './_dashboard/needs-action';
+import { KpiRow, type Kpi } from './_dashboard/kpis';
+import { MoneyPanelCard, marketTitle } from './_dashboard/money-panel';
 import { MonthCard } from './_dashboard/month-card';
 import {
   ActivityTimeline,
@@ -81,38 +83,40 @@ function marketName(market: { country: string | null; currency: string }): strin
 /** The notification centre's own react-query key, so this reads its cache, not a second copy. */
 const FEED_KEY = ['notifications', 'feed', 'organizer'] as const;
 
-/** Image cards in "Upcoming events": three across from a tablet up, a swipeable row on a phone. */
-const UPCOMING_CARDS = 3;
-/** What is still open, from the notification feed: the newest few, with the count when there are more. */
-const PENDING_SHOWN = 3;
-
 const count = (n: number) => n.toLocaleString('en-IN');
 
 /**
- * The organizer's Overview, built to the premium console reference.
+ * The organizer's Overview: an adaptive page that is as long as what the organizer has.
  *
  * ── WHAT IT IS FOR ─────────────────────────────────────────────────────────────────
- * What an organizer opens this page to learn is short: is anything stopping me, what is on
- * and is it selling, how much have I sold and how much of it is mine. The page answers in that
- * order: a genuine blocker first, then the welcome and the four figures, then the next events
- * as their artwork, the month with today's shows, and the money in detail.
+ * What an organizer opens this page to learn is short: is anything stopping me, what is on and
+ * is it selling, how much have I sold and where is the money. The page answers in that order:
+ * a one-line welcome, what needs action (blocking first), the quick actions, four figures each
+ * defined in a line, the events, and one panel of sales and proceeds per currency.
+ *
+ * ── IT ADAPTS TO WHAT IS THERE ─────────────────────────────────────────────────────
+ * Upcoming events are one featured card when there is one, image cards when there are two or
+ * three with artwork of their own, and compact rows otherwise - so one event is not a lone small
+ * card beside a screen of nothing, and eight events are not eight identical placeholders. Drafts
+ * and events in review are a separate "Not yet on sale" group: they were listed as upcoming
+ * events, beside ones buyers can purchase. Nothing is empty-looking: no published event yet offers
+ * the newest draft and Create event. The rules are in `_dashboard/overview-model.ts`, tested.
  *
  * ── THREE STATEMENTS, NEVER ONE BLENDED WORD ───────────────────────────────────────
- * Where an event is in its life (the lifecycle pill on its artwork), whether it is selling
- * (the server's unified sale state, "Partly selling: <reason>" never bare "Selling") and the
- * organization's setup ("<n> things to set up", never "Ready to sell"). See
- * `_dashboard/status.ts`.
+ * Where an event is in its life (the lifecycle pill), whether it is selling (the server's unified
+ * sale state, "Partly selling: <reason>" never bare "Selling") and the organization's setup
+ * ("<n> things to set up", never "Ready to sell"). See `_dashboard/status.ts`.
  *
- * ── GROSS IS NOT NET ───────────────────────────────────────────────────────────────
- * Two separate figures, per market, never added across currencies; the working (gross, less
- * the fees taken from you, less refunds) is drawn as the sum it is from the API's own figures.
- * Nothing about the finance model is computed here.
+ * ── SOLD IS NOT PAYABLE ────────────────────────────────────────────────────────────
+ * Per currency, one panel in two groups: what was sold and what is the organizer's of it (the
+ * analytics), and where the money stands in the payout ledger (held, payable now, in a payout,
+ * paid). The groups are never summed and proceeds are never called payable. Currencies are never
+ * added together. Nothing about the finance model is computed here.
  *
  * ── NOT SHOWN, BECAUSE THE API DOES NOT SAY ────────────────────────────────────────
  * The reference's trend deltas ("+12% vs last 30 days"), its sales trend line and its
  * "tickets by category" ring. The organizer analytics endpoint returns totals with no prior
  * period, no time series and no category split, so drawing any of them would be inventing it.
- * "Sales performance" is the per-event gross the API does return, as bars.
  */
 export default function OrganizerDashboard() {
   const { activeOrg, can } = useOrg();
@@ -123,29 +127,30 @@ export default function OrganizerDashboard() {
     queryKey: ['events', activeOrg.id],
     queryFn: () => api.events.list(activeOrg.id),
   });
-  /*
-    Payouts are financial data and the API refuses them to check-in staff - but this is
-    everybody's landing page, so the read is skipped for a role that cannot make it, a
-    refusal hides the card, and payouts never decide whether the rest of the page renders.
-  */
-  const payoutsQ = useQuery({
-    queryKey: ['payouts', activeOrg.id],
-    queryFn: () => api.payouts.forOrg(activeOrg.id),
-    enabled: can.financials,
-  });
-  const showPayouts = can.financials && !isForbidden(payoutsQ.error);
   // Single aggregate call for the whole organization (no per-event fan-out).
   const analyticsQ = useQuery({
     queryKey: ['analytics', 'organizer', activeOrg.id],
     queryFn: () => api.analytics.organizer(activeOrg.id),
   });
+  /*
+    The payout ledger's position. Financial data the API refuses to check-in staff - but this is
+    everybody's landing page, so the read is skipped for a role that cannot make it, a refusal
+    hides the ledger half of the money panel, and it never decides whether the rest renders.
+  */
+  const summaryQ = useQuery({
+    queryKey: ['payouts', 'summary', activeOrg.id],
+    queryFn: () => api.payouts.summary(activeOrg.id),
+    enabled: can.financials,
+    retry: (n, error) => !isForbidden(error) && n < 2,
+  });
+  const ledger = can.financials && !isForbidden(summaryQ.error) ? summaryQ.data : undefined;
 
   /*
     ── ONE CALENDAR READ FOR THE PAGE ─────────────────────────────────────────────────
     The calendar's own endpoint (owners and managers): this month and the next four weeks, with
-    sold and capacity per show. It feeds the hero's "shows today", the "this week" count, the
-    image cards (each event's next show) and the month card's dots. Fixed at mount so the key
-    does not change on every render; another month in the card is its own read.
+    sold and capacity per show. It feeds the "next 7 days" count, the events' next shows and the
+    month card's dots. Fixed at mount so the key does not change on every render; another month
+    in the card is its own read.
   */
   const [today] = useState(() => viewerToday());
   const [home] = useState(() => homeWindow(today));
@@ -186,10 +191,18 @@ export default function OrganizerDashboard() {
   const loading = eventsQ.isLoading || analyticsQ.isLoading;
   const isError = eventsQ.isError || analyticsQ.isError;
 
+  // Published events only: a draft is not "upcoming", it is under "Not yet on sale".
   const upcoming = useMemo(
-    () => upcomingEventShows(sessions, new Date(), UPCOMING_CARDS),
+    () => upcomingPublishedShows(sessions, new Date(), UPCOMING_ROWS),
     [sessions],
   );
+  const upcomingTotal = upcomingPublishedCount(events);
+  const mode = upcomingMode(
+    upcoming.map((s) => ({ hasImage: hasOwnArtwork(eventRow.get(s.event.id)) })),
+  );
+  const notYet = useMemo(() => notYetOnSale(events), [events]);
+  const draft = useMemo(() => latestDraft(events), [events]);
+
   const agenda = useMemo(
     () =>
       selectedDay === null
@@ -202,7 +215,7 @@ export default function OrganizerDashboard() {
   /*
     ── IS IT SELLING: ONE SERVER ANSWER ──────────────────────────────────────────────
     The API's unified sale state, built from the facts checkout refuses a cart by. Per EVENT
-    for the image cards - judged over ALL its upcoming shows, so an event with one paused date
+    for the upcoming events - judged over ALL its upcoming shows, so an event with one paused date
     among ten reads "Partly selling", never "Selling" - and per SHOW for the day's agenda. This
     page decides nothing about it. A handful of ids, well under the caps.
   */
@@ -239,41 +252,38 @@ export default function OrganizerDashboard() {
   );
 
   /*
-    ── MONEY IS PER MARKET, AND THE ORGANIZER PICKS WHICH ONE ────────────────────────
-    Every market the organization sells in or has a venue in, including one that has taken
-    nothing yet. The switch appears only when there is genuinely more than one.
+    ── MONEY IS PER CURRENCY: ONE PANEL EACH ─────────────────────────────────────────
+    Every market the organization sells in or has a venue in is known to the page, but a panel is
+    drawn only for a currency that has money in it (the home market first); none at all draws the
+    home market's empty panel. Currencies are never added together.
   */
-  const revenues = analytics?.revenue ?? [];
-  const countries = analytics?.countries ?? [];
   const markets: AnalyticsOrganizerMarket[] = analytics?.markets ?? [];
-  const choices: MarketChoice[] =
+  const knownCurrencies =
     markets.length > 0
-      ? markets.map((m) => ({ currency: m.currency, label: marketName(m) }))
-      : revenues.map((r) => ({
-          currency: r.currency,
-          label: `${countries.find((c) => c.currency === r.currency)?.country ?? r.currency} · ${r.currency}`,
-        }));
-  const [market, setMarket] = useState<string | null>(null);
+      ? markets.map((m) => m.currency)
+      : (analytics?.revenue ?? []).map((r) => r.currency);
   const homeCurrency = marketFor(activeOrg.registeredCountry ?? '')?.currency ?? null;
-  const activeCurrency = pickCurrency(choices, homeCurrency, market);
-  const activeLabel = choices.find((c) => c.currency === activeCurrency)?.label;
-  const cash = activeCurrency ? moneyFor(analytics, activeCurrency) : null;
-  const fmt = (minor: number) => money(minor, activeCurrency ?? undefined);
+  const panels = useMemo(
+    () => (can.financials ? moneyPanels(analytics, ledger, homeCurrency, knownCurrencies) : []),
+    // knownCurrencies is derived from analytics, which is already a dependency.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [can.financials, analytics, ledger, homeCurrency],
+  );
+  const topCurrency = panels[0]?.currency ?? null;
+  const activeLabel = topCurrency ? marketTitle(topCurrency) : null;
+  const performance = performanceFor(analytics, topCurrency);
 
   const attendance = analytics?.attendance;
-  const performance = performanceFor(analytics, activeCurrency);
   const pendingAll = pendingActions(feedQ.data);
-  const pending = pendingAll.slice(0, PENDING_SHOWN);
+  const needs = needsAction(actionsQ.data?.actions, pendingAll);
   const [more, setMore] = useState(false);
   const calendarFoldId = useId();
-  const moneyFoldId = useId();
+  const detailFoldId = useId();
   const marketsFoldId = useId();
-  // Three, not four: beside the month on a tablet, a fourth entry made the pair ~150px taller.
+  const otherMoneyId = useId();
   const activity = recentActivity(feedQ.data, 3);
-  const latestPayout = payoutsQ.data?.[0];
   const setup = setupSummary(actionsQ.data?.actions);
   const firstName = user?.fullName?.trim().split(/\s+/)[0];
-  const upcomingCount = upcomingEventCount(events);
   const now = new Date();
   const thisWeek = sessions ? eventsStartingWithin(sessions, COMING_UP_DAYS, now) : null;
 
@@ -292,12 +302,9 @@ export default function OrganizerDashboard() {
     canManage: can.financials,
     doesFilmBusiness,
   });
-  const featured = upcoming
-    .map((s) => eventRow.get(s.event.id))
-    .find((row) => row && (row.imagePath || row.imageVariants));
 
-  const hero = (
-    <WelcomeHero
+  const band = (
+    <WelcomeBand
       orgName={activeOrg.name}
       orgStatus={activeOrg.status}
       verified={!!activeOrg.verified}
@@ -306,14 +313,13 @@ export default function OrganizerDashboard() {
       shortDateLine={greetingDateShort(now)}
       dayLine={dayLine}
       setupOpen={actionsQ.data ? setup.open : null}
-      feature={featured ?? null}
     />
   );
 
   if (isError)
     return (
       <div className="space-y-6">
-        {hero}
+        {band}
         <ErrorState
           message="We could not load your overview. Please try again."
           onRetry={() => {
@@ -329,8 +335,8 @@ export default function OrganizerDashboard() {
     Until the reads that decide the page's shape have answered, one skeleton shaped like the
     page stands in for all of it. Painting the parts as each read landed is what moved the page:
     the setup panel arrived above everything and pushed it down, the figures grew from their
-    placeholders, the activity from three rows to four. A read the viewer's role does not make
-    is not waited for (a disabled query is not loading).
+    placeholders. A read the viewer's role does not make is not waited for (a disabled query is
+    not loading).
   */
   const booting =
     eventsQ.isLoading ||
@@ -338,120 +344,56 @@ export default function OrganizerDashboard() {
     actionsQ.isLoading ||
     homeQ.isLoading ||
     feedQ.isLoading ||
-    payoutsQ.isLoading;
+    summaryQ.isLoading;
   if (booting) return <OverviewSkeleton financials={can.financials} />;
 
   /* ── THE SECTIONS, each built once and placed once below. ── */
-  // A genuine blocker first: money that cannot reach them is worth reading before anything else.
-  const attention = <Attention setup={setup} loading={actionsQ.isLoading} />;
-
-  const statCards = (density: 'compact' | 'comfortable'): ReactNode[] => [
-    <StatCard
-      /*
-        Tickets buyers hold now: issued and not refunded, cancelled or voided (the analytics
-        `attendance.issued`), with how many of them have been scanned in.
-      */
-      key="tickets"
-      density={density}
-      icon={Ticket}
-      tile="teal"
-      label="Tickets sold"
-      value={count(attendance?.issued ?? 0)}
-      hint={
+  const kpis: Kpi[] = [
+    {
+      key: 'upcoming',
+      label: 'Upcoming events',
+      value: count(upcomingTotal),
+      definition: KPI_DEFINITIONS.upcoming,
+      fact: thisWeek !== null ? `${count(thisWeek)} in the next 7 days` : undefined,
+      icon: CalendarClock,
+      tile: 'teal',
+      href: '/organizer/events',
+    },
+    {
+      key: 'not-yet',
+      label: 'Not yet on sale',
+      value: count(notYet.length),
+      definition: KPI_DEFINITIONS.notYet,
+      icon: FileClock,
+      tile: 'amber',
+      href: '/organizer/events',
+    },
+    {
+      key: 'tickets',
+      label: 'Tickets sold',
+      value: count(attendance?.issued ?? 0),
+      definition: KPI_DEFINITIONS.tickets,
+      fact:
         attendance && attendance.issued > 0
           ? `${count(attendance.checkedIn)} checked in (${attendance.checkInRate}%)`
-          : 'Valid tickets buyers hold'
-      }
-    />,
-    <StatCard
-      key="upcoming"
-      density={density}
-      icon={CalendarClock}
-      tile="amber"
-      label="Upcoming events"
-      value={count(upcomingCount)}
-      href="/organizer/events"
-      hint={
-        thisWeek !== null ? `${count(thisWeek)} in the next 7 days` : 'With a show still to come'
-      }
-    />,
-    can.financials && (
-      <StatCard
-        key="gross"
-        density={density}
-        icon={currencyIcon(activeCurrency)}
-        tile="blue"
-        label="Gross sales"
-        value={cash ? fmt(cash.grossMinor) : '-'}
-        hint={cash ? 'Before fees and refunds' : 'No sales yet'}
-      />
-    ),
-    can.financials && (
-      <StatCard
-        key="net"
-        density={density}
-        icon={Wallet}
-        tile="purple"
-        label="Net proceeds"
-        value={cash ? fmt(cash.netMinor) : '-'}
-        hint="Yours after fees and refunds"
-      />
-    ),
+          : undefined,
+      icon: Ticket,
+      tile: 'blue',
+    },
+    {
+      key: 'needs-action',
+      label: 'Needs action',
+      value: count(needs.items.length),
+      definition: KPI_DEFINITIONS.needsAction,
+      fact:
+        needs.items.length === 0
+          ? 'All clear'
+          : `${count(needs.blocking)} blocking, ${count(needs.warnings)} ${needs.warnings === 1 ? 'warning' : 'warnings'}`,
+      icon: needs.items.length === 0 ? CheckCheck : TriangleAlert,
+      tile: needs.blocking > 0 ? 'rose' : needs.items.length > 0 ? 'amber' : 'teal',
+      alert: needs.blocking > 0,
+    },
   ];
-
-  const figures = (
-    <section aria-labelledby="figures-heading" className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-        <h2
-          id="figures-heading"
-          className="font-display text-[1.0625rem] font-bold text-text-primary"
-        >
-          At a glance
-        </h2>
-        {can.financials && choices.length > 1 && activeCurrency && (
-          <>
-            {/*
-              Four markets as a segmented switch wrap to two rows on a phone - taller than the
-              figures they choose between. A native select is one row and the phone's own picker.
-              Both are in the page and CSS shows one: the one not shown is `display: none`, so
-              neither a screen reader nor the tab order meets it.
-            */}
-            <select
-              aria-label="Market"
-              value={activeCurrency}
-              onChange={(e) => setMarket(e.target.value)}
-              className="h-9 min-w-0 max-w-[60%] cursor-pointer truncate rounded-md border border-border-input bg-background-surface px-2.5 text-caption font-semibold text-text-primary focus:border-ring focus:outline-none focus:ring-4 focus:ring-ring/15 md:hidden"
-            >
-              {choices.map((c) => (
-                <option key={c.currency} value={c.currency}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
-            <div className="hidden md:block">
-              <SegmentedControl
-                label="Market"
-                options={choices.map((c) => ({ value: c.currency, label: c.label }))}
-                value={activeCurrency}
-                onChange={setMarket}
-              />
-            </div>
-          </>
-        )}
-      </div>
-      {/*
-        Four across from a tablet up, two by two on a phone. Below a wide screen the cards are
-        the compact ones (tile and label on one line, the number under them): the tall card
-        four across a tablet left each number a sliver, and two by two it was ~400px of page.
-        The card's density is its markup, not a class, so the two sets are both drawn and CSS
-        shows one; the hidden set is `display: none`, invisible to assistive tech.
-      */}
-      <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4 md:gap-3 xl:hidden">
-        {statCards('compact')}
-      </div>
-      <div className="hidden grid-cols-4 gap-4 xl:grid">{statCards('comfortable')}</div>
-    </section>
-  );
 
   const upcomingSection = calendarOk ? (
     <section aria-labelledby="upcoming-heading" className="min-w-0">
@@ -461,36 +403,38 @@ export default function OrganizerDashboard() {
           className="font-display text-[1.0625rem] font-bold text-text-primary"
         >
           Upcoming events
+          <span className="ml-1.5 text-ui font-semibold tabular-nums text-text-muted">
+            ({count(upcomingTotal)})
+          </span>
         </h2>
         <SectionLink href="/organizer/events" srLabel="events">
           View all
         </SectionLink>
       </div>
       {homeQ.isLoading ? (
-        <div className="grid gap-4 md:grid-cols-3">
-          {Array.from({ length: UPCOMING_CARDS }).map((_, i) => (
-            <SkeletonCard
-              key={i}
-              variant="media"
-              label="Loading events"
-              className={i > 0 ? 'hidden md:block' : ''}
-            />
-          ))}
-        </div>
+        <SkeletonCard variant="media" label="Loading events" />
       ) : homeQ.isError ? (
         <ErrorState
           message="We could not load your upcoming shows."
           onRetry={() => homeQ.refetch()}
         />
-      ) : upcoming.length === 0 ? (
-        <NoUpcomingEvents canCreate={canCreate} />
-      ) : (
+      ) : mode === 'empty' ? (
+        <NoUpcomingEvents canCreate={canCreate} draft={draft} later={upcomingTotal} />
+      ) : mode === 'featured' ? (
+        <FeaturedEventCard
+          show={upcoming[0]}
+          row={eventRow.get(upcoming[0].event.id)}
+          selling={sellingOf(eventState.get(upcoming[0].event.id), eventStatesQ.isError)}
+          priority
+        />
+      ) : mode === 'cards' ? (
         /*
-          A row that swipes on a phone - each compact card most of the width, so the next one
-          peeks in and says there is more - and three image cards from a tablet up.
+          Two or three events that each have their own artwork: image cards side by side from a
+          tablet up, and a swipeable row on a phone - each compact card most of the width, so
+          the next one peeks in and says there is more.
         */
         <ul
-          className="relative -mx-4 flex snap-x snap-mandatory scroll-px-4 gap-3 overflow-x-auto px-4 pb-1 [scrollbar-width:thin] sm:-mx-6 sm:scroll-px-6 sm:px-6 md:mx-0 md:grid md:grid-cols-3 md:gap-4 md:overflow-visible md:px-0 md:pb-0"
+          className="relative -mx-4 flex snap-x snap-mandatory scroll-px-4 gap-3 overflow-x-auto px-4 pb-1 [scrollbar-width:thin] sm:-mx-6 sm:scroll-px-6 sm:px-6 md:mx-0 md:grid md:grid-cols-[repeat(auto-fit,minmax(0,1fr))] md:gap-4 md:overflow-visible md:px-0 md:pb-0"
           aria-label="Your next events"
         >
           {upcoming.map((s, i) => (
@@ -507,26 +451,38 @@ export default function OrganizerDashboard() {
             </li>
           ))}
         </ul>
+      ) : (
+        <ul
+          className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-background-surface shadow-xs"
+          aria-label="Your next events"
+        >
+          {upcoming.map((s, i) => (
+            <li key={s.event.id} className={`min-w-0 ${i >= 3 ? 'max-lg:hidden' : ''}`}>
+              <EventRow
+                show={s}
+                row={eventRow.get(s.event.id)}
+                selling={sellingOf(eventState.get(s.event.id), eventStatesQ.isError)}
+              />
+            </li>
+          ))}
+          {upcomingTotal > upcoming.length && (
+            <li className="bg-background-subtle/50 px-4 py-2 text-caption text-text-muted">
+              <Link
+                href="/organizer/events"
+                className="rounded-sm font-semibold text-action-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                View all {count(upcomingTotal)} upcoming events
+              </Link>
+            </li>
+          )}
+        </ul>
       )}
     </section>
   ) : null;
 
-  // What the notifications say is still open - only when something is.
-  const needsYou =
-    pendingAll.length > 0 || feedQ.isError ? (
-      <ActivityTimeline
-        title={
-          pendingAll.length > pending.length
-            ? `Needs you (${count(pendingAll.length)})`
-            : 'Needs you'
-        }
-        groups={pending}
-        loading={false}
-        error={feedQ.isError}
-        onRetry={() => feedQ.refetch()}
-        empty="Nothing needs you right now."
-      />
-    ) : null;
+  const notYetSection = (
+    <NotYetOnSale events={notYet.slice(0, NOT_YET_SHOWN)} total={notYet.length} />
+  );
 
   const activityCard = (
     <ActivityTimeline
@@ -536,6 +492,7 @@ export default function OrganizerDashboard() {
       error={feedQ.isError}
       onRetry={() => feedQ.refetch()}
       empty="Nothing has happened yet."
+      compact
     />
   );
 
@@ -559,6 +516,31 @@ export default function OrganizerDashboard() {
       sellingFor={(id) => sellingOf(sessionState.get(id), sessionStatesQ.isError)}
     />
   ) : null;
+
+  /* ── Sales and proceeds: one panel per currency, then the top events and the by-market table. ── */
+  const moneyCard = (p: (typeof panels)[number], first: boolean) => (
+    <MoneyPanelCard
+      key={p.currency}
+      panel={p}
+      excludedProviderEvents={ledger?.excluded.providerSettledEvents ?? 0}
+      showFinanceLink={first}
+    />
+  );
+  const moneyFirst = can.financials && panels.length > 0 ? moneyCard(panels[0], true) : null;
+  /*
+    The other currencies. From a tablet up they follow the first panel; on a phone they are
+    behind "Show more" and ordered AFTER its button, so opening them does not push the button
+    away from under the thumb that pressed it.
+  */
+  const moneyRest =
+    can.financials && panels.length > 1 ? (
+      <div
+        id={otherMoneyId}
+        className={`order-8 min-w-0 space-y-4 md:order-10 xl:order-none ${more ? '' : 'max-xl:hidden'}`}
+      >
+        {panels.slice(1).map((p) => moneyCard(p, false))}
+      </div>
+    ) : null;
 
   const salesCard = can.financials ? (
     <SectionCard
@@ -613,25 +595,6 @@ export default function OrganizerDashboard() {
             </li>
           ))}
         </ol>
-      )}
-    </SectionCard>
-  ) : null;
-
-  const grossCard = can.financials ? (
-    <SectionCard
-      title="Gross to net"
-      description={
-        activeLabel ? `${activeLabel}. Other currencies are never added in.` : 'No sales yet.'
-      }
-    >
-      {loading ? (
-        <Skeleton className="h-40 w-full" />
-      ) : cash ? (
-        <MoneyBreakdown cash={cash} fmt={fmt} />
-      ) : (
-        <p className="text-caption text-text-muted">
-          Sales appear here once your first booking is paid.
-        </p>
       )}
     </SectionCard>
   ) : null;
@@ -737,374 +700,132 @@ export default function OrganizerDashboard() {
       </SectionCard>
     ) : null;
 
-  const payoutCard = showPayouts ? (
-    <SectionCard
-      title="Latest payout"
-      action={
-        <SectionLink href="/organizer/payouts" srLabel="payouts">
-          Payouts
-        </SectionLink>
-      }
-    >
-      {payoutsQ.isLoading ? (
-        <Skeleton className="h-20 w-full" />
-      ) : payoutsQ.isError ? (
-        <p className="text-caption text-text-muted">
-          We could not load payouts.{' '}
-          <button
-            type="button"
-            onClick={() => payoutsQ.refetch()}
-            className="rounded-sm font-semibold text-action-primary underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            Try again
-          </button>
-        </p>
-      ) : latestPayout ? (
-        <dl className="space-y-2.5 text-ui">
-          <div className="flex items-center justify-between gap-3">
-            <dt className="text-text-muted">Status</dt>
-            <dd>
-              <StatusBadge status={latestPayout.status} />
-            </dd>
-          </div>
-          <div className="flex justify-between gap-3">
-            <dt className="text-text-muted">Net amount</dt>
-            <dd className="font-display text-[1.0625rem] font-bold tabular-nums text-text-primary">
-              {money(latestPayout.netMinor, latestPayout.currency)}
-            </dd>
-          </div>
-          <div className="flex justify-between gap-3">
-            <dt className="text-text-muted">Created</dt>
-            <dd className="text-text-secondary">{dateOnly(latestPayout.createdAt)}</dd>
-          </div>
-        </dl>
-      ) : (
-        <p className="text-caption text-text-muted">
-          No payouts yet. Settlements are made from the Payouts page.
-        </p>
-      )}
-    </SectionCard>
-  ) : null;
+  const showDetail = !!salesCard;
+  const phoneParts = [
+    panels.length > 1 && 'other currencies',
+    monthCard && 'calendar',
+    'recent activity',
+    salesCard && 'top events',
+    marketsCard && 'markets',
+  ].filter((p): p is string => typeof p === 'string');
+  const tabletParts = phoneParts.filter((p) =>
+    ['other currencies', 'top events', 'markets'].includes(p),
+  );
+  const toggle = () => setMore((o) => !o);
+  const detailIds = [showDetail && detailFoldId, marketsCard && marketsFoldId].filter(Boolean);
 
   /*
     ── ONE ORDER FOR EVERY WIDTH ──────────────────────────────────────────────────────
-    The sections are in the page ONCE, in the order they are read, and CSS arranges them per
-    width. Nothing is decided by a script after the first paint, so nothing jumps: the old page
-    asked `matchMedia` after hydration and a phone first painted the desktop's order.
+    The sections are in the page ONCE, and CSS arranges them per width. Nothing is decided by a
+    script after the first paint, so nothing jumps: the old page asked `matchMedia` after
+    hydration and a phone first painted the desktop's order.
 
-    - Phone, one column: is anything blocking me, the welcome, what to do, the four figures,
-      the next events (a swipeable row), what needs me - then one "Show more" for the month,
-      the activity and the money in detail. Folded, not removed: one tap away.
-    - Tablet: the same, roomier. The month and the activity side by side are shown; only the
-      money in detail is behind "Show more". The old tablet page laid every section out in
-      full, ~2,900px at 768.
-    - Wide screen, the reference's rows: welcome | quick actions, the figures, then the next
-      events and the money on the left with the month, what needs you and the activity on the
-      right. Everything is open; the fold buttons are not drawn.
+    - Phone, one column: welcome, what needs action, quick actions, the figures, the events, the
+      not-yet-on-sale group, the money - then one "Show more" for the month, the activity, the
+      top events and the markets. Folded, not removed: one tap away.
+    - Tablet: the same, roomier; the month and the activity side by side are shown, and only the
+      top events and the markets are behind "Show more".
+    - Wide screen: welcome, quick actions and the figures across the page, then the events and
+      the money on the left with what needs action, the month and the activity on the right, and
+      the by-market table across the bottom. Everything is open; the fold buttons are not drawn.
 
-    Reading order is visual order at every width: in the wide two-column rows the right
-    column starts in the same row as the events, so it is read after them and before the
-    money that starts below.
+    The wrappers are `display: contents` below the wide layout so every section is one flex item
+    of the page and `order` can interleave the right column's sections with the left's; at the
+    wide layout they become the two columns.
   */
-  const phoneParts = [
-    monthCard && 'calendar',
-    'activity',
-    salesCard && 'sales',
-    grossCard && 'gross to net',
-    marketsCard && 'markets',
-    payoutCard && 'payouts',
-  ].filter((p): p is string => typeof p === 'string');
-  const moneyParts = phoneParts.slice(monthCard ? 2 : 1);
-  const hasMoney = moneyParts.length > 0;
-  const moneyCards = !!(salesCard || grossCard || payoutCard);
-  const toggle = () => setMore((o) => !o);
-
   return (
-    <div className="space-y-4 md:space-y-6">
-      {attention}
-
-      <div className="grid grid-cols-1 gap-4 md:gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
-        {hero}
+    <div className="flex flex-col gap-4 md:gap-5 xl:grid xl:grid-cols-[minmax(0,1fr)_23rem] xl:gap-x-6 xl:gap-y-5">
+      <div className="xl:col-span-2">{band}</div>
+      <div className="order-2 xl:order-none xl:col-span-2">
         <QuickActions actions={actions} />
       </div>
+      <div className="order-3 xl:order-none xl:col-span-2">
+        <KpiRow kpis={kpis} />
+      </div>
 
-      {figures}
-
-      <div className="grid grid-cols-1 gap-4 md:gap-6 xl:grid-cols-[minmax(0,1fr)_22rem] xl:items-start">
-        {upcomingSection && <div className="min-w-0">{upcomingSection}</div>}
-
-        <div className={`min-w-0 space-y-4 md:space-y-6 ${upcomingSection ? 'xl:row-span-2' : ''}`}>
-          {needsYou}
+      <div className="contents xl:flex xl:min-w-0 xl:flex-col xl:gap-5">
+        {upcomingSection && <div className="order-4 min-w-0 xl:order-none">{upcomingSection}</div>}
+        <div className="order-5 min-w-0 xl:order-none">{notYetSection}</div>
+        {moneyFirst && <div className="order-6 min-w-0 xl:order-none">{moneyFirst}</div>}
+        {moneyRest}
+        {tabletParts.length > 0 && (
           <FoldButton
             open={more}
             onToggle={toggle}
-            controls={[calendarFoldId, moneyCards && moneyFoldId, marketsCard && marketsFoldId]
-              .filter(Boolean)
-              .join(' ')}
-            parts={phoneParts}
-            className="flex md:hidden"
-          />
-          <div
-            id={calendarFoldId}
-            className={`grid grid-cols-1 items-start gap-4 md:grid-cols-2 md:gap-6 xl:grid-cols-1 ${more ? '' : 'max-md:hidden'}`}
-          >
-            {monthCard}
-            {activityCard}
-          </div>
-        </div>
-
-        {hasMoney && (
-          <FoldButton
-            open={more}
-            onToggle={toggle}
-            controls={[moneyCards && moneyFoldId, marketsCard && marketsFoldId]
-              .filter(Boolean)
-              .join(' ')}
-            parts={moneyParts}
-            className="hidden md:flex xl:hidden"
+            controls={[panels.length > 1 && otherMoneyId, ...detailIds].filter(Boolean).join(' ')}
+            parts={tabletParts}
+            className="order-9 hidden md:flex xl:hidden"
           />
         )}
+      </div>
 
-        {moneyCards && (
+      <div className="contents xl:flex xl:min-w-0 xl:flex-col xl:gap-5">
+        <div className="order-1 min-w-0 xl:order-none">
+          <NeedsActionCard needs={needs} error={feedQ.isError} onRetry={() => feedQ.refetch()} />
+        </div>
+        <FoldButton
+          open={more}
+          onToggle={toggle}
+          controls={[panels.length > 1 && otherMoneyId, calendarFoldId, ...detailIds]
+            .filter(Boolean)
+            .join(' ')}
+          parts={phoneParts}
+          className="order-7 flex md:hidden"
+        />
+        <div
+          id={calendarFoldId}
+          className={`order-8 grid min-w-0 grid-cols-1 items-start gap-4 md:grid-cols-2 md:gap-5 xl:order-none xl:grid-cols-1 ${more ? '' : 'max-md:hidden'}`}
+        >
+          {monthCard}
+          {activityCard}
+        </div>
+        {showDetail && (
           <div
-            id={moneyFoldId}
-            className={`grid min-w-0 grid-cols-1 items-start gap-4 md:grid-cols-2 md:gap-6 ${more ? '' : 'max-xl:hidden'}`}
+            id={detailFoldId}
+            className={`order-10 min-w-0 xl:order-none ${more ? '' : 'max-xl:hidden'}`}
           >
             {salesCard}
-            <div className="min-w-0 space-y-4 md:space-y-6">
-              {grossCard}
-              {payoutCard}
-            </div>
-          </div>
-        )}
-
-        {/* The table takes the page's full width on a wide screen: seven columns need it. */}
-        {marketsCard && (
-          <div
-            id={marketsFoldId}
-            className={`min-w-0 xl:col-span-2 ${more ? '' : 'max-xl:hidden'}`}
-          >
-            {marketsCard}
           </div>
         )}
       </div>
+
+      {/* The table takes the page's full width on a wide screen: seven columns need it. */}
+      {marketsCard && (
+        <div
+          id={marketsFoldId}
+          className={`order-11 min-w-0 xl:order-none xl:col-span-2 ${more ? '' : 'max-xl:hidden'}`}
+        >
+          {marketsCard}
+        </div>
+      )}
     </div>
   );
 }
 
 /**
  * The page's shape while its first reads are out: the welcome, the actions, the figures and the
- * next events, at each width's own size, so the real page lands where the skeleton stood.
+ * events, at each width's own size, so the real page lands where the skeleton stood.
  */
 function OverviewSkeleton({ financials }: { financials: boolean }) {
   return (
     <div
-      className="space-y-4 md:space-y-6"
+      className="space-y-4 md:space-y-5"
       role="status"
       aria-busy="true"
       aria-label="Loading your overview"
     >
-      <div className="grid grid-cols-1 gap-4 md:gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
-        <Skeleton className="h-44 w-full rounded-xl md:h-48" />
-        <Skeleton className="h-[7.5rem] w-full rounded-lg md:h-12 xl:h-48" />
+      <Skeleton className="h-[5.5rem] w-full rounded-lg sm:h-[5.25rem]" />
+      <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4 md:gap-3">
+        {Array.from({ length: financials ? 4 : 2 }).map((_, i) => (
+          <Skeleton key={i} className="h-[3.5rem] w-full rounded-lg md:h-[4.5rem]" />
+        ))}
       </div>
-      <div className="space-y-3">
-        <Skeleton className="h-6 w-28" />
-        <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4 md:gap-3 xl:gap-4">
-          {Array.from({ length: financials ? 4 : 2 }).map((_, i) => (
-            <Skeleton key={i} className="h-[6.5rem] w-full rounded-lg xl:h-[7.25rem]" />
-          ))}
-        </div>
+      <div className="grid grid-cols-2 gap-2.5 md:gap-3 xl:grid-cols-4">
+        {Array.from({ length: financials ? 4 : 3 }).map((_, i) => (
+          <Skeleton key={i} className="h-[8.5rem] w-full rounded-lg" />
+        ))}
       </div>
-      <div className="space-y-3">
-        <Skeleton className="h-6 w-40" />
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          {Array.from({ length: UPCOMING_CARDS }).map((_, i) => (
-            <Skeleton
-              key={i}
-              className={`h-56 w-full rounded-lg md:h-96 ${i > 0 ? 'hidden md:block' : ''}`}
-            />
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/** The rupee sign on a rupee figure; any other currency gets a neutral banknote. */
-function currencyIcon(currency: string | null) {
-  return currency === 'INR' ? IndianRupee : Banknote;
-}
-
-/**
- * What actually stops something - money that cannot be paid out, an account the platform
- * cannot sell for - always open and first; and everything merely recommended folded into one
- * line, "<n> things to set up", that opens into the list. Nothing at all when nothing is open.
- *
- * The old Overview put a bank account nobody can be paid without and a profile picture in one
- * tall red-bordered card above everything else, so the page opened on a compliance checklist.
- */
-function Attention({ setup, loading }: { setup: SetupSummary; loading: boolean }) {
-  const [open, setOpen] = useState(false);
-  if (loading) return null;
-  if (setup.blockers.length === 0 && setup.todo.length === 0) return null;
-  const listId = 'setup-checklist';
-  const blocked = setup.blockers.length > 0;
-  /*
-    On a phone each blocker is one line - what to fix and the button - until the list is
-    opened; the consequence and the "Blocking" pill (the header already says it) come with it.
-    With nothing else to open, the consequence is simply shown.
-  */
-  const foldDetail = setup.todo.length > 0 && !open ? 'max-md:hidden' : '';
-  const TONE: Record<string, string> = {
-    IMPORTANT: 'bg-tint-warning text-status-warning',
-    SUGGESTED: 'bg-background-subtle text-text-secondary',
-  };
-  /*
-    The "<n> things to set up" switch. In the blocker strip's header when there is one (so the
-    whole panel is two short rows), on its own slim card when there is not.
-  */
-  const toggle = setup.todo.length > 0 && (
-    <button
-      type="button"
-      aria-expanded={open}
-      aria-controls={listId}
-      onClick={() => setOpen((o) => !o)}
-      className="inline-flex min-h-[2.25rem] shrink-0 items-center gap-2 rounded-md px-2.5 text-left text-caption font-semibold text-text-primary transition-colors hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-    >
-      <span>{setup.open > 0 ? setup.label : 'Optional extras'}</span>
-      <ChevronDown
-        className={`h-4 w-4 shrink-0 text-text-muted transition-transform duration-150 motion-reduce:transition-none ${open ? 'rotate-180' : ''}`}
-        aria-hidden
-      />
-    </button>
-  );
-  return (
-    <div
-      className={`overflow-hidden rounded-lg border bg-background-surface shadow-xs ${
-        blocked ? 'border-status-error/40' : 'border-border'
-      }`}
-    >
-      {blocked ? (
-        <section aria-labelledby="blockers-heading">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 border-b border-border bg-tint-error/40 px-4 py-2 sm:px-5">
-            <AlertTriangle className="h-4 w-4 shrink-0 text-status-error" aria-hidden />
-            <h2 id="blockers-heading" className="text-ui font-bold text-text-primary">
-              Needs your attention
-            </h2>
-            <p className="hidden text-caption text-text-secondary md:block">
-              Something here stops the platform doing what you expect.
-            </p>
-            <span className="-mr-2.5 ml-auto">{toggle}</span>
-          </div>
-          <ul className="divide-y divide-border">
-            {setup.blockers.map((a) => (
-              <li key={a.key}>
-                <Link
-                  href={a.fixPath}
-                  className="group flex items-center gap-x-3 px-4 py-2.5 transition-colors hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-5 sm:py-3"
-                >
-                  <div className="min-w-0 flex-1">
-                    <p className="text-ui font-semibold leading-snug text-text-primary group-hover:text-action-primary">
-                      {a.title}
-                    </p>
-                    <p className={`text-caption text-text-muted ${foldDetail}`}>{a.consequence}</p>
-                  </div>
-                  <span
-                    className={`shrink-0 rounded-full bg-tint-error px-2 py-0.5 text-micro font-semibold text-status-error ${foldDetail}`}
-                  >
-                    Blocking
-                  </span>
-                  <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-tint-primary px-3 py-1.5 text-caption font-semibold text-action-primary">
-                    {a.actionLabel}
-                    <ArrowRight
-                      className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none"
-                      aria-hidden
-                    />
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : (
-        <section className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-4 py-2 sm:px-5">
-          <h2 className="sr-only">Setup</h2>
-          <p className="min-w-0 text-caption text-text-muted">
-            Recommended. None of these stops you selling.
-          </p>
-          {toggle}
-        </section>
-      )}
-      {setup.todo.length > 0 && (
-        <ul id={listId} hidden={!open} className="divide-y divide-border border-t border-border">
-          {setup.todo.map((a) => (
-            <li key={a.key}>
-              <Link
-                href={a.fixPath}
-                className="group flex items-start gap-3 px-4 py-3 transition-colors hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-5"
-              >
-                <div className="min-w-0 flex-1">
-                  <p className="text-ui font-medium text-text-primary group-hover:text-action-primary">
-                    {a.title}
-                  </p>
-                  <p className="text-caption text-text-muted">{a.consequence}</p>
-                </div>
-                <span
-                  className={`shrink-0 rounded-full px-2 py-0.5 text-micro font-semibold ${
-                    a.optional ? TONE.SUGGESTED : (TONE[a.severity] ?? TONE.SUGGESTED)
-                  }`}
-                >
-                  {a.optional ? 'Optional' : a.severity === 'IMPORTANT' ? 'Important' : 'Suggested'}
-                </span>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
-/**
- * Gross, what comes off it, and what is left - as the sum it is.
- *
- * Every figure is the API's: `netMinor` is computed server-side as gross less the organizer's
- * fees less completed refunds, and this only lays the parts beside it. If they ever stopped
- * adding up, the screen would show it rather than hide it, which is the point of drawing it.
- */
-function MoneyBreakdown({ cash, fmt }: { cash: MarketMoney; fmt: (minor: number) => string }) {
-  return (
-    <div className="space-y-4">
-      <dl className="divide-y divide-border overflow-hidden rounded-md border border-border text-ui">
-        <div className="flex justify-between gap-3 px-4 py-2.5">
-          <dt className="text-text-secondary">Gross sales</dt>
-          <dd className="tabular-nums text-text-primary">{fmt(cash.grossMinor)}</dd>
-        </div>
-        <div className="flex justify-between gap-3 px-4 py-2.5">
-          <dt className="text-text-secondary">Less your fees</dt>
-          <dd className="whitespace-nowrap tabular-nums text-text-primary">
-            - {fmt(cash.organizerFeesMinor)}
-          </dd>
-        </div>
-        <div className="flex justify-between gap-3 px-4 py-2.5">
-          <dt className="text-text-secondary">
-            Less refunds{' '}
-            <span className="text-micro text-text-muted">({cash.refundRate}% of gross)</span>
-          </dt>
-          <dd className="whitespace-nowrap tabular-nums text-text-primary">
-            - {fmt(cash.refundsMinor)}
-          </dd>
-        </div>
-        <div className="flex justify-between gap-3 bg-tint-primary px-4 py-3 font-semibold">
-          <dt className="text-text-primary">Net proceeds</dt>
-          <dd className="font-display tabular-nums text-text-primary">{fmt(cash.netMinor)}</dd>
-        </div>
-      </dl>
-      <p className="text-caption text-text-muted">
-        Booking fees charged to buyers on these sales: {fmt(cash.bookingFeesMinor)}. They are not
-        part of your proceeds.
-      </p>
+      <Skeleton className="h-52 w-full rounded-lg md:h-40" />
     </div>
   );
 }

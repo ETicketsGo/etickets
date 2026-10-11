@@ -1,10 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import { CalendarDays, CalendarPlus, MapPin } from 'lucide-react';
+import { CalendarDays, MapPin } from 'lucide-react';
 import {
   ButtonLink,
-  EmptyState,
   ImageFrame,
   LifecyclePill,
   Menu,
@@ -50,13 +49,13 @@ const CATEGORY: Record<string, ImageCategory> = {
   movie: 'movie',
 };
 
-function categoryOf(category: string, experienceType: string): ImageCategory {
+export function categoryOf(category: string, experienceType: string): ImageCategory {
   if (experienceType === 'MOVIE') return 'movie';
   return CATEGORY[category.trim().toLowerCase()] ?? 'event';
 }
 
 /** "Sat, 10 Oct" - the show's date at the venue, formatted from its label so it never shifts. */
-function shortDay(day: string): string {
+export function shortDay(day: string): string {
   return new Intl.DateTimeFormat('en-GB', {
     timeZone: 'UTC',
     weekday: 'short',
@@ -236,33 +235,5 @@ export function UpcomingEventCard({
         </div>
       </div>
     </article>
-  );
-}
-
-/** Nothing on: say so, and offer the one thing that changes it. */
-export function NoUpcomingEvents({ canCreate }: { canCreate: boolean }) {
-  return (
-    <EmptyState
-      compact
-      icon={CalendarPlus}
-      tone="teal"
-      title="No upcoming shows"
-      hint="Events with a date still to come appear here, with how each one is selling."
-      action={
-        canCreate ? (
-          <ButtonLink href="/organizer/events/new" variant="tinted" size="sm">
-            Create an event
-          </ButtonLink>
-        ) : undefined
-      }
-      secondaryAction={
-        <Link
-          href="/organizer/events"
-          className="rounded-sm text-caption font-semibold text-action-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          See all events
-        </Link>
-      }
-    />
   );
 }
