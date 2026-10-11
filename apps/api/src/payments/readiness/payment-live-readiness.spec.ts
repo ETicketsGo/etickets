@@ -13,6 +13,7 @@ function make(opts: {
   configs?: Record<string, unknown>[];
   activeMerchant?: unknown;
   verifiedWebhook?: unknown;
+  deliveredWebhook?: boolean;
   cert?: { createdAt: Date } | null;
   routeCount?: number;
   circuitOpen?: boolean;
@@ -32,6 +33,9 @@ function make(opts: {
     },
     merchantCertification: {
       findFirst: jest.fn().mockResolvedValue('cert' in opts ? opts.cert : null),
+    },
+    webhookEvent: {
+      findFirst: jest.fn().mockResolvedValue(opts.deliveredWebhook === false ? null : { id: 'w1' }),
     },
     paymentRoute: { count: jest.fn().mockResolvedValue(opts.routeCount ?? 1) },
   };
@@ -86,6 +90,21 @@ describe('PaymentLiveReadinessService', () => {
     const report = await svc.evaluate();
     expect(report.ok).toBe(true);
     expect(report.providers[0].ok).toBe(true);
+  });
+
+  it('is not ready until a signed webhook delivery has been accepted', async () => {
+    const svc = make({
+      configs: [liveStripe],
+      activeMerchant: { id: 'm1' },
+      verifiedWebhook: { id: 'm1' },
+      cert: { createdAt: new Date() },
+      deliveredWebhook: false,
+    });
+    const report = await svc.evaluate();
+    const check = report.providers[0].checks.find((c) => c.key === 'webhook-delivered');
+    expect(check?.passed).toBe(false);
+    expect(check?.detail).toMatch(/unproven/);
+    expect(report.ok).toBe(false);
   });
 
   it('is not ready when PAYMENT_LIVE_ENABLED is false', async () => {
