@@ -21,6 +21,7 @@ import {
   PageHeader,
   SectionCard,
   Skeleton,
+  SkeletonCard,
   StatCard,
   money,
   dateOnly,
@@ -318,10 +319,19 @@ export default function FinancePage() {
         <div className="space-y-4" role="status" aria-busy="true" aria-label="Loading finance">
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             {Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} className="h-28 w-full" />
+              <SkeletonCard key={i} variant="stat" label="Loading figure" />
             ))}
           </div>
-          <Skeleton className="h-64 w-full" />
+          {/* The ladder card: a title, then rows of label and amount. */}
+          <div className="space-y-3 rounded-lg border border-border bg-background-surface p-5">
+            <Skeleton className="h-5 w-40" />
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="flex items-center justify-between gap-6">
+                <Skeleton className="h-4 w-1/3" />
+                <Skeleton className="h-4 w-24" />
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

@@ -3009,6 +3009,8 @@ export interface SeatClassMapping {
    */
   currency?: string | null;
   mapped: boolean;
+  /** Per class: does this cinema's pricing order have a rate row for it. Absent on an older API. */
+  classHasRate?: Record<string, boolean>;
 }
 
 export interface CinemaComplianceView {
@@ -3027,13 +3029,15 @@ export interface CinemaComplianceView {
   maintenance: { perTicketMinor: number; treatment: string; description: string } | null;
   maxTicketPriceMinor: number | null;
   ticketPriceRule: string | null;
-  onlineFee: { policy: string; description: string };
+  onlineFee: { policy: string; description: string; maxMinor?: number | null };
   prices: {
     ticketTypeId: string;
     name: string;
     priceMinor: number;
     ok: boolean;
     reason: string | null;
+    /** False when only finished shows use this ticket type. Absent on an older API. */
+    upcoming?: boolean;
   }[];
   blocksPublishing: boolean;
 }

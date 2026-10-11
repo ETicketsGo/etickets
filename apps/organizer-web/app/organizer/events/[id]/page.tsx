@@ -10,6 +10,7 @@ import {
   Card,
   Dialog,
   Skeleton,
+  SkeletonCard,
   ErrorState,
   useToast,
   errorMessage,
@@ -153,7 +154,7 @@ export default function EventOverview() {
     return (
       <ErrorState message="We couldn't load this. Please try again." onRetry={() => refetch()} />
     );
-  if (isLoading || !event || !state) return <Skeleton className="h-64 w-full" />;
+  if (isLoading || !event || !state) return <OverviewSkeleton />;
 
   return (
     <div className="min-w-0 space-y-6">
@@ -278,6 +279,39 @@ export default function EventOverview() {
           and images. This cannot be undone.
         </p>
       </Dialog>
+    </div>
+  );
+}
+
+/**
+ * The event page while it loads, in its own shape: the lead card, a row of manage tiles, then
+ * the main column and the side column. The single grey block it had was 256px tall and the
+ * page is several times that, so everything below jumped when the data arrived.
+ */
+function OverviewSkeleton() {
+  return (
+    <div className="min-w-0 space-y-6" role="status" aria-busy="true" aria-label="Loading event">
+      <div className="space-y-4 rounded-lg border border-border bg-background-surface p-5">
+        <div className="flex gap-2">
+          <Skeleton className="h-6 w-24 rounded-full" />
+          <Skeleton className="h-6 w-32 rounded-full" />
+        </div>
+        <Skeleton className="h-6 w-2/3" />
+        <Skeleton className="h-4 w-1/2" />
+        <Skeleton className="h-10 w-40" />
+      </div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <SkeletonCard key={i} variant="stat" label="Loading" />
+        ))}
+      </div>
+      <div className="grid min-w-0 gap-6 lg:grid-cols-3">
+        <div className="min-w-0 space-y-6 lg:col-span-2">
+          <Skeleton className="h-48 w-full rounded-lg" />
+          <Skeleton className="h-56 w-full rounded-lg" />
+        </div>
+        <Skeleton className="h-64 w-full rounded-lg" />
+      </div>
     </div>
   );
 }
