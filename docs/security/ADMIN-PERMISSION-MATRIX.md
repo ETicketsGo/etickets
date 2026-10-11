@@ -419,9 +419,18 @@ Gaps found, and where each stands:
   guidance. No full number is ever in a notification payload.
 - **Change history (closed).** Every save is a row in `OrganizerPayoutAccountVersion`: who, when,
   which fields changed, last four digits only. There is no ciphertext column on it.
-- A changed account can receive a payout at once. There is no cooling-off period and no second
-  approval. **Still open in this change:** payout execution does not look at verification. The
-  hold is a separate change that needs owner approval.
+- **Payout hold (closed by the DO-NOT-MERGE change, pending owner approval).**
+  `POST /admin/payouts/:id/pay` refuses (409, audited `REFUSED`) unless the organizer has a
+  VERIFIED bank account in the payout's currency, in its current version. Net-zero and clawback
+  payouts are exempt. The account row is read `FOR SHARE` in the same transaction as the PAID
+  claim, so a save cannot slip in between. A payout is held, not lost: it stays PENDING until a
+  second staff member verifies the account.
+- There is no cooling-off period. Proposal only (not built): hold a changed account for N days
+  before it may be verified. Business impact: every legitimate bank change delays the next
+  payout by N days on top of verification time. The maker-checker plus owner email already give
+  a window to object, so this needs a decision, not a default.
+- There is no re-authentication or step-up mechanism in the platform. None was invented. The
+  owner is emailed on every change instead.
 
 Blocked: `POST /payouts/accounts` for every platform staff account, super admin included. The
 owner's own flow is unchanged.
