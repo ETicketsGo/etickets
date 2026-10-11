@@ -1696,6 +1696,11 @@ export const api = {
     /** The organizer's own bank accounts, masked. */
     accounts: (organizationId: string) =>
       request<PayoutAccount[]>(`/payouts/accounts${qs({ organizationId })}`),
+    /** Every version of the account that was saved, newest first. Masked: no full number, ever. */
+    accountHistory: (organizationId: string, currency?: string) =>
+      request<PayoutAccountVersion[]>(
+        `/payouts/accounts/history${qs({ organizationId, currency })}`,
+      ),
     saveAccount: (body: {
       organizationId: string;
       currency: string;
@@ -2030,8 +2035,23 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ reason }),
       }),
-    verifyPayoutAccount: (id: string) =>
-      request<PayoutAccount>(`/admin/payouts/accounts/${id}/verified`, { method: 'POST' }),
+    /**
+     * Maker-checker: refused for whoever entered the details and for members of the organization.
+     * `version` is the version the reviewer was looking at; a newer one is refused (409).
+     */
+    verifyPayoutAccount: (id: string, version: number) =>
+      request<PayoutAccount>(`/admin/payouts/accounts/${id}/verified`, {
+        method: 'POST',
+        body: JSON.stringify({ version }),
+      }),
+    /** Turn the details down. The reason is stored and emailed to the owners. */
+    rejectPayoutAccount: (id: string, reason: string, version: number) =>
+      request<PayoutAccount>(`/admin/payouts/accounts/${id}/reject`, {
+        method: 'POST',
+        body: JSON.stringify({ reason, version }),
+      }),
+    payoutAccountHistory: (id: string) =>
+      request<AdminPayoutAccountVersion[]>(`/admin/payouts/accounts/${id}/history`),
     savePayoutSettings: (organizationId: string | null, body: PayoutSettingsInput) =>
       request<PayoutSetting>(
         organizationId ? `/admin/payout-settings/${organizationId}` : '/admin/payout-settings',
@@ -5169,7 +5189,38 @@ export interface PayoutAccount {
   accountLast4: string;
   verifiedAt: string | null;
   updatedAt: string;
+  /** Where the account stands. A saved or changed account waits for staff to check it. */
+  status: 'PENDING_VERIFICATION' | 'VERIFIED' | 'REJECTED';
+  /** Counts saves. A verification names the version it checked. */
+  version: number;
+  rejectedAt: string | null;
+  /** Why staff turned the details down, in their words. */
+  rejectionReason: string | null;
   organization?: { id: string; name: string };
+  /** Admin list only: who entered these details. */
+  savedBy?: { id: string; email: string } | null;
+}
+
+/** One saved version of a payout bank account. Masked: nothing here can hold a full number. */
+export interface PayoutAccountVersion {
+  version: number;
+  currency: string;
+  holderName: string;
+  bankName: string;
+  bankCode: string;
+  accountLast4: string;
+  /** holderName, bankName, bankCode, accountNumber, or `initial` for the first save. */
+  changedFields: string[];
+  status: 'PENDING_VERIFICATION' | 'VERIFIED' | 'REJECTED' | 'SUPERSEDED';
+  savedAt: string;
+  savedBy: string | null;
+  decidedAt: string | null;
+  decisionNote: string | null;
+}
+
+/** The admin view of a version also says which staff member decided it. */
+export interface AdminPayoutAccountVersion extends PayoutAccountVersion {
+  decidedBy: string | null;
 }
 
 /** The one reply that carries the full number, after an audited reveal. */

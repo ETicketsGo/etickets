@@ -8,9 +8,13 @@ import {
   Card,
   Input,
   Select,
+  StatusBadge,
+  dateOnly,
   useToast,
   errorMessage,
   MARKETS,
+  type PayoutAccount,
+  type PayoutAccountVersion,
 } from '@eticketsgo/web-kit';
 
 /**
@@ -26,6 +30,93 @@ import {
  * already knows their own number, printing it back adds a screen to read over a shoulder,
  * and it means an assistant with console access cannot collect account numbers.
  */
+/** What each stage means to the owner, in the words they will act on. */
+function reviewLine(account: PayoutAccount): string {
+  if (account.status === 'VERIFIED') {
+    return account.verifiedAt
+      ? `Checked by ETicketsGo on ${dateOnly(account.verifiedAt)}.`
+      : 'Checked by ETicketsGo.';
+  }
+  if (account.status === 'REJECTED') {
+    return `ETicketsGo could not verify these details.${
+      account.rejectionReason ? ` Reason: ${account.rejectionReason}.` : ''
+    } Check them and save the account again.`;
+  }
+  return 'Waiting for ETicketsGo to check these details. You do not need to do anything.';
+}
+
+const REVIEW_BADGE: Record<PayoutAccount['status'], { status: string; label: string }> = {
+  PENDING_VERIFICATION: { status: 'UNDER_REVIEW', label: 'Waiting for verification' },
+  VERIFIED: { status: 'APPROVED', label: 'Verified' },
+  REJECTED: { status: 'REJECTED', label: 'Not accepted' },
+};
+
+const FIELD_LABELS: Record<string, string> = {
+  initial: 'New account',
+  holderName: 'Account holder name',
+  bankName: 'Bank name',
+  bankCode: 'Bank code',
+  accountNumber: 'Account number',
+};
+
+const VERSION_BADGE: Record<PayoutAccountVersion['status'], { status: string; label: string }> = {
+  PENDING_VERIFICATION: { status: 'UNDER_REVIEW', label: 'Waiting for verification' },
+  VERIFIED: { status: 'APPROVED', label: 'Verified' },
+  REJECTED: { status: 'REJECTED', label: 'Not accepted' },
+  SUPERSEDED: { status: 'EXPIRED', label: 'Replaced before it was checked' },
+};
+
+/**
+ * Every version of the account that was saved, newest first.
+ *
+ * Masked on purpose: the last four digits, the bank and the holder, never the full number. The
+ * point is "who changed what, and when", so an owner who sees a change they did not make knows to
+ * act on it.
+ */
+function History({ orgId }: { orgId: string }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['organizer', 'payout-account-history', orgId],
+    queryFn: () => api.payouts.accountHistory(orgId),
+  });
+  if (isLoading || !data || data.length === 0) return null;
+  return (
+    <details className="mb-4 rounded-md border border-border px-3 py-2">
+      <summary className="cursor-pointer text-sm font-medium text-text-primary">
+        Change history ({data.length})
+      </summary>
+      <ul className="mt-2 space-y-2">
+        {data.map((v) => {
+          const badge = VERSION_BADGE[v.status];
+          return (
+            <li key={`${v.currency}-${v.version}`} className="text-sm">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-medium text-text-primary">
+                  {v.currency} version {v.version}
+                </span>
+                <StatusBadge status={badge.status} label={badge.label} />
+              </div>
+              <p className="text-caption text-text-muted">
+                {v.holderName} &middot; {v.bankName} &middot; {v.bankCode} &middot; ending{' '}
+                {v.accountLast4}
+              </p>
+              <p className="text-caption text-text-muted">
+                Saved {dateOnly(v.savedAt)}
+                {v.savedBy ? ` by ${v.savedBy}` : ''}. Changed:{' '}
+                {v.changedFields.map((f) => FIELD_LABELS[f] ?? f).join(', ') || 'nothing'}.
+              </p>
+              {v.decisionNote ? (
+                <p className="text-caption text-text-muted">
+                  Note from ETicketsGo: {v.decisionNote}
+                </p>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
+    </details>
+  );
+}
+
 export function BankAccount({ orgId }: { orgId: string }) {
   const qc = useQueryClient();
   const toast = useToast();
@@ -46,10 +137,16 @@ export function BankAccount({ orgId }: { orgId: string }) {
   const save = useMutation({
     mutationFn: () => api.payouts.saveAccount({ organizationId: orgId, ...form }),
     onSuccess: () => {
-      toast.push('Bank account saved. We will use it for your next payout.', 'success');
+      toast.push(
+        'Bank account saved. ETicketsGo will check it, and every owner is told by email.',
+        'success',
+      );
       setEditing(false);
       setForm({ ...form, accountNumber: '' });
       void qc.invalidateQueries({ queryKey: ['organizer', 'payout-accounts', orgId] });
+      void qc.invalidateQueries({ queryKey: ['organizer', 'payout-account-history', orgId] });
+      // The state card above reads the same account, so it must not keep saying "verified".
+      void qc.invalidateQueries({ queryKey: ['organizer', 'payout-account-state', orgId] });
     },
     onError: (e) => toast.push(errorMessage(e), 'error'),
   });
@@ -80,20 +177,17 @@ export function BankAccount({ orgId }: { orgId: string }) {
                 </p>
                 <p className="text-caption text-text-muted">
                   {account.currency} &middot; {account.bankCode} &middot; ending{' '}
-                  {account.accountLast4}
+                  {account.accountLast4} &middot; version {account.version}
                 </p>
+                <p className="mt-1 text-caption text-text-secondary">{reviewLine(account)}</p>
               </div>
               {/*
-                No status badge here, deliberately.
-
-                This printed VERIFIED or UNVERIFIED, which said nothing about whether the
-                organizer could still sell, whether money could reach them, or whether anybody was
-                waiting on them - and UNVERIFIED implies the organizer is the one holding things
-                up when verification is ETicketsGo's job. The Payout status card above answers all
-                of that from the server's own state model, and a second badge interpreting
-                `verifiedAt` here would be exactly the duplicate reading that model exists to
-                prevent. This row identifies the account; the card says where things stand.
+                This badge says where THIS version of the details stands. It does not say whether
+                sales are affected or when money moves: the Payout status card above answers that
+                from the server's own state model, and a second reading of `verifiedAt` here would
+                be the duplicate interpretation that model exists to prevent.
               */}
+              <StatusBadge {...REVIEW_BADGE[account.status]} />
             </li>
           ))}
         </ul>
@@ -103,8 +197,15 @@ export function BankAccount({ orgId }: { orgId: string }) {
         </p>
       )}
 
+      <History orgId={orgId} />
+
       {editing ? (
         <div className="space-y-3">
+          <p className="rounded-md border border-border bg-background-subtle px-3 py-2 text-caption text-text-secondary">
+            Every change is saved as a new version and emailed to all owners of this organization.
+            ETicketsGo staff check the new details before they count as verified. If you did not
+            expect a change, contact support.
+          </p>
           <Select
             label="Currency this account receives"
             value={form.currency}

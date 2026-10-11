@@ -479,6 +479,32 @@ const BUILDERS: Partial<Record<NotificationType, Builder>> = {
     };
   },
 
+  /*
+    The organization's bank account changed, was verified, or was turned down.
+
+    Built from MASKED fields only (bank, last four digits, currency, the names of the fields that
+    changed). The payload never holds a full number, so no template here can print one.
+  */
+  [NotificationType.PAYOUT_ACCOUNT_UPDATED]: (l, p) => {
+    const change = str(p, 'change', 'SAVED').toLowerCase();
+    const kind = change === 'verified' || change === 'rejected' ? change : 'saved';
+    const raw = p.changedFields;
+    const names = Array.isArray(raw) ? raw.map(String) : [];
+    const changes = names.map((n) => t(l, `emails.PAYOUT_ACCOUNT_UPDATED.fields.${n}`)).join(', ');
+    const values = {
+      currency: str(p, 'currency'),
+      bank: str(p, 'bankName'),
+      last4: str(p, 'accountLast4'),
+      version: str(p, 'version', '1'),
+      changes,
+      reason: optional(l, 'reason', { reason: str(p, 'reason') }),
+    };
+    return {
+      subject: t(l, `emails.PAYOUT_ACCOUNT_UPDATED.${kind}.subject`, values),
+      body: t(l, `emails.PAYOUT_ACCOUNT_UPDATED.${kind}.body`, values),
+    };
+  },
+
   [NotificationType.EVENT_REJECTED]: (l, p) => {
     const event = str(p, 'eventTitle', t(l, 'emails.fragments.yourEvent'));
     return {

@@ -405,15 +405,23 @@ Found:
 - Verify and reveal are on `/admin/payouts`. They need `PAYOUT_MANAGE` and are audited. A reveal
   needs a reason.
 
-Missing. These are reported here, not built:
+Gaps found, and where each stands:
 
-- **No maker-checker.** Nothing stops the person who verifies an account from being the person
-  who entered it. Before this change, one finance account (`PAYOUT_MANAGE`) could save a bank
-  account through the bypass, verify it, and mark a payout paid to it. Blocking staff from the
-  save closes that path. A rule "verifier is not `updatedByUserId`" does not exist yet.
-- The owner gets no notice when bank details change.
+- **Maker-checker (closed by the bank-account safeguards change).** The person who verifies or
+  rejects an account must not be the person who saved it, and must not be a member of the
+  organization. Enforced in `PayoutAccountsService`, and again by a database check constraint
+  (`OrganizerPayoutAccount_checker_not_maker`) so a code path that forgets the rule is still
+  refused. A refusal is audited (`outcome: REFUSED`, `reasonCode: SAME_PERSON` or
+  `ORGANIZATION_MEMBER`). Verification also names the version it checked: details saved after the
+  reviewer looked are refused (409), so a swapped number cannot ride on an earlier check.
+- **Owner notice (closed).** Every save, verification and rejection emails and notifies every
+  organization OWNER (`PAYOUT_ACCOUNT_UPDATED`) with a masked summary and "if this was not you"
+  guidance. No full number is ever in a notification payload.
+- **Change history (closed).** Every save is a row in `OrganizerPayoutAccountVersion`: who, when,
+  which fields changed, last four digits only. There is no ciphertext column on it.
 - A changed account can receive a payout at once. There is no cooling-off period and no second
-  approval.
+  approval. **Still open in this change:** payout execution does not look at verification. The
+  hold is a separate change that needs owner approval.
 
 Blocked: `POST /payouts/accounts` for every platform staff account, super admin included. The
 owner's own flow is unchanged.

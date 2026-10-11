@@ -71,6 +71,17 @@ const CASES: [NotificationType, Record<string, unknown>][] = [
     },
   ],
   [
+    NotificationType.PAYOUT_ACCOUNT_UPDATED,
+    {
+      change: 'SAVED',
+      currency: 'INR',
+      bankName: 'HDFC Bank',
+      accountLast4: '6789',
+      version: 2,
+      changedFields: ['accountNumber'],
+    },
+  ],
+  [
     NotificationType.EVENT_REJECTED,
     { eventTitle: 'Ilakathamafiliya', reason: 'The poster is not licensed to this organizer.' },
   ],
