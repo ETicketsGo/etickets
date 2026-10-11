@@ -39,6 +39,15 @@ export interface TemplateContract {
  */
 export const TEMPLATE_CONTRACTS: Partial<Record<NotificationType, TemplateContract>> = {
   /*
+    A bank account notice that does not say which account is no use to an owner deciding whether
+    it was them. Masked fields only; there is deliberately no field here that could hold a number.
+  */
+  [NotificationType.PAYOUT_ACCOUNT_UPDATED]: {
+    required: ['change', 'currency', 'bankName', 'accountLast4'],
+    optional: ['version', 'changedFields', 'reason'],
+  },
+
+  /*
     The ticket. `reference` is what a customer reads down a phone to support, and the event
     and time are how they recognise which booking this is among several.
   */

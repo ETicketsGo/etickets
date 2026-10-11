@@ -103,6 +103,27 @@
     "subject": "« {event} » est en ligne mais ne peut pas être vendu",
     "body": "Les clients trouvent « {event} » et sont refusés au paiement. {reason} Ouvrez l'événement dans votre console organisateur pour corriger cela."
   },
+  "PAYOUT_ACCOUNT_UPDATED": {
+    "saved": {
+      "subject": "Votre compte bancaire de versement en {currency} a été modifié",
+      "body": "Le compte bancaire de versement en {currency} a été enregistré : {bank}, se terminant par {last4} (version {version}). Modifié : {changes}. Il reste en attente de vérification jusqu'à ce que l'équipe ETicketsGo le vérifie. Si ce n'était pas vous, communiquez avec le soutien maintenant et changez votre mot de passe."
+    },
+    "verified": {
+      "subject": "Votre compte bancaire de versement en {currency} a été vérifié",
+      "body": "L'équipe ETicketsGo a vérifié le compte bancaire de versement en {currency} chez {bank}, se terminant par {last4} (version {version}). Si vous ne vous y attendiez pas, communiquez avec le soutien maintenant."
+    },
+    "rejected": {
+      "subject": "Votre compte bancaire de versement en {currency} n'a pas été accepté",
+      "body": "L'équipe ETicketsGo n'a pas pu vérifier le compte bancaire de versement en {currency} chez {bank}, se terminant par {last4} (version {version}).{reason} Vérifiez les renseignements et enregistrez de nouveau le compte."
+    },
+    "fields": {
+      "initial": "un nouveau compte",
+      "holderName": "nom du titulaire",
+      "bankName": "nom de la banque",
+      "bankCode": "code bancaire",
+      "accountNumber": "numéro de compte"
+    }
+  },
   "generic": {
     "subject": "Notification : {type}",
     "body": "Vous avez une nouvelle notification ({type})."

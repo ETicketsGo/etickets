@@ -1099,9 +1099,9 @@ model Screen {
 /// and cannot reach backwards into a show that has already sold. Immutability is structural,
 /// not a rule someone has to remember to enforce.
 model SeatMap {
-  id       String  @id @default(cuid())
+  id       String @id @default(cuid())
   screenId String
-  screen   Screen  @relation(fields: [screenId], references: [id], onDelete: Cascade)
+  screen   Screen @relation(fields: [screenId], references: [id], onDelete: Cascade)
 
   /// What this layout IS, and therefore which of a space's configurations it belongs to.
   ///
@@ -4490,12 +4490,61 @@ model OrganizerPayoutAccount {
   /// Somebody has checked this against a document or a penny transfer.
   verifiedAt       DateTime?
   verifiedByUserId String?
+  /// Who SAVED the details now on this row (the maker). Verification must come from somebody else.
   updatedByUserId  String?
+  /// Staff turned these details down. Cleared by the next save, like verifiedAt.
+  rejectedAt       DateTime?
+  rejectedByUserId String?
+  rejectionReason  String?
+  /// Counts saves. A verification names the version it checked, so details swapped after a
+  /// reviewer looked at them can never be verified by that earlier look.
+  version          Int       @default(1)
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
+  versions OrganizerPayoutAccountVersion[]
+
   @@unique([organizationId, currency])
   @@index([organizationId])
+}
+
+enum PayoutAccountVersionStatus {
+  PENDING_VERIFICATION
+  VERIFIED
+  REJECTED
+  /// A later save replaced these details before anyone decided on them.
+  SUPERSEDED
+}
+
+/// One row per save of a payout bank account: the history nobody can rewrite quietly.
+///
+/// ── MASKED BY CONSTRUCTION ─────────────────────────────────────────────────────────
+/// There is deliberately NO ciphertext column. History answers "who changed what, when"; it must
+/// never become a second place full account numbers live. Only the last four digits, the bank
+/// name, the holder and the IFSC/routing code (not secrets) are kept. A previous full number is
+/// gone once it is replaced - that is the point of not storing it twice.
+model OrganizerPayoutAccountVersion {
+  id              String                     @id @default(cuid())
+  accountId       String
+  account         OrganizerPayoutAccount     @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  organizationId  String
+  currency        String
+  version         Int
+  holderName      String
+  bankName        String
+  bankCode        String
+  accountLast4    String
+  /// Which fields differ from the previous version: holderName, bankName, bankCode, accountNumber.
+  changedFields   String[]
+  savedByUserId   String?
+  status          PayoutAccountVersionStatus @default(PENDING_VERIFICATION)
+  decidedAt       DateTime?
+  decidedByUserId String?
+  decisionNote    String?
+  createdAt       DateTime                   @default(now())
+
+  @@unique([accountId, version])
+  @@index([organizationId, currency, version])
 }
 
 /// One back-office capability held by one account.

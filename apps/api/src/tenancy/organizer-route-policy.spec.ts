@@ -221,6 +221,7 @@ export const ORGANIZER_ROUTE_POLICY: Record<string, StaffPolicy> = {
   'GET /payouts/summary': 'NONE',
   'GET /payouts/account-state': 'NONE',
   'GET /payouts/accounts': 'NONE',
+  'GET /payouts/accounts/history': 'NONE',
   'POST /payouts/accounts': 'ORGANIZER_ONLY',
   'POST /payouts/generate': 'ORGANIZER_ONLY',
   'GET /receipts/mine': 'SELF',
