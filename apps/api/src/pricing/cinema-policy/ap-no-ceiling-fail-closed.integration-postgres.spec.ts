@@ -169,8 +169,98 @@ describe('what stays as it was', () => {
     expect(eligibility.sellable).toBe(true);
   });
 
-  it('a ticket with no seat class at all is untouched (see the documented residue)', async () => {
+  it('a seated category with a class and a ceiling still sells (REGULAR 150, RECLINER 250)', async () => {
+    expect((await cart(AP_COUNTRY, [line('REGULAR', 15_000)])).eligibility.sellable).toBe(true);
+    expect((await cart(AP_COUNTRY, [line('RECLINER', 25_000)])).eligibility.sellable).toBe(true);
+  });
+});
+
+describe('a seated ticket whose seat category has NO regulatory class (owner 2026-10-12)', () => {
+  const unmappedSeat = (price: number) =>
+    line(null, price, {
+      seatCategoryName: 'Platinum Executive',
+      ticketTypeId: 'tt-plat',
+      ticketTypeName: 'Platinum',
+    });
+
+  it('is refused at any price, as SEAT_CLASS_UNMAPPED with a fix link', async () => {
+    for (const price of [100, 20_000, 99_999]) {
+      const { eligibility } = await cart(AP_COUNTRY, [unmappedSeat(price)]);
+      expect(eligibility.sellable).toBe(false);
+      const b = eligibility.blockers[0];
+      expect(b.code).toBe('SEAT_CLASS_UNMAPPED');
+      expect(b.owner).toBe('ORGANIZER');
+      expect(b.fixPath).toContain('seat-classes');
+      expect(b.organizerMessage).toContain('Platinum Executive');
+    }
+  });
+
+  it('closes only its own ticket type on a show, leaving REGULAR/RECLINER open', async () => {
+    const types = [
+      {
+        id: 'tt-reg',
+        name: 'Reg',
+        priceMinor: 15_000,
+        currency: 'INR',
+        seatCategory: { name: 'R', regulatoryClass: 'REGULAR' },
+      },
+      {
+        id: 'tt-rec',
+        name: 'Rec',
+        priceMinor: 25_000,
+        currency: 'INR',
+        seatCategory: { name: 'C', regulatoryClass: 'RECLINER' },
+      },
+      {
+        id: 'tt-plat',
+        name: 'Plat',
+        priceMinor: 20_000,
+        currency: 'INR',
+        seatCategory: { name: 'Platinum Executive', regulatoryClass: null },
+      },
+    ];
+    const r = await sessionSaleEligibility(
+      resolve as never,
+      multiplex(AP_COUNTRY),
+      types,
+      'India',
+      AT,
+    );
+    expect(r.sellableTicketTypeIds.sort()).toEqual(['tt-rec', 'tt-reg']);
+    expect(r.blockers.map((b) => b.code)).toEqual(['SEAT_CLASS_UNMAPPED']);
+  });
+
+  it('an unregulated market still sells it', async () => {
+    expect((await cart(UNREGULATED_COUNTRY, [unmappedSeat(99_999)])).eligibility.sellable).toBe(
+      true,
+    );
+  });
+});
+
+describe('a ticket with no seat category at all (general admission) at a regulated cinema', () => {
+  it('is refused when the only rule that applies states no ceiling', async () => {
     const { eligibility } = await cart(AP_COUNTRY, [line(null, 20_000)]);
-    expect(eligibility.sellable).toBe(true);
+    expect(eligibility.sellable).toBe(false);
+    const b = eligibility.blockers[0];
+    expect(b.code).toBe('SEAT_CLASS_UNMAPPED');
+    expect(b.owner).toBe('ORGANIZER');
+    expect(b.fixPath).toContain('seat-classes');
+    expect(b.organizerMessage).toMatch(/has no seat category/);
+    expect(b.ticketTypeIds).toEqual(['tt-none']);
+  });
+
+  it('prices against a class-agnostic rule that DOES state a ceiling', async () => {
+    expect((await cart(CEILING_COUNTRY, [line(null, 20_000)])).eligibility.sellable).toBe(true);
+    const over = await cart(CEILING_COUNTRY, [line(null, 30_100)]);
+    expect(over.eligibility.blockers.map((b) => b.code)).toEqual(['PRICE_OVER_CEILING']);
+  });
+
+  it('a market no active rule claims is not regulated: it sells', async () => {
+    expect((await cart(UNREGULATED_COUNTRY, [line(null, 20_000)])).eligibility.sellable).toBe(true);
+  });
+
+  it('beside a REGULAR seat, only the classless ticket type is stopped', async () => {
+    const { eligibility } = await cart(AP_COUNTRY, [line('REGULAR', 15_000), line(null, 5_000)]);
+    expect(eligibility.blockers.map((b) => b.ticketTypeIds)).toEqual([['tt-none']]);
   });
 });

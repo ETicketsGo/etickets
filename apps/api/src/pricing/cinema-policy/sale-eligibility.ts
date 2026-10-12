@@ -92,7 +92,8 @@ export interface CinemaPolicyOutcome {
 }
 
 export interface UnratedLine {
-  regulatoryClass: string;
+  /** Null when the ticket has no seat category at all (not seated), so no class to rate. */
+  regulatoryClass: string | null;
   seatCategoryName: string | null;
   ticketTypeId?: string;
   ticketTypeName?: string | null;
@@ -287,6 +288,44 @@ export async function resolveCinemaPolicy(
     }
   }
 
+  /*
+    ── TICKETS WITH NO SEAT CATEGORY AT ALL (owner decision 2026-10-12) ───────────────
+    The regulation prices per seat class, so a ticket with no seat category has no class to be
+    priced under. At a cinema in a regulated market it used to match the class-agnostic
+    fallback, which states no ceiling, and sold uncapped. Now it is asked the same question as
+    a class: does a rule that names no class state a maximum price? If it does (a verified
+    class-agnostic ceiling) the line prices against it below; if not, it is refused.
+    Applies only to lines with neither a class nor a seat category name: a named but unmapped
+    category is the resolver's own refusal above.
+  */
+  const classless = admissionLines.filter((l) => !l.category && !l.seatCategoryName);
+  if (resolve && isRegulatedStatus(resolution.status) && classless.length > 0) {
+    const noClass = await resolve({ ...context, seatCategories: [], unmappedSeatCategories: [] });
+    for (const l of classless) {
+      if (hasNoCeilingFallback(noClass)) {
+        unrated.push({
+          regulatoryClass: null,
+          seatCategoryName: null,
+          ticketTypeId: l.ticketTypeId,
+          ticketTypeName: l.ticketTypeName ?? null,
+        });
+      } else {
+        const verdict = checkTicketPrice(noClass, l.unitPriceMinor);
+        if (!verdict.ok) {
+          overCeiling.push({
+            seatCategoryName: null,
+            priceMinor: l.unitPriceMinor,
+            reason: verdict.reason ?? 'Above the permitted rate for this ticket.',
+            ticketTypeId: l.ticketTypeId,
+            ticketTypeName: l.ticketTypeName ?? null,
+            maxMinor: noClass.policy?.ticketPriceMaxMinor ?? null,
+            minMinor: noClass.policy?.ticketPriceMinMinor ?? null,
+          });
+        }
+      }
+    }
+  }
+
   return {
     resolution,
     effect: applyPolicy(resolution, ticketCount),
@@ -365,6 +404,21 @@ export function saleBlockersFromPolicy(
     organizer has already mapped it and needs to know why that was not enough.
   */
   const unrated = (outcome.unrated ?? []).map((line): SaleBlocker => {
+    if (line.regulatoryClass == null) {
+      const tname = line.ticketTypeName ?? 'A ticket';
+      return {
+        ...base,
+        ...(line.ticketTypeId ? { ticketTypeIds: [line.ticketTypeId] } : {}),
+        code: 'SEAT_CLASS_UNMAPPED',
+        owner: 'ORGANIZER',
+        organizerMessage:
+          `${tname} has no seat category, and ${place} sets a price limit for each seat class, ` +
+          'so it cannot be sold online. Attach it to a seat category that has a seat class under ' +
+          'Seat classes, or contact support.',
+        fixPath: seatClassesPath(where.cinemaId),
+        subject: tname,
+      };
+    }
     const name = line.seatCategoryName ?? line.ticketTypeName ?? 'A seat category';
     return {
       ...base,
