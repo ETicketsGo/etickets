@@ -68,8 +68,8 @@ Dashboard (Test Mode) → **Settings → Webhooks → Add New Webhook**.
    - `order.paid`
    - `payment.captured`
    - `payment.failed`
-   - `refund.created`
-   - `refund.processed`
+   - `refund.processed` (moves the ledger and completes our refund row)
+   - `refund.failed` (marks our refund row FAILED; without it a rejected refund stays PROCESSING)
    - `payment.dispute.created`
    - `payment.dispute.won`
    - `payment.dispute.lost`
@@ -78,8 +78,8 @@ Dashboard (Test Mode) → **Settings → Webhooks → Add New Webhook**.
 
    Acknowledged (accepted and recorded as IGNORED — safe to subscribe):
    - `payment.authorized`
+   - `refund.created` (same entity as `refund.processed`; counting both double-counted)
    - `transfer.processed`
-   - `refund.failed`
    - `settlement.processed`
    - `settlement.failed`
 

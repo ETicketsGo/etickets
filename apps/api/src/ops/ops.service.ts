@@ -8,6 +8,14 @@ import { AppException, ErrorCodes } from '../common/errors';
 import { HOLDS_QUEUE, HOLDS_QUEUE_NAME } from './holds-queue.provider';
 import { AuditService } from '../audit/audit.service';
 import { audited } from '../audit/audited';
+import {
+  BACKUP_EVIDENCE_ACTION,
+  OPS_EVIDENCE_ENTITY,
+  RESTORE_DRILL_EVIDENCE_ACTION,
+  backupFailsHealth,
+  evaluateBackupFreshness,
+  type BackupFreshness,
+} from './backup-freshness';
 
 type CheckStatus = 'up' | 'down';
 
@@ -45,6 +53,8 @@ export interface OpsHealth {
   redis: DependencyCheck;
   queue: QueueCheck;
   storage: { status: 'not_configured' };
+  /** Age of the newest VERIFIED database backup. Fails health in PRODUCTION when stale or absent. */
+  backup: BackupFreshness;
   uptime: number;
   nodeEnv: string;
   /**
@@ -106,17 +116,27 @@ export class OpsService implements OnModuleDestroy {
   // ─────────────────────────── Health ───────────────────────────
 
   async health(): Promise<OpsHealth> {
-    const [database, redis, queue] = await Promise.all([
+    const [database, redis, queue, backup] = await Promise.all([
       this.checkDatabase(),
       this.checkRedis(),
       this.checkQueue(),
+      this.checkBackup(),
     ]);
-    const healthy = database.status === 'up' && redis.status === 'up' && queue.status === 'ok';
+    const appEnv = this.config.get<string>('APP_ENV') ?? null;
+    const backupRequired =
+      (appEnv ?? '').toUpperCase() === 'PRODUCTION' ||
+      this.config.get<string>('BACKUP_FRESHNESS_REQUIRED') === 'true';
+    const healthy =
+      database.status === 'up' &&
+      redis.status === 'up' &&
+      queue.status === 'ok' &&
+      !backupFailsHealth(backup, backupRequired);
     return {
       status: healthy ? 'ok' : 'degraded',
       database,
       redis,
       queue,
+      backup,
       // S3/blob storage is not configured yet — report it honestly.
       storage: { status: 'not_configured' },
       uptime: process.uptime(),
@@ -132,6 +152,39 @@ export class OpsService implements OnModuleDestroy {
       return { status: 'up', latencyMs: Date.now() - start };
     } catch (err) {
       return { status: 'down', latencyMs: Date.now() - start, error: errorMessage(err) };
+    }
+  }
+
+  /**
+   * Age of the newest verified backup, read from the evidence row the nightly run writes.
+   * Never throws: an unreadable table is 'unknown', not a 500 on the health endpoint.
+   */
+  private async checkBackup(): Promise<BackupFreshness> {
+    const maxAge = Number(this.config.get<string>('BACKUP_MAX_AGE_HOURS'));
+    const opts = Number.isFinite(maxAge) && maxAge > 0 ? { maxAgeHours: maxAge } : {};
+    try {
+      const [backup, drill] = await Promise.all([
+        this.prisma.auditLog.findFirst({
+          where: { action: BACKUP_EVIDENCE_ACTION, entityType: OPS_EVIDENCE_ENTITY },
+          orderBy: { createdAt: 'desc' },
+          select: { createdAt: true, entityId: true },
+        }),
+        this.prisma.auditLog.findFirst({
+          where: { action: RESTORE_DRILL_EVIDENCE_ACTION, entityType: OPS_EVIDENCE_ENTITY },
+          orderBy: { createdAt: 'desc' },
+          select: { createdAt: true },
+        }),
+      ]);
+      return evaluateBackupFreshness(backup?.createdAt ?? null, new Date(), {
+        ...opts,
+        lastBackupName: backup?.entityId ?? null,
+        lastRestoreDrillAt: drill?.createdAt ?? null,
+      });
+    } catch {
+      return {
+        ...evaluateBackupFreshness(null, new Date(), opts),
+        status: 'unknown',
+      };
     }
   }
 

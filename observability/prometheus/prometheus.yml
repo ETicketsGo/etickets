@@ -16,6 +16,7 @@ global:
 rule_files:
   - /etc/prometheus/alerts.yml
   - /etc/prometheus/booking-platform-alerts.yml
+  - /etc/prometheus/pilot-alerts.yml
 
 # Route firing alerts to Alertmanager (optional service in docker-compose.observability.yml).
 alerting:

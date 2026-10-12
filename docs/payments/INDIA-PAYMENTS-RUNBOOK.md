@@ -86,7 +86,7 @@ TRANSFER_PROCESSING → TRANSFERRED` (+ `PARTIALLY_REFUNDED/BLOCKED/FAILED/REVER
 
 ## Refunds + transfer reversal
 
-- `refund.created`/`refund.processed` → match the `Payment` by `providerPaymentIntentId`,
+- `refund.processed` (only; `refund.created` is acknowledged and ignored) → match the `Payment` by `providerPaymentIntentId`,
   accumulate `refundedMinor` (capped at capture; per-refund amounts are additive and
   idempotent via the cap), set `PARTIALLY_REFUNDED`/`REFUNDED`, and deduct the organizer's
   proportional share from the settlement (`applyRefund`).
