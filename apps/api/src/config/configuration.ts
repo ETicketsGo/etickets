@@ -534,6 +534,14 @@ const envSchema = z.object({
    * yet. Never set it while serving customers — see assertDeliverabilityHardening.
    */
   ALLOW_UNDELIVERABLE_NOTIFICATIONS: z.enum(['true', 'false']).default('false'),
+  /**
+   * Declares text messages OFF on purpose. Unlike ALLOW_UNDELIVERABLE_NOTIFICATIONS it
+   * relaxes ONLY the SMS half of the deliverability guard: an environment with no SMS
+   * provider boots, while EMAIL_PROVIDER=log is still refused. Every SMS send then fails
+   * permanently (never a silent SENT), phone sign-in answers SMS_UNAVAILABLE, and
+   * GET /capabilities reports phoneSignIn=false so the storefront opens on Email.
+   */
+  SMS_ENABLED: z.enum(['true', 'false']).default('true'),
   EMAIL_FROM: z.string().optional(),
   // SendGrid (EMAIL_PROVIDER=sendgrid)
   SENDGRID_API_KEY: z.string().optional(),
@@ -957,7 +965,9 @@ function assertDeliverabilityHardening(cfg: AppConfig): void {
     undeliverable as a whole platform in log mode.
   */
   const smsRoutes = parseMarketProviderMap(cfg.SMS_PROVIDER_BY_MARKET);
-  if (Object.keys(smsRoutes).length === 0) {
+  if (cfg.SMS_ENABLED === 'false') {
+    // Declared off on purpose: nothing to check here, and the email rule above still applies.
+  } else if (Object.keys(smsRoutes).length === 0) {
     if (cfg.SMS_PROVIDER === 'log') {
       errors.push(
         '  - SMS_PROVIDER=log SENDS NO TEXT MESSAGES: phone sign-in codes would never arrive. ' +
@@ -979,6 +989,8 @@ function assertDeliverabilityHardening(cfg: AppConfig): void {
   if (errors.length) {
     throw new Error(
       `Notifications cannot be delivered in this environment:\n${errors.join('\n')}\n` +
+        `  To run without text messages on purpose, set SMS_ENABLED=false (email stays guarded).
+` +
         `  Set ALLOW_UNDELIVERABLE_NOTIFICATIONS=true only to boot deliberately without ` +
         `mail or text messages (migrations, smoke checks) — never to serve customers.`,
     );
