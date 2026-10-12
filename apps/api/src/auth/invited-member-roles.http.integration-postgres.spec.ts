@@ -223,6 +223,13 @@ describe('integration-real-postgres: invited member roles over HTTP', () => {
         select: { id: true },
       });
       const ids = users.map((u: { id: string }) => u.id);
+      // The registration test creates an organization by name; match it even if that test
+      // failed before it could record the id.
+      const extra = await db.organization.findMany({
+        where: { name: { contains: suffix } },
+        select: { id: true },
+      });
+      for (const o of extra as { id: string }[]) if (!orgIds.includes(o.id)) orgIds.push(o.id);
       await db.checkIn.deleteMany({ where: { ticket: { organizationId: { in: orgIds } } } });
       await db.booking.deleteMany({ where: { organizationId: { in: orgIds } } });
       await db.accountInvitation.deleteMany({ where: { userId: { in: ids } } });
