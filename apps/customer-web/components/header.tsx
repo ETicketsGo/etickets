@@ -56,6 +56,18 @@ export function Header({
   });
   const unreadCount = unread?.unreadCount ?? 0;
 
+  /*
+    Labels on the header links are a width budget, not decoration. A signed-in header carries
+    seven links plus the account menu and the language switcher, and with every label showing
+    it is about 1280px wide: from 1024px (iPad landscape, small laptops) to 1279px the page
+    scrolled sideways and the language switcher was cut off; at exactly 1280px WebKit's
+    slightly wider text still overflowed by 3px. Each link already has an aria-label and now a
+    title, so below the width where it fits it is an icon. Signed out the header is short enough
+    to keep its labels from `sm` up.
+  */
+  const baseLabel = authed ? 'hidden xl:inline' : 'hidden sm:inline';
+  const accountLabel = 'hidden 2xl:inline';
+
   const logout = () => {
     // Shared-device safety: remove this user's cached wallet + QR payloads before
     // clearing the session, so nothing private survives logout on the device.
@@ -126,21 +138,41 @@ export function Header({
           stay reachable precisely because the person who needs it cannot read the page.
         */}
         <nav className="flex items-center gap-1.5 text-[0.9375rem] sm:gap-3">
-          <Link href="/explore" aria-label={t('explore')} className={`hidden lg:flex ${navLink}`}>
+          <Link
+            href="/explore"
+            aria-label={t('explore')}
+            title={t('explore')}
+            className={`hidden lg:flex ${navLink}`}
+          >
             <Sparkles className="h-4 w-4" />
-            <span className="hidden sm:inline">{t('explore')}</span>
+            <span className={baseLabel}>{t('explore')}</span>
           </Link>
-          <Link href="/events" aria-label={t('browse')} className={`hidden lg:flex ${navLink}`}>
+          <Link
+            href="/events"
+            aria-label={t('browse')}
+            title={t('browse')}
+            className={`hidden lg:flex ${navLink}`}
+          >
             <Compass className="h-4 w-4" />
-            <span className="hidden sm:inline">{t('browse')}</span>
+            <span className={baseLabel}>{t('browse')}</span>
           </Link>
-          <Link href="/movies" aria-label={t('movies')} className={`hidden lg:flex ${navLink}`}>
+          <Link
+            href="/movies"
+            aria-label={t('movies')}
+            title={t('movies')}
+            className={`hidden lg:flex ${navLink}`}
+          >
             <Film className="h-4 w-4" />
-            <span className="hidden sm:inline">{t('movies')}</span>
+            <span className={baseLabel}>{t('movies')}</span>
           </Link>
-          <Link href="/help" aria-label={t('help')} className={`hidden lg:flex ${navLink}`}>
+          <Link
+            href="/help"
+            aria-label={t('help')}
+            title={t('help')}
+            className={`hidden lg:flex ${navLink}`}
+          >
             <LifeBuoy className="h-4 w-4" />
-            <span className="hidden sm:inline">{t('help')}</span>
+            <span className={baseLabel}>{t('help')}</span>
           </Link>
           {authed ? (
             <>
@@ -160,28 +192,31 @@ export function Header({
               <Link
                 href="/account/bookings"
                 aria-label={t('bookings')}
+                title={t('bookings')}
                 className={`hidden lg:flex ${navLink}`}
               >
                 <Receipt className="h-4 w-4" />
-                <span className="hidden sm:inline">{t('bookings')}</span>
+                <span className={accountLabel}>{t('bookings')}</span>
               </Link>
               <Link
                 href="/account/tickets"
                 aria-label={t('tickets')}
+                title={t('tickets')}
                 className={`hidden lg:flex ${navLink}`}
               >
                 <Ticket className="h-4 w-4" />
-                <span className="hidden sm:inline">{t('tickets')}</span>
+                <span className={accountLabel}>{t('tickets')}</span>
               </Link>
               <Link
                 href="/account/notifications"
                 aria-label={
                   unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'
                 }
+                title="Notifications"
                 className={`relative hidden lg:flex ${navLink}`}
               >
                 <Bell className="h-4 w-4" />
-                <span className="hidden sm:inline">{t('alerts')}</span>
+                <span className={accountLabel}>{t('alerts')}</span>
                 {unreadCount > 0 && (
                   <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-action-primary px-1 text-[0.625rem] font-semibold text-action-primary-foreground">
                     {unreadCount > 9 ? '9+' : unreadCount}
