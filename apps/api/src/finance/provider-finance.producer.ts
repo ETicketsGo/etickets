@@ -29,16 +29,20 @@ import type { FinanceIntegrityFinding } from './platform-finance.producer';
  * is still the schema default 0. Using it would have reported zero entitlement to every organizer
  * awaiting payment.
  *
- * `grossSalesMinor` is the entitlement. It is recomputed on every settlement upsert as
+ * `grossSalesMinor` is the entitlement ONCE MONEY HAS MOVED; before a transfer the entitlement is
+ * `grossSalesMinor - refundsMinor`, because refunds recorded by the refund webhook have already
+ * reduced what release() would send (FIN-1, see the note at `refundedBeforeRelease`). It is recomputed on every settlement upsert as
  * `Σ payment.organizerNetMinor` over CAPTURED payments - already net of the platform fee, which
  * `computeMarketplaceSplit` took off per payment - and it deliberately includes since-refunded
  * payments, because refunds are deducted separately through `refundsMinor`.
  *
  * ── ZERO IS NOT THE SAME AS UNSET ──────────────────────────────────────────────────
- * `refundsMinor`, `disputesMinor` and `reserveMinor` are NOT maintained by the upsert. They stay
- * at 0 until `release()` computes them. So before release a 0 there means "never calculated", and
- * emitting it would assert "no refunds" about a settlement whose refunds nobody has worked out.
- * They are therefore absent until the settlement has actually been released.
+ * `refundsMinor`, `disputesMinor` and `reserveMinor` are NOT maintained by the upsert. `refundsMinor` is
+ * accrued by the refund webhook (`applyRefund`); `disputesMinor` and `reserveMinor` stay at 0 until
+ * `release()`. So before release a 0 means "never calculated", and emitting it would assert "no
+ * refunds" about a settlement whose refunds nobody has worked out. They are therefore absent until
+ * the settlement has been released - except a POSITIVE `refundsMinor`, which is proven and is what
+ * the pre-release entitlement was netted by.
  *
  * ── READ-ONLY ──────────────────────────────────────────────────────────────────────
  * Rows in, entry out. No provider calls, no reconciliation execution, no money movement, no
@@ -230,9 +234,29 @@ export function providerFinanceEntry(
     { key: 'PLATFORM_COMBINED', amountMinor: settlement.platformFeesMinor, deducted: true },
   ];
 
+  /*
+    ── REFUNDS BEFORE A TRANSFER REDUCE WHAT IS OWED (FIN-1) ─────────────────────────
+    `refundsMinor` is written by exactly one thing: `SettlementService.applyRefund`, called from
+    the Stripe and Razorpay refund webhooks. It is NOT left at 0 "until release() computes it" -
+    release() only reads it. So on a settlement that has not been released it is a real running
+    total of the organizer's share of refunds, and `grossSalesMinor` deliberately still contains
+    the since-refunded payments.
+
+    Before any money has moved, the entitlement is therefore gross less those refunds, which is
+    exactly the first step of what release() would transfer (`computeSettlementPayable`). Showing
+    the gross left an organizer reading "pending 299 600" beside a settlement whose refunds were
+    191 809. After a release the gross is the entitlement again and the refunds are recovered
+    separately through `movement`, as before - that is the one stage-dependent rule, and it follows
+    the money: once it has moved, a refund is a clawback, not a smaller sale.
+
+    Clamped at 0: refunds beyond the gross are a recovery for somebody to chase, not a negative
+    entitlement.
+  */
+  const refundedBeforeRelease = released ? 0 : Math.max(0, settlement.refundsMinor);
+
   const money: FinanceMoney = {
-    // One meaning at every stage: what this settlement entitles the organizer to.
-    organizerNetMinor: settlement.grossSalesMinor,
+    // What this settlement entitles the organizer to: net of refunds while nothing has moved.
+    organizerNetMinor: Math.max(0, settlement.grossSalesMinor - refundedBeforeRelease),
     /*
       No grossFaceValueMinor. This path never records the pre-fee ticket value as an
       organizer-facing gross - grossSalesMinor is already net of the platform fee despite its
@@ -240,8 +264,9 @@ export function providerFinanceEntry(
       corresponds to nothing stored.
     */
     fees,
-    // Absent before release: a 0 there means nobody computed it.
-    ...(released ? { refundsMinor: settlement.refundsMinor } : {}),
+    // Before release a 0 is not proof of "no refunds" (see the note above on what writes it), so
+    // it stays absent; a positive figure is proven, and is the refunds the entitlement was netted by.
+    ...(released || refundedBeforeRelease > 0 ? { refundsMinor: settlement.refundsMinor } : {}),
     ...(released && settlement.disputesMinor + settlement.reserveMinor > 0
       ? // Disputes and reserve, the two provider-side concepts with no platform equivalent.
         { adjustmentsMinor: settlement.disputesMinor + settlement.reserveMinor }

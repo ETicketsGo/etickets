@@ -102,8 +102,11 @@ export interface FinanceSummary {
    *
    * Additive across entries and across lifecycle states, because both paths define it the same
    * way: what the organizer is owed from that financial record. Platform payouts contribute
-   * `Payout.netMinor`; settlements contribute `Settlement.grossSalesMinor`. Neither is a
-   * money-movement figure, so adding them does not mix entitlement with cash.
+   * `Payout.netMinor`; settlements contribute `Settlement.grossSalesMinor` (less the refunds already
+   * recorded against it while nothing has been transferred - FIN-1). Neither is a money-movement
+   * figure, so adding them does not mix entitlement with cash. A settlement that has moved nothing
+   * and whose event a live platform payout already covers is listed but NOT counted, so one
+   * event's revenue is never in the total twice.
    */
   entitlementMinor: number;
   /**
@@ -211,6 +214,23 @@ function buildGroup(
   items: Array<{ path: FinancePath; entry: FinanceEntry; integrity: FinanceIntegrityFinding[] }>,
 ): FinanceCurrencyGroup {
   const warnings: FinanceWarning[] = [];
+
+  /*
+    ── ONE EVENT'S MONEY IS COUNTED ONCE (FIN-1) ─────────────────────────────────────
+    A provider settlement is accrued for every online payment, whether or not the organizer has a
+    linked payment account, and it stays unclaimed until a transfer starts. An organization with no
+    Route or Connect account can therefore have a platform payout AND an unmoved settlement for the
+    very same revenue. Summing both showed the event's money twice (QA: a payout of 99 800 beside a
+    settlement of 299 600). Release refuses to transfer while a standing payout covers the event, so
+    the settlement can never pay out - but it is still listed.
+
+    So the entry stays in `entries` (nothing is hidden, and DOUBLE_CLAIM below still reports the
+    overlap) while the TOTALS count the payout, which is the ledger that actually owes the money.
+    Only settlements that have moved nothing are set aside: one in TRANSFER_PROCESSING or later has
+    claimed the event, the generator would have refused to pay it, and it is counted.
+  */
+  const superseded = supersededSettlements(items);
+  const counted = items.filter((item) => !superseded.has(item));
 
   // ── double claim, the one thing composition must not let through ─────────────────
   const claims = new Map<string, Map<FinancePath, string[]>>();
@@ -325,18 +345,57 @@ function buildGroup(
             : 1,
       )
       .map(({ path, entry }) => ({ path, entry })),
-    summary: buildSummary(items),
+    summary: buildSummary(counted),
     /*
       Only paths that actually appear, in a fixed order so a response is stable. `buildSummary`
       is reused rather than reimplemented, which is what makes the parts add up to the whole by
       construction instead of by agreement.
     */
     paths: (['PLATFORM', 'PROVIDER'] as const)
-      .map((path) => ({ path, items: items.filter((i) => i.path === path) }))
+      .map((path) => ({ path, items: counted.filter((i) => i.path === path) }))
       .filter(({ items: subset }) => subset.length > 0)
       .map(({ path, items: subset }) => ({ path, ...buildSummary(subset) })),
     warnings,
   };
+}
+
+/**
+ * Settlement statuses in which no transfer has started, so the settlement has claimed nothing.
+ * The complement of `SETTLEMENT_CLAIMED_STATUSES` among the states that carry an entitlement
+ * (BLOCKED and FAILED are left out on purpose: they need a person and are counted as attention).
+ * A spec pins this list against the generator's own constant so the two cannot drift.
+ */
+export const UNMOVED_SETTLEMENT_STATUSES: ReadonlySet<string> = new Set([
+  'PENDING',
+  'HELD',
+  'ELIGIBLE',
+  'APPROVED',
+]);
+
+/**
+ * Provider entries whose revenue a live platform entry already accounts for.
+ *
+ * Authoritative attribution only: a legacy payout that names no events proves nothing about this
+ * one, so it does not hide a settlement. A platform entry that is itself FAILED does not count -
+ * its money is not owed through it.
+ */
+function supersededSettlements<T extends { path: FinancePath; entry: FinanceEntry }>(
+  items: T[],
+): Set<T> {
+  const owned = new Set<string>();
+  for (const { path, entry } of items) {
+    if (path !== 'PLATFORM') continue;
+    if (entry.state === 'ATTENTION_REQUIRED') continue;
+    for (const eventId of financeClaimedEvents(entry)) owned.add(eventId);
+  }
+  const out = new Set<T>();
+  for (const item of items) {
+    if (item.path !== 'PROVIDER') continue;
+    if (!UNMOVED_SETTLEMENT_STATUSES.has(item.entry.sourceStatus)) continue;
+    if (item.entry.movement !== undefined) continue;
+    if (financeClaimedEvents(item.entry).some((eventId) => owned.has(eventId))) out.add(item);
+  }
+  return out;
 }
 
 function buildSummary(items: Array<{ path: FinancePath; entry: FinanceEntry }>): FinanceSummary {
