@@ -82,6 +82,21 @@ export interface CinemaPolicyOutcome {
   context: PolicyContext;
   /** Lines whose price breaks the band for THEIR OWN seat class. Empty when compliant. */
   overCeiling: OverCeilingLine[];
+  /**
+   * Lines whose regulatory seat class is KNOWN but has no rate row here, so the only rule that
+   * matched states no ceiling. Empty when every class in the cart has a rate (or the market is
+   * not regulated). Each is refused: no ceiling is never permission. Optional so a caller that
+   * builds an outcome by hand (a test harness) does not have to restate an empty list.
+   */
+  unrated?: UnratedLine[];
+}
+
+export interface UnratedLine {
+  /** Null when the ticket has no seat category at all (not seated), so no class to rate. */
+  regulatoryClass: string | null;
+  seatCategoryName: string | null;
+  ticketTypeId?: string;
+  ticketTypeName?: string | null;
 }
 
 /** How a policy is looked up. The service's `resolve`, or a memo around it. */
@@ -235,9 +250,27 @@ export async function resolveCinemaPolicy(
     resolution would lend a recliner's ceiling to a regular seat, and the reverse.
   */
   const overCeiling: OverCeilingLine[] = [];
+  const unrated: UnratedLine[] = [];
   if (resolve && isRegulatedStatus(resolution.status)) {
     for (const cls of seatCategories) {
       const perClass = await resolve({ ...context, seatCategories: [cls] });
+      /*
+        A class with no rate row resolves to the climate-only fallback, which has no ceiling.
+        Asked per class, so a mixed cart (which resolves at the level of the jurisdiction)
+        cannot carry an unrated class through unseen, and a single-class cart is caught by the
+        same test.
+      */
+      if (hasNoCeilingFallback(perClass)) {
+        for (const line of admissionLines.filter((l) => l.category === cls)) {
+          unrated.push({
+            regulatoryClass: cls,
+            seatCategoryName: line.seatCategoryName ?? null,
+            ticketTypeId: line.ticketTypeId,
+            ticketTypeName: line.ticketTypeName ?? null,
+          });
+        }
+        continue;
+      }
       for (const line of admissionLines.filter((l) => l.category === cls)) {
         const verdict = checkTicketPrice(perClass, line.unitPriceMinor);
         if (!verdict.ok) {
@@ -255,7 +288,76 @@ export async function resolveCinemaPolicy(
     }
   }
 
-  return { resolution, effect: applyPolicy(resolution, ticketCount), context, overCeiling };
+  /*
+    ── TICKETS WITH NO SEAT CATEGORY AT ALL (owner decision 2026-10-12) ───────────────
+    The regulation prices per seat class, so a ticket with no seat category has no class to be
+    priced under. At a cinema in a regulated market it used to match the class-agnostic
+    fallback, which states no ceiling, and sold uncapped. Now it is asked the same question as
+    a class: does a rule that names no class state a maximum price? If it does (a verified
+    class-agnostic ceiling) the line prices against it below; if not, it is refused.
+    Applies only to lines with neither a class nor a seat category name: a named but unmapped
+    category is the resolver's own refusal above.
+  */
+  const classless = admissionLines.filter((l) => !l.category && !l.seatCategoryName);
+  if (resolve && isRegulatedStatus(resolution.status) && classless.length > 0) {
+    const noClass = await resolve({ ...context, seatCategories: [], unmappedSeatCategories: [] });
+    for (const l of classless) {
+      if (hasNoCeilingFallback(noClass)) {
+        unrated.push({
+          regulatoryClass: null,
+          seatCategoryName: null,
+          ticketTypeId: l.ticketTypeId,
+          ticketTypeName: l.ticketTypeName ?? null,
+        });
+      } else {
+        const verdict = checkTicketPrice(noClass, l.unitPriceMinor);
+        if (!verdict.ok) {
+          overCeiling.push({
+            seatCategoryName: null,
+            priceMinor: l.unitPriceMinor,
+            reason: verdict.reason ?? 'Above the permitted rate for this ticket.',
+            ticketTypeId: l.ticketTypeId,
+            ticketTypeName: l.ticketTypeName ?? null,
+            maxMinor: noClass.policy?.ticketPriceMaxMinor ?? null,
+            minMinor: noClass.policy?.ticketPriceMinMinor ?? null,
+          });
+        }
+      }
+    }
+  }
+
+  return {
+    resolution,
+    effect: applyPolicy(resolution, ticketCount),
+    context,
+    overCeiling,
+    unrated,
+  };
+}
+
+/**
+ * Whether a class-specific question was answered by a rule that names no seat class and states
+ * no maximum price - the climate-only fallback, which carries maintenance and NO ceiling.
+ *
+ * ── WHY THE TEST IS ON THE WINNING RULE ────────────────────────────────────────────
+ * An Andhra Pradesh multiplex has rate rows for REGULAR and RECLINER only. A seat mapped to
+ * PREMIUM or NON_PREMIUM matches neither, falls to the fallback, and would sell capped by
+ * nothing while looking entirely normal (gap G10). A class-agnostic rule that DOES state a
+ * ceiling is a real rate for every class and still prices, so the test is "no class AND no
+ * ceiling", not "no class". A refused resolution has no policy and is already a refusal.
+ *
+ * Lives here, with the cart-level refusals, rather than in the resolver: the resolver stays the
+ * pure "which rule matches" function its own tests describe, and every sale and readiness
+ * check reaches this through `saleBlockersFromPolicy`.
+ */
+function hasNoCeilingFallback(resolution: PolicyResolution): boolean {
+  const p = resolution.policy;
+  return (
+    resolution.status !== 'NOT_REGULATED' &&
+    p != null &&
+    !p.seatCategory &&
+    p.ticketPriceMaxMinor == null
+  );
 }
 
 /** The cinema's readiness page, where the seat-class control lives. */
@@ -296,8 +398,45 @@ export function saleBlockersFromPolicy(
   const place = placeName(context);
   const base = { buyerMessage: BUYER_SALE_NOT_OPEN, ticketTypeIds: where.ticketTypeIds };
 
+  /*
+    A seat class that IS mapped but has no rate here. Same control fixes it as an unmapped one
+    (the seat category's class), so it keeps that code; the sentence differs because the
+    organizer has already mapped it and needs to know why that was not enough.
+  */
+  const unrated = (outcome.unrated ?? []).map((line): SaleBlocker => {
+    if (line.regulatoryClass == null) {
+      const tname = line.ticketTypeName ?? 'A ticket';
+      return {
+        ...base,
+        ...(line.ticketTypeId ? { ticketTypeIds: [line.ticketTypeId] } : {}),
+        code: 'SEAT_CLASS_UNMAPPED',
+        owner: 'ORGANIZER',
+        organizerMessage:
+          `${tname} has no seat category, and ${place} sets a price limit for each seat class, ` +
+          'so it cannot be sold online. Attach it to a seat category that has a seat class under ' +
+          'Seat classes, or contact support.',
+        fixPath: seatClassesPath(where.cinemaId),
+        subject: tname,
+      };
+    }
+    const name = line.seatCategoryName ?? line.ticketTypeName ?? 'A seat category';
+    return {
+      ...base,
+      ...(line.ticketTypeId ? { ticketTypeIds: [line.ticketTypeId] } : {}),
+      code: 'SEAT_CLASS_UNMAPPED',
+      owner: 'ORGANIZER',
+      organizerMessage:
+        `Seat category ${name} is set to a seat class that has no price limit on record for ` +
+        `${place}, so its tickets cannot be sold online. Set it to a class ${place} has a ` +
+        'limit for under Seat classes, or contact support.',
+      fixPath: seatClassesPath(where.cinemaId),
+      subject: name,
+    };
+  });
+
   if (blocksBooking(resolution.status)) {
     const unmapped = (context.unmappedSeatCategories ?? []).filter((n) => n.trim());
+    if (unrated.length > 0 && unmapped.length === 0) return unrated;
     if (resolution.status === 'INVALID_CINEMA_CLASSIFICATION' && unmapped.length > 0) {
       return [
         {
@@ -365,7 +504,7 @@ export function saleBlockersFromPolicy(
     ];
   }
 
-  return outcome.overCeiling.map((line) => {
+  const overs = outcome.overCeiling.map((line) => {
     const name = line.ticketTypeName ?? line.seatCategoryName ?? 'A ticket';
     const price = money(line.priceMinor, context.currency);
     const limit =
@@ -386,6 +525,7 @@ export function saleBlockersFromPolicy(
       subject: name,
     };
   });
+  return [...unrated, ...overs];
 }
 
 /** One cart's answer. What checkout uses. */
