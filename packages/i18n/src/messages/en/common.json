@@ -122,6 +122,7 @@
     },
     "tagline": "Buy tickets, keep them on your phone, and get in without queueing.",
     "rights": "© {year} ETicketsGo. All rights reserved.",
+    "build": "Build {id}",
     "testEnvironment": "Test environment - payments are simulated."
   }
 }

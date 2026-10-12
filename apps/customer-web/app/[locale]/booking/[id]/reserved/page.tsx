@@ -40,7 +40,7 @@ export default function ReservedPage() {
       </main>
     );
   if (guestToken) return <GuestReserved id={id} anonSession={guestToken} />;
-  if (!tokenStore.access) return <GuestBookingNotHere />;
+  if (!tokenStore.access) return <GuestBookingNotHere bookingId={id} />;
   return <AccountReserved />;
 }
 

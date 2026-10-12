@@ -10,7 +10,18 @@ import { Badge } from './ui';
 import { Link } from '@/i18n/navigation';
 import { useTranslations } from 'next-intl';
 
-export function EventCard({ event }: { event: PaginatedEvents['data'][number] }) {
+export function EventCard({
+  event,
+  priority = false,
+}: {
+  event: PaginatedEvents['data'][number];
+  /**
+   * The first card on a page is usually what the page paints largest, so it is fetched at once
+   * and ahead of the rest. Every other card stays lazy: a list of fifteen should not ask for
+   * fifteen pictures before the first is on screen.
+   */
+  priority?: boolean;
+}) {
   const t = useTranslations('common.state');
   const { money, dateTime, zoneAbbrev } = useFormat();
   const toast = useToast();
@@ -55,7 +66,13 @@ export function EventCard({ event }: { event: PaginatedEvents['data'][number] })
             // Up to three across (four on browse, where this slightly over-asks), two, then one.
             sizes="(min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw"
             alt=""
-            loading="lazy"
+            // The box is 4:3 whatever the picture is; stating it lets the browser reserve it.
+            width={800}
+            height={600}
+            loading={priority ? 'eager' : 'lazy'}
+            // Lower case on purpose: React 18 passes an unknown lower-case attribute straight
+            // through, and warns about the camel-case spelling that React 19 added.
+            {...(priority ? { fetchpriority: 'high' } : {})}
             decoding="async"
             onError={() => setImageBroken(true)}
             className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 ease-premium group-hover:scale-[1.03]"
@@ -76,7 +93,7 @@ export function EventCard({ event }: { event: PaginatedEvents['data'][number] })
             e.preventDefault();
             toggle();
           }}
-          className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-full bg-background-surface/90 text-text-secondary shadow-sm backdrop-blur transition-all hover:scale-105 hover:text-status-error focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
+          className="absolute right-2 top-2 flex h-11 w-11 items-center justify-center rounded-full bg-background-surface/90 text-text-secondary shadow-sm backdrop-blur transition-all hover:scale-105 hover:text-status-error focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
         >
           <Heart
             className={`h-4 w-4 transition-all ${saved ? 'fill-status-error text-status-error' : ''}`}

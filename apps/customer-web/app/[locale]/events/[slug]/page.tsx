@@ -17,6 +17,8 @@ import {
 } from 'lucide-react';
 import { ImageLightbox } from '@/components/image-lightbox';
 import { heroState } from '@/lib/event-hero';
+import { eventIsSoldOut, showIsSoldOut } from '@/lib/event-availability';
+import { CONTINUE_ANCHOR_ID, StickyContinue } from '@/components/sticky-continue';
 import {
   RatingStars,
   apiAssetUrl,
@@ -458,7 +460,16 @@ export default function EventDetailPage() {
     }
   };
 
-  if (isLoading) return <div className="h-96 animate-pulse rounded-lg bg-background-subtle" />;
+  /*
+    Tall enough to fill a phone, so the footer starts below the fold.
+
+    At h-96 the footer sat in the first screen while the event loaded and was then thrown to the
+    bottom of a 6000px page when it arrived - the largest layout shift on the page (CLS 0.33 on a
+    throttled phone). Only what is on screen counts as a shift, so keeping the footer off it
+    until the page is there removes the shift without changing what loads.
+  */
+  if (isLoading)
+    return <div className="min-h-[100svh] animate-pulse rounded-lg bg-background-subtle" />;
   if (isError) {
     /*
       ── WHY TWO CODES AND NOT ONE ──────────────────────────────────────────────────
@@ -489,6 +500,20 @@ export default function EventDetailPage() {
         icon={CalendarDays}
       />
     );
+
+  const continueLabel =
+    book.isPending && !payWithCash
+      ? sf('event.holdingTickets')
+      : event.isFree
+        ? sf('event.getMyTickets')
+        : sf('event.continueToPayment');
+  /*
+    Nothing left to buy, said at the top of the booking card as well as in each ticket row.
+    A sold-out date of an event with other dates still on sale says so for the date, because
+    "this event is sold out" would be untrue and would stop somebody looking at the others.
+  */
+  const dateSoldOut = !session?.seatBased && showIsSoldOut(session);
+  const eventSoldOut = eventIsSoldOut(event.sessions);
 
   /*
     The venue's clock. A session is at the time printed at the venue, and a buyer planning a
@@ -625,6 +650,11 @@ export default function EventDetailPage() {
                   // The page is at most about 1200px wide; on a phone the hero is the screen.
                   sizes="(min-width: 1280px) 1200px, 100vw"
                   alt=""
+                  // 16:9 whatever the picture is (see the box above), stated so it is reserved.
+                  width={1280}
+                  height={720}
+                  // The largest thing on the page. Lower case: see the note on EventCard.
+                  {...{ fetchpriority: 'high' }}
                   onError={() => markImageFailed(heroImage.full)}
                   style={{ objectPosition: heroImage.position }}
                   className="h-full w-full animate-fade-in object-cover"
@@ -641,7 +671,7 @@ export default function EventDetailPage() {
               <button
                 type="button"
                 onClick={() => setLightbox(shownImage)}
-                className="absolute left-4 top-4 z-10 flex items-center gap-1.5 rounded-full bg-black/55 px-3 py-1.5 text-caption font-medium text-white backdrop-blur transition-colors hover:bg-black/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                className="absolute left-4 top-4 z-10 flex min-h-11 items-center gap-1.5 rounded-full bg-black/55 px-3 py-1.5 sm:min-h-0 text-caption font-medium text-white backdrop-blur transition-colors hover:bg-black/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
               >
                 <Images className="h-3.5 w-3.5" aria-hidden />
                 {gallery.length > 1
@@ -656,7 +686,7 @@ export default function EventDetailPage() {
                       setActiveImage((shownImage - 1 + gallery.length) % gallery.length)
                     }
                     aria-label={sf('event.galleryPrevious')}
-                    className="absolute left-3 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur transition-colors hover:bg-black/65 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                    className="absolute left-3 top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur transition-colors hover:bg-black/65 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
                   >
                     <ChevronLeft className="h-5 w-5" aria-hidden />
                   </button>
@@ -664,7 +694,7 @@ export default function EventDetailPage() {
                     type="button"
                     onClick={() => setActiveImage((shownImage + 1) % gallery.length)}
                     aria-label={sf('event.galleryNext')}
-                    className="absolute right-3 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur transition-colors hover:bg-black/65 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                    className="absolute right-3 top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur transition-colors hover:bg-black/65 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
                   >
                     <ChevronRight className="h-5 w-5" aria-hidden />
                   </button>
@@ -690,7 +720,7 @@ export default function EventDetailPage() {
         {hasArt && heroTitle}
         <button
           onClick={share}
-          className="absolute right-4 top-4 z-10 flex items-center gap-1.5 rounded-full bg-background-surface/90 px-3 py-1.5 text-caption font-medium text-text-secondary shadow-sm backdrop-blur transition-colors hover:text-text-primary"
+          className="absolute right-4 top-4 z-10 flex min-h-11 items-center gap-1.5 rounded-full bg-background-surface/90 px-3 py-1.5 sm:min-h-0 text-caption font-medium text-text-secondary shadow-sm backdrop-blur transition-colors hover:text-text-primary"
         >
           <Share2 className="h-3.5 w-3.5" />
           {shared ? sf('common.copied') : tx('action.share')}
@@ -721,6 +751,8 @@ export default function EventDetailPage() {
                 <img
                   src={image.strip}
                   alt=""
+                  width={114}
+                  height={64}
                   loading="lazy"
                   // A thumbnail that cannot load takes its image out of the gallery with it.
                   onError={() => markImageFailed(image.full)}
@@ -989,7 +1021,7 @@ export default function EventDetailPage() {
                 { q: sf('event.faqTransferQ'), a: sf('event.faqTransferA') },
               ].map((f) => (
                 <details key={f.q} className="group py-3">
-                  <summary className="flex cursor-pointer list-none items-center justify-between font-medium text-text-primary">
+                  <summary className="-my-3 flex min-h-11 cursor-pointer list-none items-center justify-between py-3 font-medium text-text-primary lg:my-0 lg:min-h-0 lg:py-0">
                     {f.q}
                     <ChevronRight className="h-4 w-4 text-text-muted transition-transform group-open:rotate-90" />
                   </summary>
@@ -1027,6 +1059,21 @@ export default function EventDetailPage() {
               Read from the session rather than from the event: two dates of the same tour
               can differ, one in a seated theatre and one in a standing room.
             */}
+            {dateSoldOut && (
+              <div
+                role="status"
+                data-testid="event-sold-out"
+                className="mb-4 rounded-md border border-status-error/30 bg-tint-error px-4 py-3"
+              >
+                <p className="font-semibold text-status-error">
+                  {eventSoldOut ? sf('event.soldOutEventTitle') : sf('event.soldOutDateTitle')}
+                </p>
+                <p className="mt-1 text-[0.9375rem] text-text-secondary">
+                  {eventSoldOut ? sf('event.soldOutEventHint') : sf('event.soldOutDateHint')}
+                </p>
+              </div>
+            )}
+
             {session?.seatBased ? (
               sessionStarted ? null : (
                 <div className="space-y-4">
@@ -1085,7 +1132,7 @@ export default function EventDetailPage() {
                               [ticketType.id]: Number(event.target.value),
                             }))
                           }
-                          className="w-16 cursor-pointer rounded-md border border-border bg-background-surface px-2 py-1.5 text-center text-[0.9375rem] text-text-primary focus:border-ring focus:outline-none focus:ring-4 focus:ring-ring/15 disabled:opacity-50"
+                          className="min-h-11 w-16 cursor-pointer rounded-md border sm:min-h-0 border-border bg-background-surface px-2 py-1.5 text-center text-[0.9375rem] text-text-primary focus:border-ring focus:outline-none focus:ring-4 focus:ring-ring/15 disabled:opacity-50"
                         >
                           {Array.from({
                             length: unavailable
@@ -1185,7 +1232,7 @@ export default function EventDetailPage() {
                           onChange={(e) =>
                             setQty((p) => ({ ...p, [t.id]: Number(e.target.value) }))
                           }
-                          className="w-16 cursor-pointer rounded-md border border-border bg-background-surface px-2 py-1.5 text-center text-[0.9375rem] text-text-primary focus:border-ring focus:outline-none focus:ring-4 focus:ring-ring/15 disabled:opacity-50"
+                          className="min-h-11 w-16 cursor-pointer rounded-md border sm:min-h-0 border-border bg-background-surface px-2 py-1.5 text-center text-[0.9375rem] text-text-primary focus:border-ring focus:outline-none focus:ring-4 focus:ring-ring/15 disabled:opacity-50"
                         >
                           {Array.from({
                             length: unavailable ? 1 : Math.min(t.maxPerOrder, t.available) + 1,
@@ -1236,7 +1283,7 @@ export default function EventDetailPage() {
                               onChange={(e) =>
                                 setAddOnQty((p) => ({ ...p, [a.id]: Number(e.target.value) }))
                               }
-                              className="w-16 cursor-pointer rounded-md border border-border bg-background-surface px-2 py-1.5 text-center text-[0.9375rem] text-text-primary focus:border-ring focus:outline-none focus:ring-4 focus:ring-ring/15 disabled:opacity-50"
+                              className="min-h-11 w-16 cursor-pointer rounded-md border sm:min-h-0 border-border bg-background-surface px-2 py-1.5 text-center text-[0.9375rem] text-text-primary focus:border-ring focus:outline-none focus:ring-4 focus:ring-ring/15 disabled:opacity-50"
                             >
                               {Array.from({ length: Math.max(0, max) + 1 }).map((_, n) => (
                                 <option key={n} value={n}>
@@ -1287,7 +1334,7 @@ export default function EventDetailPage() {
                               onChange={(e) =>
                                 setBundleQty((p) => ({ ...p, [b.id]: Number(e.target.value) }))
                               }
-                              className="w-16 cursor-pointer rounded-md border border-border bg-background-surface px-2 py-1.5 text-center text-[0.9375rem] text-text-primary focus:border-ring focus:outline-none focus:ring-4 focus:ring-ring/15"
+                              className="min-h-11 w-16 cursor-pointer rounded-md border sm:min-h-0 border-border bg-background-surface px-2 py-1.5 text-center text-[0.9375rem] text-text-primary focus:border-ring focus:outline-none focus:ring-4 focus:ring-ring/15"
                             >
                               {Array.from({ length: b.maxPerOrder + 1 }).map((_, n) => (
                                 <option key={n} value={n}>
@@ -1312,7 +1359,7 @@ export default function EventDetailPage() {
                 )}
 
                 {/* Above the breakdown, because it can change what the breakdown says. */}
-                {!event.isFree && (
+                {!event.isFree && !dateSoldOut && (
                   <div className="mt-4">
                     <BuyerRegionField
                       value={buyerRegion}
@@ -1331,32 +1378,34 @@ export default function EventDetailPage() {
                   </div>
                 )}
 
-                <div className="mt-4">
-                  <PriceBreakdown
-                    free={event.isFree}
-                    quote={quoteQ.data?.fees}
-                    loading={quoteQ.isFetching}
-                    fallbackTotalMinor={subtotal}
-                    /*
+                {!dateSoldOut && (
+                  <div className="mt-4">
+                    <PriceBreakdown
+                      free={event.isFree}
+                      quote={quoteQ.data?.fees}
+                      loading={quoteQ.isFetching}
+                      fallbackTotalMinor={subtotal}
+                      /*
                       What the tickets on this page are priced in, so the total before any
                       quote matches the prices above it. Without this the breakdown had no
                       currency until a ticket was chosen, and `money()` falls back to INR --
                       so a dollar-priced event opened on a rupee total.
                     */
-                    fallbackCurrency={
-                      event.sessions.flatMap((s) => s.ticketTypes)[0]?.currency ?? undefined
-                    }
-                    // Decided above, from everything on this card - see `cardFractionDigits`.
-                    fractionDigits={cardFractionDigits}
-                  />
-                </div>
+                      fallbackCurrency={
+                        event.sessions.flatMap((s) => s.ticketTypes)[0]?.currency ?? undefined
+                      }
+                      // Decided above, from everything on this card - see `cardFractionDigits`.
+                      fractionDigits={cardFractionDigits}
+                    />
+                  </div>
+                )}
 
                 {/*
                   Name and email, for somebody with no account. Below the price and above the
                   button, which is the order the buyer reads: what it costs, who it is for,
                   then pay.
                 */}
-                {(guest.asGuest || guest.needsContact) && (
+                {!dateSoldOut && (guest.asGuest || guest.needsContact) && (
                   <GuestBuyerFields state={guest} variant={guest.asGuest ? 'guest' : 'account'} />
                 )}
 
@@ -1365,18 +1414,19 @@ export default function EventDetailPage() {
                     {error}
                   </p>
                 )}
-                <Button
-                  className="mt-4 w-full"
-                  loading={book.isPending && !payWithCash}
-                  disabled={totalQty === 0 || book.isPending || sessionStarted}
-                  onClick={() => startBooking(false)}
-                >
-                  {book.isPending && !payWithCash
-                    ? sf('event.holdingTickets')
-                    : event.isFree
-                      ? sf('event.getMyTickets')
-                      : sf('event.continueToPayment')}
-                </Button>
+                {/* Nothing to continue to when nothing is left; the notice above says so. */}
+                {!dateSoldOut && (
+                  <div id={CONTINUE_ANCHOR_ID} className="mt-4">
+                    <Button
+                      className="w-full"
+                      loading={book.isPending && !payWithCash}
+                      disabled={totalQty === 0 || book.isPending || sessionStarted}
+                      onClick={() => startBooking(false)}
+                    >
+                      {continueLabel}
+                    </Button>
+                  </div>
+                )}
 
                 {/*
                   Offered only when the organizer takes cash, and never for a free event
@@ -1384,7 +1434,7 @@ export default function EventDetailPage() {
                   group: the choice is the action, and making somebody pick an option and
                   then press Continue is a step that earns nothing.
                 */}
-                {event.cashAccepted && !event.isFree && (
+                {event.cashAccepted && !event.isFree && !dateSoldOut && (
                   <>
                     <Button
                       variant="outline"
@@ -1404,6 +1454,25 @@ export default function EventDetailPage() {
           </Card>
         </div>
       </div>
+
+      <StickyContinue
+        visible={!session?.seatBased && !sessionStarted && !dateSoldOut && totalQty > 0}
+        count={totalQty}
+        total={
+          !event.isFree && quoteQ.data?.fees && !quoteQ.isFetching
+            ? money(
+                quoteQ.data.fees.totalMinor,
+                quoteQ.data.fees.currency,
+                undefined,
+                cardFractionDigits,
+              )
+            : null
+        }
+        label={continueLabel}
+        pending={book.isPending && !payWithCash}
+        disabled={book.isPending}
+        onContinue={() => startBooking(false)}
+      />
 
       {/* You might also like — recommendations seeded by this event. */}
       {recommendations.isLoading ? (

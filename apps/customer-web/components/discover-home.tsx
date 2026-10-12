@@ -257,7 +257,7 @@ export function DiscoverHome() {
               <button
                 key={c}
                 onClick={() => router.push(`/events?category=${encodeURIComponent(c)}`)}
-                className="rounded-full border border-border bg-background-surface px-4 py-1.5 text-caption font-medium text-text-secondary transition-all hover:border-border-strong hover:bg-background-subtle hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
+                className="min-h-11 rounded-full border border-border bg-background-surface px-4 py-1.5 text-caption font-medium text-text-secondary transition-all hover:border-border-strong hover:bg-background-subtle hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
               >
                 {c}
               </button>
@@ -281,8 +281,8 @@ export function DiscoverHome() {
       {scopedRecent.length > 0 && (
         <Section title="Continue exploring" subtitle="Events you recently viewed." icon={Clock3}>
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {scopedRecent.slice(0, 3).map((e) => (
-              <EventCard key={e.id} event={e} />
+            {scopedRecent.slice(0, 3).map((e, index) => (
+              <EventCard key={e.id} event={e} priority={index === 0} />
             ))}
           </div>
         </Section>
@@ -304,8 +304,8 @@ export function DiscoverHome() {
           }
         >
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {weekendQ.data.data.map((e) => (
-              <EventCard key={e.id} event={e} />
+            {weekendQ.data.data.map((e, index) => (
+              <EventCard key={e.id} event={e} priority={index === 0 && scopedRecent.length === 0} />
             ))}
           </div>
         </Section>
@@ -315,8 +315,12 @@ export function DiscoverHome() {
       {freeEvents.length > 0 && (
         <Section title="Free events" subtitle="Great experiences, no ticket price.">
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {freeEvents.map((e) => (
-              <EventCard key={e.id} event={e} />
+            {freeEvents.map((e, index) => (
+              <EventCard
+                key={e.id}
+                event={e}
+                priority={index === 0 && scopedRecent.length === 0 && !weekendQ.data?.data.length}
+              />
             ))}
           </div>
         </Section>
@@ -337,8 +341,17 @@ export function DiscoverHome() {
           <Skeletons />
         ) : featured.data && featured.data.data.length > 0 ? (
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {featured.data.data.slice(0, 6).map((e) => (
-              <EventCard key={e.id} event={e} />
+            {featured.data.data.slice(0, 6).map((e, index) => (
+              <EventCard
+                key={e.id}
+                event={e}
+                priority={
+                  index === 0 &&
+                  scopedRecent.length === 0 &&
+                  !weekendQ.data?.data.length &&
+                  freeEvents.length === 0
+                }
+              />
             ))}
           </div>
         ) : where ? (
@@ -462,17 +475,29 @@ export function DiscoverHome() {
             </div>
           ))}
         </div>
-        <div className="mt-6 flex flex-wrap gap-x-5 gap-y-2 border-t border-border pt-4 text-caption">
-          <Link href="/refunds" className="text-action-primary hover:underline">
+        <div className="mt-6 flex flex-wrap gap-x-5 gap-y-0 border-t border-border pt-2 text-caption">
+          <Link
+            href="/refunds"
+            className="inline-flex min-h-11 items-center text-action-primary hover:underline lg:min-h-0"
+          >
             Refund policy
           </Link>
-          <Link href="/terms" className="text-action-primary hover:underline">
+          <Link
+            href="/terms"
+            className="inline-flex min-h-11 items-center text-action-primary hover:underline lg:min-h-0"
+          >
             Terms
           </Link>
-          <Link href="/privacy" className="text-action-primary hover:underline">
+          <Link
+            href="/privacy"
+            className="inline-flex min-h-11 items-center text-action-primary hover:underline lg:min-h-0"
+          >
             Privacy
           </Link>
-          <Link href="/contact" className="text-action-primary hover:underline">
+          <Link
+            href="/contact"
+            className="inline-flex min-h-11 items-center text-action-primary hover:underline lg:min-h-0"
+          >
             Contact us
           </Link>
         </div>

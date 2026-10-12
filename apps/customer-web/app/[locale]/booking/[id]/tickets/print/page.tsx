@@ -26,7 +26,7 @@ export default function GuestTicketsPrintPage() {
     queryFn: () => api.getGuestBooking(id, session as string),
   });
 
-  if (session === null) return <GuestBookingNotHere />;
+  if (session === null) return <GuestBookingNotHere bookingId={id} />;
   return (
     <GuestPrintSheet
       view={data}

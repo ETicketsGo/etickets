@@ -799,7 +799,7 @@ export function CityPicker({
         aria-haspopup="dialog"
         // The full value goes on the accessible name because the visible one truncates.
         aria-label={`Location: ${label}. Change`}
-        className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[0.9375rem] text-text-secondary transition-colors hover:bg-background-subtle hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        className="flex min-h-11 items-center gap-1.5 rounded-md sm:min-h-0 px-2.5 py-1.5 text-[0.9375rem] text-text-secondary transition-colors hover:bg-background-subtle hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
       >
         <MapPin className="h-4 w-4 shrink-0" />
         {/*

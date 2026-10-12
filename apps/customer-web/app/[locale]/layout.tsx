@@ -10,12 +10,22 @@ import { SiteChrome } from '@/components/site-chrome';
 import { SkipToContent } from '@/components/skip-to-content';
 import { SwRegister } from '@/components/sw-register';
 import { serverSessionHint } from '@/lib/session-hint';
+import { buildId } from '@/lib/build-id';
 // Self-hosted, so `next build` never downloads fonts.
 import { inter } from '@eticketsgo/web-kit/fonts/inter';
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://eticketsgo.com';
 
-export const metadata: Metadata = {
+/*
+  A function rather than a constant so the build id is read when the request is handled, by the
+  process that is answering it. See `lib/build-id.ts`.
+*/
+export function generateMetadata(): Metadata {
+  const build = buildId();
+  return { ...metadata, ...(build ? { other: { 'build-id': build } } : {}) };
+}
+
+const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: {
     default: 'ETicketsGo: Sell tickets, check in guests, see your sales',
@@ -124,7 +134,9 @@ export default async function LocaleLayout({
         <NextIntlClientProvider>
           <SkipToContent />
           <Providers>
-            <SiteChrome initialSignedIn={signedInHint}>{children}</SiteChrome>
+            <SiteChrome initialSignedIn={signedInHint} buildId={buildId()}>
+              {children}
+            </SiteChrome>
             <SwRegister />
           </Providers>
         </NextIntlClientProvider>

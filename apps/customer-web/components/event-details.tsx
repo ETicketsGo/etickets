@@ -24,6 +24,7 @@ import {
 } from '@eticketsgo/web-kit';
 import { Link } from '@/i18n/navigation';
 import { useFormat } from '@/lib/format';
+import { whenWithZone } from '@/lib/event-when';
 import { Button, Card, Dialog } from '@/components/ui';
 
 /**
@@ -69,20 +70,21 @@ export function EventFacts({
   standalone?: boolean;
 }) {
   const t = useTranslations('storefront.event');
-  const { dateOnly, dateTime } = useFormat();
+  const format = useFormat();
+  const { dateOnly } = format;
   const duration = useDurationText();
   const sessions = event.sessions;
   const minutes = session ? showDurationMinutes(session.startsAt, session.endsAt) : null;
 
   const when = session
-    ? dateTime(session.startsAt, undefined, zone)
+    ? whenWithZone(session.startsAt, zone, format)
     : sessions.length > 1
       ? t('dateRange', {
           from: dateOnly(sessions[0].startsAt, undefined, zone),
           to: dateOnly(sessions[sessions.length - 1].startsAt, undefined, zone),
         })
       : sessions[0]
-        ? dateTime(sessions[0].startsAt, undefined, zone)
+        ? whenWithZone(sessions[0].startsAt, zone, format)
         : null;
 
   const rows = [
@@ -185,6 +187,8 @@ export function OrganizerCard({ organizer }: { organizer: PublicEvent['organizer
           <img
             src={logo}
             alt=""
+            width={40}
+            height={40}
             className="h-10 w-10 shrink-0 rounded-full border border-border bg-white object-cover"
           />
         ) : (

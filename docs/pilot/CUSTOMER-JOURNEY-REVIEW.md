@@ -171,3 +171,98 @@ stack), `30-payment-failed-m`, `33-network-error-m`, `34-cancelled-revisit-m`, `
 - One payment method (Netbanking) and one test bank were exercised. Cards, UPI and wallets were not.
 - Email, SMS, WhatsApp and push deliveries were not observable.
 - Only the paid GA path in India was walked end to end; reserved seating and cinema were out of scope.
+
+## Round L: mobile tap targets, sticky pay, sold-out notice, images, build id (2026-10-12)
+
+Scope: the open items F7 (smaller observations) and the mobile findings of
+`CROSS-BROWSER-CERTIFICATION.md`. F5 (seller and support contact) is NOT done: it needs a support
+address the owner has confirmed. No pricing, fee, tax, payment, refund, receipt or invoice code
+changed. Everything below is customer-web (plus two class-name edits in `packages/web-kit`).
+
+"Before" is QA (https://qa.eticketsgo.com, 2026-10-12, Chromium 390x844 with a 4G profile: 1.6 Mbps,
+150 ms), read only, as a guest. "After" is a local production build of this branch against a local
+API (same script, same profile), because QA is deployed by the lead. The datasets differ, so a
+before/after pair is only quoted where both were measured on the same build; the local "before"
+build of `origin/main` was measured too.
+
+| #   | Item                         | Before  | After                            | Change                                                                                                                                                                                                                                                                                                                                                       |
+| --- | ---------------------------- | ------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | Tap targets                  | FAIL    | PASS (AA 2.5.8), PARTIAL (44 px) | Header logo, Sign in, language, city picker, quantity selects, Share, View photos, gallery arrows, FAQ rows, wishlist hearts, category chips, login tabs, footer links, "Change location" and the home-page policy links are 44 px tall on a phone. Nothing under 24 px is left (was 5 controls on the home page, 1 on Events). Desktop sizes are unchanged. |
+| 2   | Sticky "Continue to payment" | FAIL    | PASS                             | A bar above the bottom navigation once tickets are chosen, only while the card's own button is off screen.                                                                                                                                                                                                                                                   |
+| 3   | Sold-out notice              | FAIL    | PASS                             | "This event is sold out" (or "This date is sold out" when another date has tickets) at the top of the booking card. The empty price, guest form and Continue button are not shown.                                                                                                                                                                           |
+| 4   | Guest revisit after cancel   | FAIL    | PASS                             | "You cancelled this booking", with a Browse events button.                                                                                                                                                                                                                                                                                                   |
+| 5   | Hero time zone               | FAIL    | PASS                             | The key-facts line reads "22 Nov 2026, 1:57 am (GMT+5:30)", like the Sessions row.                                                                                                                                                                                                                                                                           |
+| 6   | Images                       | PARTIAL | PARTIAL                          | Layout shift on the event page 0.331 to 0.000 and on login 0.187 to 0.004 (local, same-build comparison). Width and height on every image; the first card and the hero fetch at high priority. The home-page shift seen on QA (0.207) was not reproduced locally and is not fixed.                                                                           |
+| 7   | axe                          | PASS    | PASS                             | Zero serious or critical at 390 and 1440 on home, events, a paid event, a sold-out event and login (WCAG 2.0/2.1/2.2 A and AA tags), including with tickets chosen so the sticky bar is on screen.                                                                                                                                                           |
+| 8   | Build identifier             | FAIL    | PASS (after deploy)              | `<meta name="build-id">`, the footer ("Build 4f30b8b") and `/api/health` carry the short commit.                                                                                                                                                                                                                                                             |
+
+### Root causes and fixes
+
+1. **Tap targets.** Controls were sized for a mouse (`py-1.5`, `h-9`). Each now has `min-h-11` below
+   the `sm` or `lg` breakpoint and keeps its old size above it. The header got `py-2` on a phone so
+   the taller controls do not make it taller (60 px either way). Footer link lists lost their
+   vertical gap on a phone because the links now carry the spacing. Still under 44 px but at least
+   24 px: the footer logo (36 px), "Get directions" (42 px), and short footer words such as "FAQ" (29
+   px wide, 44 px tall). WCAG 2.5.8 is met; 44 px is a usability aim.
+2. **Sticky pay.** The ticket card ends in a price breakdown, an optional state field and (for a
+   guest) two fields, so the button was several screens below the quantity box. `StickyContinue`
+   shows the ticket count and the quoted total (never a stale total while a quote is loading) and
+   presses the same handler, so the guest form is still validated and focus still goes to the first
+   bad field. It is `lg:hidden`, sits at `3.5rem + env(safe-area-inset-bottom)` from the bottom,
+   sets `scroll-padding-bottom` while shown so a focused field is not left under it, and leaves as
+   soon as the card's own button is on screen. It is `aria-hidden` and out of the tab order: it is a
+   shortcut for a finger, and a screen reader should not hear "Continue to payment" twice.
+3. **Sold out.** `lib/event-availability.ts`: a date is sold out only when it has ticket types and
+   every one has nothing available; the event is sold out when every upcoming date is. A closed or
+   not-yet-open ticket type is not "sold out". Seated shows are left alone (their stock is on the
+   seat map).
+4. **Guest revisit.** Cancelling forgot the booking's token, so the booking link fell into the same
+   screen as a stranger's browser. The browser now also remembers which booking ids it cancelled
+   (ids only, no token, last 50) and the "not here" screen says what happened. A different browser
+   still gets the access message; the test asserts both.
+5. **Hero zone.** `EventFacts` called `dateTime` without the zone abbreviation that the Sessions row
+   adds. `whenWithZone` adds it when the venue has a time zone.
+6. **Images.** Measured on QA: no broken image on any page checked, and the no-image fallback (a
+   lettered gradient in the same box) renders. The event page painted a 384 px skeleton, so the
+   footer was in the first screen and was thrown to the bottom of a 6000 px page when the event
+   arrived: that is the 0.331 shift. The skeleton is now a full screen tall. The event hero and the
+   first card are eager with `fetchpriority=high`; the others stay lazy. `fetchpriority` is written
+   in lower case because customer-web is on React 18, which warns about the camel-case spelling.
+   The login page reserved 40 px for its sign-in tabs and nothing for the form, so the page grew
+   twice (0.187); it now reserves both.
+7. **axe.** New test, below.
+8. **Build id.** Read at request time from the platform's commit variable (`BUILD_SHA`,
+   `RAILWAY_GIT_COMMIT_SHA`, `SOURCE_COMMIT`, `GIT_COMMIT_SHA`), only if it is a hex string, first
+   seven characters. It is a commit hash, not a secret. No Dockerfile build argument is needed. In
+   local development no commit is set, so nothing is shown.
+
+### Tests
+
+- `apps/customer-web/lib/event-availability.test.ts`, `event-when.test.ts` and `build-id.test.ts`
+  (vitest, 12 tests). Each was shown to fail when the code was broken.
+- `apps/e2e/tests/customer-experience-round-l.spec.ts` (Playwright, 10 tests) on its own fixture
+  events: tap-target sizes, the sticky bar (appears, sits above the navigation, validates the guest
+  form, leaves when the real button shows, completes to payment), the sold-out notice, guest cancel
+  and revisit (and that a second browser still sees the access message), the hero zone, image
+  attributes, the build id, and axe at 390 and 1440.
+
+### Evidence
+
+Screenshots are in `C:\etg-wt\k-shots\l-cx\`. `before-qa-*` is QA on 2026-10-12: event top, tap
+targets marked red (under 24 px) and orange (under 44 px), selected tickets with no bar, the
+footer, and the old sold-out and cancelled screens from the K review. `after-local-*` is this
+branch: the same views, the sticky bar, the sold-out notice and the cancelled revisit.
+
+### Limitations
+
+- Real Safari, iOS and Android were not tested (BLOCKED). Chromium with phone emulation only, so the
+  safe-area inset was 0 in every run. The CSS uses `env(safe-area-inset-bottom)`, but a notch or a
+  gesture bar was not seen.
+- After-numbers are from a local build, not QA. QA shows nothing new until the lead deploys. The
+  build id cannot be confirmed on QA until then, and it relies on Railway providing
+  `RAILWAY_GIT_COMMIT_SHA` to the running web service (it does for the API; not yet seen here).
+- The home-page shift on QA (0.207) was not reproduced locally and is not fixed. LCP on QA is
+  dominated by API-served card images on a throttled link; the changes make the first one start
+  sooner, but the gain was not measured on QA.
+- The larger controls were checked at 390 px only.
+- F5 (support contact) is untouched and still needs an owner-confirmed support address.

@@ -96,9 +96,12 @@ export function SiteChrome({
     localStorage is the truth - but being right to begin with is what removes the flash.
   */
   initialSignedIn = false,
+  /** The short commit of the running server, for the footer; null in local development. */
+  buildId = null,
 }: {
   children: React.ReactNode;
   initialSignedIn?: boolean;
+  buildId?: string | null;
 }) {
   const f = useTranslations('common.footer');
   const pathname = usePathname();
@@ -121,7 +124,7 @@ export function SiteChrome({
       <>
         <MarketingNav />
         <main id="main">{children}</main>
-        <MarketingFooter />
+        <MarketingFooter buildId={buildId} />
       </>
     );
   }
@@ -167,6 +170,7 @@ export function SiteChrome({
       */}
       <div className="pb-[calc(3.5rem+env(safe-area-inset-bottom))] lg:pb-0">
         <SiteFooter
+          buildId={buildId}
           compact={isCheckoutRoute(pathname)}
           environmentNotice={
             (process.env.NEXT_PUBLIC_APP_ENV ?? '').toUpperCase() === 'PRODUCTION' ||

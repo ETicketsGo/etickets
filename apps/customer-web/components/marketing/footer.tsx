@@ -51,7 +51,7 @@ const COLUMNS: { title: string; links: { href: string; label: string; external?:
   },
 ];
 
-export function MarketingFooter() {
+export function MarketingFooter({ buildId = null }: { buildId?: string | null }) {
   const f = useTranslations('common.footer');
   return (
     <footer className="border-t border-border bg-background-subtle/40">
@@ -75,12 +75,12 @@ export function MarketingFooter() {
               <h3 className="text-caption font-semibold uppercase tracking-wide text-text-secondary">
                 {f(`columns.${col.title}`)}
               </h3>
-              <ul className="mt-4 space-y-2.5">
+              <ul className="mt-4 lg:space-y-2.5">
                 {col.links.map((l) => (
                   <li key={l.href + l.label}>
                     <Link
                       href={l.href}
-                      className="text-[0.9375rem] text-text-secondary transition-colors hover:text-text-primary"
+                      className="inline-flex min-h-11 items-center text-[0.9375rem] text-text-secondary transition-colors hover:text-text-primary lg:min-h-0"
                     >
                       {f(`links.${l.label}`)}
                     </Link>
@@ -97,6 +97,11 @@ export function MarketingFooter() {
             still be here long after the details were real - and, worse, could be deleted while
             they were still fake. It now follows the details themselves and retires itself.
           */}
+          {buildId && (
+            <p data-testid="build-id" className="tabular-nums">
+              {f('build', { id: buildId })}
+            </p>
+          )}
           {needsPlaceholderNotice() && (
             <p className="text-text-secondary">
               Our contact details and legal terms are not published yet.
