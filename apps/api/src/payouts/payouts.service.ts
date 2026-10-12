@@ -20,7 +20,7 @@ import { AppException, ErrorCodes } from '../common/errors';
 import type { RequestUser } from '../common/decorators';
 import { PayoutSettingsService } from './payout-settings.service';
 import { derivePayoutAccountState, type PayoutAccountState } from './payout-account-state';
-import { payoutDestinationVerdict } from './payout-account-safety';
+import { payoutDestinationVerdict, verifierMayNotPay } from './payout-account-safety';
 import {
   calculateCurrencySettlement,
   type CurrencySettlement,
@@ -1185,8 +1185,16 @@ export class PayoutsService {
       pending account. A refusal is audited and the payout stays exactly as it was.
     */
     const outcome = await this.prisma.$transaction(async (tx) => {
-      const rows = await tx.$queryRaw<{ verifiedAt: Date | null; rejectedAt: Date | null }[]>(
-        Prisma.sql`SELECT "verifiedAt", "rejectedAt" FROM "OrganizerPayoutAccount"
+      const rows = await tx.$queryRaw<
+        {
+          verifiedAt: Date | null;
+          rejectedAt: Date | null;
+          verifiedByUserId: string | null;
+          version: number;
+        }[]
+      >(
+        Prisma.sql`SELECT "verifiedAt", "rejectedAt", "verifiedByUserId", "version"
+                   FROM "OrganizerPayoutAccount"
                    WHERE "organizationId" = ${payout.organizationId}
                      AND "currency" = ${payout.currency}
                    FOR SHARE`,
@@ -1196,10 +1204,46 @@ export class PayoutsService {
         account: rows[0] ?? null,
       });
       if (!verdict.allowed) return { held: verdict.reason };
+      /*
+        ── SEPARATION OF DUTIES ────────────────────────────────────────────────────────
+        The person who verified this version of the account must not also be the one who records
+        money going into it. Judged on IDENTITY, not on a capability, so it holds for a super
+        admin and for anybody who has been given both duties. Read in the same FOR SHARE
+        transaction as the claim, so a re-verification cannot slip in between check and PAID.
+        A payout that moves no money to the organizer has no destination to protect.
+      */
+      if (
+        payout.netMinor > 0 &&
+        verifierMayNotPay({ actorUserId: admin.id, verifiedByUserId: rows[0]?.verifiedByUserId })
+      ) {
+        return { verifier: { version: rows[0]?.version ?? null } };
+      }
       // Atomic finalize: only an un-paid payout can be marked PAID, so the same
       // payout can never be paid twice (idempotent under concurrent admins).
       return { claim: await this.claimPaid(tx, payoutId, evidence) };
     });
+    if ('verifier' in outcome && outcome.verifier) {
+      await this.audit.record({
+        actorUserId: admin.id,
+        organizationId: payout.organizationId,
+        action: 'PAYOUT_PAID',
+        entityType: 'Payout',
+        entityId: payoutId,
+        metadata: {
+          outcome: 'REFUSED',
+          reasonCode: 'VERIFIER_CANNOT_PAY',
+          accountVersion: outcome.verifier.version,
+          currency: payout.currency,
+          netMinor: payout.netMinor,
+        },
+      });
+      throw new AppException(
+        ErrorCodes.FORBIDDEN,
+        'You verified this bank account, so someone else must mark this payout paid.',
+        HttpStatus.FORBIDDEN,
+        { hold: 'VERIFIER_CANNOT_PAY' },
+      );
+    }
     if ('held' in outcome) {
       await this.audit.record({
         actorUserId: admin.id,

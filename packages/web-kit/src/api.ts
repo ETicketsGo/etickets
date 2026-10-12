@@ -5224,6 +5224,8 @@ export interface PayoutAccount {
   organization?: { id: string; name: string };
   /** Admin list only: who entered these details. */
   savedBy?: { id: string; email: string } | null;
+  /** Admin list only: who verified the current version (they can never pay into it). */
+  verifiedBy?: { id: string; email: string } | null;
 }
 
 /** One saved version of a payout bank account. Masked: nothing here can hold a full number. */

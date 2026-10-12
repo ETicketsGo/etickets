@@ -87,8 +87,18 @@ export const AdminPermission = {
    * Affects every sale.
    */
   PLATFORM_CONFIG: 'PLATFORM_CONFIG',
-  /** Release settlements and run payouts. */
+  /** Open the payout and settlement pages, see masked accounts, edit terms, block a settlement. */
   PAYOUT_MANAGE: 'PAYOUT_MANAGE',
+  /*
+    Separation of duties on payouts. PAYOUT_MANAGE alone no longer verifies an account or moves
+    money:
+      BANK_VERIFY     - verify or reject an organizer's bank account (Finance A).
+      PAYOUT_EXECUTE  - mark a payout paid or failed, approve and release a settlement (Finance B).
+    A write needs PAYOUT_MANAGE AND its own capability (all-of). Whoever verified an account can
+    never pay into it, whatever they hold, super admin included - see `markPaid`.
+  */
+  BANK_VERIFY: 'BANK_VERIFY',
+  PAYOUT_EXECUTE: 'PAYOUT_EXECUTE',
   /** Change payment provider configuration, onboarding and outage state. */
   PAYMENT_ADMIN: 'PAYMENT_ADMIN',
 
@@ -174,6 +184,45 @@ export const ADMIN_PRESETS: Record<
     label: 'Operations',
     description:
       'Watches the job queues, the outbox and inventory sync, and retries or replays work that failed. Cannot open bookings or payments, and moves no money.',
+    grants: [AdminPermission.OPS_READ, AdminPermission.OPS_EXECUTE],
+  },
+  /*
+    The four duties below split the money path between people. They are granted to nobody until
+    the owner names the people. A person holds ONE of FINANCE_VERIFIER / FINANCE_PAYER: the
+    server refuses a payment into an account the same person verified even if both are held.
+  */
+  FINANCE_VERIFIER: {
+    label: 'Finance A (bank verifier)',
+    description:
+      'Checks and verifies or rejects organizer bank accounts. Cannot pay a payout or release a settlement, and can never pay into an account they verified.',
+    grants: [
+      AdminPermission.BOOKING_READ,
+      AdminPermission.FINANCE_READ,
+      AdminPermission.PAYOUT_MANAGE,
+      AdminPermission.BANK_VERIFY,
+    ],
+  },
+  FINANCE_PAYER: {
+    label: 'Finance B (payer)',
+    description:
+      'Marks payouts paid or failed and releases settlements. Cannot verify a bank account. Payouts to an account that is not verified by someone else are refused.',
+    grants: [
+      AdminPermission.BOOKING_READ,
+      AdminPermission.FINANCE_READ,
+      AdminPermission.PAYOUT_MANAGE,
+      AdminPermission.PAYOUT_EXECUTE,
+    ],
+  },
+  FINANCE_REVIEWER: {
+    label: 'Finance reviewer',
+    description:
+      'Reads revenue, the audit log and finance reports for independent oversight. Cannot see bank accounts and cannot move money.',
+    grants: [AdminPermission.BOOKING_READ, AdminPermission.FINANCE_READ],
+  },
+  OPS_ONCALL: {
+    label: 'On-call operations',
+    description:
+      'Watches queues, the outbox and inventory sync and retries failed work during an incident. Cannot move money and cannot see bank data.',
     grants: [AdminPermission.OPS_READ, AdminPermission.OPS_EXECUTE],
   },
 };

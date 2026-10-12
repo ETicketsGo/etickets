@@ -36,6 +36,9 @@ const RISKY = new Set([
   'REFUND_APPROVE',
   'PLATFORM_CONFIG',
   'PAYOUT_MANAGE',
+  // Verifies a bank account / records money as sent. Never both for the same account.
+  'BANK_VERIFY',
+  'PAYOUT_EXECUTE',
   // Replays jobs and syncs, and lets a compensation execute or a money finding close.
   'OPS_EXECUTE',
   'FINANCE_APPROVE',
