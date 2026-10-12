@@ -8,6 +8,7 @@ import {
   displayStatus,
   entriesByDay,
   entryFor,
+  sessionDestination,
   statusText,
   statusTone,
   fetchWindow,
@@ -38,6 +39,8 @@ function session(over: Partial<CalendarSession>): CalendarSession {
     eventId: 'e1',
     title: 'Show',
     category: 'Music',
+    experienceType: 'EVENT',
+    seated: false,
     eventStatus: 'PUBLISHED',
     sessionStatus: 'SCHEDULED',
     venueId: 'v1',
@@ -544,5 +547,37 @@ describe('entries for the shared calendar', () => {
     const seventh = segmentsByDay([late], '2026-11-06', '2026-11-07').get('2026-11-07')!;
     expect(entryFor(seventh[0]).start).toBe('cont.');
     expect(entryFor(seventh[0]).time).toMatch(/^Until 02:00 /);
+  });
+
+  it('names the zone only when the venue clock is not the reader clock (Kolkata vs Denver)', () => {
+    const [seg] = segmentsByDay([session({})], '2026-11-06', '2026-11-06').get('2026-11-06')!;
+    // 13:30Z on 6 Nov: 19:00 IST in Hyderabad, 06:30 MDT... MST in Denver (UTC-7 in November).
+    const forDenver = entryFor(seg, 'America/Denver');
+    expect(forDenver.time).toBe(
+      `19:00 - 22:00 ${zoneAbbrev('Asia/Kolkata', seg.session.startsAt)}`,
+    );
+    expect(forDenver.viewerTime).toBe('06:30 MST for you');
+    const forKolkata = entryFor(seg, 'Asia/Kolkata');
+    expect(forKolkata.time).toBe('19:00 - 22:00');
+    expect(forKolkata.viewerTime).toBeUndefined();
+    // The accessible name always carries the zone.
+    expect(forKolkata.label).toMatch(/^19:00 \S+, Show/);
+  });
+
+  it('sends a session to the page where it is managed, by what it is', () => {
+    expect(sessionDestination({ eventId: 'e1', experienceType: 'MOVIE', seated: true })).toEqual({
+      href: '/organizer/events/e1',
+      label: 'Open film page',
+    });
+    expect(sessionDestination({ eventId: 'e1', experienceType: 'EVENT', seated: true })).toEqual({
+      href: '/organizer/events/e1/seating',
+      label: 'Manage seating',
+    });
+    expect(sessionDestination({ eventId: 'e1', experienceType: 'EVENT', seated: false })).toEqual({
+      href: '/organizer/events/e1/sessions',
+      label: 'Manage sessions',
+    });
+    const [seg] = segmentsByDay([session({})], '2026-11-06', '2026-11-06').get('2026-11-06')!;
+    expect(entryFor(seg).destination?.href).toBe('/organizer/events/e1/sessions');
   });
 });

@@ -42,7 +42,8 @@ export function TodayShows() {
   });
 
   const list = useMemo(
-    () => (placeSessions(shows.data?.data ?? [], [today]).byDay[today] ?? []).map(entryFor),
+    () =>
+      (placeSessions(shows.data?.data ?? [], [today]).byDay[today] ?? []).map((s) => entryFor(s)),
     [shows.data, today],
   );
   /*

@@ -1,7 +1,6 @@
 'use client';
 
 import Link from 'next/link';
-import type { CSSProperties } from 'react';
 import {
   ChevronDown,
   BadgeCheck,
@@ -22,7 +21,6 @@ import {
   SectionCard,
   SectionLink,
   Skeleton,
-  tileClasses,
   type NotificationFeedCategory,
   type NotificationFeedGroup,
   type TileTone,
@@ -35,6 +33,8 @@ export interface QuickAction {
   href: string;
   icon: LucideIcon;
   tone: TileTone;
+  /** One line under the label, on the wider tiles. */
+  hint: string;
 }
 
 /**
@@ -57,6 +57,7 @@ export function quickActionsFor({
       href: '/organizer/events/new',
       icon: CalendarPlus,
       tone: 'teal',
+      hint: 'Start a new event',
     });
   if (canManage) {
     out.push({
@@ -64,71 +65,82 @@ export function quickActionsFor({
       href: '/organizer/venues?new=1',
       icon: Building2,
       tone: 'blue',
+      hint: 'A place to hold events',
     });
     if (doesFilmBusiness)
-      out.push({ label: 'Manage movies', href: '/organizer/movies', icon: Film, tone: 'purple' });
+      out.push({
+        label: 'Manage movies',
+        href: '/organizer/movies',
+        icon: Film,
+        tone: 'purple',
+        hint: 'Films and showtimes',
+      });
     out.push({
       label: 'View bookings',
       href: '/organizer/bookings',
       icon: ReceiptText,
       tone: 'amber',
+      hint: 'Orders and attendees',
     });
   }
   return out;
 }
 
+/** Tiles per row from a tablet up: one row of all of them, however many the role has. */
+const TABLET_COLUMNS: Record<number, string> = {
+  1: 'md:grid-cols-1',
+  2: 'md:grid-cols-2',
+  3: 'md:grid-cols-3',
+  4: 'md:grid-cols-4',
+};
+
 /**
- * The quick actions, as ONE list at every width - arranged by CSS, never swapped by a hook.
+ * The quick actions as large tiles in one row under the welcome: an icon tile, the label and a
+ * line saying what it opens.
  *
- * - Phone: "Create event" is the page's one primary button, full width, and the rest are a row
- *   of small tiles under it. The desktop's 2x2 card of equal tiles took ~200px of a phone and
- *   made the main action look like any other.
- * - Tablet: one row of tiles across the page, ~60px tall where the 2x2 card was ~200px.
- * - Wide screen: the reference's card beside the welcome, two by two.
- *
- * It used to be two components, picked after hydration by `usePhone`: a phone painted the
- * desktop card first and then jumped. One list, styled per breakpoint, paints once.
+ * They were four small chips in a side card (~38px tall), which the owner found too small to be
+ * the page's way in. Now each is at least 3.5rem on a phone (two across, so a thumb lands on
+ * one) and 4.5rem from a tablet up (all four across). The console's one solid primary button is in the top bar, so here "Create
+ * event" is only the first, teal-edged tile: two solid buttons for one job is what the design
+ * direction rules out.
  */
 export function QuickActions({ actions }: { actions: QuickAction[] }) {
   if (actions.length === 0) return null;
-  const primaryFirst = actions[0].href === '/organizer/events/new';
-  const others = primaryFirst ? actions.length - 1 : actions.length;
   return (
-    <section
-      aria-labelledby="quick-actions-heading"
-      className="min-w-0 xl:rounded-lg xl:border xl:border-border xl:bg-background-surface xl:p-5 xl:shadow-xs"
-      // How many tiles share a row: the phone's row under the button, and the tablet's one row.
-      style={{ '--qa-row': Math.max(others, 1), '--qa-all': actions.length } as CSSProperties}
-    >
-      <h2
-        id="quick-actions-heading"
-        className="sr-only xl:not-sr-only xl:mb-4 xl:font-display xl:text-[1.0625rem] xl:font-bold xl:text-text-primary"
-      >
+    <section aria-labelledby="quick-actions-heading" className="min-w-0">
+      <h2 id="quick-actions-heading" className="sr-only">
         Quick actions
       </h2>
-      <ul className="grid grid-cols-[repeat(var(--qa-row),minmax(0,1fr))] gap-2 md:grid-cols-[repeat(var(--qa-all),minmax(0,1fr))] md:gap-3 xl:grid-cols-2 xl:gap-2.5">
+      <ul
+        className={`grid grid-cols-2 gap-2.5 md:gap-3 ${TABLET_COLUMNS[Math.min(actions.length, 4)]}`}
+      >
         {actions.map((a, i) => {
-          const primary = primaryFirst && i === 0;
-          // An odd last tile takes the whole row of the 2x2 card rather than leaving a hole.
+          const primary = a.href === '/organizer/events/new';
+          // An odd last tile takes the whole row of a phone's two columns rather than leaving a hole.
           const oddLast = i === actions.length - 1 && actions.length % 2 === 1;
           return (
-            <li
-              key={a.href}
-              className={`min-w-0 ${primary ? 'col-span-full md:col-span-1' : ''} ${oddLast ? 'xl:col-span-2' : ''}`}
-            >
+            <li key={a.href} className={`min-w-0 ${oddLast ? 'max-md:col-span-2' : ''}`}>
               <Link
                 href={a.href}
-                className={`group flex h-full items-center gap-2 rounded-md px-3 py-2 font-semibold transition-[filter,transform] duration-150 hover:brightness-[0.97] active:translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas motion-reduce:transition-none dark:hover:brightness-125 md:min-h-[3rem] md:text-[0.8125rem] ${tileClasses(a.tone)} ${
+                className={`group flex h-full min-h-[3.5rem] items-center gap-3 rounded-lg border px-3 py-2.5 shadow-xs transition-[box-shadow,transform] duration-150 hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas motion-reduce:transition-none motion-reduce:hover:translate-y-0 md:min-h-[4.5rem] md:px-4 ${
                   primary
-                    ? 'max-md:min-h-[3rem] max-md:justify-center max-md:bg-action-primary max-md:text-ui max-md:text-action-primary-foreground max-md:shadow-sm'
-                    : 'max-md:min-h-[3.5rem] max-md:flex-col max-md:justify-center max-md:gap-1 max-md:px-1.5 max-md:text-center max-md:text-micro max-md:leading-tight'
+                    ? 'border-action-primary/40 bg-tint-primary text-text-primary'
+                    : 'border-border bg-background-surface text-text-primary'
                 }`}
               >
-                <a.icon className="h-4 w-4 shrink-0" aria-hidden />
-                <span
-                  className={`min-w-0 md:flex-1 md:truncate ${primary ? 'max-md:text-action-primary-foreground' : ''} text-text-primary`}
-                >
-                  {a.label}
+                <IconTile
+                  icon={a.icon}
+                  tone={a.tone}
+                  size="lg"
+                  className="max-md:!h-9 max-md:!w-9"
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-ui font-semibold leading-tight max-md:text-caption lg:truncate">
+                    {a.label}
+                  </span>
+                  <span className="mt-0.5 hidden truncate text-caption text-text-secondary lg:block">
+                    {a.hint}
+                  </span>
                 </span>
               </Link>
             </li>
@@ -219,6 +231,7 @@ export function ActivityTimeline({
   onRetry,
   empty,
   showAll = true,
+  compact = false,
 }: {
   title: string;
   groups: NotificationFeedGroup[];
@@ -227,6 +240,8 @@ export function ActivityTimeline({
   onRetry: () => void;
   empty: string;
   showAll?: boolean;
+  /** Title and time only: the summary line is what made three entries ~250px tall. */
+  compact?: boolean;
 }) {
   return (
     <SectionCard
@@ -264,7 +279,10 @@ export function ActivityTimeline({
             const tile = CATEGORY_TILE[g.category] ?? CATEGORY_TILE.SYSTEM_UPDATES;
             const last = i === groups.length - 1;
             return (
-              <li key={g.key} className="relative flex gap-3 pb-4 last:pb-0">
+              <li
+                key={g.key}
+                className={`relative flex gap-3 last:pb-0 ${compact ? 'pb-3' : 'pb-4'}`}
+              >
                 {/* The thread between entries: decoration, under the tiles. */}
                 {!last && (
                   <span
@@ -280,7 +298,7 @@ export function ActivityTimeline({
                   <span className="block break-words text-ui font-semibold leading-snug text-text-primary group-hover:text-action-primary">
                     {g.title}
                   </span>
-                  {g.summary && g.summary !== g.title ? (
+                  {!compact && g.summary && g.summary !== g.title ? (
                     <span className="mt-0.5 line-clamp-2 block text-caption text-text-secondary">
                       {g.summary}
                     </span>

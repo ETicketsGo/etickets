@@ -4,6 +4,10 @@ import { describe, expect, it } from 'vitest';
 import {
   calendarDisplayStatus,
   calendarFocusTarget,
+  calendarMonthCap,
+  calendarSameClock,
+  calendarSplit,
+  calendarViewerTime,
   calendarStatusText,
   calendarStatusTone,
   calendarWeekdayNames,
@@ -101,10 +105,8 @@ function month(entries: Map<string, CalendarEntry<string>[]>, focusedDay = '2026
       weekStart: 1,
       formatDay: (d: string) => d,
       noun: NOUN,
-      showDayLabel: 'Open the day',
       onFocusDay: noop,
       onOpen: noop,
-      onShowDay: noop,
     }),
   );
 }
@@ -154,7 +156,8 @@ describe('CalendarMonthGrid', () => {
     const day = cell(month(byDay(many)), '2026-11-12');
     expect(day.match(/data-session-id=/g)).toHaveLength(3);
     expect(day).toContain('+2 more');
-    expect(day).toContain('2 more on 2026-11-12. Open the day');
+    expect(day).toContain('2 more sessions on 2026-11-12. Show them in the day panel');
+    expect(day).toContain('data-testid="month-more-2026-11-12"');
   });
 
   it('heads the columns from the week start', () => {
@@ -200,9 +203,9 @@ describe('CalendarRow, CalendarDayPanel and CalendarDayCard', () => {
     );
     expect(html).toContain('Tue, 10 Nov 2026');
     expect(html).toContain('Today');
-    expect(html).toContain('10 sessions, at venue time');
+    expect(html).toContain('10 sessions. On this date at each venue');
     expect(html.match(/data-session-id=/g)).toHaveLength(8);
-    expect(html).toContain('2 more on this day');
+    expect(html).toContain('Show 2 more on this day');
   });
 
   it('a day card lists every row once expanded, and says when a day is empty', () => {
@@ -231,6 +234,59 @@ describe('CalendarRow, CalendarDayPanel and CalendarDayCard', () => {
     );
     expect(empty).toContain('No shows');
     expect(empty).toContain('0 shows');
+  });
+});
+
+describe('how many sessions a month cell shows', () => {
+  it('is three on desktop, two then one on a tablet, and none (dots) on a phone', () => {
+    expect([1440, 1024, 1023, 768, 767, 640, 639, 320].map(calendarMonthCap)).toEqual([
+      3, 3, 2, 2, 1, 1, 0, 0,
+    ]);
+  });
+
+  it('keeps every session: the shown ones plus the hidden count are the whole day', () => {
+    const day = ['a', 'b', 'c', 'd', 'e'];
+    expect(calendarSplit(day, 3)).toEqual({ shown: ['a', 'b', 'c'], hidden: 2 });
+    expect(calendarSplit(day, 0)).toEqual({ shown: [], hidden: 5 });
+    expect(calendarSplit(day, 9)).toEqual({ shown: day, hidden: 0 });
+    // Exactly at the cap there is no "+0 more".
+    expect(calendarSplit(['a', 'b', 'c'], 3).hidden).toBe(0);
+  });
+
+  it('draws a "+N more" button at the cap, and none under it', () => {
+    const three = [0, 1, 2].map((i) => entry(`t${i}`, `2026-11-12T0${i}:00:00.000Z`, 'UTC'));
+    expect(cell(month(byDay(three)), '2026-11-12')).not.toContain('more');
+  });
+});
+
+describe('zone wording', () => {
+  // 13:30 UTC: 19:00 in Kolkata (UTC+5:30) and 06:30 in Denver (UTC-7, MST in January).
+  const at = '2027-01-15T13:30:00.000Z';
+
+  it('says when a venue clock is not the reader clock, by offset not by name', () => {
+    expect(calendarSameClock('Asia/Kolkata', 'America/Denver', at)).toBe(false);
+    expect(calendarSameClock('Asia/Kolkata', 'Asia/Calcutta', at)).toBe(true);
+    expect(calendarSameClock('America/Denver', 'America/Denver', at)).toBe(true);
+    // Phoenix has no daylight saving: it matches Denver in winter and not in summer.
+    expect(calendarSameClock('America/Denver', 'America/Phoenix', at)).toBe(true);
+    expect(calendarSameClock('America/Denver', 'America/Phoenix', '2027-07-15T13:30:00.000Z')).toBe(
+      false,
+    );
+    expect(calendarSameClock('Not/AZone', 'America/Denver', at)).toBe(false);
+  });
+
+  it('gives the reader their own time for a venue that is somewhere else', () => {
+    expect(calendarViewerTime(at, 'Asia/Kolkata', 'America/Denver')).toBe('06:30 MST for you');
+    expect(calendarViewerTime(at, 'America/Denver', 'Asia/Kolkata')).toBe('19:00 GMT+5:30 for you');
+    expect(calendarViewerTime(at, 'Asia/Kolkata', 'Asia/Kolkata')).toBe('');
+  });
+
+  it('adds the weekday when the reader date is not the venue date', () => {
+    // 20:30 UTC Friday: Saturday 02:00 in Kolkata, still Friday 13:30 in Denver.
+    const late = '2027-01-15T20:30:00.000Z';
+    expect(calendarViewerTime(late, 'Asia/Kolkata', 'America/Denver')).toBe(
+      'Fri 13:30 MST for you',
+    );
   });
 });
 

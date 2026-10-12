@@ -59,7 +59,9 @@ test.describe('the Overviews do not move under the reader', () => {
       expect(await settledShift(page)).toBeLessThan(CLS_LIMIT);
 
       // One fold button is shown at each of these widths (the menu has its own, by other names).
-      const more = page.getByRole('button', { name: /^Show more (Calendar|Sales)/ });
+      const more = page.getByRole('button', {
+        name: /^Show more (Other currencies|Calendar|Top events|Markets)/,
+      });
       await expect(more).toHaveCount(1);
       await more.scrollIntoViewIfNeeded();
       const before = (await more.boundingBox())!.y;
@@ -67,8 +69,8 @@ test.describe('the Overviews do not move under the reader', () => {
       const less = page.getByRole('button', { name: /^Show less/ });
       await expect(less).toHaveAttribute('aria-expanded', 'true');
       expect(Math.abs((await less.boundingBox())!.y - before)).toBeLessThanOrEqual(1);
-      // What it opened is there: the money in detail at both widths.
-      await expect(page.getByRole('heading', { name: 'Gross to net' })).toBeVisible();
+      // What it opened is there at both widths: the by-market table.
+      await expect(page.getByText('By market', { exact: true })).toBeVisible();
     });
 
     test(`admin Overview at ${width}px: no layout shift`, async ({ page, context }) => {

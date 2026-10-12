@@ -8,17 +8,31 @@ import {
   type ReactNode,
   type RefObject,
 } from 'react';
-import { ChevronDown, ChevronLeft, ChevronRight, SlidersHorizontal } from 'lucide-react';
+import {
+  Ban,
+  CircleCheck,
+  CircleDashed,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Clock3,
+  SlidersHorizontal,
+  Ticket,
+} from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import Link from 'next/link';
 import { Button, Skeleton } from './components';
 import { IconButton, IconTile, StatusPill } from './primitives';
 import {
   CALENDAR_DOT,
   calendarFocusTarget,
+  calendarMonthCap,
+  calendarSplit,
   calendarStatusText,
   calendarStatusTone,
   calendarWeekdayNames,
   type CalendarDay,
+  type CalendarDestination,
   type CalendarTone,
   type CalendarWeekStart,
 } from './calendar-status';
@@ -60,6 +74,10 @@ export interface CalendarEntry<T = unknown> {
   tone: CalendarTone;
   /** The status in words: "Published", "Session cancelled". */
   statusLabel: string;
+  /** The same instant on the viewer's clock ("06:30 MDT for you"), only when it is not theirs. */
+  viewerTime?: string;
+  /** Where this session is managed; a row offers it as a link beside the quick look. */
+  destination?: CalendarDestination;
   /** Drawn struck through: a cancelled session. */
   struck?: boolean;
   /** One accessible name with the time and zone, title, place and status. */
@@ -111,7 +129,8 @@ export function CalendarTodayBadge() {
 export function CalendarZoneNote({ zone, extra }: { zone: string; extra?: string }) {
   return (
     <p data-testid="calendar-today-zone">
-      Today is marked in your time zone, {zone}.{extra ? ` ${extra}` : ''}
+      Your time zone is {zone}. It decides which day is Today.{' '}
+      {extra ?? "Each session is shown on its own venue's date and time."}
     </p>
   );
 }
@@ -126,12 +145,44 @@ function EntryPill({ entry }: { entry: CalendarEntry<unknown> }) {
 }
 
 /**
- * A session in a month cell or a dense column: status dot and time, the title under them.
+ * The mark beside a session. A SHAPE per tone as well as a colour, so a chip is not read by hue
+ * alone: a tick for on the calendar and fine, a clock for waiting (in review, paused), a bar for
+ * cancelled, a ticket for sold out, a dashed ring for draft or ended.
+ */
+const TONE_ICON: Record<CalendarTone, LucideIcon> = {
+  success: CircleCheck,
+  warning: Clock3,
+  error: Ban,
+  info: Ticket,
+  neutral: CircleDashed,
+};
+
+const TONE_TEXT: Record<CalendarTone, string> = {
+  success: 'text-status-success',
+  warning: 'text-status-warning',
+  error: 'text-status-error',
+  info: 'text-status-info',
+  neutral: 'text-text-muted',
+};
+
+export function CalendarStatusMark({
+  tone,
+  className = 'h-3 w-3',
+}: {
+  tone: CalendarTone;
+  className?: string;
+}) {
+  const Icon = TONE_ICON[tone];
+  return <Icon aria-hidden className={`${className} shrink-0 ${TONE_TEXT[tone]}`} />;
+}
+
+/**
+ * A session in a month cell or a dense column: status mark, time and status word on the first
+ * line, the title under them on up to two lines.
  *
- * Quiet by design. A busy month is a wall of these, and thirty tinted boxes read as noise; a dot
- * and a line of text scan like the reference's calendar card. The title is cut to the cell - the
- * one place a calendar truncates - because the full words are in the accessible name, the hover
- * title, and the day panel or agenda one click away.
+ * Quiet by design. A busy month is a wall of these, and thirty tinted boxes read as noise. The
+ * title is clamped to two lines - the one place a calendar cuts words - because the full text is
+ * in the accessible name, the hover title, and the day panel or agenda one click away.
  */
 export function CalendarChip<T>({
   entry,
@@ -154,15 +205,19 @@ export function CalendarChip<T>({
         e.stopPropagation();
         onOpen(entry, e.currentTarget);
       }}
-      className={`block w-full min-w-0 rounded-md px-1.5 py-0.5 text-left text-micro leading-[1.125rem] text-text-primary transition-colors duration-150 hover:bg-background-subtle ${FOCUS}`}
+      className={`block w-full min-w-0 rounded-md px-1.5 py-1 text-left text-micro leading-4 text-text-primary transition-colors duration-150 hover:bg-background-subtle ${FOCUS}`}
     >
-      <span className="flex items-center gap-1.5">
-        <span aria-hidden className={`h-2 w-2 shrink-0 rounded-full ${CALENDAR_DOT[entry.tone]}`} />
-        <span className="font-semibold tabular-nums">{entry.start}</span>
+      <span className="flex min-w-0 items-center gap-1">
+        <CalendarStatusMark tone={entry.tone} />
+        <span className="shrink-0 font-semibold tabular-nums">{entry.start}</span>
+        {/* The normal state is the tick alone; anything else is named, so it never rests on hue. */}
+        {entry.tone !== 'success' && (
+          <span className="min-w-0 truncate text-text-muted">{entry.statusLabel}</span>
+        )}
       </span>
-      {/* The title on its own line: beside the time, a month cell leaves it a few letters. */}
+      {/* The title under the time: beside it, a month cell leaves it a few letters. */}
       <span
-        className={`block truncate pl-3.5 text-text-secondary ${entry.struck ? 'line-through' : ''}`}
+        className={`mt-0.5 line-clamp-2 break-words pl-4 text-text-secondary [overflow-wrap:anywhere] ${entry.struck ? 'line-through' : ''}`}
       >
         {entry.title}
       </span>
@@ -171,9 +226,10 @@ export function CalendarChip<T>({
 }
 
 /**
- * A session as a row: the day panel, the agenda, and a week on a narrow screen. Dot, title, time
+ * A session as a row: the day panel, the agenda, and a week on a narrow screen. Mark, title, time
  * at the venue, place, and the status in words. Nothing here is cut off: a row has the width to
- * wrap, and a calendar must never hide what a session is.
+ * wrap, and a calendar must never hide what a session is. When the app knows where the session
+ * is managed, a link under the row goes there; the row itself opens the quick look.
  */
 export function CalendarRow<T>({
   entry,
@@ -186,41 +242,78 @@ export function CalendarRow<T>({
   inset?: boolean;
 }) {
   return (
-    <button
-      type="button"
-      data-session-id={entry.id}
-      aria-label={entry.label}
-      onClick={(e) => onOpen(entry, e.currentTarget)}
-      className={`flex w-full flex-wrap items-start gap-x-3 gap-y-1.5 text-left transition-colors duration-150 hover:bg-background-subtle ${FOCUS} ${
-        inset ? 'rounded-md px-3 py-2.5' : 'px-4 py-3 focus-visible:ring-inset'
-      }`}
-    >
-      <span
-        aria-hidden
-        className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${CALENDAR_DOT[entry.tone]}`}
-      />
-      <span className="min-w-0 flex-1 basis-40">
-        <span
-          className={`block break-words text-sm font-semibold text-text-primary [overflow-wrap:anywhere] ${entry.struck ? 'line-through' : ''}`}
-        >
-          {entry.title}
+    <div className={inset ? 'rounded-md' : ''}>
+      <button
+        type="button"
+        data-session-id={entry.id}
+        aria-label={entry.label}
+        onClick={(e) => onOpen(entry, e.currentTarget)}
+        className={`flex w-full flex-wrap items-start gap-x-3 gap-y-1.5 text-left transition-colors duration-150 hover:bg-background-subtle ${FOCUS} ${
+          inset ? 'rounded-md px-3 py-2.5' : 'px-4 py-3 focus-visible:ring-inset'
+        }`}
+      >
+        <span className="mt-0.5 shrink-0">
+          <CalendarStatusMark tone={entry.tone} className="h-4 w-4" />
         </span>
-        <span className="block text-caption tabular-nums text-text-secondary">{entry.time}</span>
-        {entry.detail && (
-          <span className="block break-words text-caption text-text-muted">{entry.detail}</span>
-        )}
-      </span>
-      <EntryPill entry={entry} />
-    </button>
+        <span className="min-w-0 flex-1 basis-40">
+          <span
+            className={`block break-words text-sm font-semibold text-text-primary [overflow-wrap:anywhere] ${entry.struck ? 'line-through' : ''}`}
+          >
+            {entry.title}
+          </span>
+          <span className="block text-caption tabular-nums text-text-secondary">{entry.time}</span>
+          {entry.viewerTime && (
+            <span className="block text-caption tabular-nums text-text-muted">
+              {entry.viewerTime}
+            </span>
+          )}
+          {entry.detail && (
+            <span className="block break-words text-caption text-text-muted">{entry.detail}</span>
+          )}
+        </span>
+        <EntryPill entry={entry} />
+      </button>
+      {entry.destination && (
+        <p className={inset ? 'px-3 pb-2 pl-10' : 'px-4 pb-3 pl-11'}>
+          <Link
+            href={entry.destination.href}
+            data-testid="calendar-destination"
+            className={LINK}
+            aria-label={`${entry.destination.label}: ${entry.title}`}
+          >
+            {entry.destination.label}
+          </Link>
+        </p>
+      )}
+    </div>
   );
 }
 
 // ─── The month ───
 
-/** Chips drawn in one day cell before "+N more"; a busy cinema day can hold forty shows. */
+/** The most chips a day cell ever draws (desktop); narrower grids draw fewer, see `calendarMonthCap`. */
 export const CALENDAR_MONTH_CELL_CAP = 3;
 /** Dots under a day on a phone, where a cell is too narrow for a title. */
 const DOT_CAP = 4;
+
+/**
+ * The cell cap for the window's width. Server render and first paint use the desktop cap, then
+ * the real width is read: a cell's chips are cut by what is drawn, not hidden with CSS, so the
+ * hidden count and the "+N more" button always agree.
+ */
+function useMonthCap(): number {
+  const [cap, setCap] = useState(CALENDAR_MONTH_CELL_CAP);
+  useEffect(() => {
+    const update = () => setCap(calendarMonthCap(window.innerWidth));
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, []);
+  return cap;
+}
+
+/** The id the day panel's heading carries, so "+N more" can move focus there. */
+export const CALENDAR_DAY_PANEL_ID = 'calendar-day-panel';
 
 /**
  * A month as a keyboard grid. See the file comment for the keyboard and `aria-current` rules.
@@ -236,10 +329,8 @@ export function CalendarMonthGrid<T>({
   weekStart,
   formatDay,
   noun,
-  showDayLabel,
   onFocusDay,
   onOpen,
-  onShowDay,
 }: {
   weeks: CalendarDay[][];
   /** `YYYY-MM` of the month being shown; days outside it are drawn muted. */
@@ -251,14 +342,12 @@ export function CalendarMonthGrid<T>({
   /** The day in words, for a cell's accessible name: "Fri, 6 Nov 2026". */
   formatDay: (day: CalendarDay) => string;
   noun: CalendarNoun;
-  /** What "+N more" does, in words: "Open the day". */
-  showDayLabel: string;
   /** `viaKeyboard` is false for a click: only an arrow key off the month should page it. */
   onFocusDay: (day: CalendarDay, viaKeyboard: boolean) => void;
   onOpen: OpenCalendarEntry<T>;
-  onShowDay: (day: CalendarDay) => void;
 }) {
   const gridRef = useRef<HTMLDivElement>(null);
+  const cap = useMonthCap();
   // Only move DOM focus after a key press in the grid, never on first render or a toolbar click.
   const moveFocus = useRef(false);
 
@@ -309,8 +398,7 @@ export function CalendarMonthGrid<T>({
         >
           {week.map((day) => {
             const list = entries.get(day) ?? [];
-            const shown = list.slice(0, CALENDAR_MONTH_CELL_CAP);
-            const hidden = list.length - shown.length;
+            const { shown, hidden } = calendarSplit(list, cap);
             const inMonth = day.startsWith(month);
             const isToday = day === today;
             const isFocused = day === focusedDay;
@@ -378,12 +466,20 @@ export function CalendarMonthGrid<T>({
                     <button
                       type="button"
                       tabIndex={isFocused ? 0 : -1}
+                      data-testid={`month-more-${day}`}
                       onClick={(e) => {
                         e.stopPropagation();
-                        onShowDay(day);
+                        // Select the day (its panel lists every session), then put focus on the
+                        // panel so a keyboard or screen-reader user lands where the rest are.
+                        onFocusDay(day, false);
+                        window.setTimeout(() => {
+                          const heading = document.getElementById(CALENDAR_DAY_PANEL_ID);
+                          heading?.scrollIntoView({ block: 'nearest' });
+                          heading?.focus({ preventScroll: true });
+                        }, 0);
                       }}
-                      aria-label={`${hidden} more on ${formatDay(day)}. ${showDayLabel}`}
-                      className={`w-full rounded-md px-1.5 text-left text-micro font-semibold text-action-primary hover:underline ${FOCUS}`}
+                      aria-label={`${hidden} more ${hidden === 1 ? noun.one : noun.many} on ${formatDay(day)}. Show them in the day panel`}
+                      className={`w-full rounded-md px-1.5 py-0.5 text-left text-micro font-semibold text-action-primary hover:underline ${FOCUS}`}
                     >
                       +{hidden} more
                     </button>
@@ -398,13 +494,14 @@ export function CalendarMonthGrid<T>({
   );
 }
 
-/** Rows listed in the day panel before "N more"; the day's own view lists every one. */
+/** Rows listed in the day panel before "Show N more", which lists the rest in place. */
 export const CALENDAR_PANEL_CAP = 8;
 
 /**
  * The chosen day beside the month: the reference's "Today" agenda card. The month answers "where
- * is it busy"; this answers "what is on that day" without opening anything. On a phone, where a
- * cell shows only dots, it is how a day is read at all.
+ * is it busy"; this answers "what is on that day" without opening anything. It is also where a
+ * cell's "+N more" lands (focus moves to its heading) and where a phone, whose cells show only
+ * dots, reads a day at all. `dayNote` says which clock the day and its times are on.
  */
 export function CalendarDayPanel<T>({
   day,
@@ -413,6 +510,7 @@ export function CalendarDayPanel<T>({
   today,
   noun,
   showDayLabel,
+  dayNote = "On this date at each venue's local time.",
   onOpen,
   onShowDay,
 }: {
@@ -424,23 +522,27 @@ export function CalendarDayPanel<T>({
   noun: CalendarNoun;
   /** "Open the day", "Open in agenda". */
   showDayLabel: string;
+  dayNote?: string;
   onOpen: OpenCalendarEntry<T>;
   onShowDay: (day: CalendarDay) => void;
 }) {
-  const shown = entries.slice(0, CALENDAR_PANEL_CAP);
-  const hidden = entries.length - shown.length;
+  // Opened in place; forgotten when another day is chosen.
+  const [openDay, setOpenDay] = useState<CalendarDay | null>(null);
+  const all = openDay === day;
+  const { shown, hidden } = calendarSplit(entries, all ? entries.length : CALENDAR_PANEL_CAP);
   return (
     <section
-      aria-labelledby="calendar-day-panel"
+      aria-labelledby={CALENDAR_DAY_PANEL_ID}
       data-testid="calendar-day-panel"
       className="min-w-0 rounded-lg border border-border bg-background-surface shadow-xs xl:sticky xl:top-20"
     >
       <div className="flex items-start justify-between gap-3 px-5 pb-3 pt-5">
         <div className="min-w-0">
           <h2
-            id="calendar-day-panel"
+            id={CALENDAR_DAY_PANEL_ID}
+            tabIndex={-1}
             aria-live="polite"
-            className="font-display text-[1.0625rem] font-bold text-text-primary"
+            className="font-display text-[1.0625rem] font-bold text-text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {heading}
           </h2>
@@ -448,7 +550,7 @@ export function CalendarDayPanel<T>({
             {day === today && <CalendarTodayPill />}
             {entries.length === 0
               ? 'Nothing scheduled'
-              : `${calendarCount(entries.length, noun)}, at venue time`}
+              : `${calendarCount(entries.length, noun)}. ${dayNote}`}
           </p>
         </div>
         {entries.length > 0 && (
@@ -470,8 +572,13 @@ export function CalendarDayPanel<T>({
           ))}
           {hidden > 0 && (
             <li className="px-3 pt-1 md:col-span-2">
-              <button type="button" onClick={() => onShowDay(day)} className={LINK}>
-                {hidden} more on this day
+              <button
+                type="button"
+                data-testid="calendar-panel-more"
+                onClick={() => setOpenDay(day)}
+                className={LINK}
+              >
+                Show {hidden} more on this day
               </button>
             </li>
           )}
@@ -519,12 +626,14 @@ export function CalendarDayCard<T>({
     <section
       aria-labelledby={headingId}
       data-testid={testId}
-      className="overflow-hidden rounded-lg border border-border bg-background-surface shadow-xs"
+      // overflow-clip, not hidden: a clipped box is not a scroll container, so the day heading can
+      // stick to the top of the page while its own sessions scroll past.
+      className="rounded-lg border border-border bg-background-surface shadow-xs [overflow:clip]"
     >
       <h3
         id={headingId}
         tabIndex={-1}
-        className="flex scroll-mt-20 flex-wrap items-center gap-2 border-b border-border px-4 py-3 font-display text-ui font-bold text-text-primary focus:outline-none"
+        className="sticky top-shell-topbar z-10 flex scroll-mt-20 flex-wrap items-center gap-2 border-b border-border bg-background-surface px-4 py-3 font-display text-ui font-bold text-text-primary focus:outline-none"
       >
         {heading}
         {day === today && <CalendarTodayPill />}

@@ -14,6 +14,7 @@ import {
   formatClock,
   localPlace,
   formatDayLong,
+  sessionDestination,
   zoneAbbrev,
   type CalendarSession,
 } from '@/lib/calendar';
@@ -49,11 +50,13 @@ export function PreviewDrawer({
       title={s?.title ?? 'Session'}
       footer={
         s ? (
-          <div className="flex flex-wrap gap-2">
-            <ButtonLink href={`/organizer/events/${s.eventId}`}>Open event</ButtonLink>
-            <ButtonLink href={`/organizer/events/${s.eventId}/sessions`} variant="outline">
-              Sessions
-            </ButtonLink>
+          <div className="flex flex-wrap gap-2" data-testid="calendar-drawer-actions">
+            <ButtonLink href={sessionDestination(s).href}>{sessionDestination(s).label}</ButtonLink>
+            {sessionDestination(s).href !== `/organizer/events/${s.eventId}` && (
+              <ButtonLink href={`/organizer/events/${s.eventId}`} variant="outline">
+                Open event
+              </ButtonLink>
+            )}
           </div>
         ) : undefined
       }
