@@ -3,12 +3,14 @@ import { DEFAULT_LOCALE, type Locale } from './locales';
 import enCommon from './messages/en/common.json';
 import enDocuments from './messages/en/documents.json';
 import enEmails from './messages/en/emails.json';
+import enHome from './messages/en/home.json';
 import enShowtimes from './messages/en/showtimes.json';
 import enStorefront from './messages/en/storefront.json';
 
 import frCommon from './messages/fr-CA/common.json';
 import frDocuments from './messages/fr-CA/documents.json';
 import frEmails from './messages/fr-CA/emails.json';
+import frHome from './messages/fr-CA/home.json';
 import frShowtimes from './messages/fr-CA/showtimes.json';
 import frStorefront from './messages/fr-CA/storefront.json';
 
@@ -27,6 +29,9 @@ export const MESSAGES = {
     common: enCommon,
     documents: enDocuments,
     emails: enEmails,
+    // The storefront's chrome and front door: header, home page, footer, bottom bar. Its own
+    // file so the design slices for the home page and the event page do not edit one file.
+    home: enHome,
     // The film page's date strip, filters and showtime pills — its own file so it can grow
     // without every storefront change touching the same one.
     showtimes: enShowtimes,
@@ -36,6 +41,7 @@ export const MESSAGES = {
     common: frCommon,
     documents: frDocuments,
     emails: frEmails,
+    home: frHome,
     showtimes: frShowtimes,
     storefront: frStorefront,
   },

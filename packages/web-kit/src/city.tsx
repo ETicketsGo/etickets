@@ -635,10 +635,18 @@ export function CityPicker({
     not at all.
   */
   allCitiesLabel = 'All cities',
+  /*
+    The chip's own look, for a host that has adopted the brand layer (DESIGN-SYSTEM.md). When
+    given it REPLACES the default classes rather than adding to them: the default carries old
+    token colours that would fight the brand ones. Every other caller passes nothing and is
+    unchanged.
+  */
+  triggerClassName,
 }: {
   preference?: CityPreference;
   className?: string;
   allCitiesLabel?: string;
+  triggerClassName?: string;
 }) {
   const [open, setOpen] = useState(false);
   /*
@@ -799,7 +807,10 @@ export function CityPicker({
         aria-haspopup="dialog"
         // The full value goes on the accessible name because the visible one truncates.
         aria-label={`Location: ${label}. Change`}
-        className="flex min-h-11 items-center gap-1.5 rounded-md sm:min-h-0 px-2.5 py-1.5 text-[0.9375rem] text-text-secondary transition-colors hover:bg-background-subtle hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        className={
+          triggerClassName ??
+          'flex min-h-11 items-center gap-1.5 rounded-md sm:min-h-0 px-2.5 py-1.5 text-[0.9375rem] text-text-secondary transition-colors hover:bg-background-subtle hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50'
+        }
       >
         <MapPin className="h-4 w-4 shrink-0" />
         {/*

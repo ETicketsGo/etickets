@@ -5,7 +5,6 @@ import { useEffect } from 'react';
 import { backfillSessionHint } from '@/lib/auth-flag';
 import { CitySuggestionBar } from '@eticketsgo/web-kit';
 import { Header } from '@/components/header';
-import { FeedbackWidget } from '@/components/feedback-widget';
 import { BottomNav } from '@/components/bottom-nav';
 import { InstallPrompt } from '@/components/install-prompt';
 import { MarketingNav } from '@/components/marketing/nav';
@@ -148,9 +147,18 @@ export function SiteChrome({
         whole header to reach the content. axe reports it as `skip-link`. Found when the home
         page moved into this shell - the front door is the page where it matters most.
       */}
+      {/*
+        The home page draws edge to edge: its hero and its "Now showing" band are stage-tone
+        bands the full width of the window (DESIGN-SYSTEM.md section 1), so it sets its own
+        gutters inside. Every other page keeps the column it was laid out in.
+      */}
       <main
         id="main"
-        className="mx-auto w-full max-w-shell flex-1 px-4 py-6 pb-24 sm:px-6 sm:py-10 lg:px-8 lg:pb-10"
+        className={
+          pathname === '/'
+            ? 'w-full flex-1'
+            : 'mx-auto w-full max-w-shell flex-1 px-4 py-6 pb-24 sm:px-6 sm:py-10 lg:px-8 lg:pb-10'
+        }
       >
         {children}
       </main>
@@ -180,7 +188,6 @@ export function SiteChrome({
           }
         />
       </div>
-      <FeedbackWidget />
       <BottomNav />
       <InstallPrompt />
     </div>

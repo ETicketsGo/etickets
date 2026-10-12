@@ -1,0 +1,90 @@
+{
+  "header": {
+    "homeLabel": "ETicketsGo home",
+    "mainNav": "Main",
+    "searchLabel": "Search events, films and venues",
+    "searchPlaceholder": "Search events, films, venues and artists",
+    "searchSubmit": "Search",
+    "notifications": "Notifications",
+    "notificationsUnread": "Notifications, {count} unread"
+  },
+  "bottomNav": {
+    "label": "Primary"
+  },
+  "page": {
+    "title": "What is on in {place}",
+    "titleAnywhere": "What is on"
+  },
+  "hero": {
+    "label": "Featured event",
+    "book": "Book tickets",
+    "by": "By {name}"
+  },
+  "chips": {
+    "label": "Choose a day or a kind of event",
+    "all": "All",
+    "today": "Today",
+    "weekend": "This weekend",
+    "movies": "Movies",
+    "concerts": "Concerts",
+    "comedy": "Comedy",
+    "sports": "Sports",
+    "workshops": "Workshops",
+    "theatre": "Theatre"
+  },
+  "sections": {
+    "upcomingIn": "Coming up in {place}",
+    "upcoming": "Coming up",
+    "todayIn": "Today in {place}",
+    "today": "Today",
+    "weekendIn": "This weekend in {place}",
+    "weekend": "This weekend",
+    "kindIn": "{kind} in {place}",
+    "seeAll": "See all {count}",
+    "nowShowing": "Now showing",
+    "allFilmsIn": "All films in {place}",
+    "allFilms": "All films",
+    "outside": "Outside {place}",
+    "elsewhere": "Elsewhere on ETicketsGo",
+    "outsideHint": "Each price is in the venue's own currency.",
+    "changeCity": "Change city",
+    "recent": "Continue exploring",
+    "film": "Film"
+  },
+  "empty": {
+    "noneIn": "No events available in {place} yet",
+    "sellingHere": "Here is where we are selling right now.",
+    "otherPlaces": "Other places have events on sale.",
+    "searchCity": "Search for another city",
+    "everywhere": "Show me everywhere",
+    "none": "No events yet",
+    "noneHint": "Events appear here as soon as an organizer puts tickets on sale.",
+    "noMatch": "Nothing matches this filter in {place}",
+    "noMatchAnywhere": "Nothing matches this filter",
+    "noMatchHint": "Try another day or kind of event.",
+    "clear": "Show everything",
+    "loadFailed": "We could not load what is on. Check your connection and try again.",
+    "retry": "Try again"
+  },
+  "trust": {
+    "title": "Before you pay",
+    "feesTitle": "Every fee, before you pay",
+    "feesBody": "The total on the event page is the total you are charged. Each fee is listed on its own line.",
+    "offlineTitle": "Your ticket works without a signal",
+    "offlineBody": "The QR code is on your phone and scans at the gate even when the venue network does not.",
+    "refundTitle": "The refund window is on the event",
+    "refundBody": "Before you buy, the event page says whether you can get your money back, and until when.",
+    "refundPolicy": "Refund policy",
+    "terms": "Terms",
+    "privacy": "Privacy",
+    "contact": "Contact us"
+  },
+  "organizers": {
+    "title": "Run events of your own?",
+    "body": "Sell tickets, reserve seats and check people in at the gate, even when the venue network drops.",
+    "cta": "See how it works"
+  },
+  "footer": {
+    "feedback": "Send feedback"
+  }
+}

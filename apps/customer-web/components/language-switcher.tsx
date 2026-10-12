@@ -18,7 +18,17 @@ import { usePathname, useRouter } from '@/i18n/navigation';
  * it is by definition the person who cannot read the current language — labelling French as
  * "French" hides it from exactly the reader it is for.
  */
-export function LanguageSwitcher({ className = '' }: { className?: string }) {
+export function LanguageSwitcher({
+  className = '',
+  /*
+    The select's own look, for a host on the brand layer (the storefront footer). Replaces the
+    default classes instead of adding to them, so old and brand colours never mix on one control.
+  */
+  selectClassName,
+}: {
+  className?: string;
+  selectClassName?: string;
+}) {
   const t = useTranslations('storefront.language');
   const nav = useTranslations('common.nav');
   const locale = useLocale() as Locale;
@@ -53,7 +63,10 @@ export function LanguageSwitcher({ className = '' }: { className?: string }) {
           `flex-wrap` above is for - so the 320px case reflows to a second row instead of
           clipping a word, which is what WCAG 1.4.10 asks for in the first place.
         */
-        className="min-h-11 rounded-md border border-border-input bg-background-surface px-2 py-1 text-caption sm:min-h-0 text-text-secondary focus:outline-none focus:ring-2 focus:ring-ring/50"
+        className={
+          selectClassName ??
+          'min-h-11 rounded-md border border-border-input bg-background-surface px-2 py-1 text-caption sm:min-h-0 text-text-secondary focus:outline-none focus:ring-2 focus:ring-ring/50'
+        }
       >
         {LOCALES.map((l) => (
           <option key={l} value={l}>
