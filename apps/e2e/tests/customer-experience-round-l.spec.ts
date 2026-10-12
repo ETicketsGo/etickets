@@ -343,13 +343,13 @@ test('8: the build identifier is in the meta tag and the footer, and /api/health
 }) => {
   const health = await (await request.get(`${CUSTOMER}/api/health`)).json();
   await page.goto(`${CUSTOMER}/events`);
-  const meta = await page.locator('meta[name="build-id"]').getAttribute('content');
+  const tag = page.locator('meta[name="build-id"]');
   if (health.build) {
-    expect(meta).toBe(health.build);
+    await expect(tag).toHaveAttribute('content', health.build);
     await expect(page.getByTestId('build-id').first()).toContainText(health.build);
   } else {
-    // Local development: the platform sets no commit, so nothing is claimed.
-    expect(meta).toBeNull();
+    // Local development and CI: the platform sets no commit, so nothing is claimed.
+    await expect(tag).toHaveCount(0);
     await expect(page.getByTestId('build-id')).toHaveCount(0);
   }
 });
