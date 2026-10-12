@@ -2632,6 +2632,10 @@ export interface PublicEvent extends EventDetails {
       available: number;
       /** Named seat on the map, or capacity from the mapped GA/VIP zone. */
       inventoryKind?: 'SEAT' | 'ZONE';
+      /** Inside, before or after the organizer's sales window. Absent on an older API. */
+      saleState?: 'ON_SALE' | 'NOT_YET' | 'CLOSED';
+      /** When sales open, only for NOT_YET. */
+      salesStartAt?: string | null;
     }[];
   }[];
 }
@@ -2734,6 +2738,8 @@ export interface BookingDetail {
     /** The organizer's terms. False means no refund is offered for this event. */
     refundsEnabled?: boolean;
     refundCutoffHours?: number;
+    /** The organizer's own words about refunds, when they wrote any. */
+    refundPolicy?: string | null;
   };
   eventSession: { id: string; startsAt: string };
   items: {

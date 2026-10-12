@@ -2131,6 +2131,7 @@ export class BookingsService {
             // never agreed to give.
             refundsEnabled: true,
             refundCutoffHours: true,
+            refundPolicy: true,
             // The venue's clock, for events that are not cinema showings — which is most
             // of them, and which the first pass at this missed entirely.
             // Name and city too: the confirmation said "Seat A4 - Screen 1" and never where.

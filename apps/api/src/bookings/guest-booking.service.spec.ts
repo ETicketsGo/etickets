@@ -64,6 +64,9 @@ const CONFIRMED_BOOKING = {
   event: {
     title: 'Kantara',
     slug: 'kantara',
+    refundsEnabled: true,
+    refundCutoffHours: 48,
+    refundPolicy: 'Full refund up to 48 hours before the show.',
     venue: { name: 'PVR Forum Mall', timezone: 'Asia/Kolkata' },
   },
   eventSession: {
@@ -583,7 +586,15 @@ describe('the money is read, never recalculated', () => {
       paymentFeeMinor: 1000,
       maintenanceMinor: 0,
       maintenanceTreatment: 'NOT_APPLICABLE',
-      taxLines: [{ label: 'GST on fees', rateBasisPoints: 1800, amountMinor: 1500 }],
+      taxLines: [
+        {
+          label: 'GST on fees',
+          rateBasisPoints: 1800,
+          amountMinor: 1500,
+          basis: 'FEES',
+          inclusive: false,
+        },
+      ],
       customerFeeInclusiveMinor: 4500,
       feeTaxMinor: 1500,
       feeTaxRateBasisPoints: 1800,
@@ -650,6 +661,13 @@ describe('the money is read, never recalculated', () => {
 
     expect(view.totals.feeTaxMinor).toBe(364);
     expect(view.totals.taxMinor).toBe(7_976);
+    // The lines say which GST is inside the ticket, so the screen does not fold the GST on the
+    // fees into the ticket row ("includes GST 159.82" for a 1,000.00 ticket on QA).
+    expect(view.totals.taxLines.map((l) => [l.label, l.basis, l.inclusive])).toEqual([
+      ['CGST', 'TICKETS', true],
+      ['SGST', 'TICKETS', true],
+      ['GST on fees', 'FEES', false],
+    ]);
     // What the buyer can add up with their eyes: 499.00 + 20.18 + 3.64 = 522.82.
     expect(view.totals.subtotalMinor + view.totals.feesMinor + view.totals.feeTaxMinor).toBe(
       view.totals.totalMinor,
@@ -730,6 +748,9 @@ describe('the shape a guest is handed', () => {
     expect(view.event).toEqual({
       title: 'Kantara',
       slug: 'kantara',
+      refundsEnabled: true,
+      refundCutoffHours: 48,
+      refundPolicy: 'Full refund up to 48 hours before the show.',
       startsAt: '2026-09-20T13:30:00.000Z',
       timeZone: 'Asia/Kolkata',
       venueName: 'PVR Forum Mall',
@@ -793,6 +814,9 @@ describe('the shape a guest is handed', () => {
       event: {
         title: 'Kantara',
         slug: 'kantara',
+        refundsEnabled: true,
+        refundCutoffHours: 48,
+        refundPolicy: 'Full refund up to 48 hours before the show.',
         startsAt: '2026-09-20T13:30:00.000Z',
         timeZone: 'Asia/Kolkata',
         venueName: 'PVR Forum Mall',
@@ -810,7 +834,15 @@ describe('the shape a guest is handed', () => {
         paymentFeeMinor: 1000,
         maintenanceMinor: 0,
         maintenanceTreatment: 'NOT_APPLICABLE',
-        taxLines: [{ label: 'GST on fees', rateBasisPoints: 1800, amountMinor: 1500 }],
+        taxLines: [
+          {
+            label: 'GST on fees',
+            rateBasisPoints: 1800,
+            amountMinor: 1500,
+            basis: 'FEES',
+            inclusive: false,
+          },
+        ],
         customerFeeInclusiveMinor: 4500,
         feeTaxMinor: 1500,
         feeTaxRateBasisPoints: 1800,
