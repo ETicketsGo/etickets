@@ -19,12 +19,13 @@ import {
   eventsStartingWithin,
   homeWindow,
   showsOnDay,
-  showsPerDay,
+  showIsOn,
   showsToday,
   upcomingEventCount,
   upcomingEventShows,
   viewerToday,
 } from './model';
+import { segmentsByDay, toCalendarSessions } from '../../../lib/calendar';
 
 const analytics = {
   organizationId: 'o1',
@@ -184,7 +185,14 @@ function show(id: string, startsAt: string, over: Partial<OrganizerCalendarSessi
     startsAt,
     endsAt: startsAt,
     status: 'SCHEDULED',
-    event: { id: 'e', title: id, category: 'MUSIC', status: 'PUBLISHED', experienceType: 'EVENT' },
+    event: {
+      id: 'e',
+      title: id,
+      category: 'MUSIC',
+      status: 'PUBLISHED',
+      experienceType: 'EVENT',
+      movieId: null,
+    },
     venue: { id: 'v', name: 'V', city: 'C', country: 'IN', timezone: 'Asia/Kolkata' },
     cinemaTimezone: null,
     sold: 1,
@@ -208,7 +216,14 @@ describe('coming up', () => {
       show('soon', '2026-10-10T10:00:00Z'),
       show('cancelled-show', '2026-10-10T11:00:00Z', { status: 'CANCELLED' }),
       show('cancelled-event', '2026-10-10T12:00:00Z', {
-        event: { id: 'x', title: 'x', category: 'M', status: 'CANCELLED', experienceType: 'EVENT' },
+        event: {
+          id: 'x',
+          title: 'x',
+          category: 'M',
+          status: 'CANCELLED',
+          experienceType: 'EVENT',
+          movieId: null,
+        },
       }),
     ];
     expect(comingUp(rows, now).map((s) => s.id)).toEqual(['soon', 'later']);
@@ -228,6 +243,7 @@ describe('the next show per event', () => {
         category: 'MUSIC',
         status: 'PUBLISHED',
         experienceType: 'EVENT',
+        movieId: null,
       },
       venue: { id: 'v', name: 'V', city: 'C', country: 'IN', timezone: 'Asia/Kolkata' },
       cinemaTimezone: null,
@@ -264,6 +280,7 @@ describe('the premium Overview', () => {
     category: 'MUSIC',
     status,
     experienceType: 'EVENT',
+    movieId: null,
   });
   // 10 Oct 2026, 12:00 UTC = 17:30 in Kolkata; 06:00 in Boise (America/Boise, MDT).
   const now = new Date('2026-10-10T12:00:00Z');
@@ -294,9 +311,14 @@ describe('the premium Overview', () => {
       show('next-day', '2026-10-10T19:00:00Z'),
       show('off', '2026-10-10T14:00:00Z', { status: 'CANCELLED' }),
     ];
-    const perDay = showsPerDay(rows);
-    expect(perDay.get('2026-10-10')).toBe(1);
-    expect(perDay.get('2026-10-11')).toBe(1);
+    // The month card draws the Calendar page's own placement, so test that placement.
+    const perDay = segmentsByDay(
+      toCalendarSessions(rows.filter(showIsOn)),
+      '2026-10-10',
+      '2026-10-11',
+    );
+    expect(perDay.get('2026-10-10')).toHaveLength(1);
+    expect(perDay.get('2026-10-11')).toHaveLength(1);
     expect(showsOnDay(rows, '2026-10-11').map((s) => s.id)).toEqual(['next-day']);
   });
 

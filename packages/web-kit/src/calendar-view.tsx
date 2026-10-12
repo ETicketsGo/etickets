@@ -82,6 +82,11 @@ export interface CalendarEntry<T = unknown> {
   struck?: boolean;
   /** One accessible name with the time and zone, title, place and status. */
   label: string;
+  /**
+   * Something the app draws under the row, outside its button (a sale-state pill): kept as a node
+   * so the calendar never learns what a console adds to its own sessions.
+   */
+  extra?: ReactNode;
   /** The app's own session, handed back on open. */
   source: T;
 }
@@ -285,6 +290,9 @@ export function CalendarRow<T>({
           </Link>
         </p>
       )}
+      {entry.extra && (
+        <div className={inset ? 'px-3 pb-2 pl-10' : 'px-4 pb-3 pl-11'}>{entry.extra}</div>
+      )}
     </div>
   );
 }
@@ -331,7 +339,13 @@ export function CalendarMonthGrid<T>({
   noun,
   onFocusDay,
   onOpen,
+  compact = false,
 }: {
+  /**
+   * A narrow card (the Overview's): a dot per session at every width and no chips, and Enter on a
+   * day only chooses it. The same grid, keyboard rules and `aria-current`, in less room.
+   */
+  compact?: boolean;
   weeks: CalendarDay[][];
   /** `YYYY-MM` of the month being shown; days outside it are drawn muted. */
   month: string;
@@ -363,7 +377,7 @@ export function CalendarMonthGrid<T>({
   const onKeyDown = (day: CalendarDay, e: KeyboardEvent<HTMLDivElement>) => {
     if (e.target !== e.currentTarget) return;
     if (e.key === 'Enter' || e.key === ' ') {
-      const first = entries.get(day)?.[0];
+      const first = compact ? undefined : entries.get(day)?.[0];
       if (first) {
         e.preventDefault();
         onOpen(first, e.currentTarget);
@@ -419,7 +433,7 @@ export function CalendarMonthGrid<T>({
                 onFocus={(e) => {
                   if (e.target === e.currentTarget && !isFocused) onFocusDay(day, false);
                 }}
-                className={`min-h-[3.5rem] min-w-0 cursor-pointer border-r border-border p-1 transition-colors duration-150 last:border-r-0 focus-visible:relative focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:min-h-[7.25rem] sm:p-1.5 ${
+                className={`min-h-[3.5rem] min-w-0 cursor-pointer border-r border-border p-1 transition-colors duration-150 last:border-r-0 focus-visible:relative focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${compact ? '' : 'sm:min-h-[7.25rem] sm:p-1.5'} ${
                   isFocused ? 'bg-background-subtle' : inMonth ? '' : 'bg-background-canvas/60'
                 }`}
               >
@@ -439,7 +453,10 @@ export function CalendarMonthGrid<T>({
                 </div>
                 {/* Phones: a dot per session, in its status colour, under the date. */}
                 {list.length > 0 && (
-                  <div aria-hidden className="flex items-center justify-center gap-0.5 sm:hidden">
+                  <div
+                    aria-hidden
+                    className={`flex items-center justify-center gap-0.5 ${compact ? '' : 'sm:hidden'}`}
+                  >
                     {list.slice(0, DOT_CAP).map((entry) => (
                       <span
                         key={entry.id}
@@ -453,7 +470,7 @@ export function CalendarMonthGrid<T>({
                     )}
                   </div>
                 )}
-                <div className="hidden space-y-0.5 sm:block">
+                <div className={compact ? 'hidden' : 'hidden space-y-0.5 sm:block'}>
                   {shown.map((entry) => (
                     <CalendarChip
                       key={entry.id}
@@ -513,7 +530,15 @@ export function CalendarDayPanel<T>({
   dayNote = "On this date at each venue's local time.",
   onOpen,
   onShowDay,
+  compact = false,
+  cap = CALENDAR_PANEL_CAP,
+  listLabel,
 }: {
+  /** In a narrow column: one row per line, not sticky, and `cap` rows before "Show N more". */
+  compact?: boolean;
+  cap?: number;
+  /** The list's accessible name: "Shows today". */
+  listLabel?: string;
   day: CalendarDay;
   /** The day in words: "Fri, 6 Nov 2026". */
   heading: string;
@@ -529,12 +554,12 @@ export function CalendarDayPanel<T>({
   // Opened in place; forgotten when another day is chosen.
   const [openDay, setOpenDay] = useState<CalendarDay | null>(null);
   const all = openDay === day;
-  const { shown, hidden } = calendarSplit(entries, all ? entries.length : CALENDAR_PANEL_CAP);
+  const { shown, hidden } = calendarSplit(entries, all ? entries.length : cap);
   return (
     <section
       aria-labelledby={CALENDAR_DAY_PANEL_ID}
       data-testid="calendar-day-panel"
-      className="min-w-0 rounded-lg border border-border bg-background-surface shadow-xs xl:sticky xl:top-20"
+      className={`min-w-0 rounded-lg border border-border bg-background-surface shadow-xs ${compact ? '' : 'xl:sticky xl:top-20'}`}
     >
       <div className="flex items-start justify-between gap-3 px-5 pb-3 pt-5">
         <div className="min-w-0">
@@ -564,14 +589,17 @@ export function CalendarDayPanel<T>({
           No {noun.many} on this day. Pick another day in the month.
         </p>
       ) : (
-        <ul className="px-2 pb-3 md:grid md:grid-cols-2 md:gap-x-2 xl:block">
+        <ul
+          aria-label={listLabel}
+          className={`px-2 pb-3 ${compact ? '' : 'md:grid md:grid-cols-2 md:gap-x-2 xl:block'}`}
+        >
           {shown.map((entry) => (
             <li key={entry.id}>
               <CalendarRow entry={entry} onOpen={onOpen} inset />
             </li>
           ))}
           {hidden > 0 && (
-            <li className="px-3 pt-1 md:col-span-2">
+            <li className={`px-3 pt-1 ${compact ? '' : 'md:col-span-2'}`}>
               <button
                 type="button"
                 data-testid="calendar-panel-more"
