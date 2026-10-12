@@ -29,7 +29,11 @@ function makeService(overrides: {
     client: { ping: overrides.ping ?? jest.fn().mockResolvedValue('PONG') },
   } as unknown as RedisService;
   const config = {
-    get: jest.fn((k: string, d?: unknown) => overrides.env?.[k] ?? d ?? 'test'),
+    get: jest.fn((k: string, d?: unknown) =>
+      // The off-platform copy is opt-in: a key nobody set must read as UNSET (as the real
+      // ConfigService does), not as the 'test' filler the other keys get.
+      k.startsWith('BACKUP_OFFSITE') ? overrides.env?.[k] : (overrides.env?.[k] ?? d ?? 'test'),
+    ),
   } as unknown as ConfigService;
   const queue = {
     getJobCounts: jest.fn().mockResolvedValue({ waiting: 0, active: 0, failed: 0, delayed: 0 }),
@@ -277,5 +281,65 @@ describe('OpsService.health backup freshness', () => {
     const health = await service.health();
     expect(health.backup.status).toBe('unknown');
     expect(health.status).toBe('ok');
+  });
+});
+
+describe('OpsService.health off-platform backup freshness', () => {
+  const hoursAgo = (h: number) => new Date(Date.now() - h * 3_600_000);
+  const rows = (local: number | null, offsite: number | null) =>
+    jest.fn(async ({ where }: { where: { action: string } }) => {
+      if (where.action === 'BACKUP_VERIFIED' && local !== null)
+        return { createdAt: hoursAgo(local), entityId: 'etg-production-x.dump' };
+      if (where.action === 'BACKUP_OFFSITE_UPLOADED' && offsite !== null)
+        return { createdAt: hoursAgo(offsite), metadata: { key: 'p/production/d/etg-x.dump' } };
+      return null;
+    });
+  const configured = { APP_ENV: 'PRODUCTION', BACKUP_OFFSITE_BUCKET: 'etg-backups' };
+
+  it('is absent, and never queried, when no bucket is configured', async () => {
+    const find = rows(5, 5);
+    const { service } = makeService({ env: { APP_ENV: 'PRODUCTION' }, auditFindFirst: find });
+    const health = await service.health();
+    expect(health.backup.offsite).toBeUndefined();
+    expect(health.status).toBe('ok');
+    expect(find.mock.calls.map((c) => c[0].where.action)).not.toContain('BACKUP_OFFSITE_UPLOADED');
+  });
+
+  it('reports a fresh copy with the key of the newest upload', async () => {
+    const { service } = makeService({ env: configured, auditFindFirst: rows(5, 6) });
+    const health = await service.health();
+    expect(health.backup.offsite).toMatchObject({
+      status: 'fresh',
+      lastKey: 'p/production/d/etg-x.dump',
+    });
+    expect(health.status).toBe('ok');
+  });
+
+  it('degrades when configured and the copy is stale, even though the local backup is fresh', async () => {
+    const { service } = makeService({ env: configured, auditFindFirst: rows(5, 100) });
+    const health = await service.health();
+    expect(health.backup.status).toBe('fresh');
+    expect(health.backup.offsite?.status).toBe('stale');
+    expect(health.status).toBe('degraded');
+  });
+
+  it('degrades a stale copy in a non-production environment that configured one', async () => {
+    const { service } = makeService({
+      env: { APP_ENV: 'QA', BACKUP_OFFSITE_BUCKET: 'b' },
+      auditFindFirst: rows(5, 100),
+    });
+    expect((await service.health()).status).toBe('degraded');
+  });
+
+  it('gives a never-uploaded copy a grace period outside production, but not inside it', async () => {
+    const qa = makeService({
+      env: { APP_ENV: 'QA', BACKUP_OFFSITE_BUCKET: 'b' },
+      auditFindFirst: rows(5, null),
+    });
+    const qaHealth = await qa.service.health();
+    expect(qaHealth.backup.offsite?.status).toBe('never');
+    expect(qaHealth.status).toBe('ok');
+    const prod = makeService({ env: configured, auditFindFirst: rows(5, null) });
+    expect((await prod.service.health()).status).toBe('degraded');
   });
 });
