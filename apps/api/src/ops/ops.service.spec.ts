@@ -17,15 +17,19 @@ function makeService(overrides: {
   queryRaw?: jest.Mock;
   ping?: jest.Mock;
   queue?: Partial<QueueMock>;
+  /** Result of the newest evidence row lookup(s); a function receives the where clause. */
+  auditFindFirst?: jest.Mock;
+  env?: Record<string, string>;
 }) {
   const prisma = {
     $queryRaw: overrides.queryRaw ?? jest.fn().mockResolvedValue([{ '?column?': 1 }]),
+    auditLog: { findFirst: overrides.auditFindFirst ?? jest.fn().mockResolvedValue(null) },
   } as unknown as PrismaService;
   const redis = {
     client: { ping: overrides.ping ?? jest.fn().mockResolvedValue('PONG') },
   } as unknown as RedisService;
   const config = {
-    get: jest.fn((_k: string, d?: unknown) => d ?? 'test'),
+    get: jest.fn((k: string, d?: unknown) => overrides.env?.[k] ?? d ?? 'test'),
   } as unknown as ConfigService;
   const queue = {
     getJobCounts: jest.fn().mockResolvedValue({ waiting: 0, active: 0, failed: 0, delayed: 0 }),
@@ -212,5 +216,66 @@ describe('OpsService.onModuleDestroy', () => {
     const { service } = makeService({ queue: { close } });
     await service.onModuleDestroy();
     expect(close).toHaveBeenCalled();
+  });
+});
+
+describe('OpsService.health backup freshness', () => {
+  const hoursAgo = (h: number) => new Date(Date.now() - h * 3_600_000);
+  const verified = (h: number) =>
+    jest.fn(async ({ where }: { where: { action: string } }) =>
+      where.action === 'BACKUP_VERIFIED'
+        ? { createdAt: hoursAgo(h), entityId: 'etg-production-x.dump' }
+        : null,
+    );
+
+  it('reports a fresh backup and stays ok in PRODUCTION', async () => {
+    const { service } = makeService({
+      env: { APP_ENV: 'PRODUCTION' },
+      auditFindFirst: verified(5),
+    });
+    const health = await service.health();
+    expect(health.backup.status).toBe('fresh');
+    expect(health.backup.lastBackupName).toBe('etg-production-x.dump');
+    expect(health.status).toBe('ok');
+  });
+
+  it('degrades PRODUCTION when the newest verified backup is older than 26h', async () => {
+    const { service } = makeService({
+      env: { APP_ENV: 'PRODUCTION' },
+      auditFindFirst: verified(144),
+    });
+    const health = await service.health();
+    expect(health.backup.status).toBe('stale');
+    expect(health.status).toBe('degraded');
+  });
+
+  it('degrades PRODUCTION when no verified backup was ever recorded', async () => {
+    const { service } = makeService({ env: { APP_ENV: 'PRODUCTION' } });
+    const health = await service.health();
+    expect(health.backup.status).toBe('never');
+    expect(health.status).toBe('degraded');
+  });
+
+  it('reports but does not fail a non-production environment, unless required', async () => {
+    const qa = makeService({ env: { APP_ENV: 'QA' }, auditFindFirst: verified(200) });
+    const qaHealth = await qa.service.health();
+    expect(qaHealth.backup.status).toBe('stale');
+    expect(qaHealth.status).toBe('ok');
+
+    const required = makeService({
+      env: { APP_ENV: 'QA', BACKUP_FRESHNESS_REQUIRED: 'true' },
+      auditFindFirst: verified(200),
+    });
+    expect((await required.service.health()).status).toBe('degraded');
+  });
+
+  it('is unknown, not a 500 or a false alarm, when the evidence cannot be read', async () => {
+    const { service } = makeService({
+      env: { APP_ENV: 'PRODUCTION' },
+      auditFindFirst: jest.fn().mockRejectedValue(new Error('relation missing')),
+    });
+    const health = await service.health();
+    expect(health.backup.status).toBe('unknown');
+    expect(health.status).toBe('ok');
   });
 });

@@ -26,6 +26,7 @@ services:
       - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./observability/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
       - ./observability/prometheus/booking-platform-alerts.yml:/etc/prometheus/booking-platform-alerts.yml:ro
+      - ./observability/prometheus/pilot-alerts.yml:/etc/prometheus/pilot-alerts.yml:ro
       - prometheus-data:/prometheus
     extra_hosts:
       # Lets the container reach host-bound services (API/worker) on Linux.
