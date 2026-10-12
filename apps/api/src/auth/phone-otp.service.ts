@@ -81,6 +81,14 @@ export class PhoneOtpService {
     rawPhone: string,
     ip?: string,
   ): Promise<{ sent: true; expiresInMinutes: number }> {
+    // Declared off: answer before writing a code nobody can receive.
+    if (this.config.get<string>('SMS_ENABLED') === 'false') {
+      throw new AppException(
+        ErrorCodes.SMS_UNAVAILABLE,
+        "We can't send sign-in codes by text message right now. Please sign in with your email address instead.",
+        HttpStatus.SERVICE_UNAVAILABLE,
+      );
+    }
     const phone = normalisePhone(rawPhone);
 
     const anHourAgo = new Date(Date.now() - 60 * 60 * 1000);
