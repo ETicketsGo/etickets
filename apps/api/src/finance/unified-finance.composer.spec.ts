@@ -1,4 +1,8 @@
-import { composeFinance, type ComposeInput } from './unified-finance.composer';
+import {
+  composeFinance,
+  UNMOVED_SETTLEMENT_STATUSES,
+  type ComposeInput,
+} from './unified-finance.composer';
 import { platformFinanceEntry, type PlatformAllocationRow } from './platform-finance.producer';
 import { providerFinanceEntry } from './provider-finance.producer';
 
@@ -521,5 +525,104 @@ describe('per-path subtotals', () => {
     expect(inr.paths.find((p) => p.path === 'PROVIDER')!.entitlementMinor).toBe(83_250);
     expect(usdGroup.paths.find((p) => p.path === 'PROVIDER')!.entitlementMinor).toBe(42_775);
     expect(JSON.stringify(result)).not.toContain(String(83_250 + 42_775));
+  });
+});
+
+describe('FIN-1: one event is counted once when a payout and an unmoved settlement overlap', () => {
+  // A payout of 114 800 and a settlement of 83 250 for the SAME event: distinct values, so a
+  // wrong total names which of them was double counted.
+  const overlap = (settlementStatus: string, payoutStatus = 'PENDING'): ComposeInput => ({
+    platform: [
+      platformFinanceEntry(
+        { ...PLATFORM_PAYOUT, status: payoutStatus, eventId: 'ev-same' },
+        PLATFORM_ALLOCATIONS.map((a) => ({ ...a, eventId: 'ev-same' })),
+      ),
+    ],
+    provider: [
+      providerFinanceEntry(
+        {
+          ...PROVIDER_SETTLEMENT,
+          eventId: 'ev-same',
+          status: settlementStatus,
+          releasedMinor: 0,
+          transferredMinor: 0,
+          refundsMinor: 0,
+        },
+        clean,
+      ),
+    ],
+  });
+
+  it.each(['PENDING', 'HELD', 'ELIGIBLE', 'APPROVED'])(
+    'counts only the payout when a %s settlement covers the same event',
+    (status) => {
+      const g = composeFinance(overlap(status)).currencies[0];
+      expect(g.summary.entitlementMinor).toBe(114_800);
+      expect(g.summary.pendingMinor).toBe(114_800);
+      // Listed and reported, never hidden.
+      expect(g.entries).toHaveLength(2);
+      expect(g.warnings.map((w) => w.code)).toContain('DOUBLE_CLAIM');
+      // The parts still add up to the whole.
+      expect(g.paths.reduce((t, p) => t + p.entitlementMinor, 0)).toBe(g.summary.entitlementMinor);
+    },
+  );
+
+  it('still counts a settlement that has started a transfer (it has claimed the event)', () => {
+    const g = composeFinance(overlap('TRANSFER_PROCESSING')).currencies[0];
+    expect(g.summary.entitlementMinor).toBe(114_800 + 83_250);
+  });
+
+  it('still counts a blocked or failed settlement, which needs a person', () => {
+    for (const status of ['BLOCKED', 'FAILED']) {
+      const g = composeFinance(overlap(status)).currencies[0];
+      expect(g.summary.entitlementMinor).toBe(114_800 + 83_250);
+    }
+  });
+
+  it('counts the settlement when the platform entry is itself failed', () => {
+    const g = composeFinance(overlap('HELD', 'FAILED')).currencies[0];
+    expect(g.summary.entitlementMinor).toBe(114_800 + 83_250);
+  });
+
+  it('counts both when the paths cover different events', () => {
+    const input = overlap('HELD');
+    input.provider = [
+      providerFinanceEntry(
+        {
+          ...PROVIDER_SETTLEMENT,
+          eventId: 'ev-other',
+          status: 'HELD',
+          releasedMinor: 0,
+          transferredMinor: 0,
+          refundsMinor: 0,
+        },
+        clean,
+      ),
+    ];
+    const g = composeFinance(input).currencies[0];
+    expect(g.summary.entitlementMinor).toBe(114_800 + 83_250);
+  });
+
+  it('counts the settlement when the payout is a legacy one that proves no events', () => {
+    const input = overlap('HELD');
+    input.platform = [platformFinanceEntry({ ...PLATFORM_PAYOUT, allocatedFrom: null }, [])];
+    const g = composeFinance(input).currencies[0];
+    expect(g.summary.entitlementMinor).toBe(114_800 + 83_250);
+  });
+
+  it('keeps its list of unmoved statuses disjoint from the statuses that claim an event', () => {
+    // The generator's own constant: a status in both lists would mean the settlement is ignored
+    // for totals while the generator also refuses to pay its event.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { SETTLEMENT_CLAIMED_STATUSES } = require('../payouts/payouts.service');
+    for (const status of UNMOVED_SETTLEMENT_STATUSES) {
+      expect(SETTLEMENT_CLAIMED_STATUSES).not.toContain(status);
+    }
+    expect([...UNMOVED_SETTLEMENT_STATUSES].sort()).toEqual([
+      'APPROVED',
+      'ELIGIBLE',
+      'HELD',
+      'PENDING',
+    ]);
   });
 });

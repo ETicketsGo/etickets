@@ -33,6 +33,7 @@ import {
 } from '../../../components/list-filters';
 import { MoneyStatusPill } from '../../../components/money-status';
 import { moneyStatusLabel } from '../../../lib/money-status';
+import { useHolds } from '../../../lib/capabilities';
 
 const STATUSES = [
   'PENDING',
@@ -265,6 +266,8 @@ function SettlementDetailDialog({ id, onClose }: { id: string; onClose: () => vo
     void qc.invalidateQueries({ queryKey: ['admin', 'settlement', id] });
   };
 
+  const mayExecute = useHolds('PAYOUT_EXECUTE');
+
   const resetAction = () => {
     setAction(null);
     setNote('');
@@ -339,8 +342,9 @@ function SettlementDetailDialog({ id, onClose }: { id: string; onClose: () => vo
       </>
     );
   } else if (detail) {
-    const canApprove = detail.status === 'ELIGIBLE';
-    const canRelease = detail.status === 'APPROVED';
+    // Approving and releasing move money, which is its own duty (Payout execute).
+    const canApprove = detail.status === 'ELIGIBLE' && mayExecute;
+    const canRelease = detail.status === 'APPROVED' && mayExecute;
     const canBlock = ['PENDING', 'HELD', 'ELIGIBLE', 'APPROVED'].includes(detail.status);
     footer = (
       <>

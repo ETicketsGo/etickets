@@ -20,7 +20,7 @@ import { AppException, ErrorCodes } from '../common/errors';
 import type { RequestUser } from '../common/decorators';
 import { PayoutSettingsService } from './payout-settings.service';
 import { derivePayoutAccountState, type PayoutAccountState } from './payout-account-state';
-import { payoutDestinationVerdict } from './payout-account-safety';
+import { payoutDestinationVerdict, verifierMayNotPay } from './payout-account-safety';
 import {
   calculateCurrencySettlement,
   type CurrencySettlement,
@@ -67,7 +67,10 @@ export interface HeldRevenue {
   eventId: string;
   eventTitle: string;
   currency: string;
+  /** Held after refunds: sold minus the COMPLETED refunds against it. See `heldRevenue()`. */
   grossMinor: number;
+  /** The COMPLETED refunds already netted off `grossMinor`, so the two can be reconciled. */
+  refundedMinor: number;
   /** When the hold expires: the last session's end plus PAYOUT_HOLD_DAYS. */
   payableFrom: Date;
 }
@@ -119,7 +122,9 @@ export interface PayoutSummary {
     eventId: string;
     eventTitle: string;
     currency: string;
+    /** Held after refunds (sold minus `refundedMinor`). */
     grossMinor: number;
+    refundedMinor: number;
     payableFrom: string;
   }[];
 }
@@ -595,22 +600,53 @@ export class PayoutsService {
     holdDays: number,
   ): Promise<HeldRevenue[]> {
     const holdMs = holdDays * 24 * 60 * 60 * 1000;
-    const rows = await client.booking.groupBy({
-      by: ['eventId', 'currency'],
-      where: {
-        organizationId,
-        paymentMethod: 'ONLINE',
-        ...eventIdFilter(eventId, transferredEventIds),
-        confirmedAt: { lte: until },
-        // Everything the payable filter above leaves out, minus the events that are simply
-        // not going ahead: a cancelled show owes refunds, not a payout, and listing it as
-        // "held" would promise money that is never coming.
-        NOT: { event: this.payableEventFilter(until, holdDays) },
-        event: { status: { not: EventStatus.CANCELLED } },
-      },
-      _sum: { subtotalMinor: true },
-    });
+    const heldBookings: Prisma.BookingWhereInput = {
+      organizationId,
+      paymentMethod: 'ONLINE',
+      ...eventIdFilter(eventId, transferredEventIds),
+      confirmedAt: { lte: until },
+      // Everything the payable filter above leaves out, minus the events that are simply
+      // not going ahead: a cancelled show owes refunds, not a payout, and listing it as
+      // "held" would promise money that is never coming.
+      NOT: { event: this.payableEventFilter(until, holdDays) },
+      event: { status: { not: EventStatus.CANCELLED } },
+    };
+    const [rows, refunds] = await Promise.all([
+      client.booking.groupBy({
+        by: ['eventId', 'currency'],
+        where: heldBookings,
+        _sum: { subtotalMinor: true },
+      }),
+      /*
+        ── HELD IS WHAT IS LEFT AFTER REFUNDS ────────────────────────────────────────
+        This used to sum `subtotalMinor` and stop, so a refunded booking stayed in "held" until
+        its event became payable - while the payout that finally settles it deducts the refund
+        (`settle` reads the same COMPLETED refunds). An organizer was shown money the ledger had
+        already given back. The refunds are read here with the SAME arithmetic the payout uses:
+        the refund less any tax that was added on top, which was never the organizer's.
+
+        No refund window, unlike `settle`: nothing in a held event has been settled, so every
+        completed refund against it belongs in the figure.
+      */
+      client.refund.findMany({
+        where: { organizationId, status: RefundStatus.COMPLETED, booking: heldBookings },
+        select: {
+          amountMinor: true,
+          taxAddedMinor: true,
+          booking: { select: { eventId: true, currency: true } },
+        },
+      }),
+    ]);
     if (rows.length === 0) return [];
+
+    const refundedBy = new Map<string, number>();
+    for (const refund of refunds) {
+      const key = `${refund.booking.eventId}|${refund.booking.currency}`;
+      refundedBy.set(
+        key,
+        (refundedBy.get(key) ?? 0) + refund.amountMinor - (refund.taxAddedMinor ?? 0),
+      );
+    }
 
     const events = await client.event.findMany({
       where: { id: { in: [...new Set(rows.map((row) => row.eventId))] } },
@@ -626,11 +662,19 @@ export class PayoutsService {
       .map((row) => {
         const event = byId.get(row.eventId);
         const lastEnd = event?.sessions[0]?.endsAt;
+        const sold = row._sum.subtotalMinor ?? 0;
+        // Never more than was sold: a refund that exceeds the sale is a clawback for the payout
+        // to settle, not negative money held.
+        const refunded = Math.min(
+          Math.max(refundedBy.get(`${row.eventId}|${row.currency}`) ?? 0, 0),
+          sold,
+        );
         return {
           eventId: row.eventId,
           eventTitle: event?.title ?? row.eventId,
           currency: row.currency.toUpperCase(),
-          grossMinor: row._sum.subtotalMinor ?? 0,
+          grossMinor: sold - refunded,
+          refundedMinor: refunded,
           // No session at all should not be possible for a booked event; treated as "not yet"
           // rather than "payable now", because the safe answer to an unknown end is to wait.
           payableFrom: new Date((lastEnd ? lastEnd.getTime() : until.getTime()) + holdMs),
@@ -785,6 +829,7 @@ export class PayoutsService {
           eventTitle: h.eventTitle,
           currency: h.currency.toUpperCase(),
           grossMinor: h.grossMinor,
+          refundedMinor: h.refundedMinor,
           payableFrom: h.payableFrom.toISOString(),
         })),
       };
@@ -1185,8 +1230,16 @@ export class PayoutsService {
       pending account. A refusal is audited and the payout stays exactly as it was.
     */
     const outcome = await this.prisma.$transaction(async (tx) => {
-      const rows = await tx.$queryRaw<{ verifiedAt: Date | null; rejectedAt: Date | null }[]>(
-        Prisma.sql`SELECT "verifiedAt", "rejectedAt" FROM "OrganizerPayoutAccount"
+      const rows = await tx.$queryRaw<
+        {
+          verifiedAt: Date | null;
+          rejectedAt: Date | null;
+          verifiedByUserId: string | null;
+          version: number;
+        }[]
+      >(
+        Prisma.sql`SELECT "verifiedAt", "rejectedAt", "verifiedByUserId", "version"
+                   FROM "OrganizerPayoutAccount"
                    WHERE "organizationId" = ${payout.organizationId}
                      AND "currency" = ${payout.currency}
                    FOR SHARE`,
@@ -1196,10 +1249,46 @@ export class PayoutsService {
         account: rows[0] ?? null,
       });
       if (!verdict.allowed) return { held: verdict.reason };
+      /*
+        ── SEPARATION OF DUTIES ────────────────────────────────────────────────────────
+        The person who verified this version of the account must not also be the one who records
+        money going into it. Judged on IDENTITY, not on a capability, so it holds for a super
+        admin and for anybody who has been given both duties. Read in the same FOR SHARE
+        transaction as the claim, so a re-verification cannot slip in between check and PAID.
+        A payout that moves no money to the organizer has no destination to protect.
+      */
+      if (
+        payout.netMinor > 0 &&
+        verifierMayNotPay({ actorUserId: admin.id, verifiedByUserId: rows[0]?.verifiedByUserId })
+      ) {
+        return { verifier: { version: rows[0]?.version ?? null } };
+      }
       // Atomic finalize: only an un-paid payout can be marked PAID, so the same
       // payout can never be paid twice (idempotent under concurrent admins).
       return { claim: await this.claimPaid(tx, payoutId, evidence) };
     });
+    if ('verifier' in outcome && outcome.verifier) {
+      await this.audit.record({
+        actorUserId: admin.id,
+        organizationId: payout.organizationId,
+        action: 'PAYOUT_PAID',
+        entityType: 'Payout',
+        entityId: payoutId,
+        metadata: {
+          outcome: 'REFUSED',
+          reasonCode: 'VERIFIER_CANNOT_PAY',
+          accountVersion: outcome.verifier.version,
+          currency: payout.currency,
+          netMinor: payout.netMinor,
+        },
+      });
+      throw new AppException(
+        ErrorCodes.FORBIDDEN,
+        'You verified this bank account, so someone else must mark this payout paid.',
+        HttpStatus.FORBIDDEN,
+        { hold: 'VERIFIER_CANNOT_PAY' },
+      );
+    }
     if ('held' in outcome) {
       await this.audit.record({
         actorUserId: admin.id,
