@@ -276,6 +276,31 @@ Listed, not changed (product decisions):
   explicitly, so it stays correct if a membership role is added.
 - **Platform-admin bypass (fixed).** See "Organizer API: platform staff" below.
 
+## Organizer team members: roles come from the seat (fixed in this change)
+
+**Defect.** Inviting a person created a user with global roles `[CUSTOMER]`, and accepting the
+invitation only set the `OrganizationMember` row to `ACTIVE`. The JWT strategy put the global roles
+on the request and `RolesGuard` checks those. So an invited `CHECKIN_STAFF` was refused at
+`/checkins` and an invited `ORGANIZER_MANAGER` at every manager route. Seeded accounts have the
+global role set by hand, which is why no test saw it.
+
+**Rule now.** The roles on a request are the user's global roles **plus** the role of each of their
+`ACTIVE` memberships, limited to `ORGANIZER_OWNER`, `ORGANIZER_MANAGER` and `CHECKIN_STAFF`
+(`effectiveRoles` in `auth/jwt.strategy.ts`). This is read on every request, like the global roles,
+so removing a member or changing their role takes effect on their next call.
+
+| Question                                   | Answer                                                                                                                                                |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Does an `INVITED` or `REMOVED` seat grant? | No. Only `ACTIVE`.                                                                                                                                    |
+| Does a seat in organization A reach B?     | No. The role only opens the coarse `@Roles` door. Every route still calls `OrgAccessService`, which checks membership of that organization.           |
+| Can a seat make someone platform staff?    | No. `ADMIN` and `SUPER_ADMIN` are never taken from a seat. Platform staff roles and `@OrganizerOnly` are unchanged.                                   |
+| Is anything stored?                        | No. Nothing is written to the user row. `OrganizationsService.create` now reads the stored roles, so it cannot copy a seat role into the global list. |
+| Data migration?                            | None.                                                                                                                                                 |
+
+Proof: `apps/api/src/auth/invited-member-roles.http.integration-postgres.spec.ts` (whole app, real
+HTTP, real Postgres). Without the union, five of its tests fail; with the `ACTIVE` filter removed,
+the strategy test fails; with the stored-roles read in `create` reverted, the registration test fails.
+
 ## Organizer API: platform staff
 
 ### Root cause
