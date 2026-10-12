@@ -223,8 +223,8 @@ export class AdminPayoutsController {
     return this.payouts.adminList();
   }
 
-  @Post(':id/pay')
   @RequiresRecentMfa()
+  @Post(':id/pay')
   @ApiOperation({ summary: 'Mark a payout as paid, with the bank reference (admin).' })
   pay(
     @CurrentUser() admin: RequestUser,
@@ -256,8 +256,8 @@ export class AdminPayoutsController {
    * A reveal is somebody taking a bank account number out of the system, so it is recorded
    * with who asked and why - the same shape as the SNS confirmation reveal.
    */
-  @Post('accounts/:id/reveal')
   @RequiresRecentMfa()
+  @Post('accounts/:id/reveal')
   @ApiOperation({ summary: 'Reveal one account number, recorded in the audit log (admin).' })
   revealAccount(
     @CurrentUser() admin: RequestUser,
@@ -279,8 +279,8 @@ export class AdminPayoutsController {
    * organization. `version` is the version the reviewer was looking at; if the owner saved
    * something else since, the check is refused rather than applied to the wrong account.
    */
-  @Post('accounts/:id/verified')
   @RequiresRecentMfa()
+  @Post('accounts/:id/verified')
   @ApiOperation({ summary: 'Record that the account has been checked (admin).' })
   verifyAccount(
     @CurrentUser() admin: RequestUser,
@@ -291,8 +291,8 @@ export class AdminPayoutsController {
     return this.accounts_.markVerified(admin, id, body.version);
   }
 
-  @Post('accounts/:id/reject')
   @RequiresRecentMfa()
+  @Post('accounts/:id/reject')
   @ApiOperation({
     summary: 'Turn the account details down, with a reason the owner is told (admin).',
   })
@@ -309,8 +309,8 @@ export class AdminPayoutsController {
     return this.accounts_.reject(admin, id, body.reason, body.version);
   }
 
-  @Post(':id/fail')
   @RequiresRecentMfa()
+  @Post(':id/fail')
   @ApiOperation({ summary: 'Record that a payout did not reach the organizer (admin).' })
   fail(
     @CurrentUser() admin: RequestUser,

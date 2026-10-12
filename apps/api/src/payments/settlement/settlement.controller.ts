@@ -62,15 +62,15 @@ export class SettlementController {
     return this.settlements.get(id);
   }
 
-  @Post(':id/approve')
   @RequiresRecentMfa()
+  @Post(':id/approve')
   @ApiOperation({ summary: 'Approve an eligible settlement for release.' })
   approve(@CurrentUser() user: RequestUser, @Param('id') id: string) {
     return this.settlements.approve(user, id);
   }
 
-  @Post(':id/release')
   @RequiresRecentMfa()
+  @Post(':id/release')
   @ApiOperation({ summary: 'Release an approved settlement (idempotent transfer).' })
   release(
     @CurrentUser() user: RequestUser,
