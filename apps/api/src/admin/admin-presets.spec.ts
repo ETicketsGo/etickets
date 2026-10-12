@@ -40,6 +40,21 @@ const APPROVED: Record<string, AdminPermission[]> = {
   ],
   // New.
   OPERATIONS: [AdminPermission.OPS_READ, AdminPermission.OPS_EXECUTE],
+  // New (separation of duties, granted to nobody until the owner names people).
+  FINANCE_VERIFIER: [
+    AdminPermission.BOOKING_READ,
+    AdminPermission.FINANCE_READ,
+    AdminPermission.PAYOUT_MANAGE,
+    AdminPermission.BANK_VERIFY,
+  ],
+  FINANCE_PAYER: [
+    AdminPermission.BOOKING_READ,
+    AdminPermission.FINANCE_READ,
+    AdminPermission.PAYOUT_MANAGE,
+    AdminPermission.PAYOUT_EXECUTE,
+  ],
+  FINANCE_REVIEWER: [AdminPermission.BOOKING_READ, AdminPermission.FINANCE_READ],
+  OPS_ONCALL: [AdminPermission.OPS_READ, AdminPermission.OPS_EXECUTE],
 };
 
 describe('the ready-made staff bundles', () => {

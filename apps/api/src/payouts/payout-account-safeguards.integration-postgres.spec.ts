@@ -137,7 +137,7 @@ describe('integration-real-postgres: payout bank account safeguards', () => {
     await makeUser('managerA', ['CUSTOMER', 'ORGANIZER_MANAGER']);
     await makeUser('checkinA', ['CUSTOMER', 'CHECKIN_STAFF']);
     await makeUser('ownerB', ['CUSTOMER', 'ORGANIZER_OWNER']);
-    const payoutManage = [...ADMIN_PRESETS.FINANCE.grants];
+    const payoutManage = [...ADMIN_PRESETS.FINANCE.grants, 'BANK_VERIFY', 'PAYOUT_EXECUTE'];
     await makeUser('finance1', ['ADMIN'], payoutManage);
     await makeUser('finance2', ['ADMIN'], payoutManage);
     await makeUser('support', ['ADMIN'], [...ADMIN_PRESETS.SUPPORT.grants]);

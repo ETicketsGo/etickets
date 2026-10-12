@@ -351,19 +351,25 @@ export class PayoutAccountsService {
       organization: { id: string; name: string };
       /** Who entered these details. Shown so a reviewer can see they are not that person. */
       savedBy: { id: string; email: string } | null;
+      /** Who verified the current version. That person can never pay into this account. */
+      verifiedBy: { id: string; email: string } | null;
     })[]
   > {
     const rows = await this.prisma.organizerPayoutAccount.findMany({
       include: { organization: { select: { id: true, name: true } } },
       orderBy: [{ organizationId: 'asc' }, { currency: 'asc' }],
     });
-    const people = await this.emails(rows.map((r) => r.updatedByUserId));
+    const people = await this.emails(rows.flatMap((r) => [r.updatedByUserId, r.verifiedByUserId]));
     return rows.map((row) => ({
       ...this.view(row),
       organization: row.organization,
       savedBy: row.updatedByUserId
         ? { id: row.updatedByUserId, email: people.get(row.updatedByUserId) ?? '' }
         : null,
+      verifiedBy:
+        row.verifiedAt && row.verifiedByUserId
+          ? { id: row.verifiedByUserId, email: people.get(row.verifiedByUserId) ?? '' }
+          : null,
     }));
   }
 

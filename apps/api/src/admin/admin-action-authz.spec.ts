@@ -526,7 +526,7 @@ describe('acting on an admin queue needs more than seeing it', () => {
       ]),
     );
     expect(carriers).toEqual({
-      [AdminPermission.OPS_EXECUTE]: ['OPERATIONS'],
+      [AdminPermission.OPS_EXECUTE]: ['OPERATIONS', 'OPS_ONCALL'],
       [AdminPermission.FINANCE_APPROVE]: ['FINANCE'],
       [AdminPermission.FINANCE_RESOLVE]: ['FINANCE'],
       // Not REFUND_DESK: the owner kept it out.
