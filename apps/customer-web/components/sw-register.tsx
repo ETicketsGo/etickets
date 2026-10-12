@@ -18,6 +18,15 @@ export function SwRegister() {
     if (process.env.NODE_ENV !== 'production') return;
     if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
 
+    /*
+      Whether a worker already controlled THIS page when it loaded. Asked now, not later:
+      the worker calls skipWaiting() and claims the page on its very first install, and WebKit
+      reports the new controller before the 'installed' event reaches us - so a first-time
+      Safari visitor was told 'A new version is available' about the version they were
+      already on. A real update is only possible if there was a worker to update.
+    */
+    const hadController = !!navigator.serviceWorker.controller;
+
     const onControllerChange = () => {
       if (updating.current) window.location.reload();
     };
@@ -29,12 +38,12 @@ export function SwRegister() {
       navigator.serviceWorker
         .register('/sw.js')
         .then((reg) => {
-          if (reg.waiting && navigator.serviceWorker.controller) setWaiting(reg.waiting);
+          if (reg.waiting && hadController) setWaiting(reg.waiting);
           reg.addEventListener('updatefound', () => {
             const next = reg.installing;
             next?.addEventListener('statechange', () => {
-              // A waiting worker with an active controller means a real update.
-              if (next.state === 'installed' && navigator.serviceWorker.controller) {
+              // A waiting worker for a page that already had a controller means a real update.
+              if (next.state === 'installed' && hadController) {
                 setWaiting(next);
               }
             });
