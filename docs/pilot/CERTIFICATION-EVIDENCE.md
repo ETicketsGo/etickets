@@ -44,6 +44,19 @@ that is created after the hold and then refused PAID (409) because the bank acco
    `payableMinor 0`) and the generated payout (gross 299,600 minus refund 199,800 = net 99,800) are correct.
    Settlement and payout are right; the organizer read models overstate what is owed. Needs a fix before pilot
    organizers read those screens.
+   Root cause (two separate read rules, both in the frozen Finance workstream, so not changed here):
+   - `/payouts/summary` `held`: `PayoutsService.heldRevenue` sums `Booking.subtotalMinor` for every online booking
+     of a not-yet-payable event, with no booking-status filter and no refund netting. A fully refunded booking
+     stays in `held` until the event becomes payable.
+   - `/payouts/finance` `pending`: `buildSummary` in `finance/unified-finance.composer.ts` counts a provider
+     settlement's entitlement as `Settlement.grossSalesMinor` (documented contract), so refunds recorded on the
+     settlement (`refundsMinor`) do not reduce `pending`. The test organization has no Route account, so this
+     settlement can never pay; it still appears as pending next to the platform payout.
+   Proposed fix (needs owner approval: it changes certified read-model contracts, not payout execution): net
+   COMPLETED refunds out of `held`, show held as gross with a separate refunds figure, and leave a HELD provider
+   settlement for an organizer without a linked account out of `pending` (or show it as needing attention).
+   Pilot mitigation until then: tell pilot organizers to read the payout row (gross, refunds, net) and not the
+   held/pending totals.
 3. **UAT payment confirmation is late (about 11 minutes) and comes from the recovery sweeper, not the webhook** (UAT
    PAY-2). QA and UAT share one Razorpay test key id; a Razorpay account has one webhook target, so UAT never gets
    the webhook. The buyer sees "Booking pending" for the whole time.
