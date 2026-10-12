@@ -12,6 +12,23 @@ import { ReferenceCode } from '@/components/reference-code';
 import { useStatusLabel } from '@/lib/status-label';
 
 /**
+ * The show time in the venue's clock with the zone written next to it ("7:30 pm IST").
+ *
+ * A guest's screen printed "24 Oct 2026, 7:30 pm" and nothing else. The time is right (the
+ * venue's), but a buyer in another zone reads an unlabelled time as their own - the account
+ * confirmation already names the zone for exactly this reason.
+ */
+function showTime(
+  dateTime: (iso: string, options?: undefined, zone?: string) => string,
+  zoneAbbrev: (iso: string, zone?: string) => string | null | undefined,
+  iso: string,
+  zone: string | null,
+): string {
+  const abbreviation = zoneAbbrev(iso, zone ?? undefined);
+  return `${dateTime(iso, undefined, zone ?? undefined)}${abbreviation ? ` ${abbreviation}` : ''}`;
+}
+
+/**
  * A booking as a guest sees it, and the tickets that came with it.
  *
  * ── WHY ONE COMPONENT FOR TWO PAGES ────────────────────────────────────────────────
@@ -32,7 +49,7 @@ import { useStatusLabel } from '@/lib/status-label';
 export function GuestBookingSummary({ view }: { view: GuestBookingView }) {
   const g = useTranslations('storefront.guest');
   const c = useTranslations('storefront.confirmation');
-  const { money, dateTime } = useFormat();
+  const { money, dateTime, zoneAbbrev } = useFormat();
   const statusLabel = useStatusLabel();
 
   // A cinema and its screen when there is one; otherwise the venue. Never "null - null".
@@ -77,7 +94,7 @@ export function GuestBookingSummary({ view }: { view: GuestBookingView }) {
         </div>
         <p className="flex items-center gap-1.5 text-[0.9375rem] text-text-muted">
           <CalendarDays className="h-4 w-4 shrink-0" aria-hidden />
-          {dateTime(view.event.startsAt, undefined, view.event.timeZone ?? undefined)}
+          {showTime(dateTime, zoneAbbrev, view.event.startsAt, view.event.timeZone)}
         </p>
         {place ? (
           <p className="flex items-center gap-1.5 text-[0.9375rem] text-text-muted">
@@ -217,7 +234,7 @@ export function GuestTickets({
   const g = useTranslations('storefront.guest');
   const w = useTranslations('storefront.wallet');
   const c = useTranslations('storefront.confirmation');
-  const { dateTime } = useFormat();
+  const { dateTime, zoneAbbrev } = useFormat();
 
   if (view.tickets.length === 0) return null;
 
@@ -241,7 +258,7 @@ export function GuestTickets({
           <div className="min-w-0 flex-1 space-y-1">
             <p className="font-semibold text-text-primary">{view.event.title}</p>
             <p className="text-[0.9375rem] text-text-muted">
-              {dateTime(view.event.startsAt, undefined, view.event.timeZone ?? undefined)}
+              {showTime(dateTime, zoneAbbrev, view.event.startsAt, view.event.timeZone)}
             </p>
             {ticket.ticketTypeName ? (
               <p className="text-[0.9375rem] text-text-secondary">{ticket.ticketTypeName}</p>

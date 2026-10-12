@@ -1,6 +1,9 @@
 {
   "event": {
     "ticketsHeading": "Tickets",
+    "salesClosed": "Sales closed",
+    "salesOpenOn": "Sales open {date}",
+    "salesNotOpen": "Sales have not opened yet",
     "left": "{count, plural, one {# left} other {# left}}",
     "subtotal": "Subtotal",
     "feesNote": "Transparent fees shown on the next step.",
@@ -217,6 +220,11 @@
     "ticketsHeldForYou": "Tickets held for you",
     "noHiddenFees": "No hidden fees",
     "instantQr": "Instant QR ticket",
+    "refundTermsHeading": "Refund terms",
+    "refundNone": "No refunds are offered for this event.",
+    "refundUntilStart": "Refunds are open until the show starts.",
+    "refundCutoff": "Refunds close {hours, plural, one {# hour} other {# hours}} before the show.",
+    "refundNoneShort": "No refunds",
     "refundablePerPolicy": "Refundable per policy",
     "item": "Item",
     "needMoreTime": "Need more time?",

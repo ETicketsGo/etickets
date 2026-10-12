@@ -137,6 +137,10 @@ const VIEW_SELECT = {
     select: {
       title: true,
       slug: true,
+      // What the organizer promised about refunds, so a buyer is told before paying.
+      refundsEnabled: true,
+      refundCutoffHours: true,
+      refundPolicy: true,
       // The venue's zone is the fallback for every event that is not in a cinema.
       venue: { select: { name: true, timezone: true, country: true } },
     },
@@ -209,6 +213,9 @@ type BookingForView = {
   event: {
     title: string;
     slug: string;
+    refundsEnabled: boolean;
+    refundCutoffHours: number;
+    refundPolicy: string | null;
     venue: { name: string; timezone: string | null; country?: string | null } | null;
   };
   eventSession: {
@@ -834,6 +841,9 @@ export class GuestBookingService {
       event: {
         title: booking.event.title,
         slug: booking.event.slug,
+        refundsEnabled: booking.event.refundsEnabled,
+        refundCutoffHours: booking.event.refundCutoffHours,
+        refundPolicy: booking.event.refundPolicy,
         startsAt: iso(startsAt) ?? '',
         // Cinema first — a screen's own zone is the most specific fact about where it plays —
         // then the venue, by the same rule the confirmation email and the ticket face use, so
@@ -866,10 +876,19 @@ export class GuestBookingService {
         paymentFeeMinor: booking.paymentFeeMinor,
         maintenanceMinor: booking.maintenanceMinor,
         maintenanceTreatment: booking.maintenanceTreatment,
+        /*
+          Carries what each line was levied on, as the account holder's booking does. Dropping
+          `basis` and `inclusive` made the guest's payment screen read "Tickets, includes
+          GST 159.82" for a 1,000.00 ticket: it counted the GST added on the fees as part of the
+          ticket price, and showed a different figure from the event page for the same order.
+          A booking made before they were stored has none, and the breakdown handles that.
+        */
         taxLines: booking.taxLines.map((line) => ({
           label: line.label,
           rateBasisPoints: line.rateBasisPoints,
           amountMinor: line.amountMinor,
+          ...(line.basis ? { basis: line.basis as 'TICKETS' | 'FEES' | 'TICKETS_AND_FEES' } : {}),
+          ...(line.inclusive !== null ? { inclusive: line.inclusive } : {}),
         })),
         ...feeTaxSummary(booking.taxLines, booking.customerFeeMinor),
       },
