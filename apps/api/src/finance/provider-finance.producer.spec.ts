@@ -531,3 +531,56 @@ describe('a settlement released before releasedMinor was recorded', () => {
     expect(entry.state).toBe('ATTENTION_REQUIRED');
   });
 });
+
+describe('FIN-1: refunds recorded before a transfer reduce what is owed', () => {
+  it.each(['PENDING', 'HELD', 'ELIGIBLE', 'APPROVED'])(
+    'nets recorded refunds off a %s settlement and reports them',
+    (status) => {
+      // The QA row: gross 299 600, refunds 191 809 accrued by the refund webhook.
+      const { entry } = providerFinanceEntry(
+        settlement({ status, grossSalesMinor: 299_600, refundsMinor: 191_809 }),
+        clean,
+      );
+      expect(entry.money.organizerNetMinor).toBe(107_791);
+      expect(entry.money.refundsMinor).toBe(191_809);
+    },
+  );
+
+  it('never reports a negative entitlement', () => {
+    const { entry } = providerFinanceEntry(
+      settlement({ status: 'HELD', grossSalesMinor: 10_000, refundsMinor: 12_000 }),
+      clean,
+    );
+    expect(entry.money.organizerNetMinor).toBe(0);
+  });
+
+  it('does not net refunds off a settlement whose money has moved: that is a clawback', () => {
+    for (const status of [
+      'TRANSFER_PROCESSING',
+      'TRANSFERRED',
+      'PARTIALLY_REFUNDED',
+      'REVERSED',
+    ] as const) {
+      const { entry } = providerFinanceEntry(
+        settlement({
+          status,
+          grossSalesMinor: 200_000,
+          refundsMinor: 50_000,
+          releasedMinor: 200_000,
+          transferredMinor: 150_000,
+        }),
+        clean,
+      );
+      expect(`${status} ${entry.money.organizerNetMinor}`).toBe(`${status} 200000`);
+    }
+  });
+
+  it('still leaves an unproven zero absent', () => {
+    const { entry } = providerFinanceEntry(
+      settlement({ status: 'HELD', grossSalesMinor: 200_000, refundsMinor: 0 }),
+      clean,
+    );
+    expect(entry.money.organizerNetMinor).toBe(200_000);
+    expect('refundsMinor' in entry.money).toBe(false);
+  });
+});
