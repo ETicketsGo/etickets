@@ -15,7 +15,9 @@ import {
   errorMessage,
   type Column,
   type PayoutAccount,
+  useAuthUser,
 } from '@eticketsgo/web-kit';
+import { missingDutyNote, useHolds } from '../../../lib/capabilities';
 
 const REVIEW_BADGE: Record<PayoutAccount['status'], { status: string; label: string }> = {
   PENDING_VERIFICATION: { status: 'UNDER_REVIEW', label: 'Waiting for verification' },
@@ -87,6 +89,8 @@ function HistoryList({ accountId }: { accountId: string }) {
 export function BankAccounts() {
   const qc = useQueryClient();
   const toast = useToast();
+  const { user } = useAuthUser();
+  const mayVerify = useHolds('BANK_VERIFY');
   const [revealing, setRevealing] = useState<PayoutAccount | null>(null);
   const [reason, setReason] = useState('');
   const [revealed, setRevealed] = useState<{ account: PayoutAccount; number: string } | null>(null);
@@ -166,6 +170,15 @@ export function BankAccounts() {
           {row.verifiedAt ? (
             <p className="mt-1 text-caption text-text-muted">{dateOnly(row.verifiedAt)}</p>
           ) : null}
+          {/* The rule the server enforces, shown where the person will look for it. */}
+          {row.verifiedAt && row.verifiedBy ? (
+            <p className="mt-1 text-caption text-text-muted">
+              Verified by {row.verifiedBy.email || 'unknown'}
+              {row.verifiedBy.id === user?.id
+                ? '. You verified this account, so someone else must mark payouts to it as paid.'
+                : '. They cannot mark payouts to this account as paid; a different person must.'}
+            </p>
+          ) : null}
           {row.status === 'REJECTED' && row.rejectionReason ? (
             <p className="mt-1 text-caption text-text-muted">{row.rejectionReason}</p>
           ) : null}
@@ -183,7 +196,12 @@ export function BankAccounts() {
           <Button size="sm" variant="ghost" onClick={() => setHistoryOf(row)}>
             History
           </Button>
-          {row.status === 'PENDING_VERIFICATION' ? (
+          {row.status === 'PENDING_VERIFICATION' && !mayVerify ? (
+            <p className="max-w-xs text-right text-caption text-text-muted">
+              {missingDutyNote('verify this account', 'BANK_VERIFY')}
+            </p>
+          ) : null}
+          {row.status === 'PENDING_VERIFICATION' && mayVerify ? (
             <>
               <Button size="sm" variant="ghost" onClick={() => verify.mutate(row)}>
                 Mark checked

@@ -5,6 +5,7 @@ import {
   destructiveAuthorisationVerdict,
 } from './destructive-authorisation';
 import { BACKUP_DIR, listBackups, prune, restoreDrill, takeBackup } from './backup';
+import { uploadOffsite, type OffsiteResult } from './backup-offsite';
 import { evidenceLine, resolveOperation } from './scheduled-operation';
 /**
  * The single entry point the `db-seed` Railway service runs.
@@ -52,7 +53,15 @@ const resolved = resolveOperation();
 const operation = resolved.operation;
 
 /** Set by the backup branch, so the closing evidence line can name what it produced. */
-let artifact: { name: string; bytes: number; verified: boolean } | null = null;
+let artifact: {
+  name: string;
+  bytes: number;
+  verified: boolean;
+  offsite?: Omit<OffsiteResult, 'error'> & { error?: string };
+} | null = null;
+
+/** Work that must finish before the closing evidence line (the optional off-platform upload). */
+let afterwards: Promise<void> | null = null;
 
 console.log(`seed-operation: ${operation}`);
 console.log(`  requested        ${resolved.requested || '(unset)'}`);
@@ -119,9 +128,38 @@ switch (operation) {
     console.log(
       `  recovery points  ${listBackups().length}${pruned.length ? ` (pruned ${pruned.length})` : ''}`,
     );
-    console.log(
-      `BACKUP_JSON ${JSON.stringify({ name: b.name, bytes: b.bytes, kept: listBackups().length })}`,
-    );
+    /*
+      The OPTIONAL off-platform copy. It starts only now, after the local dump verified, and it
+      cannot fail this run: `uploadOffsite` never rejects, never touches the local file except
+      to read it, and does nothing at all unless BACKUP_OFFSITE_BUCKET is set. Its outcome joins
+      BACKUP_JSON so one grep shows both copies; a failure is logged as BACKUP_OFFSITE_FAILED.
+    */
+    const kept = listBackups().length;
+    afterwards = uploadOffsite(b).then((offsite) => {
+      if (offsite.status !== 'disabled') {
+        artifact!.offsite = offsite;
+        console.log(
+          `  off-platform     ${offsite.status}${offsite.key ? ` (${offsite.key})` : ''}`,
+        );
+      }
+      console.log(
+        `BACKUP_JSON ${JSON.stringify({
+          name: b.name,
+          bytes: b.bytes,
+          kept,
+          ...(offsite.status === 'disabled'
+            ? {}
+            : {
+                offsite: {
+                  status: offsite.status,
+                  key: offsite.key,
+                  sha256: offsite.sha256,
+                  bytes: offsite.bytes,
+                },
+              }),
+        })}`,
+      );
+    });
     break;
   }
 
@@ -326,16 +364,22 @@ ABORTING: could not take a recovery point, so nothing has been touched.
   operation, and says whether a verified artifact exists. `resolved != "backup"` on a night that
   was supposed to be a backup is now a grep, not an investigation.
 */
-console.log(
-  evidenceLine({
-    requested: resolved.requested,
-    resolved: operation,
-    source: resolved.source,
-    appEnv: process.env.APP_ENV ?? null,
-    railwayEnv: process.env.RAILWAY_ENVIRONMENT_NAME ?? null,
-    allowed: true,
-    completed: true,
-    backup: artifact,
-    recoveryPoints: operation === 'backup' ? listBackups().length : undefined,
-  }),
-);
+const printEvidence = () =>
+  console.log(
+    evidenceLine({
+      requested: resolved.requested,
+      resolved: operation,
+      source: resolved.source,
+      appEnv: process.env.APP_ENV ?? null,
+      railwayEnv: process.env.RAILWAY_ENVIRONMENT_NAME ?? null,
+      allowed: true,
+      completed: true,
+      backup: artifact,
+      recoveryPoints: operation === 'backup' ? listBackups().length : undefined,
+    }),
+  );
+
+// Every other operation prints synchronously, exactly as before; only a backup waits, for the
+// off-platform upload it started.
+if (afterwards) void afterwards.then(printEvidence);
+else printEvidence();

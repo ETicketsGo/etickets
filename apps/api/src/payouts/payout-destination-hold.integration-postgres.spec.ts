@@ -110,8 +110,16 @@ describe('integration-real-postgres: payout destination hold', () => {
       );
     };
     await makeUser('owner', ['CUSTOMER', 'ORGANIZER_OWNER']);
-    await makeUser('finance1', ['ADMIN'], [...ADMIN_PRESETS.FINANCE.grants]);
-    await makeUser('finance2', ['ADMIN'], [...ADMIN_PRESETS.FINANCE.grants]);
+    await makeUser(
+      'finance1',
+      ['ADMIN'],
+      [...ADMIN_PRESETS.FINANCE.grants, 'BANK_VERIFY', 'PAYOUT_EXECUTE'],
+    );
+    await makeUser(
+      'finance2',
+      ['ADMIN'],
+      [...ADMIN_PRESETS.FINANCE.grants, 'BANK_VERIFY', 'PAYOUT_EXECUTE'],
+    );
     orgId = (
       await prisma.organization.create({
         data: { name: `Org ${suffix}`, slug: `org-${suffix}` },

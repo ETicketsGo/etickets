@@ -64,6 +64,7 @@ export class SettlementController {
 
   @RequiresRecentMfa()
   @Post(':id/approve')
+  @RequiresAdmin(AdminPermission.PAYOUT_MANAGE, AdminPermission.PAYOUT_EXECUTE)
   @ApiOperation({ summary: 'Approve an eligible settlement for release.' })
   approve(@CurrentUser() user: RequestUser, @Param('id') id: string) {
     return this.settlements.approve(user, id);
@@ -71,6 +72,7 @@ export class SettlementController {
 
   @RequiresRecentMfa()
   @Post(':id/release')
+  @RequiresAdmin(AdminPermission.PAYOUT_MANAGE, AdminPermission.PAYOUT_EXECUTE)
   @ApiOperation({ summary: 'Release an approved settlement (idempotent transfer).' })
   release(
     @CurrentUser() user: RequestUser,

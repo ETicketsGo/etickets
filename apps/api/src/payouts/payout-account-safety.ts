@@ -90,3 +90,14 @@ export function payoutDestinationVerdict(input: {
   if (input.account.verifiedAt) return { allowed: true };
   return { allowed: false, reason: input.account.rejectedAt ? 'REJECTED' : 'PENDING_VERIFICATION' };
 }
+
+/**
+ * Whoever verified the account version a payout would go into may not record that payout paid.
+ * Identity only: no role, no capability, so a super admin is held to it exactly like anyone else.
+ */
+export function verifierMayNotPay(input: {
+  actorUserId: string;
+  verifiedByUserId: string | null | undefined;
+}): boolean {
+  return !!input.verifiedByUserId && input.verifiedByUserId === input.actorUserId;
+}

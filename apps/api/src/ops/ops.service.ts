@@ -10,6 +10,8 @@ import { AuditService } from '../audit/audit.service';
 import { audited } from '../audit/audited';
 import {
   BACKUP_EVIDENCE_ACTION,
+  OFFSITE_BACKUP_EVIDENCE_ACTION,
+  evaluateOffsiteFreshness,
   OPS_EVIDENCE_ENTITY,
   RESTORE_DRILL_EVIDENCE_ACTION,
   backupFailsHealth,
@@ -163,7 +165,10 @@ export class OpsService implements OnModuleDestroy {
     const maxAge = Number(this.config.get<string>('BACKUP_MAX_AGE_HOURS'));
     const opts = Number.isFinite(maxAge) && maxAge > 0 ? { maxAgeHours: maxAge } : {};
     try {
-      const [backup, drill] = await Promise.all([
+      // The off-platform copy is optional: when no bucket is configured it is not even queried.
+      const offsiteConfigured = Boolean(this.config.get<string>('BACKUP_OFFSITE_BUCKET')?.trim());
+      const offsiteMaxAge = Number(this.config.get<string>('BACKUP_OFFSITE_MAX_AGE_HOURS'));
+      const [backup, drill, offsiteRow] = await Promise.all([
         this.prisma.auditLog.findFirst({
           where: { action: BACKUP_EVIDENCE_ACTION, entityType: OPS_EVIDENCE_ENTITY },
           orderBy: { createdAt: 'desc' },
@@ -174,12 +179,29 @@ export class OpsService implements OnModuleDestroy {
           orderBy: { createdAt: 'desc' },
           select: { createdAt: true },
         }),
+        offsiteConfigured
+          ? this.prisma.auditLog.findFirst({
+              where: { action: OFFSITE_BACKUP_EVIDENCE_ACTION, entityType: OPS_EVIDENCE_ENTITY },
+              orderBy: { createdAt: 'desc' },
+              select: { createdAt: true, metadata: true },
+            })
+          : Promise.resolve(null),
       ]);
-      return evaluateBackupFreshness(backup?.createdAt ?? null, new Date(), {
+      const result = evaluateBackupFreshness(backup?.createdAt ?? null, new Date(), {
         ...opts,
         lastBackupName: backup?.entityId ?? null,
         lastRestoreDrillAt: drill?.createdAt ?? null,
       });
+      if (offsiteConfigured) {
+        const meta = (offsiteRow?.metadata ?? null) as { key?: unknown } | null;
+        result.offsite = evaluateOffsiteFreshness(offsiteRow?.createdAt ?? null, new Date(), {
+          ...(Number.isFinite(offsiteMaxAge) && offsiteMaxAge > 0
+            ? { maxAgeHours: offsiteMaxAge }
+            : {}),
+          lastKey: typeof meta?.key === 'string' ? meta.key : null,
+        });
+      }
+      return result;
     } catch {
       return {
         ...evaluateBackupFreshness(null, new Date(), opts),

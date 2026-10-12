@@ -23,6 +23,7 @@ import {
   type Column,
   type Payout,
 } from '@eticketsgo/web-kit';
+import { missingDutyNote, useHolds } from '../../../lib/capabilities';
 import { SettlementTerms } from './settlement-terms';
 import { BankAccounts } from './bank-accounts';
 import { MoneyStatusPill } from '../../../components/money-status';
@@ -34,6 +35,7 @@ const PAGE_SIZE = 15;
 export default function AdminPayouts() {
   const qc = useQueryClient();
   const toast = useToast();
+  const mayExecute = useHolds('PAYOUT_EXECUTE');
   const [confirm, setConfirm] = useState<Payout | null>(null);
   const [failing, setFailing] = useState<Payout | null>(null);
   /** An organizer whose own settlement terms an admin wants to set, picked from a payout row. */
@@ -153,7 +155,11 @@ export default function AdminPayouts() {
         ever come back as an error.
       */
       render: (p) =>
-        p.status === 'PENDING' || p.status === 'SCHEDULED' ? (
+        (p.status === 'PENDING' || p.status === 'SCHEDULED') && !mayExecute ? (
+          <p className="text-right text-caption text-text-muted">
+            {missingDutyNote('mark payouts paid', 'PAYOUT_EXECUTE')}
+          </p>
+        ) : p.status === 'PENDING' || p.status === 'SCHEDULED' ? (
           <div className="flex justify-end gap-2">
             <Button variant="outline" size="sm" onClick={() => setConfirm(p)}>
               Mark paid
@@ -169,13 +175,15 @@ export default function AdminPayouts() {
             {p.paidReference ? (
               <p className="text-caption text-text-muted">{p.paidReference}</p>
             ) : null}
-            <button
-              type="button"
-              className="text-caption text-action-primary hover:underline"
-              onClick={() => setFailing(p)}
-            >
-              Returned by bank
-            </button>
+            {mayExecute ? (
+              <button
+                type="button"
+                className="text-caption text-action-primary hover:underline"
+                onClick={() => setFailing(p)}
+              >
+                Returned by bank
+              </button>
+            ) : null}
           </div>
         ) : p.status === 'FAILED' ? (
           <span className="text-caption text-status-error">{p.failureReason ?? 'Failed'}</span>
@@ -187,7 +195,10 @@ export default function AdminPayouts() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Payouts" description="Organizer settlements across the platform." />
+      <PageHeader
+        title="Payouts"
+        description="Organizer settlements across the platform. A payout to a bank account must be marked paid by someone other than the person who verified that account."
+      />
 
       <Card
         title="Payouts"

@@ -225,6 +225,8 @@ export class AdminPayoutsController {
 
   @RequiresRecentMfa()
   @Post(':id/pay')
+  // Executing a payment is its own duty; the verifier rule is enforced in `markPaid`.
+  @RequiresAdmin(AdminPermission.PAYOUT_MANAGE, AdminPermission.PAYOUT_EXECUTE)
   @ApiOperation({ summary: 'Mark a payout as paid, with the bank reference (admin).' })
   pay(
     @CurrentUser() admin: RequestUser,
@@ -281,6 +283,7 @@ export class AdminPayoutsController {
    */
   @RequiresRecentMfa()
   @Post('accounts/:id/verified')
+  @RequiresAdmin(AdminPermission.PAYOUT_MANAGE, AdminPermission.BANK_VERIFY)
   @ApiOperation({ summary: 'Record that the account has been checked (admin).' })
   verifyAccount(
     @CurrentUser() admin: RequestUser,
@@ -293,6 +296,7 @@ export class AdminPayoutsController {
 
   @RequiresRecentMfa()
   @Post('accounts/:id/reject')
+  @RequiresAdmin(AdminPermission.PAYOUT_MANAGE, AdminPermission.BANK_VERIFY)
   @ApiOperation({
     summary: 'Turn the account details down, with a reason the owner is told (admin).',
   })
@@ -311,6 +315,7 @@ export class AdminPayoutsController {
 
   @RequiresRecentMfa()
   @Post(':id/fail')
+  @RequiresAdmin(AdminPermission.PAYOUT_MANAGE, AdminPermission.PAYOUT_EXECUTE)
   @ApiOperation({ summary: 'Record that a payout did not reach the organizer (admin).' })
   fail(
     @CurrentUser() admin: RequestUser,
