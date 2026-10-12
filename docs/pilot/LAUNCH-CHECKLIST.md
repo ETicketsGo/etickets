@@ -21,14 +21,15 @@ real customers until the money-path and monitoring items are done.
 
 ## 2. Payments
 
-| Item                                                                  | Owner | Status  |
-| --------------------------------------------------------------------- | ----- | ------- |
-| Provider chosen and `PAYMENT_PROVIDER_NAME` set (`stripe`/`razorpay`) | _TBD_ | pending |
-| **Sandbox keys** wired and a full test purchase completed             | _TBD_ | pending |
-| Webhook endpoint (`/api/payments/webhook`) reachable and verified     | _TBD_ | pending |
-| Fee mode confirmed per event (default CUSTOMER_PAYS)                  | _TBD_ | pending |
-| Plan to swap to **live keys** on a single event for Phase 2           | _TBD_ | pending |
-| Reference: [PAYMENT-INTEGRATION](../guides/PAYMENT-INTEGRATION.md)    | —     | —       |
+| Item                                                                                                       | Owner | Status  |
+| ---------------------------------------------------------------------------------------------------------- | ----- | ------- |
+| Provider chosen and `PAYMENT_PROVIDER_NAME` set (`stripe`/`razorpay`)                                      | _TBD_ | pending |
+| **Sandbox keys** wired and a full test purchase completed                                                  | _TBD_ | pending |
+| Webhook endpoint (`/api/payments/webhooks/razorpay`) reachable and verified                                | _TBD_ | pending |
+| Fee mode confirmed per event (default CUSTOMER_PAYS)                                                       | _TBD_ | pending |
+| Plan to swap to **live keys** on a single event for Phase 2                                                | _TBD_ | pending |
+| Reference: [PAYMENT-INTEGRATION](../guides/PAYMENT-INTEGRATION.md)                                         | —     | —       |
+| Razorpay pilot readiness, owner checklist and certification: [RAZORPAY-READINESS](./RAZORPAY-READINESS.md) | —     | —       |
 
 ## 3. Notifications
 
