@@ -22,7 +22,19 @@
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
+
+/*
+  Evidence-row identifiers. These MUST equal the constants in src/ops/backup-freshness.ts (which
+  the API reads them with) - and are duplicated rather than imported on purpose: the runtime image
+  copies apps/api/prisma but NOT apps/api/src, so an import from '../src' here would crash the
+  nightly db-seed at load and silently end the backups. backup-freshness.spec.ts pins the two
+  copies together.
+*/
+export const BACKUP_EVIDENCE_ACTION = 'BACKUP_VERIFIED';
+export const RESTORE_DRILL_EVIDENCE_ACTION = 'RESTORE_DRILL_VERIFIED';
+export const OPS_EVIDENCE_ENTITY = 'DatabaseBackup';
 
 /** Where the volume is mounted. Overridable so a developer can dump locally. */
 export const BACKUP_DIR = process.env.BACKUP_DIR ?? '/backups';
@@ -65,6 +77,59 @@ export function hasRecentBackup(maxAgeMinutes = 60, dir = BACKUP_DIR): BackupFil
   if (!newest) return null;
   const ageMinutes = (Date.now() - newest.createdAt.getTime()) / 60_000;
   return ageMinutes <= maxAgeMinutes ? newest : null;
+}
+
+/**
+ * Leave a small evidence row in the database that was just dumped, so the API (which cannot
+ * see this service's volume) can report the age of the newest VERIFIED backup.
+ *
+ * Best effort by design: the backup itself already succeeded and is on the volume, so a failure
+ * to write the evidence must not turn a good backup into a failed run. It is reported loudly
+ * instead, and the freshness check then goes stale - which is the correct, visible outcome.
+ * Values reach SQL only as psql variables (`:'x'`), never by string concatenation.
+ */
+export function recordOpsEvidence(
+  action: string,
+  entityId: string,
+  metadata: Record<string, unknown>,
+): boolean {
+  const url = process.env.DATABASE_URL;
+  if (!url) return false;
+  try {
+    execFileSync(
+      'psql',
+      [
+        url,
+        '-v',
+        'ON_ERROR_STOP=1',
+        '-v',
+        `id=ops_${randomUUID().replace(/-/g, '')}`,
+        '-v',
+        `action=${action}`,
+        '-v',
+        `entity=${OPS_EVIDENCE_ENTITY}`,
+        '-v',
+        `eid=${entityId}`,
+        '-v',
+        `meta=${JSON.stringify(metadata)}`,
+        '-q',
+      ],
+      {
+        input: `INSERT INTO "AuditLog" ("id","action","entityType","entityId","metadata") VALUES (:'id', :'action', :'entity', :'eid', :'meta'::jsonb);`,
+        stdio: ['pipe', 'ignore', 'pipe'],
+        timeout: 30_000,
+        env: { ...process.env, PGCONNECT_TIMEOUT: process.env.PGCONNECT_TIMEOUT ?? '10' },
+      },
+    );
+    return true;
+  } catch (e) {
+    const detail = ((e as Error).message ?? '').replace(/postgres(ql)?:\/\/\S+/g, '[redacted]');
+    console.warn(
+      `  WARNING: backup is on the volume but its evidence row was NOT recorded (${detail.slice(0, 200)}). ` +
+        'The API backup-freshness check will report stale until the next successful run.',
+    );
+    return false;
+  }
 }
 
 /**
@@ -150,6 +215,7 @@ export function takeBackup(dir = BACKUP_DIR): BackupFile {
   }
 
   const s = statSync(path);
+  recordOpsEvidence(BACKUP_EVIDENCE_ACTION, name, { bytes: s.size, verified: 'pg_restore --list' });
   return { name, path, bytes: s.size, createdAt: s.mtime };
 }
 
@@ -250,6 +316,7 @@ export function restoreDrill(dir = BACKUP_DIR): {
       }
     }
     if (tables === 0) throw new Error('The restore produced no tables.');
+    recordOpsEvidence(RESTORE_DRILL_EVIDENCE_ACTION, newest.name, { tables, rows });
     return { backup: newest.name, tables, rows };
   } finally {
     // Always: a scratch database left behind is a copy of production data nobody is watching.
