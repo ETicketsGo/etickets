@@ -450,6 +450,7 @@
     "resetDone": "Your password is set. Sign in with it.",
     "resetLinkBad": "This reset link is no longer valid. Request a new one.",
     "backToSignIn": "Back to sign in",
+    "phoneUnavailable": "Sign-in by text message is not available right now. Use your email address and password.",
     "phoneTab": "Mobile",
     "emailTab": "Email",
     "phoneLabel": "Mobile number",

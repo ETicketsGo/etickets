@@ -1,0 +1,61 @@
+# India pilot alert rules (docs/pilot/INFRASTRUCTURE.md section 6).
+#
+# Metric-backed signals only. Signals that live in the database rather than in a metric (backup
+# age, captured-but-unconfirmed payments, payout holds) are NOT here: they are checked by
+# scripts/ops/pilot-health-check.mjs and scripts/ops/pilot-monitor-queries.sql, because a rule
+# that cannot see its input never fires and looks exactly like a quiet system.
+#
+# Severity: `page` wakes the on-call engineer, `warn` goes to the ops channel (alertmanager.yml).
+# Load alongside alerts.yml:  rule_files: [/etc/prometheus/pilot-alerts.yml]
+groups:
+  - name: eticketsgo-pilot
+    rules:
+      # Any sustained 5xx on a pilot-sized load. alerts.yml uses 5% of requests; with a handful
+      # of organizers that is a handful of requests, so alert on an absolute count too.
+      - alert: PilotApi5xxBurst
+        expr: sum(increase(etg_http_requests_total{status_class="5xx"}[10m])) >= 5
+        for: 5m
+        labels: { severity: page, area: api }
+        annotations:
+          summary: 'API returned 5 or more 5xx responses in 10 minutes'
+          description: 'Check Sentry for the new exception and Railway logs for the api service.'
+
+      # A payment provider delivery failed signature verification. In normal operation this is
+      # zero. One is a probe or a rotated secret; a run of them means real payments are being
+      # rejected (the production incident: a paid purchase got HTTP 400 for a secret mismatch).
+      - alert: PaymentWebhookSignatureRejected
+        expr: sum by (provider) (increase(etg_payment_webhooks_total{result="rejected"}[15m])) >= 1
+        for: 0m
+        labels: { severity: page, area: payments }
+        annotations:
+          summary: 'Payment webhook rejected for {{ $labels.provider }}'
+          description: 'A signed delivery failed verification. Compare the webhook secret in the provider dashboard with the stored secret (names only; never print values). Run the captured-payment query in pilot-monitor-queries.sql.'
+
+      # Money is being taken but bookings are not confirming. Mirrors BookingConfirmErrorRateHigh
+      # but fires at pilot volume: any payment success with no confirmation for 15 minutes.
+      - alert: PaymentsSucceededNotConfirmed
+        expr: |
+          sum(increase(etg_payments_succeeded_total[15m]))
+          - sum(increase(etg_bookings_confirmed_total[15m])) > 0
+        for: 15m
+        labels: { severity: page, area: payments }
+        annotations:
+          summary: 'Payments succeeded without matching confirmed bookings'
+          description: 'Run the captured-but-unconfirmed query in pilot-monitor-queries.sql; recover per the captured-payment runbook.'
+
+      # Worker jobs failing: holds not expiring, notifications and outbox events not leaving.
+      - alert: PilotQueueFailures
+        expr: sum(increase(etg_queue_jobs{state="failed"}[30m])) > 0
+        for: 5m
+        labels: { severity: warn, area: queue }
+        annotations:
+          summary: 'Background jobs are failing'
+          description: 'GET /api/admin/ops/health reports queue.recentFailed; list them at /api/admin/ops/queues/failed.'
+
+      - alert: OutboxDeliveryFailing
+        expr: sum(increase(etg_outbox_delivery_total{outcome=~"retryable_failure|dead_lettered|manual_review"}[30m])) > 0
+        for: 10m
+        labels: { severity: warn, area: queue }
+        annotations:
+          summary: 'Outbox events are not being delivered'
+          description: 'Events recorded in the same transaction as a booking are not leaving; see docs/ops/DOMAIN-EVENT-DELIVERY-RUNBOOK.md.'

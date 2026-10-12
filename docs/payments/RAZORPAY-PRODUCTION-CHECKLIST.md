@@ -40,10 +40,10 @@ Do not enable live payments until every box is checked.
 - [ ] Live-Mode webhook registered at `{API_URL}/api/payments/webhooks/razorpay` with a
       **new** strong secret (not reused from Test).
 - [ ] Subscribed to **only the implemented events** (see the dashboard runbook §3):
-      `order.paid`, `payment.captured`, `payment.failed`, `refund.created`,
-      `refund.processed`, `payment.dispute.created/won/lost`, `transfer.failed`,
+      `order.paid`, `payment.captured`, `payment.failed`,
+      `refund.processed`, `refund.failed`, `payment.dispute.created/won/lost`, `transfer.failed`,
       `transfer.reversed` (+ acknowledged: `payment.authorized`, `transfer.processed`,
-      `refund.failed`, `settlement.processed`, `settlement.failed`).
+      `refund.created`, `settlement.processed`, `settlement.failed`).
 - [ ] A **live signature delivery verified** (event reaches `PROCESSED`; a bad signature is
       rejected 400).
 - [ ] Endpoint reachable over HTTPS with the **raw body preserved** (no proxy re-encoding —

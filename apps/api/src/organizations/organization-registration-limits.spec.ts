@@ -36,7 +36,10 @@ function harness(pending: number) {
   };
   const prisma = {
     $transaction: jest.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
-    user: { update: jest.fn(async () => ({})) },
+    user: {
+      update: jest.fn(async () => ({})),
+      findUnique: jest.fn(async () => ({ roles: ['CUSTOMER'] })),
+    },
   };
   const notifyAdmins = jest.fn(
     async (_type: string, _payload: Record<string, unknown>, _options?: { intentKey?: string }) =>
