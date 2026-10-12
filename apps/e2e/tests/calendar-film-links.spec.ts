@@ -8,6 +8,8 @@ import { API, ORGANIZER, apiLogin, seedBrowserAuth, type AuthTokens } from './he
  * /organizer/events/<id>, where a film's screens and shows are not run. The API now sends the
  * film id; the row, the quick look and the Overview's month card link to
  * /organizer/movies/<id>?show=<session>, and the film page scrolls to that show's day.
+ * The fixture cinema is in Kurnool, not Vijayawada: the storefront's location-detect spec (which runs
+ * after this one) needs Vijayawada to have nothing on sale.
  * Non-film sessions keep their own pages (checked in the unit tests of the destination helper).
  */
 
@@ -30,7 +32,7 @@ async function fixture(request: APIRequestContext, tokens: AuthTokens): Promise<
       data: {
         organizationId,
         name: `Film Link Talkies ${stamp}`,
-        city: 'Vijayawada',
+        city: 'Kurnool',
         region: 'Andhra Pradesh',
         country: 'IN',
         timezone: 'Asia/Kolkata',
