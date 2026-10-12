@@ -88,7 +88,10 @@ Production has exactly one administrator (the owner, `SUPER_ADMIN`). The design 
    the API logs one warning that MFA is not enforced. The migration is four new tables, no existing
    column touched.
 2. **Owner action: generate and store the key** (`openssl rand -base64 32`) in the managed secret
-   store as `MFA_ENCRYPTION_KEY`. Redeploy.
+   store as `MFA_ENCRYPTION_KEY`, and give the **same value to both the api and the worker**. The
+   worker builds the whole `AppModule` (apps/worker/src/main.ts), so it runs `MfaService`'s boot
+   check too: once anyone has enrolled, a worker without the key refuses to start on its next
+   deploy. Write both with skipDeploys, then deploy api and worker.
 3. **The owner signs in once.** Password works; the session is allowed to enroll only. The console
    sends them to `/enroll-mfa`: password again, scan QR, type first code, **save the 10 recovery
    codes**. They land in the console with a verified session.
@@ -143,12 +146,12 @@ touch the password: an attacker who only has the switch still needs the password
 
 ## 7. Environment variables and owner actions
 
-| Variable                                         | Where                  | Meaning                                                                                                                               |
-| ------------------------------------------------ | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `MFA_ENCRYPTION_KEY`                             | QA, UAT, PROD (secret) | 32 bytes base64. Encrypts secrets **and arms MFA**. Unset = dormant. Never rotate without re-enrolling (no key rotation tooling yet). |
-| `MFA_ISSUER`                                     | optional               | Name in the authenticator app (default `ETicketsGo`; `APP_ENV` is appended outside PRODUCTION so QA and PROD entries differ).         |
-| `MFA_STEPUP_MINUTES`                             | optional               | Step-up freshness, default 10.                                                                                                        |
-| `MFA_BREAK_GLASS_EMAIL`, `MFA_BREAK_GLASS_NONCE` | emergency only         | Section 6.                                                                                                                            |
+| Variable                                         | Where                                              | Meaning                                                                                                                               |
+| ------------------------------------------------ | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `MFA_ENCRYPTION_KEY`                             | api AND worker, same value; QA, UAT, PROD (secret) | 32 bytes base64. Encrypts secrets **and arms MFA**. Unset = dormant. Never rotate without re-enrolling (no key rotation tooling yet). |
+| `MFA_ISSUER`                                     | optional                                           | Name in the authenticator app (default `ETicketsGo`; `APP_ENV` is appended outside PRODUCTION so QA and PROD entries differ).         |
+| `MFA_STEPUP_MINUTES`                             | optional                                           | Step-up freshness, default 10.                                                                                                        |
+| `MFA_BREAK_GLASS_EMAIL`, `MFA_BREAK_GLASS_NONCE` | emergency only                                     | Section 6.                                                                                                                            |
 
 Owner actions, in order: (1) merge and deploy with the key unset (QA first, then UAT, then PROD, as
 usual); (2) QA: set a QA key, run the certification below; (3) PROD: create the second super admin,
