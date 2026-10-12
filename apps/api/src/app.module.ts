@@ -5,6 +5,7 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { RedisThrottlerStorage, throttlerStorageMode } from './common/redis-throttler.storage';
 import { RedisService } from './redis/redis.service';
 import { loadConfig } from './config/configuration';
+import { MfaGuard } from './auth/mfa/mfa.guard';
 import { PrismaModule } from './prisma/prisma.module';
 import { StorageModule } from './storage/storage.module';
 import { SecretsModule } from './secrets/secrets.module';
@@ -177,6 +178,10 @@ import { HttpObservationMiddleware } from './common/http-observation.middleware'
     { provide: APP_GUARD, useClass: MaintenanceGuard },
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
+    // Straight after authentication and before ANY authorization guard: a back-office session
+    // that has not passed the second factor is refused here, on every route, before a role or a
+    // capability is even looked at. See mfa.guard.ts.
+    { provide: APP_GUARD, useClass: MfaGuard },
     // Before RolesGuard, so platform staff refused an organizer-only money or identity route
     // are refused WITH an audit row, not lost as a plain role mismatch. See the guard.
     { provide: APP_GUARD, useClass: OrganizerOnlyGuard },

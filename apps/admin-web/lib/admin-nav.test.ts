@@ -56,6 +56,7 @@ describe('the admin menu', () => {
       'Operational alerts',
       'Audit history',
       'Platform configuration',
+      'My account',
     ]);
   });
 
@@ -137,11 +138,18 @@ describe('the menu lists only what the operator can open', () => {
 
   it('gives a moderator the review queues and nothing that would refuse them', () => {
     const hrefs = hrefsFor(['EVENT_REVIEW', 'ORGANIZER_REVIEW']);
-    expect(hrefs).toEqual(['/admin', '/admin/events', '/admin/calendar', '/admin/organizers']);
+    // Plus the operator's own account security, which needs no capability.
+    expect(hrefs).toEqual([
+      '/admin',
+      '/admin/events',
+      '/admin/calendar',
+      '/admin/organizers',
+      '/admin/security',
+    ]);
   });
 
-  it('gives an account with no duties the landing page only', () => {
-    expect(hrefsFor([])).toEqual(['/admin']);
+  it('gives an account with no duties the landing page and its own security page only', () => {
+    expect(hrefsFor([])).toEqual(['/admin', '/admin/security']);
   });
 
   it('never shows money pages to the support desk', () => {
@@ -175,6 +183,7 @@ describe('the menu lists only what the operator can open', () => {
       'Bookings & payments',
       'Refunds & disputes',
       'Audit history',
+      'My account',
     ]);
   });
 

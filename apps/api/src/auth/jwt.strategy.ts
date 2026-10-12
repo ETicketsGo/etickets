@@ -1,16 +1,25 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, Optional, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { MemberStatus, Role, UserStatus } from '@eticketsgo/shared-types';
 import type { RequestUser } from '../common/decorators';
 import { PrismaService } from '../prisma/prisma.service';
+import { MfaService } from './mfa/mfa.service';
 
 export interface AccessTokenPayload {
   sub: string;
   email: string;
   name: string;
   roles: Role[];
+  /**
+   * Second-factor claims. Present only on a session that passed MFA; `mfaCid` names the
+   * authenticator it passed against and `mfaAt` is when (epoch seconds). Neither is trusted on
+   * its own: the strategy checks `mfaCid` against the database on every request.
+   */
+  amr?: string[];
+  mfaCid?: string;
+  mfaAt?: number;
 }
 
 /** The only membership roles that map onto a route-level role. */
@@ -39,6 +48,11 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   constructor(
     config: ConfigService,
     private readonly prisma: PrismaService,
+    /*
+      Last and optional, the codebase's rule for a new dependency (see AuthService). The running
+      application always has it; a harness that builds the strategy by hand gets "MFA dormant".
+    */
+    @Optional() private readonly mfa?: MfaService,
   ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
@@ -88,6 +102,19 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       select: { role: true },
     });
 
+    /*
+      Second-factor state is judged on the account's GLOBAL roles, read just now from the
+      database, never on the token and never on seat roles: ADMIN/SUPER_ADMIN come only from the
+      user row, and a token minted before somebody became an administrator carries no claim and
+      so is refused on every admin route until they sign in through the second factor.
+    */
+    const mfa = this.mfa
+      ? await this.mfa.sessionState(user.id, user.roles as Role[], {
+          mfaCid: payload.mfaCid,
+          mfaAt: payload.mfaAt,
+        })
+      : { required: false, enrolled: false, verified: false, verifiedAt: null };
+
     return {
       id: user.id,
       email: user.email,
@@ -96,6 +123,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
         user.roles as Role[],
         seats.map((s) => s.role as Role),
       ),
+      mfa,
     };
   }
 }

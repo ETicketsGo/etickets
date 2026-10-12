@@ -6,7 +6,13 @@ import { PayoutsService } from './payouts.service';
 import { PayoutSettingsService } from './payout-settings.service';
 import { PayoutAccountsService } from './payout-accounts.service';
 import { UnifiedFinanceService } from '../finance/unified-finance.service';
-import { RequiresAdmin, CurrentUser, Roles, type RequestUser } from '../common/decorators';
+import {
+  RequiresAdmin,
+  RequiresRecentMfa,
+  CurrentUser,
+  Roles,
+  type RequestUser,
+} from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { OrganizerOnly } from '../tenancy/organizer-only.guard';
 
@@ -218,6 +224,7 @@ export class AdminPayoutsController {
   }
 
   @Post(':id/pay')
+  @RequiresRecentMfa()
   @ApiOperation({ summary: 'Mark a payout as paid, with the bank reference (admin).' })
   pay(
     @CurrentUser() admin: RequestUser,
@@ -250,6 +257,7 @@ export class AdminPayoutsController {
    * with who asked and why - the same shape as the SNS confirmation reveal.
    */
   @Post('accounts/:id/reveal')
+  @RequiresRecentMfa()
   @ApiOperation({ summary: 'Reveal one account number, recorded in the audit log (admin).' })
   revealAccount(
     @CurrentUser() admin: RequestUser,
@@ -272,6 +280,7 @@ export class AdminPayoutsController {
    * something else since, the check is refused rather than applied to the wrong account.
    */
   @Post('accounts/:id/verified')
+  @RequiresRecentMfa()
   @ApiOperation({ summary: 'Record that the account has been checked (admin).' })
   verifyAccount(
     @CurrentUser() admin: RequestUser,
@@ -283,6 +292,7 @@ export class AdminPayoutsController {
   }
 
   @Post('accounts/:id/reject')
+  @RequiresRecentMfa()
   @ApiOperation({
     summary: 'Turn the account details down, with a reason the owner is told (admin).',
   })
@@ -300,6 +310,7 @@ export class AdminPayoutsController {
   }
 
   @Post(':id/fail')
+  @RequiresRecentMfa()
   @ApiOperation({ summary: 'Record that a payout did not reach the organizer (admin).' })
   fail(
     @CurrentUser() admin: RequestUser,

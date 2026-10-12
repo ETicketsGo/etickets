@@ -1,9 +1,17 @@
-import { Body, Controller, Delete, Get, Param, Post, Put } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
 import { AdminPermission, ALL_ADMIN_PERMISSIONS, Role } from '@eticketsgo/shared-types';
 import { AdminStaffService } from './admin-staff.service';
-import { CurrentUser, RequiresAdmin, Roles, type RequestUser } from '../common/decorators';
+import {
+  CurrentUser,
+  RequiresAdmin,
+  RequiresRecentMfa,
+  Roles,
+  type RequestUser,
+} from '../common/decorators';
+import { MfaService } from '../auth/mfa/mfa.service';
+import type { Request } from 'express';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 
 const permissionsBody = z.object({
@@ -30,7 +38,10 @@ const inviteStaffBody = z.object({
 @RequiresAdmin(AdminPermission.ADMIN_MANAGE)
 @Controller('admin/staff')
 export class AdminStaffController {
-  constructor(private readonly staff: AdminStaffService) {}
+  constructor(
+    private readonly staff: AdminStaffService,
+    private readonly mfa: MfaService,
+  ) {}
 
   @Get('catalogue')
   @ApiOperation({ summary: 'Every assignable permission, plus the ready-made bundles.' })
@@ -45,6 +56,7 @@ export class AdminStaffController {
   }
 
   @Put(':userId/permissions')
+  @RequiresRecentMfa()
   @ApiOperation({ summary: "Replace an account's permissions with exactly this set." })
   setPermissions(
     @CurrentUser() actor: RequestUser,
@@ -60,6 +72,7 @@ export class AdminStaffController {
   }
 
   @Put(':userId/admin-role')
+  @RequiresRecentMfa()
   @ApiOperation({ summary: 'Make an existing account a back-office account.' })
   grant(
     @CurrentUser() actor: RequestUser,
@@ -70,6 +83,7 @@ export class AdminStaffController {
   }
 
   @Post('invite')
+  @RequiresRecentMfa()
   @ApiOperation({
     summary: 'Invite somebody who has no account yet, and grant them back-office duties.',
   })
@@ -80,7 +94,22 @@ export class AdminStaffController {
     return this.staff.inviteStaff(actor, body.email, body.permissions as AdminPermission[]);
   }
 
+  @Post(':userId/mfa/reset')
+  @RequiresRecentMfa()
+  @ApiOperation({
+    summary: "Remove another account's authenticator so it must enroll again. Super admin only.",
+  })
+  async resetMfa(
+    @CurrentUser() actor: RequestUser,
+    @Param('userId') userId: string,
+    @Req() req: Request,
+  ) {
+    await this.mfa.resetForUser(actor, userId, { ip: req.ip });
+    return { success: true };
+  }
+
   @Delete(':userId/admin-role')
+  @RequiresRecentMfa()
   @ApiOperation({ summary: 'Remove back-office access and every permission with it.' })
   revoke(@CurrentUser() actor: RequestUser, @Param('userId') userId: string) {
     return this.staff.revokeAdminRole(actor, userId);

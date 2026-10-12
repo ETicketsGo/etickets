@@ -9,6 +9,7 @@ export default function AdminLogin() {
       subtitle="Platform administration console."
       defaultRedirect="/admin"
       allowedRoles={['ADMIN', 'SUPER_ADMIN']}
+      mfaEnrollPath="/enroll-mfa"
     />
   );
 }

@@ -10,7 +10,13 @@ import {
   type SettlementReleaseInput,
 } from '@eticketsgo/validation';
 import { SettlementService } from './settlement.service';
-import { RequiresAdmin, CurrentUser, Roles, type RequestUser } from '../../common/decorators';
+import {
+  RequiresAdmin,
+  RequiresRecentMfa,
+  CurrentUser,
+  Roles,
+  type RequestUser,
+} from '../../common/decorators';
 import { ZodValidationPipe } from '../../common/zod-validation.pipe';
 import { groupScopeFields, type GroupScope } from '../../admin/group-scope';
 import { countryFilterField } from '../../admin/country-filter';
@@ -57,12 +63,14 @@ export class SettlementController {
   }
 
   @Post(':id/approve')
+  @RequiresRecentMfa()
   @ApiOperation({ summary: 'Approve an eligible settlement for release.' })
   approve(@CurrentUser() user: RequestUser, @Param('id') id: string) {
     return this.settlements.approve(user, id);
   }
 
   @Post(':id/release')
+  @RequiresRecentMfa()
   @ApiOperation({ summary: 'Release an approved settlement (idempotent transfer).' })
   release(
     @CurrentUser() user: RequestUser,

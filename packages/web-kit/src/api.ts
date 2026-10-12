@@ -11,6 +11,7 @@ import type {
   PricingComplianceStatus,
   ApiError,
   AuthTokens,
+  MfaChallengeResponse,
   GuestBookingClaim,
   GuestBookingView,
   GuestReceiptsView,
@@ -220,6 +221,19 @@ async function tryRefresh(): Promise<boolean> {
 interface Options extends RequestInit {
   auth?: boolean;
   _retried?: boolean;
+  _steppedUp?: boolean;
+}
+
+/*
+  Step-up: the API refuses a handful of sensitive back-office actions (moving money, changing who
+  has power) with MFA_STEP_UP_REQUIRED when the session's last second-factor check is too old.
+  The admin console registers ONE handler that asks for a fresh code; the request is then
+  repeated once. Anywhere else (customer and organizer consoles) no handler is registered and the
+  error surfaces as it always did.
+*/
+let stepUpHandler: (() => Promise<boolean>) | null = null;
+export function setStepUpHandler(fn: (() => Promise<boolean>) | null): void {
+  stepUpHandler = fn;
 }
 
 async function request<T>(path: string, options: Options = {}): Promise<T> {
@@ -255,6 +269,15 @@ async function request<T>(path: string, options: Options = {}): Promise<T> {
   const data = text ? JSON.parse(text) : null;
   if (!res.ok) {
     const err = data as ApiError;
+    if (
+      res.status === 403 &&
+      err?.code === 'MFA_STEP_UP_REQUIRED' &&
+      stepUpHandler &&
+      !options._steppedUp &&
+      (await stepUpHandler())
+    ) {
+      return request<T>(path, { ...options, _steppedUp: true });
+    }
     throw new ApiRequestError(
       err?.code ?? 'ERROR',
       err?.message ?? 'Request failed.',
@@ -324,6 +347,39 @@ const discovery = Object.assign(
   },
 );
 
+/*
+  Only a back-office account is ever answered with a second-factor challenge instead of tokens.
+  The admin console's sign-in handles it; every other caller of `login` / `verifyPhoneCode` is a
+  customer or organizer surface, and storing "undefined" as a session there would be worse than
+  a clear refusal.
+*/
+function refuseChallenge<T extends object>(r: T | MfaChallengeResponse): T {
+  if ('mfaRequired' in r && r.mfaRequired) {
+    throw new ApiRequestError(
+      'MFA_REQUIRED',
+      'Back-office accounts sign in at the admin console.',
+      undefined,
+      undefined,
+      401,
+    );
+  }
+  return r as T;
+}
+
+export interface MfaStatus {
+  enrolled: boolean;
+  enrolledAt: string | null;
+  recoveryCodesRemaining: number;
+  verified: boolean;
+}
+
+export interface MfaEnrollment {
+  secret: string;
+  otpauthUri: string;
+  /** SVG drawn by our own API; never fetched from a third-party QR service. */
+  qrSvg: string;
+}
+
 export const api = {
   request,
 
@@ -374,11 +430,49 @@ export const api = {
         auth: false,
       }),
     login: (body: { email: string; password: string }) =>
-      request<AuthTokens>('/auth/login', {
+      request<AuthTokens | MfaChallengeResponse>('/auth/login', {
+        method: 'POST',
+        body: JSON.stringify(body),
+        auth: false,
+      }).then((r) => refuseChallenge<AuthTokens>(r)),
+    /** The admin console's sign-in: tokens, or a second-factor challenge to complete. */
+    signIn: (body: { email: string; password: string }) =>
+      request<AuthTokens | MfaChallengeResponse>('/auth/login', {
         method: 'POST',
         body: JSON.stringify(body),
         auth: false,
       }),
+    /** Second step of an admin sign-in: a challenge plus an authenticator or recovery code. */
+    mfaVerify: (body: { challengeToken: string; code?: string; recoveryCode?: string }) =>
+      request<AuthTokens>('/auth/mfa/verify', {
+        method: 'POST',
+        body: JSON.stringify(body),
+        auth: false,
+      }),
+    mfaStatus: () => request<MfaStatus>('/auth/mfa/status'),
+    mfaEnrollStart: (password: string) =>
+      request<MfaEnrollment>('/auth/mfa/enroll/start', {
+        method: 'POST',
+        body: JSON.stringify({ password }),
+      }),
+    /** Finishes enrollment. The recovery codes in the reply are shown once and never again. */
+    mfaEnrollConfirm: (code: string) =>
+      request<AuthTokens & { recoveryCodes: string[] }>('/auth/mfa/enroll/confirm', {
+        method: 'POST',
+        body: JSON.stringify({ code }),
+      }),
+    /** Re-confirm for a sensitive action; replaces the access token, keeps the session. */
+    mfaStepUp: (body: { code?: string; recoveryCode?: string }) =>
+      request<{ accessToken: string }>('/auth/mfa/step-up', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    mfaRegenerateCodes: () =>
+      request<{ recoveryCodes: string[] }>('/auth/mfa/recovery-codes/regenerate', {
+        method: 'POST',
+      }),
+    mfaReplaceDevice: () =>
+      request<{ success: boolean }>('/auth/mfa/replace-device', { method: 'POST' }),
 
     /**
      * Phone sign-in, in two steps.
@@ -394,11 +488,14 @@ export const api = {
       }),
     /** Exchanges a code for a session, creating the account when the number is new. */
     verifyPhoneCode: (phone: string, code: string) =>
-      request<AuthTokens & { isNewAccount: boolean }>('/auth/phone/verify', {
-        method: 'POST',
-        body: JSON.stringify({ phone, code }),
-        auth: false,
-      }),
+      request<(AuthTokens & { isNewAccount: boolean }) | MfaChallengeResponse>(
+        '/auth/phone/verify',
+        {
+          method: 'POST',
+          body: JSON.stringify({ phone, code }),
+          auth: false,
+        },
+      ).then((r) => refuseChallenge<AuthTokens & { isNewAccount: boolean }>(r)),
     /**
      * Send a code to a number the SIGNED-IN customer wants to add to their account.
      *
@@ -1849,6 +1946,9 @@ export const api = {
           presets: { key: string; label: string; description: string; grants: string[] }[];
         }>('/admin/staff/catalogue'),
       list: () => request<AdminStaffMember[]>('/admin/staff'),
+      /** Remove another account's authenticator; its next sign-in enrolls again. */
+      resetMfa: (userId: string) =>
+        request<{ success: boolean }>(`/admin/staff/${userId}/mfa/reset`, { method: 'POST' }),
       /**
        * Add somebody who has no account yet. Returns the link that lets them claim it and
        * choose their own password, so no administrator ever sees a credential.
@@ -2447,6 +2547,12 @@ export interface AuthUser {
    * platform staff.
    */
   adminPermissions?: string[];
+  /**
+   * Where this session stands on the second factor. Only meaningful for back-office accounts:
+   * `required` with `verified: false` means the console must send the person to enrollment
+   * (`enrolled: false`) or back to sign-in (`enrolled: true`).
+   */
+  mfa?: { required: boolean; enrolled: boolean; verified: boolean; verifiedAt: number | null };
   /**
    * The state this customer last told us they were in, for the place-of-supply field.
    *
