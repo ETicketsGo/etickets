@@ -22,6 +22,16 @@ export interface AuthTokens {
   refreshToken: string;
 }
 
+/**
+ * What sign-in answers INSTEAD of tokens when the account is a back-office account with a
+ * second factor: exchange it, with a code, at POST /auth/mfa/verify.
+ */
+export interface MfaChallengeResponse {
+  mfaRequired: true;
+  challengeToken: string;
+  methods: string[];
+}
+
 export interface AuthenticatedUser {
   id: string;
   email: string;

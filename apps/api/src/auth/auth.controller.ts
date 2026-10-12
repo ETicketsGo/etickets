@@ -33,7 +33,7 @@ const phoneVerifySchema = z.object({
     .trim()
     .regex(/^\d{6}$/, 'The code is six digits.'),
 });
-import { CurrentUser, Public, type RequestUser } from '../common/decorators';
+import { AllowMfaPending, CurrentUser, Public, type RequestUser } from '../common/decorators';
 
 function meta(req: Request) {
   return { userAgent: req.header('user-agent') ?? undefined, ip: req.ip };
@@ -89,7 +89,8 @@ export class AuthController {
     const { id, isNewAccount } = await this.otp.verifyCode(body.phone, body.code);
     const tokens = await this.auth.completePhoneSignIn(id, meta(req));
     // The client uses this to decide whether to ask for a name — a brand-new account has
-    // none, and asking an existing customer again would be rude.
+    // none, and asking an existing customer again would be rude. (A back-office account gets a
+    // second-factor challenge here instead of tokens, exactly as on the password route.)
     return { ...tokens, isNewAccount };
   }
 
@@ -193,6 +194,8 @@ export class AuthController {
   }
 
   @ApiBearerAuth()
+  // A back-office session that has not passed MFA still has to learn that, to be sent to enrollment.
+  @AllowMfaPending()
   @Get('me')
   @ApiOperation({ summary: 'Return the currently authenticated user.' })
   async me(@CurrentUser() user: RequestUser) {
@@ -226,12 +229,16 @@ export class AuthController {
       sent to the browser at all, so no screen can show it, prefill a form with it, or put it on
       a booking - `email: null` is the honest answer: this account has no email address yet.
     */
+    // A back-office session that has not passed the second factor is told what it is (so the
+    // console can send it to enrollment) but not what the account may do.
+    const unverifiedStaff = Boolean(user.mfa?.required && !user.mfa.verified);
     return {
       ...user,
       email: isReservedEmail(user.email) ? null : user.email,
       lastBuyerRegion,
       ...details,
       ...permissions,
+      ...(unverifiedStaff ? { adminPermissions: [] } : {}),
     };
   }
 }

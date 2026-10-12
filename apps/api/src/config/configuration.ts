@@ -430,6 +430,38 @@ const envSchema = z.object({
    */
   ADMIN_BOOTSTRAP_EMAIL: z.string().email().optional(),
 
+  /**
+   * Admin MFA (TOTP). See docs/security/ADMIN-MFA.md.
+   *
+   * `MFA_ENCRYPTION_KEY` (32 bytes, base64) is both the key that encrypts authenticator secrets
+   * and the SWITCH that arms enforcement: unset, MFA is dormant and back-office sign-in behaves
+   * exactly as before, so deploying this code can never lock the only administrator out. Set,
+   * every administrator must enroll at their next sign-in. Once any authenticator exists the key
+   * is mandatory (outside LOCAL and DEV the API refuses to boot without it; see MfaBootCheck).
+   */
+  MFA_ENCRYPTION_KEY: z
+    .string()
+    .optional()
+    .refine(
+      (v) => {
+        if (!v || !v.trim()) return true;
+        return Buffer.from(v.trim(), 'base64').length === 32;
+      },
+      { message: 'must be 32 bytes, base64 encoded (openssl rand -base64 32)' },
+    ),
+  /** Name shown in the authenticator app. APP_ENV is appended outside PRODUCTION. */
+  MFA_ISSUER: z.string().trim().min(1).max(40).default('ETicketsGo'),
+  /** How recent a second-factor check must be for the most sensitive back-office actions. */
+  MFA_STEPUP_MINUTES: z.coerce.number().int().min(1).max(60).default(10),
+  /**
+   * Break-glass for a sole administrator who lost both device and recovery codes. The operator
+   * sets BOTH, redeploys, and at boot that one account's authenticator is removed (so the next
+   * sign-in re-enrolls). The nonce is recorded the moment it is used, so leaving the variables in
+   * place does nothing on later boots; a second use needs a NEW nonce.
+   */
+  MFA_BREAK_GLASS_EMAIL: z.string().trim().toLowerCase().email().optional(),
+  MFA_BREAK_GLASS_NONCE: z.string().trim().min(16).max(128).optional(),
+
   // --- Razorpay (India). Sandbox vs production is purely test vs live keys. ---
   // KEY_ID is public (may be sent to approved clients). KEY_SECRET + WEBHOOK_SECRET are
   // server-side only. The webhook secret is DISTINCT from the API key secret.

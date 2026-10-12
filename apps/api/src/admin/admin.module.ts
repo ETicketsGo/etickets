@@ -8,13 +8,14 @@ import { CinemaPricingPoliciesService } from './cinema-pricing-policies.service'
 import { AdminService } from './admin.service';
 import { AdminGroupingService } from './admin-grouping.service';
 import { FirstAdminBootstrap } from './first-admin.bootstrap';
+import { AuthModule } from '../auth/auth.module';
 import { MoviesModule } from '../movies/movies.module';
 import { BookingsModule } from '../bookings/bookings.module';
 // For the one invitation implementation — the staff screen must not grow its own.
 import { OrganizationsModule } from '../organizations/organizations.module';
 
 @Module({
-  imports: [MoviesModule, OrganizationsModule, BookingsModule],
+  imports: [MoviesModule, OrganizationsModule, BookingsModule, AuthModule],
   controllers: [AdminController, AdminBookingViewController, AdminStaffController],
   providers: [
     AdminService,

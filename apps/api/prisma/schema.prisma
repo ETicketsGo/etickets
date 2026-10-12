@@ -491,6 +491,8 @@ model User {
   updatedAt DateTime @updatedAt
 
   refreshTokens              RefreshToken[]
+  mfaCredential              AdminMfaCredential?
+  mfaRecoveryCodes           AdminMfaRecoveryCode[]
   invitationsSent            AccountInvitation[]         @relation("InvitationsSent")
   invitationReceived         AccountInvitation?          @relation("InvitationsReceived")
   passwordResetTokens        PasswordResetToken[]
@@ -728,8 +730,60 @@ model RefreshToken {
   userAgent         String?
   ip                String?
   createdAt         DateTime  @default(now())
+  /// Present only when this session proved a second factor (admin MFA). Absent = never did.
+  mfa               RefreshTokenMfa?
 
   @@index([userId])
+}
+
+// ─────────────────────────── Admin MFA ───────────────────────────
+
+/// One TOTP authenticator per back-office account. The secret is AES-256-GCM ciphertext; the key
+/// lives in the environment (MFA_ENCRYPTION_KEY), never in the database.
+model AdminMfaCredential {
+  id               String    @id @default(cuid())
+  userId           String    @unique
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  secretCiphertext String
+  /// Null while enrollment is pending (secret shown, first code not yet proved).
+  confirmedAt      DateTime?
+  /// Newest 30-second step already accepted: a code is single-use even inside its window.
+  lastUsedStep     Int       @default(0)
+  failedAttempts   Int       @default(0)
+  lockedUntil      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+}
+
+/// Slow-hashed one-time recovery codes. The plain code exists only in the response that creates it.
+model AdminMfaRecoveryCode {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  codeHash  String
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+/// Which refresh tokens belong to a session that passed MFA, and when it last did. A refresh
+/// copies this row forward unchanged, so a rotation can never mint a stronger session than the
+/// one it came from, nor refresh the step-up clock.
+model RefreshTokenMfa {
+  refreshTokenId String       @id
+  refreshToken   RefreshToken @relation(fields: [refreshTokenId], references: [id], onDelete: Cascade)
+  credentialId   String
+  verifiedAt     DateTime
+  method         String
+}
+
+/// One row per consumed break-glass nonce: the operator switch closes behind itself.
+model AdminMfaBreakGlassUse {
+  id        String   @id @default(cuid())
+  nonceHash String   @unique
+  userId    String?
+  usedAt    DateTime @default(now())
 }
 
 // ─────────────────────────── Tenancy ───────────────────────────
