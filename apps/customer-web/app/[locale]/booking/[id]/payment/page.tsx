@@ -15,7 +15,11 @@ import { paymentsActivatingCopy } from '@/components/payment/payments-activating
 import { PriceBreakdown } from '@/components/price-breakdown';
 import { RefundTerms } from '@/components/refund-terms';
 import { GuestBookingNotHere, GuestBookingSummary } from '@/components/guest-booking-view';
-import { forgetGuestBooking, guestTokenFor } from '@/lib/guest-session';
+import {
+  forgetGuestBooking,
+  guestTokenFor,
+  rememberCancelledGuestBooking,
+} from '@/lib/guest-session';
 import { useMounted } from '@/lib/use-mounted';
 import { Link } from '@/i18n/navigation';
 import { useTranslations } from 'next-intl';
@@ -91,7 +95,7 @@ export default function PaymentPage() {
 
   if (!mounted) return <div className="h-72 animate-pulse rounded-lg bg-background-subtle" />;
   if (guestToken) return <GuestPayment id={id} anonSession={guestToken} />;
-  if (!tokenStore.access) return <GuestBookingNotHere />;
+  if (!tokenStore.access) return <GuestBookingNotHere bookingId={id} />;
   return <AccountPayment />;
 }
 
@@ -819,6 +823,7 @@ function GuestPayment({ id, anonSession }: { id: string; anonSession: string }) 
     onSuccess: () => {
       setConfirmingCancel(false);
       forgetGuestBooking(id);
+      rememberCancelledGuestBooking(id);
       qc.invalidateQueries({ queryKey: ['guest-booking', id] });
       router.push('/');
     },

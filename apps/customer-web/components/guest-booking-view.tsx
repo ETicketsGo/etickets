@@ -7,6 +7,7 @@ import type { GuestBookingView } from '@/lib/api';
 import { PriceBreakdown } from '@/components/price-breakdown';
 import { Link } from '@/i18n/navigation';
 import { useFormat } from '@/lib/format';
+import { wasCancelledInThisBrowser } from '@/lib/guest-session';
 import { ButtonLink, Card, StatusBadge } from '@/components/ui';
 import { ReferenceCode } from '@/components/reference-code';
 import { useStatusLabel } from '@/lib/status-label';
@@ -375,8 +376,27 @@ export function GuestPrintSheet({
  * emailed link opens the booking, and "find my booking" sends that link again. It is shown by
  * both the payment and the confirmation screens, which fail this way for the same reason.
  */
-export function GuestBookingNotHere() {
+export function GuestBookingNotHere({ bookingId }: { bookingId?: string }) {
   const g = useTranslations('storefront.guest');
+
+  /*
+    A booking this browser cancelled is not an access problem. Say what happened, and offer the
+    one thing worth doing next: buying again. Read here rather than passed in because every one
+    of the four screens that show this card would otherwise have to repeat the lookup.
+  */
+  if (wasCancelledInThisBrowser(bookingId)) {
+    return (
+      <Card className="mx-auto max-w-md space-y-3 text-center">
+        <h1 className="text-title font-semibold text-text-primary">{g('cancelledHereTitle')}</h1>
+        <p className="text-[0.9375rem] text-text-secondary">{g('cancelledHereBody')}</p>
+        <div className="flex flex-col gap-3 pt-1 sm:flex-row">
+          <ButtonLink href="/events" className="w-full sm:flex-1">
+            {g('browseEvents')}
+          </ButtonLink>
+        </div>
+      </Card>
+    );
+  }
 
   return (
     <Card className="mx-auto max-w-md space-y-3 text-center">

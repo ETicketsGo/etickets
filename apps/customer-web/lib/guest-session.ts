@@ -27,6 +27,7 @@ import { api, type BookingRequest, type GuestBookingResult } from '@/lib/api';
  */
 const BOOKINGS_KEY = 'etg_guest_bookings';
 const ANON_KEY = 'etg_anon_session';
+const CANCELLED_KEY = 'etg_guest_cancelled';
 
 type BookingTokens = Record<string, string>;
 
@@ -91,6 +92,42 @@ export function forgetGuestBooking(bookingId: string): void {
   if (!(bookingId in all)) return;
   delete all[bookingId];
   writeBookings(all);
+}
+
+/**
+ * Remember that THIS browser cancelled `bookingId`.
+ *
+ * Cancelling forgets the booking's token, so reopening the booking link afterwards fell into the
+ * same screen as a stranger's browser: "This booking is not open in this browser". That reads as
+ * an access error, when what happened is that the guest did exactly what they asked to do. The
+ * ids are kept apart from the tokens on purpose - an id alone opens nothing, it only lets the
+ * "not here" screen say what happened instead of what to do.
+ */
+export function rememberCancelledGuestBooking(bookingId: string): void {
+  try {
+    const raw = localStorage.getItem(CANCELLED_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    const ids = Array.isArray(parsed)
+      ? parsed.filter((x): x is string => typeof x === 'string')
+      : [];
+    if (!ids.includes(bookingId)) {
+      // Bounded, so a browser that cancels a lot does not grow this without limit.
+      localStorage.setItem(CANCELLED_KEY, JSON.stringify([...ids, bookingId].slice(-50)));
+    }
+  } catch {
+    /* Without it the old, less specific screen is shown. */
+  }
+}
+
+/** True when this browser cancelled this booking. */
+export function wasCancelledInThisBrowser(bookingId: string | undefined): boolean {
+  if (!bookingId) return false;
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(CANCELLED_KEY) ?? '[]');
+    return Array.isArray(parsed) && parsed.includes(bookingId);
+  } catch {
+    return false;
+  }
 }
 
 /**

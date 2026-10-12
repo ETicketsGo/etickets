@@ -102,13 +102,13 @@ export function Header({
           this change, so it was not new — just never looked at, because a laptop is 1280
           and a phone wraps.
         */
-        className="mx-auto flex max-w-shell flex-wrap items-center justify-between gap-y-2 px-4 py-3 sm:px-6 lg:flex-nowrap lg:px-8"
+        className="mx-auto flex max-w-shell flex-wrap items-center justify-between gap-y-2 px-4 py-2 sm:px-6 sm:py-3 lg:flex-nowrap lg:px-8"
       >
         <div className="flex items-center gap-1">
           <Link
             href="/"
             aria-label="ETicketsGo home"
-            className="flex items-center gap-2 rounded-md font-bold tracking-tight text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
+            className="flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-md font-bold tracking-tight text-text-primary sm:min-h-0 sm:min-w-0 sm:justify-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
           >
             {/* The wordmark still hides on a phone — the mark alone identifies the brand
                 and the space belongs to the city picker beside it. */}
@@ -234,7 +234,7 @@ export function Header({
             <>
               <Link
                 href="/login"
-                className="rounded-md px-3 py-1.5 text-text-secondary transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
+                className="inline-flex min-h-11 items-center rounded-md px-3 py-1.5 text-text-secondary transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas sm:min-h-0"
               >
                 {a('signIn')}
               </Link>

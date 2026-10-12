@@ -108,9 +108,12 @@ export function SiteFooter({
    * and it is asserted in `mobile-storefront.spec.ts` rather than left as an intention.
    */
   compact = false,
+  buildId = null,
 }: {
   environmentNotice?: string | null;
   compact?: boolean;
+  /** The short commit this server is running, so "which build is this?" has an answer. */
+  buildId?: string | null;
 }) {
   const f = useTranslations('common.footer');
   const g = useTranslations('storefront.guest');
@@ -151,12 +154,12 @@ export function SiteFooter({
               <h2 className="text-caption font-semibold uppercase tracking-wide text-text-secondary">
                 {f(`columns.${col.title}`)}
               </h2>
-              <ul className="mt-4 space-y-2.5">
+              <ul className="mt-4 lg:space-y-2.5">
                 {col.links.map((l) => (
                   <li key={l.href}>
                     <Link
                       href={l.href}
-                      className="rounded-sm text-[0.9375rem] text-text-secondary transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                      className="inline-flex min-h-11 items-center rounded-sm text-[0.9375rem] text-text-secondary transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 lg:min-h-0"
                     >
                       {l.guest ? g(l.label) : f(`links.${l.label}`)}
                     </Link>
@@ -168,12 +171,12 @@ export function SiteFooter({
         </div>
 
         {compact && (
-          <ul className="flex flex-wrap gap-x-6 gap-y-3 lg:hidden">
+          <ul className="flex flex-wrap gap-x-6 lg:hidden">
             {CHECKOUT_LINKS.map((l) => (
               <li key={l.href}>
                 <Link
                   href={l.href}
-                  className="rounded-sm text-[0.9375rem] text-text-secondary transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                  className="inline-flex min-h-11 items-center rounded-sm text-[0.9375rem] text-text-secondary transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 lg:min-h-0"
                 >
                   {f(`links.${l.label}`)}
                 </Link>
@@ -190,6 +193,11 @@ export function SiteFooter({
           {/* The year is read at render rather than typed. A literal `2026` in the markup
               is wrong on the first of January and nobody is watching the footer then. */}
           <p>{f('rights', { year: new Date().getFullYear() })}</p>
+          {buildId && (
+            <p data-testid="build-id" className="tabular-nums">
+              {f('build', { id: buildId })}
+            </p>
+          )}
           {environmentNotice && (
             <p className="rounded-md bg-status-warning/10 px-2.5 py-1 font-medium text-status-warning">
               {environmentNotice}

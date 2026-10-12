@@ -507,7 +507,7 @@ export default function EventsPage() {
           <button
             type="button"
             onClick={() => preference.requestPicker()}
-            className="font-medium text-action-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            className="-my-3 inline-flex min-h-11 items-center px-1 font-medium text-action-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 lg:my-0 lg:min-h-0"
           >
             Change location
           </button>
@@ -537,8 +537,8 @@ export default function EventsPage() {
               : `Showing ${items.length} of ${data?.meta.total ?? items.length} events`}
           </p>
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {items.map((e) => (
-              <EventCard key={e.id} event={e} />
+            {items.map((e, index) => (
+              <EventCard key={e.id} event={e} priority={index < 2} />
             ))}
           </div>
           {data && items.length < data.meta.total && (

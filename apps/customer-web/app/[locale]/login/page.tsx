@@ -78,7 +78,7 @@ function LoginForm() {
       <h1 className="text-h2 font-bold text-text-primary">{a('signIn')}</h1>
 
       {!capsLoaded ? (
-        <div className="h-10 rounded-md bg-background-subtle" aria-hidden="true" />
+        <div className="h-[3.25rem] rounded-md bg-background-subtle" aria-hidden="true" />
       ) : modes.length === 1 ? (
         <p className="text-caption text-text-muted" data-testid="phone-signin-off">
           {a('phoneUnavailable')}
@@ -95,7 +95,7 @@ function LoginForm() {
                 setChosen(m);
                 setError(null);
               }}
-              className={`flex-1 rounded px-3 py-1.5 text-[0.9375rem] transition-colors ${
+              className={`min-h-11 flex-1 rounded px-3 py-1.5 text-[0.9375rem] transition-colors ${
                 mode === m
                   ? 'bg-background-surface font-medium text-text-primary shadow-sm'
                   : 'text-text-secondary hover:text-text-primary'
@@ -107,7 +107,13 @@ function LoginForm() {
         </div>
       )}
 
-      {!capsLoaded ? null : mode === 'phone' ? (
+      {/*
+        Room for the form while the sign-in options are fetched. Without it the page was one
+        card tall, then grew when they arrived, pushing the footer down the screen (CLS 0.19).
+      */}
+      {!capsLoaded ? (
+        <div className="min-h-60" aria-hidden="true" />
+      ) : mode === 'phone' ? (
         <PhoneSignIn next={next} />
       ) : (
         <>

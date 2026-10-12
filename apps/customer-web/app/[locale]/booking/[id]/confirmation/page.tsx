@@ -84,7 +84,7 @@ export default function ConfirmationPage() {
   if (!mounted) return <div className="h-64 animate-pulse rounded-lg bg-background-subtle" />;
   if (guestToken) return <GuestConfirmation id={id} anonSession={guestToken} />;
   // Signed out with no guest token: the account read can only 401, so say what to do instead.
-  if (!tokenStore.access) return <GuestBookingNotHere />;
+  if (!tokenStore.access) return <GuestBookingNotHere bookingId={id} />;
   return <AccountConfirmation />;
 }
 
