@@ -2,7 +2,8 @@
 
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { Lock, Mail, Ticket } from 'lucide-react';
+import { KeyRound, Lock, Mail, Ticket } from 'lucide-react';
+import type { AuthTokens } from '@eticketsgo/shared-types';
 import { api, errorMessage, tokenStore } from './api';
 import { Button, Card, Input } from './components';
 
@@ -17,6 +18,7 @@ export function LoginForm({
   allowedRoles,
   roleMismatchRedirect,
   subtitle,
+  mfaEnrollPath,
 }: {
   title?: string;
   defaultEmail?: string;
@@ -36,6 +38,12 @@ export function LoginForm({
    */
   roleMismatchRedirect?: string;
   subtitle?: string;
+  /**
+   * Where a back-office account that has not set up its authenticator yet is sent after the
+   * password step. Only the admin console passes it; for every other console the server never
+   * answers with a second-factor step at all.
+   */
+  mfaEnrollPath?: string;
 }) {
   const router = useRouter();
   const [email, setEmail] = useState(defaultEmail ?? '');
@@ -43,14 +51,24 @@ export function LoginForm({
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  // Set when the password was right and the account has a second factor to prove.
+  const [challenge, setChallenge] = useState<string | null>(null);
+  const [useRecovery, setUseRecovery] = useState(false);
+  const [mfaCode, setMfaCode] = useState('');
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    setLoading(true);
-    try {
-      const tokens = await api.auth.login({ email, password });
-      tokenStore.set(tokens);
+  /** Everything after tokens exist: role check, enrollment redirect, then on to the console. */
+  const finish = async (tokens: AuthTokens) => {
+    tokenStore.set(tokens);
+    {
+      if (mfaEnrollPath) {
+        // A back-office account that has no authenticator yet has a session that can do exactly
+        // one thing: enroll. Send it there rather than to a console that would refuse it.
+        const probe = await api.auth.me();
+        if (probe.mfa?.required && !probe.mfa.verified && !probe.mfa.enrolled) {
+          router.push(mfaEnrollPath);
+          return;
+        }
+      }
       if (allowedRoles) {
         const me = await api.auth.me();
         if (!me.roles.some((r) => allowedRoles.includes(r))) {
@@ -71,8 +89,42 @@ export function LoginForm({
           new URLSearchParams(window.location.search).get('next')) ||
         defaultRedirect;
       router.push(next);
+    }
+  };
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+    try {
+      const result = await api.auth.signIn({ email, password });
+      if ('mfaRequired' in result) {
+        setChallenge(result.challengeToken);
+        setPassword('');
+        setLoading(false);
+        return;
+      }
+      await finish(result);
     } catch (err) {
       setError(errorMessage(err));
+      setLoading(false);
+    }
+  };
+
+  const submitCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!challenge) return;
+    setError(null);
+    setLoading(true);
+    try {
+      const tokens = await api.auth.mfaVerify({
+        challengeToken: challenge,
+        ...(useRecovery ? { recoveryCode: mfaCode.trim() } : { code: mfaCode.replace(/\s/g, '') }),
+      });
+      await finish(tokens);
+    } catch (err) {
+      setError(errorMessage(err));
+      setMfaCode('');
       setLoading(false);
     }
   };
@@ -88,36 +140,89 @@ export function LoginForm({
           {subtitle && <p className="mt-1.5 text-[0.9375rem] text-text-muted">{subtitle}</p>}
         </div>
         <Card className="space-y-4">
-          <form className="space-y-4" onSubmit={submit}>
-            <Input
-              id="email"
-              label="Email"
-              type="email"
-              icon={Mail}
-              autoComplete="username"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-            />
-            <Input
-              id="password"
-              label="Password"
-              type="password"
-              icon={Lock}
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
-            {error && (
-              <p role="alert" className="text-caption text-status-error">
-                {error}
+          {challenge ? (
+            <form className="space-y-4" onSubmit={submitCode}>
+              <p className="text-[0.9375rem] text-text-muted">
+                {useRecovery
+                  ? 'Enter one of your recovery codes. Each code works once.'
+                  : 'Enter the 6-digit code from your authenticator app.'}
               </p>
-            )}
-            <Button type="submit" className="w-full" loading={loading}>
-              Sign in
-            </Button>
-          </form>
+              <Input
+                id="mfa-code"
+                label={useRecovery ? 'Recovery code' : 'Authenticator code'}
+                icon={KeyRound}
+                autoComplete="one-time-code"
+                inputMode={useRecovery ? 'text' : 'numeric'}
+                value={mfaCode}
+                onChange={(e) => setMfaCode(e.target.value)}
+                autoFocus
+                required
+              />
+              {error && (
+                <p role="alert" className="text-caption text-status-error">
+                  {error}
+                </p>
+              )}
+              <Button type="submit" className="w-full" loading={loading}>
+                Verify
+              </Button>
+              <div className="flex justify-between text-caption">
+                <button
+                  type="button"
+                  className="text-text-muted underline"
+                  onClick={() => {
+                    setUseRecovery(!useRecovery);
+                    setMfaCode('');
+                    setError(null);
+                  }}
+                >
+                  {useRecovery ? 'Use authenticator code' : 'Use a recovery code'}
+                </button>
+                <button
+                  type="button"
+                  className="text-text-muted underline"
+                  onClick={() => {
+                    setChallenge(null);
+                    setMfaCode('');
+                    setError(null);
+                  }}
+                >
+                  Start again
+                </button>
+              </div>
+            </form>
+          ) : (
+            <form className="space-y-4" onSubmit={submit}>
+              <Input
+                id="email"
+                label="Email"
+                type="email"
+                icon={Mail}
+                autoComplete="username"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+              />
+              <Input
+                id="password"
+                label="Password"
+                type="password"
+                icon={Lock}
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+              {error && (
+                <p role="alert" className="text-caption text-status-error">
+                  {error}
+                </p>
+              )}
+              <Button type="submit" className="w-full" loading={loading}>
+                Sign in
+              </Button>
+            </form>
+          )}
         </Card>
       </div>
     </div>

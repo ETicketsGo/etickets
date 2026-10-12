@@ -2,6 +2,8 @@
 
 import { RequireAuth } from '@eticketsgo/web-kit';
 import { AdminShell } from '@/components/admin-shell';
+import { MfaGate } from '@/components/mfa-gate';
+import { StepUpProvider } from '@/components/step-up';
 
 /*
   The menu itself lives in `lib/admin-nav.ts`, grouped by the job an operator is doing, and the
@@ -11,7 +13,11 @@ import { AdminShell } from '@/components/admin-shell';
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   return (
     <RequireAuth roles={['ADMIN', 'SUPER_ADMIN']}>
-      <AdminShell>{children}</AdminShell>
+      <MfaGate>
+        <StepUpProvider>
+          <AdminShell>{children}</AdminShell>
+        </StepUpProvider>
+      </MfaGate>
     </RequireAuth>
   );
 }

@@ -5,6 +5,8 @@ import {
   RESTORE_DRILL_EVIDENCE_ACTION,
   backupFailsHealth,
   evaluateBackupFreshness,
+  evaluateOffsiteFreshness,
+  offsiteFailsHealth,
 } from './backup-freshness';
 import * as writer from '../../prisma/backup';
 
@@ -68,5 +70,38 @@ describe('writer and reader agree on the evidence row', () => {
     expect(writer.BACKUP_EVIDENCE_ACTION).toBe(BACKUP_EVIDENCE_ACTION);
     expect(writer.RESTORE_DRILL_EVIDENCE_ACTION).toBe(RESTORE_DRILL_EVIDENCE_ACTION);
     expect(writer.OPS_EVIDENCE_ENTITY).toBe(OPS_EVIDENCE_ENTITY);
+  });
+});
+
+describe('off-platform freshness', () => {
+  it('uses the same 26h window and reports the newest key', () => {
+    expect(evaluateOffsiteFreshness(hoursAgo(26), NOW, { lastKey: 'k' })).toMatchObject({
+      status: 'fresh',
+      lastKey: 'k',
+    });
+    expect(evaluateOffsiteFreshness(hoursAgo(26.1), NOW).status).toBe('stale');
+    expect(evaluateOffsiteFreshness(null, NOW).status).toBe('never');
+    expect(evaluateOffsiteFreshness(hoursAgo(30), NOW, { maxAgeHours: 48 }).status).toBe('fresh');
+  });
+
+  it('changes nothing when no copy is configured', () => {
+    const f = evaluateBackupFreshness(hoursAgo(5), NOW);
+    expect('offsite' in f).toBe(false);
+    expect(offsiteFailsHealth(f, true)).toBe(false);
+    expect(backupFailsHealth(f, true)).toBe(false);
+    const stale = evaluateBackupFreshness(hoursAgo(50), NOW);
+    expect(backupFailsHealth(stale, true)).toBe(true);
+    expect(backupFailsHealth(stale, false)).toBe(false);
+  });
+
+  it('a stale configured copy fails health; never fails only where backups are required', () => {
+    const local = evaluateBackupFreshness(hoursAgo(5), NOW);
+    const stale = { ...local, offsite: evaluateOffsiteFreshness(hoursAgo(80), NOW) };
+    expect(backupFailsHealth(stale, false)).toBe(true);
+    const never = { ...local, offsite: evaluateOffsiteFreshness(null, NOW) };
+    expect(backupFailsHealth(never, false)).toBe(false);
+    expect(backupFailsHealth(never, true)).toBe(true);
+    const unknown = { ...local, offsite: { ...never.offsite, status: 'unknown' as const } };
+    expect(backupFailsHealth(unknown, true)).toBe(false);
   });
 });

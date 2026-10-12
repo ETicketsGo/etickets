@@ -20,6 +20,12 @@ export const ErrorCodes = {
   VALIDATION_FAILED: 'VALIDATION_FAILED',
   UNAUTHORIZED: 'UNAUTHORIZED',
   FORBIDDEN: 'FORBIDDEN',
+  /** Back-office session that has not passed (or has not enrolled) the second factor. */
+  MFA_REQUIRED: 'MFA_REQUIRED',
+  /** A sensitive action needs a second-factor check newer than the session has. */
+  MFA_STEP_UP_REQUIRED: 'MFA_STEP_UP_REQUIRED',
+  MFA_INVALID_CODE: 'MFA_INVALID_CODE',
+  MFA_LOCKED: 'MFA_LOCKED',
   NOT_FOUND: 'NOT_FOUND',
   CONFLICT: 'CONFLICT',
   EMAIL_ALREADY_REGISTERED: 'EMAIL_ALREADY_REGISTERED',

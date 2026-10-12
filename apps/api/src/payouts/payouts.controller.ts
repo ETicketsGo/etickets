@@ -6,7 +6,13 @@ import { PayoutsService } from './payouts.service';
 import { PayoutSettingsService } from './payout-settings.service';
 import { PayoutAccountsService } from './payout-accounts.service';
 import { UnifiedFinanceService } from '../finance/unified-finance.service';
-import { RequiresAdmin, CurrentUser, Roles, type RequestUser } from '../common/decorators';
+import {
+  RequiresAdmin,
+  RequiresRecentMfa,
+  CurrentUser,
+  Roles,
+  type RequestUser,
+} from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { OrganizerOnly } from '../tenancy/organizer-only.guard';
 
@@ -217,6 +223,7 @@ export class AdminPayoutsController {
     return this.payouts.adminList();
   }
 
+  @RequiresRecentMfa()
   @Post(':id/pay')
   // Executing a payment is its own duty; the verifier rule is enforced in `markPaid`.
   @RequiresAdmin(AdminPermission.PAYOUT_MANAGE, AdminPermission.PAYOUT_EXECUTE)
@@ -251,6 +258,7 @@ export class AdminPayoutsController {
    * A reveal is somebody taking a bank account number out of the system, so it is recorded
    * with who asked and why - the same shape as the SNS confirmation reveal.
    */
+  @RequiresRecentMfa()
   @Post('accounts/:id/reveal')
   @ApiOperation({ summary: 'Reveal one account number, recorded in the audit log (admin).' })
   revealAccount(
@@ -273,6 +281,7 @@ export class AdminPayoutsController {
    * organization. `version` is the version the reviewer was looking at; if the owner saved
    * something else since, the check is refused rather than applied to the wrong account.
    */
+  @RequiresRecentMfa()
   @Post('accounts/:id/verified')
   @RequiresAdmin(AdminPermission.PAYOUT_MANAGE, AdminPermission.BANK_VERIFY)
   @ApiOperation({ summary: 'Record that the account has been checked (admin).' })
@@ -285,6 +294,7 @@ export class AdminPayoutsController {
     return this.accounts_.markVerified(admin, id, body.version);
   }
 
+  @RequiresRecentMfa()
   @Post('accounts/:id/reject')
   @RequiresAdmin(AdminPermission.PAYOUT_MANAGE, AdminPermission.BANK_VERIFY)
   @ApiOperation({
@@ -303,6 +313,7 @@ export class AdminPayoutsController {
     return this.accounts_.reject(admin, id, body.reason, body.version);
   }
 
+  @RequiresRecentMfa()
   @Post(':id/fail')
   @RequiresAdmin(AdminPermission.PAYOUT_MANAGE, AdminPermission.PAYOUT_EXECUTE)
   @ApiOperation({ summary: 'Record that a payout did not reach the organizer (admin).' })

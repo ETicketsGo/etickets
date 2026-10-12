@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService, type JwtSignOptions } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { createHash, randomBytes } from 'node:crypto';
-import type { AuthTokens } from '@eticketsgo/shared-types';
+import type { AuthTokens, MfaChallengeResponse } from '@eticketsgo/shared-types';
 import { Role, isReservedEmail, permissionsFor } from '@eticketsgo/shared-types';
 import {
   getApplicablePolicy,
@@ -21,6 +21,7 @@ import { MarketingConsentService } from '../notifications/marketing-consent.serv
 import { normalisePhone } from './phone';
 import { NotificationType } from '@eticketsgo/shared-types';
 import type { AccessTokenPayload } from './jwt.strategy';
+import { MfaService, type MfaBinding } from './mfa/mfa.service';
 
 interface RequestMeta {
   userAgent?: string;
@@ -56,6 +57,11 @@ export class AuthService {
       always has it; the optionality is for the harnesses.
     */
     @Optional() private readonly consent?: MarketingConsentService,
+    /*
+      Also last and optional. Absent (a hand-built harness) every sign-in is the plain,
+      pre-MFA one; the running application always has it.
+    */
+    @Optional() private readonly mfa?: MfaService,
   ) {}
 
   /**
@@ -156,7 +162,7 @@ export class AuthService {
     }
   }
 
-  async login(input: LoginInput, meta: RequestMeta): Promise<AuthTokens> {
+  async login(input: LoginInput, meta: RequestMeta): Promise<AuthTokens | MfaChallengeResponse> {
     const user = await this.prisma.user.findUnique({ where: { email: input.email } });
     if (!user || !(await bcrypt.compare(input.password, user.passwordHash))) {
       // Forensic trail for credential-stuffing / brute-force (audit is fail-safe).
@@ -181,12 +187,69 @@ export class AuthService {
       entityId: user.id,
       ip: meta.ip ?? null,
     });
-    return this.issueTokens(user.id, user.email, user.fullName, user.roles as Role[], meta);
+    return this.signInOrChallenge(user, meta);
+  }
+
+  /**
+   * The single gate every credential-based sign-in passes through (password, phone code).
+   *
+   * An enrolled back-office account is NOT given tokens here: it is given a short-lived,
+   * purpose-bound challenge that `POST /auth/mfa/verify` exchanges for tokens once a code is
+   * proved. An administrator who has not enrolled yet gets tokens with no MFA claim, which every
+   * route but the enrollment ones refuses (MfaGuard) - that is how the existing administrator is
+   * walked into enrolling without ever being locked out. Everyone else is unaffected.
+   */
+  private async signInOrChallenge(
+    user: { id: string; email: string; fullName: string; roles: unknown },
+    meta: RequestMeta,
+  ): Promise<AuthTokens | MfaChallengeResponse> {
+    const roles = user.roles as Role[];
+    if (this.mfa && (await this.mfa.requiresChallenge(user.id, roles))) {
+      return {
+        mfaRequired: true,
+        challengeToken: await this.mfa.issueChallenge(user.id),
+        methods: ['totp', 'recovery'],
+      };
+    }
+    return this.issueTokens(user.id, user.email, user.fullName, roles, meta);
+  }
+
+  /** Tokens for a session that has just passed the second factor. */
+  async issueMfaSession(userId: string, meta: RequestMeta, binding: MfaBinding) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user || user.status !== 'ACTIVE') {
+      throw new AppException(
+        ErrorCodes.INVALID_CREDENTIALS,
+        'This account cannot sign in.',
+        HttpStatus.UNAUTHORIZED,
+      );
+    }
+    return this.issueTokens(
+      user.id,
+      user.email,
+      user.fullName,
+      user.roles as Role[],
+      meta,
+      binding,
+    );
+  }
+
+  /**
+   * A fresh access token for the SAME session after a step-up check. No new refresh token: the
+   * refresh binding keeps the session's original verification time, so the extra freshness
+   * lives only as long as this access token and cannot be carried into a rotation.
+   */
+  async issueStepUpAccessToken(userId: string, binding: MfaBinding): Promise<string> {
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    return this.signAccess(user.id, user.email, user.fullName, user.roles as Role[], binding);
   }
 
   async refresh(refreshToken: string, meta: RequestMeta): Promise<AuthTokens> {
     const tokenHash = this.hashToken(refreshToken);
-    const record = await this.prisma.refreshToken.findUnique({ where: { tokenHash } });
+    const record = await this.prisma.refreshToken.findUnique({
+      where: { tokenHash },
+      include: { mfa: true },
+    });
     if (!record || record.expiresAt < new Date()) {
       throw new AppException(
         ErrorCodes.INVALID_REFRESH_TOKEN,
@@ -235,6 +298,18 @@ export class AuthService {
       user.fullName,
       user.roles as Role[],
       meta,
+      /*
+        The rotation inherits EXACTLY what the old session proved - no binding in, no binding
+        out, and the original verification time rather than now. A refresh can therefore never
+        mint a second-factor claim the session did not earn.
+      */
+      record.mfa
+        ? {
+            credentialId: record.mfa.credentialId,
+            verifiedAt: record.mfa.verifiedAt,
+            method: record.mfa.method as MfaBinding['method'],
+          }
+        : undefined,
     );
     const replacement = await this.prisma.refreshToken.findUnique({
       where: { tokenHash: this.hashToken(tokens.refreshToken) },
@@ -276,7 +351,10 @@ export class AuthService {
    * sign-in produces exactly the same tokens, with the same claims and the same refresh
    * record, as email sign-in — rather than a second session path that drifts.
    */
-  async completePhoneSignIn(userId: string, meta: RequestMeta) {
+  async completePhoneSignIn(
+    userId: string,
+    meta: RequestMeta,
+  ): Promise<AuthTokens | MfaChallengeResponse> {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) {
       throw new AppException(
@@ -285,7 +363,37 @@ export class AuthService {
         HttpStatus.UNAUTHORIZED,
       );
     }
-    return this.issueTokens(user.id, user.email, user.fullName, user.roles as Role[], meta);
+    // The same gate as the password route: a phone code must not be a way round the second factor.
+    return this.signInOrChallenge(user, meta);
+  }
+
+  private async signAccess(
+    userId: string,
+    email: string,
+    fullName: string,
+    roles: Role[],
+    mfa?: MfaBinding,
+  ): Promise<string> {
+    const payload: AccessTokenPayload = {
+      sub: userId,
+      email,
+      name: fullName,
+      roles,
+      ...(mfa
+        ? {
+            amr: ['pwd', mfa.method === 'recovery' ? 'rcv' : 'otp'],
+            mfaCid: mfa.credentialId,
+            mfaAt: Math.floor(mfa.verifiedAt.getTime() / 1000),
+          }
+        : {}),
+    };
+    return this.jwt.signAsync(payload, {
+      secret: this.config.getOrThrow<string>('JWT_ACCESS_SECRET'),
+      // @nestjs/jwt v11 types expiresIn as ms' `StringValue` template-literal union; a config
+      // string ('900s' default) is valid at runtime but not provably assignable, so cast to the
+      // exact option type. Behaviour and the TTL source are unchanged.
+      expiresIn: this.config.get<string>('JWT_ACCESS_TTL', '900s') as JwtSignOptions['expiresIn'],
+    });
   }
 
   private async issueTokens(
@@ -294,15 +402,9 @@ export class AuthService {
     fullName: string,
     roles: Role[],
     meta: RequestMeta,
+    mfa?: MfaBinding,
   ): Promise<AuthTokens> {
-    const payload: AccessTokenPayload = { sub: userId, email, name: fullName, roles };
-    const accessToken = await this.jwt.signAsync(payload, {
-      secret: this.config.getOrThrow<string>('JWT_ACCESS_SECRET'),
-      // @nestjs/jwt v11 types expiresIn as ms' `StringValue` template-literal union; a config
-      // string ('900s' default) is valid at runtime but not provably assignable, so cast to the
-      // exact option type. Behaviour and the TTL source are unchanged.
-      expiresIn: this.config.get<string>('JWT_ACCESS_TTL', '900s') as JwtSignOptions['expiresIn'],
-    });
+    const accessToken = await this.signAccess(userId, email, fullName, roles, mfa);
 
     const refreshToken = randomBytes(48).toString('hex');
     const ttlDays = parseTtlDays(this.config.get<string>('JWT_REFRESH_TTL', '30d'));
@@ -314,6 +416,17 @@ export class AuthService {
         expiresAt,
         userAgent: meta.userAgent,
         ip: meta.ip,
+        ...(mfa
+          ? {
+              mfa: {
+                create: {
+                  credentialId: mfa.credentialId,
+                  verifiedAt: mfa.verifiedAt,
+                  method: mfa.method,
+                },
+              },
+            }
+          : {}),
       },
     });
 

@@ -68,6 +68,7 @@ export default function StaffPage() {
   const [search, setSearch] = useState('');
   /** Whose access is about to be removed. Revoking takes the role and every duty at once. */
   const [revoking, setRevoking] = useState<AdminStaffMember | null>(null);
+  const [resettingMfa, setResettingMfa] = useState<AdminStaffMember | null>(null);
 
   const staffQ = useQuery({ queryKey: ['admin', 'staff'], queryFn: () => api.admin.staff.list() });
   const catalogueQ = useQuery({
@@ -131,6 +132,15 @@ export default function StaffPage() {
       toast.push('Back-office access removed.', 'success');
       qc.invalidateQueries({ queryKey: ['admin', 'staff'] });
       setRevoking(null);
+    },
+    onError: (e) => toast.push(errorMessage(e), 'error'),
+  });
+
+  const resetMfa = useMutation({
+    mutationFn: (userId: string) => api.admin.staff.resetMfa(userId),
+    onSuccess: () => {
+      toast.push('Authenticator removed. They set up a new one at their next sign-in.', 'success');
+      setResettingMfa(null);
     },
     onError: (e) => toast.push(errorMessage(e), 'error'),
   });
@@ -229,6 +239,12 @@ export default function StaffPage() {
                 )}
               </div>
 
+              <div className="mt-2">
+                <Button size="sm" variant="ghost" onClick={() => setResettingMfa(person)}>
+                  <ShieldCheck className="mr-1.5 h-4 w-4" /> Reset authenticator
+                </Button>
+              </div>
+
               <div className="mt-3 flex flex-wrap gap-1.5">
                 {person.permissions.length === 0 ? (
                   <span className="text-caption text-text-muted">
@@ -319,6 +335,35 @@ export default function StaffPage() {
             </div>
           </div>
         ) : null}
+      </Dialog>
+
+      <Dialog
+        open={resettingMfa !== null}
+        onClose={() => setResettingMfa(null)}
+        title="Reset authenticator"
+        description="For someone who lost their phone and their recovery codes."
+      >
+        <div className="space-y-4">
+          <p className="text-[0.9375rem] text-text-primary">
+            This removes the authenticator for{' '}
+            <strong>
+              {accountContactText(resettingMfa?.email) ?? resettingMfa?.fullName ?? 'this person'}
+            </strong>{' '}
+            and signs them out everywhere. They must set up a new one at their next sign-in. You
+            cannot do this for your own account. It is written to the audit history.
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setResettingMfa(null)}>
+              Cancel
+            </Button>
+            <Button
+              loading={resetMfa.isPending}
+              onClick={() => resettingMfa && resetMfa.mutate(resettingMfa.id)}
+            >
+              Reset authenticator
+            </Button>
+          </div>
+        </div>
       </Dialog>
 
       <Dialog

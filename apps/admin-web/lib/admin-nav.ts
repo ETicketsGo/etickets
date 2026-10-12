@@ -13,6 +13,7 @@ import {
   LayoutDashboard,
   LifeBuoy,
   Percent,
+  KeyRound,
   Receipt,
   RotateCcw,
   Scale,
@@ -307,6 +308,23 @@ export const ADMIN_NAV: AdminNavGroup[] = [
         keywords: ['team', 'permissions', 'roles'],
       },
       { label: 'AI console', href: '/admin/ai', icon: Sparkles, needs: 'PLATFORM_CONFIG' },
+    ],
+  },
+  {
+    /*
+      Every operator's own sign-in security (authenticator, recovery codes). No capability: it
+      is about the caller's own account, so it is never hidden and never refused.
+    */
+    key: 'account',
+    label: 'My account',
+    icon: KeyRound,
+    links: [
+      {
+        label: 'Account security',
+        href: '/admin/security',
+        icon: KeyRound,
+        keywords: ['mfa', 'authenticator', 'two-factor', 'recovery codes', 'password'],
+      },
     ],
   },
 ];
