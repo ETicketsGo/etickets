@@ -1,209 +1,247 @@
-# India pilot production readiness (2026-10-12)
+# India pilot readiness (revised 2026-10-12, round K)
 
-Scope: a controlled India pilot with 3 to 5 real organizers and about 10 general-admission (GA) events,
-INR, Razorpay, email-only customer communication. Regulated cinema ticketing stays off.
+Scope: a controlled India pilot with 3 to 5 organizers and at least 10 general-admission (GA) events, INR,
+Razorpay, email-only customer communication. Regulated cinema ticketing stays off.
 
-This page is the decision summary. The detail is in:
+This page replaces the first version of the same date. It was checked against the repository at main, the QA
+deployment and a read-only production assessment on 2026-10-12. Three statements in the first version were wrong
+and are corrected here (marked "corrected").
 
-| Area                     | Document                                               |
-| ------------------------ | ------------------------------------------------------ |
-| Infrastructure           | [INFRASTRUCTURE.md](INFRASTRUCTURE.md)                 |
-| Razorpay                 | [RAZORPAY-READINESS.md](RAZORPAY-READINESS.md)         |
-| Communications           | [INDIA-COMMUNICATIONS.md](INDIA-COMMUNICATIONS.md)     |
-| Operations and staffing  | [OPERATING-PROCEDURES.md](OPERATING-PROCEDURES.md)     |
-| End-to-end journey       | [PILOT-JOURNEY.md](PILOT-JOURNEY.md)                   |
-| QA and UAT certification | [CERTIFICATION-EVIDENCE.md](CERTIFICATION-EVIDENCE.md) |
+| Area                             | Document                                                                                   |
+| -------------------------------- | ------------------------------------------------------------------------------------------ |
+| Infrastructure                   | [INFRASTRUCTURE.md](INFRASTRUCTURE.md)                                                     |
+| Razorpay                         | [RAZORPAY-READINESS.md](RAZORPAY-READINESS.md)                                             |
+| Communications                   | [INDIA-COMMUNICATIONS.md](INDIA-COMMUNICATIONS.md)                                         |
+| Real-email certification         | [REAL-EMAIL-CERTIFICATION.md](REAL-EMAIL-CERTIFICATION.md)                                 |
+| Operating playbook               | [PILOT-PLAYBOOK.md](PILOT-PLAYBOOK.md), [OPERATING-PROCEDURES.md](OPERATING-PROCEDURES.md) |
+| Finance separation of duties     | FINANCE-SEPARATION-OF-DUTIES.md (in PR #343, awaiting approval)                            |
+| FIN-1 root cause                 | docs/finance/FIN-1-ROOT-CAUSE.md (in PR #341, awaiting approval)                           |
+| Customer journey review          | [CUSTOMER-JOURNEY-REVIEW.md](CUSTOMER-JOURNEY-REVIEW.md)                                   |
+| Cross-browser certification      | [CROSS-BROWSER-CERTIFICATION.md](CROSS-BROWSER-CERTIFICATION.md)                           |
+| QA and UAT journey certification | [CERTIFICATION-EVIDENCE.md](CERTIFICATION-EVIDENCE.md)                                     |
 
-## Recommendation: NO-GO today, GO when the owner actions below are done
+## Decision: NO-GO
 
-The product journey works on QA, which runs current main. Every step from organizer sign-up to a held
-payout was proven with Razorpay test money, including failure and recovery cases (70 pass, 1 fail,
-6 blocked). The pilot is not blocked by missing features. It is blocked by:
+The decision belongs to the owner and is unchanged. The product works on QA. The pilot is blocked by production
+state, finance approvals, staffing and provider checks, not by missing features.
 
-1. **Production runs code 322 to 377 commits behind main.** None of this month's payout, authorization
-   and pricing safeguards are live there. Production also has no admin user and no current backup.
-2. **The live Razorpay webhook secret does not match.** A real paid purchase was rejected on
-   2026-10-06, and that money (Rs 519.18) is still not refunded.
-3. **Nobody can do maker-checker yet.** Bank verification and "mark paid" need two independent finance
-   people. Production has no admin at all.
-4. **One finance display defect (FIN-1).** After refunds, the organizer's held and pending totals still
-   show the refunded amount. The payout itself is correct.
+**Urgent, found in this round:** production is publicly serving and selling today. www.eticketsgo.com lists two
+published demo events ("Hyderabad Live: Comedy Night" on 2026-10-19 and "Hyderabad Live: Music Festival" on
+2026-11-02, organizer "ETicketsGo Presents") with paid INR tickets on live Razorpay, on code 348 to 403 commits
+behind main. Nobody can use the payment stop there, because it needs an admin and production has none. Owner
+decision: unpublish both events (or set maintenance) until the pilot is approved.
 
-None of these can be closed by engineering alone. Each needs an owner decision, an account action or
-an approved production change.
+## 1. GO/NO-GO matrix
 
-## 1. Readiness matrix
+PASS = proven with evidence. FAIL = proven wrong or missing. BLOCKED = cannot be proven without an external
+dependency or an approval. A test whose dependency is unavailable is never PASS.
 
-Status: **READY** = proven on QA at current main. **OWNER** = code ready, waiting on an owner action.
-**BLOCKED** = cannot be proven or used until something external happens. **GAP** = a product gap with a
-written workaround.
+| Workstream                     | Status    | Evidence                                                                                                  | Owner action                                  | Effort           |
+| ------------------------------ | --------- | --------------------------------------------------------------------------------------------------------- | --------------------------------------------- | ---------------- |
+| 1 Cross-browser UI             | PASS (QA) | 308 cells pass in Chromium, Firefox, WebKit; 2 real defects fixed (#345); real Safari/iOS/Android BLOCKED | Test on one real iPhone and one Android phone | 0.5 day          |
+| 2 Customer experience          | PASS (QA) | Money agrees from event page to receipt; 4 defects fixed (#344); email receipt BLOCKED                    | Confirm a support email to print at checkout  | 0.5 day          |
+| 3 FIN-1 finance totals         | FAIL      | Root cause found and fixed in #341; read models only; awaiting approval                                   | Approve #341                                  | 0.5 day after OK |
+| 4 Production readiness         | FAIL      | Read-only assessment below                                                                                | Sections 4 and 10                             | 3 to 5 days      |
+| 5 Razorpay                     | BLOCKED   | 4 live payments need dashboard checks; webhook secret likely fixed, unproven                              | Section 5                                     | 1 to 5 days      |
+| 6 Finance separation of duties | FAIL      | Enforced in code in #343 (awaiting approval); no staff named or granted                                   | Approve #343; name the people                 | 1 day            |
+| 7 Pilot operations             | BLOCKED   | Playbook merged (#342); roster, agreement and legal sign-off empty                                        | Fill roster, agreement, sign-offs             | 3 to 10 days     |
+| 8 Release controls             | PASS      | Every change went through PR, CI on exact head, QA deploy; finance PRs held for approval                  | None                                          | -                |
 
-| Gate           | Item                                                  | Status  | Evidence or next step                                                                  |
-| -------------- | ----------------------------------------------------- | ------- | -------------------------------------------------------------------------------------- |
-| Journey        | Organizer sign-up, organization, legal identity, bank | READY   | CERTIFICATION-EVIDENCE, journey ONB                                                    |
-| Journey        | GA event creation, admin approval, publishing         | READY   | journey EVT                                                                            |
-| Journey        | Customer purchase with Razorpay (test)                | READY   | journey PAY on QA; UAT confirms late (shared test webhook)                             |
-| Journey        | Ticket delivery (notification record, QR)             | READY   | Real mailbox receipt not proven (BLOCKED on SES production access)                     |
-| Journey        | QR check-in, duplicate and tampered scans refused     | READY   | journey CHK                                                                            |
-| Journey        | Invited gate staff can scan                           | READY   | Fixed in #338 (was refused: G2); verify on QA after deploy                             |
-| Journey        | Customer refund, organizer cancellation refunds       | READY   | Two Razorpay test refunds COMPLETED                                                    |
-| Journey        | Reconciliation                                        | BLOCKED | Discrepancy queue empty, but no proof it compared with Razorpay (REC-3)                |
-| Journey        | Payout generation after the hold                      | READY   | Net 99,800 = 299,600 gross minus 199,800 refunds                                       |
-| Journey        | Payout marked paid only after independent bank check  | OWNER   | 409 hold proven; a second finance person is needed to complete it                      |
-| Finance        | Organizer held and pending totals after refunds       | GAP     | FIN-1: frozen read model, fix needs owner approval; mitigation in section 4            |
-| Payments       | Live account KYC, capture mode, methods               | OWNER   | RAZORPAY-READINESS S1 to S3                                                            |
-| Payments       | Live webhook secret matches                           | OWNER   | S4 (rotation by the owner)                                                             |
-| Payments       | Stranded live payment refunded                        | OWNER   | S7                                                                                     |
-| Payments       | Complete payment certification (A to D)               | OWNER   | S6, S8, S9, S11 on production after the deploy                                         |
-| Payments       | Instant payment stop                                  | GAP     | Only the whole-site maintenance flag exists (G19)                                      |
-| Payments       | Provider transfers (Route)                            | OFF     | Kept off by the owner release gate; pilot uses the platform payout path                |
-| Communications | Email (receipts, tickets, refunds)                    | OWNER   | SES production access, DKIM/SPF/DMARC, SNS subscription                                |
-| Communications | SMS, OTP sign-in, WhatsApp                            | BLOCKED | DLT registration; pilot runs email-only with `SMS_ENABLED=false` (#337)                |
-| Infrastructure | Production on current main                            | OWNER   | Approved deploy with a backup first                                                    |
-| Infrastructure | Managed secrets, production identity                  | OWNER   | INFRASTRUCTURE 1.4                                                                     |
-| Infrastructure | Nightly backup running and fresh                      | OWNER   | Backup freshness now reported by `/api/admin/ops/health` (#336); PROD db-seed redeploy |
-| Infrastructure | Restore verified in isolation                         | READY   | `scripts/ops/restore-drill.sh`, local RTO 75 s; production-size RTO not measured       |
-| Infrastructure | Alerting with a named roster                          | OWNER   | Rules in `observability/prometheus/pilot-alerts.yml`; roster blank (G18)               |
-| Infrastructure | Environment isolation                                 | OWNER   | Rotate the PROD database password, then run the isolation comparison                   |
-| Operations     | First production admin                                | OWNER   | Production has 0 super admins and 0 grants                                             |
-| Operations     | Two finance people plus a reviewer                    | OWNER   | OPERATING-PROCEDURES section 7                                                         |
-| Operations     | Verifier is not the payer                             | GAP     | One capability covers both (G1); procedural rule until changed                         |
-| Operations     | Event-level cancel with refunds                       | GAP     | Cancel each show instead (G3); dialog wording is wrong (G15)                           |
-| Operations     | Failed refund retry                                   | GAP     | Manual payment from the Razorpay dashboard (G14)                                       |
-| Scope          | Regulated cinema pricing                              | OFF     | Stays off; Vijayawada partial, Hyderabad not selling (fail-closed)                     |
-| Certification  | UAT                                                   | BLOCKED | UAT runs a build about 260 commits behind; its failures are old behaviour              |
+## 2. Cross-browser findings
 
-## 2. Owner actions, in order
+Full matrix and screenshots: [CROSS-BROWSER-CERTIFICATION.md](CROSS-BROWSER-CERTIFICATION.md), screenshots in
+`C:\etg-wt\k-shots\k-browser\`. The owner's own screenshots did not reach engineering, so these are the real
+differences found, not a confirmed match with what the owner saw.
 
-Each line is something only the owner (or someone the owner names) can do. Nothing here was done by
-engineering.
+- **Fixed (#345):** when signed in, the header overflowed at 1024 to 1279 px in every engine (up to 253 px of
+  sideways scroll, account menu off screen). The links now show as icons until there is room.
+- **Fixed (#345):** WebKit showed a false "A new version of ETicketsGo is available" banner on a first visit (4 of
+  6 fresh profiles), covering the bottom navigation.
+- **Environment, not defects:** city/location state changes what discovery shows; QA data changed between runs;
+  the customer site is light-only by design; native selects differ by browser.
+- **Not answerable today:** no build id or commit is exposed by the pages, so "which build is this browser on"
+  cannot be read from the page. Caching is correct: HTML is not cached, hashed assets are immutable, and the
+  service worker caches only the offline page.
+- **BLOCKED:** real Safari, iOS and Android devices. Playwright WebKit on Windows is not Safari.
 
-**Before the production deploy**
+## 3. FIN-1 root cause and proposed fix
 
-1. Name the people: Finance A, Finance B (independent of A), a reviewer/support person, and the page
-   roster. Fill `ESCALATION-MATRIX.md` section 1.
-2. Create the production IAM principal and the live payment secrets; set the five variables
-   (INFRASTRUCTURE 1.4).
-3. Redeploy PROD `db-seed` once, read the next 02:05 UTC log, and turn on Railway volume backups
-   (INFRASTRUCTURE 2.4). Decide whether to fund an off-platform dump copy.
-4. Rotate the PROD Postgres password; run the isolation comparison (INFRASTRUCTURE 5).
-5. Confirm production dashboard auto-deploy is off.
-6. In AWS: confirm SES production access and domain verification (DKIM, SPF, DMARC), and subscribe and
-   confirm the SNS topic.
+Full trace: docs/finance/FIN-1-ROOT-CAUSE.md in PR #341.
 
-**The production deploy (needs explicit approval)**
+- **Symptom:** after refunds, the organizer Payouts page showed Rs 2,996 held and the Finance page Rs 2,996
+  pending, while the payout row correctly showed Rs 998 net.
+- **Cause 1:** `PayoutsService.heldRevenue` summed booking subtotals and never deducted refunds.
+- **Cause 2:** the Finance read model counted a Razorpay settlement at its full sales value before any money moved,
+  and added it on top of the platform payout for the same event. The settlement exists because one is created for
+  every paid event, even when the organizer has no Razorpay linked account.
+- **Can it move money:** no. Payout generation, marking paid and settlement release read their own data and refuse
+  overlaps. A new test proves the two read pages change no rows.
+- **Fix (read models only):** held deducts completed refunds with the payout's own arithmetic; an unmoved
+  settlement counts sales minus refunds; a settlement whose event a platform payout already covers stays listed
+  with its double-claim warning but is not added to the totals.
+- **Tests:** a real-Postgres test rebuilds the QA case; it failed on the old code and passes now; each part of the
+  fix is load-bearing; full API suite green (6,190 tests).
+- **Residual risk:** the settlement and the platform payout use different fee bases (107,791 against 99,800 on the
+  QA data); disputes are not deducted before release. Rollback: revert the PR; no data change.
+- **Until approved:** organizers and finance staff read gross, refunds and net on the payout row only.
 
-7. Take a verified backup, then deploy current main to PROD: api, worker, then the three web apps
-   (INFRASTRUCTURE 4.1).
-8. Set `SMS_ENABLED=false` on api and worker and `EMAIL_PROVIDER=ses`. Remove
-   `ALLOW_UNDELIVERABLE_NOTIFICATIONS` after one real email is received.
-9. Create the first production admin and grant the staff presets: Finance A = FINANCE, Finance B =
-   FINANCE, reviewer = MODERATOR + SUPPORT. Never grant PLATFORM_CONFIG, PAYMENT_ADMIN or ADMIN_MANAGE
-   to pilot staff.
+## 4. Production readiness (read-only assessment, 2026-10-12)
 
-**Razorpay (RAZORPAY-READINESS section 2)**
+Method: Railway deployment metadata and logs through the project token (no variables read), and read-only SQL in
+`BEGIN READ ONLY` with `default_transaction_read_only=on`. Nothing was changed.
 
-10. S1 to S3: confirm KYC and activation, set capture to automatic, confirm payment methods.
-11. S4: rotate the webhook secret on Razorpay and in production together; S5: the signature alert.
-12. S7: refund `pay_TkVxCS4BmDljlf` (Rs 519.18) from the Razorpay dashboard.
-13. S6, S8, S9: one smallest real purchase, a partial and a full refund, and a settlement match.
-14. S11 and S13: run the payment certification; open sales only when it is fully green, and record
-    who decided and when.
+| Item                | Finding                                                                                                                                               | Status  |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| Deployed code       | api and customer-web d57f62c (348 behind main), worker 94a969d (358), organizer/admin c82f3cf (367), db-seed 311ebb7 (403); deployed 2026-10-04 to 07 | FAIL    |
+| Public exposure     | www, api, admin and organizer .eticketsgo.com all serve; `/api/health` 200                                                                            | Note    |
+| Migrations          | 112 applied, last `20261006210000_consent_evidence`; main has 119; 2 of the 7 pending are one-way                                                     | Note    |
+| Backups (corrected) | Nightly dump written and read back (`pg_restore --list`) every day 2026-10-06 to 12, 02:01 UTC; 11 kept                                               | PASS    |
+| Restore test        | No production dump has been restored into an isolated database                                                                                        | BLOCKED |
+| Off-platform copy   | None; dumps live only in Railway                                                                                                                      | FAIL    |
+| Admin bootstrap     | 3 users, 0 back-office roles, 0 admin grants                                                                                                          | FAIL    |
+| Secrets identity    | Not checkable without reading production variables (not permitted); current main refuses to boot in production without the secret store principal     | BLOCKED |
+| Email               | 0 notifications of any kind in the last 30 days; production email never proven                                                                        | BLOCKED |
+| Monitoring          | Pilot alert rules exist in the repository but nothing runs them; roster empty                                                                         | FAIL    |
+| Rollback            | Code rollback works for additive migrations; 2 pending migrations are one-way, so after the deploy roll forward                                       | Note    |
 
-**Decisions**
+### Deployment runbook (for the approved deploy only)
 
-15. FIN-1: approve the read-model fix (CERTIFICATION-EVIDENCE, finding 2), or accept the mitigation.
-16. G1: accept "verifier is not the payer" as a written rule for the pilot, or approve splitting the
-    capability.
-17. G19: accept the whole-site maintenance flag as the payment stop for the pilot, or approve a
-    payment-only switch.
-18. UAT: approve a UAT redeploy (it runs migrations) before UAT is used as evidence again.
+1. Owner: unpublish or pause the two demo events; confirm dashboard auto-deploy is off.
+2. Owner: create the production secrets principal and set its variables (INFRASTRUCTURE 1.4) with deploys
+   skipped.
+3. Take a fresh backup and restore it into a scratch database; record row counts (INFRASTRUCTURE 3).
+4. Deploy main in this order: api (runs the 7 migrations), worker, customer-web, organizer-web, admin-web,
+   db-seed. Wait for each to be healthy.
+5. Run `node scripts/deploy/verify-deployed.mjs` with a token that cannot read variables, or the behaviour probes
+   only; check `/api/health`, `/api/capabilities` and `/api/admin/ops/health` (backup field).
+6. Bootstrap the first admin; grant the presets named in section 6.
+7. Set `SMS_ENABLED=false`, `EMAIL_PROVIDER=ses`; remove `ALLOW_UNDELIVERABLE_NOTIFICATIONS` after one real email.
+8. Run the payment certification (RAZORPAY-READINESS section 3) before publishing any pilot event.
 
-## 3. Infrastructure and payment blockers
+### Rollback
 
-| Blocker                                                                | Class          | Unblocked by                  |
-| ---------------------------------------------------------------------- | -------------- | ----------------------------- |
-| Production 322 to 377 commits behind main                              | Infrastructure | Actions 7, 8                  |
-| Production cannot boot current main without the secret store principal | Infrastructure | Action 2                      |
-| No current production backup                                           | Infrastructure | Action 3                      |
-| No admin in production                                                 | Operations     | Action 9                      |
-| No paged roster, no running alert rules                                | Infrastructure | Actions 1, 5                  |
-| Live webhook secret mismatch                                           | Payment        | Action 11                     |
-| Stranded live payment Rs 519.18                                        | Payment        | Action 12                     |
-| Capture mode not set in code; `payment.authorized` is ignored          | Payment        | Action 10 (automatic capture) |
-| Payment certification not run on production                            | Payment        | Actions 13, 14                |
-| Email not proven to a real mailbox                                     | Communications | Action 6                      |
+| Situation                      | Action                                                                                                                         |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| Deploy fails before migrations | Redeploy the previous deployment ids; nothing else changed                                                                     |
+| Regression after migrations    | Fix forward. Old images may fail on the one-way migrations (production has 0 seat maps, so the risk is small)                  |
+| Payment problem                | Suspend payments for India with the payment outage API (PAYMENT_ADMIN); refunds and webhooks keep working                      |
+| Site-wide problem              | Maintenance mode. It also blocks check-in, tickets and provider webhooks, so it is a last resort                               |
+| Data corruption                | Stop api and worker; restore the newest verified dump into scratch, compare, then restore; reconcile payments against Razorpay |
 
-## 4. Pilot operating procedures
+## 5. Razorpay owner checklist
 
-The full procedures are in [OPERATING-PROCEDURES.md](OPERATING-PROCEDURES.md). The rules that matter
-most for a first pilot:
+Detail: [RAZORPAY-READINESS.md](RAZORPAY-READINESS.md) section 2. Never paste keys or secrets into chat or
+documents.
 
-- **GA only, INR only, one country.** The reviewer refuses cinema events, seated events, non-INR
-  prices and organizations outside India (there is no launch-market switch, G6).
-- **Approve organizations before their events.** A pending organization can submit events (G5), so
-  the reviewer checks the organization status first.
-- **Maker-checker on money.** The person who verifies a bank account never marks a payout to it paid.
-  Both names go in the payout evidence.
-- **Read the payout row, not the totals (FIN-1).** Until the fix is approved, organizers and finance
-  staff read gross, refunds and net on the payout row. The "held" and "pending" totals overstate what
-  is owed after refunds.
-- **Cancelling an event:** cancel each show. Refunds open automatically, even though the dialog says
-  they do not (G15). Tell the organizer before they cancel.
-- **Failed refund:** pay the customer from the Razorpay dashboard and record the reference (G14).
-- **Check-in online only.** Offline check-in is off (G4). A network error shows as "Not valid" (G11),
-  so staff retry before turning anyone away.
-- **Daily:** check the support inbox (nothing notifies, G17), failed or bounced emails (G22), backup
-  freshness on `/api/admin/ops/health`, and the run of `scripts/ops/pilot-health-check.mjs`.
+1. Dashboard, LIVE mode: confirm KYC complete, account activated, settlement bank verified.
+2. Set payment capture to automatic. The code never sets capture mode and ignores `payment.authorized`.
+3. Check four live payments by date and amount; production still has them as PROCESSING with expired bookings and
+   no refund: Rs 830.28 on 2026-09-29 (21:54 UTC), Rs 830.28 twice on 2026-09-30 (07:07 and 08:12 UTC), Rs 519.18 on 2026-10-06
+   (`pay_TkVxCS4BmDljlf`). Refund any that were captured, from the dashboard.
+4. Webhooks (corrected): production stored a signed `secret.sync.verification` event on 2026-10-06 08:57 UTC, and
+   it verifies the signature before storing, so the secret most likely matches since then. Confirm the webhook
+   URL is `https://api.eticketsgo.com/api/payments/webhooks/razorpay` and that
+   recent deliveries succeed. Rotate only as part of the approved deploy.
+5. Methods: confirm UPI, domestic cards and netbanking; decide on international cards.
+6. After the deploy: one smallest real purchase, a partial and a full refund from the app, and a settlement match
+   (S6, S8, S9). Open sales only when the certification is fully green; record who decided.
+7. Route/linked accounts stay off (owner release gate); pilot payouts use the platform path.
 
-## 5. Rollback plan
+## 6. Finance staffing and permissions
 
-From [INFRASTRUCTURE.md 4.3](INFRASTRUCTURE.md) and [INCIDENT-RESPONSE.md](INCIDENT-RESPONSE.md).
-Code rolls back. The database does not: migrations are forward-only.
+Enforced in PR #343 (awaiting approval). Nothing is granted to anyone.
 
-| Situation                                          | Action                                                                                                                                             |
-| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Config or flag problem                             | Fix the variable or the `FEATURE_*` flag. Do not roll back code.                                                                                   |
-| Web regression                                     | Redeploy the previous web deployment.                                                                                                              |
-| API or worker regression, additive migrations only | Redeploy the previous worker, then api, then web.                                                                                                  |
-| Regression after a constraint migration            | Fix forward. Old images can fail on the new schema (two October migrations are one-way).                                                           |
-| Payment incident                                   | Turn on maintenance to stop new purchases; reconcile against the Razorpay dashboard.                                                               |
-| Data corruption                                    | Stop api and worker; restore the newest verified dump to a scratch database, compare, then restore in a window. Reconcile payments since the dump. |
+| Person                           | Preset           | Can                                                                              | Cannot                                             |
+| -------------------------------- | ---------------- | -------------------------------------------------------------------------------- | -------------------------------------------------- |
+| Finance A                        | FINANCE_VERIFIER | Read finance, reveal an account number (audited), verify or reject bank accounts | Mark paid, fail, approve or release                |
+| Finance B                        | FINANCE_PAYER    | Mark payouts paid or failed, approve and release settlements                     | Verify bank accounts; pay an account they verified |
+| Reviewer                         | FINANCE_REVIEWER | Read finance and the audit log                                                   | See bank accounts, move money                      |
+| On-call operations               | OPS_ONCALL       | Ops health, retry queues, outbox and inventory sync                              | Money, bank data                                   |
+| Payment stop holder (owner pick) | PAYMENT_ADMIN    | Suspend payments by country, provider or route                                   | Should not also be Finance A or B                  |
 
-The first production deploy is safe to roll forward only: production holds no live events, so the
-October one-way migrations apply to an empty catalogue. Take the backup before it anyway.
+- The rule "the verifier never pays" is checked on identity in the same transaction as the bank-verification
+  hold, so it also applies to a super admin and to anyone holding both duties. A refusal is a 403 with an audit
+  row.
+- After #343, the existing FINANCE preset no longer verifies or pays. Today nobody is affected (QA has only the
+  super admin; production has no admins).
+- Residual risk: two people colluding, or one person with two accounts. Use named people and review the audit log
+  weekly.
 
-**Stop the pilot sales** (proposed triggers; the owner ratifies them, G20) when any of these happens: a paid
-purchase is not confirmed within 15 minutes, a refund is recorded but not sent, a webhook signature
-failure, a payout that disagrees with its settlement, or a backup older than 26 hours.
+## 7. Real-email certification requirements
 
-## 6. Launch dependencies and estimates
+Detail: [REAL-EMAIL-CERTIFICATION.md](REAL-EMAIL-CERTIFICATION.md).
 
-The estimates are for planning only. External lead times are not in our control.
+- Owner: SES production access in the production AWS account; domain identity with DKIM, SPF (MAIL FROM) and
+  DMARC records at the DNS host; configuration set, SNS topic and event destination; the production IAM user; the
+  mailboxes (Gmail, Outlook, Yahoo, an Indian provider, a company domain).
+- Decision needed: how to confirm the SNS subscription in production. Production never records the confirmation
+  token, so a one-time reveal, a short capture window or an out-of-band confirmation must be chosen.
+- PASS means: booking confirmation, refund and cancellation, password reset and guest link received in every
+  mailbox, in the inbox, with SPF/DKIM/DMARC pass in the headers, links pointing at production hosts, and a bounce
+  and a complaint recorded through SNS.
+- Known product facts: the booking email carries no QR code (guests get a link; signed-in buyers sign in);
+  organizer team invites are links the owner sends, not emails.
 
-| Dependency                                       | Who                 | Estimate (working days)        |
-| ------------------------------------------------ | ------------------- | ------------------------------ |
-| Name staff and the page roster                   | Owner               | 1                              |
-| Production IAM principal, secrets, variables     | Owner + engineering | 1 to 2                         |
-| Backups running and verified on PROD             | Owner + engineering | 2 (needs one nightly run)      |
-| Production deploy of main, first admin, grants   | Owner + engineering | 1                              |
-| Razorpay S1 to S5, S7                            | Owner (+ Razorpay)  | 1 to 5 (Razorpay support time) |
-| SES production access, DNS, SNS                  | Owner (+ AWS)       | 1 to 3 (AWS review time)       |
-| Payment certification on production (S6 to S13)  | Owner + engineering | 2 to 3 (settlement takes T+2)  |
-| FIN-1 fix, if approved                           | Engineering         | 1 to 2                         |
-| Onboard the first organizer and event            | Owner + reviewer    | 1 to 2                         |
-| DLT and SMS (not needed for an email-only pilot) | Owner (+ operators) | 10 to 30                       |
+## 8. Pilot operating playbook
 
-Critical path without SMS: about **7 to 12 working days** from the day the owner starts, most of it
-waiting on Razorpay, AWS and the first settlement.
+Detail: [PILOT-PLAYBOOK.md](PILOT-PLAYBOOK.md). The short version:
 
-## 7. GO criteria
+- GA, INR, India only. Regulated cinema stays off wherever pricing rules are unverified (Vijayawada partial,
+  Hyderabad not selling).
+- Approve the organization before its events; record the signed organizer agreement (the current one is a draft
+  with blanks and the product records no acceptance).
+- Gate staff are invited by the organizer owner (works since #338). Plan lanes from expected attendance; give each
+  scanner its own mobile data.
+- An organizer cannot cancel a whole GA event from a screen today; support handles it with the documented manual
+  procedure.
+- Failed refunds are paid manually from the Razorpay dashboard and recorded.
+- Stop payments with the outage API, not maintenance mode.
+- Daily report M1 to M20 from named endpoints and queries; weekly audit-log review of finance actions.
 
-Change this to GO when all of these are true and recorded:
+## 9. Critical-path timeline (working days, from the day the owner starts)
 
-1. Production runs current main, with a verified backup taken before the deploy.
-2. The payment certification (RAZORPAY-READINESS section 3) is fully green on production.
-3. Two independent finance people and a reviewer hold their grants, and the roster is filled.
-4. One real email reached a real mailbox from production.
-5. FIN-1 is fixed, or the owner has accepted the mitigation in writing.
-6. The stranded Rs 519.18 payment is refunded.
+| Day     | Dependency                                                                       | Who                   |
+| ------- | -------------------------------------------------------------------------------- | --------------------- |
+| 0       | Pause the two live demo events                                                   | Owner                 |
+| 0 to 1  | Approve #341 and #343; name Finance A, B, reviewer, on-call, payment-stop holder | Owner                 |
+| 1       | Merge, deploy to QA, re-certify finance figures and the duty split on QA         | Engineering           |
+| 1 to 3  | Secrets principal, AWS SES production access, DNS records                        | Owner (+ AWS)         |
+| 1 to 5  | Razorpay checks 1 to 5 in section 5                                              | Owner (+ Razorpay)    |
+| 2 to 3  | Restore drill on a production dump in scratch                                    | Owner approval + eng. |
+| 3 to 5  | Approved production deploy, admin bootstrap, grants                              | Owner + engineering   |
+| 4 to 6  | Real-email certification                                                         | Owner + engineering   |
+| 5 to 8  | Live payment certification (purchase, refunds, settlement T+2)                   | Owner + engineering   |
+| 3 to 10 | Organizer agreement, legal sign-offs, roster, first organizer onboarding         | Owner                 |
+
+Realistic earliest GO: about 8 to 12 working days, set by Razorpay, AWS and the first settlement.
+
+## 10. Next actions, ordered by dependency
+
+**Owner (business):**
+
+1. Pause the two production demo events.
+2. Approve or reject #341 (FIN-1) and #343 (separation of duties).
+3. Name Finance A, Finance B, the reviewer, on-call and the payment-stop holder; fill the escalation roster.
+4. Finish the organizer agreement and the legal sign-off list (PILOT-PLAYBOOK section 8).
+5. Decide the production SNS confirmation route.
+6. Approve a restore drill of a production dump in an isolated scratch database.
+7. Approve the production deploy window.
+
+**Owner (providers):**
+
+8. Razorpay checks 1 to 5 in section 5.
+9. AWS: SES production access, domain identity, DNS records, SNS topic, production IAM user.
+10. Production secrets principal and variables (INFRASTRUCTURE 1.4).
+
+**Engineering (can start as soon as the matching owner step is done):**
+
+11. After 2: merge, deploy to QA, re-read the pilot organizer's figures, prove the duty split with two QA staff
+    accounts the owner creates.
+12. After 6: run the restore drill and record RTO.
+13. After 7 and 10: the production deploy runbook in section 4.
+14. After 9: real-email certification.
+15. After 8 and 13: the live payment certification; then the owner decides GO.
+
+**Engineering, not blocked (proposals, small):** seller name and support contact at checkout; sticky pay button on
+mobile; event-level sold-out notice; no Rs 0 tax invoice for free bookings; a build id in the page for support;
+organizer screen to cancel a GA event with refunds.
