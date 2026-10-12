@@ -31,7 +31,6 @@ import {
   errorMessage,
   type Column,
   type Payout,
-  marketFor,
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
 import { connectWords } from '@/lib/connect-onboarding-words';
@@ -63,21 +62,21 @@ function PayoutsInner() {
     Route, everywhere else is Stripe Connect. A second provider is offered only when the
     markets they actually sell in include one it serves.
   */
-  const home = marketFor(activeOrg.registeredCountry ?? '');
-  // The markets they have actually sold in, which is what makes a second provider relevant.
-  const analyticsQ = useQuery({
-    queryKey: ['organizer', 'analytics-markets', activeOrg.id],
-    queryFn: () => api.analytics.organizer(activeOrg.id),
-    staleTime: 60_000,
+  /*
+    The markets come from the SAME account-state response the summary card reads (one query key,
+    one request), so the panels shown below and the lines in the summary above are always about
+    the same providers. They were derived twice - here from the dashboard's analytics, there by
+    the server - which is how the two could drift.
+  */
+  const stateQ = useQuery({
+    queryKey: ['organizer', 'payout-account-state', activeOrg.id],
+    queryFn: () => api.payouts.accountState(activeOrg.id),
   });
-  const sellingMarkets = analyticsQ.data?.markets ?? [];
-  const sellsInIndia = sellingMarkets.some((m) => m.currency === 'INR');
-  const sellsOutsideIndia = sellingMarkets.some((m) => m.currency !== 'INR');
-  const homeIsIndia = home?.code === 'IN';
-  const showRazorpay = homeIsIndia || sellsInIndia;
-  const showStripe = (!!home && !homeIsIndia) || sellsOutsideIndia;
+  const entries = stateQ.data?.providers ?? [];
+  const showStripe = entries.some((e) => e.provider === 'STRIPE');
+  const showRazorpay = entries.some((e) => e.provider === 'RAZORPAY');
   // What each panel may say about selling depends on which markets this organizer trades in.
-  const scope: MarketScope = { inr: homeIsIndia || sellsInIndia, card: showStripe };
+  const scope: MarketScope = { inr: showRazorpay, card: showStripe };
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['payouts', activeOrg.id],
@@ -155,7 +154,7 @@ function PayoutsInner() {
       */}
       {showStripe ? <StripePayoutSetup orgId={activeOrg.id} scope={scope} /> : null}
       {showRazorpay ? <RazorpayPayoutSetup orgId={activeOrg.id} scope={scope} /> : null}
-      {!showStripe && !showRazorpay ? (
+      {stateQ.data && !showStripe && !showRazorpay ? (
         <Card title="Payout provider">
           <p className="text-sm text-text-secondary">
             Tell us where your business is registered in{' '}

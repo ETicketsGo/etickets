@@ -22,6 +22,8 @@ import type {
   EventImageVariantName,
   FocalPoint,
   VenueTemplateKey as SharedVenueTemplateKey,
+  PayoutProviderEntry,
+  PayoutProviderSummary,
 } from '@eticketsgo/shared-types';
 
 /*
@@ -48,6 +50,8 @@ export type {
   GuestReceiptDocument,
   GuestReceiptsView,
   GuestBookingClaim,
+  PayoutProviderEntry,
+  PayoutProviderSummary,
 } from '@eticketsgo/shared-types';
 
 import { markApiReachable, markApiUnreachable } from './connectivity';
@@ -5101,6 +5105,12 @@ export interface PayoutAccountState {
   action: PayoutAccountAction | null;
   /** A count, never the provider's requirement codes. */
   outstandingRequirements: number;
+  /**
+   * One entry per provider/market this organizer uses, worst first. THE representation: the flat
+   * fields above are a single-row reading kept for older clients and can disagree with a panel.
+   */
+  providers: PayoutProviderEntry[];
+  providerSummary: PayoutProviderSummary;
 }
 
 /** One currency's settlement position. Currencies never combine into a total. */
