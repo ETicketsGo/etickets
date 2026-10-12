@@ -254,7 +254,7 @@ export function monthWindow(anyDayOfMonth: DayKey): { from: string; to: string }
 }
 
 /** Whether a show is really going to happen: not cancelled, from an event that is not either. */
-function isOn(s: OrganizerCalendarSession): boolean {
+export function showIsOn(s: OrganizerCalendarSession): boolean {
   return s.status !== 'CANCELLED' && !['CANCELLED', 'ARCHIVED'].includes(s.event.status);
 }
 
@@ -263,27 +263,13 @@ export function venueDay(s: OrganizerCalendarSession): DayKey {
   return localPlace(s.startsAt, sessionZone(s).zone).day;
 }
 
-/**
- * How many shows each venue-local date has, for the dots under the month card's days.
- * Cancelled shows are on the calendar for the record, but a dot says "something is on".
- */
-export function showsPerDay(sessions: OrganizerCalendarSession[] | undefined): Map<DayKey, number> {
-  const out = new Map<DayKey, number>();
-  for (const s of sessions ?? []) {
-    if (!isOn(s)) continue;
-    const day = venueDay(s);
-    out.set(day, (out.get(day) ?? 0) + 1);
-  }
-  return out;
-}
-
 /** The shows on one venue-local date, earliest first. */
 export function showsOnDay(
   sessions: OrganizerCalendarSession[] | undefined,
   day: DayKey,
 ): OrganizerCalendarSession[] {
   return (sessions ?? [])
-    .filter((s) => isOn(s) && venueDay(s) === day)
+    .filter((s) => showIsOn(s) && venueDay(s) === day)
     .sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt));
 }
 
@@ -303,7 +289,7 @@ export function showsToday(
 ): OrganizerCalendarSession[] {
   return (sessions ?? [])
     .filter((s) => {
-      if (!isOn(s) || Date.parse(s.startsAt) < now.getTime()) return false;
+      if (!showIsOn(s) || Date.parse(s.startsAt) < now.getTime()) return false;
       const { zone } = sessionZone(s);
       return localPlace(s.startsAt, zone).day === localPlace(now, zone).day;
     })

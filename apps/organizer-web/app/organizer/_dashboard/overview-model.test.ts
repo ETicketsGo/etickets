@@ -25,9 +25,11 @@ const show = (id: string, status: string, startsAt: string): OrganizerCalendarSe
   startsAt,
   endsAt: startsAt,
   status: 'SCHEDULED',
-  event: { id, title: id, category: 'Music', status, experienceType: 'EVENT' },
+  event: { id, title: id, category: 'Music', status, experienceType: 'EVENT', movieId: null },
   venue: { id: 'v', name: 'V', city: 'C', country: 'IN', timezone: 'Asia/Kolkata' },
   cinemaTimezone: null,
+  screenId: null,
+  cinemaId: null,
   sold: 0,
   capacity: 10,
 });

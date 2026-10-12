@@ -21,7 +21,7 @@ import { ScheduleRunDialog } from '@/components/schedule-run-dialog';
 import { instantToWallClock, wallClockToInstant, zoneLabel } from '@/lib/zoned-time';
 import { EditShowDialog } from '@/components/edit-show-dialog';
 import { useParams } from 'next/navigation';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   api,
   Button,
@@ -59,6 +59,7 @@ import { useCinemas, useListingSales } from '@/components/cinema/use-cinema-data
 import {
   filmSaleSummary,
   formatShowTime,
+  localDate,
   programmeOf,
   zoneShort,
   type SaleVerdict,
@@ -317,6 +318,25 @@ export default function EditMoviePage() {
     if (params.get('tab') === 'details') setTab('details');
     if (params.get('schedule') === 'run') setRunOpen(true);
   }, []);
+
+  /*
+    `?show=<session id>` is what the organizer Calendar links a film show to. Once the film's shows
+    are in, the showtimes scroll to that show's day (its cinema's date), once. A show that is not
+    upcoming is not in that list, so the page simply opens as it always did.
+  */
+  const focusedShow = useRef(false);
+  useEffect(() => {
+    if (focusedShow.current || !showsQ.data || cinemasQ.isLoading) return;
+    const wanted = new URLSearchParams(window.location.search).get('show');
+    focusedShow.current = true;
+    const row = wanted ? showsQ.data.find((s) => s.sessionId === wanted) : undefined;
+    if (!row) return;
+    setTab('showtimes');
+    setJump({
+      date: localDate(row.startsAt, cinemasQ.zoneOf(row.cinemaId)),
+      at: Date.now(),
+    });
+  }, [showsQ.data, cinemasQ.isLoading, cinemasQ.zoneOf]);
 
   const [now] = useState(() => new Date());
   const programme = useMemo(() => programmeOf(showsQ.data, now), [showsQ.data, now]);

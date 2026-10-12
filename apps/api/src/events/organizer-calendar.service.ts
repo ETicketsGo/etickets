@@ -32,6 +32,8 @@ export interface OrganizerCalendarSession {
     category: string;
     status: string;
     experienceType: string;
+    /** The film a cinema listing is for; null for every other kind of event. */
+    movieId: string | null;
   };
   venue: {
     id: string;
@@ -42,6 +44,9 @@ export interface OrganizerCalendarSession {
   };
   /** The zone of the cinema a seated session's room belongs to; null for general admission. */
   cinemaTimezone: string | null;
+  /** The room and cinema of a seated session, so the film page can focus the show; else null. */
+  screenId: string | null;
+  cinemaId: string | null;
   /** Tickets sold and on sale over the session's ticket types; null when it has none. */
   sold: number | null;
   capacity: number | null;
@@ -113,12 +118,13 @@ export class OrganizerCalendarService {
             category: true,
             status: true,
             experienceType: true,
+            movieId: true,
             venue: {
               select: { id: true, name: true, city: true, country: true, timezone: true },
             },
           },
         },
-        screen: { select: { cinema: { select: { timezone: true } } } },
+        screen: { select: { id: true, cinemaId: true, cinema: { select: { timezone: true } } } },
         ticketTypes: {
           select: { inventory: { select: { quantityTotal: true, quantitySold: true } } },
         },
@@ -145,6 +151,8 @@ export class OrganizerCalendarService {
         event,
         venue,
         cinemaTimezone: r.screen?.cinema?.timezone ?? null,
+        screenId: r.screen?.id ?? null,
+        cinemaId: r.screen?.cinemaId ?? null,
         sold: counted ? sold : null,
         capacity: counted ? capacity : null,
       };

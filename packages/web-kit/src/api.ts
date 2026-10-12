@@ -4023,7 +4023,15 @@ export interface OrganizerCalendarSession {
   startsAt: string;
   endsAt: string;
   status: string;
-  event: { id: string; title: string; category: string; status: string; experienceType: string };
+  event: {
+    id: string;
+    title: string;
+    category: string;
+    status: string;
+    experienceType: string;
+    /** The film a cinema listing is for; null for every other kind of event. */
+    movieId: string | null;
+  };
   venue: {
     id: string;
     name: string;
@@ -4033,6 +4041,9 @@ export interface OrganizerCalendarSession {
   };
   /** The zone of the cinema a seated session's room belongs to; null for general admission. */
   cinemaTimezone: string | null;
+  /** The room and cinema of a seated session; null for general admission. */
+  screenId: string | null;
+  cinemaId: string | null;
   /** Tickets sold and on sale over the session's ticket types; null when it has none. */
   sold: number | null;
   capacity: number | null;

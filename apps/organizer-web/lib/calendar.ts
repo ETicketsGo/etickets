@@ -86,6 +86,8 @@ export interface CalendarSession {
   category: string;
   /** `MOVIE` for a film show in a cinema; decides where "manage" goes. */
   experienceType: string;
+  /** The film a cinema listing is for; null for any other event. */
+  movieId: string | null;
   /** The session sits in a cinema room (reserved seats), not general admission. */
   seated: boolean;
   /** The EVENT's status - the one the filter and the colour follow. */
@@ -357,6 +359,7 @@ export function toCalendarSessions(rows: OrganizerCalendarSession[]): CalendarSe
       title: r.event.title,
       category: r.event.category,
       experienceType: r.event.experienceType,
+      movieId: r.event.movieId ?? null,
       seated: r.cinemaTimezone !== null,
       eventStatus: r.event.status,
       sessionStatus: r.status,
@@ -594,18 +597,29 @@ export function segmentTime(seg: DaySegment, viewerZone?: string): string {
 
 /**
  * Where an organizer manages a session, by what it is:
- * - a film show in a cinema: the film's event page, where its screens and shows are run;
+ * - a film show in a cinema: the FILM's management page (`/organizer/movies/<id>`), where its
+ *   shows are run, with `?show=` so the page scrolls to that show's day. A film event with no
+ *   film id (an API older than this field) falls back to the event page;
  * - a reserved-seat session: the event's seating page (layout, categories, what has sold);
  * - everything else (general admission): the event's sessions page.
  * Always the event's own page, never a guess at an id the calendar does not have.
  */
 export function sessionDestination(s: {
+  id?: string;
   eventId: string;
   experienceType: string;
+  movieId?: string | null;
   seated: boolean;
 }): CalendarDestination {
   const base = `/organizer/events/${s.eventId}`;
-  if (s.experienceType === 'MOVIE') return { href: base, label: 'Open film page' };
+  if (s.experienceType === 'MOVIE') {
+    if (!s.movieId) return { href: base, label: 'Open film page' };
+    const film = `/organizer/movies/${s.movieId}`;
+    return {
+      href: s.id ? `${film}?show=${encodeURIComponent(s.id)}` : film,
+      label: 'Open film page',
+    };
+  }
   if (s.seated) return { href: `${base}/seating`, label: 'Manage seating' };
   return { href: `${base}/sessions`, label: 'Manage sessions' };
 }

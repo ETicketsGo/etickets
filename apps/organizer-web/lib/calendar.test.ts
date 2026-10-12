@@ -40,6 +40,7 @@ function session(over: Partial<CalendarSession>): CalendarSession {
     title: 'Show',
     category: 'Music',
     experienceType: 'EVENT',
+    movieId: null,
     seated: false,
     eventStatus: 'PUBLISHED',
     sessionStatus: 'SCHEDULED',
@@ -374,9 +375,12 @@ describe('from the API', () => {
         category: 'Music',
         status: 'PUBLISHED',
         experienceType: 'EVENT',
+        movieId: null,
       },
       venue: { id: 'v1', name: 'Hall', city: 'Hyderabad', country: 'IN', timezone: null },
       cinemaTimezone: null,
+      screenId: null,
+      cinemaId: null,
       sold: 15,
       capacity: 150,
       ...over,
@@ -407,6 +411,28 @@ describe('from the API', () => {
     expect(boise.zone).toBe('America/Boise');
   });
 
+  it('carries the film id of a cinema show, and none for anything else', () => {
+    const [film, concert] = toCalendarSessions([
+      row({
+        event: {
+          id: 'e2',
+          title: 'Film',
+          category: 'Movie',
+          status: 'PUBLISHED',
+          experienceType: 'MOVIE',
+          movieId: 'm1',
+        },
+        cinemaTimezone: 'Asia/Kolkata',
+        screenId: 'sc1',
+        cinemaId: 'c1',
+      }),
+      row(),
+    ]);
+    expect(film.movieId).toBe('m1');
+    expect(film.seated).toBe(true);
+    expect(concert.movieId).toBeNull();
+  });
+
   it('places a film show in its cinema zone, and nothing else', () => {
     const film = row({
       event: {
@@ -415,6 +441,7 @@ describe('from the API', () => {
         category: 'Film',
         status: 'PUBLISHED',
         experienceType: 'MOVIE',
+        movieId: 'm1',
       },
       venue: { id: 'v', name: 'Plex', city: 'Toronto', country: 'CA', timezone: null },
       cinemaTimezone: 'America/Toronto',
@@ -565,10 +592,34 @@ describe('entries for the shared calendar', () => {
   });
 
   it('sends a session to the page where it is managed, by what it is', () => {
-    expect(sessionDestination({ eventId: 'e1', experienceType: 'MOVIE', seated: true })).toEqual({
-      href: '/organizer/events/e1',
-      label: 'Open film page',
-    });
+    // A film show goes to the FILM's page, focused on that show.
+    expect(
+      sessionDestination({
+        id: 's1',
+        eventId: 'e1',
+        experienceType: 'MOVIE',
+        movieId: 'm1',
+        seated: true,
+      }),
+    ).toEqual({ href: '/organizer/movies/m1?show=s1', label: 'Open film page' });
+    // With no show id the film page alone; with no film id (an older API) the event page.
+    expect(
+      sessionDestination({ eventId: 'e1', experienceType: 'MOVIE', movieId: 'm1', seated: true })
+        .href,
+    ).toBe('/organizer/movies/m1');
+    expect(
+      sessionDestination({ id: 's1', eventId: 'e1', experienceType: 'MOVIE', seated: true }),
+    ).toEqual({ href: '/organizer/events/e1', label: 'Open film page' });
+    // A non-film event with a movie id is still an event: only MOVIE goes to a film.
+    expect(
+      sessionDestination({
+        id: 's1',
+        eventId: 'e1',
+        experienceType: 'EVENT',
+        movieId: 'm1',
+        seated: true,
+      }).href,
+    ).toBe('/organizer/events/e1/seating');
     expect(sessionDestination({ eventId: 'e1', experienceType: 'EVENT', seated: true })).toEqual({
       href: '/organizer/events/e1/seating',
       label: 'Manage seating',
@@ -579,5 +630,12 @@ describe('entries for the shared calendar', () => {
     });
     const [seg] = segmentsByDay([session({})], '2026-11-06', '2026-11-06').get('2026-11-06')!;
     expect(entryFor(seg).destination?.href).toBe('/organizer/events/e1/sessions');
+    // The chip, the row and the drawer all take this one destination.
+    const [film] = segmentsByDay(
+      [session({ id: 's9', experienceType: 'MOVIE', movieId: 'm1', seated: true })],
+      '2026-11-06',
+      '2026-11-06',
+    ).get('2026-11-06')!;
+    expect(entryFor(film).destination?.href).toBe('/organizer/movies/m1?show=s9');
   });
 });

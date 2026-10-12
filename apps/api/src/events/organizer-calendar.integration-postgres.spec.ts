@@ -42,6 +42,10 @@ describe('integration-real-postgres: organizer calendar window', () => {
   const orgIds: string[] = [];
   const userIds: string[] = [];
   let orgId = '';
+  let movieId = '';
+  let screenId = '';
+  let cinemaId = '';
+  let otherMovieId = '';
   let owner: RequestUser;
   let staff: RequestUser;
 
@@ -173,6 +177,53 @@ describe('integration-real-postgres: organizer calendar window', () => {
     await event(other.id, otherVenue.id, 'Theirs', 'PUBLISHED', [
       ['2030-03-10T13:30:00Z', '2030-03-10T16:30:00Z'],
     ]);
+
+    // A film show in a cinema of our own organization, and one in another organization's.
+    const cinemaShow = async (organizationId: string, venueId: string, label: string) => {
+      const movie = await db!.movie.create({
+        data: {
+          organizationId,
+          title: `Film ${label} ${suffix}`,
+          slug: `cal-film-${label}-${suffix}`,
+          runtimeMinutes: 120,
+          language: 'Telugu',
+          genres: [],
+          cast: [],
+        },
+      });
+      const cinema = await db!.cinema.create({
+        data: { organizationId, venueId, name: `Cinema ${label} ${suffix}`, city: 'Hyderabad' },
+      });
+      const screen = await db!.screen.create({
+        data: { cinemaId: cinema.id, venueId, name: `Screen ${label}`, capacity: 100 },
+      });
+      const e = await db!.event.create({
+        data: {
+          organizationId,
+          venueId,
+          experienceType: 'MOVIE',
+          movieId: movie.id,
+          title: `Film ${label} ${suffix}`,
+          slug: `cal-film-event-${label}-${suffix}`,
+          category: 'Movie',
+          status: 'PUBLISHED',
+        },
+      });
+      await db!.eventSession.create({
+        data: {
+          eventId: e.id,
+          screenId: screen.id,
+          startsAt: at('2030-03-11T13:30:00Z'),
+          endsAt: at('2030-03-11T16:00:00Z'),
+        },
+      });
+      return { movie, cinema, screen };
+    };
+    const mine = await cinemaShow(orgId, venue.id, 'mine');
+    movieId = mine.movie.id;
+    screenId = mine.screen.id;
+    cinemaId = mine.cinema.id;
+    otherMovieId = (await cinemaShow(other.id, otherVenue.id, 'theirs')).movie.id;
   }, 120_000);
 
   afterAll(async () => {
@@ -182,6 +233,9 @@ describe('integration-real-postgres: organizer calendar window', () => {
     await db.ticketType.deleteMany({ where: { eventSession: where } });
     await db.eventSession.deleteMany({ where });
     await db.event.deleteMany({ where: { organizationId: { in: orgIds } } });
+    await db.screen.deleteMany({ where: { cinema: { organizationId: { in: orgIds } } } });
+    await db.cinema.deleteMany({ where: { organizationId: { in: orgIds } } });
+    await db.movie.deleteMany({ where: { organizationId: { in: orgIds } } });
     await db.venue.deleteMany({ where: { organizationId: { in: orgIds } } });
     await db.organizationMember.deleteMany({ where: { organizationId: { in: orgIds } } });
     await db.organization.deleteMany({ where: { id: { in: orgIds } } });
@@ -203,7 +257,7 @@ describe('integration-real-postgres: organizer calendar window', () => {
       at('2030-04-01T00:00:00Z'),
     );
     const titles = res.sessions.map((s) => s.event.title.replace(` ${suffix}`, ''));
-    expect(titles).toEqual(['Festival', 'Inside']);
+    expect(titles).toEqual(['Festival', 'Inside', 'Film mine']);
     expect(res.truncated).toBe(false);
 
     const inside = res.sessions.find((s) => s.event.title.startsWith('Inside'))!;
@@ -212,9 +266,29 @@ describe('integration-real-postgres: organizer calendar window', () => {
     expect(inside.venue.city).toBe('Hyderabad');
     expect(inside.venue.country).toBe('India');
     expect(inside.cinemaTimezone).toBeNull();
+    // General admission carries no film, room or cinema.
+    expect(inside.event.movieId).toBeNull();
+    expect(inside.screenId).toBeNull();
+    expect(inside.cinemaId).toBeNull();
     const festival = res.sessions.find((s) => s.event.title.startsWith('Festival'))!;
     expect(festival.sold).toBeNull();
     expect(festival.event.status).toBe('UNDER_REVIEW');
+  });
+
+  maybe('carries the film, room and cinema of a cinema show, and only our own', async () => {
+    const res = await calendar.sessions(
+      owner,
+      orgId,
+      at('2030-03-08T00:00:00Z'),
+      at('2030-04-01T00:00:00Z'),
+    );
+    const film = res.sessions.find((s) => s.event.experienceType === 'MOVIE')!;
+    expect(film.event.movieId).toBe(movieId);
+    expect(film.screenId).toBe(screenId);
+    expect(film.cinemaId).toBe(cinemaId);
+    // Another organization's film never appears, by session or by id.
+    expect(res.sessions.some((s) => s.event.title.includes('Film theirs'))).toBe(false);
+    expect(res.sessions.some((s) => s.event.movieId === otherMovieId)).toBe(false);
   });
 
   maybe('refuses check-in staff, as the event-detail read does', async () => {

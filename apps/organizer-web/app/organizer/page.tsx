@@ -33,7 +33,6 @@ import {
   performanceFor,
   recentActivity,
   showsOnDay,
-  showsPerDay,
   showsToday,
   viewerToday,
 } from './_dashboard/model';
@@ -210,7 +209,6 @@ export default function OrganizerDashboard() {
         : showsOnDay(monthSessions, selectedDay),
     [selectedDay, sessions, monthSessions],
   );
-  const perDay = useMemo(() => showsPerDay(monthSessions), [monthSessions]);
 
   /*
     ── IS IT SELLING: ONE SERVER ANSWER ──────────────────────────────────────────────
@@ -507,7 +505,7 @@ export default function OrganizerDashboard() {
       selected={selectedDay}
       onSelect={setSelectedDay}
       weekStart={weekStartFor(activeOrg.registeredCountry)}
-      perDay={perDay}
+      shows={monthSessions}
       loading={monthState.isLoading}
       failed={monthState.isError}
       onRetry={() => monthState.refetch()}
