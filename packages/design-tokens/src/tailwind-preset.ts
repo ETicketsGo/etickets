@@ -1,5 +1,5 @@
 import type { Config } from 'tailwindcss';
-import { fontFamily, radius, typeScale } from './tokens';
+import { brandFontFamily, brandTypeScale, fontFamily, radius, typeScale } from './tokens';
 
 /** Wraps a CSS variable so Tailwind can apply alpha via <alpha-value>. */
 const hsl = (v: string) => `hsl(var(${v}) / <alpha-value>)`;
@@ -21,6 +21,13 @@ const preset: Partial<Config> = {
           to a browser default.
         */
         display: ['var(--font-display)', 'var(--font-inter)', ...fontFamily.sans],
+        /*
+          The brand layer's two faces (docs/design/DESIGN-SYSTEM.md). `font-brand-display`
+          resolves where an ancestor carries `brandDisplay.variable` (web-kit/fonts/brand-display);
+          anywhere else it falls back to the metric-matched face, then the system sans.
+        */
+        'brand-display': [...brandFontFamily.display],
+        'brand-text': [...brandFontFamily.text],
       },
       maxWidth: {
         /*
@@ -44,6 +51,8 @@ const preset: Partial<Config> = {
         prose: '42rem',
         /** A console form's main column (DESIGN-DIRECTION: 640-720px). */
         form: '45rem',
+        /** The brand console's content column beside its sidebar (DESIGN-SYSTEM.md). */
+        'brand-console': '80rem',
       },
       fontSize: {
         hero: typeScale.hero,
@@ -59,6 +68,8 @@ const preset: Partial<Config> = {
         headline: typeScale.headline,
         ui: typeScale.ui,
         micro: typeScale.micro,
+        // The brand layer's scale (`text-brand-hero` ... `text-brand-figure-sm`); see tokens.ts.
+        ...brandTypeScale,
       },
       spacing: {
         /*
@@ -159,6 +170,41 @@ const preset: Partial<Config> = {
           'rose-foreground': hsl('--tile-rose-foreground'),
         },
         ring: hsl('--ring'),
+        /*
+          ── THE BRAND LAYER ──────────────────────────────────────────────────────────
+          brand.css. These resolve only inside an element with `data-brand`; a page that has
+          not opted in has none of the variables, so nothing it renders can change. Ink is
+          text, marigold is a fill that always carries `text-brand-on-marigold`, and the four
+          status pairs are `text-brand-<s>` on `bg-brand-<s>-tint`. See DESIGN-SYSTEM.md
+          for what each may NOT be used for.
+        */
+        brand: {
+          canvas: hsl('--brand-canvas'),
+          surface: hsl('--brand-surface'),
+          sunken: hsl('--brand-sunken'),
+          ink: hsl('--brand-ink'),
+          'ink-2': hsl('--brand-ink-2'),
+          'ink-3': hsl('--brand-ink-3'),
+          line: hsl('--brand-line'),
+          'line-strong': hsl('--brand-line-strong'),
+          field: hsl('--brand-field'),
+          action: hsl('--brand-action'),
+          'action-hover': hsl('--brand-action-hover'),
+          'on-action': hsl('--brand-on-action'),
+          marigold: hsl('--brand-marigold'),
+          'marigold-hover': hsl('--brand-marigold-hover'),
+          'on-marigold': hsl('--brand-on-marigold'),
+          positive: hsl('--brand-positive'),
+          'positive-tint': hsl('--brand-positive-tint'),
+          caution: hsl('--brand-caution'),
+          'caution-tint': hsl('--brand-caution-tint'),
+          critical: hsl('--brand-critical'),
+          'critical-tint': hsl('--brand-critical-tint'),
+          info: hsl('--brand-info'),
+          'info-tint': hsl('--brand-info-tint'),
+          focus: hsl('--brand-focus'),
+          scrim: hsl('--brand-scrim'),
+        },
       },
       borderRadius: {
         sm: radius.sm,
@@ -168,6 +214,9 @@ const preset: Partial<Config> = {
         xl: radius.lg,
         '2xl': radius.xl,
         full: radius.full,
+        // Brand layer: controls and cards differ between the storefront and a console.
+        'brand-control': 'var(--brand-radius-control, 0.625rem)',
+        'brand-card': 'var(--brand-radius-card, 1rem)',
       },
       boxShadow: {
         xs: 'var(--shadow-xs)',
@@ -176,6 +225,8 @@ const preset: Partial<Config> = {
         md: 'var(--shadow-md)',
         lg: 'var(--shadow-lg)',
         none: 'none',
+        // The brand layer's ONE elevation: menus, dialogs, the sticky booking bar. Cards are flat.
+        'brand-overlay': 'var(--brand-shadow-overlay)',
       },
       ringColor: {
         DEFAULT: hsl('--ring'),

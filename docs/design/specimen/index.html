@@ -1,0 +1,1393 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ETicketsGo design specimen</title>
+    <!--
+      The one-page visual specimen for docs/design/DESIGN-SYSTEM.md.
+
+      It loads the REAL token file (packages/design-tokens/src/brand.css) and the self-hosted
+      font files, so what you see here is the system, not a picture of it. Plain CSS, no build.
+
+      Photographs are not in the repository. Open with ?img=<folder URL> pointing at the
+      showcase images (C:\etg-wt\showcase\images, Unsplash License, credits in CREDITS.md
+      beside them), e.g. index.html?img=file:///C:/etg-wt/showcase/images/
+      Without it every picture shows the brand's no-image artwork, which is also worth seeing.
+    -->
+    <link rel="stylesheet" href="../../../packages/design-tokens/src/brand.css" />
+    <link rel="stylesheet" href="../../../packages/web-kit/fonts/bricolage-grotesque.css" />
+    <link rel="stylesheet" href="../../../packages/web-kit/fonts/inter.css" />
+    <style>
+      @font-face {
+        font-family: 'Bricolage Grotesque';
+        font-weight: 500 800;
+        font-display: swap;
+        src: url('../../../packages/web-kit/fonts/bricolage-grotesque-latin.woff2') format('woff2');
+        unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+          U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
+          U+FEFF, U+FFFD;
+      }
+      @font-face {
+        font-family: 'Inter';
+        font-weight: 100 900;
+        font-display: swap;
+        src: url('../../../packages/web-kit/fonts/inter-latin.woff2') format('woff2');
+        unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+          U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
+          U+FEFF, U+FFFD;
+      }
+      :root {
+        --display: 'Bricolage Grotesque', 'Bricolage Grotesque Fallback', system-ui, sans-serif;
+        --text: 'Inter', 'Inter Fallback', system-ui, sans-serif;
+        --c: hsl(var(--brand-canvas));
+        --ink: hsl(var(--brand-ink));
+        --ink2: hsl(var(--brand-ink-2));
+        --ink3: hsl(var(--brand-ink-3));
+        --line: hsl(var(--brand-line));
+        --gutter: 40px;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+      }
+      body {
+        font-family: var(--text);
+        background: hsl(var(--brand-canvas));
+        color: hsl(var(--brand-ink));
+        -webkit-font-smoothing: antialiased;
+      }
+      .d {
+        font-family: var(--display);
+      }
+      .num {
+        font-variant-numeric: tabular-nums lining-nums;
+      }
+      .wrap {
+        max-width: 1440px;
+        margin: 0 auto;
+        padding: 0 var(--gutter);
+      }
+      .eyebrow {
+        font-size: 12px;
+        line-height: 1.2;
+        letter-spacing: 0.08em;
+        font-weight: 600;
+        text-transform: uppercase;
+        color: hsl(var(--brand-ink-3));
+      }
+      .meta {
+        font-size: 13px;
+        line-height: 1.4;
+        color: hsl(var(--brand-ink-3));
+      }
+      .ui {
+        font-size: 14px;
+        line-height: 1.45;
+      }
+      a {
+        color: inherit;
+      }
+
+      /* specimen chrome */
+      .spec-head {
+        border-bottom: 1px solid hsl(var(--brand-line));
+        padding: 28px 0 24px;
+      }
+      .spec-head .wrap {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-end;
+        gap: 24px;
+        flex-wrap: wrap;
+      }
+      .spec-title {
+        font-family: var(--display);
+        font-weight: 700;
+        font-size: 28px;
+        letter-spacing: -0.015em;
+        margin: 6px 0 0;
+      }
+      .chapter {
+        padding: 72px 0 24px;
+      }
+      .chapter h2 {
+        font-family: var(--display);
+        font-weight: 700;
+        font-size: clamp(24px, 1.17rem + 1.35vw, 36px);
+        letter-spacing: -0.02em;
+        line-height: 1.1;
+        margin: 8px 0 8px;
+      }
+      .chapter p.lead {
+        font-size: 18px;
+        line-height: 1.55;
+        color: hsl(var(--brand-ink-2));
+        max-width: 62ch;
+        margin: 0;
+      }
+
+      /* ── customer: top bar ── */
+      .topbar {
+        background: hsl(var(--brand-canvas));
+        border-bottom: 1px solid hsl(var(--brand-line));
+      }
+      .topbar .wrap {
+        height: 68px;
+        display: flex;
+        align-items: center;
+        gap: 20px;
+      }
+      .wordmark {
+        font-family: var(--display);
+        font-weight: 800;
+        font-size: 22px;
+        letter-spacing: -0.03em;
+        display: inline-flex;
+        align-items: baseline;
+        gap: 2px;
+        white-space: nowrap;
+      }
+      .wordmark i {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: hsl(var(--brand-marigold));
+        display: inline-block;
+        margin-left: 2px;
+      }
+      .city {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 14px;
+        font-weight: 600;
+        padding: 0 12px;
+        height: 40px;
+        border-radius: 999px;
+        border: 1px solid hsl(var(--brand-line-strong));
+        background: hsl(var(--brand-surface));
+        white-space: nowrap;
+      }
+      .search {
+        flex: 1;
+        max-width: 560px;
+        height: 44px;
+        border-radius: 10px;
+        border: 1px solid hsl(var(--brand-field));
+        background: hsl(var(--brand-surface));
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 0 14px;
+        color: hsl(var(--brand-ink-3));
+        font-size: 15px;
+      }
+      .nav-links {
+        display: flex;
+        gap: 22px;
+        font-size: 14px;
+        font-weight: 600;
+        margin-left: auto;
+      }
+      .nav-links span:first-child {
+        box-shadow: inset 0 -2px 0 hsl(var(--brand-ink));
+        padding-bottom: 4px;
+      }
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        height: 44px;
+        padding: 0 20px;
+        border-radius: var(--brand-radius-control);
+        font: 600 14px/1 var(--text);
+        border: 0;
+        white-space: nowrap;
+      }
+      .btn-lg {
+        height: 48px;
+        padding: 0 24px;
+        font-size: 16px;
+      }
+      .btn-sm {
+        height: 36px;
+        padding: 0 12px;
+      }
+      .btn-primary {
+        background: hsl(var(--brand-action));
+        color: hsl(var(--brand-on-action));
+      }
+      .btn-marigold {
+        background: hsl(var(--brand-marigold));
+        color: hsl(var(--brand-on-marigold));
+      }
+      .btn-secondary {
+        background: hsl(var(--brand-surface));
+        color: hsl(var(--brand-ink));
+        border: 1px solid hsl(var(--brand-line-strong));
+      }
+      .btn-quiet {
+        background: transparent;
+        color: hsl(var(--brand-ink));
+      }
+      .btn-focus {
+        outline: 2px solid hsl(var(--brand-focus));
+        outline-offset: 2px;
+      }
+
+      /* ── customer: stage hero ── */
+      .hero {
+        position: relative;
+        background: hsl(var(--brand-canvas));
+        overflow: hidden;
+      }
+      .hero .art {
+        position: absolute;
+        inset: 0;
+      }
+      .hero .art img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        object-position: 50% 55%;
+      }
+      .hero .art::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(
+          90deg,
+          hsl(var(--brand-scrim) / 0.92) 0%,
+          hsl(var(--brand-scrim) / 0.72) 42%,
+          hsl(var(--brand-scrim) / 0) 75%
+        );
+      }
+      .hero .wrap {
+        position: relative;
+        min-height: 560px;
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-end;
+        padding-top: 96px;
+        padding-bottom: 56px;
+      }
+      .hero h1 {
+        font-family: var(--display);
+        font-weight: 800;
+        font-size: clamp(40px, 1.4rem + 4.5vw, 80px);
+        line-height: 0.98;
+        letter-spacing: -0.03em;
+        margin: 14px 0 18px;
+        max-width: 14ch;
+      }
+      .hero .facts {
+        display: flex;
+        gap: 10px 28px;
+        flex-wrap: wrap;
+        font-size: 16px;
+        color: hsl(var(--brand-ink-2));
+        margin-bottom: 28px;
+        max-width: 560px;
+      }
+      .hero .facts b {
+        color: hsl(var(--brand-ink));
+        font-weight: 600;
+      }
+      .hero .cta {
+        display: flex;
+        gap: 16px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      .hero .price {
+        font-size: 15px;
+        color: hsl(var(--brand-ink-2));
+      }
+      .hero .price b {
+        color: hsl(var(--brand-ink));
+        font-size: 20px;
+      }
+      .pager {
+        position: absolute;
+        right: var(--gutter);
+        bottom: 56px;
+        display: flex;
+        gap: 6px;
+      }
+      .pager i {
+        width: 28px;
+        height: 3px;
+        border-radius: 2px;
+        background: hsl(var(--brand-ink) / 0.3);
+      }
+      .pager i:first-child {
+        background: hsl(var(--brand-marigold));
+      }
+      .live {
+        display: inline-flex;
+        white-space: nowrap;
+        align-items: center;
+        height: 24px;
+        padding: 0 10px;
+        border-radius: 999px;
+        font-size: 13px;
+        font-weight: 600;
+        background: hsl(var(--brand-marigold));
+        color: hsl(var(--brand-on-marigold));
+      }
+
+      /* ── customer: chips + editorial ── */
+      .chips {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        padding: 24px 0 8px;
+      }
+      .chip {
+        height: 36px;
+        padding: 0 16px;
+        border-radius: 999px;
+        display: inline-flex;
+        align-items: center;
+        font-size: 14px;
+        font-weight: 500;
+        border: 1px solid hsl(var(--brand-line-strong));
+        background: hsl(var(--brand-surface));
+        white-space: nowrap;
+      }
+      .chip.on {
+        background: hsl(var(--brand-action));
+        color: hsl(var(--brand-on-action));
+        border-color: transparent;
+      }
+      .sec-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 16px;
+        margin: 48px 0 20px;
+      }
+      .sec-head h3 {
+        font-family: var(--display);
+        font-weight: 700;
+        font-size: clamp(24px, 1.17rem + 1.35vw, 36px);
+        letter-spacing: -0.02em;
+        line-height: 1.1;
+        margin: 0;
+      }
+      .sec-head a {
+        font-size: 14px;
+        font-weight: 600;
+        text-underline-offset: 4px;
+      }
+      .editorial {
+        display: grid;
+        grid-template-columns: 7fr 5fr;
+        gap: 32px;
+      }
+      .feature .frame,
+      .card .frame,
+      .poster .frame,
+      .row .frame {
+        position: relative;
+        overflow: hidden;
+        border-radius: var(--brand-radius-card);
+        background: hsl(var(--brand-sunken));
+      }
+      .frame img {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+      .r169 {
+        aspect-ratio: 16/9;
+      }
+      .r43 {
+        aspect-ratio: 4/3;
+      }
+      .r23 {
+        aspect-ratio: 2/3;
+      }
+      .r11 {
+        aspect-ratio: 1;
+      }
+      .feature h4 {
+        font-family: var(--display);
+        font-weight: 700;
+        font-size: clamp(20px, 1.14rem + 0.45vw, 24px);
+        letter-spacing: -0.01em;
+        line-height: 1.2;
+        margin: 16px 0 6px;
+      }
+      .when {
+        font-size: 14px;
+        font-weight: 600;
+        color: hsl(var(--brand-ink));
+      }
+      .list {
+        display: flex;
+        flex-direction: column;
+      }
+      .row {
+        display: grid;
+        grid-template-columns: 112px 1fr auto;
+        gap: 16px;
+        align-items: center;
+        padding: 14px 0;
+        border-top: 1px solid hsl(var(--brand-line));
+      }
+      .row:first-child {
+        border-top: 0;
+        padding-top: 0;
+      }
+      .row .frame {
+        border-radius: 10px;
+      }
+      .row h5,
+      .card h5 {
+        font-family: var(--display);
+        font-weight: 650;
+        font-size: 17px;
+        line-height: 1.3;
+        letter-spacing: -0.005em;
+        margin: 4px 0 4px;
+      }
+      .from {
+        font-size: 13px;
+        color: hsl(var(--brand-ink-3));
+        text-align: right;
+        white-space: nowrap;
+      }
+      .from b {
+        display: block;
+        font-size: 15px;
+        color: hsl(var(--brand-ink));
+        font-weight: 600;
+      }
+      .cards {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 24px;
+      }
+      .card .info {
+        padding-top: 12px;
+      }
+      .card .line {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        margin-top: 6px;
+      }
+
+      /* fallback artwork: the title, set, on the stage */
+      .artwork {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-end;
+        gap: 8px;
+        padding: 8%;
+        background: hsl(var(--brand-canvas));
+        color: hsl(var(--brand-ink));
+      }
+      .artwork .t {
+        font-family: var(--display);
+        font-weight: 700;
+        font-size: clamp(18px, 1.14rem + 0.45vw, 24px);
+        line-height: 1.05;
+        letter-spacing: -0.01em;
+      }
+      .artwork .rule {
+        width: 40px;
+        height: 4px;
+        border-radius: 2px;
+        background: hsl(var(--brand-marigold));
+      }
+
+      /* ── film rail on the stage ── */
+      .stage-band {
+        background: hsl(var(--brand-canvas));
+        color: hsl(var(--brand-ink));
+        padding: 8px 0 56px;
+        margin-top: 64px;
+      }
+      .posters {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 24px;
+      }
+      .poster .t {
+        font-family: var(--display);
+        font-weight: 650;
+        font-size: 17px;
+        margin: 12px 0 2px;
+      }
+      .cert {
+        display: inline-flex;
+        height: 20px;
+        align-items: center;
+        padding: 0 6px;
+        border: 1px solid hsl(var(--brand-line-strong));
+        border-radius: 4px;
+        font-size: 11px;
+        font-weight: 600;
+        color: hsl(var(--brand-ink-2));
+        margin-right: 6px;
+      }
+
+      /* ── foundations ── */
+      .swatches {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 16px;
+      }
+      .sw {
+        border: 1px solid hsl(var(--brand-line));
+        border-radius: 12px;
+        overflow: hidden;
+        background: hsl(var(--brand-surface));
+      }
+      .sw .chip-c {
+        height: 88px;
+        display: flex;
+        align-items: flex-end;
+        padding: 12px;
+        font: 600 13px var(--text);
+      }
+      .sw .txt {
+        padding: 12px;
+        font-size: 13px;
+        line-height: 1.45;
+        color: hsl(var(--brand-ink-2));
+      }
+      .sw .txt b {
+        color: hsl(var(--brand-ink));
+        display: block;
+        font-size: 14px;
+      }
+      .sw .no {
+        color: hsl(var(--brand-critical));
+        font-weight: 600;
+      }
+      .type-grid {
+        display: grid;
+        grid-template-columns: 220px 1fr;
+        gap: 18px 32px;
+        align-items: baseline;
+      }
+      .type-grid .k {
+        font-size: 13px;
+        color: hsl(var(--brand-ink-3));
+      }
+      .type-grid .k b {
+        display: block;
+        color: hsl(var(--brand-ink));
+        font-weight: 600;
+      }
+      .two {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 32px;
+      }
+      .panel {
+        background: hsl(var(--brand-surface));
+        border: 1px solid hsl(var(--brand-line));
+        border-radius: var(--brand-radius-card);
+        padding: 24px;
+      }
+      .field label {
+        display: block;
+        font-size: 14px;
+        font-weight: 600;
+        margin-bottom: 6px;
+      }
+      .field .in {
+        height: 44px;
+        border: 1px solid hsl(var(--brand-field));
+        border-radius: 10px;
+        background: hsl(var(--brand-surface));
+        display: flex;
+        align-items: center;
+        padding: 0 14px;
+        font-size: 15px;
+      }
+      .field .hint {
+        font-size: 13px;
+        color: hsl(var(--brand-ink-3));
+        margin-top: 6px;
+      }
+      .field .err {
+        font-size: 13px;
+        color: hsl(var(--brand-critical));
+        margin-top: 6px;
+        font-weight: 500;
+      }
+      .pill {
+        display: inline-flex;
+        white-space: nowrap;
+        align-items: center;
+        height: 24px;
+        padding: 0 10px;
+        border-radius: 999px;
+        font-size: 13px;
+        font-weight: 600;
+      }
+      .p-pos {
+        background: hsl(var(--brand-positive-tint));
+        color: hsl(var(--brand-positive));
+      }
+      .p-cau {
+        background: hsl(var(--brand-caution-tint));
+        color: hsl(var(--brand-caution));
+      }
+      .p-cri {
+        background: hsl(var(--brand-critical-tint));
+        color: hsl(var(--brand-critical));
+      }
+      .p-inf {
+        background: hsl(var(--brand-info-tint));
+        color: hsl(var(--brand-info));
+      }
+      .p-neu {
+        background: hsl(var(--brand-sunken));
+        color: hsl(var(--brand-ink-2));
+      }
+      .tickets .tt {
+        display: grid;
+        grid-template-columns: 1fr auto auto;
+        gap: 16px;
+        align-items: center;
+        padding: 16px 0;
+        border-top: 1px solid hsl(var(--brand-line));
+      }
+      .tickets .tt:first-child {
+        border-top: 0;
+        padding-top: 0;
+      }
+      .stepper {
+        display: inline-flex;
+        align-items: center;
+        border: 1px solid hsl(var(--brand-line-strong));
+        border-radius: 10px;
+        height: 40px;
+      }
+      .stepper span {
+        width: 40px;
+        text-align: center;
+        font-weight: 600;
+      }
+      .booking-bar {
+        margin-top: 16px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 16px;
+        padding: 16px;
+        border-radius: var(--brand-radius-card);
+        background: hsl(var(--brand-surface));
+        box-shadow: var(--brand-shadow-overlay);
+      }
+      .seats {
+        display: grid;
+        grid-template-columns: repeat(14, 1fr);
+        gap: 6px;
+        max-width: 440px;
+        margin: 20px auto 16px;
+      }
+      .seat {
+        aspect-ratio: 1;
+        border-radius: 5px 5px 3px 3px;
+        border: 1.5px solid hsl(var(--brand-ink-3));
+      }
+      .seat.sold {
+        border-color: transparent;
+        background: hsl(var(--brand-sunken));
+      }
+      .seat.sel {
+        border-color: transparent;
+        background: hsl(var(--brand-marigold));
+      }
+      .seat.gap {
+        border: 0;
+      }
+      .screen {
+        height: 6px;
+        border-radius: 999px;
+        background: linear-gradient(90deg, transparent, hsl(var(--brand-ink-3)), transparent);
+        margin: 0 10% 4px;
+      }
+
+      /* imagery */
+      .ratios {
+        display: grid;
+        grid-template-columns: 2.2fr 1.4fr 0.8fr 1fr;
+        gap: 20px;
+        align-items: end;
+      }
+      .ratios .cap {
+        font-size: 13px;
+        color: hsl(var(--brand-ink-2));
+        margin-top: 8px;
+        line-height: 1.45;
+      }
+      .ratios .cap b {
+        color: hsl(var(--brand-ink));
+      }
+      .focal {
+        position: absolute;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        border: 2px solid #fff;
+        box-shadow: 0 0 0 2px hsl(var(--brand-ink));
+        transform: translate(-50%, -50%);
+        z-index: 2;
+      }
+
+      /* ── console ── */
+      .console-shot {
+        border: 1px solid hsl(var(--brand-line-strong));
+        border-radius: 14px;
+        overflow: hidden;
+        background: hsl(var(--brand-canvas));
+        color: hsl(var(--brand-ink));
+        display: grid;
+        grid-template-columns: 232px 1fr;
+        min-height: 640px;
+      }
+      .side {
+        border-right: 1px solid hsl(var(--brand-line));
+        padding: 20px 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .side .org {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        padding: 6px 8px 18px;
+      }
+      .side .org .mono {
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+        background: hsl(var(--brand-ink));
+        color: hsl(var(--brand-canvas));
+        display: grid;
+        place-items: center;
+        font: 700 13px var(--display);
+      }
+      .side .grp {
+        font-size: 12px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        font-weight: 600;
+        color: hsl(var(--brand-ink-3));
+        padding: 16px 10px 6px;
+      }
+      .side .it {
+        height: 36px;
+        display: flex;
+        align-items: center;
+        padding: 0 10px;
+        border-radius: 8px;
+        font-size: 14px;
+        color: hsl(var(--brand-ink-2));
+        position: relative;
+      }
+      .side .it.on {
+        background: hsl(var(--brand-surface));
+        color: hsl(var(--brand-ink));
+        font-weight: 600;
+        box-shadow: inset 0 0 0 1px hsl(var(--brand-line));
+      }
+      .side .it.on::before {
+        content: '';
+        position: absolute;
+        left: -14px;
+        top: 8px;
+        bottom: 8px;
+        width: 3px;
+        border-radius: 0 2px 2px 0;
+        background: hsl(var(--brand-marigold));
+      }
+      .main {
+        padding: 28px 32px;
+        min-width: 0;
+      }
+      .main .ttl {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-end;
+        gap: 16px;
+        flex-wrap: wrap;
+      }
+      .main h3 {
+        font-family: var(--display);
+        font-weight: 650;
+        font-size: 28px;
+        letter-spacing: -0.015em;
+        margin: 4px 0 0;
+      }
+      .figures {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        border: 1px solid hsl(var(--brand-line));
+        border-radius: var(--brand-radius-card);
+        background: hsl(var(--brand-surface));
+        margin: 24px 0;
+      }
+      .fig {
+        padding: 18px 20px;
+        border-left: 1px solid hsl(var(--brand-line));
+      }
+      .fig:first-child {
+        border-left: 0;
+      }
+      .fig .v {
+        font-size: clamp(28px, 1.53rem + 0.9vw, 36px);
+        font-weight: 600;
+        letter-spacing: -0.02em;
+        line-height: 1.1;
+        margin: 8px 0 4px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 14px;
+      }
+      th {
+        text-align: left;
+        font-size: 12px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: hsl(var(--brand-ink-3));
+        font-weight: 600;
+        padding: 10px 12px;
+        border-bottom: 1px solid hsl(var(--brand-line));
+      }
+      td {
+        padding: 12px;
+        border-bottom: 1px solid hsl(var(--brand-line));
+        vertical-align: middle;
+      }
+      td.r,
+      th.r {
+        text-align: right;
+      }
+      .tbl {
+        background: hsl(var(--brand-surface));
+        border: 1px solid hsl(var(--brand-line));
+        border-radius: var(--brand-radius-card);
+        overflow: hidden;
+      }
+      .tbl .h {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 16px 16px 8px 16px;
+      }
+      .tbl .h b {
+        font-size: 16px;
+      }
+      .ev {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+      }
+      .ev .thumb {
+        width: 44px;
+        height: 44px;
+        border-radius: 8px;
+        overflow: hidden;
+        position: relative;
+        background: hsl(var(--brand-sunken));
+        flex: none;
+      }
+      .bar {
+        height: 6px;
+        border-radius: 3px;
+        background: hsl(var(--brand-sunken));
+        overflow: hidden;
+        width: 120px;
+        display: inline-block;
+        vertical-align: middle;
+        margin-right: 8px;
+      }
+      .bar i {
+        display: block;
+        height: 100%;
+        background: hsl(var(--brand-ink));
+      }
+      .note {
+        font-size: 13px;
+        color: hsl(var(--brand-ink-3));
+        margin-top: 10px;
+      }
+      .footer {
+        border-top: 1px solid hsl(var(--brand-line));
+        margin-top: 72px;
+        padding: 24px 0 40px;
+        font-size: 13px;
+        color: hsl(var(--brand-ink-3));
+      }
+
+      /* ── phone ── */
+      @media (max-width: 760px) {
+        :root {
+          --gutter: 16px;
+        }
+        .topbar .wrap {
+          height: auto;
+          flex-wrap: wrap;
+          padding-top: 12px;
+          padding-bottom: 12px;
+          gap: 12px;
+        }
+        .nav-links,
+        .topbar .btn {
+          display: none;
+        }
+        .city {
+          margin-left: auto;
+        }
+        .search {
+          flex-basis: 100%;
+          max-width: none;
+        }
+        .hero .wrap {
+          min-height: 520px;
+          padding-bottom: 32px;
+        }
+        .hero .art::after {
+          background: linear-gradient(
+            0deg,
+            hsl(var(--brand-scrim) / 0.95) 0%,
+            hsl(var(--brand-scrim) / 0.6) 50%,
+            hsl(var(--brand-scrim) / 0.1) 100%
+          );
+        }
+        .pager {
+          display: none;
+        }
+        .chips {
+          flex-wrap: nowrap;
+          overflow: hidden;
+        }
+        .editorial,
+        .two {
+          grid-template-columns: 1fr;
+        }
+        .cards {
+          grid-template-columns: 1fr 1fr;
+          gap: 16px;
+        }
+        .posters {
+          grid-template-columns: repeat(5, 42%);
+          overflow: hidden;
+          gap: 16px;
+        }
+        .swatches {
+          grid-template-columns: 1fr 1fr;
+        }
+        .type-grid {
+          grid-template-columns: 1fr;
+          gap: 4px;
+        }
+        .type-grid .k {
+          margin-top: 14px;
+        }
+        .ratios {
+          grid-template-columns: 1fr 1fr;
+        }
+        .console-shot {
+          grid-template-columns: 1fr;
+        }
+        .side {
+          display: none;
+        }
+        .main {
+          padding: 20px 16px;
+        }
+        .figures {
+          grid-template-columns: 1fr 1fr;
+        }
+        .fig:nth-child(3) {
+          border-left: 0;
+        }
+        .fig:nth-child(n + 3) {
+          border-top: 1px solid hsl(var(--brand-line));
+        }
+        .hide-sm {
+          display: none;
+        }
+        .row {
+          grid-template-columns: 88px 1fr;
+        }
+        .row .from {
+          grid-column: 2;
+          text-align: left;
+        }
+        .row .from {
+          margin-top: -8px;
+        }
+        .row .from b {
+          display: inline;
+          margin-left: 4px;
+        }
+        .chapter {
+          padding-top: 56px;
+        }
+      }
+    </style>
+  </head>
+  <body data-brand="customer">
+    <header class="spec-head">
+      <div class="wrap">
+        <div>
+          <div class="eyebrow">ETicketsGo design system / specimen 1 / October 2026</div>
+          <h1 class="spec-title">One brand, two temperaments: a stage and a desk</h1>
+        </div>
+        <div class="meta">
+          Tokens: packages/design-tokens/src/brand.css. Faces: Bricolage Grotesque + Inter.
+          Listings and photos are fictional showcase content.
+        </div>
+      </div>
+    </header>
+
+    <!-- ═════════ 1. THE STOREFRONT ═════════ -->
+    <section class="chapter" style="padding-bottom: 32px">
+      <div class="wrap">
+        <div class="eyebrow">1 / Customer</div>
+        <h2>The storefront is a stage</h2>
+        <p class="lead">
+          Paper and ink, one marigold light, and photography doing the shouting. Energy comes from
+          scale, imagery and rhythm, not from colour or effects.
+        </p>
+      </div>
+    </section>
+
+    <div class="topbar">
+      <div class="wrap">
+        <span class="wordmark">ETicketsGo<i></i></span>
+        <span class="city">Bengaluru <span aria-hidden="true">&#9662;</span></span>
+        <span class="search">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+          Search events, films, venues and artists
+        </span>
+        <nav class="nav-links"><span>Explore</span><span>Movies</span><span>Tickets</span></nav>
+        <span class="btn btn-secondary btn-sm">Sign in</span>
+      </div>
+    </div>
+
+    <section class="hero" data-brand-tone="stage">
+      <div class="art"><img data-img="specimen-hero-crowd" alt="Crowd facing a lit stage at night" /></div>
+      <div class="wrap">
+        <div><span class="live">Selling fast</span></div>
+        <h1>Neon Raga: Live Under the Stars</h1>
+        <div class="facts">
+          <span><b>Sat 21 Nov</b> 6:30 PM</span>
+          <span><b>Ulsoor Lakeside Amphitheatre</b> Bengaluru</span>
+          <span>Monsoon Sound Co.</span>
+        </div>
+        <div class="cta">
+          <span class="btn btn-primary btn-lg">Book tickets</span>
+          <span class="price num">From <b>&#8377;999</b></span>
+        </div>
+      </div>
+      <div class="pager" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+    </section>
+
+    <div class="wrap">
+      <div class="chips">
+        <span class="chip on">All</span><span class="chip">Today</span><span class="chip">This weekend</span><span class="chip">Music</span><span class="chip">Comedy</span><span class="chip">Theatre</span><span class="chip">Workshops</span><span class="chip">Sports</span>
+      </div>
+
+      <div class="sec-head">
+        <h3>This weekend in Bengaluru</h3>
+        <a href="#">See all 38</a>
+      </div>
+      <div class="editorial">
+        <article class="feature">
+          <div class="frame r169"><img data-img="workshop-coffee-pour" style="object-position: 50% 72%" alt="Hands pouring coffee" /></div>
+          <div class="eyebrow" style="margin-top: 16px">Workshop</div>
+          <h4>Slow Coffee: A Home Brewing Masterclass</h4>
+          <div class="when">Sun 15 Nov, 10:30 AM <span class="meta">&nbsp;The Roastery Room, Jayanagar</span></div>
+          <div class="meta num" style="margin-top: 6px">&#8377;1,499 &middot; 16 seats &middot; <span class="pill p-cau" style="height: 22px">4 left</span></div>
+        </article>
+        <div class="list">
+          <div class="row">
+            <div class="frame r43"><img data-img="comedy-mic-stage" alt="Microphone on a small stage" /></div>
+            <div><div class="eyebrow">Comedy</div><h5>Notes From the Local Train</h5><div class="meta">Sat 7 Nov, 8:00 PM &middot; Bandra Stage Room, Mumbai</div></div>
+            <div class="from num">From<b>&#8377;499</b></div>
+          </div>
+          <div class="row">
+            <div class="frame r43"><img data-img="concert-strings-warm" alt="String players on a warmly lit stage" /></div>
+            <div><div class="eyebrow">Music</div><h5>Deccan Nights: Sufi and Strings</h5><div class="meta">Sat 28 Nov, 7:00 PM &middot; Banjara Hills Amphitheatre</div></div>
+            <div class="from num">From<b>&#8377;799</b></div>
+          </div>
+          <div class="row">
+            <div class="frame r43"><span class="artwork" data-brand-tone="stage" style="padding: 10px"><span class="t" style="font-size: 15px">The Last Ferry</span><span class="rule"></span></span></div>
+            <div><div class="eyebrow">Theatre / no photo yet</div><h5>The Last Ferry</h5><div class="meta">Sat 5 Dec, 7:30 PM &middot; Colaba Playhouse</div></div>
+            <div class="from num">From<b>&#8377;600</b></div>
+          </div>
+          <div class="row">
+            <div class="frame r43"><img data-img="sports-night-run" alt="Runners on a city street at night" /></div>
+            <div><div class="eyebrow">Sports</div><h5>Lakeside Night 10K</h5><div class="meta">Sat 12 Dec, 9:00 PM &middot; Hyderabad</div></div>
+            <div class="from num">From<b>&#8377;599</b></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sec-head">
+        <h3>Around the world on ETicketsGo</h3>
+        <a href="#">Change city</a>
+      </div>
+      <div class="cards">
+        <article class="card">
+          <div class="frame r43"><img data-img="concert-jazz-sax" alt="Saxophone player in a dark room" /></div>
+          <div class="info"><div class="eyebrow">Music / New York</div><h5>Rooftop Jazz on Atlantic</h5><div class="line"><span class="meta">Fri 20 Nov, 7:30 PM</span><span class="ui num"><b>$45</b></span></div></div>
+        </article>
+        <article class="card">
+          <div class="frame r43"><img data-img="theatre-audience-house" alt="An empty theatre auditorium" /></div>
+          <div class="info"><div class="eyebrow">Theatre / Toronto</div><h5>Snowbound: A Winter Comedy</h5><div class="line"><span class="meta">Thu 10 Dec, 7:30 PM</span><span class="ui num"><b>CA$32</b></span></div></div>
+        </article>
+        <article class="card">
+          <div class="frame r43"><img data-img="comedy-club-crowd" alt="A comic on stage in red light" /></div>
+          <div class="info"><div class="eyebrow">Comedy / New Delhi</div><h5>Overthinking, Live</h5><div class="line"><span class="meta">Sat 14 Nov, 9:00 PM</span><span class="ui num"><b>&#8377;699</b></span></div></div>
+        </article>
+        <article class="card">
+          <div class="frame r43"><img data-img="workshop-block-print" style="object-position: 55% 35%" alt="Hands block printing on cloth" /></div>
+          <div class="info"><div class="eyebrow">Workshop / Hyderabad</div><h5>Block Printing for Beginners</h5><div class="line"><span class="meta">Sun 22 Nov, 11:00 AM</span><span class="ui num"><b>&#8377;1,800</b></span></div></div>
+        </article>
+      </div>
+    </div>
+
+    <section class="stage-band" data-brand-tone="stage">
+      <div class="wrap">
+        <div class="sec-head">
+          <h3>Now showing</h3>
+          <a href="#">All films in Bengaluru</a>
+        </div>
+        <div class="posters">
+          <div class="poster"><div class="frame r23"><img data-img="film-long-monsoon-poster" alt="A boat on a misty river" /></div><div class="t">The Long Monsoon</div><div class="meta"><span class="cert">UA13+</span>Kannada &middot; 2h 18m</div></div>
+          <div class="poster"><div class="frame r23"><img data-img="film-winter-signal-poster" alt="Railway tracks in a misty forest" /></div><div class="t">Winter Signal</div><div class="meta"><span class="cert">UA16+</span>Hindi &middot; 2h 26m</div></div>
+          <div class="poster"><div class="frame r23"><img data-img="film-saltpan-poster" alt="Workers in salt fields" /></div><div class="t">Saltpan</div><div class="meta"><span class="cert">U</span>Marathi &middot; 2h 1m</div></div>
+          <div class="poster"><div class="frame r23"><img data-img="film-northern-line-poster" alt="A train in snow at night" /></div><div class="t">Northern Line</div><div class="meta"><span class="cert">PG</span>English &middot; 1h 52m</div></div>
+          <div class="poster"><div class="frame r23"><span class="artwork" data-brand-tone="stage" style="background: hsl(var(--brand-surface))"><span class="eyebrow">Film</span><span class="t">The Quiet Harbour</span><span class="rule"></span></span></div><div class="t">The Quiet Harbour</div><div class="meta"><span class="cert">U</span>Tamil &middot; poster pending</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═════════ 2. FOUNDATIONS ═════════ -->
+    <section class="chapter">
+      <div class="wrap">
+        <div class="eyebrow">2 / Foundations</div>
+        <h2>Colour is information, not decoration</h2>
+        <p class="lead">Three brand colours and four status pairs. Each one has a job and a list of things it may not do.</p>
+        <div class="swatches" style="margin-top: 28px">
+          <div class="sw"><div class="chip-c" style="background: hsl(var(--brand-canvas)); border-bottom: 1px solid var(--line)">Paper #FBFAF7</div><div class="txt"><b>Canvas</b>The page. Cards are white on it; nothing else is tinted. <span class="no">Never pure white as a page.</span></div></div>
+          <div class="sw"><div class="chip-c" style="background: hsl(var(--brand-ink)); color: hsl(var(--brand-on-action))">Ink #171412</div><div class="txt"><b>Ink</b>Text, and the primary action on paper. 17.5:1. <span class="no">Never softened to grey for style.</span></div></div>
+          <div class="sw"><div class="chip-c" style="background: hsl(var(--brand-marigold))">Marigold #FFBA1A</div><div class="txt"><b>Marigold, the light</b>The action on a stage; on paper a fill with ink on it. <span class="no">Never text on paper, never a warning.</span></div></div>
+          <div class="sw" data-brand-tone="stage"><div class="chip-c" style="background: hsl(var(--brand-canvas)); color: hsl(var(--brand-ink))">Stage #110F0D</div><div class="txt" style="background: hsl(var(--brand-surface)); color: hsl(var(--brand-ink-2))"><b>Stage tone</b>A band, not a dark mode: hero, film header, seat map, footer.</div></div>
+        </div>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 20px; align-items: center">
+          <span class="pill p-pos">On sale</span><span class="pill p-cau">4 left</span><span class="pill p-cri">Payment failed</span><span class="pill p-inf">Under review</span><span class="pill p-neu">Draft</span><span class="live">Today</span>
+          <span class="meta" style="margin-left: 8px">Status pairs 5.5:1 to 6.6:1. Every state also has words.</span>
+        </div>
+
+        <div class="sec-head"><h3>Type: a voice and a workhorse</h3></div>
+        <div class="type-grid">
+          <div class="k"><b>Hero</b>Bricolage 800 / 40-80px</div>
+          <div class="d" style="font-weight: 800; font-size: clamp(40px, 1.4rem + 4.5vw, 80px); line-height: 0.98; letter-spacing: -0.03em">Tonight, live.</div>
+          <div class="k"><b>Display 1</b>Bricolage 700 / 32-56px</div>
+          <div class="d" style="font-weight: 700; font-size: clamp(32px, 1.34rem + 2.7vw, 56px); line-height: 1.02; letter-spacing: -0.025em">A House on Daryaganj Lane</div>
+          <div class="k"><b>Display 2</b>Bricolage 700 / 24-36px</div>
+          <div class="d" style="font-weight: 700; font-size: clamp(24px, 1.17rem + 1.35vw, 36px); letter-spacing: -0.02em">Les spectacles de la semaine &agrave; Toronto</div>
+          <div class="k"><b>Console page title</b>Bricolage 650 / 24-28px</div>
+          <div class="d" style="font-weight: 650; font-size: 28px; letter-spacing: -0.015em">Overview</div>
+          <div class="k"><b>Body</b>Inter 400 / 16px / 1.6</div>
+          <div style="font-size: 16px; line-height: 1.6; max-width: 62ch">Four strangers miss the last boat home and spend one long night on the jetty. Doors open 30 minutes before the start. Latecomers are seated at a suitable break.</div>
+          <div class="k"><b>Figures</b>Inter 600, tabular</div>
+          <div class="num" style="font-size: 32px; font-weight: 600; letter-spacing: -0.02em">&#8377;4,82,350 &nbsp; $12,940.00 &nbsp; 12 940,00 $&nbsp;CA</div>
+          <div class="k"><b>Eyebrow / meta</b>Inter 600 12px caps / 13px</div>
+          <div><span class="eyebrow">Music / Bengaluru</span> &nbsp; <span class="meta">Sat 21 Nov, 6:30 PM IST</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═════════ 3. COMPONENTS ═════════ -->
+    <section class="chapter">
+      <div class="wrap">
+        <div class="eyebrow">3 / Components</div>
+        <h2>Few parts, used the same way everywhere</h2>
+        <div class="two" style="margin-top: 28px">
+          <div class="panel">
+            <div class="eyebrow" style="margin-bottom: 14px">Buttons, chips, fields</div>
+            <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center">
+              <span class="btn btn-primary">Continue to payment</span>
+              <span class="btn btn-marigold">Book tickets</span>
+              <span class="btn btn-secondary">Add to calendar</span>
+              <span class="btn btn-quiet">Share</span>
+              <span class="btn btn-primary btn-focus">Focused</span>
+            </div>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap; margin: 18px 0 22px">
+              <span class="chip on">Sat 21</span><span class="chip">Sun 22</span><span class="chip">Mon 23</span><span class="chip">Tue 24</span>
+            </div>
+            <div class="two" style="gap: 16px">
+              <div class="field"><label>Email for your tickets</label><div class="in">asha@example.com</div><div class="hint">We send the tickets here.</div></div>
+              <div class="field"><label>Mobile number</label><div class="in" style="border-color: hsl(var(--brand-critical)); border-width: 2px">+91 98450</div><div class="err">Enter all 10 digits.</div></div>
+            </div>
+          </div>
+          <div class="panel tickets">
+            <div class="eyebrow" style="margin-bottom: 14px">Ticket selection, money in tabular figures</div>
+            <div class="tt"><div><b>Lawn</b><div class="meta">Standing and picnic area</div></div><div class="num"><b>&#8377;999</b></div><div class="stepper"><span>&minus;</span><span>2</span><span>+</span></div></div>
+            <div class="tt"><div><b>Gold seating</b><div class="meta">Numbered chairs, rows A-P</div></div><div class="num"><b>&#8377;1,999</b></div><div class="stepper"><span>&minus;</span><span>0</span><span>+</span></div></div>
+            <div class="tt"><div><b>Front row</b> <span class="pill p-cau" style="height: 22px">6 left</span><div class="meta">Rows 1-2, closest to the stage</div></div><div class="num"><b>&#8377;3,499</b></div><div class="stepper"><span>&minus;</span><span>0</span><span>+</span></div></div>
+            <div class="booking-bar"><div><div class="meta">2 tickets, before fees</div><div class="num" style="font-size: 20px; font-weight: 600">&#8377;1,998</div></div><span class="btn btn-primary">Continue</span></div>
+          </div>
+        </div>
+        <div class="two" style="margin-top: 32px">
+          <div class="panel" data-brand-tone="stage" style="background: hsl(var(--brand-canvas)); border-color: hsl(var(--brand-line))">
+            <div class="eyebrow">Seat map, on the stage tone</div>
+            <div class="seats" id="seats"></div>
+            <div class="screen"></div>
+            <div class="meta" style="text-align: center">Screen this way</div>
+            <div style="display: flex; gap: 18px; margin-top: 16px; font-size: 13px; color: hsl(var(--brand-ink-2))">
+              <span><span class="seat" style="display: inline-block; width: 14px; vertical-align: middle"></span> Available</span>
+              <span><span class="seat sel" style="display: inline-block; width: 14px; vertical-align: middle"></span> Your seats</span>
+              <span><span class="seat sold" style="display: inline-block; width: 14px; vertical-align: middle"></span> Taken</span>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="eyebrow">Imagery: the box decides the shape</div>
+            <div class="ratios" style="margin-top: 14px">
+              <div><div class="frame r169" style="position: relative; overflow: hidden; border-radius: 10px; background: hsl(var(--brand-sunken))"><img data-img="theatre-spotlight-actor" style="object-position: 78% 60%" alt="" /><span class="focal" style="left: 78%; top: 60%"></span></div><div class="cap"><b>16:9 banner</b> hero, event header. 2400px original.</div></div>
+              <div><div class="frame r43" style="position: relative; overflow: hidden; border-radius: 10px; background: hsl(var(--brand-sunken))"><img data-img="theatre-spotlight-actor" style="object-position: 78% 60%" alt="" /><span class="focal" style="left: 62%; top: 60%"></span></div><div class="cap"><b>4:3 card</b> lists, rails.</div></div>
+              <div><div class="frame r23" style="position: relative; overflow: hidden; border-radius: 10px; background: hsl(var(--brand-sunken))"><img data-img="film-winter-signal-poster" alt="" /></div><div class="cap"><b>2:3 poster</b> films only.</div></div>
+              <div><div class="frame r11" style="position: relative; overflow: hidden; border-radius: 10px"><span class="artwork" data-brand-tone="stage"><span class="eyebrow">Comedy</span><span class="t" style="font-size: 14px">Overthinking, Live</span><span class="rule"></span></span></div><div class="cap"><b>No photo</b> the title, set. Never a letter.</div></div>
+            </div>
+            <div class="note">The ring marks the organizer's focal point; every crop keeps it in frame.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═════════ 4. THE CONSOLE ═════════ -->
+    <section class="chapter">
+      <div class="wrap">
+        <div class="eyebrow">4 / Organizer and admin</div>
+        <h2>The console is a desk</h2>
+        <p class="lead">
+          The same paper and ink, no navy sidebar and no pastel tiles. Numbers are the loudest thing
+          on the page; marigold only marks where you are and what is happening today.
+        </p>
+      </div>
+    </section>
+    <div class="wrap" data-brand="console">
+      <div class="console-shot">
+        <aside class="side">
+          <div class="org"><span class="mono">MS</span><div><div style="font-weight: 600; font-size: 14px">Monsoon Sound Co.</div><div class="meta">Organizer</div></div></div>
+          <span class="it on">Overview</span><span class="it">Events</span><span class="it">Calendar</span><span class="it">Orders</span><span class="it">Check-in</span>
+          <span class="grp">Money</span><span class="it">Payouts</span><span class="it">Reports</span>
+          <span class="grp">Workspace</span><span class="it">Venues</span><span class="it">Team</span><span class="it">Settings</span>
+        </aside>
+        <div class="main">
+          <div class="ttl">
+            <div><div class="eyebrow">Monday 12 October</div><h3>Overview</h3></div>
+            <div style="display: flex; gap: 10px"><span class="btn btn-secondary btn-sm">Export</span><span class="btn btn-primary btn-sm">Create event</span></div>
+          </div>
+          <div class="figures">
+            <div class="fig"><div class="eyebrow">Gross sales, 30 days</div><div class="v num">&#8377;4,82,350</div><div class="meta">INR only. USD shown separately.</div></div>
+            <div class="fig"><div class="eyebrow">Tickets sold</div><div class="v num">1,284</div><div class="meta">across 6 events</div></div>
+            <div class="fig"><div class="eyebrow">Next payout</div><div class="v num">&#8377;1,96,400</div><div class="meta">Scheduled Thu 15 Oct</div></div>
+            <div class="fig"><div class="eyebrow">Needs you</div><div class="v num">2</div><div class="meta">1 event in review, 1 draft</div></div>
+          </div>
+          <div class="tbl">
+            <div class="h"><b>Coming up</b><span class="meta">Next 7 days</span></div>
+            <table>
+              <thead><tr><th>Event</th><th class="hide-sm">When</th><th class="hide-sm">Sold</th><th class="r">Gross</th><th>Status</th></tr></thead>
+              <tbody>
+                <tr><td><div class="ev"><span class="thumb"><img data-img="concert-stage-lights" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover" alt="" /></span><div><b>Neon Raga: Live Under the Stars</b><div class="meta">Ulsoor Lakeside Amphitheatre</div></div></div></td><td class="hide-sm">Sat 21 Nov, 6:30 PM</td><td class="hide-sm num"><span class="bar"><i style="width: 64%"></i></span>1,066 / 1,660</td><td class="r num">&#8377;3,12,880</td><td><span class="live">On sale</span></td></tr>
+                <tr><td><div class="ev"><span class="thumb"><img data-img="concert-strings-warm" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover" alt="" /></span><div><b>Deccan Nights: Sufi and Strings</b><div class="meta">Banjara Hills Amphitheatre</div></div></div></td><td class="hide-sm">Sat 28 Nov, 7:00 PM</td><td class="hide-sm num"><span class="bar"><i style="width: 33%"></i></span>218 / 650</td><td class="r num">&#8377;1,69,470</td><td><span class="pill p-pos">On sale</span></td></tr>
+                <tr><td><div class="ev"><span class="thumb"><span class="artwork" data-brand-tone="stage" style="padding: 6px"><span class="rule" style="width: 14px; height: 3px"></span></span></span><div><b>Monsoon Sessions: Winter Edition</b><div class="meta">No venue yet</div></div></div></td><td class="hide-sm">Not scheduled</td><td class="hide-sm meta">Not on sale</td><td class="r num meta">&mdash;</td><td><span class="pill p-neu">Draft</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="note">Illustrative figures for the specimen. On real screens every number comes from an existing API field.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="wrap">
+      <div class="two" style="margin-top: 32px">
+        <div data-brand="console" class="dark" style="border-radius: 14px; overflow: hidden">
+          <div style="background: hsl(var(--brand-canvas)); color: hsl(var(--brand-ink)); padding: 24px; border: 1px solid hsl(var(--brand-line)); border-radius: 14px">
+            <div class="eyebrow">Console, dark</div>
+            <div class="d" style="font-weight: 650; font-size: 24px; margin: 6px 0 16px">Payouts</div>
+            <div style="background: hsl(var(--brand-surface)); border: 1px solid hsl(var(--brand-line)); border-radius: 12px; padding: 16px; display: flex; justify-content: space-between; align-items: center; gap: 12px">
+              <div><div class="eyebrow">Available to pay out</div><div class="num" style="font-size: 28px; font-weight: 600; letter-spacing: -0.02em; margin-top: 6px">&#8377;1,96,400</div></div>
+              <span class="btn" style="background: hsl(var(--brand-action)); color: hsl(var(--brand-on-action))">View schedule</span>
+            </div>
+            <div style="display: flex; gap: 8px; margin-top: 14px"><span class="pill" style="background: hsl(var(--brand-positive-tint)); color: hsl(var(--brand-positive))">Paid</span><span class="pill" style="background: hsl(var(--brand-caution-tint)); color: hsl(var(--brand-caution))">On hold</span><span class="pill" style="background: hsl(var(--brand-critical-tint)); color: hsl(var(--brand-critical))">Failed</span></div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="eyebrow">Rules the slices follow</div>
+          <ul class="ui" style="margin: 12px 0 0; padding-left: 18px; line-height: 1.8; color: hsl(var(--brand-ink-2))">
+            <li>One primary action per view. Ink on paper, marigold on a stage.</li>
+            <li>Two surfaces and a hairline. One shadow, for things that float.</li>
+            <li>Display face for titles only. Every number is Inter, tabular.</li>
+            <li>A photo or the set title. Never initials, never a stock icon tile.</li>
+            <li>Words for every state. Colour only confirms them.</li>
+            <li>Dates show the venue's own time and zone.</li>
+          </ul>
+        </div>
+      </div>
+      <footer class="footer">
+        Specimen for docs/design/DESIGN-SYSTEM.md. All listings, organizers and venues are fictional. Photographs: Unsplash License, credited in the showcase CREDITS.md (not stored in this repository).
+      </footer>
+    </div>
+
+    <script>
+      // Pictures come from outside the repository (see the comment in <head>). Without them,
+      // each frame shows the brand's no-image artwork for its title.
+      (function () {
+        var base = new URLSearchParams(location.search).get('img');
+        document.querySelectorAll('img[data-img]').forEach(function (img) {
+          var frame = img.parentElement;
+          function fallback() {
+            var title = (frame.closest('article,.poster,.row,td,div') || frame).querySelector('h4,h5,h1,.t,b');
+            var art = document.createElement('span');
+            art.className = 'artwork';
+            art.setAttribute('data-brand-tone', 'stage');
+            art.innerHTML = '<span class="t"></span><span class="rule"></span>';
+            art.firstChild.textContent = title ? title.textContent : '';
+            img.replaceWith(art);
+          }
+          if (!base) return fallback();
+          img.onerror = fallback;
+          img.src = base.replace(/\/?$/, '/') + img.getAttribute('data-img') + '.jpg';
+        });
+        // A cinema row: aisle gaps, a few taken seats, two selected.
+        var seats = document.getElementById('seats');
+        var taken = [3, 4, 9, 17, 18, 30, 31, 32, 45, 46, 52, 60, 61];
+        for (var i = 0; i < 70; i++) {
+          var s = document.createElement('span');
+          var col = i % 14;
+          s.className = 'seat' + (col === 4 || col === 9 ? ' gap' : taken.indexOf(i) >= 0 ? ' sold' : i === 35 || i === 36 ? ' sel' : '');
+          seats.appendChild(s);
+        }
+      })();
+    </script>
+  </body>
+</html>

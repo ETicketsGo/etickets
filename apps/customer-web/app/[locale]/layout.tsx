@@ -13,6 +13,9 @@ import { serverSessionHint } from '@/lib/session-hint';
 import { buildId } from '@/lib/build-id';
 // Self-hosted, so `next build` never downloads fonts.
 import { inter } from '@eticketsgo/web-kit/fonts/inter';
+// The brand layer's display face (DESIGN-SYSTEM.md). Only sets --font-brand-display; nothing
+// renders in it until a page opts into `data-brand`.
+import { brandDisplay } from '@eticketsgo/web-kit/fonts/brand-display';
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://eticketsgo.com';
 
@@ -129,7 +132,10 @@ export default async function LocaleLayout({
       French text — WCAG 3.1.1, the criterion the accessibility sweep asserts on every route
       — and what tells a browser which hyphenation and quotation rules to apply.
     */
-    <html lang={HTML_LANG[locale as Locale]} className={inter.variable}>
+    <html
+      lang={HTML_LANG[locale as Locale]}
+      className={`${inter.variable} ${brandDisplay.variable}`}
+    >
       <body>
         <NextIntlClientProvider>
           <SkipToContent />
