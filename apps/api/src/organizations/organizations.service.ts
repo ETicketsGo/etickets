@@ -126,11 +126,17 @@ export class OrganizationsService {
       });
     });
 
-    // Grant the platform organizer role if the user does not have it yet.
-    if (!user.roles.includes(Role.ORGANIZER_OWNER)) {
+    // Grant the platform organizer role if the user does not have it yet. Read the STORED
+    // roles: `user.roles` on the request is global roles plus team-seat roles, and writing
+    // that back would turn a seat in one organization into a permanent global role.
+    const stored = await this.prisma.user.findUnique({
+      where: { id: user.id },
+      select: { roles: true },
+    });
+    if (stored && !stored.roles.includes(Role.ORGANIZER_OWNER)) {
       await this.prisma.user.update({
         where: { id: user.id },
-        data: { roles: { set: [...new Set([...user.roles, Role.ORGANIZER_OWNER])] } },
+        data: { roles: { set: [...new Set([...stored.roles, Role.ORGANIZER_OWNER])] } },
       });
     }
 

@@ -2,7 +2,8 @@
 
 import { useSearchParams } from 'next/navigation';
 import { useRouter } from '@/i18n/navigation';
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
+import { signInModes, type SignInMode } from '@/lib/sign-in-modes';
 import { api, tokenStore, ApiRequestError } from '@/lib/api';
 import { Button, Card, Input } from '@/components/ui';
 import { Link } from '@/i18n/navigation';
@@ -31,7 +32,27 @@ function LoginForm() {
     Defaults to email when the URL prefilled an address: that only happens on the "already
     registered" path from sign-up, where the person has just typed it.
   */
-  const [mode, setMode] = useState<'phone' | 'email'>(params.get('email') ? 'email' : 'phone');
+  /*
+    Whether text-message sign-in exists is the platform's declaration (GET /capabilities).
+    Until it answers we show a neutral placeholder rather than a tab that may vanish; if the
+    call fails we fall back to the usual two tabs.
+  */
+  const [phoneSignIn, setPhoneSignIn] = useState<boolean | undefined>(undefined);
+  const [capsLoaded, setCapsLoaded] = useState(false);
+  const [chosen, setChosen] = useState<SignInMode | null>(null);
+  useEffect(() => {
+    let live = true;
+    api
+      .capabilities()
+      .then((c) => live && setPhoneSignIn(c.phoneSignIn))
+      .catch(() => undefined)
+      .finally(() => live && setCapsLoaded(true));
+    return () => {
+      live = false;
+    };
+  }, []);
+  const { modes, initial } = signInModes(phoneSignIn, Boolean(params.get('email')));
+  const mode = chosen && modes.includes(chosen) ? chosen : initial;
   const [email, setEmail] = useState(() => params.get('email') ?? '');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -56,29 +77,37 @@ function LoginForm() {
     <Card className="mx-auto max-w-sm space-y-4">
       <h1 className="text-h2 font-bold text-text-primary">{a('signIn')}</h1>
 
-      <div className="flex gap-1 rounded-md bg-background-subtle p-1" role="tablist">
-        {(['phone', 'email'] as const).map((m) => (
-          <button
-            key={m}
-            type="button"
-            role="tab"
-            aria-selected={mode === m}
-            onClick={() => {
-              setMode(m);
-              setError(null);
-            }}
-            className={`flex-1 rounded px-3 py-1.5 text-[0.9375rem] transition-colors ${
-              mode === m
-                ? 'bg-background-surface font-medium text-text-primary shadow-sm'
-                : 'text-text-secondary hover:text-text-primary'
-            }`}
-          >
-            {m === 'phone' ? a('phoneTab') : a('emailTab')}
-          </button>
-        ))}
-      </div>
+      {!capsLoaded ? (
+        <div className="h-10 rounded-md bg-background-subtle" aria-hidden="true" />
+      ) : modes.length === 1 ? (
+        <p className="text-caption text-text-muted" data-testid="phone-signin-off">
+          {a('phoneUnavailable')}
+        </p>
+      ) : (
+        <div className="flex gap-1 rounded-md bg-background-subtle p-1" role="tablist">
+          {modes.map((m) => (
+            <button
+              key={m}
+              type="button"
+              role="tab"
+              aria-selected={mode === m}
+              onClick={() => {
+                setChosen(m);
+                setError(null);
+              }}
+              className={`flex-1 rounded px-3 py-1.5 text-[0.9375rem] transition-colors ${
+                mode === m
+                  ? 'bg-background-surface font-medium text-text-primary shadow-sm'
+                  : 'text-text-secondary hover:text-text-primary'
+              }`}
+            >
+              {m === 'phone' ? a('phoneTab') : a('emailTab')}
+            </button>
+          ))}
+        </div>
+      )}
 
-      {mode === 'phone' ? (
+      {!capsLoaded ? null : mode === 'phone' ? (
         <PhoneSignIn next={next} />
       ) : (
         <>
