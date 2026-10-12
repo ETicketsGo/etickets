@@ -1,6 +1,9 @@
 {
   "event": {
     "ticketsHeading": "Billets",
+    "salesClosed": "Vente terminée",
+    "salesOpenOn": "Vente ouverte le {date}",
+    "salesNotOpen": "La vente n'est pas encore ouverte",
     "left": "{count, plural, one {# restant} other {# restants}}",
     "subtotal": "Sous-total",
     "feesNote": "Les frais sont indiqués clairement à l'étape suivante.",
@@ -217,6 +220,11 @@
     "ticketsHeldForYou": "Billets retenus pour vous",
     "noHiddenFees": "Aucuns frais cachés",
     "instantQr": "Billet avec code QR instantané",
+    "refundTermsHeading": "Conditions de remboursement",
+    "refundNone": "Aucun remboursement n'est offert pour cet événement.",
+    "refundUntilStart": "Les remboursements sont possibles jusqu'au début du spectacle.",
+    "refundCutoff": "Les remboursements se terminent {hours, plural, one {# heure} other {# heures}} avant le spectacle.",
+    "refundNoneShort": "Aucun remboursement",
     "refundablePerPolicy": "Remboursable selon la politique",
     "item": "Article",
     "needMoreTime": "Besoin de plus de temps?",
