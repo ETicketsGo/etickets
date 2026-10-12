@@ -13,6 +13,7 @@ import { useFormat } from '@/lib/format';
 import { Button, ButtonLink, Card, Dialog, ErrorState, Stepper, useToast } from '@/components/ui';
 import { paymentsActivatingCopy } from '@/components/payment/payments-activating';
 import { PriceBreakdown } from '@/components/price-breakdown';
+import { RefundTerms } from '@/components/refund-terms';
 import { GuestBookingNotHere, GuestBookingSummary } from '@/components/guest-booking-view';
 import { forgetGuestBooking, guestTokenFor } from '@/lib/guest-session';
 import { useMounted } from '@/lib/use-mounted';
@@ -98,7 +99,7 @@ function AccountPayment() {
   const k = useTranslations('storefront.checkout');
   const c = useTranslations('storefront.confirmation');
   const tx = useTranslations('common');
-  const { money, dateTime } = useFormat();
+  const { money, dateTime, zoneAbbrev } = useFormat();
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const qc = useQueryClient();
@@ -428,6 +429,13 @@ function AccountPayment() {
           <p className="font-semibold text-text-primary">{booking.event.title}</p>
           <p className="text-[0.9375rem] text-text-muted">
             {dateTime(booking.eventSession.startsAt, undefined, booking.timeZone ?? undefined)}
+            {(() => {
+              const zoneLabel = zoneAbbrev(
+                booking.eventSession.startsAt,
+                booking.timeZone ?? undefined,
+              );
+              return zoneLabel ? ` ${zoneLabel}` : '';
+            })()}
           </p>
         </div>
         <div className="space-y-1 border-t border-border pt-3">
@@ -641,7 +649,13 @@ function AccountPayment() {
           <div className="grid grid-cols-3 gap-2 text-center">
             {[
               { icon: QrCode, label: k('instantQr') },
-              { icon: RefreshCcw, label: k('refundablePerPolicy') },
+              {
+                icon: RefreshCcw,
+                label:
+                  booking.event.refundsEnabled === false
+                    ? k('refundNoneShort')
+                    : k('refundablePerPolicy'),
+              },
               { icon: ShieldCheck, label: k('noHiddenFees') },
             ].map((c) => (
               <div
@@ -653,6 +667,11 @@ function AccountPayment() {
               </div>
             ))}
           </div>
+          <RefundTerms
+            refundsEnabled={booking.event.refundsEnabled}
+            refundCutoffHours={booking.event.refundCutoffHours}
+            refundPolicy={booking.event.refundPolicy}
+          />
           <p className="flex items-center justify-center gap-1.5 text-center text-caption text-text-muted">
             <ShieldCheck className="h-3.5 w-3.5" />
             {k('securePaymentNote')}
@@ -949,6 +968,11 @@ function GuestPayment({ id, anonSession }: { id: string; anonSession: string }) 
             </div>
           </Dialog>
 
+          <RefundTerms
+            refundsEnabled={view.event.refundsEnabled}
+            refundCutoffHours={view.event.refundCutoffHours}
+            refundPolicy={view.event.refundPolicy}
+          />
           <p className="flex items-center justify-center gap-1.5 text-center text-caption text-text-muted">
             <ShieldCheck className="h-3.5 w-3.5" />
             {k('securePaymentNote')}

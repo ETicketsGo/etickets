@@ -18,6 +18,10 @@
 export interface GuestBookingEvent {
   title: string;
   slug: string;
+  /** The organizer's refund terms, shown before the buyer pays. Absent on an older API. */
+  refundsEnabled?: boolean;
+  refundCutoffHours?: number;
+  refundPolicy?: string | null;
   startsAt: string;
   /**
    * The zone the show actually starts in — the screen's cinema first, then the venue.
@@ -77,8 +81,20 @@ export interface GuestBookingTotals {
   /* The same union the breakdown takes: how the statutory charge relates to the ticket price. */
   maintenanceTreatment:
     'NOT_APPLICABLE' | 'INCLUDED_IN_TICKET_PRICE' | 'ADDED_TO_TICKET_PRICE' | 'UNCONFIRMED';
-  /** The tax contained within the ticket price, per rate, as the booking recorded it. */
-  taxLines: { label: string; rateBasisPoints: number; amountMinor: number }[];
+  /**
+   * Every tax line the booking recorded, per rate.
+   *
+   * `basis` and `inclusive` say what each line was levied on and whether it already sat inside
+   * the price. Without them the breakdown cannot tell the GST inside the ticket from the GST
+   * added on the fees, and it drew all of it against the tickets.
+   */
+  taxLines: {
+    label: string;
+    rateBasisPoints: number;
+    amountMinor: number;
+    basis?: 'TICKETS' | 'FEES' | 'TICKETS_AND_FEES';
+    inclusive?: boolean;
+  }[];
 }
 
 /** One line of the order as it was priced. */
