@@ -72,6 +72,13 @@ export const ORGANIZER_ROUTE_POLICY: Record<string, StaffPolicy> = {
   'POST /auth/phone/attach/request-code': 'SELF',
   'POST /auth/phone/attach/verify': 'SELF',
   'GET /auth/me': 'SELF',
+  // Admin MFA: the caller's own sign-in security. No organization is involved.
+  'GET /auth/mfa/status': 'SELF',
+  'POST /auth/mfa/enroll/start': 'SELF',
+  'POST /auth/mfa/enroll/confirm': 'SELF',
+  'POST /auth/mfa/step-up': 'SELF',
+  'POST /auth/mfa/recovery-codes/regenerate': 'SELF',
+  'POST /auth/mfa/replace-device': 'SELF',
   // ── Bookings (the buyer's) ──
   'POST /bookings': 'SELF',
   'GET /bookings': 'SELF',

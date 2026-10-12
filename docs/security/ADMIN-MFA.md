@@ -8,21 +8,21 @@ password. Customers and organizers are untouched.
 
 ## 1. What it does
 
-| Piece | Choice |
-| --- | --- |
-| Factor | TOTP, RFC 6238: HMAC-SHA-1, 6 digits, 30 s step, +-1 step window. Implemented on `node:crypto` (`auth/mfa/totp.ts`, about 100 lines, pinned by the RFC test vectors). No new TOTP dependency. |
-| Replay | The newest accepted 30 s step is stored per account (`lastUsedStep`). A code is accepted only for a step newer than that, through a conditional `UPDATE`, so two simultaneous submissions of one code cannot both win. |
-| QR | Drawn by our own API with `qrcode`, which is already an API dependency (ticket QR). Returned as an SVG string and shown as an `<img>` data URL. The `otpauth://` URI is never sent to a third-party service. |
-| Secret at rest | AES-256-GCM, key from `MFA_ENCRYPTION_KEY` (32 bytes, base64). Stored as `v1.<iv>.<tag>.<ciphertext>`; the user id is bound in as authenticated data, so a ciphertext copied to another account does not decrypt. |
-| Recovery codes | 10 per set, 10 characters from an alphabet without 0/O/1/I, shown once as `XXXXX-XXXXX`. Stored as bcrypt (cost 10) hashes, single use, regenerating replaces the whole set. |
-| Lockout | 5 wrong codes (TOTP or recovery, one shared counter) lock the account for 15 minutes; the right code is refused during the lock. Per-IP: the same 10 requests/minute throttle as every credential route on `verify`, `enroll/start`, `enroll/confirm`, `step-up`. |
-| Step-up | Sensitive actions also need a second-factor check made in the last `MFA_STEPUP_MINUTES` (default 10). |
+| Piece          | Choice                                                                                                                                                                                                                                                            |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Factor         | TOTP, RFC 6238: HMAC-SHA-1, 6 digits, 30 s step, +-1 step window. Implemented on `node:crypto` (`auth/mfa/totp.ts`, about 100 lines, pinned by the RFC test vectors). No new TOTP dependency.                                                                     |
+| Replay         | The newest accepted 30 s step is stored per account (`lastUsedStep`). A code is accepted only for a step newer than that, through a conditional `UPDATE`, so two simultaneous submissions of one code cannot both win.                                            |
+| QR             | Drawn by our own API with `qrcode`, which is already an API dependency (ticket QR). Returned as an SVG string and shown as an `<img>` data URL. The `otpauth://` URI is never sent to a third-party service.                                                      |
+| Secret at rest | AES-256-GCM, key from `MFA_ENCRYPTION_KEY` (32 bytes, base64). Stored as `v1.<iv>.<tag>.<ciphertext>`; the user id is bound in as authenticated data, so a ciphertext copied to another account does not decrypt.                                                 |
+| Recovery codes | 10 per set, 10 characters from an alphabet without 0/O/1/I, shown once as `XXXXX-XXXXX`. Stored as bcrypt (cost 10) hashes, single use, regenerating replaces the whole set.                                                                                      |
+| Lockout        | 5 wrong codes (TOTP or recovery, one shared counter) lock the account for 15 minutes; the right code is refused during the lock. Per-IP: the same 10 requests/minute throttle as every credential route on `verify`, `enroll/start`, `enroll/confirm`, `step-up`. |
+| Step-up        | Sensitive actions also need a second-factor check made in the last `MFA_STEPUP_MINUTES` (default 10).                                                                                                                                                             |
 
 ## 2. Flows
 
 **Sign-in, enrolled account.** `POST /auth/login` (or the phone-code route) answers with
 `{ mfaRequired: true, challengeToken, methods }` and **no tokens**. The challenge is a 5 minute JWT
-signed with a key *derived* from the access secret (HMAC with a fixed label), so it cannot be used as
+signed with a key _derived_ from the access secret (HMAC with a fixed label), so it cannot be used as
 an access token and an access token cannot be used as a challenge.
 `POST /auth/mfa/verify { challengeToken, code | recoveryCode }` returns the normal token pair, with
 claims `amr` (`["pwd","otp"]` or `["pwd","rcv"]`), `mfaCid` (the authenticator it passed against)
@@ -39,7 +39,7 @@ the first code, activates the credential, issues 10 recovery codes, **revokes ev
 token** (those sessions never proved a factor) and returns a verified token pair plus the codes.
 
 **Refresh.** A new table row (`RefreshTokenMfa`) records which refresh tokens belong to a session
-that passed MFA and *when*. A rotation copies that row forward unchanged. So a refresh can never
+that passed MFA and _when_. A rotation copies that row forward unchanged. So a refresh can never
 create the claim, and never refreshes the step-up clock. A refresh token with no row (anything
 issued before this deploy, or by an unenrolled admin) yields an access token with no claim.
 
@@ -50,8 +50,9 @@ request layer, asks for a code in a dialog and repeats the call. Applied to: adm
 reject / reveal, recovery-code regeneration, device replacement.
 
 **Recovery and reset.**
-- Self-service: sign in with a recovery code (works like a code, single use). From *Account
-  security* the holder can make a new set of codes or *Replace my phone* (removes the authenticator
+
+- Self-service: sign in with a recovery code (works like a code, single use). From _Account
+  security_ the holder can make a new set of codes or _Replace my phone_ (removes the authenticator
   and all sessions; the next sign-in enrolls again).
 - Another super admin: `POST /admin/staff/:userId/mfa/reset` (super admin role, `ADMIN_MANAGE`,
   verified MFA session, fresh step-up). Removes the target's authenticator, recovery codes and
@@ -95,6 +96,7 @@ Production has exactly one administrator (the owner, `SUPER_ADMIN`). The design 
    sends it to sign-in.
 
 Why this cannot brick the API or the owner:
+
 - Key unset and nothing enrolled: boots, dormant (unit-tested for PRODUCTION).
 - Key set: enrollment is always available to an unenrolled admin; there is no state in which an
   admin has a password but no path to enroll.
@@ -109,17 +111,17 @@ administrator with a lost phone and lost codes is the one case that needs the br
 
 ## 5. Threat model (short)
 
-| Threat | Control |
-| --- | --- |
-| Stolen/phished password | Second factor required on every route; enrolled accounts get no tokens from the password alone. |
-| Stolen password on a *not-yet-enrolled* admin | Attacker can sign in but only reach enrollment, which needs the password and ends all older sessions. This is the one window the migration creates: **enroll promptly after arming** (section 4). |
-| Stolen access/refresh token (pre-MFA) | No `mfaCid` claim: refused on all staff routes; cannot enroll if the account already has an authenticator. |
-| Replayed code | Step must be newer than `lastUsedStep`, conditional update. |
-| Guessing | 5 failures, 15 minute lock, audit rows, per-IP throttle; codes are 6 digits over a +-1 window. |
-| Token forgery of the claim | Claims are inside the signed JWT and re-checked against the database credential id per request. |
-| Database leak | Secrets are AES-GCM ciphertext (key not in the DB); recovery codes are bcrypt; no plaintext anywhere. |
-| Logs/audit leak | No code, recovery code, secret or nonce is logged or audited (asserted by a test that scans every audit row written during the run). |
-| Insider with Railway access | Out of scope: they can already read the secret store and deploy. Break-glass is exactly that trust level. |
+| Threat                                        | Control                                                                                                                                                                                           |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Stolen/phished password                       | Second factor required on every route; enrolled accounts get no tokens from the password alone.                                                                                                   |
+| Stolen password on a _not-yet-enrolled_ admin | Attacker can sign in but only reach enrollment, which needs the password and ends all older sessions. This is the one window the migration creates: **enroll promptly after arming** (section 4). |
+| Stolen access/refresh token (pre-MFA)         | No `mfaCid` claim: refused on all staff routes; cannot enroll if the account already has an authenticator.                                                                                        |
+| Replayed code                                 | Step must be newer than `lastUsedStep`, conditional update.                                                                                                                                       |
+| Guessing                                      | 5 failures, 15 minute lock, audit rows, per-IP throttle; codes are 6 digits over a +-1 window.                                                                                                    |
+| Token forgery of the claim                    | Claims are inside the signed JWT and re-checked against the database credential id per request.                                                                                                   |
+| Database leak                                 | Secrets are AES-GCM ciphertext (key not in the DB); recovery codes are bcrypt; no plaintext anywhere.                                                                                             |
+| Logs/audit leak                               | No code, recovery code, secret or nonce is logged or audited (asserted by a test that scans every audit row written during the run).                                                              |
+| Insider with Railway access                   | Out of scope: they can already read the secret store and deploy. Break-glass is exactly that trust level.                                                                                         |
 
 ## 6. Break-glass
 
@@ -141,12 +143,12 @@ touch the password: an attacker who only has the switch still needs the password
 
 ## 7. Environment variables and owner actions
 
-| Variable | Where | Meaning |
-| --- | --- | --- |
-| `MFA_ENCRYPTION_KEY` | QA, UAT, PROD (secret) | 32 bytes base64. Encrypts secrets **and arms MFA**. Unset = dormant. Never rotate without re-enrolling (no key rotation tooling yet). |
-| `MFA_ISSUER` | optional | Name in the authenticator app (default `ETicketsGo`; `APP_ENV` is appended outside PRODUCTION so QA and PROD entries differ). |
-| `MFA_STEPUP_MINUTES` | optional | Step-up freshness, default 10. |
-| `MFA_BREAK_GLASS_EMAIL`, `MFA_BREAK_GLASS_NONCE` | emergency only | Section 6. |
+| Variable                                         | Where                  | Meaning                                                                                                                               |
+| ------------------------------------------------ | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `MFA_ENCRYPTION_KEY`                             | QA, UAT, PROD (secret) | 32 bytes base64. Encrypts secrets **and arms MFA**. Unset = dormant. Never rotate without re-enrolling (no key rotation tooling yet). |
+| `MFA_ISSUER`                                     | optional               | Name in the authenticator app (default `ETicketsGo`; `APP_ENV` is appended outside PRODUCTION so QA and PROD entries differ).         |
+| `MFA_STEPUP_MINUTES`                             | optional               | Step-up freshness, default 10.                                                                                                        |
+| `MFA_BREAK_GLASS_EMAIL`, `MFA_BREAK_GLASS_NONCE` | emergency only         | Section 6.                                                                                                                            |
 
 Owner actions, in order: (1) merge and deploy with the key unset (QA first, then UAT, then PROD, as
 usual); (2) QA: set a QA key, run the certification below; (3) PROD: create the second super admin,
