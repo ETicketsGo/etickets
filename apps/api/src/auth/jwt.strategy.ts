@@ -2,7 +2,7 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
-import { UserStatus, type Role } from '@eticketsgo/shared-types';
+import { MemberStatus, Role, UserStatus } from '@eticketsgo/shared-types';
 import type { RequestUser } from '../common/decorators';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -11,6 +11,27 @@ export interface AccessTokenPayload {
   email: string;
   name: string;
   roles: Role[];
+}
+
+/** The only membership roles that map onto a route-level role. */
+const SEAT_ROLES: ReadonlySet<Role> = new Set([
+  Role.ORGANIZER_OWNER,
+  Role.ORGANIZER_MANAGER,
+  Role.CHECKIN_STAFF,
+]);
+
+/**
+ * Global roles UNION the roles of ACTIVE team seats.
+ *
+ * An invited teammate is created with global roles [CUSTOMER] only, so @Roles(CHECKIN_STAFF,
+ * ...) refused every real invitee; only seeded accounts, whose global role was set by hand,
+ * worked. This is the single place that closes the gap. It widens only the coarse @Roles
+ * door: which organization the caller may touch is still decided per route by
+ * OrgAccessService, so a seat in org A opens nothing in org B. Nothing is written back to
+ * the user row (see OrganizationsService.create, which must not persist this union).
+ */
+export function effectiveRoles(global: Role[], seats: Role[]): Role[] {
+  return [...new Set([...global, ...seats.filter((r) => SEAT_ROLES.has(r))])];
 }
 
 @Injectable()
@@ -60,11 +81,21 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       throw new UnauthorizedException();
     }
 
+    // Roles held through a TEAM seat. Read per request, like the global roles, so a member
+    // who is removed or demoted loses the grant on their very next call.
+    const seats = await this.prisma.organizationMember.findMany({
+      where: { userId: user.id, status: MemberStatus.ACTIVE },
+      select: { role: true },
+    });
+
     return {
       id: user.id,
       email: user.email,
       fullName: user.fullName,
-      roles: user.roles,
+      roles: effectiveRoles(
+        user.roles as Role[],
+        seats.map((s) => s.role as Role),
+      ),
     };
   }
 }
