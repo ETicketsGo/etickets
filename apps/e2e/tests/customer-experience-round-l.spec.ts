@@ -131,9 +131,18 @@ test.beforeAll(async ({ request }) => {
 });
 
 test.afterAll(async ({ request }) => {
-  // An event with no bookings can be deleted; the sold-out one holds a booking and is left,
-  // named "L-TEST" so it is recognisable.
-  if (paid) await request.delete(`${API}/events/${paid.eventId}`, { headers: organizerAuth });
+  /*
+    Events that hold a booking cannot be deleted, and both of these do (the sold-out one by
+    design, the paid one from the guest tests). Pausing takes them off the public listing so a
+    shared development database is not left with a growing list of "L-TEST" events.
+  */
+  for (const fx of [paid, soldOut]) {
+    if (!fx) continue;
+    const removed = await request.delete(`${API}/events/${fx.eventId}`, { headers: organizerAuth });
+    if (!removed.ok()) {
+      await request.post(`${API}/events/${fx.eventId}/pause`, { headers: organizerAuth });
+    }
+  }
 });
 
 const PHONE = { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true };
