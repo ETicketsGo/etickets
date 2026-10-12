@@ -450,6 +450,7 @@
     "resetDone": "Votre mot de passe est enregistré. Connectez-vous avec celui-ci.",
     "resetLinkBad": "Ce lien de réinitialisation n'est plus valide. Demandez-en un nouveau.",
     "backToSignIn": "Retour à la connexion",
+    "phoneUnavailable": "La connexion par message texte n'est pas offerte pour le moment. Utilisez votre adresse courriel et votre mot de passe.",
     "phoneTab": "Mobile",
     "emailTab": "Courriel",
     "phoneLabel": "Numéro de mobile",

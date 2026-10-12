@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import {
   ChannelKey,
   DeliveryOutcome,
@@ -42,9 +43,22 @@ export class SmsChannel implements NotificationChannel {
       refusal still fails the send correctly -- it simply is not remembered for the next one.
     */
     private readonly suppression?: SuppressionService,
+    private readonly config?: ConfigService,
   ) {}
 
   async deliver(msg: RenderedNotification): Promise<DeliveryOutcome> {
+    /*
+      SMS_ENABLED=false is a declaration, not a missing provider. Refused first, before any
+      destination lookup, and permanent: retrying cannot change a setting, and a skipped
+      outcome would let an SMS-only message look delivered.
+    */
+    if (this.config?.get<string>('SMS_ENABLED') === 'false') {
+      throw new TransportError(
+        'Text messages are switched off (SMS_ENABLED=false). This message was not sent.',
+        'router',
+        FailureClass.CONFIGURATION_ERROR,
+      );
+    }
     const addressed = await resolvePhoneDestination(msg, this.prisma);
     if (!addressed.destination) {
       this.logger.warn(
