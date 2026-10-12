@@ -32,6 +32,7 @@
  * about the other.
  */
 
+import { razorpayStage, stripeAccepts } from '@eticketsgo/shared-types';
 import { PLATFORM_SETTLEMENTS_OFF } from './connect-onboarding-words';
 
 export type PanelTone = 'warning' | 'info' | 'success';
@@ -69,7 +70,8 @@ export interface RazorpayFacts {
  */
 export function stripePanelMessage(f: StripeFacts, scope: MarketScope): PanelMessage | null {
   // The server's gate is `providerAccountId && chargesEnabled`; the flag alone is not enough.
-  const canSell = f.hasAccount && f.canSellPaidTickets;
+  // Shared with the account-state API, so the summary card cannot disagree with this panel.
+  const canSell = stripeAccepts(f);
 
   if (!canSell) {
     // Said only for what it blocks. Rupee tickets never touch this account.
@@ -101,7 +103,8 @@ export function razorpayPanelMessage(f: RazorpayFacts, scope: MarketScope): Pane
   // sales to be confused with, so "your sales" is enough for them.
   const sales = scope.card ? 'Your sales in rupees are unaffected' : 'Your sales are unaffected';
 
-  if (!f.routeEnabled) {
+  const stage = razorpayStage(f);
+  if (stage === 'PLATFORM_PAYOUTS_OFF') {
     // The single-market wording is the long-standing sentence, kept word for word.
     if (!scope.card) return { tone: 'info', text: PLATFORM_SETTLEMENTS_OFF };
     return {
@@ -109,13 +112,13 @@ export function razorpayPanelMessage(f: RazorpayFacts, scope: MarketScope): Pane
       text: `We are not making payouts to this account yet. ${sales}, and no action is required from you.`,
     };
   }
-  if (!f.hasAccount) {
+  if (stage === 'LINK_ACCOUNT') {
     return {
       tone: 'info',
       text: `Link your payout account to receive payouts. ${sales}; buyers can pay you without it.`,
     };
   }
-  if (!f.payoutReady) {
+  if (stage === 'PAYOUTS_PENDING') {
     return {
       tone: 'info',
       text: `Payouts to this account have not started yet. ${sales}.`,

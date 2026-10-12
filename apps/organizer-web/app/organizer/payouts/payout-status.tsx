@@ -1,54 +1,38 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import {
-  AlertTriangle,
-  Ban,
-  Building2,
-  CheckCircle2,
-  Clock,
-  HelpCircle,
-  ShieldCheck,
-} from 'lucide-react';
-import { api, ButtonLink, Card, Skeleton, type PayoutAccountState } from '@eticketsgo/web-kit';
+import { AlertTriangle, Ban, Building2, CheckCircle2, Clock, HelpCircle } from 'lucide-react';
+import { api, Card, Skeleton } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
-import { PAYOUT_JOURNEY, payoutStatusView, type PayoutStatusTone } from '@/lib/payout-status-view';
+import {
+  providerSummaryView,
+  type ProviderSummaryView,
+  type SummaryTone,
+} from '@/lib/payout-provider-summary';
 
 /**
- * Where this organizer's payouts stand, and who is waiting on whom.
+ * Where this organizer's payouts stand, provider by provider.
  *
  * ── WHAT THIS REPLACES ─────────────────────────────────────────────────────────────
- * One badge reading UNVERIFIED. It said nothing about whether the organizer could still sell,
- * whether money could reach them, or whether anybody was waiting on them - and because
- * verification is an ETicketsGo job, the honest answer to the last one was "no", which the word
- * UNVERIFIED manages to imply the opposite of.
+ * A single state read from whichever payment-account row the server found first. With a Stripe
+ * AND a Razorpay account on file it could describe the wrong one, and so contradict the panel
+ * below it. The card now lists one line per provider and market the organizer uses (from
+ * `GET /payouts/account-state`, `providers`), worst first, under a headline taken from the worst.
  *
  * ── THE SERVER DECIDES, THIS RENDERS ───────────────────────────────────────────────
- * Every judgement here comes from `GET /payouts/account-state`. This component does not look at
- * `verifiedAt`, `chargesEnabled`, `payoutsEnabled`, `requirementsDue` or `disabledReason`, and
- * must not start: a second interpretation of those five is exactly what the server model was
- * built to prevent, and it would drift the moment one of them changed meaning.
- *
- * The only mapping this file owns is presentational - which icon and which tone - and it is
- * keyed on the state CODE, so a new state fails visibly rather than rendering as a default.
+ * This component reads no provider flag. The entries come from the same shared rules the Stripe
+ * and Razorpay panels use, so a line here and the panel for that provider are the same answer.
  */
 
-/**
- * The icon per state. Heading, tone and every word live in `payoutStatusView`, which is pure and
- * is tested exhaustively - an icon is the one presentational choice a test could not meaningfully
- * assert, so it is the only one left here.
- */
-const ICON: Record<PayoutAccountState['code'], typeof Clock> = {
-  NO_ACCOUNT: Building2,
-  DETAILS_REQUIRED: AlertTriangle,
-  UNDER_REVIEW: Clock,
-  ACTION_REQUIRED: AlertTriangle,
-  RESTRICTED: Ban,
-  VERIFIED: ShieldCheck,
-  PAYOUTS_ENABLED: CheckCircle2,
+const ICON: Record<SummaryTone, typeof Clock> = {
+  neutral: Building2,
+  waiting: Clock,
+  attention: AlertTriangle,
+  stopped: Ban,
+  good: CheckCircle2,
 };
 
-const TONE_CLASS: Record<PayoutStatusTone, string> = {
+const TONE_CLASS: Record<SummaryTone, string> = {
   neutral: 'bg-background-subtle text-text-secondary',
   waiting: 'bg-tint-primary text-action-primary',
   attention: 'bg-tint-warning text-status-warning',
@@ -56,79 +40,44 @@ const TONE_CLASS: Record<PayoutStatusTone, string> = {
   stopped: 'bg-tint-error text-status-error',
 };
 
-/**
- * One availability line.
- *
- * Selling and payouts are reported SEPARATELY and never merged, because the server keeps them
- * separate: a provider can hold charges while payouts work, and a missing bank account stops
- * neither sale nor show. Collapsing them would tell an organizer their event cannot sell when it
- * can, which is the more expensive of the two mistakes.
- *
- * The word carries the meaning; the colour only agrees with it. A reader who sees no colour at
- * all still reads "Available", "Not ready yet" or "Not available".
- */
-function Availability({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: string;
-  tone: 'good' | 'waiting' | 'bad';
-}) {
-  return (
-    <div className="rounded-md border border-border px-3 py-2">
-      <dt className="text-caption text-text-muted">{label}</dt>
-      <dd
-        className={`mt-0.5 font-medium ${
-          tone === 'good'
-            ? 'text-status-success'
-            : tone === 'waiting'
-              ? 'text-status-warning'
-              : 'text-status-error'
-        }`}
-      >
-        {value}
-      </dd>
-    </div>
-  );
-}
+const PAYOUT_CLASS = {
+  good: 'text-status-success',
+  waiting: 'text-status-warning',
+  bad: 'text-status-error',
+} as const;
 
-/**
- * The journey, shown only where the account is genuinely progressing through it.
- *
- * Deliberately NOT drawn for ACTION_REQUIRED or RESTRICTED: those are interruptions, and a
- * progress bar beside them would say everything is advancing normally when it has stopped. It is
- * also not a claim that every provider walks these four steps - the server's current state always
- * wins, and this only ever illustrates one that is already true.
- */
-function Journey({ step }: { step: number | null }) {
-  // Null means this state is an interruption, not a point on the line. See `payoutStatusView`.
-  if (step === null) return null;
+function Lines({ view }: { view: ProviderSummaryView }) {
+  if (view.lines.length === 0) return null;
   return (
-    <ol className="mt-4 flex flex-wrap gap-2" aria-label="Payout setup progress">
-      {PAYOUT_JOURNEY.map((label, i) => {
-        const done = i < step;
-        const here = i === step;
-        return (
-          <li
-            key={label}
-            aria-current={here ? 'step' : undefined}
-            className={`rounded-full px-3 py-1 text-caption ${
-              here
-                ? 'bg-action-primary text-action-primary-foreground'
-                : done
-                  ? 'bg-tint-success text-status-success'
-                  : 'bg-background-subtle text-text-muted'
-            }`}
-          >
-            {/* The state is in the words, so this reads correctly with no colour at all. */}
-            {done ? 'Done: ' : here ? 'Now: ' : ''}
-            {label}
-          </li>
-        );
-      })}
-    </ol>
+    <ul className="mt-4 space-y-2" aria-label="Payout setup by provider">
+      {view.lines.map((l) => (
+        <li
+          key={l.key}
+          data-testid={`payout-status-${l.key}`}
+          className="rounded-md border border-border px-3 py-2"
+        >
+          <p className="font-medium text-text-primary">{l.title}</p>
+          <dl className="mt-1 space-y-0.5 text-sm">
+            <div className="flex flex-wrap gap-x-2">
+              <dt className="text-text-muted">Paid ticket sales:</dt>
+              <dd className={l.paymentsBlocked ? 'text-status-error' : 'text-text-secondary'}>
+                {l.payments}
+              </dd>
+            </div>
+            <div className="flex flex-wrap gap-x-2">
+              <dt className="text-text-muted">Receiving payouts:</dt>
+              <dd className={PAYOUT_CLASS[l.payoutsTone]}>{l.payouts}</dd>
+            </div>
+            {l.bank ? (
+              <div className="flex flex-wrap gap-x-2">
+                <dt className="text-text-muted">Bank account:</dt>
+                <dd className="text-text-secondary">{l.bank}</dd>
+              </div>
+            ) : null}
+          </dl>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -151,10 +100,8 @@ export function PayoutStatus({ orgId }: { orgId: string }) {
   }
 
   /*
-    A failure is NOT a payout state.
-
-    Rendering "no account" or "under review" because a request failed would be a reassuring lie
-    about money. The honest answer is that we do not currently know, said plainly, with a retry.
+    A failure is NOT a payout state. Rendering "no account" or "under review" because a request
+    failed would be a reassuring lie about money; the honest answer is that we do not know.
   */
   if (isError || !data) {
     return (
@@ -186,8 +133,8 @@ export function PayoutStatus({ orgId }: { orgId: string }) {
     );
   }
 
-  const view = payoutStatusView(data);
-  const Icon = ICON[data.code];
+  const view = providerSummaryView(data);
+  const Icon = ICON[view.tone];
 
   return (
     <div data-testid="payout-status">
@@ -200,50 +147,10 @@ export function PayoutStatus({ orgId }: { orgId: string }) {
           </span>
           <div className="min-w-0 flex-1">
             <p className="font-semibold text-text-primary">{view.heading}</p>
-            {/*
-            Which organization this money belongs to, using the one identity implementation from
-            PR 1. It matters most here: somebody holding two organizations with the same name can
-            otherwise configure the wrong one's bank account and never find out.
-          */}
+            {/* Which organization this money belongs to: two can share a display name. */}
             <p className="mt-0.5 text-caption text-text-muted">For {activeOrgSentenceName}</p>
-
-            {/* The server's own sentence. Never provider-internal text. */}
-            <p className="mt-2 text-sm text-text-secondary">{view.explanation}</p>
-
-            <dl className="mt-3 grid gap-2 sm:grid-cols-2">
-              <Availability
-                label="Paid ticket sales"
-                value={view.salesWord}
-                tone={view.salesAffected ? 'bad' : 'good'}
-              />
-              <Availability
-                label="Receiving payouts"
-                value={view.payoutWord}
-                tone={
-                  view.payouts === 'AVAILABLE'
-                    ? 'good'
-                    : view.payouts === 'PENDING'
-                      ? 'waiting'
-                      : 'bad'
-                }
-              />
-            </dl>
-
-            {view.cta ? (
-              <div className="mt-4">
-                <ButtonLink href={view.cta.href}>{view.cta.label}</ButtonLink>
-              </div>
-            ) : (
-              /*
-              Said out loud, because the absence of a button is not an answer. An organizer who
-              sees a status and no control cannot tell whether they are blocked or simply waiting.
-            */
-              <p className="mt-4 rounded-md bg-background-subtle px-3 py-2 text-sm text-text-secondary">
-                {view.noActionNotice}
-              </p>
-            )}
-
-            <Journey step={view.journeyStep} />
+            <p className="mt-2 text-sm text-text-secondary">{view.detail}</p>
+            <Lines view={view} />
           </div>
         </div>
       </Card>

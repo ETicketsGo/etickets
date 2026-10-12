@@ -1,6 +1,18 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { HttpStatus, Injectable, Optional } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
-import { EventStatus, PayoutStatus, RefundStatus, Role } from '@eticketsgo/shared-types';
+import {
+  buildProviderEntries,
+  currencyForCountry,
+  EventStatus,
+  marketFor,
+  PayoutStatus,
+  RefundStatus,
+  Role,
+  summarizeProviderEntries,
+  type PayoutProviderEntry,
+  type PayoutProviderSummary,
+} from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
 import { AuditService } from '../audit/audit.service';
@@ -238,6 +250,17 @@ export function payableBookingWhere(scope: PayableBookingScope): Prisma.BookingW
   };
 }
 
+/**
+ * `providers` is the representation: one entry per provider/market the organizer uses, worst
+ * first. The flat PayoutAccountState fields are the old single-row reading, kept for older
+ * clients only and not to be used by new screens.
+ */
+export type PayoutAccountStateResponse = PayoutAccountState & {
+  organizationId: string;
+  providers: PayoutProviderEntry[];
+  providerSummary: PayoutProviderSummary;
+};
+
 @Injectable()
 export class PayoutsService {
   constructor(
@@ -245,6 +268,9 @@ export class PayoutsService {
     private readonly access: OrgAccessService,
     private readonly audit: AuditService,
     private readonly settings: PayoutSettingsService,
+    // Read only for the Razorpay Route switch the Razorpay status endpoint reports; optional so
+    // the many hand-built instances in specs keep working (absent means "off", as in config).
+    @Optional() private readonly config?: ConfigService,
   ) {}
 
   /**
@@ -778,20 +804,23 @@ export class PayoutsService {
   async accountState(
     user: RequestUser,
     organizationId: string,
-  ): Promise<PayoutAccountState & { organizationId: string }> {
+  ): Promise<PayoutAccountStateResponse> {
     await this.access.assertMember(user, organizationId, [
       Role.ORGANIZER_OWNER,
       Role.ORGANIZER_MANAGER,
     ]);
 
-    const [bankAccounts, connectRow] = await Promise.all([
+    const [bankAccounts, paymentRows, org, soldCurrencies, venueCountries] = await Promise.all([
       this.prisma.organizerPayoutAccount.findMany({
         where: { organizationId },
         select: { currency: true, verifiedAt: true, rejectedAt: true },
       }),
-      this.prisma.organizerPaymentAccount.findFirst({
+      this.prisma.organizerPaymentAccount.findMany({
         where: { organizationId },
+        // A stable order, so the legacy single-state fields below never depend on row order.
+        orderBy: { provider: 'asc' },
         select: {
+          provider: true,
           providerAccountId: true,
           onboardingStatus: true,
           detailsSubmitted: true,
@@ -801,8 +830,62 @@ export class PayoutsService {
           disabledReason: true,
         },
       }),
+      this.prisma.organization.findUnique({
+        where: { id: organizationId },
+        select: { registeredCountry: true },
+      }),
+      // The same evidence the dashboard's market list uses: what they have been asked to sell in.
+      this.prisma.booking.groupBy({ by: ['currency'], where: { organizationId } }),
+      this.prisma.venue.findMany({
+        where: { organizationId },
+        distinct: ['country'],
+        select: { country: true },
+      }),
     ]);
 
+    /*
+      PER PROVIDER, NOT "WHICHEVER ROW CAME FIRST". The summary used to be derived from one
+      arbitrary payment-account row of any provider, so it could contradict the Stripe or Razorpay
+      panel below it. Each provider now reports its own row, in the markets the organizer trades
+      in, through the same rules the panels use (shared-types payout-provider-readiness).
+    */
+    const stripeRow = paymentRows.find((r) => r.provider === 'stripe');
+    const razorpayRow = paymentRows.find((r) => r.provider === 'razorpay');
+    const currencies = [
+      ...soldCurrencies.map((b) => b.currency),
+      ...venueCountries.map((v) => currencyForCountry(v.country)),
+    ]
+      .map((c) => c?.trim().toUpperCase())
+      .filter((c): c is string => Boolean(c));
+    const home = marketFor(org?.registeredCountry ?? '');
+    const homeIsIndia = home?.code === 'IN';
+    const routeEnabled = this.config?.get<boolean>('RAZORPAY_ROUTE_ENABLED') ?? false;
+    const providers = buildProviderEntries({
+      markets: {
+        inr: homeIsIndia || currencies.includes('INR'),
+        card: (!!home && !homeIsIndia) || currencies.some((c) => c !== 'INR'),
+      },
+      stripe: stripeRow
+        ? {
+            hasAccount: Boolean(stripeRow.providerAccountId),
+            chargesEnabled: stripeRow.chargesEnabled,
+            payoutsEnabled: stripeRow.payoutsEnabled,
+            canSellPaidTickets: stripeRow.chargesEnabled,
+          }
+        : null,
+      razorpay: razorpayRow
+        ? {
+            hasAccount: Boolean(razorpayRow.providerAccountId),
+            payoutsEnabled: razorpayRow.payoutsEnabled,
+            routeEnabled,
+            payoutReady: routeEnabled && razorpayRow.payoutsEnabled,
+          }
+        : { hasAccount: false, payoutsEnabled: false, routeEnabled, payoutReady: false },
+      bankAccounts,
+    });
+
+    // Deprecated single state, kept for older clients. Prefers the stripe row (it can gate sales).
+    const connectRow = stripeRow ?? paymentRows[0] ?? null;
     const state = derivePayoutAccountState({
       bankAccounts,
       connect: connectRow
@@ -817,7 +900,12 @@ export class PayoutsService {
           }
         : null,
     });
-    return { organizationId, ...state };
+    return {
+      organizationId,
+      ...state,
+      providers,
+      providerSummary: summarizeProviderEntries(providers),
+    };
   }
 
   /**
