@@ -1040,6 +1040,9 @@ export default function EventDetailPage() {
                   )}
                   {zoneTicketTypes.map((ticketType) => {
                     const soldOut = ticketType.available <= 0;
+                    const closed = ticketType.saleState === 'CLOSED';
+                    const notYet = ticketType.saleState === 'NOT_YET';
+                    const unavailable = soldOut || closed || notYet;
                     return (
                       <div
                         key={ticketType.id}
@@ -1055,7 +1058,17 @@ export default function EventDetailPage() {
                               cardFractionDigits,
                             )}{' '}
                             -{' '}
-                            {soldOut ? (
+                            {closed ? (
+                              <span className="text-status-error">{sf('event.salesClosed')}</span>
+                            ) : notYet ? (
+                              <span className="text-text-secondary">
+                                {ticketType.salesStartAt
+                                  ? sf('event.salesOpenOn', {
+                                      date: dateTime(ticketType.salesStartAt, undefined, zone),
+                                    })
+                                  : sf('event.salesNotOpen')}
+                              </span>
+                            ) : soldOut ? (
                               <span className="text-status-error">{tx('state.soldOut')}</span>
                             ) : (
                               sf('event.left', { count: ticketType.available })
@@ -1064,7 +1077,7 @@ export default function EventDetailPage() {
                         </div>
                         <select
                           aria-label={tx('a11y.quantityOf', { name: ticketType.name })}
-                          disabled={soldOut}
+                          disabled={unavailable}
                           value={qty[ticketType.id] ?? 0}
                           onChange={(event) =>
                             setQty((previous) => ({
@@ -1075,7 +1088,9 @@ export default function EventDetailPage() {
                           className="w-16 cursor-pointer rounded-md border border-border bg-background-surface px-2 py-1.5 text-center text-[0.9375rem] text-text-primary focus:border-ring focus:outline-none focus:ring-4 focus:ring-ring/15 disabled:opacity-50"
                         >
                           {Array.from({
-                            length: Math.min(ticketType.maxPerOrder, ticketType.available) + 1,
+                            length: unavailable
+                              ? 1
+                              : Math.min(ticketType.maxPerOrder, ticketType.available) + 1,
                           }).map((_, quantity) => (
                             <option key={quantity} value={quantity}>
                               {quantity}
@@ -1126,6 +1141,9 @@ export default function EventDetailPage() {
                 <div className="space-y-3">
                   {session?.ticketTypes.map((t) => {
                     const soldOut = t.available <= 0;
+                    const closed = t.saleState === 'CLOSED';
+                    const notYet = t.saleState === 'NOT_YET';
+                    const unavailable = soldOut || closed || notYet;
                     return (
                       <div
                         key={t.id}
@@ -1143,7 +1161,17 @@ export default function EventDetailPage() {
                               ? tx('state.free')
                               : money(t.priceMinor, t.currency, undefined, cardFractionDigits)}{' '}
                             -{' '}
-                            {soldOut ? (
+                            {closed ? (
+                              <span className="text-status-error">{sf('event.salesClosed')}</span>
+                            ) : notYet ? (
+                              <span className="text-text-secondary">
+                                {t.salesStartAt
+                                  ? sf('event.salesOpenOn', {
+                                      date: dateTime(t.salesStartAt, undefined, zone),
+                                    })
+                                  : sf('event.salesNotOpen')}
+                              </span>
+                            ) : soldOut ? (
                               <span className="text-status-error">{tx('state.soldOut')}</span>
                             ) : (
                               sf('event.left', { count: t.available })
@@ -1152,20 +1180,20 @@ export default function EventDetailPage() {
                         </div>
                         <select
                           aria-label={tx('a11y.quantityOf', { name: t.name })}
-                          disabled={soldOut}
+                          disabled={unavailable}
                           value={qty[t.id] ?? 0}
                           onChange={(e) =>
                             setQty((p) => ({ ...p, [t.id]: Number(e.target.value) }))
                           }
                           className="w-16 cursor-pointer rounded-md border border-border bg-background-surface px-2 py-1.5 text-center text-[0.9375rem] text-text-primary focus:border-ring focus:outline-none focus:ring-4 focus:ring-ring/15 disabled:opacity-50"
                         >
-                          {Array.from({ length: Math.min(t.maxPerOrder, t.available) + 1 }).map(
-                            (_, n) => (
-                              <option key={n} value={n}>
-                                {n}
-                              </option>
-                            ),
-                          )}
+                          {Array.from({
+                            length: unavailable ? 1 : Math.min(t.maxPerOrder, t.available) + 1,
+                          }).map((_, n) => (
+                            <option key={n} value={n}>
+                              {n}
+                            </option>
+                          ))}
                         </select>
                       </div>
                     );

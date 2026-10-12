@@ -101,6 +101,19 @@ function cardVenue(venue: {
   };
 }
 
+/** Where a ticket type is in its sales window; the same test the booking path applies. */
+export function ticketSaleWindow(
+  salesStartAt: Date | null,
+  salesEndAt: Date | null,
+  now: Date = new Date(),
+): { saleState: 'ON_SALE' | 'NOT_YET' | 'CLOSED'; salesStartAt: string | null } {
+  if (salesEndAt && salesEndAt < now) return { saleState: 'CLOSED', salesStartAt: null };
+  if (salesStartAt && salesStartAt > now) {
+    return { saleState: 'NOT_YET', salesStartAt: salesStartAt.toISOString() };
+  }
+  return { saleState: 'ON_SALE', salesStartAt: null };
+}
+
 @Injectable()
 export class PublicEventsService {
   constructor(
@@ -413,6 +426,13 @@ export class PublicEventsService {
             currency: t.currency,
             maxPerOrder: t.maxPerOrder,
             inventoryKind: t.seatZoneId ? ('ZONE' as const) : ('SEAT' as const),
+            /*
+              Whether this ticket type can be bought right now. The booking path refuses a type
+              outside its sales window ("is not currently on sale"), but this payload said
+              nothing about the window, so the page offered a closed tier with "10 left" and let
+              the buyer pick it, fill in their details and find out at the last step.
+            */
+            ...ticketSaleWindow(t.salesStartAt, t.salesEndAt),
             // Zone capacity is authoritative in ShowZone. TicketInventory remains a reporting
             // mirror and must never decide whether another GA ticket can be sold.
             available: zone
