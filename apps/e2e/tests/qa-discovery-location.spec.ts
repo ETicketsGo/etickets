@@ -78,16 +78,15 @@ test.describe('QA: where the customer is actually changes what they see', () => 
 
     // The section heading names the place, so the filter is legible from the page itself
     // rather than only from the chip in the corner.
-    await expect(page.getByRole('heading', { name: /Happening in Mumbai/ })).toBeVisible({
+    await expect(page.getByRole('heading', { name: /Coming up in Mumbai/ })).toBeVisible({
       timeout: 30_000,
     });
 
-    // And the grid is genuinely narrowed: every card that names a city names this one.
-    const venues = page.locator('[data-testid="event-card-venue"], .text-text-muted');
+    // And the city's own list is genuinely narrowed. Events elsewhere are allowed only under
+    // their own "Elsewhere:" heading (#363); Boise is QA's US city.
     await expect(eventCards(page).first()).toBeVisible({ timeout: 30_000 });
     const text = (await page.locator('main').innerText()).toLowerCase();
-    expect(text).not.toContain('meridian'); // the one USA city on QA
-    expect(venues).toBeTruthy();
+    expect(text.split('elsewhere:')[0]).not.toContain('boise');
   });
 
   test('no category chip leads to a dead end', async ({ page, context }) => {
@@ -101,23 +100,25 @@ test.describe('QA: where the customer is actually changes what they see', () => 
       matters and that will still be true after the catalogue changes: everything we offer
       returns something.
     */
+    /*
+      Since the redesign (#354) the homepage offers the kinds as chips that filter in place,
+      in the group "Choose a day or a kind of event". The day chips and Movies (a link to the
+      film shelf) are not kinds of event and are left out.
+    */
     await openApp(page, context, '/');
-    await expect(page.getByRole('heading', { name: /Explore by category/ })).toBeVisible({
-      timeout: 30_000,
-    });
+    const group = page.getByRole('group', { name: 'Choose a day or a kind of event' });
+    await expect(group).toBeVisible({ timeout: 30_000 });
 
-    const chips = page.locator('section:has(h2:text("Explore by category")) button');
-    const count = await chips.count();
-    expect(count).toBeGreaterThan(0);
-
-    const names: string[] = [];
-    for (let i = 0; i < count; i++) names.push((await chips.nth(i).innerText()).split('\n')[0]);
+    const names = (await group.getByRole('button').allInnerTexts())
+      .map((t) => t.split('\n')[0].trim())
+      .filter((t) => t && !/^(All|Today|This weekend|Movies)$/i.test(t));
+    expect(names.length).toBeGreaterThan(0);
 
     for (const name of names) {
-      await open(page, `${CUSTOMER}/events?category=${encodeURIComponent(name)}`);
+      await group.getByRole('button', { name, exact: true }).click();
       await expect(
-        page.getByText(/No events match your search|No events available in/),
-        `the "${name}" chip we offer leads to an empty page`,
+        page.getByText(/Nothing matches this filter/),
+        `the "${name}" chip we offer leads to an empty result`,
       ).toHaveCount(0, { timeout: 30_000 });
     }
   });
@@ -125,18 +126,20 @@ test.describe('QA: where the customer is actually changes what they see', () => 
   test('with no city chosen, Browse shows the visitor country and not the whole world', async ({
     page,
   }) => {
-    // en-IN, so the country hint is India. QA's single USA event must not be in the list.
+    // en-IN, so the country hint is India. QA's US events (Boise) must not be in India's list.
     await open(page, `${CUSTOMER}/events`);
 
     await expect(page.getByText(/Showing events in IN|Showing events in India/)).toBeVisible({
       timeout: 30_000,
     });
     await expect(eventCards(page).first()).toBeVisible({ timeout: 30_000 });
-    expect((await page.locator('main').innerText()).toLowerCase()).not.toContain('meridian');
+    const text = (await page.locator('main').innerText()).toLowerCase();
+    expect(text.split('elsewhere:')[0]).not.toContain('boise');
 
-    // And the escape hatch is real: the USA event is one click away, not hidden.
-    await page.getByRole('button', { name: 'Show everywhere' }).click();
-    await expect(page.getByText(/Meridian/i).first()).toBeVisible({ timeout: 30_000 });
+    // The way out is named rather than dumped (#363): other countries sit under their own
+    // "Elsewhere:" heading, and "Change location" opens the picker.
+    await page.getByRole('button', { name: 'Change location' }).click();
+    await expect(page.getByRole('dialog')).toBeVisible({ timeout: 15_000 });
   });
 });
 
@@ -174,10 +177,12 @@ test.describe('QA: the location picker is a search, not a list of everywhere we 
     await openApp(page, context, '/');
     await locationChip(page).click();
     const dialog = page.getByRole('dialog');
-    await dialog.getByLabel('Search for a city').fill('reykjavik');
+    // Discovery covers India, the US and Canada (#363), so the example is a city in those
+    // countries where QA sells nothing: Pune.
+    await dialog.getByLabel('Search for a city').fill('pune');
 
     // Found, and honest about it: the customer's own city is never missing from the list.
-    const option = dialog.getByRole('option', { name: /^Reykjav/ });
+    const option = dialog.getByRole('option', { name: /^Pune/ });
     await expect(option).toBeVisible({ timeout: 15_000 });
     await expect(option).toContainText('No events yet');
   });
