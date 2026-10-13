@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { money } from '@eticketsgo/shared-types';
-import { nearestFirst, needsCurrencyCode, photosFirst, postersFirst } from './home-feed';
+import { nearestFirst, outsideGroups, photosFirst, postersFirst } from './home-feed';
 
 const ev = (id: string, country: string, photo: boolean) => ({
   id,
@@ -53,14 +52,46 @@ describe('nearestFirst', () => {
   });
 });
 
-describe('needsCurrencyCode', () => {
-  it('asks for the code where the symbol alone is ambiguous', () => {
-    expect(needsCurrencyCode(money(4500, 'USD'))).toBe(true);
-    expect(needsCurrencyCode(money(69900, 'INR'))).toBe(true);
+describe('outsideGroups', () => {
+  const at = (id: string, country: string, currency: string, photo = true) => ({
+    ...ev(id, country, photo),
+    currency,
+  });
+  const list = [
+    at('tor', 'CA', 'CAD'),
+    at('nyc', 'US', 'USD'),
+    at('del', 'IN', 'INR'),
+    at('bom', 'India', 'INR', false),
+    at('boi', 'US', 'USD', false),
+  ];
+
+  it('never puts two currencies in one group', () => {
+    for (const g of outsideGroups(list, { currency: 'INR', country: 'IN' })) {
+      expect(new Set(g.items.map((e) => e.currency))).toEqual(new Set([g.currency]));
+    }
   });
 
-  it('does not repeat a currency the amount already names', () => {
-    expect(needsCurrencyCode(money(3200, 'CAD'))).toBe(false);
-    expect(needsCurrencyCode(money(4500, 'USD', 'fr-CA'))).toBe(false);
+  it("puts the visitor's own currency first", () => {
+    expect(outsideGroups(list, { currency: 'INR', country: 'IN' }).map((g) => g.currency)).toEqual([
+      'INR',
+      'CAD',
+      'USD',
+    ]);
+    expect(outsideGroups(list, { currency: 'USD', country: 'US' })[0]).toMatchObject({
+      currency: 'USD',
+      items: [{ id: 'nyc' }, { id: 'boi' }],
+    });
+  });
+
+  it('caps the groups and the items in each', () => {
+    const groups = outsideGroups(
+      list,
+      { currency: 'CAD', country: 'CA' },
+      { perGroup: 1, maxGroups: 2 },
+    );
+    expect(groups.map((g) => [g.currency, g.items.length])).toEqual([
+      ['CAD', 1],
+      ['USD', 1],
+    ]);
   });
 });

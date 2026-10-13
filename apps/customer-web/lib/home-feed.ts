@@ -11,7 +11,8 @@ type Listing = {
   venue: { country: string };
 };
 
-const hasPhoto = (e: Listing) => Boolean(e.imagePath || e.imageVariants);
+/** Whether the organizer uploaded a picture for this listing. */
+export const hasPhoto = (e: Listing) => Boolean(e.imagePath || e.imageVariants);
 
 /** Listings with a photo first, otherwise the API's order (Array.prototype.sort is stable). */
 export function photosFirst<T extends Listing>(list: readonly T[]): T[] {
@@ -37,14 +38,36 @@ export function nearestFirst<T extends Listing>(
   return photosFirst(list).sort((a, b) => near(b) - near(a));
 }
 
+/** One titled group of events elsewhere: one currency, never mixed. */
+export interface CurrencyGroup<T> {
+  currency: string;
+  /** The venue country of the group's first event, to title it ("In Canada"). */
+  country: string;
+  items: T[];
+}
+
 /**
- * Whether a formatted price needs its ISO code beside it to be unambiguous.
+ * Events outside the visitor's city, in groups of ONE currency each.
  *
- * "$45.00" and "Rs 699" (written with the rupee sign) do: next to each other they could be
- * one currency. "CA$32.00" and the French "45,00 $ US" already name theirs, and adding the code
- * again ("45,00 $ US USD") reads as a mistake. Any Latin letter in the amount means the
- * formatter has already said which currency it is.
+ * A rail that put "Rs 1,499" beside "$45.00" beside "CA$32.00" asked the reader to notice
+ * three currencies in one glance, and a buyer who does not is charged in one they did not
+ * expect. So each group is one currency, titled with where it is and which currency it
+ * prices in. The visitor's own currency comes first (an India visitor sees the rest of India
+ * before New York); then the groups in the order their nearest event appears.
  */
-export function needsCurrencyCode(formatted: string): boolean {
-  return !/[A-Za-z]/.test(formatted);
+export function outsideGroups<T extends Listing & { currency: string }>(
+  list: readonly T[],
+  home: { currency: string | null; country: string | null },
+  { perGroup = 4, maxGroups = 3 }: { perGroup?: number; maxGroups?: number } = {},
+): CurrencyGroup<T>[] {
+  const groups = new Map<string, CurrencyGroup<T>>();
+  for (const e of nearestFirst(list, home.country)) {
+    const g = groups.get(e.currency);
+    if (g) g.items.push(e);
+    else groups.set(e.currency, { currency: e.currency, country: e.venue.country, items: [e] });
+  }
+  return [...groups.values()]
+    .sort((a, b) => Number(b.currency === home.currency) - Number(a.currency === home.currency))
+    .slice(0, maxGroups)
+    .map((g) => ({ ...g, items: g.items.slice(0, perGroup) }));
 }

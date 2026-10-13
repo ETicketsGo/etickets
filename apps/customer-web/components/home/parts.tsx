@@ -8,12 +8,12 @@ import {
   EventArtwork,
   brandButtonClasses,
   eventImageSource,
+  portableImageUrl,
   type PublicEventCard,
   type PublicMovieCard,
 } from '@eticketsgo/web-kit';
 import { Link } from '@/i18n/navigation';
 import { useFormat } from '@/lib/format';
-import { needsCurrencyCode } from '@/lib/home-feed';
 
 /*
   ── THE HOME PAGE'S PIECES (docs/design/DESIGN-SYSTEM.md) ─────────────────────────────
@@ -89,17 +89,14 @@ export function isTodayAt(iso: string | null, timeZone?: string | null): boolean
 /**
  * "From Rs 999", "Free", or nothing.
  *
- * Nothing when the API has no price: "From -" reads as a page that failed to load. With
- * `code`, the ISO currency follows the amount, for the group of events outside the reader's
- * city, where "$45" beside "Rs 699" must not be mistaken for one currency.
+ * Nothing when the API has no price: "From -" reads as a page that failed to load. Always the
+ * event's own currency; a group never mixes currencies, and its heading names the one it is in.
  */
 export function FromPrice({
   event,
-  code = false,
   size = 'ui',
 }: {
   event: Pick<PublicEventCard, 'fromPriceMinor' | 'currency'>;
-  code?: boolean;
   size?: 'ui' | 'figure';
 }) {
   const t = useTranslations('common.state');
@@ -110,13 +107,12 @@ export function FromPrice({
       ? 'text-brand-figure-sm text-brand-ink'
       : 'text-brand-ui font-semibold text-brand-ink';
   if (event.fromPriceMinor === 0) return <span className={amount}>{t('free')}</span>;
-  const formatted = money(event.fromPriceMinor, event.currency);
-  // The code only where the amount does not already name its currency (see the helper).
-  const needsCode = code && needsCurrencyCode(formatted);
   return (
     <span className="whitespace-nowrap text-brand-meta text-brand-ink-3">
-      {t('from')} <span className={`tabular-nums ${amount}`}>{formatted}</span>
-      {needsCode && <span className="ml-1 text-brand-meta text-brand-ink-3">{event.currency}</span>}
+      {t('from')}{' '}
+      <span className={`tabular-nums ${amount}`}>
+        {money(event.fromPriceMinor, event.currency)}
+      </span>
     </span>
   );
 }
@@ -284,11 +280,9 @@ export function EventRow({ event }: { event: PublicEventCard }) {
 export function EventTile({
   event,
   showCity = false,
-  currencyCode = false,
 }: {
   event: PublicEventCard;
   showCity?: boolean;
-  currencyCode?: boolean;
 }) {
   const when = useVenueWhen()(event.nextSessionAt, event.venue.timezone);
   const image = cardImage(event, 'card');
@@ -321,7 +315,7 @@ export function EventTile({
         <span className="text-brand-meta text-brand-ink-2">
           {when ? `${when.day}, ${when.time}` : event.venue.name}
         </span>
-        <FromPrice event={event} code={currencyCode} />
+        <FromPrice event={event} />
       </div>
     </Link>
   );
@@ -339,7 +333,7 @@ export function PosterCard({ movie }: { movie: PublicMovieCard }) {
       <div className="relative overflow-hidden rounded-brand-card">
         <div className="transition-transform duration-150 motion-safe:group-hover:scale-[1.02]">
           <EventArtwork
-            src={movie.posterUrl}
+            src={portableImageUrl(movie.posterUrl)}
             sizes="(min-width: 1024px) 18vw, 42vw"
             alt={t('movie.poster', { title: movie.title })}
             title={movie.title}

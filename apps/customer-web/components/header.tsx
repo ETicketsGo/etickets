@@ -230,7 +230,15 @@ export function Header({
               <AccountMenu onSignOut={logout} />
             </>
           ) : (
-            <Link href="/login" className={brandButtonClasses('secondary', 'md')}>
+            /*
+              Not below 360px: at 320 the wordmark, the city and this button do not fit one
+              row, and a row of its own for "Sign in" pushed the search and the hero down. The
+              bottom bar's Account tab leads to the same sign-in at that width.
+            */
+            <Link
+              href="/login"
+              className={`${brandButtonClasses('secondary', 'md')} max-[359px]:hidden`}
+            >
               {a('signIn')}
             </Link>
           )}

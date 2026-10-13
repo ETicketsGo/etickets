@@ -65,7 +65,13 @@ node scripts/showcase/load-showcase.mjs --report run.json      # also write what
 ```
 
 Other options: `--api <base>` (default `http://localhost:4131/api`), `--images <dir>`,
-`--credits <file>`. It is idempotent: a second run prints "nothing to do" for every item.
+`--credits <file>`, `--catalogue <file>` (another module with the same exports, for stress content
+such as long titles and listings with no picture; marked and removed like the showcase's own).
+
+Film posters: the movie schema requires `posterUrl` to be an absolute URL, so the loader saves
+the API address it ran against. The storefront re-bases any URL on the platform's own image
+route onto the API it is talking to (`portableImageUrl` in web-kit), so posters show whatever
+port or host the API is on now. Re-running the loader against a new `--api` also re-stamps them. It is idempotent: a second run prints "nothing to do" for every item.
 
 To see it: `cd apps/customer-web && NEXT_PUBLIC_API_URL=http://localhost:4131/api npx next dev -p 3131`.
 The storefront scopes listings by location, so use an India time zone or pick a city.

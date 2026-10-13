@@ -12,7 +12,8 @@
   },
   "page": {
     "title": "À l'affiche : {place}",
-    "titleAnywhere": "À l'affiche"
+    "titleAnywhere": "À l'affiche",
+    "countOnSale": "{count, plural, one {# événement en vente} other {# événements en vente}}"
   },
   "hero": {
     "label": "Événement en vedette",
@@ -45,7 +46,8 @@
     "allFilms": "Tous les films",
     "outside": "Ailleurs, hors {place}",
     "elsewhere": "Ailleurs sur ETicketsGo",
-    "outsideHint": "Chaque prix est dans la devise de la salle.",
+    "inCountry": "Autre pays : {country}",
+    "pricesIn": "Prix en {name} ({currency})",
     "changeCity": "Changer de ville",
     "recent": "Poursuivre l'exploration",
     "film": "Film"

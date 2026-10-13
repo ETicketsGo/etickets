@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Clock, Film, Star } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-import { gradientFor, hasRating } from '@eticketsgo/web-kit';
+import { gradientFor, hasRating, portableImageUrl } from '@eticketsgo/web-kit';
 import type { PublicMovieCard } from '@/lib/api';
 import { Badge } from './ui';
 import { Link } from '@/i18n/navigation';
@@ -25,7 +25,7 @@ export function MovieCard({ movie }: { movie: PublicMovieCard }) {
         {movie.posterUrl && !posterFailed ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={movie.posterUrl}
+            src={portableImageUrl(movie.posterUrl) ?? undefined}
             alt={t('movie.poster', { title: movie.title })}
             loading="lazy"
             decoding="async"

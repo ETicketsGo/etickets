@@ -148,7 +148,7 @@ export function SiteFooter({
             <Link
               href="/"
               aria-label={nav('home')}
-              className={`inline-flex items-center rounded-brand-control ${BRAND_FOCUS}`}
+              className={`inline-flex h-11 items-center rounded-brand-control ${BRAND_FOCUS}`}
             >
               <Wordmark className="text-[1.625rem]" />
             </Link>
