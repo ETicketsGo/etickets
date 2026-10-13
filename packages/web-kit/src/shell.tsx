@@ -18,6 +18,7 @@ import { apiAssetUrl } from './api';
 import { LogoMark } from './logo';
 import { visibleNav, type NavItem } from './nav';
 import { IconButton } from './primitives';
+import { brandButtonClasses } from './brand';
 import {
   NavRail,
   NavTree,
@@ -25,6 +26,7 @@ import {
   QuickNavTrigger,
   RailTip,
   useQuickNavShortcut,
+  type ShellAppearance,
 } from './sidebar-nav';
 
 /**
@@ -54,13 +56,16 @@ const FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:rin
 const NAV_FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nav-accent';
 
 function initials(name: string): string {
-  return name
-    .split(' ')
-    .map((p) => p[0])
-    .filter(Boolean)
-    .slice(0, 2)
-    .join('')
-    .toUpperCase();
+  return (
+    name
+      .split(/\s+/)
+      // The first letter or digit of each word: "DeepTrics (local fixture)" is "DL", never "D(".
+      .map((p) => p.match(/[\p{L}\p{N}]/u)?.[0])
+      .filter(Boolean)
+      .slice(0, 2)
+      .join('')
+      .toUpperCase()
+  );
 }
 
 /**
@@ -118,6 +123,11 @@ export interface ShellAction {
  * The nav is filtered here by role and by back-office capability (`visibleNav`), once, and
  * the sidebar, the rail, the drawer and quick navigation all read the filtered copy - so no
  * surface can offer a page the viewer cannot open. It is never the authorization.
+ *
+ * ── TWO APPEARANCES, ONE FRAME ─────────────────────────────────────────────────────
+ * `appearance="desk"` paints the same frame in the brand layer (docs/design/DESIGN-SYSTEM.md):
+ * paper sidebar with a marigold current-item bar, the wordmark instead of the gradient mark,
+ * an ink primary action that keeps its words. Admin stays `classic` until it adopts the system.
  */
 export function AppShell({
   brand,
@@ -131,6 +141,7 @@ export function AppShell({
   navLabel = 'Main',
   drawerLabel = 'Navigation',
   width = 'contained',
+  appearance = 'classic',
   children,
 }: {
   /** The console's name beside the platform mark: "Organizer", "Admin". */
@@ -144,8 +155,8 @@ export function AppShell({
   drawerAccessory?: ReactNode;
   /**
    * The view's one primary action, in the top bar from `sm` up: icon and words from `xl`,
-   * the icon with its name as a tooltip below that. Hidden on its own page, where it would
-   * be a button that goes nowhere.
+   * the icon with its name as a tooltip below that (the desk keeps its words at every width
+   * it is shown). Hidden on its own page, where it would be a button that goes nowhere.
    */
   primaryAction?: ShellAction | null;
   /** The notifications control (`NotificationsButton`), from `sm` up, where the app has one. */
@@ -162,6 +173,12 @@ export function AppShell({
    * decides its own measure.
    */
   width?: 'contained' | 'fluid';
+  /**
+   * 'classic' is the navy console; 'desk' is the brand layer's light console
+   * (docs/design/DESIGN-SYSTEM.md section 5). The desk wraps the whole frame in
+   * `data-brand="console"`, so the page inside may use the `brand-*` tokens too.
+   */
+  appearance?: ShellAppearance;
   children: ReactNode;
 }) {
   const pathname = usePathname() ?? '/';
@@ -240,9 +257,16 @@ export function AppShell({
     !!primaryAction &&
     !(pathname === primaryAction.href || pathname.startsWith(`${primaryAction.href}/`));
   const ActionIcon = primaryAction?.icon ?? Plus;
+  const desk = appearance === 'desk';
+  const c = desk ? DESK : CLASSIC;
+  const focus = desk ? DESK_RING : FOCUS;
+  const navFocus = desk ? DESK_RING : NAV_FOCUS;
 
   return (
-    <div className="min-h-dvh bg-background-canvas lg:grid lg:grid-cols-[auto_minmax(0,1fr)] lg:grid-rows-[auto_1fr]">
+    <div
+      data-brand={desk ? 'console' : undefined}
+      className={`min-h-dvh lg:grid lg:grid-cols-[auto_minmax(0,1fr)] lg:grid-rows-[auto_1fr] ${c.root}`}
+    >
       <a
         href="#main"
         className="sr-only z-[80] rounded-md bg-background-surface px-4 py-2 text-ui font-semibold text-text-primary shadow-lg focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:outline-none focus:ring-2 focus:ring-ring"
@@ -250,7 +274,9 @@ export function AppShell({
         Skip to content
       </a>
 
-      <header className="sticky top-0 z-30 border-b border-border bg-background-surface pt-[env(safe-area-inset-top)] lg:col-start-2 lg:row-start-1">
+      <header
+        className={`sticky top-0 z-30 border-b pt-[env(safe-area-inset-top)] lg:col-start-2 lg:row-start-1 ${c.header}`}
+      >
         {/* A fixed 4rem row from `lg` up, to line up with the sidebar's brand row. */}
         <div className="flex min-h-[3.75rem] items-center gap-2 px-4 py-2 sm:gap-3 lg:h-shell-topbar lg:gap-4 lg:px-6 lg:py-0">
           {/*
@@ -261,7 +287,7 @@ export function AppShell({
           <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3 lg:max-w-[18rem] lg:flex-initial xl:max-w-[22rem]">
             <button
               ref={menuButton}
-              className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-text-secondary hover:bg-background-subtle hover:text-text-primary lg:hidden ${FOCUS}`}
+              className={`flex h-11 w-11 shrink-0 items-center justify-center lg:hidden ${c.iconButton} ${focus}`}
               aria-label="Toggle navigation"
               aria-expanded={mobileOpen}
               aria-haspopup="dialog"
@@ -276,17 +302,23 @@ export function AppShell({
             */}
             <Link
               href={home}
-              className={`min-w-0 shrink-0 items-center gap-2 rounded-sm lg:hidden ${workspace ? 'hidden sm:flex' : 'flex'} ${FOCUS}`}
+              className={`min-w-0 shrink-0 items-center gap-2 rounded-sm lg:hidden ${workspace ? 'hidden sm:flex' : 'flex'} ${focus}`}
             >
-              <LogoMark variant="compact" id="etg-topbar" className="h-7 w-7 shrink-0" />
-              {!workspace && (
-                <span className="font-display text-[1.0625rem] font-bold tracking-tight text-text-primary">
-                  ETickets<span className="text-action-primary">Go</span>
-                </span>
+              {desk ? (
+                <DeskWordmark />
+              ) : (
+                <>
+                  <LogoMark variant="compact" id="etg-topbar" className="h-7 w-7 shrink-0" />
+                  {!workspace && (
+                    <span className="font-display text-[1.0625rem] font-bold tracking-tight text-text-primary">
+                      ETickets<span className="text-action-primary">Go</span>
+                    </span>
+                  )}
+                  <span className="rounded-full bg-background-subtle px-2 py-0.5 text-micro font-semibold text-text-secondary">
+                    {brand}
+                  </span>
+                </>
               )}
-              <span className="rounded-full bg-background-subtle px-2 py-0.5 text-micro font-semibold text-text-secondary">
-                {brand}
-              </span>
             </Link>
             {workspace && (
               /*
@@ -295,19 +327,19 @@ export function AppShell({
                 (`shell-header-overlap.spec.ts`); the full name stays in the text for assistive
                 technology and in `title` for a pointer.
               */
-              <div className="flex min-w-0 items-center gap-2.5">
+              <div className={`flex min-w-0 items-center ${desk ? 'gap-3' : 'gap-2.5'}`}>
                 {logoUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={logoUrl}
                     alt=""
-                    className="hidden h-8 w-8 shrink-0 rounded-md object-cover sm:block"
+                    className={`hidden h-8 w-8 shrink-0 object-cover sm:block ${desk ? 'rounded-brand-control' : 'rounded-md'}`}
                   />
                 ) : (
                   workspace.name.trim() && (
                     <span
                       aria-hidden
-                      className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-md bg-tint-primary font-display text-micro font-bold text-action-primary sm:flex"
+                      className={`hidden h-8 w-8 shrink-0 items-center justify-center sm:flex ${c.monogram}`}
                     >
                       {initials(workspace.name)}
                     </span>
@@ -315,7 +347,7 @@ export function AppShell({
                 )}
                 <span
                   data-testid="workspace-name"
-                  className="truncate font-display text-[0.9375rem] font-bold tracking-tight text-text-primary sm:text-[1.0625rem]"
+                  className={`truncate ${c.mastheadName}`}
                   title={workspace.name}
                 >
                   {workspace.name}
@@ -324,13 +356,45 @@ export function AppShell({
             )}
           </div>
 
-          {/* Quick navigation as the reference's search field. On a phone it is in the drawer. */}
-          <div className="hidden min-w-[2.75rem] max-w-md flex-1 lg:block">
-            <QuickNavTrigger onOpen={openQuick} />
-          </div>
+          {/*
+            Quick navigation as the reference's search field. On a phone it is in the drawer.
+            The desk shows the field only where it has room for its words and shortcut (from
+            `xl`); between `lg` and `xl` it is the search icon, so the primary action keeps its
+            words at a 1024px laptop instead of the field squeezing everything (EXPERIENCE-AUDIT
+            O3: "Ctrl K" wrapped and Create event lost its label there). Its floor is its own
+            words: a long organization name truncates first, never into the field
+            (`console-header-long-names.spec.ts`).
+          */}
+          {desk ? (
+            <>
+              <div className="hidden min-w-[11rem] max-w-md flex-1 xl:block">
+                <QuickNavTrigger onOpen={openQuick} tone="desk" />
+              </div>
+              <div className="hidden lg:block xl:hidden">
+                <QuickNavTrigger onOpen={openQuick} tone="desk" compact />
+              </div>
+            </>
+          ) : (
+            <div className="hidden min-w-[2.75rem] max-w-md flex-1 lg:block">
+              <QuickNavTrigger onOpen={openQuick} />
+            </div>
+          )}
 
           <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
-            {showAction && primaryAction && (
+            {showAction && primaryAction && desk && (
+              /*
+                The desk's one primary action: ink on paper (paper on charcoal in the dark), and
+                its words at every width it is shown - a "+" alone is a guess, not an action.
+              */
+              <Link
+                href={primaryAction.href}
+                className={`hidden sm:inline-flex ${brandButtonClasses('primary', 'md')}`}
+              >
+                <ActionIcon className="h-4 w-4" aria-hidden />
+                {primaryAction.label}
+              </Link>
+            )}
+            {showAction && primaryAction && !desk && (
               <>
                 {/* Words from `xl`; below that the icon, named and with a tooltip. */}
                 <Link
@@ -353,10 +417,10 @@ export function AppShell({
             {headerAccessory}
             {user && (
               <>
-                <span aria-hidden className="mx-1 hidden h-6 w-px bg-border lg:block" />
-                <div className="flex items-center gap-2.5">
+                <span aria-hidden className={`mx-1 hidden h-6 w-px lg:block ${c.divider}`} />
+                <div className={`flex items-center ${desk ? 'gap-3' : 'gap-2.5'}`}>
                   <div
-                    className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-full bg-tint-primary text-[0.8125rem] font-semibold text-action-primary sm:flex"
+                    className={`hidden h-9 w-9 shrink-0 items-center justify-center rounded-full sm:flex ${c.avatar}`}
                     aria-hidden
                   >
                     {initials(user.fullName)}
@@ -364,34 +428,45 @@ export function AppShell({
                   {/*
                     Capped and truncated, like the masthead: a long name is the other way the
                     top bar used to push its own controls into each other. The address is in
-                    `title`, so the role can have the second line.
+                    `title`, so the role can have the second line. The desk names the person from
+                    `xl` only: at 1024px the avatar says who, and the room goes to the action.
                   */}
                   <div
                     data-testid="account-name"
-                    className="hidden min-w-0 max-w-[9rem] lg:block xl:max-w-[12rem]"
+                    className={`hidden min-w-0 max-w-[9rem] xl:max-w-[12rem] ${desk ? 'xl:block' : 'lg:block'}`}
                     title={[user.fullName, user.email].filter(Boolean).join(', ')}
                   >
-                    <p className="truncate text-ui font-semibold leading-tight text-text-primary">
-                      {user.fullName}
-                    </p>
-                    <p className="truncate text-micro leading-tight text-text-muted">
+                    <p className={`truncate leading-tight ${c.accountName}`}>{user.fullName}</p>
+                    <p className={`truncate leading-tight ${c.accountRole}`}>
                       {role ?? user.email}
                     </p>
                   </div>
                 </div>
               </>
             )}
-            <IconButton icon={LogOut} label="Sign out" onClick={logout} />
+            {desk ? (
+              <button
+                type="button"
+                onClick={logout}
+                aria-label="Sign out"
+                title="Sign out"
+                className={`flex h-10 w-10 shrink-0 items-center justify-center ${c.iconButton} ${focus}`}
+              >
+                <LogOut className="h-[1.125rem] w-[1.125rem]" aria-hidden />
+              </button>
+            ) : (
+              <IconButton icon={LogOut} label="Sign out" onClick={logout} />
+            )}
           </div>
         </div>
       </header>
 
       {/*
         ── THE SIDEBAR ─────────────────────────────────────────────────────────────────
-        Deep navy, the full height of the window, pinned. The PAGE is the one thing that
-        scrolls: groups start folded except the current one, so the list fits a 768px-tall
-        laptop, and on a shorter window only the list scrolls - thinly, with the brand row
-        pinned above it.
+        Navy (or the desk's paper), the full height of the window, pinned. The PAGE is the one
+        thing that scrolls: groups start folded except the current one, so the list fits a
+        768px-tall laptop, and on a shorter window only the list scrolls - thinly, with the
+        brand row pinned above it.
 
         `z-20` because a sticky element is a stacking context of its own: without it the rail's
         flyouts and tooltips painted UNDER any positioned card beside it. Below the top bar
@@ -399,8 +474,8 @@ export function AppShell({
       */}
       <aside
         aria-label="Sidebar"
-        className={`sticky top-0 z-20 hidden h-dvh shrink-0 flex-col bg-nav text-nav-foreground transition-[width] duration-200 ease-premium motion-reduce:transition-none lg:col-start-1 lg:row-span-2 lg:row-start-1 lg:flex ${
-          collapsed ? 'w-shell-rail' : 'w-shell-sidebar'
+        className={`sticky top-0 z-20 hidden h-dvh shrink-0 flex-col transition-[width] duration-200 ease-premium motion-reduce:transition-none lg:col-start-1 lg:row-span-2 lg:row-start-1 lg:flex ${c.aside} ${
+          collapsed ? 'w-shell-rail' : c.asideWidth
         }`}
       >
         {/*
@@ -409,28 +484,49 @@ export function AppShell({
           admin list pages find their group chips as `button[aria-pressed]`.
         */}
         <div
-          className={`flex shrink-0 border-b border-nav-border ${
+          className={`flex shrink-0 border-b ${c.asideBorder} ${
             collapsed
               ? 'flex-col items-center gap-1 px-2 py-3'
-              : 'h-shell-topbar items-center justify-between gap-2 pl-5 pr-3'
+              : `h-shell-topbar items-center justify-between gap-2 pr-3 ${desk ? 'pl-4' : 'pl-5'}`
           }`}
         >
           <Link
             href={home}
             aria-label={collapsed ? `ETicketsGo ${brand}, home` : undefined}
-            className={`flex min-w-0 items-center gap-2.5 rounded-md ${NAV_FOCUS}`}
+            className={`flex min-w-0 items-center gap-2.5 rounded-md ${navFocus}`}
           >
-            <LogoMark variant="compact" id="etg-sidebar" className="h-8 w-8 shrink-0" />
-            {!collapsed && (
-              // Stacked, so the console's name is never truncated beside the collapse control.
-              <span className="flex min-w-0 flex-col leading-none">
-                <span className="font-display text-[1.0625rem] font-bold tracking-tight text-white">
-                  ETicketsGo
+            {desk ? (
+              collapsed ? (
+                <span
+                  aria-hidden
+                  className="flex h-8 w-8 items-center justify-center rounded-brand-control bg-brand-ink font-brand-display text-brand-ui font-extrabold text-brand-canvas"
+                >
+                  E
                 </span>
-                <span className="mt-1 truncate text-[0.6875rem] font-semibold uppercase tracking-[0.1em] text-nav-muted">
-                  {brand}
+              ) : (
+                // Stacked, so the console's name is never truncated beside the collapse control.
+                <span className="flex min-w-0 flex-col gap-1 leading-none">
+                  <DeskWordmark />
+                  <span className="truncate text-brand-eyebrow uppercase text-brand-ink-3">
+                    {brand}
+                  </span>
                 </span>
-              </span>
+              )
+            ) : (
+              <>
+                <LogoMark variant="compact" id="etg-sidebar" className="h-8 w-8 shrink-0" />
+                {!collapsed && (
+                  // Stacked, so the console's name is never truncated beside the collapse control.
+                  <span className="flex min-w-0 flex-col leading-none">
+                    <span className="font-display text-[1.0625rem] font-bold tracking-tight text-white">
+                      ETicketsGo
+                    </span>
+                    <span className="mt-1 truncate text-[0.6875rem] font-semibold uppercase tracking-[0.1em] text-nav-muted">
+                      {brand}
+                    </span>
+                  </span>
+                )}
+              </>
             )}
           </Link>
           <RailTip label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
@@ -441,7 +537,7 @@ export function AppShell({
                 aria-expanded={!collapsed}
                 aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
                 {...tip}
-                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-nav-muted transition-colors duration-150 hover:bg-nav-hover hover:text-white ${NAV_FOCUS}`}
+                className={`flex h-9 w-9 shrink-0 items-center justify-center transition-colors duration-150 ${c.collapse} ${navFocus}`}
               >
                 {collapsed ? (
                   <ChevronsRight className="h-[1.125rem] w-[1.125rem]" aria-hidden />
@@ -454,14 +550,14 @@ export function AppShell({
         </div>
         <nav
           aria-label={navLabel}
-          className={`min-h-0 flex-1 overflow-y-auto overflow-x-hidden pb-4 pt-3 [scrollbar-color:hsl(var(--nav-border))_transparent] [scrollbar-width:thin] ${
-            collapsed ? 'px-2' : 'px-3'
+          className={`min-h-0 flex-1 overflow-y-auto overflow-x-hidden pb-4 [scrollbar-width:thin] ${c.navScroll} ${
+            collapsed ? 'px-2 pt-3' : `px-3 ${desk ? 'pt-4' : 'pt-3'}`
           }`}
         >
           {collapsed ? (
-            <NavRail items={items} pathname={pathname} />
+            <NavRail items={items} pathname={pathname} appearance={appearance} />
           ) : (
-            <NavTree items={items} pathname={pathname} />
+            <NavTree items={items} pathname={pathname} appearance={appearance} />
           )}
         </nav>
       </aside>
@@ -469,7 +565,7 @@ export function AppShell({
       <AnimatePresence>
         {mobileOpen && (
           <motion.div
-            className="fixed inset-0 z-40 bg-black/50 lg:hidden"
+            className={`fixed inset-0 z-40 lg:hidden ${c.overlay}`}
             onClick={closeMobile}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -481,25 +577,35 @@ export function AppShell({
               aria-modal="true"
               aria-label={drawerLabel}
               onKeyDown={trapTab}
-              className="flex h-full w-[min(20rem,86vw)] flex-col bg-nav pt-[env(safe-area-inset-top)] text-nav-foreground shadow-lg"
+              className={`flex h-full w-[min(20rem,86vw)] flex-col pt-[env(safe-area-inset-top)] ${c.drawer}`}
               onClick={(e) => e.stopPropagation()}
               initial={{ x: '-100%' }}
               animate={{ x: 0 }}
               exit={{ x: '-100%' }}
               transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
             >
-              <div className="flex items-center justify-between gap-2 border-b border-nav-border py-2 pl-4 pr-2">
+              <div
+                className={`flex items-center justify-between gap-2 border-b py-2 pl-4 pr-2 ${c.asideBorder}`}
+              >
                 <span className="flex min-w-0 items-center gap-2.5">
-                  <LogoMark variant="compact" id="etg-drawer" className="h-7 w-7 shrink-0" />
-                  <span className="min-w-0 truncate font-display font-semibold text-white">
-                    {workspace?.name.trim() ? workspace.name : `ETicketsGo ${brand}`}
-                  </span>
+                  {desk ? (
+                    <span className="min-w-0 truncate text-brand-body font-semibold text-brand-ink">
+                      {workspace?.name.trim() ? workspace.name : `ETicketsGo ${brand}`}
+                    </span>
+                  ) : (
+                    <>
+                      <LogoMark variant="compact" id="etg-drawer" className="h-7 w-7 shrink-0" />
+                      <span className="min-w-0 truncate font-display font-semibold text-white">
+                        {workspace?.name.trim() ? workspace.name : `ETicketsGo ${brand}`}
+                      </span>
+                    </>
+                  )}
                 </span>
                 <button
                   type="button"
                   onClick={closeMobile}
                   aria-label="Close navigation"
-                  className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-nav-muted hover:bg-nav-hover hover:text-white ${NAV_FOCUS}`}
+                  className={`flex h-11 w-11 shrink-0 items-center justify-center ${c.collapse} ${navFocus}`}
                 >
                   <X className="h-5 w-5" aria-hidden />
                 </button>
@@ -509,18 +615,21 @@ export function AppShell({
                   On a surface card, not on the navy: an accessory is the app's own control in
                   the console's ordinary colours, which are solved against a light surface.
                 */
-                <div className="mx-3 mt-3 overflow-hidden rounded-md bg-background-surface text-text-primary">
-                  {drawerAccessory}
-                </div>
+                <div className={`mx-3 mt-3 ${c.drawerAccessory}`}>{drawerAccessory}</div>
               )}
               <div className="px-3 pt-3">
-                <QuickNavTrigger onOpen={openQuick} tone="nav" />
+                <QuickNavTrigger onOpen={openQuick} tone={desk ? 'desk' : 'nav'} />
               </div>
               <nav
                 aria-label={navLabel}
                 className="flex-1 overflow-y-auto px-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-3 [scrollbar-width:thin]"
               >
-                <NavTree items={items} pathname={pathname} onNavigate={closeMobile} />
+                <NavTree
+                  items={items}
+                  pathname={pathname}
+                  onNavigate={closeMobile}
+                  appearance={appearance}
+                />
               </nav>
             </motion.aside>
           </motion.div>
@@ -532,7 +641,9 @@ export function AppShell({
       <main
         id="main"
         tabIndex={-1}
-        className="min-w-0 px-4 py-6 focus:outline-none sm:px-6 lg:col-start-2 lg:row-start-2 lg:py-8 xl:px-8"
+        className={`min-w-0 py-6 focus:outline-none lg:col-start-2 lg:row-start-2 lg:py-8 ${
+          desk ? 'px-4 md:px-8' : 'px-4 sm:px-6 xl:px-8'
+        }`}
       >
         <div className={`mx-auto ${width === 'fluid' ? 'max-w-screen-2xl' : 'max-w-7xl'}`}>
           {children}
@@ -541,6 +652,66 @@ export function AppShell({
     </div>
   );
 }
+
+/** The brand wordmark: the name in the display face and the one marigold dot. */
+function DeskWordmark() {
+  return (
+    <span className="inline-flex items-baseline whitespace-nowrap font-brand-display text-[1.25rem] font-extrabold leading-none tracking-tight text-brand-ink">
+      ETicketsGo
+      <span aria-hidden className="ml-0.5 inline-block h-2 w-2 rounded-full bg-brand-marigold" />
+    </span>
+  );
+}
+
+/** The desk's focus ring: the brand focus colour, offset from the paper. */
+const DESK_RING =
+  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-focus focus-visible:ring-offset-2 focus-visible:ring-offset-brand-canvas';
+
+/** The class strings each appearance paints the frame with. Structure is shared. */
+const CLASSIC = {
+  root: 'bg-background-canvas',
+  header: 'border-border bg-background-surface',
+  iconButton: 'rounded-md text-text-secondary hover:bg-background-subtle hover:text-text-primary',
+  monogram: 'rounded-md bg-tint-primary font-display text-micro font-bold text-action-primary',
+  mastheadName:
+    'font-display text-[0.9375rem] font-bold tracking-tight text-text-primary sm:text-[1.0625rem]',
+  divider: 'bg-border',
+  avatar: 'bg-tint-primary text-[0.8125rem] font-semibold text-action-primary',
+  accountName: 'text-ui font-semibold text-text-primary',
+  accountRole: 'text-micro text-text-muted',
+  aside: 'bg-nav text-nav-foreground',
+  asideWidth: 'w-shell-sidebar',
+  asideBorder: 'border-nav-border',
+  collapse: 'rounded-md text-nav-muted hover:bg-nav-hover hover:text-white',
+  navScroll: '[scrollbar-color:hsl(var(--nav-border))_transparent]',
+  overlay: 'bg-black/50',
+  drawer: 'bg-nav text-nav-foreground shadow-lg',
+  drawerAccessory: 'overflow-hidden rounded-md bg-background-surface text-text-primary',
+} as const;
+
+const DESK: Record<keyof typeof CLASSIC, string> = {
+  root: 'bg-brand-canvas font-brand-text text-brand-ink',
+  header: 'border-brand-line bg-brand-canvas',
+  iconButton:
+    'rounded-brand-control text-brand-ink-2 transition-colors duration-150 hover:bg-brand-sunken hover:text-brand-ink',
+  monogram:
+    'rounded-brand-control bg-brand-ink font-brand-display text-[0.8125rem] font-bold text-brand-canvas',
+  mastheadName: 'text-brand-ui font-semibold text-brand-ink sm:text-brand-body sm:font-semibold',
+  divider: 'bg-brand-line',
+  avatar: 'border border-brand-line bg-brand-surface text-brand-meta font-semibold text-brand-ink',
+  accountName: 'text-brand-ui font-semibold text-brand-ink',
+  accountRole: 'text-brand-meta text-brand-ink-3',
+  // 232px: the specimen's sidebar; the page gets the rest of a 1024px laptop.
+  aside: 'border-r border-brand-line bg-brand-canvas text-brand-ink',
+  asideWidth: 'w-[14.5rem]',
+  asideBorder: 'border-brand-line',
+  collapse: 'rounded-brand-control text-brand-ink-3 hover:bg-brand-sunken hover:text-brand-ink',
+  navScroll: '[scrollbar-color:hsl(var(--brand-line-strong))_transparent]',
+  overlay: 'bg-brand-scrim/50',
+  drawer: 'border-r border-brand-line bg-brand-canvas text-brand-ink shadow-brand-overlay',
+  // The desk's accessories are drawn in its own tokens, so they need no card of their own.
+  drawerAccessory: '',
+};
 
 /**
  * The top of every console page: where you are, what this page is for, and its main action.

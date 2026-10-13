@@ -104,7 +104,7 @@ async function fixture(request: APIRequestContext, tokens: AuthTokens): Promise<
 
   /*
     Soon - the next half hour - so it is the organization's next show still to start: the first
-    of the Overview's "Upcoming events" cards, and on its "Today" list.
+    row of the Overview's "Coming up" table.
   */
   const start = new Date(Math.ceil((Date.now() + 30 * 60_000) / 300_000) * 300_000);
   const show = await (
@@ -168,24 +168,13 @@ async function says(where: Locator, label: string) {
 
 async function everyScreenSays(page: Page, fx: Fixture, label: string) {
   /*
-    1. The Overview: the event's card under "Upcoming events" (the event's answer, over all its
-    shows) and the show's row in the month card's "Today" list (the show's own answer).
+    1. The Overview: the event's row under "Coming up" (the event's answer, over all its shows).
+    The month card and its "Today" list left the Overview with the desk redesign; the show's own
+    answer is still asserted below, on the film page's show row and its quick look.
   */
   await page.goto(`${ORGANIZER}/organizer`);
-  const upcoming = page.getByRole('region', { name: 'Upcoming events' });
-  await says(upcoming.getByRole('article').filter({ hasText: fx.title }), label);
-  /*
-    The "Today" list holds the shows on today's date at their venue. The fixture show starts about
-    half an hour from now, so from 23:30 at the venue (Asia/Kolkata) it falls on tomorrow and is
-    rightly absent - which failed main and #303 at 18:01 UTC on 2026-10-10. Only assert the row
-    when the show really is on today's venue date.
-  */
-  const venueDay = (d: Date) =>
-    new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(d);
-  if (venueDay(fx.start) === venueDay(new Date())) {
-    const today = page.getByRole('list', { name: 'Shows today' });
-    await says(today.getByRole('listitem').filter({ hasText: fx.title }), label);
-  }
+  const upcoming = page.getByRole('region', { name: 'Coming up' });
+  await says(upcoming.getByRole('row').filter({ hasText: fx.title }), label);
 
   // 2. The event list, as a card.
   await page.goto(`${ORGANIZER}/organizer/events`);

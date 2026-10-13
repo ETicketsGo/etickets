@@ -48,6 +48,17 @@ import {
 const FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
 /** Inside the navy sidebar and drawer the ring is the light teal, which reads on navy. */
 const NAV_FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nav-accent';
+/** The desk's ring: the brand focus colour (ink on paper, paper in the dark). */
+const DESK_FOCUS =
+  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-focus focus-visible:ring-offset-2 focus-visible:ring-offset-brand-canvas';
+
+/**
+ * How the console's chrome is painted. `classic` is the navy sidebar every console has had;
+ * `desk` is the brand layer's light sidebar (docs/design/DESIGN-SYSTEM.md section 5), for a
+ * console whose shell carries `data-brand="console"`. Behaviour, markup and accessible names
+ * are the same in both - only class strings differ - so every navigation spec holds for either.
+ */
+export type ShellAppearance = 'classic' | 'desk';
 
 /** "Ctrl K" or "⌘ K" in words a screen reader can say; decided after mount. */
 function useShortcutLabel(): { visual: string; spoken: string } {
@@ -66,10 +77,11 @@ export function QuickNavTrigger({
 }: {
   onOpen: () => void;
   compact?: boolean;
-  /** `surface` in the top bar; `nav` on the navy of the phone drawer. */
-  tone?: 'surface' | 'nav';
+  /** `surface` in the top bar; `nav` on the navy of the phone drawer; `desk` on brand paper. */
+  tone?: 'surface' | 'nav' | 'desk';
 }) {
   const key = useShortcutLabel();
+  const desk = tone === 'desk';
   if (compact) {
     return (
       <RailTip label={`Find a page (${key.visual})`}>
@@ -80,7 +92,11 @@ export function QuickNavTrigger({
             aria-label={`Find a page, ${key.spoken}`}
             aria-keyshortcuts="Control+K Meta+K"
             {...tip}
-            className={`flex h-10 w-10 items-center justify-center rounded-md text-text-secondary transition-colors duration-150 hover:bg-background-subtle hover:text-text-primary ${FOCUS}`}
+            className={
+              desk
+                ? `flex h-10 w-10 items-center justify-center rounded-brand-control text-brand-ink-2 transition-colors duration-150 hover:bg-brand-sunken hover:text-brand-ink ${DESK_FOCUS}`
+                : `flex h-10 w-10 items-center justify-center rounded-md text-text-secondary transition-colors duration-150 hover:bg-background-subtle hover:text-text-primary ${FOCUS}`
+            }
           >
             <Search className="h-[1.125rem] w-[1.125rem]" aria-hidden />
           </button>
@@ -93,19 +109,23 @@ export function QuickNavTrigger({
       type="button"
       onClick={onOpen}
       aria-keyshortcuts="Control+K Meta+K"
-      className={`group flex h-10 w-full items-center gap-2.5 rounded-md border px-3 text-left text-ui transition-colors duration-150 ${
-        tone === 'nav'
-          ? `border-nav-border bg-nav-hover text-nav-foreground hover:border-nav-muted ${NAV_FOCUS}`
-          : `border-border bg-background-canvas text-text-muted hover:border-border-input hover:text-text-secondary ${FOCUS}`
+      className={`group flex h-10 w-full items-center border px-3 text-left transition-colors duration-150 ${
+        desk
+          ? `gap-2 rounded-brand-control border-brand-line bg-brand-surface text-brand-ui text-brand-ink-3 hover:border-brand-line-strong hover:text-brand-ink-2 ${DESK_FOCUS}`
+          : tone === 'nav'
+            ? `gap-2.5 rounded-md border-nav-border bg-nav-hover text-ui text-nav-foreground hover:border-nav-muted ${NAV_FOCUS}`
+            : `gap-2.5 rounded-md border-border bg-background-canvas text-ui text-text-muted hover:border-border-input hover:text-text-secondary ${FOCUS}`
       }`}
     >
       <Search className="h-4 w-4 shrink-0" aria-hidden />
       <span className="flex-1 truncate">Find a page</span>
       <kbd
-        className={`hidden rounded border px-1.5 py-0.5 font-sans text-[0.6875rem] font-medium sm:inline ${
-          tone === 'nav'
-            ? 'border-nav-border bg-nav text-nav-muted'
-            : 'border-border bg-background-surface text-text-muted'
+        className={`hidden whitespace-nowrap rounded border px-1.5 py-0.5 font-sans text-[0.6875rem] font-medium sm:inline ${
+          desk
+            ? 'border-brand-line bg-brand-canvas text-brand-ink-3'
+            : tone === 'nav'
+              ? 'border-nav-border bg-nav text-nav-muted'
+              : 'border-border bg-background-surface text-text-muted'
         }`}
         aria-hidden
       >
@@ -128,11 +148,14 @@ export function NavTree({
   items,
   pathname,
   onNavigate,
+  appearance = 'classic',
 }: {
   items: NavItem[];
   pathname: string;
   onNavigate?: () => void;
+  appearance?: ShellAppearance;
 }) {
+  const desk = appearance === 'desk';
   const sections = useMemo(() => navSections(items), [items]);
   const current = navCurrentHref(pathname, items);
   const active = activeSectionIndex(pathname, sections);
@@ -155,24 +178,46 @@ export function NavTree({
         href={item.href}
         onClick={onNavigate}
         aria-current={isCurrent ? 'page' : undefined}
-        className={`group/link relative flex min-h-[2.75rem] min-w-0 flex-1 items-center gap-3 rounded-md px-3 transition-colors duration-150 lg:min-h-[2.375rem] ${NAV_FOCUS} ${
-          depth === 1 ? 'text-[0.8125rem]' : 'text-ui'
-        } ${
-          isCurrent
-            ? 'bg-nav-active font-semibold text-nav-active-foreground'
-            : isSection
-              ? 'font-semibold text-white hover:bg-nav-hover'
-              : 'text-nav-foreground hover:bg-nav-hover hover:text-white'
-        }`}
+        className={
+          desk
+            ? /*
+                The desk: words without icons, the current page a white pill with a hairline and
+                a marigold bar at the sidebar's edge - "where you are", and nothing else marigold.
+              */
+              `group/link relative flex min-h-[2.75rem] min-w-0 flex-1 items-center gap-3 rounded-brand-control border px-3 transition-colors duration-150 lg:min-h-[2.25rem] ${DESK_FOCUS} ${
+                depth === 1 ? 'text-brand-meta' : 'text-brand-ui'
+              } ${
+                isCurrent
+                  ? 'border-brand-line bg-brand-surface font-semibold text-brand-ink'
+                  : isSection
+                    ? 'border-transparent font-semibold text-brand-ink hover:bg-brand-sunken'
+                    : 'border-transparent text-brand-ink-2 hover:bg-brand-sunken hover:text-brand-ink'
+              }`
+            : `group/link relative flex min-h-[2.75rem] min-w-0 flex-1 items-center gap-3 rounded-md px-3 transition-colors duration-150 lg:min-h-[2.375rem] ${NAV_FOCUS} ${
+                depth === 1 ? 'text-[0.8125rem]' : 'text-ui'
+              } ${
+                isCurrent
+                  ? 'bg-nav-active font-semibold text-nav-active-foreground'
+                  : isSection
+                    ? 'font-semibold text-white hover:bg-nav-hover'
+                    : 'text-nav-foreground hover:bg-nav-hover hover:text-white'
+              }`
+        }
       >
         {isCurrent && (
           // A bar as well as the tint: the current page is told apart by shape, not colour alone.
           <span
-            className="absolute inset-y-2 left-0 w-[3px] rounded-full bg-nav-accent"
+            className={
+              desk && depth === 0
+                ? 'absolute inset-y-2 -left-3 w-[3px] rounded-r-full bg-brand-marigold'
+                : desk
+                  ? 'absolute inset-y-2 left-0 w-[3px] rounded-full bg-brand-marigold'
+                  : 'absolute inset-y-2 left-0 w-[3px] rounded-full bg-nav-accent'
+            }
             aria-hidden
           />
         )}
-        {Icon && depth === 0 && (
+        {Icon && depth === 0 && !desk && (
           <Icon
             className={`h-[1.125rem] w-[1.125rem] shrink-0 ${
               isCurrent ? 'text-nav-accent' : 'text-nav-muted group-hover/link:text-nav-foreground'
@@ -202,7 +247,11 @@ export function NavTree({
                   aria-controls={kidsId}
                   aria-label={`${open ? 'Hide' : 'Show'} more ${item.label} pages`}
                   onClick={() => setKidsOpen((s) => ({ ...s, [item.href]: !open }))}
-                  className={`flex h-11 w-9 shrink-0 items-center justify-center rounded-md text-nav-muted transition-colors duration-150 hover:bg-nav-hover hover:text-white lg:h-[2.375rem] ${NAV_FOCUS}`}
+                  className={
+                    desk
+                      ? `flex h-11 w-9 shrink-0 items-center justify-center rounded-brand-control text-brand-ink-3 transition-colors duration-150 hover:bg-brand-sunken hover:text-brand-ink lg:h-9 ${DESK_FOCUS}`
+                      : `flex h-11 w-9 shrink-0 items-center justify-center rounded-md text-nav-muted transition-colors duration-150 hover:bg-nav-hover hover:text-white lg:h-[2.375rem] ${NAV_FOCUS}`
+                  }
                 >
                   <ChevronDown
                     className={`h-4 w-4 transition-transform duration-150 motion-reduce:transition-none ${open ? 'rotate-180' : ''}`}
@@ -214,7 +263,7 @@ export function NavTree({
             {kids.length > 0 && open && (
               <ul
                 id={kidsId}
-                className="mb-1 ml-[1.45rem] mt-0.5 space-y-0.5 border-l border-nav-border pl-2"
+                className={`mb-1 mt-0.5 space-y-0.5 border-l pl-2 ${desk ? 'ml-4 border-brand-line' : 'ml-[1.45rem] border-nav-border'}`}
               >
                 {kids.map((kid) => (
                   <li key={kid.href} className="flex">
@@ -230,7 +279,7 @@ export function NavTree({
   );
 
   return (
-    <div className="space-y-1">
+    <div className={desk ? 'space-y-2' : 'space-y-1'}>
       {sections.map((section, si) => {
         const listId = `${baseId}-g${si}`;
         if (!section.label) return <div key={`s${si}`}>{list(section, listId, false)}</div>;
@@ -243,15 +292,24 @@ export function NavTree({
               aria-expanded={open}
               aria-controls={listId}
               onClick={() => setGroupOpen((s) => ({ ...s, [section.label!]: !open }))}
-              className={`flex h-11 w-full items-center justify-between gap-2 rounded-md px-3 text-left text-micro font-semibold uppercase tracking-[0.05em] transition-colors duration-150 hover:bg-nav-hover hover:text-white lg:h-[1.875rem] ${NAV_FOCUS} ${
-                isActive ? 'text-nav-foreground' : 'text-nav-muted'
-              }`}
+              className={
+                desk
+                  ? `flex h-11 w-full items-center justify-between gap-2 rounded-brand-control px-3 text-left text-brand-eyebrow uppercase transition-colors duration-150 hover:bg-brand-sunken hover:text-brand-ink lg:h-8 ${DESK_FOCUS} ${
+                      isActive ? 'text-brand-ink-2' : 'text-brand-ink-3'
+                    }`
+                  : `flex h-11 w-full items-center justify-between gap-2 rounded-md px-3 text-left text-micro font-semibold uppercase tracking-[0.05em] transition-colors duration-150 hover:bg-nav-hover hover:text-white lg:h-[1.875rem] ${NAV_FOCUS} ${
+                      isActive ? 'text-nav-foreground' : 'text-nav-muted'
+                    }`
+              }
             >
               <span className="flex min-w-0 items-center gap-2">
                 <span className="truncate">{section.label}</span>
                 {isActive && !open && (
                   // Folded with the current page inside: say so, so it is not lost.
-                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-nav-accent" aria-hidden />
+                  <span
+                    className={`h-1.5 w-1.5 shrink-0 rounded-full ${desk ? 'bg-brand-marigold' : 'bg-nav-accent'}`}
+                    aria-hidden
+                  />
                 )}
               </span>
               <ChevronRight
@@ -335,7 +393,16 @@ export function RailTip({
  * desktop menu bar expects to go. Items listed outside any group (check-in staff have two
  * pages and no groups) are links straight in the rail, each with its tooltip.
  */
-export function NavRail({ items, pathname }: { items: NavItem[]; pathname: string }) {
+export function NavRail({
+  items,
+  pathname,
+  appearance = 'classic',
+}: {
+  items: NavItem[];
+  pathname: string;
+  appearance?: ShellAppearance;
+}) {
+  const desk = appearance === 'desk';
   const sections = useMemo(() => navSections(items), [items]);
   const current = navCurrentHref(pathname, items);
   const active = activeSectionIndex(pathname, sections);
@@ -439,10 +506,18 @@ export function NavRail({ items, pathname }: { items: NavItem[]; pathname: strin
                       aria-label={item.label}
                       aria-current={item.href === current ? 'page' : undefined}
                       {...tip}
-                      className={`flex h-10 w-10 items-center justify-center rounded-md transition-colors duration-150 ${NAV_FOCUS} ${
-                        isCurrent
-                          ? 'bg-nav-active text-nav-accent'
-                          : 'text-nav-muted hover:bg-nav-hover hover:text-white'
+                      className={`flex h-10 w-10 items-center justify-center transition-colors duration-150 ${
+                        desk
+                          ? `rounded-brand-control border ${DESK_FOCUS} ${
+                              isCurrent
+                                ? 'border-brand-line bg-brand-surface text-brand-ink'
+                                : 'border-transparent text-brand-ink-3 hover:bg-brand-sunken hover:text-brand-ink'
+                            }`
+                          : `rounded-md ${NAV_FOCUS} ${
+                              isCurrent
+                                ? 'bg-nav-active text-nav-accent'
+                                : 'text-nav-muted hover:bg-nav-hover hover:text-white'
+                            }`
                       }`}
                     >
                       {Icon && <Icon className="h-[1.125rem] w-[1.125rem]" aria-hidden />}
@@ -472,12 +547,22 @@ export function NavRail({ items, pathname }: { items: NavItem[]; pathname: strin
                   onClick={() => (isOpen ? close(false) : openAt(si, false))}
                   onKeyDown={onButtonKey(si)}
                   {...tip}
-                  className={`relative flex h-10 w-10 items-center justify-center rounded-md transition-colors duration-150 ${NAV_FOCUS} ${
-                    isActive
-                      ? 'bg-nav-active text-nav-accent'
-                      : isOpen
-                        ? 'bg-nav-hover text-white'
-                        : 'text-nav-muted hover:bg-nav-hover hover:text-white'
+                  className={`relative flex h-10 w-10 items-center justify-center transition-colors duration-150 ${
+                    desk
+                      ? `rounded-brand-control border ${DESK_FOCUS} ${
+                          isActive
+                            ? 'border-brand-line bg-brand-surface text-brand-ink'
+                            : isOpen
+                              ? 'border-transparent bg-brand-sunken text-brand-ink'
+                              : 'border-transparent text-brand-ink-3 hover:bg-brand-sunken hover:text-brand-ink'
+                        }`
+                      : `rounded-md ${NAV_FOCUS} ${
+                          isActive
+                            ? 'bg-nav-active text-nav-accent'
+                            : isOpen
+                              ? 'bg-nav-hover text-white'
+                              : 'text-nav-muted hover:bg-nav-hover hover:text-white'
+                        }`
                   }`}
                 >
                   {Icon && <Icon className="h-[1.125rem] w-[1.125rem]" aria-hidden />}

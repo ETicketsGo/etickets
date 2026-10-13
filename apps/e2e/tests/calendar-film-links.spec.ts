@@ -157,25 +157,9 @@ test.describe('a film show on the calendar opens its film page', () => {
     );
   });
 
-  test('the Overview month card lists a chosen day and its row opens the film page', async ({
-    page,
-  }) => {
-    await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto(`${ORGANIZER}/organizer`);
-    // The shared grid's cell for the show's date; choosing it lists that day's shows below.
-    const cell = page.getByTestId(`month-day-${fx.day}`);
-    await expect(page.getByRole('heading', { name: 'Welcome back, Omar' })).toBeVisible({
-      timeout: 30_000,
-    });
-    // The show is a few days out: this month's card, or the next one when the month is ending.
-    if ((await cell.count()) === 0) await page.getByRole('button', { name: 'Next month' }).click();
-    await cell.click();
-    const list = page.getByRole('list', { name: /^Shows on / });
-    const row = list.getByRole('listitem').filter({ hasText: fx.title });
-    await expect(row).toBeVisible({ timeout: 30_000 });
-    await row.getByRole('button').first().click();
-    await expect(page).toHaveURL(
-      new RegExp(`/organizer/movies/${fx.movieId}\\?show=${fx.sessionId}`),
-    );
-  });
+  /*
+    The Overview's month card (and its "Shows on <day>" list) left the Overview with the desk
+    redesign (docs/design/DESIGN-SYSTEM.md): the calendar is one click away in the sidebar, and
+    the two tests above hold its month and agenda to the same film links.
+  */
 });
