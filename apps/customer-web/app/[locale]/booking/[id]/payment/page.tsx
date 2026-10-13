@@ -17,6 +17,7 @@ import {
   BRAND_LINK,
   BRAND_PANEL,
   BrandSteps,
+  useVenueWhenText,
 } from '@/components/booking-brand';
 import { paymentsActivatingCopy } from '@/components/payment/payments-activating';
 import { PriceBreakdown } from '@/components/price-breakdown';
@@ -168,7 +169,8 @@ function AccountPayment() {
   const k = useTranslations('storefront.checkout');
   const c = useTranslations('storefront.confirmation');
   const tx = useTranslations('common');
-  const { money, dateTime, zoneAbbrev } = useFormat();
+  const { money, moneyFractionDigits } = useFormat();
+  const venueWhenText = useVenueWhenText();
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const qc = useQueryClient();
@@ -425,7 +427,30 @@ function AccountPayment() {
   }
 
   const expired = countdown.expired;
-  const zoneLabel = zoneAbbrev(booking.eventSession.startsAt, booking.timeZone ?? undefined);
+  /*
+    One decision about decimals for everything this screen prints, so "2 x Classic" and the
+    breakdown under it show one figure one way (Rs 500.00 twice, not Rs 500 above Rs 500.00).
+    Every amount the breakdown draws goes into the decision, as on the event page.
+  */
+  const digits = moneyFractionDigits(
+    [
+      ...booking.items.map((i) => i.unitPriceMinor * i.quantity),
+      booking.subtotalMinor,
+      booking.discountMinor,
+      booking.bookingFeeMinor,
+      booking.paymentFeeMinor,
+      booking.customerFeeMinor ?? 0,
+      booking.feeTaxMinor ?? 0,
+      booking.maintenanceMinor ?? 0,
+      ...(booking.taxLines ?? []).map((l) => l.amountMinor),
+      booking.totalMinor,
+    ],
+    booking.currency,
+  );
+  // The building, as the seat page and the confirmation name it.
+  const where = booking.place
+    ? [booking.place.name, booking.place.city].filter(Boolean).join(', ')
+    : null;
 
   return (
     <PayShell>
@@ -484,9 +509,9 @@ function AccountPayment() {
             {booking.event.title}
           </h2>
           <p className="mt-1 text-brand-ui text-brand-ink-2">
-            {dateTime(booking.eventSession.startsAt, undefined, booking.timeZone ?? undefined)}
-            {zoneLabel ? ` ${zoneLabel}` : ''}
+            {venueWhenText(booking.eventSession.startsAt, booking.timeZone ?? undefined)}
           </p>
+          {where ? <p className="text-brand-ui text-brand-ink-2">{where}</p> : null}
 
           <div className="mt-5 space-y-2 border-t border-brand-line pt-5">
             {/*
@@ -511,7 +536,7 @@ function AccountPayment() {
               <Row
                 key={idx}
                 label={`${i.quantity} x ${i.label ?? i.ticketType?.name ?? i.addOn?.name ?? i.bundle?.name ?? k('item')}`}
-                value={money(i.unitPriceMinor * i.quantity, booking.currency)}
+                value={money(i.unitPriceMinor * i.quantity, booking.currency, undefined, digits)}
               />
             ))}
           </div>
@@ -622,6 +647,7 @@ function AccountPayment() {
                 totalMinor: booking.totalMinor,
               }}
               totalLabel={k('totalPayable')}
+              fractionDigits={digits}
             />
           </div>
 
@@ -679,7 +705,9 @@ function AccountPayment() {
               >
                 {pay.isPending
                   ? k('processing')
-                  : k('payAmount', { amount: money(booking.totalMinor, booking.currency) })}
+                  : k('payAmount', {
+                      amount: money(booking.totalMinor, booking.currency, undefined, digits),
+                    })}
               </BrandButton>
               <p className="flex items-start gap-2 text-brand-meta text-brand-ink-3">
                 <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />

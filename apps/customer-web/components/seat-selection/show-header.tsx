@@ -12,7 +12,7 @@ import {
   type PublicShowSummary,
 } from '@eticketsgo/web-kit';
 import { Link } from '@/i18n/navigation';
-import { useFormat } from '@/lib/format';
+import { useVenueWhenText } from '@/components/booking-brand';
 
 /** A time of day in the show's zone: "6:00 pm" in English, "18 h 00" in French. */
 function clock(iso: string, timeZone: string, locale?: string): string {
@@ -20,23 +20,6 @@ function clock(iso: string, timeZone: string, locale?: string): string {
     hour: 'numeric',
     minute: '2-digit',
     ...(locale ? {} : { hour12: true }),
-  };
-  try {
-    return new Intl.DateTimeFormat(locale ?? 'en-IN', { ...options, timeZone }).format(
-      new Date(iso),
-    );
-  } catch {
-    return new Intl.DateTimeFormat(locale ?? 'en-IN', options).format(new Date(iso));
-  }
-}
-
-/** "Sun, 13 Sept 2026" in the show's zone. */
-function day(iso: string, timeZone: string, locale?: string): string {
-  const options: Intl.DateTimeFormatOptions = {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
   };
   try {
     return new Intl.DateTimeFormat(locale ?? 'en-IN', { ...options, timeZone }).format(
@@ -60,25 +43,25 @@ function day(iso: string, timeZone: string, locale?: string): string {
 export function ShowHeader({ summary }: { summary: PublicShowSummary }) {
   const t = useTranslations('storefront.seats');
   const intlLocale = formatFor(useLocale()).locale;
-  const { zoneAbbrev } = useFormat();
+  const venueWhenText = useVenueWhenText();
 
   const title = summary.movie?.title ?? summary.event.title;
   const backHref = summary.movie
     ? `/movies/${summary.movie.slug}`
     : `/events/${summary.event.slug}`;
-  const place = [
-    summary.cinema?.name ?? summary.venue.name,
-    summary.screen?.name,
-    summary.venue.city,
-  ]
-    .filter(Boolean)
-    .join(' - ');
   /*
-    The venue's zone, always named. It used to appear only when the reader's own zone differed,
-    which is right for a reader at home and wrong for a link forwarded to somebody abroad: the
-    page cannot know who will read the time, so it says whose time it is.
+    The building and the city, written the way Review & pay and the confirmation write them
+    ("Indiranagar Picture House, Bengaluru"); the screen is a tag beside the film's facts.
   */
-  const zone = ` ${zoneAbbrev(summary.startsAt, summary.timeZone)}`;
+  const place = [summary.cinema?.name ?? summary.venue.name, summary.venue.city]
+    .filter(Boolean)
+    .join(', ');
+  /*
+    The venue's time with its zone, always named, in the one format every booking screen uses
+    (useVenueWhenText). The zone used to appear only when the reader's own zone differed, which
+    is wrong for a link forwarded to somebody abroad: the page cannot know who will read it.
+  */
+  const when = venueWhenText(summary.startsAt, summary.timeZone);
   const runtime = summary.movie
     ? t('runtime', {
         hours: Math.floor(summary.movie.runtimeMinutes / 60),
@@ -113,6 +96,7 @@ export function ShowHeader({ summary }: { summary: PublicShowSummary }) {
             <span className={tag}>{summary.movie.certificate}</span>
           ) : null}
           {summary.movie?.language ? <span className={tag}>{summary.movie.language}</span> : null}
+          {summary.screen?.name ? <span className={tag}>{summary.screen.name}</span> : null}
           {summary.screen?.format ? <span className={tag}>{summary.screen.format}</span> : null}
           {runtime ? <span className={tag}>{runtime}</span> : null}
           {summary.event.refundsEnabled ? null : (
@@ -121,9 +105,7 @@ export function ShowHeader({ summary }: { summary: PublicShowSummary }) {
         </div>
         <p className="text-brand-body text-brand-ink-2">
           <time dateTime={summary.startsAt} className="font-semibold text-brand-ink">
-            {day(summary.startsAt, summary.timeZone, intlLocale)},{' '}
-            {clock(summary.startsAt, summary.timeZone, intlLocale)}
-            {zone}
+            {when}
           </time>
           <span aria-hidden> - </span>
           {place}

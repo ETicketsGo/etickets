@@ -638,6 +638,13 @@ export default function EventDetailPage() {
 
   const heroTitle = (
     <div className="max-w-2xl">
+      {/*
+        No picture at all: the band carries the brand's no-image mark (EventArtwork's marigold
+        rule) above the words, so it reads as designed rather than as a photo that failed.
+      */}
+      {!hasArt ? (
+        <span aria-hidden className="mb-6 block h-1 w-16 rounded-full bg-brand-marigold" />
+      ) : null}
       <p className="text-brand-eyebrow uppercase text-brand-ink-2">
         {[event.category, event.venue.city].filter(Boolean).join(' / ')}
       </p>
@@ -651,7 +658,7 @@ export default function EventDetailPage() {
         {shownWhen ? (
           <p>
             <time dateTime={session!.startsAt}>
-              <span className="font-semibold text-brand-ink">{shownWhen.day}</span>{' '}
+              <span className="font-semibold text-brand-ink">{shownWhen.day},</span>{' '}
               <span className="text-brand-ink">{shownWhen.time}</span>
               {shownWhen.zone ? <span> {shownWhen.zone}</span> : null}
             </time>
@@ -668,7 +675,8 @@ export default function EventDetailPage() {
           </p>
         ) : null}
         <p>
-          <span className="font-semibold text-brand-ink">{event.venue.name}</span>{' '}
+          {/* "Name, City", as Review & pay and the confirmation write the place. */}
+          <span className="font-semibold text-brand-ink">{event.venue.name},</span>{' '}
           {event.venue.city}
         </p>
         <p>{sf('event.byOrganizer', { name: event.organizer.name })}</p>

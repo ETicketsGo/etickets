@@ -30,7 +30,13 @@ import { Link, getPathname } from '@/i18n/navigation';
 import { EventCard } from '@/components/event-card';
 import { PriceBreakdown } from '@/components/price-breakdown';
 import { ErrorState } from '@/components/ui';
-import { BRAND_EYEBROW, BRAND_LINK, BRAND_PANEL, BrandSteps } from '@/components/booking-brand';
+import {
+  BRAND_EYEBROW,
+  BRAND_LINK,
+  BRAND_PANEL,
+  BrandSteps,
+  useVenueWhenText,
+} from '@/components/booking-brand';
 import { useStatusLabel } from '@/lib/status-label';
 import {
   GuestBookingNotHere,
@@ -164,7 +170,8 @@ function AccountConfirmation() {
   // The badge in the reader's language: French showed "PENDING PAYMENT" here on QA.
   const statusLabel = useStatusLabel();
   const locale = useLocale() as Locale;
-  const { money, dateTime, moneyFractionDigits, zoneAbbrev } = useFormat();
+  const { money, moneyFractionDigits } = useFormat();
+  const venueWhenText = useVenueWhenText();
   const { id } = useParams<{ id: string }>();
   const toast = useToast();
 
@@ -258,7 +265,12 @@ function AccountConfirmation() {
   // The sale document. A credit note may also be present after a refund; the confirmation
   // screen shows the sale.
   const receipt = receipts.data?.find((r) => r.kind !== 'CREDIT_NOTE');
-  const tickets = (ticketsQ.data ?? []).filter((t) => t.bookingId === id);
+  // In seat order (E13 before E14), the order the summary and Review & pay list the seats.
+  const tickets = (ticketsQ.data ?? [])
+    .filter((t) => t.bookingId === id)
+    .sort((a, b) =>
+      (a.seatLabel ?? '').localeCompare(b.seatLabel ?? '', undefined, { numeric: true }),
+    );
   const seats = booking.seatLabels ?? [];
   const items = booking.items.filter((item) => item.quantity > 0);
   // One number of decimals for the order lines, so ₹499 does not sit above ₹10.18.
@@ -275,10 +287,7 @@ function AccountConfirmation() {
     cinema, which is the one thing somebody with two bookings in one city needs.
   */
   const zone = booking.timeZone ?? undefined;
-  const abbreviation = zoneAbbrev(booking.eventSession.startsAt, zone);
-  const when = `${dateTime(booking.eventSession.startsAt, undefined, zone)}${
-    abbreviation ? ` ${abbreviation}` : ''
-  }`;
+  const when = venueWhenText(booking.eventSession.startsAt, zone);
   const where = booking.place
     ? [booking.place.name, booking.place.city].filter(Boolean).join(', ')
     : null;
@@ -478,7 +487,7 @@ function AccountConfirmation() {
         {/* The order: what, when, where, the reference, and what it cost. */}
         <section
           aria-labelledby="order-summary-heading"
-          className={`${BRAND_PANEL} space-y-4 p-4 sm:p-6 lg:col-start-2 lg:row-start-1`}
+          className={`${BRAND_PANEL} space-y-4 p-4 sm:p-6 lg:col-start-2 lg:row-start-1 lg:self-start`}
         >
           <div className="space-y-1">
             <div className="flex items-start justify-between gap-3">

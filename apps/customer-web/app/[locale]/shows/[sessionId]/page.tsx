@@ -80,7 +80,7 @@ export default function SeatSelectionPage() {
   const sf = useTranslations('storefront');
   const s = useTranslations('storefront.seats');
   const k = useTranslations('storefront.checkout');
-  const { money } = useFormat();
+  const { money, moneyFractionDigits } = useFormat();
   const { sessionId } = useParams<{ sessionId: string }>();
 
   /** A seat's state in words, for its accessible name. Anything unrecognised is unavailable. */
@@ -571,6 +571,33 @@ export default function SeatSelectionPage() {
 
   const payDisabled = selected.length === 0 || book.isPending || isFetching || salesClosed;
   const payableMinor = quote?.totalMinor ?? total;
+  /*
+    One decision about decimals for the basket, the breakdown and the pay bar, so the seats'
+    line and the breakdown print one figure one way: "Rs 500.00" above "Rs 500.00", never
+    "Rs 500" above "Rs 500.00". The same rule the event page's booking card and Review & pay use.
+  */
+  const basketDigits = moneyFractionDigits(
+    [
+      ...Array.from(grouped.entries()).map(
+        ([catId, entry]) => (categoriesById.get(catId)?.priceMinor ?? 0) * entry.seatIds.length,
+      ),
+      total,
+      ...(quote
+        ? [
+            quote.subtotalMinor,
+            quote.discountMinor,
+            quote.bookingFeeMinor,
+            quote.paymentFeeMinor,
+            quote.customerFeeMinor ?? 0,
+            quote.feeTaxMinor ?? 0,
+            quote.maintenanceMinor ?? 0,
+            ...(quote.taxLines ?? []).map((l) => l.amountMinor),
+            quote.totalMinor,
+          ]
+        : []),
+    ],
+    currency,
+  );
 
   /**
    * Press Pay, from the summary panel or from the bar at the bottom of a phone.
@@ -872,7 +899,12 @@ export default function SeatSelectionPage() {
                         </p>
                       </div>
                       <span className="whitespace-nowrap text-brand-ui tabular-nums text-brand-ink">
-                        {money((cat?.priceMinor ?? 0) * entry.seatIds.length, currency)}
+                        {money(
+                          (cat?.priceMinor ?? 0) * entry.seatIds.length,
+                          currency,
+                          undefined,
+                          basketDigits,
+                        )}
                       </span>
                     </li>
                   );
@@ -986,6 +1018,7 @@ export default function SeatSelectionPage() {
                 fallbackCurrency={currency}
                 totalLabel={sf('event.totalSeats', { count: selected.length })}
                 emptyNote={sf('event.priceAddSeat')}
+                fractionDigits={basketDigits}
               />
             </div>
 
@@ -1033,7 +1066,7 @@ export default function SeatSelectionPage() {
         <BookingBar
           count={selected.length}
           seats={selectedLabels.join(', ')}
-          amount={money(payableMinor, currency)}
+          amount={money(payableMinor, currency, undefined, basketDigits)}
           pending={book.isPending}
           disabled={payDisabled}
           onPay={startBooking}

@@ -124,14 +124,15 @@ export function TicketAvailability({
 }) {
   const t = useTranslations('storefront.event');
   const tx = useTranslations('common');
-  const { dateTime } = useFormat();
+  // When sales open, in the venue's clock with its zone, like every other time in the flow.
+  const venueWhenText = useVenueWhenText();
   if (saleState === 'CLOSED')
     return <BrandStatusPill status="neutral">{t('salesClosed')}</BrandStatusPill>;
   if (saleState === 'NOT_YET')
     return (
       <span className="text-brand-meta text-brand-ink-2">
         {salesStartAt
-          ? t('salesOpenOn', { date: dateTime(salesStartAt, undefined, zone) })
+          ? t('salesOpenOn', { date: venueWhenText(salesStartAt, zone) })
           : t('salesNotOpen')}
       </span>
     );
@@ -154,7 +155,8 @@ export function TicketAvailability({
  * see whose 6:30 it is (DESIGN-SYSTEM.md section 9).
  */
 export function useVenueWhen() {
-  const locale = formatFor(useLocale()).locale;
+  // The storefront's English is en-IN (as dateTime's default), never the browser's own locale.
+  const locale = formatFor(useLocale()).locale ?? 'en-IN';
   const { zoneAbbrev } = useFormat();
   return (iso: string, zone: string | undefined) => {
     const at = new Date(iso);
@@ -225,4 +227,18 @@ export function BrandSteps({ steps, current }: { steps: string[]; current: numbe
       })}
     </ol>
   );
+}
+
+/**
+ * The same venue time as one line - "Fri 13 Nov 2026, 1:15 pm GMT+5:30" - so the event page,
+ * the seat page, Review & pay and the confirmation print a show's time identically. They used to
+ * print it three ways ("Fri, 13 Nov, 2026, 1:15 pm", "13 Nov 2026, 1:15 pm", no comma), which
+ * reads as three different shows to somebody checking they bought the right one.
+ */
+export function useVenueWhenText() {
+  const venueWhen = useVenueWhen();
+  return (iso: string, zone: string | undefined) => {
+    const when = venueWhen(iso, zone);
+    return `${when.day}, ${when.time}${when.zone ? ` ${when.zone}` : ''}`;
+  };
 }

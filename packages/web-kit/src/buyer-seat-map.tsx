@@ -195,8 +195,17 @@ export function BuyerSeatMap({
   }, []);
   const [zoom, setZoom] = useState<number>(FIT_STEP);
   const span = columns.max - columns.min + 1;
-  const fitted = width > 0 ? clamp((width - 48) / (span * 1.24), 22, 32) : 28;
-  const size = Math.round(fitted * ZOOM_STEPS[zoom]);
+  /*
+    On the storefront's stage map no seat is drawn smaller than 24px, the WCAG 2.5.8 target
+    size, whatever the zoom: on a phone the fitted size was 22px, which passed only through the
+    spacing exception. A room wider than the screen then pans inside its own box, as it already
+    does when zoomed in. The organizer's preview keeps its fit-to-box behaviour.
+  */
+  const minSeat = appearance === 'stage' ? 24 : 0;
+  const fitted = width > 0 ? clamp((width - 48) / (span * 1.24), Math.max(22, minSeat), 32) : 28;
+  const size = Math.max(minSeat, Math.round(fitted * ZOOM_STEPS[zoom]));
+  // Zooming out further would not change anything once the floor is reached.
+  const atSmallest = zoom === 0 || size <= minSeat;
   const gap = Math.max(3, Math.round(size * 0.22));
   const step = size + gap;
   const gutter = Math.max(28, Math.round(size * 1.15));
@@ -221,7 +230,7 @@ export function BuyerSeatMap({
       <div className="flex items-center justify-end gap-1">
         {(
           [
-            { label: labels.zoomOut, icon: Minus, disabled: zoom === 0, next: zoom - 1 },
+            { label: labels.zoomOut, icon: Minus, disabled: atSmallest, next: zoom - 1 },
             {
               label: labels.zoomReset,
               icon: ScanLine,

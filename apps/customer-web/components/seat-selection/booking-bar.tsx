@@ -60,9 +60,14 @@ export function BookingBar({
           </p>
           <p className="flex items-baseline gap-2">
             <span className="text-brand-figure-sm tabular-nums text-brand-ink">{amount}</span>
+            {/*
+              Not on the narrowest phones: at 320px the link wrapped under the total and doubled
+              the bar's height over the seats. The full breakdown is on the page right below
+              the map, which is where the link goes anyway.
+            */}
             <a
               href={detailsHref}
-              className="rounded-sm text-brand-meta font-medium text-brand-ink underline decoration-brand-line-strong underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-focus"
+              className="hidden whitespace-nowrap rounded-sm text-brand-meta font-medium text-brand-ink underline decoration-brand-line-strong underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-focus min-[360px]:inline"
             >
               {s('priceDetails')}
             </a>
