@@ -6,6 +6,8 @@ import { countryMatches } from '@eticketsgo/shared-types';
 */
 
 type Listing = {
+  /** Outside production: DEMO sample content or TEST data. Null/absent in production. */
+  contentLabel?: 'DEMO' | 'TEST' | null;
   imagePath?: string | null;
   imageVariants?: unknown;
   venue: { country: string };
@@ -14,14 +16,27 @@ type Listing = {
 /** Whether the organizer uploaded a picture for this listing. */
 export const hasPhoto = (e: Listing) => Boolean(e.imagePath || e.imageVariants);
 
-/** Listings with a photo first, otherwise the API's order (Array.prototype.sort is stable). */
+/** Curated sample content ahead of test data. Always equal in production, where nothing is labelled. */
+const isDemo = (e: { contentLabel?: 'DEMO' | 'TEST' | null }) => Number(e.contentLabel === 'DEMO');
+
+/**
+ * Sample (DEMO) content first outside production, then listings with a photo, otherwise the
+ * API's order (Array.prototype.sort is stable). TEST data is ranked after DEMO, never hidden.
+ * The hero is picked from this order, so it prefers a DEMO event over a TEST one.
+ */
 export function photosFirst<T extends Listing>(list: readonly T[]): T[] {
-  return [...list].sort((a, b) => Number(hasPhoto(b)) - Number(hasPhoto(a)));
+  return [...list].sort(
+    (a, b) => isDemo(b) - isDemo(a) || Number(hasPhoto(b)) - Number(hasPhoto(a)),
+  );
 }
 
-/** Films with a poster first, otherwise the API's order. */
-export function postersFirst<T extends { posterUrl: string | null }>(list: readonly T[]): T[] {
-  return [...list].sort((a, b) => Number(Boolean(b.posterUrl)) - Number(Boolean(a.posterUrl)));
+/** Sample films first, then films with a poster, otherwise the API's order. */
+export function postersFirst<
+  T extends { posterUrl: string | null; contentLabel?: 'DEMO' | 'TEST' | null },
+>(list: readonly T[]): T[] {
+  return [...list].sort(
+    (a, b) => isDemo(b) - isDemo(a) || Number(Boolean(b.posterUrl)) - Number(Boolean(a.posterUrl)),
+  );
 }
 
 /**

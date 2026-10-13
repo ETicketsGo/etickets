@@ -27,7 +27,12 @@
  *   node scripts/showcase/load-showcase.mjs --dry-run      # look up and print the plan only
  *   node scripts/showcase/load-showcase.mjs                # create what is missing
  *   node scripts/showcase/load-showcase.mjs --remove       # take the showcase items down
- *   options: --api <base>        (default http://localhost:4131/api; this machine only)
+ *   node scripts/showcase/load-showcase.mjs --target qa    # the QA API, and nothing else remote
+ *   options: --target <local|qa> (default local)
+ *            --api <base>        (default http://localhost:4131/api; this machine only, or the
+ *                                 exact QA API with --target qa)
+ *            --accounts-file <f> (qa: where organizer passwords are kept, default
+ *                                 C:/etg-wt/qa-secrets/showcase-qa-accounts.json)
  *            --images <dir>      (default C:/etg-wt/showcase/images)
  *            --credits <file>    (default: credits.json next to the images folder)
  *            --only <key,key>    only these catalogue keys
@@ -35,14 +40,14 @@
  *            --single-org        skip organizer sign-up; use the seeded owner's organization
  *            --catalogue <file>  load another catalogue module with the same exports
  */
-import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { createHash, randomBytes } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
-import { DEFAULT_LOCAL_API, localTargetVerdict } from './local-guard.mjs';
+import { DEFAULT_LOCAL_API, QA_API, targetVerdict } from './local-guard.mjs';
 import { venueTimeToInstant } from '../qa-demo/venue-time.mjs';
 import { pathToFileURL } from 'node:url';
-import { SHOWCASE_MARKER, showcaseKeyLine } from './catalogue.mjs';
+import { SHOWCASE_MARKER, SHOWCASE_MARKER_QA, showcaseKeyLine } from './catalogue.mjs';
 
 const args = process.argv.slice(2);
 const flag = (name) => args.includes(name);
@@ -56,14 +61,21 @@ const SINGLE_ORG = flag('--single-org');
 const ONLY = option('--only')?.split(',');
 const selected = (spec) => !ONLY || ONLY.includes(spec.key);
 
-const verdict = localTargetVerdict(
-  option('--api') ?? process.env.SHOWCASE_API ?? DEFAULT_LOCAL_API,
+const TARGET = option('--target') ?? 'local';
+const verdict = targetVerdict(
+  TARGET,
+  option('--api') ?? process.env.SHOWCASE_API ?? (TARGET === 'qa' ? QA_API : DEFAULT_LOCAL_API),
 );
 if (!verdict.allowed) {
   console.error(`REFUSED: ${verdict.reason}`);
   process.exit(2);
 }
 const API = verdict.apiBase;
+const ON_QA = TARGET === 'qa';
+const ACCOUNTS_FILE = option('--accounts-file') ?? 'C:/etg-wt/qa-secrets/showcase-qa-accounts.json';
+/** The sentence every listing carries. Both say "fictional"; either marks the loader's own. */
+const ACTIVE_MARKER = ON_QA ? SHOWCASE_MARKER_QA : SHOWCASE_MARKER;
+const WHERE = ON_QA ? 'the QA environment' : 'a local machine';
 /*
   Another catalogue with the same exports, for stress content a designer should also see (long
   titles, listings with no picture, one-event cities) without putting it in the curated
@@ -157,28 +169,55 @@ async function login(email, password) {
 // ── Showcase identity ───────────────────────────────────────────────────────────────
 
 /** About text, blank line, the marker, the key. The key line is always the last line. */
-const describe = (about, key) => `${about}\n\n${SHOWCASE_MARKER}\n${showcaseKeyLine(key)}`;
+const describe = (about, key) => `${about}\n\n${ACTIVE_MARKER}\n${showcaseKeyLine(key)}`;
 
 /** Ours only if the marker is present AND the key ends the text: never touch anyone else's. */
 const isOurs = (text, key) =>
   typeof text === 'string' &&
-  text.includes(SHOWCASE_MARKER) &&
+  (text.includes(SHOWCASE_MARKER) || text.includes(SHOWCASE_MARKER_QA)) &&
   text.trimEnd().endsWith(showcaseKeyLine(key));
 
 /**
- * A local organizer password: deterministic so a re-run can sign in again, never stored.
+ * An organizer password.
  *
- * Derived from the organizer key plus an optional local salt. These accounts exist only on a
- * developer's machine (the guard sees to that), so the point is a password that passes the
+ * LOCAL: deterministic (organizer key plus an optional salt), because those accounts exist only
+ * on a developer's machine (the guard sees to that); the point is a password that passes the
  * platform's policy and that nobody has to keep, not a secret.
+ *
+ * QA: RANDOM, and kept in ACCOUNTS_FILE (outside the repository) so a re-run can sign in
+ * again. It is written BEFORE the account is registered, so a crash between the two never
+ * leaves an account whose password is lost, and it is never printed or put in the report.
  */
-const organizerPassword = (orgKey) =>
-  'Sc-' +
-  createHash('sha256')
-    .update(`eticketsgo-showcase-local:${orgKey}:${process.env.SHOWCASE_PASSWORD_SALT ?? ''}`)
-    .digest('base64url')
-    .slice(0, 22) +
-  '-9a';
+const qaAccounts = (() => {
+  if (!ON_QA || !existsSync(ACCOUNTS_FILE)) return {};
+  try {
+    return JSON.parse(readFileSync(ACCOUNTS_FILE, 'utf8'));
+  } catch (err) {
+    console.error(`REFUSED: ${ACCOUNTS_FILE} exists but is not valid JSON (${err.message}).`);
+    process.exit(2);
+  }
+})();
+const organizerPassword = (orgKey) => {
+  if (ON_QA) {
+    const known = qaAccounts[orgKey]?.password;
+    if (known) return known;
+    // A dry run or removal must not mint (or write) credentials for accounts that may not exist.
+    if (DRY_RUN || REMOVE) return null;
+    const password = 'Qa-' + randomBytes(18).toString('base64url') + '-9a';
+    qaAccounts[orgKey] = { email: organizerEmail(orgKey), password };
+    mkdirSync(dirname(ACCOUNTS_FILE), { recursive: true });
+    writeFileSync(ACCOUNTS_FILE, JSON.stringify(qaAccounts, null, 2) + '\n', { mode: 0o600 });
+    return password;
+  }
+  return (
+    'Sc-' +
+    createHash('sha256')
+      .update(`eticketsgo-showcase-local:${orgKey}:${process.env.SHOWCASE_PASSWORD_SALT ?? ''}`)
+      .digest('base64url')
+      .slice(0, 22) +
+    '-9a'
+  );
+};
 const organizerEmail = (orgKey) => `showcase+${orgKey.toLowerCase()}@eticketsgo.test`;
 
 // ── Images ──────────────────────────────────────────────────────────────────────────
@@ -305,6 +344,12 @@ async function ensureOrganizer(ctx, orgKey) {
 
   let token;
   try {
+    // No stored QA password means this account was never made by this loader here.
+    if (password === null) {
+      const err = new Error('no stored password');
+      err.status = 401;
+      throw err;
+    }
     token = await login(email, password);
   } catch (err) {
     if (err.mfa || (err.status && err.status !== 401)) throw err;
@@ -316,9 +361,21 @@ async function ensureOrganizer(ctx, orgKey) {
       );
       return { key: orgKey, org: null, token: null, entry };
     }
-    await call('POST', '/auth/register', {
-      body: { email, password, fullName: `${spec.name} Team`, country: spec.country },
-    });
+    try {
+      await call('POST', '/auth/register', {
+        body: { email, password, fullName: `${spec.name} Team`, country: spec.country },
+      });
+    } catch (err) {
+      if (ON_QA && err.status === 409) {
+        // Registered earlier, but its password is not in ACCOUNTS_FILE: say so rather than
+        // creating a second account or touching the first.
+        throw new Error(
+          `${email} already exists on QA and its password is not in ${ACCOUNTS_FILE}. ` +
+            'Restore that file, or remove the account in the admin console.',
+        );
+      }
+      throw err;
+    }
     entry.actions.push('registered account');
     token = await login(email, password);
   }
@@ -351,7 +408,7 @@ async function ensureOrganizer(ctx, orgKey) {
   if (org.status === 'PENDING' && !DRY_RUN && !REMOVE) {
     await call('POST', `/admin/organizers/${org.id}/review`, {
       token: ctx.admin,
-      body: { decision: 'APPROVE', note: 'Fictional showcase organizer on a local machine.' },
+      body: { decision: 'APPROVE', note: `Fictional showcase organizer on ${WHERE}.` },
     });
     entry.actions.push('approved as admin');
     org = { ...org, status: 'APPROVED' };
@@ -625,7 +682,7 @@ async function loadEvent(ctx, spec) {
   if (detail.status === 'UNDER_REVIEW' && isOurs(detail.description, spec.key)) {
     await call('POST', `/admin/events/${found.id}/review`, {
       token: ctx.admin,
-      body: { decision: 'APPROVE', note: 'Fictional showcase listing on a local machine.' },
+      body: { decision: 'APPROVE', note: `Fictional showcase listing on ${WHERE}.` },
     });
     entry.actions.push('approved as admin');
   }
@@ -867,6 +924,9 @@ async function main() {
   const orgs = new Map();
   let fallback = null;
   const useFallback = async (why) => {
+    // On QA the seeded owner's organization holds the certification fixtures; putting the
+    // demo catalogue there would defeat the point. Stop instead.
+    if (ON_QA) throw new Error(`${why ?? 'single-org was requested'} (no fallback on QA)`);
     if (!fallback) {
       if (why) warn(`Falling back to the seeded owner organization: ${why}`);
       report.organizerMode = SINGLE_ORG
@@ -940,6 +1000,13 @@ async function main() {
   }
 
   report.finishedAt = new Date().toISOString();
+  // What the API's DEMO_ORGANIZATION_IDS must hold for these listings to be labelled DEMO.
+  // Organization ids are not secrets. Passwords are never printed.
+  const demoOrgIds = [
+    ...new Set(
+      report.organizers.map((o) => o.organizationId).filter((id) => id && fallback?.org?.id !== id),
+    ),
+  ];
   const out = option('--report');
   if (out) writeFileSync(out, JSON.stringify(report, null, 2) + '\n');
   console.log(
@@ -947,6 +1014,11 @@ async function main() {
       `${report.venues.length} venues, ${report.events.length} events, ` +
       `${report.films.length} films, ${report.warnings.length} warning(s).`,
   );
+  if (demoOrgIds.length) {
+    console.log(`
+DEMO_ORGANIZATION_IDS=${demoOrgIds.join(',')}`);
+    console.log('(set this variable on the API service to label these listings DEMO)');
+  }
   if (report.warnings.length) process.exitCode = 1;
 }
 

@@ -1,4 +1,4 @@
-# Showcase catalogue (local machine only)
+# Showcase catalogue (local machine, and QA by name)
 
 Sixteen fictional listings - 12 events and 4 films in Bengaluru, Mumbai, Hyderabad, New Delhi,
 New York and Toronto - so designers can take honest screenshots on their own machine instead of
@@ -6,7 +6,8 @@ judging layouts against rows called "Test Event 1712...". The content lives in
 `catalogue.mjs`; `load-showcase.mjs` puts it on a local stack through the public organizer and
 admin APIs, the same way an organizer and an admin would.
 
-**Never run this against QA, UAT or production.** `local-guard.mjs` refuses, before the first
+**Never run this against UAT or production.** The only remote target is QA, by `--target qa`
+(see "On QA" below). `local-guard.mjs` refuses, before the first
 request, any API whose host is not exactly `localhost`, `127.0.0.1` or `::1` over plain http
 (any port). https, QA and Railway hosts, LAN addresses and typos are all refused.
 
@@ -100,3 +101,30 @@ place: the API has no way to delete a venue, and keeping them makes the next loa
 ```sh
 node --test scripts/showcase/*.test.mjs
 ```
+
+## On QA
+
+QA keeps its certification fixtures ("Test Event 1712...", "K-TEST ...") and nothing is deleted.
+The API labels every public listing outside production: DEMO when its organization is listed
+in the `DEMO_ORGANIZATION_IDS` variable, TEST otherwise, and the storefront shows a quiet
+"Sample event" or "Test event" badge and puts DEMO first. In production the label is always null.
+
+```sh
+node scripts/showcase/load-showcase.mjs --target qa --dry-run   # reads only
+node scripts/showcase/load-showcase.mjs --target qa             # creates what is missing
+node scripts/showcase/load-showcase.mjs --target qa --remove    # takes the showcase down again
+```
+
+- `--target qa` allows exactly `https://api-qa-f580.up.railway.app/api`. UAT, production,
+  custom domains, other Railway hosts and any other port or scheme are refused before a request.
+  If Railway changes the generated host, change `QA_API` in `local-guard.mjs` in a reviewed commit.
+- It signs in as the QA admin (`SHOWCASE_ADMIN_EMAIL` / `SHOWCASE_ADMIN_PASSWORD`; the seeded
+  test admin if unset). An admin that asks for an authenticator code is a refusal.
+- Organizer passwords are random and written to `C:/etg-wt/qa-secrets/showcase-qa-accounts.json`
+  (`--accounts-file` to change), before the account is registered. They are never printed.
+  Keep that file: a re-run needs it. There is no fallback to the seeded owner's organization.
+- Every listing says "Showcase listing: fictional, for demonstration on the QA environment."
+- Re-running is safe: items are found again by their key line. `--remove` touches only items
+  that carry the showcase marker and key.
+- It prints `DEMO_ORGANIZATION_IDS=<id>,<id>,...` at the end. Set that variable on the QA API
+  service (and nowhere else), then redeploy it, so the listings are labelled DEMO.

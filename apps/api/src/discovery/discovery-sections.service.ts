@@ -6,6 +6,7 @@ import {
   type DiscoveryStrategy,
 } from './strategies/discovery-strategy.interface';
 import { CacheService } from '../cache/cache.service';
+import { demoFirst } from '../common/content-label';
 import { LocationService } from './location.service';
 
 /** Short TTL: the section feed is anonymous per-city and safe to serve stale. */
@@ -86,6 +87,14 @@ export class DiscoverySectionsService {
   }): Promise<DiscoverySection[]> {
     const ctx: DiscoveryContext = { ...place, now: new Date() };
     const composed = await Promise.all(this.strategies.map((s) => s.discover(ctx)));
-    return composed.filter((section) => section.items.length > 0);
+    return (
+      composed
+        .filter((section) => section.items.length > 0)
+        // Demo before test within each section, outside production. Never drops an item.
+        .map((section) => ({
+          ...section,
+          items: demoFirst(section.items as { contentLabel?: 'DEMO' | 'TEST' | null }[]),
+        }))
+    );
   }
 }

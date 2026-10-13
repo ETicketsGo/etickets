@@ -194,3 +194,69 @@ describe('priceSlot', () => {
     expect(priceSlot('CLOSED')).toBe('closed');
   });
 });
+
+describe('sample content ordering', () => {
+  const labelled = (id: string, contentLabel: 'DEMO' | 'TEST' | null, photo: boolean) => ({
+    ...ev(id, 'IN', photo),
+    contentLabel,
+  });
+
+  it('puts DEMO before TEST, then photos, and never drops a TEST listing', () => {
+    const list = [
+      labelled('t-photo', 'TEST', true),
+      labelled('d-plain', 'DEMO', false),
+      labelled('t-plain', 'TEST', false),
+      labelled('d-photo', 'DEMO', true),
+    ];
+    expect(photosFirst(list).map((e) => e.id)).toEqual([
+      'd-photo',
+      'd-plain',
+      't-photo',
+      't-plain',
+    ]);
+  });
+
+  it('prefers a DEMO event for the hero when it has a photo and can be bought', () => {
+    const list = [labelled('test', 'TEST', true), labelled('demo', 'DEMO', true)];
+    const states = new Map<string, 'BUYABLE'>([
+      ['test', 'BUYABLE'],
+      ['demo', 'BUYABLE'],
+    ]);
+    const slugged = list.map((e) => ({ ...e, slug: e.id }));
+    expect(chooseHero(slugged, states).hero?.id).toBe('demo');
+  });
+
+  it('falls back to a TEST event when no DEMO event is buyable', () => {
+    const slugged = [labelled('test', 'TEST', true), labelled('demo', 'DEMO', true)].map((e) => ({
+      ...e,
+      slug: e.id,
+    }));
+    const states = new Map<string, 'BUYABLE' | 'SOLD_OUT'>([
+      ['test', 'BUYABLE'],
+      ['demo', 'SOLD_OUT'],
+    ]);
+    expect(chooseHero(slugged, states).hero?.id).toBe('test');
+  });
+
+  it('leaves the order alone when nothing is labelled (production)', () => {
+    const list = [
+      labelled('a', null, false),
+      labelled('b', null, true),
+      labelled('c', null, false),
+    ];
+    expect(photosFirst(list).map((e) => e.id)).toEqual(['b', 'a', 'c']);
+    const films = [
+      { id: 'x', posterUrl: null },
+      { id: 'y', posterUrl: '/p.jpg' },
+    ];
+    expect(postersFirst(films).map((f) => f.id)).toEqual(['y', 'x']);
+  });
+
+  it('puts a DEMO film ahead of a TEST film that has a poster', () => {
+    const films = [
+      { id: 'test', posterUrl: '/p.jpg', contentLabel: 'TEST' as const },
+      { id: 'demo', posterUrl: null, contentLabel: 'DEMO' as const },
+    ];
+    expect(postersFirst(films).map((f) => f.id)).toEqual(['demo', 'test']);
+  });
+});

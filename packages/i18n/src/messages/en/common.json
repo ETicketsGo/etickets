@@ -16,6 +16,10 @@
     "viewAll": "View all",
     "done": "Done"
   },
+  "contentLabel": {
+    "DEMO": "Sample event",
+    "TEST": "Test event"
+  },
   "state": {
     "loading": "Loading",
     "loadingFailed": "We couldn't load this. Please try again.",

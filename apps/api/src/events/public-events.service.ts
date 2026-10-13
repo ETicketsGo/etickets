@@ -7,6 +7,7 @@ import { AdvertisedPriceService } from '../pricing/advertised-price.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import { availableUnits } from '../inventory/inventory-strategy.interface';
 import { countryAliases } from '../common/country';
+import { contentLabelFor, contentLabelPolicy } from '../common/content-label';
 import {
   EVENT_IMAGE_URL_SELECT,
   coverImagePath,
@@ -206,11 +207,36 @@ export class PublicEventsService {
       },
     };
 
-    const [total, events] = await this.prisma.$transaction([
+    /*
+      DEMO before TEST, outside production, across the WHOLE result and not just the page.
+
+      Sorting a page after the fact would leave a demo event on page 2 behind a full page of
+      test fixtures. When demo organizations are configured, the matching ids are ordered
+      first (a thin query, ids only) and the page is cut from that order. With none configured,
+      and in production, this block does nothing and the query is exactly what it was.
+    */
+    const policy = contentLabelPolicy();
+    let pageWhere = where;
+    let pageOrder: string[] | null = null;
+    if (policy.enabled && policy.demoOrganizationIds.size > 0) {
+      const all = await this.prisma.event.findMany({
+        where,
+        select: { id: true, organizationId: true },
+        orderBy: { publishedAt: 'desc' },
+      });
+      const isDemo = (e: { organizationId: string }) =>
+        policy.demoOrganizationIds.has(e.organizationId);
+      pageOrder = [...all.filter(isDemo), ...all.filter((e) => !isDemo(e))]
+        .slice((filters.page - 1) * filters.pageSize, filters.page * filters.pageSize)
+        .map((e) => e.id);
+      pageWhere = { AND: [where, { id: { in: pageOrder } }] };
+    }
+
+    const [total, found] = await this.prisma.$transaction([
       this.prisma.event.count({ where }),
       this.prisma.event.findMany({
-        where,
-        skip: (filters.page - 1) * filters.pageSize,
+        where: pageWhere,
+        skip: pageOrder ? 0 : (filters.page - 1) * filters.pageSize,
         take: filters.pageSize,
         orderBy: { publishedAt: 'desc' },
         include: {
@@ -252,11 +278,18 @@ export class PublicEventsService {
       }),
     ]);
 
+    const order = pageOrder;
+    const events = order
+      ? [...found].sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id))
+      : found;
+
     const data = await Promise.all(
       events.map(async (e) => {
         const currency = e.sessions[0]?.ticketTypes[0]?.currency ?? 'INR';
         return {
           id: e.id,
+          // Null in production. See common/content-label.ts.
+          contentLabel: contentLabelFor(e.organizationId, policy),
           title: e.title,
           slug: e.slug,
           category: e.category,
@@ -370,6 +403,7 @@ export class PublicEventsService {
 
     return {
       id: event.id,
+      contentLabel: contentLabelFor(event.organization.id),
       title: event.title,
       slug: event.slug,
       // The cover for anything that shows one image, and all of them for the page's gallery.
@@ -538,6 +572,7 @@ export class PublicEventsService {
       facebookUrl: org.facebookUrl,
       events: events.map((e) => ({
         id: e.id,
+        contentLabel: contentLabelFor(e.organizationId),
         title: e.title,
         slug: e.slug,
         category: e.category,

@@ -19,6 +19,12 @@ const envSchema = z.object({
   API_PORT: z.coerce.number().default(4000),
   API_GLOBAL_PREFIX: z.string().default('api'),
   CORS_ORIGINS: z.string().default('http://localhost:3000'),
+  /*
+    Organizations whose listings are curated DEMO content (comma-separated ids). Everything else
+    outside PRODUCTION is labelled TEST. Optional and inert in PRODUCTION: see
+    common/content-label.ts.
+  */
+  DEMO_ORGANIZATION_IDS: z.string().optional(),
 
   DATABASE_URL: z.string().min(1),
   // The default is for local development only. Outside LOCAL/DEV, RedisService (and the worker)

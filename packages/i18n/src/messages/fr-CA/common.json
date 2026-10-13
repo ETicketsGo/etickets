@@ -16,6 +16,10 @@
     "viewAll": "Tout voir",
     "done": "Terminé"
   },
+  "contentLabel": {
+    "DEMO": "Événement exemple",
+    "TEST": "Événement test"
+  },
   "state": {
     "loading": "Chargement",
     "loadingFailed": "Nous n'avons pas pu charger cette page. Veuillez réessayer.",

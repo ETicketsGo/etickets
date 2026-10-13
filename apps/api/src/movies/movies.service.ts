@@ -19,6 +19,7 @@ import { AppException, ErrorCodes } from '../common/errors';
 import { availableUnits } from '../inventory/inventory-strategy.interface';
 import { movieRatingsFor } from '../reviews/movie-ratings';
 import type { RequestUser } from '../common/decorators';
+import { contentLabelFor, contentLabelPolicy, demoFirst } from '../common/content-label';
 
 const ORGANIZER_ROLES = [Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER];
 
@@ -309,8 +310,10 @@ export class PublicMoviesService {
       this.prisma,
       movies.map((m) => m.id),
     );
-    return movies.map((m) => ({
+    const policy = contentLabelPolicy();
+    const cards = movies.map((m) => ({
       id: m.id,
+      contentLabel: contentLabelFor(m.organizationId, policy),
       title: m.title,
       slug: m.slug,
       posterUrl: m.posterUrl,
@@ -320,6 +323,8 @@ export class PublicMoviesService {
       runtimeMinutes: m.runtimeMinutes,
       rating: ratings.get(m.id) ?? null,
     }));
+    // Demo films before test films, outside production; the same order otherwise.
+    return demoFirst(cards);
   }
 
   /** PUBLISHED movie detail with its bookable movie shows (empty until PR-3). */
@@ -388,6 +393,7 @@ export class PublicMoviesService {
     return {
       rating,
       id: movie.id,
+      contentLabel: contentLabelFor(movie.organizationId),
       title: movie.title,
       slug: movie.slug,
       posterUrl: movie.posterUrl,

@@ -13,6 +13,7 @@ import {
   type PublicMovieCard,
 } from '@eticketsgo/web-kit';
 import { Link } from '@/i18n/navigation';
+import { ContentLabelBadge } from '../content-label-badge';
 import { useFormat } from '@/lib/format';
 import { priceSlot, type Buyability } from '@/lib/home-feed';
 
@@ -254,7 +255,10 @@ export function FeatureCard({ event, state }: { event: PublicEventCard; state?: 
           />
         </div>
       </div>
-      <p className="mt-4 text-brand-eyebrow uppercase text-brand-ink-3">{event.category}</p>
+      <p className="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-brand-eyebrow uppercase text-brand-ink-3">
+        {event.category}
+        <ContentLabelBadge label={event.contentLabel} />
+      </p>
       <h3 className="mt-1 line-clamp-3 text-balance font-brand-display text-brand-d3 text-brand-ink">
         {event.title}
       </h3>
@@ -288,7 +292,10 @@ export function EventRow({ event, state }: { event: PublicEventCard; state?: Buy
         <RowThumb event={event} />
       </div>
       <div className="min-w-0 self-end sm:self-center">
-        <p className="text-brand-eyebrow uppercase text-brand-ink-3">{event.category}</p>
+        <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-brand-eyebrow uppercase text-brand-ink-3">
+          {event.category}
+          <ContentLabelBadge label={event.contentLabel} />
+        </p>
         <h3 className="mt-1 line-clamp-2 font-brand-display text-brand-card text-brand-ink">
           {event.title}
         </h3>
@@ -339,9 +346,12 @@ export function EventTile({
           />
         </div>
       </div>
-      <p className="mt-3 text-brand-eyebrow uppercase text-brand-ink-3">
-        {event.category}
-        {showCity ? ` / ${event.venue.city}` : ''}
+      <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-brand-eyebrow uppercase text-brand-ink-3">
+        <span>
+          {event.category}
+          {showCity ? ` / ${event.venue.city}` : ''}
+        </span>
+        <ContentLabelBadge label={event.contentLabel} />
       </p>
       <h3 className="mt-1 line-clamp-2 font-brand-display text-brand-card text-brand-ink">
         {event.title}
@@ -389,7 +399,8 @@ export function PosterCard({ movie }: { movie: PublicMovieCard }) {
       <h3 className="mt-3 line-clamp-2 font-brand-display text-brand-card text-brand-ink">
         {movie.title}
       </h3>
-      <p className="mt-1 flex flex-wrap items-center gap-x-1.5 text-brand-meta text-brand-ink-2">
+      <p className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-brand-meta text-brand-ink-2">
+        <ContentLabelBadge label={movie.contentLabel} />
         {movie.certificate && (
           <span className="inline-flex h-5 items-center rounded border border-brand-line-strong px-1.5 text-[0.6875rem] font-semibold text-brand-ink-2">
             {movie.certificate}
@@ -488,6 +499,7 @@ export function StageHero({ event }: { event: PublicEventCard }) {
             <span className="text-brand-eyebrow uppercase text-brand-ink-2">
               {event.category} / {event.venue.city}
             </span>
+            <ContentLabelBadge label={event.contentLabel} />
           </div>
           <h2 className="mt-4 line-clamp-3 max-w-[14ch] text-balance font-brand-display text-brand-hero text-brand-ink">
             {event.title}

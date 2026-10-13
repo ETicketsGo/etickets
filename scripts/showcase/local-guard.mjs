@@ -74,3 +74,57 @@ export function localTargetVerdict(apiBase) {
     reason: `Local API at ${host}${port}.`,
   };
 }
+
+/**
+ * ── THE ONE REMOTE TARGET: QA ──────────────────────────────────────────────────────
+ * `--target qa` exists so the curated demo catalogue can sit beside QA's certification
+ * fixtures (which are kept, and labelled TEST by the API). It is still an allowlist of ONE
+ * exact origin, not a deny-list of production: UAT, production, custom domains
+ * (api-qa.eticketsgo.com), another Railway host, a different port or plain http are all
+ * refused without needing to know what they are. The generated Railway host is unstable
+ * (it has changed before); when it changes this constant is changed in a reviewed commit,
+ * which is the point.
+ */
+export const QA_API = 'https://api-qa-f580.up.railway.app/api';
+
+/**
+ * @param {string | undefined} apiBase
+ * @returns {{ allowed: boolean, apiBase: string | null, reason: string }}
+ */
+export function qaTargetVerdict(apiBase) {
+  const raw = (apiBase ?? '').trim();
+  let url;
+  try {
+    url = new URL(raw);
+  } catch {
+    return { allowed: false, apiBase: null, reason: `"${raw}" is not a URL.` };
+  }
+  const want = new URL(QA_API);
+  const exact =
+    url.protocol === want.protocol &&
+    url.hostname.toLowerCase() === want.hostname &&
+    url.port === '' &&
+    !url.username &&
+    !url.password &&
+    url.pathname.replace(/\/+$/, '') === want.pathname &&
+    !url.search &&
+    !url.hash;
+  if (!exact) {
+    return {
+      allowed: false,
+      apiBase: null,
+      reason: `Refusing ${raw}: --target qa writes only to ${QA_API} (nothing else, not UAT, not production).`,
+    };
+  }
+  return { allowed: true, apiBase: QA_API, reason: 'The QA API.' };
+}
+
+/**
+ * The single question the loader asks. `target` is "local" (default) or "qa". An unknown
+ * target is a refusal, so a typo cannot fall through to a looser rule.
+ */
+export function targetVerdict(target, apiBase) {
+  if (target === undefined || target === 'local') return localTargetVerdict(apiBase);
+  if (target === 'qa') return qaTargetVerdict(apiBase ?? QA_API);
+  return { allowed: false, apiBase: null, reason: `Unknown --target "${target}" (local or qa).` };
+}
