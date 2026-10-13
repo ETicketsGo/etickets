@@ -131,3 +131,26 @@ export function heroCandidates<T extends Listing & { slug: string }>(list: reado
     .slice(0, HERO_CANDIDATES)
     .map((e) => e.slug);
 }
+
+/** What a card shows where the price would be. */
+export type PriceSlot = 'price' | 'soldOut' | 'notYet' | 'closed' | 'none';
+
+/**
+ * The price only when the event's own payload proves a ticket is on sale. A card whose read
+ * has not arrived (or was never made) shows its date and no price: "From Rs 799" over a
+ * sold-out show is the misleading price this exists to prevent.
+ */
+export function priceSlot(state: Buyability | undefined): PriceSlot {
+  switch (state) {
+    case 'BUYABLE':
+      return 'price';
+    case 'SOLD_OUT':
+      return 'soldOut';
+    case 'NOT_YET':
+      return 'notYet';
+    case 'CLOSED':
+      return 'closed';
+    default:
+      return 'none';
+  }
+}

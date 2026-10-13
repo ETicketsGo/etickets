@@ -7,6 +7,7 @@ import {
   outsideGroups,
   photosFirst,
   postersFirst,
+  priceSlot,
 } from './home-feed';
 
 const ev = (id: string, country: string, photo: boolean) => ({
@@ -178,5 +179,18 @@ describe('chooseHero', () => {
     ]);
     expect(chooseHero(list, states)).toEqual({ hero: null, pending: false });
     expect(heroCandidates(list)).toEqual(['soldout', 'open']);
+  });
+});
+
+describe('priceSlot', () => {
+  it('shows a price only for an event proven to be on sale', () => {
+    expect(priceSlot('BUYABLE')).toBe('price');
+    expect(priceSlot(undefined)).toBe('none');
+  });
+
+  it('names why an unbuyable card has no price', () => {
+    expect(priceSlot('SOLD_OUT')).toBe('soldOut');
+    expect(priceSlot('NOT_YET')).toBe('notYet');
+    expect(priceSlot('CLOSED')).toBe('closed');
   });
 });

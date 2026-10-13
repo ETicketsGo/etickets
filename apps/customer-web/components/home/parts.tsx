@@ -14,7 +14,7 @@ import {
 } from '@eticketsgo/web-kit';
 import { Link } from '@/i18n/navigation';
 import { useFormat } from '@/lib/format';
-import type { Buyability } from '@/lib/home-feed';
+import { priceSlot, type Buyability } from '@/lib/home-feed';
 
 /*
   ── THE HOME PAGE'S PIECES (docs/design/DESIGN-SYSTEM.md) ─────────────────────────────
@@ -121,7 +121,7 @@ export function FromPrice({
 /**
  * The price, or - when the event cannot be bought - the reason in one word. "From Rs 799" on a
  * sold-out show invites a click that ends at "Sold out" one page later. `state` comes from the
- * event's own payload (see `buyability`); unknown yet, the price is shown as before.
+ * event's own payload (see `buyability`).
  */
 export function PriceOrState({
   event,
@@ -132,11 +132,19 @@ export function PriceOrState({
 }) {
   const common = useTranslations('common.state');
   const t = useTranslations('home.state');
-  if (state === 'SOLD_OUT')
-    return <BrandStatusPill status="neutral">{common('soldOut')}</BrandStatusPill>;
-  if (state === 'NOT_YET') return <BrandStatusPill status="info">{t('notYet')}</BrandStatusPill>;
-  if (state === 'CLOSED') return <BrandStatusPill status="neutral">{t('closed')}</BrandStatusPill>;
-  return <FromPrice event={event} />;
+  // A price only once the event's own payload proves something is on sale (see priceSlot).
+  switch (priceSlot(state)) {
+    case 'price':
+      return <FromPrice event={event} />;
+    case 'soldOut':
+      return <BrandStatusPill status="neutral">{common('soldOut')}</BrandStatusPill>;
+    case 'notYet':
+      return <BrandStatusPill status="info">{t('notYet')}</BrandStatusPill>;
+    case 'closed':
+      return <BrandStatusPill status="neutral">{t('closed')}</BrandStatusPill>;
+    default:
+      return null;
+  }
 }
 
 export function SectionHead({
@@ -305,9 +313,11 @@ export function EventRow({ event, state }: { event: PublicEventCard; state?: Buy
 export function EventTile({
   event,
   showCity = false,
+  state,
 }: {
   event: PublicEventCard;
   showCity?: boolean;
+  state?: Buyability;
 }) {
   const when = useVenueWhen()(event.nextSessionAt, event.venue.timezone);
   const image = cardImage(event, 'card');
@@ -340,7 +350,7 @@ export function EventTile({
         <span className="text-brand-meta text-brand-ink-2">
           {when ? `${when.day}, ${when.time}` : event.venue.name}
         </span>
-        <FromPrice event={event} />
+        <PriceOrState event={event} state={state} />
       </div>
     </Link>
   );

@@ -247,8 +247,10 @@ export function DiscoverHome() {
   /*
     Whether the events this page promotes can be bought right now. The listing payload has no
     availability or sales window, so the few events the page features or lists first are read
-    from `/public/events/:slug` (the same query, and cache, as the event page itself). About a
-    dozen small reads, cached for a minute; nothing else on the page waits for them.
+    from `/public/events/:slug` (the same query, and cache, as the event page itself). Bounded:
+    6 hero candidates, 9 listed, 12 in the rails and 4 recent - at most 31 small reads, cached
+    for a minute; nothing else on the page waits for them, and a card shows its price only once
+    its own read proves something is on sale.
   */
   const filteredAll = photosFirst(filtered.data?.data ?? []);
   const checkSlugs = [
@@ -256,6 +258,9 @@ export function DiscoverHome() {
       ...heroCandidates(all),
       ...all.slice(0, 9).map((e) => e.slug),
       ...(filter.kind === 'all' ? [] : filteredAll.slice(0, 9).map((e) => e.slug)),
+      // The rails below: at most 3 groups of 4, and 4 recently viewed.
+      ...outside.flatMap((g) => g.items.map((e) => e.slug)),
+      ...recent.slice(0, 4).map((e) => e.slug),
     ]),
   ];
   const details = useQueries({
@@ -619,7 +624,7 @@ export function DiscoverHome() {
               <Rail cols={4} label={title}>
                 {group.items.map((e) => (
                   <RailItem key={e.id}>
-                    <EventTile event={e} showCity />
+                    <EventTile event={e} showCity state={states.get(e.slug)} />
                   </RailItem>
                 ))}
               </Rail>
@@ -637,7 +642,7 @@ export function DiscoverHome() {
           <Rail cols={4} label={t('sections.recent')}>
             {recent.slice(0, 4).map((e) => (
               <RailItem key={e.id}>
-                <EventTile event={e} />
+                <EventTile event={e} state={states.get(e.slug)} />
               </RailItem>
             ))}
           </Rail>
