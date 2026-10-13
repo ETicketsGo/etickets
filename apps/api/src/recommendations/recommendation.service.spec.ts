@@ -9,6 +9,7 @@ const NOW = new Date('2026-07-13T12:00:00.000Z');
 
 const card = (id: string): PublicEventCardLike => ({
   id,
+  contentLabel: null,
   title: `Event ${id}`,
   slug: `event-${id}`,
   category: 'Music',
