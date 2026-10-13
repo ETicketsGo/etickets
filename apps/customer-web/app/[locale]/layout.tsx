@@ -1,5 +1,4 @@
 import type { Metadata, Viewport } from 'next';
-import '../globals.css';
 import { notFound } from 'next/navigation';
 import { hasLocale, NextIntlClientProvider } from 'next-intl';
 import { setRequestLocale } from 'next-intl/server';

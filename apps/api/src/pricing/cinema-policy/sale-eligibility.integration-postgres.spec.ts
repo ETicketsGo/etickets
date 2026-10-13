@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { ShowsService } from '../../shows/shows.service';
+import { PublicMoviesService } from '../../movies/movies.service';
 import { BookingsService } from '../../bookings/bookings.service';
 import { PilotReadinessService } from '../../cinemas/pilot-readiness.service';
 import { PricingStrategiesService } from '../pricing-strategies.service';
@@ -68,6 +69,7 @@ describe('integration-real-postgres: one sale-eligibility truth', () => {
   let shows: ShowsService;
   let readiness: PilotReadinessService;
   let bookings: BookingsService;
+  let publicMovies: PublicMoviesService;
 
   let orgId = '';
   const cinemas: Record<'tg' | 'ap', { cinemaId: string; screenId: string; sessionId: string }> = {
@@ -198,6 +200,13 @@ describe('integration-real-postgres: one sale-eligibility truth', () => {
       undefined,
       eligibility,
     );
+    publicMovies = new PublicMoviesService(
+      db as never,
+      // No cache: the list must reflect the fixture just written.
+      { getOrSet: (_k: string, _t: number, produce: () => Promise<unknown>) => produce() } as never,
+      { forListing: (x: unknown) => x, forTicket: async () => 15_000 } as never,
+      eligibility,
+    );
     readiness = new PilotReadinessService(
       db as never,
       allowAll,
@@ -325,6 +334,34 @@ describe('integration-real-postgres: one sale-eligibility truth', () => {
       // Nothing about the reason leaves the server.
       expect(JSON.stringify(summary.onlineBooking)).not.toMatch(/Telangana|polic|regulat/i);
     });
+  });
+
+  describe('the public film surfaces apply the same rule (listed only if it can be bought)', () => {
+    maybe(
+      'the Telangana film is not in the Hyderabad catalogue, and its show is not offered',
+      async () => {
+        const films = (await publicMovies.list({ city: 'Hyderabad' })) as { slug: string }[];
+        expect(films.map((f) => f.slug)).not.toContain(`elig-film-tg-${suffix}`);
+        const page = await publicMovies.shows(`elig-film-tg-${suffix}`, {
+          city: 'Hyderabad',
+          limit: 50,
+        } as never);
+        expect(page.shows).toEqual([]);
+      },
+    );
+
+    maybe(
+      'the Andhra Pradesh film, which can be bought, is still listed with its show',
+      async () => {
+        const films = (await publicMovies.list({ city: 'Vijayawada' })) as { slug: string }[];
+        expect(films.map((f) => f.slug)).toContain(`elig-film-ap-${suffix}`);
+        const page = await publicMovies.shows(`elig-film-ap-${suffix}`, {
+          city: 'Vijayawada',
+          limit: 50,
+        } as never);
+        expect(page.shows.map((x) => x.sessionId)).toEqual([cinemas.ap.sessionId]);
+      },
+    );
   });
 
   describe('an Andhra Pradesh-like cinema with mapped seat classes', () => {

@@ -10,6 +10,7 @@ import { razorpayFailureReason } from '@eticketsgo/shared-types';
 import { api, ApiRequestError, tokenStore } from '@/lib/api';
 import { loadRazorpay } from '@/lib/razorpay';
 import { useFormat } from '@/lib/format';
+import { bookingAmounts } from '@/lib/booking-amounts';
 import { Button, Dialog, ErrorState, useToast } from '@/components/ui';
 import {
   BRAND_EYEBROW,
@@ -432,21 +433,7 @@ function AccountPayment() {
     breakdown under it show one figure one way (Rs 500.00 twice, not Rs 500 above Rs 500.00).
     Every amount the breakdown draws goes into the decision, as on the event page.
   */
-  const digits = moneyFractionDigits(
-    [
-      ...booking.items.map((i) => i.unitPriceMinor * i.quantity),
-      booking.subtotalMinor,
-      booking.discountMinor,
-      booking.bookingFeeMinor,
-      booking.paymentFeeMinor,
-      booking.customerFeeMinor ?? 0,
-      booking.feeTaxMinor ?? 0,
-      booking.maintenanceMinor ?? 0,
-      ...(booking.taxLines ?? []).map((l) => l.amountMinor),
-      booking.totalMinor,
-    ],
-    booking.currency,
-  );
+  const digits = moneyFractionDigits(bookingAmounts(booking), booking.currency);
   // The building, as the seat page and the confirmation name it.
   const where = booking.place
     ? [booking.place.name, booking.place.city].filter(Boolean).join(', ')

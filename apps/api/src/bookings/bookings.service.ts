@@ -2125,6 +2125,8 @@ export class BookingsService {
         },
         event: {
           select: {
+            // The id seeds "You might also like", which keeps to this event's market.
+            id: true,
             title: true,
             slug: true,
             // The organizer's terms, so the buyer is not offered a refund the organizer

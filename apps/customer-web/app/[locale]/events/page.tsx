@@ -95,7 +95,7 @@ function FilterChip({
         type="button"
         onClick={onRemove}
         aria-label={`Remove filter: ${label}`}
-        className="rounded-full p-0.5 text-text-muted transition-colors hover:bg-background-subtle hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        className="-my-1 inline-flex h-6 w-6 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-background-subtle hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
       >
         <X className="h-3.5 w-3.5" />
       </button>
@@ -487,7 +487,7 @@ export default function EventsPage() {
           <button
             type="button"
             onClick={clearFilters}
-            className="rounded-md px-2 py-0.5 text-caption text-text-muted underline-offset-2 hover:text-text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            className="inline-flex min-h-6 items-center rounded-md px-2 text-caption text-text-muted underline-offset-2 hover:text-text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
           >
             Clear all
           </button>

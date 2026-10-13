@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { HttpStatus, Injectable, Optional } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 import {
   EventStatus,
@@ -13,6 +13,7 @@ import type { FeeMode } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 import { countryAliases } from '../common/country';
 import { AdvertisedPriceService } from '../pricing/advertised-price.service';
+import { SaleEligibilityService } from '../pricing/cinema-policy/sale-eligibility.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
 import { CacheService } from '../cache/cache.service';
 import { AppException, ErrorCodes } from '../common/errors';
@@ -246,7 +247,29 @@ export class PublicMoviesService {
     private readonly cache: CacheService,
     // What a LISTING advertises, per PRICE_DISPLAY_MODE. Pass-through by default.
     private readonly advertised: AdvertisedPriceService,
+    // The rule checkout refuses a sale by. Optional so a unit test can build the service bare.
+    @Optional() private readonly saleEligibility?: SaleEligibilityService,
   ) {}
+
+  /**
+   * Which of these shows cannot be bought online right now.
+   *
+   * Asked of `SaleEligibilityService.sessionStates` - the function checkout and the seat page
+   * use - so the film page, the catalogue and the seat page cannot disagree about whether a
+   * show is for sale. Closed means NOTHING on the show can be bought; a show with some open
+   * ticket types stays listed (the seat page closes the rest). Without the service, nothing is
+   * reported closed.
+   */
+  private async closedSessionIds(sessionIds: string[]): Promise<Set<string>> {
+    const closed = new Set<string>();
+    if (!this.saleEligibility || sessionIds.length === 0) return closed;
+    const answers = await this.saleEligibility.sessionStates({ id: { in: sessionIds } });
+    for (const a of answers) {
+      const open = a.eligibility.sellable || a.eligibility.sellableTicketTypeIds.length > 0;
+      if (!open) closed.add(a.state.sessionId);
+    }
+    return closed;
+  }
 
   /** PUBLISHED movies as browse cards. */
   async list(filters: PublicMovieFilters) {
@@ -300,11 +323,12 @@ export class PublicMoviesService {
         },
       },
     };
-    const movies = await this.prisma.movie.findMany({
+    const found = await this.prisma.movie.findMany({
       where,
       orderBy: { releaseDate: 'desc' },
       take: 60,
     });
+    const movies = await this.withSellableShowing(found, filters);
     // Every card's rating in one query, not one per poster.
     const ratings = await movieRatingsFor(
       this.prisma,
@@ -325,6 +349,48 @@ export class PublicMoviesService {
     }));
     // Demo films before test films, outside production; the same order otherwise.
     return demoFirst(cards);
+  }
+
+  /**
+   * Drops the films whose every showing in scope is closed to online sales.
+   *
+   * The `bookable` clause above knows the event is published and a showing is still to come; it
+   * cannot know that sales for that showing are closed (a Telangana cinema, an unmapped seat
+   * class). A visitor in Hyderabad was shown a film, opened it, and met "Online booking is not
+   * open". The scope is the one the clause used, so a film open elsewhere is not hidden here.
+   */
+  private async withSellableShowing<T extends { id: string }>(
+    movies: T[],
+    filters: PublicMovieFilters,
+  ): Promise<T[]> {
+    if (!this.saleEligibility || movies.length === 0) return movies;
+    const upcoming = await this.prisma.eventSession.findMany({
+      where: {
+        status: SessionStatus.SCHEDULED,
+        startsAt: { gte: new Date() },
+        event: {
+          movieId: { in: movies.map((m) => m.id) },
+          experienceType: ExperienceType.MOVIE,
+          status: EventStatus.PUBLISHED,
+          ...(filters.city
+            ? { venue: { city: { equals: filters.city, mode: 'insensitive' as const } } }
+            : filters.country
+              ? {
+                  venue: {
+                    country: { in: countryAliases(filters.country), mode: 'insensitive' as const },
+                  },
+                }
+              : {}),
+        },
+      },
+      select: { id: true, event: { select: { movieId: true } } },
+    });
+    const closed = await this.closedSessionIds(upcoming.map((s) => s.id));
+    const sellable = new Set<string>();
+    for (const s of upcoming) {
+      if (!closed.has(s.id) && s.event.movieId) sellable.add(s.event.movieId);
+    }
+    return movies.filter((m) => sellable.has(m.id));
   }
 
   /** PUBLISHED movie detail with its bookable movie shows (empty until PR-3). */
@@ -476,7 +542,7 @@ export class PublicMoviesService {
       },
     };
 
-    const [total, sessions] = await this.prisma.$transaction([
+    const [foundTotal, found] = await this.prisma.$transaction([
       this.prisma.eventSession.count({ where }),
       this.prisma.eventSession.findMany({
         where,
@@ -493,6 +559,12 @@ export class PublicMoviesService {
         },
       }),
     ]);
+
+    // A show that cannot be bought online is not offered: no buy button, no row. Same rule as
+    // the catalogue ("listed only if you can buy it"); the Telangana restriction is untouched.
+    const closed = await this.closedSessionIds(found.map((s) => s.id));
+    const sessions = found.filter((s) => !closed.has(s.id));
+    const total = foundTotal - (found.length - sessions.length);
 
     /**
      * Seat availability in ONE grouped query rather than per row. With a screen-full of
