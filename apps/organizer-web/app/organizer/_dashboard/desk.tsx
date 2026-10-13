@@ -611,7 +611,7 @@ export function MarketsDisclosure({ markets }: { markets: AnalyticsOrganizerMark
             </caption>
             <thead>
               <tr className="text-brand-eyebrow uppercase text-brand-ink-3">
-                <th scope="col" className="whitespace-nowrap px-6 py-3 font-semibold">
+                <th scope="col" className="px-6 py-3 align-bottom font-semibold">
                   Market
                 </th>
                 {[
@@ -625,7 +625,7 @@ export function MarketsDisclosure({ markets }: { markets: AnalyticsOrganizerMark
                   <th
                     key={h}
                     scope="col"
-                    className="whitespace-nowrap px-4 py-3 text-right font-semibold"
+                    className="px-3 py-3 text-right align-bottom font-semibold"
                   >
                     {h}
                   </th>
@@ -651,7 +651,7 @@ export function MarketsDisclosure({ markets }: { markets: AnalyticsOrganizerMark
                   ].map((v, i) => (
                     <td
                       key={i}
-                      className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-brand-ink"
+                      className="whitespace-nowrap px-3 py-3 text-right tabular-nums text-brand-ink"
                     >
                       {v}
                     </td>

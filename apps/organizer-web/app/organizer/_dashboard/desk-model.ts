@@ -172,9 +172,11 @@ export function moneyFigures(
         ? `${fmt(ledger.heldMinor)} held${release ? `, first release ${shortDate(release)}` : ' until shows end'}`
         : ledger.inPayoutMinor > 0
           ? `${fmt(ledger.inPayoutMinor)} in a payout being prepared`
-          : ledger.paidMinor > 0
-            ? `${fmt(ledger.paidMinor)} paid to you so far`
-            : 'Nothing waiting to be paid';
+          : ledger.payableMinor > 0
+            ? 'Ready for your next payout'
+            : ledger.paidMinor > 0
+              ? `${fmt(ledger.paidMinor)} paid to you so far`
+              : 'Nothing waiting to be paid';
     payable = { value: fmt(ledger.payableMinor), context };
   }
   return { currency: first.currency, gross, payable };
@@ -251,15 +253,16 @@ export function needsContext(needs: NeedsAction): string {
 }
 
 /**
- * The organization's standing with the platform, said only when it is not the normal state:
- * an approved organizer does not need a badge saying so on every visit.
+ * The organization's standing with the platform, in plain words beside the page title.
  */
-export function orgStanding(
-  status: string,
-): { label: string; tone: 'caution' | 'critical' } | null {
+export function orgStanding(status: string): {
+  label: string;
+  tone: 'positive' | 'caution' | 'critical';
+} {
   switch (status) {
     case 'APPROVED':
-      return null;
+      // Said quietly, as the old welcome band did: organizers look for it.
+      return { label: 'Approved organizer', tone: 'positive' };
     case 'PENDING':
     case 'PENDING_REVIEW':
     case 'UNDER_REVIEW':

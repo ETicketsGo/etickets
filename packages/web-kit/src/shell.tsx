@@ -56,13 +56,16 @@ const FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:rin
 const NAV_FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nav-accent';
 
 function initials(name: string): string {
-  return name
-    .split(' ')
-    .map((p) => p[0])
-    .filter(Boolean)
-    .slice(0, 2)
-    .join('')
-    .toUpperCase();
+  return (
+    name
+      .split(/\s+/)
+      // The first letter or digit of each word: "DeepTrics (local fixture)" is "DL", never "D(".
+      .map((p) => p.match(/[\p{L}\p{N}]/u)?.[0])
+      .filter(Boolean)
+      .slice(0, 2)
+      .join('')
+      .toUpperCase()
+  );
 }
 
 /**

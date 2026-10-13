@@ -149,6 +149,15 @@ describe('moneyFigures', () => {
     expect(f.payable!.context).toMatch(/held, first release 28 Nov$/);
   });
 
+  it('never says "nothing waiting" beside money that is payable now', () => {
+    const f = moneyFigures(
+      [panel('INR', 99800, { heldMinor: 0, payableMinor: 99800, inPayoutMinor: 0, paidMinor: 0 })],
+      { heldRevenue: [] } as unknown as PayoutSummary,
+    )!;
+    expect(f.payable!.value).toMatch(/998/);
+    expect(f.payable!.context).toBe('Ready for your next payout');
+  });
+
   it('has no payable figure without the ledger, and nothing at all without a panel', () => {
     expect(moneyFigures([panel('INR', 0, null)], undefined)!.payable).toBeNull();
     expect(moneyFigures([], undefined)).toBeNull();
