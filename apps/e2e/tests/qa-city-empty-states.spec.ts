@@ -7,11 +7,12 @@ test.skip(!QA_VALIDATE, QA_SKIP_REASON);
 /**
  * What a chosen city does to Browse and Movies, on QA.
  *
- * QA's inventory happens to be split exactly the wrong way for this — the events are in
- * Mumbai and the films are in Bengaluru and Hyderabad — which makes it the ideal place to
- * check it. Picking either city empties one of the two pages, and before this fix the page
- * said "no movies match your search" and left the customer to work out that a filter they
- * set a fortnight ago in the header was the reason.
+ * The cities are chosen from QA's catalogue as it stands (2026-10-14): Hyderabad has events
+ * but no film that can be booked (its cinemas are closed by the Telangana pricing rule), and
+ * Pune has nothing on sale at all - the picker's search still finds it. Before this fix the
+ * page said "no movies match your search" and left the customer to work out that a filter
+ * they set a fortnight ago in the header was the reason. If QA's catalogue changes, re-pick
+ * the cities from /public/location/cities and /public/movies?city=.
  */
 const CUSTOMER = 'https://customer-web-qa.up.railway.app';
 
@@ -38,26 +39,28 @@ async function chooseCity(page: Page, city: RegExp, term: string) {
 test.describe('QA: a city that empties a page says so', () => {
   test('Movies names the city and offers the way out', async ({ page }) => {
     await open(page, `${CUSTOMER}/movies`);
-    // Mumbai has an event and no films.
-    await chooseCity(page, /^Mumbai/, 'mumbai');
+    // Hyderabad has events and no film that can be booked.
+    await chooseCity(page, /^Hyderabad/, 'hyderabad');
 
-    await expect(page.getByText(/No films in Mumbai just yet/)).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText(/No films available in Hyderabad yet/)).toBeVisible({
+      timeout: 30_000,
+    });
     // The way on is cities with films, and the films elsewhere, titled by country. The selected
     // city is never silently widened.
     await expect(page.getByText(/Elsewhere: /).first()).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByRole('button', { name: /^Location: Mumbai/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Location: Hyderabad/ })).toBeVisible();
   });
 
   test('Browse names the city and offers the way out', async ({ page }) => {
     await open(page, `${CUSTOMER}/events`);
-    // Bengaluru has films and no browsable events.
-    await chooseCity(page, /^Bengaluru/, 'bengaluru');
+    // Pune has nothing on sale; the picker still finds it, and choosing it must be honest.
+    await chooseCity(page, /^Pune/, 'pune');
 
-    await expect(page.getByText(/No events available in Bengaluru yet/)).toBeVisible({
+    await expect(page.getByText(/No events available in Pune yet/)).toBeVisible({
       timeout: 30_000,
     });
     // The selected city stays; the rest of the country and the world follow under their own titles.
-    await expect(page.getByRole('button', { name: /^Location: Bengaluru/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Location: Pune/ })).toBeVisible();
     await expect(page.getByText(/More in |Elsewhere: /).first()).toBeVisible({ timeout: 30_000 });
   });
 
