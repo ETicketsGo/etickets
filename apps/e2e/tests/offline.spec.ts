@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { CUSTOMER, NEW_ACCOUNT_PASSWORD, uniqueEmail } from './helpers';
 import { openPaidEvent } from './pick-event';
+import { chooseQuantity, quantitySteppers } from './ticket-quantity';
 
 /** Registers a fresh customer and books `qty` tickets, landing on confirmation. */
 async function registerAndBook(page: Page, name: string, email: string, qty: string) {
@@ -13,7 +14,7 @@ async function registerAndBook(page: Page, name: string, email: string, qty: str
 
   await page.goto(`${CUSTOMER}/events`);
   await openPaidEvent(page);
-  await page.locator('select[aria-label^="Quantity"]').first().selectOption(qty);
+  await chooseQuantity(quantitySteppers(page).first(), Number(qty));
   await page.getByRole('button', { name: /Continue to payment/ }).click();
   await expect(page).toHaveURL(/\/booking\/.+\/payment/, { timeout: 20_000 });
   await page.getByRole('button', { name: /Pay/ }).click();

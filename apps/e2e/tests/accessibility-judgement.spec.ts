@@ -7,6 +7,7 @@ import {
   uniqueEmail,
   NEW_ACCOUNT_PASSWORD,
 } from './helpers';
+import { moreButton, quantitySteppers } from './ticket-quantity';
 
 /**
  * The WCAG criteria a rule engine cannot decide, checked the only way they can be.
@@ -229,13 +230,14 @@ test.describe('WCAG 2.1.1 — a booking can be completed from the keyboard', () 
     await seedBrowserAuth(context, tokens);
     await page.goto(`${CUSTOMER}/events/${fx.slug}`, { waitUntil: 'networkidle' });
 
-    const quantity = page.locator('select[aria-label^="Quantity"]').first();
+    const quantity = quantitySteppers(page).first();
     await expect(quantity).toBeVisible({ timeout: 30_000 });
 
-    const reached = await tabTo(page, quantity);
+    // The stepper's "one more" button, reached by Tab and pressed from the keyboard.
+    const reached = await tabTo(page, moreButton(quantity));
     expect(reached, 'the quantity control is not reachable by tabbing').toBe(true);
-    await page.keyboard.press('ArrowDown');
-    await expect(quantity).not.toHaveValue('0');
+    await page.keyboard.press('Enter');
+    await expect(quantity).not.toHaveAttribute('data-quantity', '0');
 
     const cta = page.getByRole('button', { name: /Continue to payment/ });
     const reachedCta = await tabTo(page, cta);

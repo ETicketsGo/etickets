@@ -4,13 +4,14 @@ import { useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { ChevronLeft, Info } from 'lucide-react';
 import {
+  BRAND_FOCUS,
+  BrandStatusPill,
   api as webKit,
   formatFor,
   type PublicShowRow,
   type PublicShowSummary,
 } from '@eticketsgo/web-kit';
 import { Link } from '@/i18n/navigation';
-import { Badge } from '@/components/ui';
 import { useFormat } from '@/lib/format';
 
 /** A time of day in the show's zone: "6:00 pm" in English, "18 h 00" in French. */
@@ -46,15 +47,6 @@ function day(iso: string, timeZone: string, locale?: string): string {
   }
 }
 
-/** Whether the reader's own zone differs from the show's, so the time needs its zone named. */
-function readerIsElsewhere(timeZone: string): boolean {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone !== timeZone;
-  } catch {
-    return false;
-  }
-}
-
 /**
  * Which show these seats are for.
  *
@@ -81,9 +73,12 @@ export function ShowHeader({ summary }: { summary: PublicShowSummary }) {
   ]
     .filter(Boolean)
     .join(' - ');
-  const zone = readerIsElsewhere(summary.timeZone)
-    ? ` ${zoneAbbrev(summary.startsAt, summary.timeZone)}`
-    : '';
+  /*
+    The venue's zone, always named. It used to appear only when the reader's own zone differed,
+    which is right for a reader at home and wrong for a link forwarded to somebody abroad: the
+    page cannot know who will read the time, so it says whose time it is.
+  */
+  const zone = ` ${zoneAbbrev(summary.startsAt, summary.timeZone)}`;
   const runtime = summary.movie
     ? t('runtime', {
         hours: Math.floor(summary.movie.runtimeMinutes / 60),
@@ -91,47 +86,57 @@ export function ShowHeader({ summary }: { summary: PublicShowSummary }) {
       })
     : null;
 
+  /*
+    A fact about the film or the room, as a quiet outlined tag on the stage band. Not a coloured
+    badge: the brand has no category colours (DESIGN-SYSTEM.md section 1).
+  */
+  const tag =
+    'inline-flex h-7 items-center rounded-full border border-brand-line-strong px-3 text-brand-meta font-medium text-brand-ink-2';
+
   return (
-    <header className="space-y-3">
+    <header
+      data-brand-tone="stage"
+      className="space-y-4 bg-brand-canvas px-4 pb-8 pt-4 sm:px-6 lg:px-10 lg:pb-10 lg:pt-6"
+    >
       <Link
         href={backHref}
-        className="inline-flex items-center gap-1 rounded-md text-caption font-medium text-text-secondary hover:text-action-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        className={`inline-flex min-h-11 items-center gap-1 rounded-sm text-brand-ui font-medium text-brand-ink-2 hover:text-brand-ink ${BRAND_FOCUS}`}
       >
         <ChevronLeft className="h-4 w-4" aria-hidden />
         {t('backTo', { title })}
       </Link>
 
-      <div className="space-y-2">
-        <h1 className="text-h3 font-bold tracking-tight text-text-primary sm:text-h2">{title}</h1>
-        <div className="flex flex-wrap items-center gap-1.5">
+      <div className="space-y-3">
+        <h1 className="text-balance font-brand-display text-brand-d1 text-brand-ink">{title}</h1>
+        <div className="flex flex-wrap items-center gap-2">
           {summary.movie?.certificate ? (
-            <Badge tone="neutral">{summary.movie.certificate}</Badge>
+            <span className={tag}>{summary.movie.certificate}</span>
           ) : null}
-          {summary.movie?.language ? <Badge tone="info">{summary.movie.language}</Badge> : null}
-          {summary.screen?.format ? <Badge tone="neutral">{summary.screen.format}</Badge> : null}
-          {runtime ? <Badge tone="neutral">{runtime}</Badge> : null}
+          {summary.movie?.language ? <span className={tag}>{summary.movie.language}</span> : null}
+          {summary.screen?.format ? <span className={tag}>{summary.screen.format}</span> : null}
+          {runtime ? <span className={tag}>{runtime}</span> : null}
           {summary.event.refundsEnabled ? null : (
-            <Badge tone="warning">{t('nonCancellable')}</Badge>
+            <BrandStatusPill status="caution">{t('nonCancellable')}</BrandStatusPill>
           )}
         </div>
-        <p className="text-[0.9375rem] text-text-secondary">
-          {place}
-          <span aria-hidden> - </span>
-          <time dateTime={summary.startsAt} className="font-medium text-text-primary">
+        <p className="text-brand-body text-brand-ink-2">
+          <time dateTime={summary.startsAt} className="font-semibold text-brand-ink">
             {day(summary.startsAt, summary.timeZone, intlLocale)},{' '}
             {clock(summary.startsAt, summary.timeZone, intlLocale)}
             {zone}
           </time>
+          <span aria-hidden> - </span>
+          {place}
         </p>
       </div>
 
       {summary.status === 'CANCELLED' || summary.status === 'PAUSED' ? (
         <p
           role="status"
-          className={`flex items-start gap-2 rounded-md px-3 py-2 text-[0.9375rem] ${
+          className={`flex items-start gap-2 rounded-brand-control px-3 py-2 text-brand-ui ${
             summary.status === 'CANCELLED'
-              ? 'bg-tint-error text-status-error'
-              : 'bg-tint-warning text-status-warning'
+              ? 'bg-brand-critical-tint text-brand-critical'
+              : 'bg-brand-caution-tint text-brand-caution'
           }`}
         >
           <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
@@ -147,10 +152,10 @@ export function ShowHeader({ summary }: { summary: PublicShowSummary }) {
 }
 
 const PILL_TONE: Record<PublicShowRow['availability'], string> = {
-  AVAILABLE: 'border-status-success',
-  LIMITED: 'border-status-warning',
-  SOLD_OUT: 'border-border',
-  SALES_PAUSED: 'border-border',
+  AVAILABLE: 'border-brand-line-strong',
+  LIMITED: 'border-brand-caution',
+  SOLD_OUT: 'border-brand-line',
+  SALES_PAUSED: 'border-brand-line',
 };
 
 /**
@@ -183,7 +188,7 @@ function ShowtimeSwitcher({ summary, locale }: { summary: PublicShowSummary; loc
 
   return (
     <nav aria-label={t('otherShowtimes')} className="min-w-0">
-      <p className="mb-1.5 text-caption font-medium text-text-muted">{t('otherShowtimes')}</p>
+      <p className="mb-2 text-brand-eyebrow uppercase text-brand-ink-3">{t('otherShowtimes')}</p>
       <ul className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
         {rows.map((row) => {
           const time = clock(row.startsAt, summary.timeZone, locale);
@@ -198,15 +203,15 @@ function ShowtimeSwitcher({ summary, locale }: { summary: PublicShowSummary; loc
                   : null;
           const body = (
             <>
-              <span className="text-[0.9375rem] font-semibold tabular-nums">{time}</span>
+              <span className="text-brand-ui font-semibold tabular-nums">{time}</span>
               {detail ? (
-                <span className="text-[0.6875rem] uppercase tracking-wide">{detail}</span>
+                <span className="text-[0.75rem] uppercase tracking-wide">{detail}</span>
               ) : null}
-              {state ? <span className="text-[0.6875rem] font-medium">{state}</span> : null}
+              {state ? <span className="text-[0.75rem] font-medium">{state}</span> : null}
             </>
           );
           const base =
-            'flex min-w-[5.5rem] flex-col items-center rounded-md border px-3 py-1.5 text-center';
+            'flex min-h-11 min-w-[5.5rem] flex-col items-center justify-center rounded-brand-control border px-3 py-1.5 text-center';
 
           if (row.sessionId === summary.sessionId) {
             return (
@@ -214,7 +219,7 @@ function ShowtimeSwitcher({ summary, locale }: { summary: PublicShowSummary; loc
                 <span
                   aria-current="true"
                   aria-label={t('currentShowtime', { time })}
-                  className={`${base} border-action-primary bg-action-primary text-action-primary-foreground`}
+                  className={`${base} border-brand-marigold bg-brand-marigold text-brand-on-marigold`}
                 >
                   {body}
                 </span>
@@ -224,9 +229,7 @@ function ShowtimeSwitcher({ summary, locale }: { summary: PublicShowSummary; loc
           if (row.availability === 'SOLD_OUT' || row.availability === 'SALES_PAUSED') {
             return (
               <li key={row.sessionId} className="shrink-0">
-                <span className={`${base} border-border bg-background-subtle text-text-muted`}>
-                  {body}
-                </span>
+                <span className={`${base} border-brand-line text-brand-ink-3`}>{body}</span>
               </li>
             );
           }
@@ -238,8 +241,8 @@ function ShowtimeSwitcher({ summary, locale }: { summary: PublicShowSummary; loc
                   time,
                   detail: [detail, state].filter(Boolean).join(', ') || time,
                 })}
-                className={`${base} ${PILL_TONE[row.availability]} bg-background-surface text-text-primary hover:bg-tint-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 motion-safe:transition-colors ${
-                  row.availability === 'LIMITED' ? '[&>span:last-child]:text-status-warning' : ''
+                className={`${base} ${PILL_TONE[row.availability]} text-brand-ink hover:border-brand-ink-3 ${BRAND_FOCUS} focus-visible:ring-offset-brand-canvas motion-safe:transition-colors ${
+                  row.availability === 'LIMITED' ? '[&>span:last-child]:text-brand-caution' : ''
                 }`}
               >
                 {body}

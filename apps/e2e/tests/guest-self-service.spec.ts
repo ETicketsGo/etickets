@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { API, CUSTOMER, SEED_PASSWORD, apiLogin, uniqueEmail } from './helpers';
 import { openPaidEvent } from './pick-event';
+import { chooseQuantity, quantitySteppers } from './ticket-quantity';
 
 /**
  * What a guest can do about a booking after they have paid for it.
@@ -21,9 +22,9 @@ async function buyAsGuest(page: import('@playwright/test').Page) {
   await page.goto(`${CUSTOMER}/events`);
   await openPaidEvent(page);
 
-  const quantity = page.locator('select[aria-label^="Quantity"]').first();
+  const quantity = quantitySteppers(page).first();
   await expect(quantity).toBeVisible({ timeout: 20_000 });
-  await quantity.selectOption('1');
+  await chooseQuantity(quantity, 1);
 
   await page.getByLabel('Your name').fill(guest.name);
   await page.getByLabel('Email', { exact: true }).fill(guest.email);

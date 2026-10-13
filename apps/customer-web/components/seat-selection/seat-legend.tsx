@@ -24,6 +24,7 @@ export function SeatLegend({
       hasSold={hasSold}
       hasHeld={hasHeld}
       hasAccessible={hasAccessible}
+      appearance="stage"
       labels={{
         available: s('available'),
         selected: s('selected'),

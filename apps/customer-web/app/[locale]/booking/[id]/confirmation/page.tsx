@@ -7,19 +7,30 @@ import {
   CalendarPlus,
   Check,
   ChevronRight,
+  Clock,
   ReceiptText,
   Share2,
   Ticket,
   XCircle,
 } from 'lucide-react';
-import { buildIcsDataUrl, useToast, type BookingDetail } from '@eticketsgo/web-kit';
+import type { ReactNode } from 'react';
+import {
+  BRAND_FOCUS,
+  BrandStatusPill,
+  brandButtonClasses,
+  buildIcsDataUrl,
+  useToast,
+  type BookingDetail,
+  type BrandStatus,
+} from '@eticketsgo/web-kit';
 import type { Locale } from '@eticketsgo/i18n';
 import { api, tokenStore } from '@/lib/api';
 import { useFormat } from '@/lib/format';
 import { Link, getPathname } from '@/i18n/navigation';
 import { EventCard } from '@/components/event-card';
 import { PriceBreakdown } from '@/components/price-breakdown';
-import { ButtonLink, Card, ErrorState, StatusBadge, Stepper } from '@/components/ui';
+import { ErrorState } from '@/components/ui';
+import { BRAND_EYEBROW, BRAND_LINK, BRAND_PANEL, BrandSteps } from '@/components/booking-brand';
 import { useStatusLabel } from '@/lib/status-label';
 import {
   GuestBookingNotHere,
@@ -67,8 +78,64 @@ function itemName(item: BookingDetail['items'][number]): string {
   return item.label ?? item.ticketType?.name ?? item.addOn?.name ?? item.bundle?.name ?? '';
 }
 
-const SECONDARY_ACTION =
-  'flex flex-1 items-center justify-center gap-2 rounded-md border border-border bg-background-surface px-4 py-2.5 text-[0.9375rem] font-medium text-text-primary shadow-sm transition-colors hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas';
+/** A booking's status as a brand pill: words always, colour only for what happened. */
+const STATUS_TONE: Record<string, BrandStatus> = {
+  CONFIRMED: 'positive',
+  PENDING_PAYMENT: 'info',
+  REFUNDED: 'info',
+  PARTIALLY_REFUNDED: 'info',
+  EXPIRED: 'neutral',
+  CANCELLED: 'neutral',
+};
+
+/** The confirmation on the brand layer, out to the page column's edges like the rest of the flow. */
+function ConfirmShell({ children }: { children: ReactNode }) {
+  return (
+    <div
+      data-brand="customer"
+      className="-mx-4 -mt-6 min-h-[60vh] bg-brand-canvas px-4 pb-16 pt-6 font-brand-text text-brand-ink sm:-mx-6 sm:-mt-10 sm:px-6 sm:pt-10 lg:-mx-8 lg:px-10"
+    >
+      <div className="mx-auto max-w-5xl space-y-8">{children}</div>
+    </div>
+  );
+}
+
+/**
+ * The answer to "did it work?", as large as the page allows: a mark that says the state by
+ * shape (a tick, a cross, a clock), the headline in the display face, one sentence under it.
+ */
+function ConfirmHeadline({
+  state,
+  title,
+  body,
+}: {
+  state: 'confirmed' | 'closed' | 'pending';
+  title: string;
+  body: string;
+}) {
+  const Icon = state === 'confirmed' ? Check : state === 'closed' ? XCircle : Clock;
+  return (
+    <div className="flex items-start gap-4">
+      <span
+        aria-hidden
+        className={`flex h-14 w-14 shrink-0 animate-scale-in items-center justify-center rounded-full ${
+          state === 'confirmed'
+            ? 'bg-brand-positive-tint text-brand-positive'
+            : state === 'closed'
+              ? 'bg-brand-sunken text-brand-ink-3'
+              : 'bg-brand-info-tint text-brand-info'
+        }`}
+      >
+        <Icon className="h-7 w-7" strokeWidth={2.5} />
+      </span>
+      <div className="min-w-0">
+        {/* The mark beside it already says this went well; an emoji here was one more glyph to fail. */}
+        <h1 className="font-brand-display text-brand-d1 text-brand-ink">{title}</h1>
+        <p className="mt-2 max-w-prose text-brand-body text-brand-ink-2">{body}</p>
+      </div>
+    </div>
+  );
+}
 
 /**
  * Where a booking lands, with or without an account.
@@ -246,289 +313,314 @@ function AccountConfirmation() {
   };
 
   return (
-    <div className="mx-auto max-w-lg space-y-8">
-      <Stepper
+    <ConfirmShell>
+      <BrandSteps
         steps={(free ? FREE_BOOKING_STEPS : BOOKING_STEPS).map((k) => c(`steps.${k}`))}
         current={free ? 1 : confirmed ? 2 : 1}
       />
 
-      <div className="text-center">
-        <div
-          className={`mx-auto flex h-16 w-16 animate-scale-in items-center justify-center rounded-full ${
-            confirmed
-              ? 'bg-tint-success text-status-success'
-              : closed
-                ? 'bg-background-subtle text-text-muted'
-                : 'bg-tint-warning text-status-warning'
-          }`}
-          aria-hidden
-        >
-          {confirmed ? (
-            <Check className="h-8 w-8" strokeWidth={2.5} />
-          ) : closed ? (
-            <XCircle className="h-8 w-8" />
-          ) : (
-            '...'
-          )}
-        </div>
-        <h1 className="mt-4 text-h2 font-bold tracking-tight text-text-primary">
-          {/* The tick above already says this went well; an emoji here was one more glyph to fail. */}
-          {confirmed ? c('youreGoing') : closed ? c(closedCopy.title) : c('pending')}
-        </h1>
-        <p className="mt-1.5 text-[0.9375rem] text-text-secondary">
-          {confirmed
+      <ConfirmHeadline
+        state={confirmed ? 'confirmed' : closed ? 'closed' : 'pending'}
+        title={confirmed ? c('youreGoing') : closed ? c(closedCopy.title) : c('pending')}
+        body={
+          confirmed
             ? c('sentTo', { count: booking.tickets.length, email: booking.buyerEmail })
             : closed
               ? c(closedCopy.body)
-              : c('pendingBody')}
-        </p>
-      </div>
+              : c('pendingBody')
+        }
+      />
 
       {/* A way forward from every state that is not the one the buyer hoped for. */}
       {pending && (
-        <ButtonLink
+        <Link
           href={holdLive ? `/booking/${booking.id}/payment` : `/events/${booking.event.slug}`}
-          variant="outline"
-          className="w-full"
+          className={`${brandButtonClasses('secondary', 'lg')} w-full sm:w-auto`}
         >
           {holdLive ? c('returnToPayment') : c('backToEvent')}
-        </ButtonLink>
+        </Link>
       )}
       {closed && (
         <div className="flex flex-col gap-3 sm:flex-row">
-          <ButtonLink href={`/events/${booking.event.slug}`} className="w-full sm:flex-1">
-            {c('backToEvent')}
-          </ButtonLink>
-          <ButtonLink href="/account/bookings" variant="outline" className="w-full sm:flex-1">
-            {c('myBookings')}
-          </ButtonLink>
-        </div>
-      )}
-
-      <Card className="space-y-4">
-        <div className="space-y-1">
-          <div className="flex items-start justify-between gap-3">
-            <p className="font-semibold text-text-primary">{booking.event.title}</p>
-            <StatusBadge status={booking.status} label={statusLabel('booking', booking.status)} />
-          </div>
-          <p className="text-[0.9375rem] text-text-muted" data-testid="confirmation-when">
-            {when}
-          </p>
-          {where ? (
-            <p className="text-[0.9375rem] text-text-muted" data-testid="confirmation-where">
-              {where}
-            </p>
-          ) : null}
-        </div>
-
-        {booking.reference && (
-          <div className="flex items-center justify-between text-[0.9375rem]">
-            <span className="text-text-secondary">{c('bookingReference')}</span>
-            <ReferenceCode value={booking.reference} label={c('bookingReference')} />
-          </div>
-        )}
-
-        {/*
-          What was bought, before what it cost.
-
-          The screen showed a title, a date and four GST rows over a total — the one thing it
-          never said was WHAT the money was for. A buyer checking two tickets against their
-          bank statement had to go and find the receipt.
-        */}
-        {(items.length > 0 || seats.length > 0) && (
-          <div className="space-y-1.5 border-t border-border pt-3" data-testid="confirmation-order">
-            <p className="text-caption font-medium uppercase tracking-wide text-text-muted">
-              {c('yourOrder')}
-            </p>
-            {items.map((item, index) => (
-              <div
-                key={`${itemName(item)}-${index}`}
-                className="flex justify-between gap-4 text-[0.9375rem]"
-              >
-                <span className="text-text-primary">
-                  {c('itemLine', { name: itemName(item), quantity: item.quantity })}
-                </span>
-                <span className="tabular-nums text-text-secondary">
-                  {free
-                    ? tx('state.free')
-                    : money(
-                        item.unitPriceMinor * item.quantity,
-                        booking.currency,
-                        undefined,
-                        itemDigits,
-                      )}
-                </span>
-              </div>
-            ))}
-            {seats.length > 0 && (
-              <div className="flex justify-between gap-4 text-[0.9375rem]">
-                <span className="text-text-secondary">
-                  {seats.length === 1 ? c('seat') : c('seats')}
-                </span>
-                <span className="text-right font-medium text-text-primary">{seats.join(', ')}</span>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/*
-          The same breakdown the buyer agreed to on the payment screen — fees, the GST inside
-          the ticket price, the GST on the fee — footing to what they paid.
-
-          This used to print every tax line as a bare row above the total with no word about
-          which were inside the price and which were added, so ₹38.06 + ₹38.06 + ₹1.82 + ₹1.82
-          sat over ₹522.82 and did not add up to anything a buyer could check.
-        */}
-        {free ? (
-          <div className="flex justify-between border-t border-border pt-3 text-[0.9375rem]">
-            {/*
-              "Total paid ₹0" reads as a payment that failed. Nothing was paid because nothing
-              was owed, and those are different things to somebody checking their booking.
-            */}
-            <span className="text-text-secondary">{c('cost')}</span>
-            <span className="font-semibold text-text-primary">{tx('state.free')}</span>
-          </div>
-        ) : (
-          <PriceBreakdown
-            quote={{
-              currency: booking.currency,
-              subtotalMinor: booking.subtotalMinor,
-              discountMinor: booking.discountMinor,
-              bookingFeeMinor: booking.bookingFeeMinor,
-              paymentFeeMinor: booking.paymentFeeMinor,
-              customerFeeInclusiveMinor: booking.customerFeeInclusiveMinor,
-              customerFeeMinor: booking.customerFeeMinor,
-              feeTaxRateBasisPoints: booking.feeTaxRateBasisPoints,
-              feeTaxMinor: booking.feeTaxMinor,
-              maintenanceMinor: booking.maintenanceMinor,
-              maintenanceTreatment: booking.maintenanceTreatment,
-              taxLines: booking.taxLines,
-              totalMinor: booking.totalMinor,
-            }}
-            totalLabel={confirmed ? c('totalPaid') : undefined}
-            note={null}
-          />
-        )}
-
-        {receipt && (
-          <button
-            type="button"
-            onClick={() => void api.openReceipt(receipt.id)}
-            className="flex w-full items-center justify-between border-t border-border pt-3 text-left text-[0.9375rem] text-action-primary hover:underline"
+          <Link
+            href={`/events/${booking.event.slug}`}
+            className={`${brandButtonClasses('primary', 'lg')} w-full sm:w-auto`}
           >
-            <span className="inline-flex items-center gap-2">
-              <ReceiptText className="h-4 w-4" />
-              {d(`kind.${receipt.kind}`)} {receipt.number}
-            </span>
-            <span>{c('view')}</span>
-          </button>
-        )}
-      </Card>
+            {c('backToEvent')}
+          </Link>
+          <Link
+            href="/account/bookings"
+            className={`${brandButtonClasses('secondary', 'lg')} w-full sm:w-auto`}
+          >
+            {c('myBookings')}
+          </Link>
+        </div>
+      )}
 
-      {confirmed && (
-        <>
-          {/*
-            The QR, right here. It is what the buyer came for and what the door scans. Each
-            one opens that ticket on its own — full screen, brightness up, the way it is shown
-            at the door — rather than making the buyer find it again in a list of every ticket
-            they have ever bought.
-          */}
-          {tickets.length > 0 ? (
-            <div className="space-y-3">
-              {tickets.map((t) => (
-                <Card key={t.id} className="flex items-center gap-4">
-                  {/*
-                    A vendor barcode the server cannot draw has no QR image. Say so in the
-                    space the code would take, rather than an image with no source.
-                  */}
-                  {t.qrDataUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={t.qrDataUrl}
-                      alt={c('ticketQrAlt', { serial: t.serial })}
-                      className="h-28 w-28 shrink-0 rounded-md bg-white p-1"
-                    />
-                  ) : (
-                    <div className="flex h-28 w-28 shrink-0 items-center justify-center rounded-md border border-dashed border-border bg-background-subtle p-2 text-center text-caption text-text-muted">
-                      {w('qrUnavailable')}
-                    </div>
-                  )}
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <p className="font-semibold text-text-primary">{booking.event.title}</p>
-                    <p className="text-[0.9375rem] text-text-muted">{when}</p>
-                    {t.seatLabel ? (
-                      <p className="text-[0.9375rem] text-text-primary">
-                        {c('seat')} <strong>{t.seatLabel}</strong>
-                        {t.screenName ? ` - ${t.screenName}` : ''}
-                      </p>
-                    ) : null}
-                    {where ? <p className="text-[0.9375rem] text-text-muted">{where}</p> : null}
-                    <p className="font-mono text-caption text-text-muted">{t.serial}</p>
-                    <Link
-                      href={`/account/tickets/${t.id}`}
-                      className="inline-flex items-center gap-1 text-[0.9375rem] font-medium text-action-primary hover:underline"
-                    >
-                      {c('openTicket')}
-                      <ChevronRight className="h-4 w-4" aria-hidden />
-                    </Link>
-                  </div>
-                </Card>
-              ))}
-              <p className="text-caption text-text-muted">
-                {c('showAtDoor', { email: booking.buyerEmail })}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_24rem] lg:gap-8">
+        <div className="min-w-0 space-y-6">
+          {confirmed && (
+            <>
+              {/*
+                The QR, right here. It is what the buyer came for and what the door scans. Each
+                one opens that ticket on its own — full screen, brightness up, the way it is shown
+                at the door — rather than making the buyer find it again in a list of every ticket
+                they have ever bought.
+              */}
+              {tickets.length > 0 ? (
+                <section aria-labelledby="tickets-heading" className="space-y-3">
+                  <h2 id="tickets-heading" className={BRAND_EYEBROW}>
+                    {c('steps.ticket')}
+                  </h2>
+                  <ul className="space-y-3">
+                    {tickets.map((t) => (
+                      <li key={t.id} className={`${BRAND_PANEL} flex items-center gap-4 p-4`}>
+                        {/*
+                          A vendor barcode the server cannot draw has no QR image. Say so in the
+                          space the code would take, rather than an image with no source.
+                        */}
+                        {t.qrDataUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={t.qrDataUrl}
+                            alt={c('ticketQrAlt', { serial: t.serial })}
+                            className="h-28 w-28 shrink-0 rounded-brand-control bg-white p-1"
+                          />
+                        ) : (
+                          <div className="flex h-28 w-28 shrink-0 items-center justify-center rounded-brand-control border border-dashed border-brand-line-strong bg-brand-sunken p-2 text-center text-brand-meta text-brand-ink-3">
+                            {w('qrUnavailable')}
+                          </div>
+                        )}
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <p className="font-brand-display text-brand-card text-brand-ink">
+                            {booking.event.title}
+                          </p>
+                          <p className="text-brand-meta text-brand-ink-2">{when}</p>
+                          {t.seatLabel ? (
+                            <p className="text-brand-ui text-brand-ink">
+                              {c('seat')} <strong className="font-semibold">{t.seatLabel}</strong>
+                              {t.screenName ? ` - ${t.screenName}` : ''}
+                            </p>
+                          ) : null}
+                          {where ? (
+                            <p className="text-brand-meta text-brand-ink-2">{where}</p>
+                          ) : null}
+                          <p className="font-mono text-brand-meta text-brand-ink-3">{t.serial}</p>
+                          <Link
+                            href={`/account/tickets/${t.id}`}
+                            className={`inline-flex min-h-11 items-center gap-1 text-brand-ui ${BRAND_LINK}`}
+                          >
+                            {c('openTicket')}
+                            <ChevronRight className="h-4 w-4" aria-hidden />
+                          </Link>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="text-brand-meta text-brand-ink-3">
+                    {c('showAtDoor', { email: booking.buyerEmail })}
+                  </p>
+                </section>
+              ) : ticketsQ.isLoading ? (
+                <div className="h-32 animate-pulse rounded-brand-card bg-brand-sunken" />
+              ) : null}
+
+              {/*
+                THIS booking's tickets first. The only way onward used to be "All my tickets" — a
+                list of everything the account has ever bought, where the booking just made had to
+                be found again.
+              */}
+              <div className="space-y-3">
+                <Link
+                  href={`/account/bookings/${booking.id}/tickets`}
+                  className={`${brandButtonClasses('primary', 'lg')} w-full`}
+                >
+                  <Ticket className="h-4 w-4" aria-hidden />
+                  {c('viewTickets')}
+                </Link>
+                <div className="flex flex-col gap-3 sm:flex-row">
+                  <Link
+                    href="/account/tickets"
+                    className={`${brandButtonClasses('secondary', 'md')} w-full sm:w-auto sm:flex-1`}
+                  >
+                    {c('allMyTickets')}
+                  </Link>
+                  <a
+                    href={ics}
+                    download={`${booking.event.slug}.ics`}
+                    className={`${brandButtonClasses('secondary', 'md')} w-full sm:w-auto sm:flex-1`}
+                  >
+                    <CalendarPlus className="h-4 w-4" aria-hidden /> {tx('action.addToCalendar')}
+                  </a>
+                  <button
+                    type="button"
+                    onClick={share}
+                    className={`${brandButtonClasses('secondary', 'md')} w-full sm:w-auto sm:flex-1`}
+                  >
+                    <Share2 className="h-4 w-4" aria-hidden /> {tx('action.share')}
+                  </button>
+                </div>
+              </div>
+
+              {/*
+                There used to be a star rating and a "Follow organizer" button here. Neither was
+                connected to anything: the stars thanked the buyer and stored nothing, and the
+                button promised "you'll hear about new events from this organizer" while nothing
+                recorded the follow or would ever send that message. There is no follow API to
+                wire it to, and the reviews API publishes a public review of the EVENT — not an
+                answer to "how was booking?", and not something to post on somebody's behalf before
+                they have attended. Reviews are written on the event page, where that is clear.
+              */}
+            </>
+          )}
+        </div>
+
+        {/* The order: what, when, where, the reference, and what it cost. */}
+        <section
+          aria-labelledby="order-summary-heading"
+          className={`${BRAND_PANEL} space-y-4 p-4 sm:p-6 lg:col-start-2 lg:row-start-1`}
+        >
+          <div className="space-y-1">
+            <div className="flex items-start justify-between gap-3">
+              <h2
+                id="order-summary-heading"
+                className="font-brand-display text-brand-d3 text-brand-ink"
+              >
+                {booking.event.title}
+              </h2>
+              <BrandStatusPill status={STATUS_TONE[booking.status] ?? 'neutral'}>
+                {statusLabel('booking', booking.status)}
+              </BrandStatusPill>
+            </div>
+            <p className="text-brand-ui text-brand-ink-2" data-testid="confirmation-when">
+              {when}
+            </p>
+            {where ? (
+              <p className="text-brand-ui text-brand-ink-2" data-testid="confirmation-where">
+                {where}
               </p>
-            </div>
-          ) : ticketsQ.isLoading ? (
-            <div className="h-32 animate-pulse rounded-lg bg-background-subtle" />
-          ) : null}
-
-          {/*
-            THIS booking's tickets first. The only way onward used to be "All my tickets" — a
-            list of everything the account has ever bought, where the booking just made had to
-            be found again.
-          */}
-          <div className="space-y-3">
-            <ButtonLink href={`/account/bookings/${booking.id}/tickets`} className="w-full">
-              <Ticket className="h-4 w-4" aria-hidden />
-              {c('viewTickets')}
-            </ButtonLink>
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <Link href="/account/tickets" className={SECONDARY_ACTION}>
-                {c('allMyTickets')}
-              </Link>
-              <a href={ics} download={`${booking.event.slug}.ics`} className={SECONDARY_ACTION}>
-                <CalendarPlus className="h-4 w-4" /> {tx('action.addToCalendar')}
-              </a>
-              <button onClick={share} className={SECONDARY_ACTION}>
-                <Share2 className="h-4 w-4" /> {tx('action.share')}
-              </button>
-            </div>
+            ) : null}
           </div>
 
+          {booking.reference && (
+            <div className="flex items-center justify-between gap-3 border-t border-brand-line pt-4 text-brand-ui">
+              <span className="text-brand-ink-2">{c('bookingReference')}</span>
+              <ReferenceCode value={booking.reference} label={c('bookingReference')} />
+            </div>
+          )}
+
           {/*
-            There used to be a star rating and a "Follow organizer" button here. Neither was
-            connected to anything: the stars thanked the buyer and stored nothing, and the
-            button promised "you'll hear about new events from this organizer" while nothing
-            recorded the follow or would ever send that message. There is no follow API to
-            wire it to, and the reviews API publishes a public review of the EVENT — not an
-            answer to "how was booking?", and not something to post on somebody's behalf before
-            they have attended. Reviews are written on the event page, where that is clear.
+            What was bought, before what it cost.
+
+            The screen showed a title, a date and four GST rows over a total — the one thing it
+            never said was WHAT the money was for. A buyer checking two tickets against their
+            bank statement had to go and find the receipt.
           */}
-        </>
-      )}
+          {(items.length > 0 || seats.length > 0) && (
+            <div
+              className="space-y-2 border-t border-brand-line pt-4"
+              data-testid="confirmation-order"
+            >
+              <p className={BRAND_EYEBROW}>{c('yourOrder')}</p>
+              {items.map((item, index) => (
+                <div
+                  key={`${itemName(item)}-${index}`}
+                  className="flex justify-between gap-4 text-brand-ui"
+                >
+                  <span className="text-brand-ink">
+                    {c('itemLine', { name: itemName(item), quantity: item.quantity })}
+                  </span>
+                  <span className="tabular-nums text-brand-ink-2">
+                    {free
+                      ? tx('state.free')
+                      : money(
+                          item.unitPriceMinor * item.quantity,
+                          booking.currency,
+                          undefined,
+                          itemDigits,
+                        )}
+                  </span>
+                </div>
+              ))}
+              {seats.length > 0 && (
+                <div className="flex justify-between gap-4 text-brand-ui">
+                  <span className="text-brand-ink-2">
+                    {seats.length === 1 ? c('seat') : c('seats')}
+                  </span>
+                  <span className="text-right font-semibold text-brand-ink">
+                    {seats.join(', ')}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/*
+            The same breakdown the buyer agreed to on the payment screen — fees, the GST inside
+            the ticket price, the GST on the fee — footing to what they paid.
+          */}
+          {free ? (
+            <div className="flex justify-between border-t border-brand-line pt-4 text-brand-ui">
+              {/*
+                "Total paid Rs 0" reads as a payment that failed. Nothing was paid because nothing
+                was owed, and those are different things to somebody checking their booking.
+              */}
+              <span className="text-brand-ink-2">{c('cost')}</span>
+              <span className="font-semibold text-brand-ink">{tx('state.free')}</span>
+            </div>
+          ) : (
+            <PriceBreakdown
+              brand
+              quote={{
+                currency: booking.currency,
+                subtotalMinor: booking.subtotalMinor,
+                discountMinor: booking.discountMinor,
+                bookingFeeMinor: booking.bookingFeeMinor,
+                paymentFeeMinor: booking.paymentFeeMinor,
+                customerFeeInclusiveMinor: booking.customerFeeInclusiveMinor,
+                customerFeeMinor: booking.customerFeeMinor,
+                feeTaxRateBasisPoints: booking.feeTaxRateBasisPoints,
+                feeTaxMinor: booking.feeTaxMinor,
+                maintenanceMinor: booking.maintenanceMinor,
+                maintenanceTreatment: booking.maintenanceTreatment,
+                taxLines: booking.taxLines,
+                totalMinor: booking.totalMinor,
+              }}
+              totalLabel={confirmed ? c('totalPaid') : undefined}
+              note={null}
+            />
+          )}
+
+          {receipt && (
+            <button
+              type="button"
+              onClick={() => void api.openReceipt(receipt.id)}
+              className={`flex min-h-11 w-full items-center justify-between gap-3 border-t border-brand-line pt-4 text-left text-brand-ui text-brand-ink hover:underline ${BRAND_FOCUS}`}
+            >
+              <span className="inline-flex items-center gap-2">
+                <ReceiptText className="h-4 w-4 text-brand-ink-3" aria-hidden />
+                {d(`kind.${receipt.kind}`)} {receipt.number}
+              </span>
+              <span className="font-semibold">{c('view')}</span>
+            </button>
+          )}
+        </section>
+      </div>
 
       {/* Recommendations */}
       {suggestions.length > 0 && (
-        <section className="space-y-4">
-          <h2 className="text-title font-semibold text-text-primary">{e('recommendations')}</h2>
-          <div className="grid gap-4">
+        <section className="space-y-4 pt-6">
+          <h2 className="font-brand-display text-brand-d2 text-brand-ink">
+            {e('recommendations')}
+          </h2>
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {suggestions.map((ev) => (
               <EventCard key={ev.id} event={ev} />
             ))}
           </div>
         </section>
       )}
-    </div>
+    </ConfirmShell>
   );
 }
 
@@ -582,92 +674,85 @@ function GuestConfirmation({ id, anonSession }: { id: string; anonSession: strin
     pending && !!view.holdExpiresAt && new Date(view.holdExpiresAt).getTime() > Date.now();
 
   return (
-    <div className="mx-auto max-w-lg space-y-8">
-      <Stepper
+    <ConfirmShell>
+      <BrandSteps
         steps={(free ? FREE_BOOKING_STEPS : BOOKING_STEPS).map((k) => c(`steps.${k}`))}
         current={free ? 1 : confirmed ? 2 : 1}
       />
 
-      <div className="text-center">
-        <div
-          className={`mx-auto flex h-16 w-16 animate-scale-in items-center justify-center rounded-full ${
-            confirmed
-              ? 'bg-tint-success text-status-success'
-              : closed
-                ? 'bg-background-subtle text-text-muted'
-                : 'bg-tint-warning text-status-warning'
-          }`}
-          aria-hidden
-        >
-          {confirmed ? (
-            <Check className="h-8 w-8" strokeWidth={2.5} />
-          ) : closed ? (
-            <XCircle className="h-8 w-8" />
-          ) : (
-            '...'
-          )}
-        </div>
-        <h1 className="mt-4 text-h2 font-bold tracking-tight text-text-primary">
-          {confirmed ? c('youreGoing') : closed ? c(closedCopy.title) : c('pending')}
-        </h1>
-        <p className="mt-1.5 text-[0.9375rem] text-text-secondary">
-          {confirmed
+      <ConfirmHeadline
+        state={confirmed ? 'confirmed' : closed ? 'closed' : 'pending'}
+        title={confirmed ? c('youreGoing') : closed ? c(closedCopy.title) : c('pending')}
+        body={
+          confirmed
             ? c('sentTo', { count: view.tickets.length, email: view.buyer.emailMasked })
             : closed
               ? c(closedCopy.body)
-              : c('pendingBody')}
-        </p>
-      </div>
+              : c('pendingBody')
+        }
+      />
 
       {pending && (
-        <ButtonLink
+        <Link
           href={holdLive ? `/booking/${view.id}/payment` : `/events/${view.event.slug}`}
-          variant="outline"
-          className="w-full"
+          className={`${brandButtonClasses('secondary', 'lg')} w-full sm:w-auto`}
         >
           {holdLive ? c('returnToPayment') : c('backToEvent')}
-        </ButtonLink>
+        </Link>
       )}
       {closed && (
-        <ButtonLink href={`/events/${view.event.slug}`} className="w-full">
+        <Link
+          href={`/events/${view.event.slug}`}
+          className={`${brandButtonClasses('primary', 'lg')} w-full sm:w-auto`}
+        >
           {c('backToEvent')}
-        </ButtonLink>
+        </Link>
       )}
 
-      <GuestBookingSummary view={view} />
+      {/*
+        The guest summary and tickets are shared with the emailed booking link
+        (/booking/access), which has not moved to the brand layer yet; they keep their own cards
+        here until that page does, so the two never drift apart.
+      */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_24rem] lg:gap-8">
+        <div className="min-w-0 space-y-6">
+          {confirmed && (
+            <>
+              <GuestTickets view={view} printHref={`/booking/${view.id}/tickets/print`} />
+              {/*
+                The one thing a guest needs that an account holder does not: a way back to this
+                page from a different device, or after this browser forgets the booking.
+              */}
+              <section className={`${BRAND_PANEL} space-y-2 p-4 sm:p-6`}>
+                <h2 className="font-brand-display text-brand-card text-brand-ink">
+                  {g('keepTicketsTitle')}
+                </h2>
+                <p className="text-brand-ui text-brand-ink-2">
+                  {g('keepTicketsBody', { email: view.buyer.emailMasked })}
+                </p>
+                <p className="text-brand-meta text-brand-ink-3">
+                  {g('wantAnAccount')}{' '}
+                  <Link href="/register" className={BRAND_LINK}>
+                    {g('createAccountLater')}
+                  </Link>
+                </p>
+              </section>
+              {/*
+                The offer to keep the booking, here as well as on the emailed link.
 
-      {confirmed && (
-        <>
-          <GuestTickets view={view} printHref={`/booking/${view.id}/tickets/print`} />
-          {/*
-            The one thing a guest needs that an account holder does not: a way back to this
-            page from a different device, or after this browser forgets the booking.
-          */}
-          <Card className="space-y-2">
-            <h2 className="text-[0.9375rem] font-semibold text-text-primary">
-              {g('keepTicketsTitle')}
-            </h2>
-            <p className="text-caption text-text-muted">
-              {g('keepTicketsBody', { email: view.buyer.emailMasked })}
-            </p>
-            <p className="text-caption text-text-muted">
-              {g('wantAnAccount')}{' '}
-              <Link href="/register" className="text-action-primary underline">
-                {g('createAccountLater')}
-              </Link>
-            </p>
-          </Card>
-          {/*
-            The offer to keep the booking, here as well as on the emailed link.
-
-            This is the moment a buyer is most likely to take it: they have just paid, the
-            tickets are in front of them, and they have not yet closed the tab. The claim is
-            proved by the anonymous session this browser is holding -- the same token that read
-            the booking to draw this page -- so no access token is needed and none exists here.
-          */}
-          <GuestClaimCard bookingId={view.id} anonSession={anonSession} />
-        </>
-      )}
-    </div>
+                This is the moment a buyer is most likely to take it: they have just paid, the
+                tickets are in front of them, and they have not yet closed the tab. The claim is
+                proved by the anonymous session this browser is holding -- the same token that read
+                the booking to draw this page -- so no access token is needed and none exists here.
+              */}
+              <GuestClaimCard bookingId={view.id} anonSession={anonSession} />
+            </>
+          )}
+        </div>
+        <div className="lg:col-start-2 lg:row-start-1">
+          <GuestBookingSummary view={view} />
+        </div>
+      </div>
+    </ConfirmShell>
   );
 }

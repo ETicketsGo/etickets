@@ -1,4 +1,5 @@
 import { expect, type Page } from '@playwright/test';
+import { moreButton, quantitySteppers } from './ticket-quantity';
 
 /**
  * Open an event that actually charges for a ticket, and sells it by the ticket.
@@ -14,7 +15,7 @@ import { expect, type Page } from '@playwright/test';
  * The same rot, one step further along. Reserved seating is no longer a cinema feature: any
  * event can be sold from a seat map, and a seated event has no quantity picker at all — it
  * sends the buyer to the map to choose seats instead. So once a seated event sorted first,
- * five tests failed on a missing `select[aria-label^="Quantity"]`, none of which were about
+ * five tests failed on a missing quantity picker, none of which were about
  * seating.
  *
  * Every caller of this helper goes straight on to that quantity picker. So that is what it
@@ -42,15 +43,15 @@ export async function openPaidEvent(page: Page): Promise<void> {
       rather than waiting for one and timing out on the other keeps a seated event cheap to
       reject — a 20-second timeout per candidate would time the whole suite out instead.
     */
-    const quantity = page.locator('select[aria-label^="Quantity"]').first();
+    const quantity = quantitySteppers(page).first();
     const seatMap = page.getByText('Pick your seats on the seat map');
     await expect(quantity.or(seatMap).first()).toBeVisible({ timeout: 20_000 });
     /*
       Enabled, not just visible: a sold-out ticket keeps its picker on the page, disabled, so
       "visible" handed callers an event nobody can buy from, and they timed out a minute later
-      in `selectOption`. Seen on a shared database where another suite's event had sold out.
+      choosing a quantity. Seen on a shared database where another suite's event had sold out.
     */
-    if ((await quantity.isVisible()) && (await quantity.isEnabled())) return;
+    if ((await quantity.isVisible()) && (await moreButton(quantity).isEnabled())) return;
 
     skipped.push(title);
     await page.goto(listing);

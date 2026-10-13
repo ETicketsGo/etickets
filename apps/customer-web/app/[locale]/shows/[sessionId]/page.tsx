@@ -3,7 +3,7 @@
 import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query';
 import { useParams } from 'next/navigation';
 import { useRouter } from '@/i18n/navigation';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Armchair, ChevronLeft, Info } from 'lucide-react';
 import {
   api as webKit,
@@ -16,11 +16,15 @@ import {
   useToast,
   VenueMap,
   BuyerRegionField,
+  BRAND_FOCUS,
+  BrandButton,
+  brandChipClasses,
   type SelectableSeat,
 } from '@eticketsgo/web-kit';
 import { api, ApiRequestError, type SeatLayout, type SeatLayoutResponse } from '@/lib/api';
 import { useFormat } from '@/lib/format';
-import { Button, Card, EmptyState, ErrorState } from '@/components/ui';
+import { EmptyState, ErrorState } from '@/components/ui';
+import { BRAND_FIELD, BRAND_LINK, BRAND_PANEL } from '@/components/booking-brand';
 import { nextStepAfterBooking } from '@/lib/after-booking';
 import { GuestBuyerFields, useGuestBuyer } from '@/components/guest-buyer';
 import { startGuestBooking } from '@/lib/guest-session';
@@ -602,15 +606,35 @@ export default function SeatSelectionPage() {
     <div
       role="status"
       data-testid="sales-closed"
-      className="flex items-start gap-3 rounded-lg border border-status-warning/30 bg-tint-warning px-4 py-3"
+      className="flex items-start gap-3 rounded-brand-card bg-brand-caution-tint px-4 py-4"
     >
-      <Info className="mt-0.5 h-5 w-5 shrink-0 text-status-warning" aria-hidden />
+      <Info className="mt-0.5 h-5 w-5 shrink-0 text-brand-caution" aria-hidden />
       <div>
-        <p className="font-semibold text-text-primary">{s('salesClosedTitle')}</p>
-        <p className="mt-0.5 text-[0.9375rem] text-text-secondary">{s('salesClosedBody')}</p>
+        <p className="text-brand-ui font-semibold text-brand-ink">{s('salesClosedTitle')}</p>
+        <p className="mt-1 text-brand-ui text-brand-ink-2">{s('salesClosedBody')}</p>
       </div>
     </div>
   ) : null;
+
+  /*
+    ── THE PAGE ON THE BRAND LAYER ─────────────────────────────────────────────────────
+    The show's identity is a stage band (ShowHeader), the room is drawn on the stage tone, and
+    the basket - what is chosen and what it costs - is a paper panel beside it: paper is where
+    money reads calmest (DESIGN-SYSTEM.md section 1). Out to the page column's edges so the
+    band is a band, not a card.
+  */
+  const shell = (children: ReactNode) => (
+    <div
+      data-brand="customer"
+      className="-mx-4 -mt-6 bg-brand-canvas pb-16 font-brand-text text-brand-ink sm:-mx-6 sm:-mt-10 lg:-mx-8 lg:pb-24"
+    >
+      {header}
+      <div className={`space-y-6 px-4 sm:px-6 lg:px-10 ${header ? 'mt-8' : 'pt-8'}`}>
+        {closedNotice}
+        {children}
+      </div>
+    </div>
+  );
 
   /*
     The venue overview: blocks around a stage, with no seats in them.
@@ -620,43 +644,40 @@ export default function SeatSelectionPage() {
     below the fold anyway.
   */
   if (layout.view === 'overview') {
-    return (
-      <div className="space-y-6">
-        {header}
-        {closedNotice}
+    return shell(
+      <>
         <div>
-          <MapHeading className="text-h3 font-bold tracking-tight text-text-primary">
+          <MapHeading className="font-brand-display text-brand-d2 text-brand-ink">
             {s('chooseArea')}
           </MapHeading>
-          <p className="mt-1.5 text-[0.9375rem] text-text-muted">{s('chooseAreaLead')}</p>
+          <p className="mt-2 text-brand-ui text-brand-ink-2">{s('chooseAreaLead')}</p>
         </div>
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-          <div className="min-w-0 lg:col-span-2">
-            <Card>
-              <VenueMap
-                focal={layout.focal}
-                sections={layout.sections}
-                onSelect={chooseSection}
-                formatPrice={(minor) => money(minor, currency)}
-                pendingSectionId={isFetching ? sectionId : null}
-              />
-            </Card>
+          <div className={`${BRAND_PANEL} min-w-0 p-4 sm:p-6 lg:col-span-2`}>
+            <VenueMap
+              focal={layout.focal}
+              sections={layout.sections}
+              onSelect={chooseSection}
+              formatPrice={(minor) => money(minor, currency)}
+              pendingSectionId={isFetching ? sectionId : null}
+            />
           </div>
           {selected.length > 0 ? (
             /*
               The basket stays visible on the map: someone who has taken two seats in the stalls
               and gone back to look at the balcony must be able to see they still hold those two.
             */
-            <div className="lg:col-span-1">
-              <Card title={s('basketTitle')}>
-                <p className="text-[0.9375rem] text-text-secondary">
-                  {s('basketBody', { count: selected.length })}
-                </p>
-              </Card>
+            <div className={`${BRAND_PANEL} p-6 lg:col-span-1`}>
+              <h2 className="font-brand-display text-brand-d3 text-brand-ink">
+                {s('basketTitle')}
+              </h2>
+              <p className="mt-2 text-brand-ui text-brand-ink-2">
+                {s('basketBody', { count: selected.length })}
+              </p>
             </div>
           ) : null}
         </div>
-      </div>
+      </>,
     );
   }
 
@@ -668,12 +689,10 @@ export default function SeatSelectionPage() {
   // True only when the customer arrived here from a venue map, which is the only case
   // where "back to the map" is a place they can actually return to.
   const cameFromMap = sectionId !== null;
+  const stageLink = `inline-flex min-h-11 items-center gap-1.5 rounded-sm text-brand-ui font-medium text-brand-ink underline decoration-brand-line-strong underline-offset-4 hover:decoration-brand-ink ${BRAND_FOCUS}`;
 
-  return (
-    <div className={`space-y-6 ${selected.length > 0 ? 'pb-24 lg:pb-0' : ''}`}>
-      {header}
-      {closedNotice}
-
+  return shell(
+    <div className={`space-y-6 ${selected.length > 0 ? 'pb-28 lg:pb-0' : ''}`}>
       {/* Announced, not shown: the map itself shows what is chosen. */}
       <p className="sr-only" aria-live="polite">
         {selected.length > 0
@@ -685,329 +704,328 @@ export default function SeatSelectionPage() {
         One column that cannot grow past the screen, stated rather than implied: an implicit grid
         track sizes to its widest content, and a seat map is wider than a phone.
       */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
-        {/* Seat map */}
-        <div ref={seatsRef} className="min-w-0 scroll-mt-24">
-          <Card>
-            <div className="space-y-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0">
-                  {cameFromMap ? (
-                    <button
-                      type="button"
-                      onClick={() => setSectionId(null)}
-                      className="mb-1 inline-flex items-center gap-1.5 rounded-md text-[0.9375rem] text-action-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-                    >
-                      <ChevronLeft className="h-4 w-4" aria-hidden />
-                      {s('backToMap')}
-                    </button>
-                  ) : null}
-                  <MapHeading className="text-title font-semibold text-text-primary">
-                    {cameFromMap
-                      ? (layout.sections[0]?.name ?? s('selectSeats'))
-                      : s('selectSeats')}
-                  </MapHeading>
-                </div>
-                {selected.length > 0 ? (
-                  <button
-                    type="button"
-                    onClick={() => setSelected([])}
-                    className="rounded-md text-caption font-medium text-text-muted underline-offset-2 hover:text-text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-                  >
-                    {s('clearSeats')}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_24rem] lg:gap-8">
+        {/* Seat map, on the stage tone: the room with the lights down, chosen seats lit. */}
+        <section
+          ref={seatsRef}
+          data-brand-tone="stage"
+          aria-labelledby="seat-map-heading"
+          className="min-w-0 scroll-mt-24 rounded-brand-card bg-brand-canvas p-4 sm:p-6"
+        >
+          <div className="space-y-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                {cameFromMap ? (
+                  <button type="button" onClick={() => setSectionId(null)} className={stageLink}>
+                    <ChevronLeft className="h-4 w-4" aria-hidden />
+                    {s('backToMap')}
                   </button>
                 ) : null}
-              </div>
-
-              {/*
-                Other blocks, one tap away. On a phone the venue map would push the seats off the
-                screen, so the blocks are a wrapping row of buttons instead; on a wide screen the
-                map itself sits beside the seats and this row is not needed.
-              */}
-              {cameFromMap && venue ? (
-                <details className="lg:hidden" open={venue.sections.length <= 8}>
-                  <summary className="mb-1.5 cursor-pointer rounded-md text-caption font-medium text-action-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50">
-                    {s('changeArea', { count: venue.sections.length })}
-                  </summary>
-                  <div role="group" aria-label={s('otherAreas')} className="flex flex-wrap gap-2">
-                    {venue.sections.map((section) => {
-                      const active = section.id === sectionId;
-                      const unavailable = section.availableCount === 0 || section.kind === 'ZONE';
-                      return (
-                        <button
-                          key={section.id}
-                          type="button"
-                          aria-pressed={active}
-                          disabled={unavailable && !active}
-                          onClick={() => chooseSection(section.id)}
-                          className={`rounded-full border px-3 py-1.5 text-caption font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50 ${
-                            active
-                              ? 'border-action-primary bg-tint-primary text-text-primary'
-                              : 'border-border text-text-secondary hover:bg-background-subtle'
-                          }`}
-                        >
-                          {section.name}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </details>
-              ) : null}
-
-              {hasSeats && !salesClosed ? (
-                <TicketCount value={quantity} onChange={chooseQuantity} />
-              ) : null}
-
-              {strandedLabels.length > 0 ? (
-                <p
-                  role="status"
-                  className="flex items-start gap-2 rounded-md bg-tint-warning px-3 py-2 text-caption text-status-warning"
+                <MapHeading
+                  id="seat-map-heading"
+                  className="font-brand-display text-brand-d3 text-brand-ink"
                 >
-                  <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-                  <span>
-                    {strandedLabels.length === 1
-                      ? s('strandedOne', { seats: strandedLabels[0] })
-                      : s('strandedMany', { seats: strandedLabels.join(', ') })}{' '}
-                    {s('strandedAdvice')}
-                  </span>
-                </p>
+                  {cameFromMap ? (layout.sections[0]?.name ?? s('selectSeats')) : s('selectSeats')}
+                </MapHeading>
+              </div>
+              {selected.length > 0 ? (
+                <button type="button" onClick={() => setSelected([])} className={stageLink}>
+                  {s('clearSeats')}
+                </button>
               ) : null}
-
-              {!hasSeats ? (
-                <EmptyState title={s('noSeatsTitle')} hint={s('noSeatsHint')} icon={Armchair} />
-              ) : (
-                <>
-                  <SeatMap
-                    layout={shownLayout?.view === 'seats' ? shownLayout : layout}
-                    selected={selectedSet}
-                    stranded={stranded}
-                    onTap={tap}
-                    formatMinor={(minor) => money(minor, currency)}
-                    seatStatusLabel={seatStatusLabel}
-                    kindLabel={(kind) => (SEAT_KIND_KEY[kind] ? s(SEAT_KIND_KEY[kind]) : null)}
-                  />
-                  <SeatLegend
-                    hasSold={hasSold}
-                    // Seats closed to online sale are drawn unavailable; the key says what that looks like.
-                    hasHeld={hasHeld || salesClosed || closedTypes.size > 0}
-                    hasAccessible={hasAccessible}
-                  />
-                </>
-              )}
             </div>
-          </Card>
-        </div>
+
+            {/*
+              Other blocks, one tap away. On a phone the venue map would push the seats off the
+              screen, so the blocks are a wrapping row of buttons instead; on a wide screen the
+              map itself sits beside the seats and this row is not needed.
+            */}
+            {cameFromMap && venue ? (
+              <details className="lg:hidden" open={venue.sections.length <= 8}>
+                <summary className={`mb-2 cursor-pointer ${stageLink}`}>
+                  {s('changeArea', { count: venue.sections.length })}
+                </summary>
+                <div role="group" aria-label={s('otherAreas')} className="flex flex-wrap gap-2">
+                  {venue.sections.map((section) => {
+                    const active = section.id === sectionId;
+                    const unavailable = section.availableCount === 0 || section.kind === 'ZONE';
+                    return (
+                      <button
+                        key={section.id}
+                        type="button"
+                        aria-pressed={active}
+                        disabled={unavailable && !active}
+                        onClick={() => chooseSection(section.id)}
+                        className={`${brandChipClasses(active)} h-11 disabled:opacity-40`}
+                      >
+                        {section.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </details>
+            ) : null}
+
+            {hasSeats && !salesClosed ? (
+              <TicketCount value={quantity} onChange={chooseQuantity} />
+            ) : null}
+
+            {strandedLabels.length > 0 ? (
+              <p
+                role="status"
+                className="flex items-start gap-2 rounded-brand-control bg-brand-caution-tint px-3 py-2 text-brand-meta text-brand-caution"
+              >
+                <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+                <span>
+                  {strandedLabels.length === 1
+                    ? s('strandedOne', { seats: strandedLabels[0] })
+                    : s('strandedMany', { seats: strandedLabels.join(', ') })}{' '}
+                  {s('strandedAdvice')}
+                </span>
+              </p>
+            ) : null}
+
+            {!hasSeats ? (
+              <div className="rounded-brand-control bg-brand-surface p-6 text-center">
+                <Armchair className="mx-auto h-6 w-6 text-brand-ink-3" aria-hidden />
+                <p className="mt-2 text-brand-ui font-semibold text-brand-ink">
+                  {s('noSeatsTitle')}
+                </p>
+                <p className="mt-1 text-brand-meta text-brand-ink-2">{s('noSeatsHint')}</p>
+              </div>
+            ) : (
+              <>
+                <SeatMap
+                  layout={shownLayout?.view === 'seats' ? shownLayout : layout}
+                  selected={selectedSet}
+                  stranded={stranded}
+                  onTap={tap}
+                  formatMinor={(minor) => money(minor, currency)}
+                  seatStatusLabel={seatStatusLabel}
+                  kindLabel={(kind) => (SEAT_KIND_KEY[kind] ? s(SEAT_KIND_KEY[kind]) : null)}
+                />
+                <SeatLegend
+                  hasSold={hasSold}
+                  // Seats closed to online sale are drawn unavailable; the key says what that looks like.
+                  hasHeld={hasHeld || salesClosed || closedTypes.size > 0}
+                  hasAccessible={hasAccessible}
+                />
+              </>
+            )}
+          </div>
+        </section>
 
         {/* Venue (wide screens) + summary */}
         <div className="space-y-6">
           {cameFromMap && venue ? (
-            <div className="hidden lg:block">
-              <Card>
-                <h2 className="text-title font-semibold text-text-primary">{s('venueMapTitle')}</h2>
-                <p className="mb-3 mt-1 text-caption text-text-muted">{s('venueMapLead')}</p>
-                <VenueMap
-                  focal={venue.focal}
-                  sections={venue.sections}
-                  onSelect={chooseSection}
-                  formatPrice={(minor) => money(minor, currency)}
-                  activeSectionId={sectionId}
-                  pendingSectionId={isFetching ? sectionId : null}
-                  listWhenNarrow={false}
-                />
-              </Card>
+            <div className={`${BRAND_PANEL} hidden p-6 lg:block`}>
+              <h2 className="font-brand-display text-brand-d3 text-brand-ink">
+                {s('venueMapTitle')}
+              </h2>
+              <p className="mb-3 mt-1 text-brand-meta text-brand-ink-3">{s('venueMapLead')}</p>
+              <VenueMap
+                focal={venue.focal}
+                sections={venue.sections}
+                onSelect={chooseSection}
+                formatPrice={(minor) => money(minor, currency)}
+                activeSectionId={sectionId}
+                pendingSectionId={isFetching ? sectionId : null}
+                listWhenNarrow={false}
+              />
             </div>
           ) : null}
-          <div id={SUMMARY_ID} className="scroll-mt-24 lg:sticky lg:top-24 lg:h-fit">
-            <Card>
-              <div className="mb-4 flex items-center gap-2">
-                <Armchair className="h-5 w-5 text-action-primary" aria-hidden />
-                <h2 className="text-title font-semibold text-text-primary">{s('yourSeats')}</h2>
-              </div>
+          <section
+            id={SUMMARY_ID}
+            aria-labelledby="your-seats-heading"
+            className={`${BRAND_PANEL} scroll-mt-24 p-4 sm:p-6 lg:sticky lg:top-24 lg:h-fit`}
+          >
+            <h2 id="your-seats-heading" className="font-brand-display text-brand-d3 text-brand-ink">
+              {s('yourSeats')}
+            </h2>
 
-              {selected.length === 0 ? (
-                <p className="text-[0.9375rem] text-text-muted">{s('noneSelected')}</p>
-              ) : (
-                <div className="space-y-3">
-                  {Array.from(grouped.entries()).map(([catId, entry]) => {
-                    const cat = categoriesById.get(catId);
-                    return (
-                      <div key={catId} className="flex items-start justify-between gap-3">
-                        <div>
-                          {(() => {
-                            const name = seatGroupName(
-                              entry.seatIds.map((id) => known.get(id)?.sectionName ?? ''),
-                              cat?.name,
-                            );
-                            return (
-                              <p className="font-medium text-text-primary">
-                                {name.title || s('seatsFallback')}
-                                {name.category ? (
-                                  <span className="font-normal text-text-muted">
-                                    {' '}
-                                    - {name.category}
-                                  </span>
-                                ) : null}
-                              </p>
-                            );
-                          })()}
-                          <p className="text-caption text-text-muted">
-                            {[...entry.labels]
-                              .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
-                              .join(', ')}
-                          </p>
-                        </div>
-                        <span className="whitespace-nowrap text-[0.9375rem] tabular-nums text-text-secondary">
-                          {money((cat?.priceMinor ?? 0) * entry.seatIds.length, currency)}
-                        </span>
+            {selected.length === 0 ? (
+              <p className="mt-2 text-brand-ui text-brand-ink-2">{s('noneSelected')}</p>
+            ) : (
+              <ul className="mt-4 divide-y divide-brand-line">
+                {Array.from(grouped.entries()).map(([catId, entry]) => {
+                  const cat = categoriesById.get(catId);
+                  const name = seatGroupName(
+                    entry.seatIds.map((id) => known.get(id)?.sectionName ?? ''),
+                    cat?.name,
+                  );
+                  return (
+                    <li
+                      key={catId}
+                      className="flex items-start justify-between gap-3 py-3 first:pt-0 last:pb-0"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-brand-ui font-semibold text-brand-ink">
+                          {name.title || s('seatsFallback')}
+                          {name.category ? (
+                            <span className="font-normal text-brand-ink-3"> - {name.category}</span>
+                          ) : null}
+                        </p>
+                        <p className="mt-0.5 text-brand-meta text-brand-ink-2">
+                          {[...entry.labels]
+                            .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+                            .join(', ')}
+                        </p>
                       </div>
-                    );
-                  })}
-                </div>
-              )}
+                      <span className="whitespace-nowrap text-brand-ui tabular-nums text-brand-ink">
+                        {money((cat?.priceMinor ?? 0) * entry.seatIds.length, currency)}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
 
-              {/*
+            {/*
               A discount code, and the offers worth advertising. The dropdown lists only codes the
               organizer PUBLISHED; private codes are still typed into the box beside it.
             */}
-              {selected.length > 0 && (
-                <div className="mt-4 border-t border-border pt-4">
-                  {appliedCode && !codeRejected ? (
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-[0.9375rem] text-text-secondary">
-                        {s.rich('codeApplied', {
-                          code: appliedCode,
-                          strong: (chunks) => (
-                            <strong className="text-text-primary">{chunks}</strong>
-                          ),
-                        })}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setAppliedCode(null);
-                          setCode('');
+            {selected.length > 0 && (
+              <div className="mt-5 border-t border-brand-line pt-5">
+                {appliedCode && !codeRejected ? (
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-brand-ui text-brand-ink-2">
+                      {s.rich('codeApplied', {
+                        code: appliedCode,
+                        strong: (chunks) => (
+                          <strong className="font-semibold text-brand-ink">{chunks}</strong>
+                        ),
+                      })}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAppliedCode(null);
+                        setCode('');
+                      }}
+                      className={`min-h-11 ${BRAND_LINK} text-brand-meta`}
+                    >
+                      {k('remove')}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {(offersQ.data?.length ?? 0) > 0 && (
+                      <select
+                        aria-label={k('availableOffers')}
+                        value=""
+                        onChange={(e) => {
+                          if (!e.target.value) return;
+                          setCode(e.target.value);
+                          setAppliedCode(e.target.value);
                         }}
-                        className="text-caption text-text-muted underline hover:text-text-primary"
+                        className={`${BRAND_FIELD} w-full`}
                       >
-                        {k('remove')}
-                      </button>
+                        <option value="">{k('availableOffers')}</option>
+                        {offersQ.data!.map((o) => (
+                          <option key={o.code} value={o.code}>
+                            {o.code} - {o.label}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    <div className="flex items-start gap-2">
+                      <input
+                        aria-label={k('discountCode')}
+                        placeholder={s('haveCode')}
+                        value={code}
+                        onChange={(e) => setCode(e.target.value.toUpperCase())}
+                        className={`${BRAND_FIELD} min-w-0 flex-1 uppercase placeholder:normal-case`}
+                      />
+                      <BrandButton
+                        variant="secondary"
+                        disabled={!code.trim()}
+                        onClick={() => setAppliedCode(code.trim())}
+                        className="shrink-0"
+                      >
+                        {k('apply')}
+                      </BrandButton>
                     </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {(offersQ.data?.length ?? 0) > 0 && (
-                        <select
-                          aria-label={k('availableOffers')}
-                          value=""
-                          onChange={(e) => {
-                            if (!e.target.value) return;
-                            setCode(e.target.value);
-                            setAppliedCode(e.target.value);
-                          }}
-                          className="w-full rounded-md border border-border-input bg-background-surface px-3 py-2 text-[0.9375rem] text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-                        >
-                          <option value="">{k('availableOffers')}</option>
-                          {offersQ.data!.map((o) => (
-                            <option key={o.code} value={o.code}>
-                              {o.code} - {o.label}
-                            </option>
-                          ))}
-                        </select>
-                      )}
-                      <div className="flex items-start gap-2">
-                        <input
-                          aria-label={k('discountCode')}
-                          placeholder={s('haveCode')}
-                          value={code}
-                          onChange={(e) => setCode(e.target.value.toUpperCase())}
-                          className="min-w-0 flex-1 rounded-md border border-border-input bg-background-surface px-3 py-2 text-[0.9375rem] uppercase text-text-primary placeholder:normal-case placeholder:text-text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-                        />
-                        <button
-                          type="button"
-                          disabled={!code.trim()}
-                          onClick={() => setAppliedCode(code.trim())}
-                          className="shrink-0 rounded-md border border-border-input px-3 py-2 text-[0.9375rem] font-medium text-text-primary transition-colors hover:bg-background-subtle disabled:opacity-40"
-                        >
-                          {k('apply')}
-                        </button>
-                      </div>
-                      {codeRejected && (
-                        <p role="alert" className="text-caption text-status-error">
-                          {k('couponRejected')}
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Above the breakdown, because it can change what the breakdown says. */}
-              <div className="mt-4">
-                <BuyerRegionField
-                  value={buyerRegion}
-                  onChange={(region) => {
-                    setRegionTouched(true);
-                    setBuyerRegion(region);
-                  }}
-                  country={layout?.country}
-                  // Translated: the field's English defaults showed on French Indian pages (QA).
-                  label={k('buyerRegionLabel')}
-                  hint={k('buyerRegionHint')}
-                  noneLabel={k('buyerRegionNone')}
-                  prefilled={Boolean(user?.lastBuyerRegion) && !regionTouched}
-                  prefilledNote={k('buyerRegionPrefilled')}
-                />
+                    {codeRejected && (
+                      <p role="alert" className="text-brand-meta text-brand-critical">
+                        {k('couponRejected')}
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
+            )}
 
-              {/*
+            {/* Above the breakdown, because it can change what the breakdown says. */}
+            <div className="mt-5">
+              <BuyerRegionField
+                value={buyerRegion}
+                onChange={(region) => {
+                  setRegionTouched(true);
+                  setBuyerRegion(region);
+                }}
+                country={layout?.country}
+                // Translated: the field's English defaults showed on French Indian pages (QA).
+                label={k('buyerRegionLabel')}
+                hint={k('buyerRegionHint')}
+                noneLabel={k('buyerRegionNone')}
+                prefilled={Boolean(user?.lastBuyerRegion) && !regionTouched}
+                prefilledNote={k('buyerRegionPrefilled')}
+              />
+            </div>
+
+            {/*
               The full breakdown, here rather than one screen later — shared with the event page
               so the platform never quotes two prices for the same purchase.
             */}
-              <div className="mt-4">
-                <PriceBreakdown
-                  quote={quote}
-                  loading={quoteQ.isFetching}
-                  fallbackTotalMinor={total}
-                  fallbackCurrency={currency}
-                  totalLabel={sf('event.totalSeats', { count: selected.length })}
-                  emptyNote={sf('event.priceAddSeat')}
-                />
-              </div>
+            <div className="mt-5">
+              <PriceBreakdown
+                brand
+                quote={quote}
+                loading={quoteQ.isFetching}
+                fallbackTotalMinor={total}
+                fallbackCurrency={currency}
+                totalLabel={sf('event.totalSeats', { count: selected.length })}
+                emptyNote={sf('event.priceAddSeat')}
+              />
+            </div>
 
-              {/*
+            {/*
               Name and email, for somebody with no account. Only once there is something to
               buy: an empty map does not need to ask who the buyer is.
             */}
-              {(guest.asGuest || guest.needsContact) && selected.length > 0 && (
+            {(guest.asGuest || guest.needsContact) && selected.length > 0 && (
+              <div className="mt-5">
                 <GuestBuyerFields state={guest} variant={guest.asGuest ? 'guest' : 'account'} />
-              )}
-
-              {/*
-                Why paying failed, on the page and beside the button. Announced once, here; the
-                phone's pay bar repeats it visually.
-              */}
-              {bookError ? (
-                <p
-                  role="alert"
-                  data-testid="booking-error"
-                  className="mt-4 rounded-md bg-tint-error px-3 py-2 text-[0.9375rem] text-status-error"
-                >
-                  {bookError}
-                </p>
-              ) : null}
-
-              {/* On phones the pay button lives in the bar at the bottom of the screen. */}
-              <div className="mt-4 hidden lg:block">
-                <Button
-                  className="w-full"
-                  loading={book.isPending}
-                  disabled={payDisabled}
-                  onClick={startBooking}
-                >
-                  {book.isPending ? s('holdingSeats') : s('proceedToPay')}
-                </Button>
               </div>
-            </Card>
-          </div>
+            )}
+
+            {/*
+              Why paying failed, on the page and beside the button. Announced once, here; the
+              phone's pay bar repeats it visually.
+            */}
+            {bookError ? (
+              <p
+                role="alert"
+                data-testid="booking-error"
+                className="mt-5 rounded-brand-control bg-brand-critical-tint px-3 py-2 text-brand-ui text-brand-critical"
+              >
+                {bookError}
+              </p>
+            ) : null}
+
+            {/* On phones the pay button lives in the bar at the bottom of the screen. */}
+            <div className="mt-5 hidden lg:block">
+              <BrandButton
+                size="lg"
+                className="w-full"
+                aria-busy={book.isPending || undefined}
+                disabled={payDisabled}
+                onClick={startBooking}
+              >
+                {book.isPending ? s('holdingSeats') : s('proceedToPay')}
+              </BrandButton>
+            </div>
+          </section>
         </div>
       </div>
 
@@ -1023,6 +1041,6 @@ export default function SeatSelectionPage() {
           error={bookError}
         />
       ) : null}
-    </div>
+    </div>,
   );
 }

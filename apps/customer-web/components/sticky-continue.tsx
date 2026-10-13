@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { Button } from '@/components/ui';
+import { BrandButton } from '@eticketsgo/web-kit';
 
 /** The id of the wrapper round the card's own "Continue to payment" button. */
 export const CONTINUE_ANCHOR_ID = 'event-continue-anchor';
@@ -82,27 +82,34 @@ export function StickyContinue({
   if (!shown) return null;
 
   return (
+    /*
+      On the brand layer: a surface with a hairline and the one overlay shadow the system allows
+      (it floats over the page), the total as a tabular figure, the ink primary button. It sets
+      its own `data-brand` so its colours never depend on where it happens to be mounted.
+    */
     <div
       data-testid="sticky-continue"
+      data-brand="customer"
       aria-hidden="true"
-      className="fixed inset-x-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-30 border-t border-border bg-background-surface/95 px-4 py-3 shadow-lg backdrop-blur-md lg:hidden print:hidden"
+      className="fixed inset-x-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-30 border-t border-brand-line bg-brand-surface px-4 py-3 font-brand-text shadow-brand-overlay lg:hidden print:hidden"
     >
       <div className="mx-auto flex max-w-shell items-center gap-3">
         <div className="min-w-0 flex-1">
-          <p className="text-caption text-text-secondary">{t('stickyTickets', { count })}</p>
+          <p className="text-brand-meta text-brand-ink-2">{t('stickyTickets', { count })}</p>
           {total ? (
-            <p className="text-title font-bold tabular-nums text-text-primary">{total}</p>
+            <p className="text-brand-figure-sm tabular-nums text-brand-ink">{total}</p>
           ) : null}
         </div>
-        <Button
+        <BrandButton
           tabIndex={-1}
+          size="lg"
           onClick={onContinue}
-          loading={pending}
+          aria-busy={pending || undefined}
           disabled={disabled}
           className="shrink-0"
         >
           {label}
-        </Button>
+        </BrandButton>
       </div>
     </div>
   );

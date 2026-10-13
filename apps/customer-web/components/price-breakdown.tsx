@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useId, useState } from 'react';
+import { Fragment, createContext, useContext, useId, useState } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { useFormat } from '@/lib/format';
 import { useTranslations } from 'next-intl';
@@ -85,6 +85,51 @@ const GST_NAMES = {
   UTGST: 'taxNameUTGST',
 } as const;
 
+/*
+  ── TWO APPEARANCES, ONE SET OF NUMBERS ──────────────────────────────────────────────
+  The booking flow (event page, seat page, Review & pay, confirmation) has moved to the brand
+  layer (docs/design/DESIGN-SYSTEM.md); the account pages that also show this breakdown have not
+  yet. `brand` only swaps class names - every row, every amount and the order they are drawn in
+  are the same code either way, so the two can never print different money.
+
+  Brand classes resolve only inside `data-brand`, which is why this is opt-in rather than a new
+  default: on a page without it they would paint nothing.
+*/
+const STYLES = {
+  classic: {
+    text: 'text-[0.9375rem]',
+    small: 'text-caption',
+    label: 'text-text-secondary',
+    muted: 'text-text-muted',
+    value: 'text-text-primary',
+    valueMuted: 'text-text-secondary',
+    toggle:
+      'rounded text-caption text-action-primary underline underline-offset-2 hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-action-primary',
+    groupToggle:
+      'inline-flex items-center gap-1 rounded text-left text-text-secondary hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-action-primary',
+    panel: 'mt-1 space-y-1 border-l-2 border-border pl-3',
+    rule: 'border-border',
+    total: 'text-title font-bold tabular-nums text-text-primary',
+  },
+  brand: {
+    text: 'text-brand-ui',
+    small: 'text-brand-meta',
+    label: 'text-brand-ink-2',
+    muted: 'text-brand-ink-3',
+    value: 'text-brand-ink',
+    valueMuted: 'text-brand-ink-2',
+    toggle:
+      'rounded-sm text-brand-meta font-medium text-brand-ink underline decoration-brand-line-strong underline-offset-4 hover:decoration-brand-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-focus focus-visible:ring-offset-2',
+    groupToggle:
+      'inline-flex items-center gap-1 rounded-sm text-left text-brand-ink-2 hover:text-brand-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-focus focus-visible:ring-offset-2',
+    panel: 'mt-1 space-y-1 border-l-2 border-brand-line pl-3',
+    rule: 'border-brand-line',
+    total: 'font-brand-text text-brand-figure-sm tabular-nums text-brand-ink',
+  },
+} as const;
+type Styles = (typeof STYLES)[keyof typeof STYLES];
+const StyleContext = createContext<Styles>(STYLES.classic);
+
 function Line({
   label,
   value,
@@ -102,18 +147,17 @@ function Line({
    */
   row?: boolean;
 }) {
+  const s = useContext(StyleContext);
   return (
     <div
       data-testid={row ? 'price-row' : undefined}
-      className={`flex items-start justify-between gap-4 ${muted ? 'text-caption' : 'text-[0.9375rem]'}`}
+      className={`flex items-start justify-between gap-4 ${muted ? s.small : s.text}`}
     >
-      <span className={muted ? 'text-text-muted' : 'text-text-secondary'}>
+      <span className={muted ? s.muted : s.label}>
         <span>{label}</span>
-        {hint ? <span className="block text-caption text-text-muted">{hint}</span> : null}
+        {hint ? <span className={`block ${s.small} ${s.muted}`}>{hint}</span> : null}
       </span>
-      <span className={`tabular-nums ${muted ? 'text-text-secondary' : 'text-text-primary'}`}>
-        {value}
-      </span>
+      <span className={`tabular-nums ${muted ? s.valueMuted : s.value}`}>{value}</span>
     </div>
   );
 }
@@ -146,6 +190,7 @@ function TicketsLine({
   digits?: number;
 }) {
   const t = useTranslations('storefront.event');
+  const s = useContext(StyleContext);
   const { money } = useFormat();
   const [open, setOpen] = useState(false);
   const panelId = useId();
@@ -163,11 +208,8 @@ function TicketsLine({
 
   return (
     <div>
-      <div
-        data-testid="price-row"
-        className="flex items-center justify-between gap-4 text-[0.9375rem]"
-      >
-        <span className="flex flex-wrap items-center gap-x-2 text-text-secondary">
+      <div data-testid="price-row" className={`flex items-center justify-between gap-4 ${s.text}`}>
+        <span className={`flex flex-wrap items-center gap-x-2 ${s.label}`}>
           <span>{label}</span>
           {hasDetail && (
             <button
@@ -175,7 +217,7 @@ function TicketsLine({
               onClick={() => setOpen((v) => !v)}
               aria-expanded={open}
               aria-controls={panelId}
-              className="rounded text-caption text-action-primary underline underline-offset-2 hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-action-primary"
+              className={s.toggle}
             >
               {open
                 ? t('taxDetailsHide')
@@ -185,15 +227,10 @@ function TicketsLine({
             </button>
           )}
         </span>
-        <span className="tabular-nums text-text-primary">{value}</span>
+        <span className={`tabular-nums ${s.value}`}>{value}</span>
       </div>
       {hasDetail && (
-        <div
-          id={panelId}
-          hidden={!open}
-          data-testid="included-tax"
-          className="mt-1 space-y-1 border-l-2 border-border pl-3"
-        >
+        <div id={panelId} hidden={!open} data-testid="included-tax" className={s.panel}>
           {included.map((tax) => (
             <Line
               key={`incl-${tax.label}-${tax.rateBasisPoints}`}
@@ -212,7 +249,7 @@ function TicketsLine({
               value={money(includedMaintenanceMinor, currency, undefined, digits)}
             />
           )}
-          <p className="text-caption text-text-muted">{t('taxIncludedNote')}</p>
+          <p className={`${s.small} ${s.muted}`}>{t('taxIncludedNote')}</p>
         </div>
       )}
     </div>
@@ -244,6 +281,7 @@ function FeeGroupLine({
   digits?: number;
 }) {
   const t = useTranslations('storefront.event');
+  const s = useContext(StyleContext);
   const { money } = useFormat();
   const [open, setOpen] = useState(true);
   const panelId = useId();
@@ -267,17 +305,14 @@ function FeeGroupLine({
 
   return (
     <div>
-      <div
-        data-testid="price-row"
-        className="flex items-start justify-between gap-4 text-[0.9375rem]"
-      >
-        <span className="text-text-secondary">
+      <div data-testid="price-row" className={`flex items-start justify-between gap-4 ${s.text}`}>
+        <span className={s.label}>
           <button
             type="button"
             onClick={() => setOpen((v) => !v)}
             aria-expanded={open}
             aria-controls={panelId}
-            className="inline-flex items-center gap-1 rounded text-left text-text-secondary hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-action-primary"
+            className={s.groupToggle}
           >
             {label}
             {open ? (
@@ -286,15 +321,15 @@ function FeeGroupLine({
               <ChevronDown className="h-4 w-4" aria-hidden />
             )}
           </button>
-          {hint ? <span className="block text-caption text-text-muted">{hint}</span> : null}
+          {hint ? <span className={`block ${s.small} ${s.muted}`}>{hint}</span> : null}
         </span>
-        <span className="tabular-nums text-text-primary">{format(group.totalMinor)}</span>
+        <span className={`tabular-nums ${s.value}`}>{format(group.totalMinor)}</span>
       </div>
       <div
         id={panelId}
         hidden={!open}
         data-testid={`fee-details-${group.kind}`}
-        className="mt-1 space-y-1 border-l-2 border-border pl-3"
+        className={s.panel}
       >
         <Line muted label={t('feeBaseAmount')} value={format(group.baseMinor)} />
         {group.taxLines.map((tax) => (
@@ -349,6 +384,8 @@ export function PriceBreakdown({
    * `moneyFractionDigits` over everything the card shows, and both halves use that answer.
    */
   fractionDigits,
+  /** Draw on the brand layer (inside `data-brand="customer"`). Changes classes, never amounts. */
+  brand = false,
 }: {
   quote?: QuotedFees | null;
   loading?: boolean;
@@ -359,8 +396,51 @@ export function PriceBreakdown({
   fallbackCurrency?: string;
   note?: string | null;
   fractionDigits?: number;
+  brand?: boolean;
+}) {
+  const s = brand ? STYLES.brand : STYLES.classic;
+  return (
+    <StyleContext.Provider value={s}>
+      <Breakdown
+        {...{
+          quote,
+          loading,
+          fallbackTotalMinor,
+          totalLabel,
+          emptyNote,
+          free,
+          fallbackCurrency,
+          note,
+          fractionDigits,
+        }}
+      />
+    </StyleContext.Provider>
+  );
+}
+
+function Breakdown({
+  quote,
+  loading,
+  fallbackTotalMinor,
+  totalLabel,
+  emptyNote,
+  free,
+  fallbackCurrency,
+  note,
+  fractionDigits,
+}: {
+  quote?: QuotedFees | null;
+  loading: boolean;
+  fallbackTotalMinor?: number;
+  totalLabel?: string;
+  emptyNote?: string;
+  free: boolean;
+  fallbackCurrency?: string;
+  note?: string | null;
+  fractionDigits?: number;
 }) {
   const t = useTranslations('storefront.event');
+  const s = useContext(StyleContext);
   const { money } = useFormat();
   // The quote still wins whenever there is one: it is what the buyer will be charged in.
   const currency = quote?.currency ?? fallbackCurrency;
@@ -403,18 +483,18 @@ export function PriceBreakdown({
 
   if (free) {
     return (
-      <div className="border-t border-border pt-4">
+      <div className={`border-t ${s.rule} pt-4`}>
         <div className="flex items-center justify-between">
-          <span className="text-[0.9375rem] text-text-secondary">{totalLabel ?? t('total')}</span>
-          <span className="text-title font-bold text-text-primary">{t('freeLabel')}</span>
+          <span className={`${s.text} ${s.label}`}>{totalLabel ?? t('total')}</span>
+          <span className={s.total}>{t('freeLabel')}</span>
         </div>
-        <p className="mt-1 text-caption text-text-muted">{t('freeNote')}</p>
+        <p className={`mt-1 ${s.small} ${s.muted}`}>{t('freeNote')}</p>
       </div>
     );
   }
 
   return (
-    <div className="border-t border-border pt-4">
+    <div className={`border-t ${s.rule} pt-4`}>
       {breakdown ? (
         <div className="space-y-1" data-testid="price-breakdown">
           {breakdown.rows.map((row, index) => {
@@ -478,20 +558,17 @@ export function PriceBreakdown({
       ) : null}
 
       <div
-        className={`flex items-center justify-between ${quote ? 'mt-2 border-t border-border pt-2' : ''}`}
+        className={`flex items-center justify-between ${quote ? `mt-2 border-t ${s.rule} pt-2` : ''}`}
       >
-        <span className="text-[0.9375rem] text-text-secondary">{totalLabel ?? t('total')}</span>
+        <span className={`${s.text} ${s.label}`}>{totalLabel ?? t('total')}</span>
         {/* Addressable on its own: the amount the buyer is agreeing to is the one thing
             worth being able to point at exactly, from a test or from anywhere else. */}
-        <span
-          data-testid="price-total"
-          className="text-title font-bold tabular-nums text-text-primary"
-        >
+        <span data-testid="price-total" className={s.total}>
           {money(quote ? quote.totalMinor : (fallbackTotalMinor ?? 0), currency, undefined, digits)}
         </span>
       </div>
       {quote && note === null ? null : (
-        <p className="mt-1 text-caption text-text-muted">
+        <p className={`mt-1 ${s.small} ${s.muted}`}>
           {/*
             Three different states, three different sentences. The old copy said the same
             apologetic thing in all of them, which meant it was wrong in the one case that
