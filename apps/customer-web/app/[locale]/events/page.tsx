@@ -8,9 +8,17 @@ import {
   emptyResultSuggestions,
   type SearchIntent,
 } from '@eticketsgo/shared-types';
-import { cityScope, countryPhrase, useCity, type SellableCity } from '@eticketsgo/web-kit';
+import {
+  cityScope,
+  countryKey,
+  countryPhrase,
+  useCity,
+  type SellableCity,
+} from '@eticketsgo/web-kit';
 import { api } from '@/lib/api';
 import { EventCard } from '@/components/event-card';
+import { EmptyPlace, PlaceSections } from '@/components/place-sections';
+import { usePlaceGroups } from '@/lib/use-place-groups';
 import { Button, EmptyState, ErrorState, Input, Select } from '@/components/ui';
 import { useTranslations } from 'next-intl';
 
@@ -216,6 +224,32 @@ export default function EventsPage() {
     queryFn: () => api.listEvents({ pageSize: String(PAGE_SIZE), page: String(page), ...request }),
   });
 
+  /*
+    The same search with no place on it, for the groups UNDER the results.
+
+    The list above is this search inside the selected city (or country); the groups below are
+    the same search in the rest of that country, then in each other country under its own
+    title. Anything already shown above is not repeated.
+  */
+  const pageCity = applied.city ?? null;
+  const pageCountry =
+    (pageCity && pageCity === preference.city ? preference.place?.country : null) ??
+    preference.country;
+  const elsewhereRequest = useMemo(() => {
+    const rest: Record<string, unknown> = { ...request };
+    delete rest.city;
+    delete rest.country;
+    delete rest.cityCountry;
+    delete rest.region;
+    return rest as Record<string, string | undefined>;
+  }, [request]);
+  const shownIds = useMemo(() => new Set(items.map((e) => e.id)), [items]);
+  const groups = usePlaceGroups(
+    { city: pageCity, country: pageCountry },
+    { filters: elsewhereRequest, skip: shownIds },
+  );
+  const placeGroups = { ...groups, homeCountry: countryKey(pageCountry) };
+
   // Replace on a new search (page 1), append on Load more.
   useEffect(() => {
     if (!data) return;
@@ -279,20 +313,14 @@ export default function EventsPage() {
     if (resolved.city) setCity(resolved.city);
 
     /*
-      Write through to the header, so the app has ONE answer to "where am I". Without this,
-      filtering to Delhi here and returning to the homepage would silently show Mumbai.
+      The header is NOT written to from here.
 
-      `clearCity` and not `setCity(null)` for the empty case: searching for a title with the
-      City box empty means "no city", not "the entire world". Passing null would also drop
-      the country scope, so typing "comedy" would quietly widen the page to every country we
-      sell in — the exact behaviour this change exists to remove.
+      This used to write the typed city through to the header (and clear it when the box was
+      empty), so searching "comedy" with Mumbai selected turned the header chip into "United
+      States". The selected city is chosen in the header's picker and nowhere else; the City
+      box on this page narrows THIS search, and leaving the page leaves the selection as it was.
     */
     seeded.current = true;
-    if (resolved.city) {
-      if (resolved.city !== preference.city) preference.setCity(resolved.city);
-    } else if (preference.city) {
-      preference.clearCity();
-    }
   };
 
   const hasFilters = Boolean(
@@ -305,15 +333,6 @@ export default function EventsPage() {
    * knows what they typed and a location message would be a red herring.
    */
   const nothingTyped = !applied.q && !applied.category && !applied.dateFrom && !applied.freeOnly;
-  /**
-   * Whether the place doing the emptying is the COUNTRY rather than a city.
-   *
-   * Kept apart because the way out is different, and getting it wrong is how the page ends
-   * up with a button that does nothing: widening out of a city means "all cities here",
-   * widening out of a country means leaving it. This is also now the ordinary case, not the
-   * rare one — every visitor outside a launch market arrives here.
-   */
-  const placeIsCountry = nothingTyped && !applied.city && Boolean(preference.country);
   const placeOnly = nothingTyped
     ? (applied.city ?? (preference.country ? countryPhrase(preference.country) : null))
     : null;
@@ -339,10 +358,9 @@ export default function EventsPage() {
     });
     if (key === 'q') setQ('');
     if (key === 'city') {
-      setCity('');
       // Taking the city chip off leaves the country scope in place: the customer removed
-      // one filter, not every filter.
-      preference.clearCity();
+      // one filter, not every filter. The header's selected city is not touched.
+      setCity('');
     }
     if (key === 'category') setCategory('');
     if (key === 'dateFrom') setDateWindow('any');
@@ -553,8 +571,7 @@ export default function EventsPage() {
             </div>
           )}
         </>
-      ) : (
-        /*
+      ) : /*
           An empty page has to name its cause, and the place is the cause the customer is
           least likely to guess.
 
@@ -564,45 +581,44 @@ export default function EventsPage() {
           has nothing", when the truth is "nothing in Bengaluru": a real state on this
           platform today, where the events are in Mumbai and the films are in Bengaluru.
         */
+      placeOnly ? (
+        <EmptyPlace place={placeOnly} />
+      ) : (
         <EmptyState
-          title={
-            placeOnly ? `No events available in ${placeOnly} yet` : 'No events match your search'
-          }
+          title="No events match your search"
           hint={
-            placeIsCountry
-              ? 'Search for a city to see what is on there.'
-              : placeOnly
-                ? 'Other places have events on sale.'
-                : hasFilters
-                  ? intent
-                    ? emptyResultSuggestions(intent, categoryNames).slice(0, 3).join(' - ')
-                    : 'Try removing a filter above.'
-                  : 'Check back soon for new events.'
+            hasFilters
+              ? intent
+                ? emptyResultSuggestions(intent, categoryNames).slice(0, 3).join(' - ')
+                : 'Try removing a filter above.'
+              : 'Check back soon for new events.'
           }
           icon={Search}
           action={
-            placeIsCountry ? (
-              <Button variant="secondary" onClick={() => preference.requestPicker()}>
-                Search for a city
-              </Button>
-            ) : placeOnly ? (
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  setCity('');
-                  setApplied((prev) => ({ ...prev, city: undefined }));
-                  preference.setCity(null);
-                }}
-              >
-                Show all cities
-              </Button>
-            ) : hasFilters ? (
+            hasFilters ? (
               <Button variant="secondary" onClick={clearFilters}>
                 Clear filters
               </Button>
             ) : undefined
           }
         />
+      )}
+
+      {/* Beyond this search's city: the rest of its country, then the world, by country. */}
+      {!isLoading && !isError && (
+        <div className="space-y-12" data-testid="place-groups">
+          <PlaceSections
+            buckets={placeGroups}
+            currencyOf={(e) => e.currency}
+            render={(group) => (
+              <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                {group.map((e) => (
+                  <EventCard key={e.id} event={e} />
+                ))}
+              </div>
+            )}
+          />
+        </div>
       )}
     </div>
   );

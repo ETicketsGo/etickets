@@ -20,6 +20,18 @@ describe('EventArtwork', () => {
     expect(html).not.toContain('<img');
   });
 
+  it('lifts the no-photo tile off a dark band instead of drawing black on black', () => {
+    const html = renderToStaticMarkup(
+      <EventArtwork alt="" title="Pilot Currency Film" ratio="2:3" tone="lift" />,
+    );
+    expect(html).toContain('data-artwork="fallback"');
+    expect(html).not.toContain('data-brand-tone="stage"');
+    expect(html).toContain('bg-brand-sunken');
+    expect(html).not.toContain('bg-brand-canvas');
+    // A narrow poster sets the title at card size and lets it run to five lines.
+    expect(html).toContain('line-clamp-5');
+  });
+
   it('draws the picture, with the focal point, when there is one', () => {
     const html = renderToStaticMarkup(
       <EventArtwork

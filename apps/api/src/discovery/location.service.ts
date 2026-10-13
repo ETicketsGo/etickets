@@ -3,6 +3,7 @@ import { EventStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CacheService } from '../cache/cache.service';
 import { countryMatches } from '../common/country';
+import { marketFor } from '@eticketsgo/shared-types';
 import {
   NoReverseGeocoder,
   fold,
@@ -48,9 +49,33 @@ export type LocationSource =
   | 'device-region' // the device's configured country. Country only, and only a hint.
   | 'none'; // we genuinely do not know, and say so.
 
+/**
+ * The countries discovery works in. A catalogue city outside these is not offered by the picker
+ * (an organizer can still sell there; the storefront just does not browse it yet).
+ */
+export const DISCOVERY_COUNTRIES = ['IN', 'US', 'CA'] as const;
+
+/**
+ * One country, one spelling.
+ *
+ * Venues store whatever an organizer typed - "India" on one row and "IN" on the next - so the
+ * picker listed Hyderabad and Bengaluru twice. The read model answers with the market's own name
+ * and code instead; stored data is untouched. Null for a country discovery does not cover.
+ */
+export function discoveryCountry(
+  value: string | null | undefined,
+): { name: string; code: string } | null {
+  const market = marketFor(value);
+  if (!market || !(DISCOVERY_COUNTRIES as readonly string[]).includes(market.code)) return null;
+  return { name: market.name, code: market.code };
+}
+
 export interface SellableCity {
   city: string;
+  /** The market's name ("India"), never the spelling a venue happened to store. */
   country: string;
+  /** ISO 3166-1 alpha-2 of `country`. */
+  countryCode: string;
   /** How many published, still-upcoming events sit in this city. Never a guess. */
   eventCount: number;
   /**
@@ -193,19 +218,27 @@ export class LocationService {
       Sellable cities stay first and are never repeated as an empty duplicate.
     */
     const places = await this.geocoder.search(q, Math.max(limit * 4, 20));
-    const seen = new Set(matches.map((c) => `${fold(c.city)}|${c.country.toLowerCase()}`));
+    const seen = new Set(matches.map((c) => `${fold(c.city)}|${c.countryCode.toLowerCase()}`));
     const extra: SellableCity[] = [];
     for (const p of places) {
+      const placeCountry = discoveryCountry(p.country);
+      if (!placeCountry) continue;
       if (query.country && !countryMatches(p.country, query.country)) continue;
       const sellable = matches.some(
         (c) =>
           countryMatches(c.country, p.country) &&
           (fold(c.city) === fold(p.city) || fold(c.city) === fold(p.asciiCity ?? '')),
       );
-      const key = `${fold(p.city)}|${p.country.toLowerCase()}|${p.region ?? ''}`;
+      const key = `${fold(p.city)}|${placeCountry.code.toLowerCase()}|${p.region ?? ''}`;
       if (sellable || seen.has(key)) continue;
       seen.add(key);
-      extra.push({ city: p.city, country: p.country, eventCount: 0, region: p.region });
+      extra.push({
+        city: p.city,
+        country: placeCountry.name,
+        countryCode: placeCountry.code,
+        eventCount: 0,
+        region: p.region,
+      });
     }
     // Stable: within each group the biggest places stay first.
     const prefer = query.prefer;
@@ -234,9 +267,10 @@ export class LocationService {
         },
       });
 
-      // Two venues in the same city are one entry. Folded case-insensitively, but the first
-      // spelling seen is kept for display — "Bengaluru" should not become "bengaluru" in the
-      // picker just because that is how it normalises.
+      // Two venues in the same city are one entry, and so are two spellings of its country
+      // ("India" and "IN"). Folded, but the first spelling seen is kept for display -
+      // "Bengaluru" should not become "bengaluru" in the picker just because that is how it
+      // normalises.
       const byCity = new Map<string, SellableCity>();
       for (const v of venues) {
         /*
@@ -244,12 +278,21 @@ export class LocationService {
           country-scoped list. Placing it under a guessed country is the defect this whole
           change removes - it is how a Chicago venue ended up filed under India - so it is
           left out until somebody answers, rather than filed under the launch market.
+
+          The same goes for a country discovery does not cover (see DISCOVERY_COUNTRIES).
         */
-        if (!v.country) continue;
-        const key = `${v.country.toLowerCase()}|${v.city.toLowerCase()}`;
+        const country = discoveryCountry(v.country);
+        if (!country) continue;
+        const key = `${country.code}|${fold(v.city)}`;
         const existing = byCity.get(key);
         if (existing) existing.eventCount += v._count.events;
-        else byCity.set(key, { city: v.city, country: v.country, eventCount: v._count.events });
+        else
+          byCity.set(key, {
+            city: v.city.trim(),
+            country: country.name,
+            countryCode: country.code,
+            eventCount: v._count.events,
+          });
       }
       return [...byCity.values()].sort(
         (a, b) => b.eventCount - a.eventCount || a.city.localeCompare(b.city),
@@ -356,7 +399,7 @@ export class LocationService {
         which made where somebody is depend on what we had for sale.
       */
       const match = cities.find((c) => c.city.toLowerCase() === headerCity.toLowerCase());
-      const where = match?.country ?? country;
+      const where = match?.countryCode ?? country;
       return {
         country: where,
         city: match?.city ?? headerCity,

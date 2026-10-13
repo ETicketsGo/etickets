@@ -384,6 +384,7 @@ export function PosterCard({ movie }: { movie: PublicMovieCard }) {
             title={movie.title}
             eyebrow={s('film')}
             ratio="2:3"
+            tone="lift"
           />
         </div>
         {/*

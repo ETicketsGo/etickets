@@ -11,7 +11,7 @@ import {
   TrendingUp,
   Users,
 } from 'lucide-react';
-import { cityScope, countryPhrase, useCity } from '@eticketsgo/web-kit';
+import { cityScope, countryKey, countryPhrase, selectedPlace, useCity } from '@eticketsgo/web-kit';
 import { api } from '@/lib/api';
 import type {
   DiscoverySection,
@@ -21,9 +21,11 @@ import type {
   VenueSpotlight,
 } from '@/lib/api';
 import { useRecentlyViewed } from '@/lib/use-live-events';
+import { usePlaceGroups } from '@/lib/use-place-groups';
+import { EmptyPlace, PlaceSections } from '@/components/place-sections';
 import { EventCard } from '@/components/event-card';
 import { MovieCard } from '@/components/movie-card';
-import { Button, ButtonLink, EmptyState, ErrorState } from '@/components/ui';
+import { ButtonLink, EmptyState, ErrorState } from '@/components/ui';
 import { Link } from '@/i18n/navigation';
 
 function Section({
@@ -226,7 +228,9 @@ export default function ExplorePage() {
   const preference = useCity();
   const scope = cityScope(preference);
   const scopeKey = JSON.stringify(scope);
+  // The selected city names the page; with none, the country the page is scoped to.
   const where = preference.city ?? (preference.country ? countryPhrase(preference.country) : null);
+  const place = selectedPlace(preference);
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['discovery', scopeKey],
@@ -243,6 +247,14 @@ export default function ExplorePage() {
   const extraSections = (feed?.sections ?? []).filter(
     (s) => s.key !== 'trending' && s.key !== 'weekend',
   );
+
+  /*
+    What is on beyond the selected city: the rest of its country, then each other country under
+    its own title (one small read per group). Nothing is asked for when no place is chosen,
+    because there is then nothing to be "elsewhere" from.
+  */
+  const groups = usePlaceGroups(place);
+  const placeSections = { ...groups, homeCountry: countryKey(place.country) };
 
   /*
     Recently viewed: current, still on sale, and in this place.
@@ -316,16 +328,7 @@ export default function ExplorePage() {
           </Section>
         </div>
       ) : nothingHere && where ? (
-        <EmptyState
-          title={`No events available in ${where} yet`}
-          hint="Search for a city to see what is on there."
-          icon={Compass}
-          action={
-            <Button variant="secondary" onClick={() => preference.requestPicker()}>
-              Search for a city
-            </Button>
-          }
-        />
+        <EmptyPlace place={where} />
       ) : (
         <div className="space-y-16">
           {/* Now showing */}
@@ -430,6 +433,17 @@ export default function ExplorePage() {
               </div>
             </Section>
           )}
+        </div>
+      )}
+
+      {/* Beyond the selected city: the rest of its country, then the world, by country. */}
+      {!isLoading && !isError && (
+        <div className="space-y-16" data-testid="place-groups">
+          <PlaceSections
+            buckets={placeSections}
+            currencyOf={(e) => e.currency}
+            render={(items) => <EventGrid items={items as PublicEventCard[]} />}
+          />
         </div>
       )}
     </div>

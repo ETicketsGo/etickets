@@ -50,6 +50,40 @@ describe('PublicEventsService.list search', () => {
   });
 });
 
+describe('PublicEventsService.list place scope', () => {
+  function makeService() {
+    const count = jest.fn().mockReturnValue(0);
+    const prisma = {
+      event: { count, findMany: jest.fn().mockReturnValue([]) },
+      $transaction: jest.fn().mockResolvedValue([0, []]),
+    };
+    return { service: new PublicEventsService(prisma as never, advertised), count };
+  }
+
+  it('answers "the rest of the country": every spelling of it, without the selected city', async () => {
+    const { service, count } = makeService();
+    await service.list({ page: 1, pageSize: 8, country: 'IN', excludeCity: 'Hyderabad' });
+    expect(count.mock.calls[0][0].where.venue).toEqual({
+      country: { in: expect.arrayContaining(['in', 'india']), mode: 'insensitive' },
+      NOT: { city: { equals: 'Hyderabad', mode: 'insensitive' } },
+    });
+  });
+
+  it('does not exclude anything unless asked, so the country scope is unchanged', async () => {
+    const { service, count } = makeService();
+    await service.list({ page: 1, pageSize: 8, country: 'IN' });
+    expect(count.mock.calls[0][0].where.venue).toEqual({
+      country: { in: expect.arrayContaining(['in', 'india']), mode: 'insensitive' },
+    });
+  });
+
+  it('ignores excludeCity when a city is named: that city is the one wanted', async () => {
+    const { service, count } = makeService();
+    await service.list({ page: 1, pageSize: 8, city: 'Mumbai', excludeCity: 'Mumbai' });
+    expect(JSON.stringify(count.mock.calls[0][0].where.venue)).not.toContain('NOT');
+  });
+});
+
 describe('PublicEventsService.categoriesWithCounts', () => {
   it('returns categories sorted by count desc then name asc', async () => {
     const prisma = {

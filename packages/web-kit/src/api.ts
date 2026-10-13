@@ -2658,6 +2658,8 @@ export interface PublicEventCard {
     name: string;
     city: string;
     country: string;
+    /** ISO alpha-2 of the venue's country when it is a declared market. Absent on an older API. */
+    countryCode?: string | null;
     /**
      * The venue's IANA zone, so the card's date is the time at the venue rather than in the
      * reader's browser. Optional: an older API and cards saved before it do not carry one.
@@ -4916,7 +4918,10 @@ export interface AdminStaffMember {
 /** Cities the platform can actually sell in right now, derived from live inventory. */
 export interface SellableCity {
   city: string;
+  /** The market's name ("India"), one spelling per country. */
   country: string;
+  /** ISO alpha-2 of `country`. Absent only on an older API. */
+  countryCode?: string;
   /** 0 for a real place found by name that has nothing on sale yet. */
   eventCount: number;
   /** State or province, on a place found by name, where same-named places are common. */

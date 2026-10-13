@@ -24,6 +24,7 @@ export * from './providers';
 export * from './login';
 export * from './password-field';
 export * from './city';
+export * from './place-groups';
 /*
   Country + currency, re-exported from shared-types.
 

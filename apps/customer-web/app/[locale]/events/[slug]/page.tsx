@@ -1286,7 +1286,7 @@ export default function EventDetailPage() {
         </div>
 
         {/* The story: what it is, who is on, where, who runs it, and what others thought. */}
-        <div className="space-y-12 lg:col-span-2 lg:row-start-1">
+        <div className="min-w-0 space-y-12 lg:col-span-2 lg:row-start-1">
           <EventFacts
             event={event}
             when={shownWhen}
@@ -1307,8 +1307,11 @@ export default function EventDetailPage() {
 
           <ArtistsCard artists={event.artists} />
 
-          <div className="grid gap-6 sm:grid-cols-2">
-            <section aria-labelledby="venue-heading" className={`${BRAND_PANEL} p-6`}>
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+            <section
+              aria-labelledby="venue-heading"
+              className={`${BRAND_PANEL} min-w-0 break-words p-6`}
+            >
               <h2 id="venue-heading" className={BRAND_EYEBROW}>
                 {sf('event.venueHeading')}
               </h2>
@@ -1349,7 +1352,7 @@ export default function EventDetailPage() {
             The address is the published one (BUSINESS_DETAILS); while none is published the
             contact page stands in, which always reaches a person.
           */}
-          <section aria-labelledby="support-heading" className={`${BRAND_PANEL} p-6`}>
+          <section aria-labelledby="support-heading" className={`${BRAND_PANEL} break-words p-6`}>
             <h2 id="support-heading" className="font-brand-display text-brand-d3 text-brand-ink">
               {sf('event.supportHeading')}
             </h2>

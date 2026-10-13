@@ -154,11 +154,9 @@ test.describe('QA: the location picker is a search, not a list of everywhere we 
     await locationChip(page).click();
     const dialog = page.getByRole('dialog');
 
-    // A shortlist, and it says it is one.
-    await expect(dialog.getByText('Popular near you')).toBeVisible();
-    const shortlist = await dialog.getByRole('option').count();
-    expect(shortlist).toBeGreaterThan(0);
-    expect(shortlist).toBeLessThanOrEqual(8);
+    // The catalogue, grouped by country: every city we sell in, each once.
+    await expect(dialog.getByRole('group', { name: 'India' })).toBeVisible();
+    expect(await dialog.getByRole('option').count()).toBeGreaterThan(0);
 
     // Typing narrows it, from the server rather than from what was already on screen.
     await dialog.getByLabel('Search for a city').fill('beng');

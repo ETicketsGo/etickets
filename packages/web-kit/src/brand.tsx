@@ -153,7 +153,14 @@ export function EventArtwork({
   objectPosition,
   priority = false,
   className = '',
+  tone = 'stage',
 }: {
+  /**
+   * How the no-photo fallback is drawn. `stage` is the dark tile; `lift` is for a card that
+   * already sits ON a dark band, where a dark tile has no edge and reads as a black hole: it
+   * uses the band's raised surface instead.
+   */
+  tone?: 'stage' | 'lift';
   src?: string | null;
   srcSet?: string;
   sizes?: string;
@@ -176,18 +183,25 @@ export function EventArtwork({
     >
       {missing ? (
         <div
-          data-brand-tone="stage"
+          {...(tone === 'stage' ? { 'data-brand-tone': 'stage' } : {})}
           data-artwork="fallback"
           role="img"
           aria-label={title}
-          className="absolute inset-0 flex flex-col justify-end gap-2 bg-brand-canvas p-[8%]"
+          className={`absolute inset-0 flex min-w-0 flex-col justify-end gap-2 p-[8%] ${
+            tone === 'stage' ? 'bg-brand-canvas' : 'bg-brand-sunken'
+          }`}
         >
           {eyebrow && (
             <span className="text-brand-eyebrow uppercase text-brand-ink-3">{eyebrow}</span>
           )}
           <span
-            className={`font-brand-display font-bold leading-[1.05] tracking-tight text-brand-ink ${
-              ratio === '1:1' ? 'line-clamp-2 text-brand-ui' : 'line-clamp-3 text-brand-d3'
+            className={`break-words font-brand-display font-bold leading-[1.05] tracking-tight text-brand-ink ${
+              ratio === '1:1'
+                ? 'line-clamp-2 text-brand-ui'
+                : ratio === '2:3'
+                  ? // A poster is narrow (42% of a phone): display size clipped the title.
+                    'line-clamp-5 text-brand-card'
+                  : 'line-clamp-3 text-brand-d3'
             }`}
           >
             {title}

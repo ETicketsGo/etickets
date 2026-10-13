@@ -1,12 +1,21 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
+import { useQueries, useQuery } from '@tanstack/react-query';
 import { Film, Search } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { cityScope, countryPhrase, useCity } from '@eticketsgo/web-kit';
+import {
+  DISCOVERY_COUNTRIES,
+  cityScope,
+  countryKey,
+  countryLabelOf,
+  countryPhrase,
+  selectedPlace,
+  useCity,
+} from '@eticketsgo/web-kit';
 import { api } from '@/lib/api';
 import { MovieCard } from '@/components/movie-card';
 import { Button, EmptyState, ErrorState, Input, Select } from '@/components/ui';
+import { EmptyPlace, PlaceSections } from '@/components/place-sections';
 
 export default function MoviesPage() {
   const [q, setQ] = useState('');
@@ -25,7 +34,7 @@ export default function MoviesPage() {
   // Scoped to the header's location. Genres below stay unfiltered on purpose — a genre
   // list that shrinks with the city makes the filter look broken.
   const preference = useCity();
-  const { city, setCity } = preference;
+  const { city } = preference;
   const scope = cityScope(preference);
   /**
    * Empty because of the LOCATION alone — not because of something the customer typed.
@@ -41,14 +50,44 @@ export default function MoviesPage() {
    */
   const place = city ?? (preference.country ? countryPhrase(preference.country) : null);
   const cityOnly = Boolean(place) && !applied.q && !applied.genre;
-  // Which scope is doing the emptying, because each has a different way out — "all cities"
-  // stays inside the country, and inside the country is exactly where there is nothing.
-  const countryOnly = cityOnly && !city;
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['movies', applied, JSON.stringify(scope)],
     queryFn: () => api.listMovies({ ...applied, ...scope }),
   });
+
+  /*
+    Films beyond the selected city: the rest of its country, then each other country under its
+    own title. A film card carries no venue, so each group is its own country-scoped read (with
+    the same search and genre), and a film already shown above is never repeated below.
+  */
+  const placeInfo = selectedPlace(preference);
+  const homeCode = countryKey(placeInfo.country);
+  const hasPlace = Boolean(placeInfo.city || homeCode);
+  const near = useQuery({
+    queryKey: ['movies', 'same-country', applied, homeCode],
+    queryFn: () => api.listMovies({ ...applied, country: homeCode ?? undefined }),
+    enabled: Boolean(placeInfo.city && homeCode),
+  });
+  const abroad = useQueries({
+    queries: DISCOVERY_COUNTRIES.filter((c) => c !== homeCode).map((code) => ({
+      queryKey: ['movies', 'abroad', applied, code],
+      queryFn: () => api.listMovies({ ...applied, country: code }),
+      enabled: hasPlace,
+    })),
+  });
+  const buckets = useMemo(() => {
+    const shown = new Set((data ?? []).map((m) => m.id));
+    const sameCountry = (near.data ?? []).filter((m) => !shown.has(m.id));
+    sameCountry.forEach((m) => shown.add(m.id));
+    const others = DISCOVERY_COUNTRIES.filter((c) => c !== homeCode);
+    const elsewhere = others.flatMap((code, i) => {
+      const items = (abroad[i]?.data ?? []).filter((m) => !shown.has(m.id));
+      return items.length > 0 ? [{ code, name: countryLabelOf(code), items }] : [];
+    });
+    return { sameCountry, elsewhere, homeCountry: homeCode };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, near.data, homeCode, ...abroad.map((q) => q.data)]);
 
   // Genre options for the filter come from an unfiltered baseline fetch so the
   // list stays stable regardless of what is currently applied.
@@ -124,38 +163,33 @@ export default function MoviesPage() {
             ))}
           </div>
         </>
-      ) : (
-        /*
+      ) : /*
           Same reasoning as Browse: an empty page must name its cause.
 
           The location is the cause nobody guesses, because it was chosen once in the header
-          — or never chosen at all, and inferred — and then forgotten. On this platform
-          today the films are in Bengaluru and Hyderabad and the events are in Mumbai, so a
-          customer filtered to Mumbai opens Movies and sees a blank page that reads as "no
-          films anywhere".
+          and then forgotten. It names the place, offers cities in the same country that have
+          films, and the groups below still show the rest of the country and the world.
         */
-        <EmptyState
-          title={cityOnly ? `No films in ${place} just yet` : 'No movies match your search'}
-          hint={
-            countryOnly
-              ? 'Search for a city to see what is showing there.'
-              : cityOnly
-                ? 'Other places have films showing.'
-                : 'Try clearing filters.'
-          }
-          icon={Film}
-          action={
-            countryOnly ? (
-              <Button variant="secondary" onClick={() => preference.requestPicker()}>
-                Search for a city
-              </Button>
-            ) : cityOnly ? (
-              <Button variant="secondary" onClick={() => setCity(null)}>
-                Show all cities
-              </Button>
-            ) : undefined
-          }
-        />
+      cityOnly && place ? (
+        <EmptyPlace place={place} noun="films" icon={Film} />
+      ) : (
+        <EmptyState title="No movies match your search" hint="Try clearing filters." icon={Film} />
+      )}
+
+      {/* Beyond the selected city: the rest of its country, then the world, by country. */}
+      {hasPlace && !isLoading && !isError && (
+        <div className="space-y-12" data-testid="place-groups">
+          <PlaceSections
+            buckets={{ ...buckets, sameCountry: placeInfo.city ? buckets.sameCountry : [] }}
+            render={(items) => (
+              <div className="grid grid-cols-2 gap-6 sm:grid-cols-3 lg:grid-cols-4">
+                {items.map((m) => (
+                  <MovieCard key={m.id} movie={m} />
+                ))}
+              </div>
+            )}
+          />
+        </div>
       )}
     </div>
   );

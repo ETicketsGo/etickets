@@ -13,7 +13,13 @@ const card = (id: string): PublicEventCardLike => ({
   title: `Event ${id}`,
   slug: `event-${id}`,
   category: 'Music',
-  venue: { name: 'Hall', city: 'BLR', country: 'IN', timezone: 'Asia/Kolkata' },
+  venue: {
+    name: 'Hall',
+    city: 'BLR',
+    country: 'India',
+    countryCode: 'IN',
+    timezone: 'Asia/Kolkata',
+  },
   organizer: 'Org',
   nextSessionAt: NOW,
   fromPriceMinor: 10000,
@@ -129,7 +135,7 @@ describe('RecommendationService.recommend', () => {
 describe('RecommendationService.recommend: one market per list', () => {
   const inCountry = (id: string, country: string): PublicEventCardLike => ({
     ...card(id),
-    venue: { name: 'Hall', city: 'X', country, timezone: null },
+    venue: { name: 'Hall', city: 'X', country, countryCode: null, timezone: null },
     currency: country === 'India' ? 'INR' : 'USD',
   });
 

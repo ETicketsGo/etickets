@@ -91,12 +91,15 @@ test('moving countries leaves no stale city behind', async ({ page }) => {
   await chip(page).click();
   const dialog = page.getByRole('dialog');
   await dialog.getByLabel('Search for a city').fill('hyderabad');
-  // Hyderabad, Pakistan is a real place too and may be offered; this is the one in India.
-  await dialog.getByRole('option', { name: /^Hyderabad.*India/ }).click();
+  // Results are grouped under their country; Hyderabad is only offered in India here.
+  await dialog
+    .getByRole('group', { name: 'India' })
+    .getByRole('option', { name: /^Hyderabad/ })
+    .click();
   await expect(chip(page)).toHaveAccessibleName(/Location: Hyderabad/);
   await expect(page.getByText(/No events available in Dallas yet/)).toHaveCount(0);
   await page.reload({ waitUntil: 'networkidle' });
   await expect(chip(page)).toHaveAccessibleName(/Location: Hyderabad/, { timeout: 15_000 });
   const stored = await page.evaluate(() => localStorage.getItem('etg.city'));
-  expect(JSON.parse(stored ?? '{}')).toMatchObject({ city: 'Hyderabad', country: 'India' });
+  expect(JSON.parse(stored ?? '{}')).toMatchObject({ city: 'Hyderabad', country: 'IN' });
 });

@@ -91,12 +91,60 @@ describe('LocationService', () => {
   });
 
   describe('cities', () => {
+    it('lists a city once when venues spell its country "India" and "IN"', async () => {
+      // The QA catalogue had Hyderabad and Bengaluru twice, because one venue stored "India"
+      // and the next stored "IN". The read model folds them; the stored rows are untouched.
+      const service = new LocationService(
+        prismaWith([
+          venue('Hyderabad', 'India', 2),
+          venue('Hyderabad', 'IN', 3),
+          venue('Bengaluru', 'IN', 1),
+          venue('bengaluru', 'india', 1),
+        ]),
+        passthroughCache(),
+      );
+      const cities = await service.cities();
+      expect(cities.map((c) => `${c.city}:${c.countryCode}:${c.eventCount}`)).toEqual([
+        'Hyderabad:IN:5',
+        'Bengaluru:IN:2',
+      ]);
+      expect(new Set(cities.map((c) => c.country))).toEqual(new Set(['India']));
+    });
+
+    it('keeps one Hyderabad per country, not one per name', async () => {
+      const service = new LocationService(
+        prismaWith([venue('Hyderabad', 'India', 2), venue('Hyderabad', 'Pakistan', 1)]),
+        passthroughCache(),
+      );
+      // Pakistan is not a discovery country, so only India's appears.
+      expect((await service.cities()).map((c) => c.countryCode)).toEqual(['IN']);
+    });
+
+    it('lists only India, the United States and Canada, grouped by their own names', async () => {
+      const service = new LocationService(
+        prismaWith([
+          venue('Mumbai', 'India', 4),
+          venue('Boise', 'USA', 3),
+          venue('Toronto', 'Canada', 2),
+          venue('London', 'United Kingdom', 9),
+        ]),
+        passthroughCache(),
+      );
+      expect((await service.cities()).map((c) => `${c.city}:${c.country}`)).toEqual([
+        'Mumbai:India',
+        'Boise:United States',
+        'Toronto:Canada',
+      ]);
+    });
+
     it('folds venues in the same city into one entry and sums what is on sale', async () => {
       const service = new LocationService(
         prismaWith([venue('Mumbai', 'India', 3), venue('mumbai', 'India', 2)]),
         passthroughCache(),
       );
-      expect(await service.cities()).toEqual([{ city: 'Mumbai', country: 'India', eventCount: 5 }]);
+      expect(await service.cities()).toEqual([
+        { city: 'Mumbai', country: 'India', countryCode: 'IN', eventCount: 5 },
+      ]);
     });
 
     it('keeps the first spelling for display rather than a normalised one', async () => {
@@ -135,7 +183,8 @@ describe('LocationService', () => {
       const found = await svc([venue('Mumbai')]).cities({ q: 'boise', anywhere: true, limit: 8 });
       expect(found[0]).toMatchObject({
         city: 'Boise',
-        country: 'US',
+        country: 'United States',
+        countryCode: 'US',
         eventCount: 0,
         region: 'Idaho',
       });
@@ -155,7 +204,7 @@ describe('LocationService', () => {
       expect(found[0]).toMatchObject({ city: 'Hyderabad', eventCount: 3 });
       // Hyderabad in Pakistan (Sindh) is a different place and may appear; India's may not.
       const indianEmpties = found.filter(
-        (c) => c.eventCount === 0 && c.city === 'Hyderabad' && c.country === 'IN',
+        (c) => c.eventCount === 0 && c.city === 'Hyderabad' && c.countryCode === 'IN',
       );
       expect(indianEmpties).toHaveLength(0);
     });
@@ -163,20 +212,24 @@ describe('LocationService', () => {
     it('matches without accents and respects the country filter', async () => {
       const found = await svc([]).cities({ q: 'montre', anywhere: true, country: 'CA', limit: 8 });
       expect(found.map((c) => c.city)).toContain('Montréal');
-      expect(found.every((c) => c.country === 'CA')).toBe(true);
+      expect(found.every((c) => c.countryCode === 'CA')).toBe(true);
     });
 
     it("puts the visitor's own country first among empty places, without hiding the rest", async () => {
+      // "new" matches New York (US), New Delhi (IN) and New Westminster (CA): `prefer` only
+      // reorders them.
       const plain = await svc([]).cities({ q: 'hyder', anywhere: true, limit: 8 });
-      const fromPakistan = await svc([]).cities({
-        q: 'hyder',
-        anywhere: true,
-        prefer: 'PK',
-        limit: 8,
-      });
-      expect(plain[0]).toMatchObject({ city: 'Hyderabad', country: 'IN' });
-      expect(fromPakistan[0]).toMatchObject({ city: 'Hyderabad', country: 'PK' });
-      expect(fromPakistan.map((c) => c.country)).toContain('IN');
+      expect(plain[0]).toMatchObject({ city: 'Hyderabad', countryCode: 'IN' });
+      const preferUs = await svc([]).cities({ q: 'new', anywhere: true, prefer: 'US', limit: 8 });
+      const preferCa = await svc([]).cities({ q: 'new', anywhere: true, prefer: 'CA', limit: 8 });
+      expect(preferUs[0].countryCode).toBe('US');
+      expect(preferCa[0].countryCode).toBe('CA');
+    });
+
+    it('offers only India, the United States and Canada: Hyderabad in Pakistan is not a choice', async () => {
+      const found = await svc([]).cities({ q: 'hyder', anywhere: true, limit: 20 });
+      expect(found.length).toBeGreaterThan(0);
+      expect(found.every((c) => ['IN', 'US', 'CA'].includes(c.countryCode))).toBe(true);
     });
 
     it('needs a typed name - it never lists the world', async () => {
