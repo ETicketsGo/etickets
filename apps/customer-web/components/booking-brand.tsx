@@ -193,13 +193,57 @@ export function useVenueWhen() {
  * names on a phone, so a phone saw "1 2 3 4" with no words. This one is words first: every
  * step is named at every width, the current one in ink with `aria-current`, finished ones with
  * a tick, the rest quiet.
+ *
+ * ── ON A PHONE ─────────────────────────────────────────────────────────────────────
+ * Four named steps do not fit 390px (the last one was cut off at the screen edge, worse at 320
+ * and in French). Below `sm` the visible line is "Step 3 of 4: Confirmation" over one bar per
+ * step; the full named list is still in the page for screen readers, with the current step
+ * marked `aria-current`, and becomes the visible list again from `sm`. The phone line is
+ * `aria-hidden` so a screen reader hears the progress once, from the list.
  */
 export function BrandSteps({ steps, current }: { steps: string[]; current: number }) {
   const tx = useTranslations('common');
+  const t = useTranslations('storefront.event');
+  return (
+    <div>
+      <div aria-hidden className="sm:hidden">
+        <p className="text-brand-meta text-brand-ink-2">
+          {t.rich('stepOf', {
+            current: current + 1,
+            total: steps.length,
+            name: steps[current] ?? '',
+            strong: (chunks) => <strong className="font-semibold text-brand-ink">{chunks}</strong>,
+          })}
+        </p>
+        <div className="mt-2 flex gap-1">
+          {steps.map((step, index) => (
+            <span
+              key={step}
+              className={`h-1 flex-1 rounded-full ${
+                index <= current ? 'bg-brand-ink' : 'bg-brand-line-strong'
+              }`}
+            />
+          ))}
+        </div>
+      </div>
+      <BrandStepList steps={steps} current={current} label={tx('a11y.progress')} />
+    </div>
+  );
+}
+
+function BrandStepList({
+  steps,
+  current,
+  label,
+}: {
+  steps: string[];
+  current: number;
+  label: string;
+}) {
   return (
     <ol
-      aria-label={tx('a11y.progress')}
-      className="flex flex-wrap items-center gap-x-2 gap-y-1 text-brand-meta"
+      aria-label={label}
+      className="sr-only sm:not-sr-only sm:flex sm:flex-wrap sm:items-center sm:gap-x-2 sm:gap-y-1 sm:text-brand-meta"
     >
       {steps.map((step, index) => {
         const done = index < current;

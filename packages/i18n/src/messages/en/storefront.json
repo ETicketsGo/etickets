@@ -132,7 +132,8 @@
     "supportContact": "Contact us",
     "durationLabel": "Duration",
     "ageLabel": "Audience",
-    "dateLabel": "Date"
+    "dateLabel": "Date",
+    "stepOf": "Step {current} of {total}: <strong>{name}</strong>"
   },
   "seats": {
     "heading": "Choose your seats",
