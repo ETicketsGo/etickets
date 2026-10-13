@@ -622,6 +622,7 @@ export class PublicMoviesService {
       movie: {
         rating,
         id: movie.id,
+        contentLabel: contentLabelFor(movie.organizationId),
         title: movie.title,
         slug: movie.slug,
         synopsis: movie.synopsis,
