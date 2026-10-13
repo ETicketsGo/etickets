@@ -14,6 +14,7 @@ import {
 } from '@eticketsgo/web-kit';
 import { Link } from '@/i18n/navigation';
 import { useFormat } from '@/lib/format';
+import type { Buyability } from '@/lib/home-feed';
 
 /*
   ── THE HOME PAGE'S PIECES (docs/design/DESIGN-SYSTEM.md) ─────────────────────────────
@@ -117,6 +118,27 @@ export function FromPrice({
   );
 }
 
+/**
+ * The price, or - when the event cannot be bought - the reason in one word. "From Rs 799" on a
+ * sold-out show invites a click that ends at "Sold out" one page later. `state` comes from the
+ * event's own payload (see `buyability`); unknown yet, the price is shown as before.
+ */
+export function PriceOrState({
+  event,
+  state,
+}: {
+  event: Pick<PublicEventCard, 'fromPriceMinor' | 'currency'>;
+  state?: Buyability;
+}) {
+  const common = useTranslations('common.state');
+  const t = useTranslations('home.state');
+  if (state === 'SOLD_OUT')
+    return <BrandStatusPill status="neutral">{common('soldOut')}</BrandStatusPill>;
+  if (state === 'NOT_YET') return <BrandStatusPill status="info">{t('notYet')}</BrandStatusPill>;
+  if (state === 'CLOSED') return <BrandStatusPill status="neutral">{t('closed')}</BrandStatusPill>;
+  return <FromPrice event={event} />;
+}
+
 export function SectionHead({
   title,
   action,
@@ -203,7 +225,7 @@ function RowThumb({ event }: { event: PublicEventCard }) {
 }
 
 /** The 16:9 lead of an editorial section. */
-export function FeatureCard({ event }: { event: PublicEventCard }) {
+export function FeatureCard({ event, state }: { event: PublicEventCard; state?: Buyability }) {
   const when = useVenueWhen()(event.nextSessionAt, event.venue.timezone);
   const image = cardImage(event, 'banner');
   return (
@@ -240,14 +262,14 @@ export function FeatureCard({ event }: { event: PublicEventCard }) {
         </span>
       </p>
       <p className="mt-2">
-        <FromPrice event={event} />
+        <PriceOrState event={event} state={state} />
       </p>
     </Link>
   );
 }
 
 /** One row of the 4:3 list beside the feature. */
-export function EventRow({ event }: { event: PublicEventCard }) {
+export function EventRow({ event, state }: { event: PublicEventCard; state?: Buyability }) {
   const when = useVenueWhen()(event.nextSessionAt, event.venue.timezone);
   return (
     <Link
@@ -273,7 +295,7 @@ export function EventRow({ event }: { event: PublicEventCard }) {
         first in the page, which is what a reader of the DOM - or a test - finds first.
       */}
       <p className="col-start-2 self-start sm:col-start-3 sm:row-start-1 sm:self-center sm:text-right">
-        <FromPrice event={event} />
+        <PriceOrState event={event} state={state} />
       </p>
     </Link>
   );

@@ -71,3 +71,63 @@ export function outsideGroups<T extends Listing & { currency: string }>(
     .slice(0, maxGroups)
     .map((g) => ({ ...g, items: g.items.slice(0, perGroup) }));
 }
+
+/** Whether a listing can be bought right now, from the public event payload. */
+export type Buyability = 'BUYABLE' | 'SOLD_OUT' | 'NOT_YET' | 'CLOSED';
+
+type SaleSession = {
+  startsAt: string;
+  status: string;
+  ticketTypes: { available: number; saleState?: 'ON_SALE' | 'NOT_YET' | 'CLOSED' }[];
+};
+
+/**
+ * Read from `/public/events/:slug`, which carries each ticket type's `available` count and its
+ * sales window (`saleState`). The listing endpoint carries neither, which is why the home
+ * page asks for the few events it promotes rather than trusting the card.
+ *
+ * Only sessions that have not started and are SCHEDULED count (a paused session cannot be
+ * bought). An older API without `saleState` is treated as on sale, which is what it meant.
+ */
+export function buyability(event: { sessions: SaleSession[] }, now: Date = new Date()): Buyability {
+  const types = event.sessions
+    .filter((s) => s.status === 'SCHEDULED' && new Date(s.startsAt) > now)
+    .flatMap((s) => s.ticketTypes);
+  const onSale = types.filter((t) => (t.saleState ?? 'ON_SALE') === 'ON_SALE');
+  if (onSale.some((t) => t.available > 0)) return 'BUYABLE';
+  if (onSale.length > 0) return 'SOLD_OUT';
+  if (types.some((t) => t.saleState === 'NOT_YET')) return 'NOT_YET';
+  return 'CLOSED';
+}
+
+/** How many photo listings the hero tries before stepping down to the compact band. */
+export const HERO_CANDIDATES = 6;
+
+/**
+ * The featured event: the first listing, in the page's order, that has a photo AND can be
+ * bought right now. A hero that says "Book tickets" over a sold-out show is a promise the next
+ * page breaks (found on review: "Sold Out Sessions" was the Bengaluru hero).
+ *
+ * `states` holds what is known so far. An undecided candidate ahead of the first buyable one
+ * means "wait" (`pending`), so the page never shows a hero it might have to take back.
+ * Nothing buyable among the first HERO_CANDIDATES photos: no hero, and the stage steps down.
+ */
+export function chooseHero<T extends Listing & { slug: string }>(
+  list: readonly T[],
+  states: ReadonlyMap<string, Buyability | undefined>,
+): { hero: T | null; pending: boolean } {
+  for (const e of photosFirst(list).filter(hasPhoto).slice(0, HERO_CANDIDATES)) {
+    const state = states.get(e.slug);
+    if (state === undefined) return { hero: null, pending: true };
+    if (state === 'BUYABLE') return { hero: e, pending: false };
+  }
+  return { hero: null, pending: false };
+}
+
+/** The slugs `chooseHero` may need to know about, in the order it will ask. */
+export function heroCandidates<T extends Listing & { slug: string }>(list: readonly T[]): string[] {
+  return photosFirst(list)
+    .filter(hasPhoto)
+    .slice(0, HERO_CANDIDATES)
+    .map((e) => e.slug);
+}

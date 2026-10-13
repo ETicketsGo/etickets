@@ -1,6 +1,6 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
+import { useQueries, useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import {
@@ -17,7 +17,16 @@ import {
 } from '@eticketsgo/web-kit';
 import { MARKETS, countryMatches } from '@eticketsgo/shared-types';
 import { api } from '@/lib/api';
-import { hasPhoto, outsideGroups, photosFirst, postersFirst } from '@/lib/home-feed';
+import {
+  buyability,
+  chooseHero,
+  hasPhoto,
+  heroCandidates,
+  outsideGroups,
+  photosFirst,
+  postersFirst,
+  type Buyability,
+} from '@/lib/home-feed';
 import { Link } from '@/i18n/navigation';
 import { useRecentlyViewed } from '@/lib/use-live-events';
 import {
@@ -236,16 +245,53 @@ export function DiscoverHome() {
 
   const all = photosFirst(scoped.data?.data ?? []);
   /*
-    The hero needs a photo. Measured against QA-like data (a city where no organizer uploaded
-    art), a title-only hero put "Free Talk 1791849580330" in 80px type as the face of the
-    page. With no photo anywhere in scope the stage steps down to a compact band naming the
-    place and the count, and the list below carries the events.
+    Whether the events this page promotes can be bought right now. The listing payload has no
+    availability or sales window, so the few events the page features or lists first are read
+    from `/public/events/:slug` (the same query, and cache, as the event page itself). About a
+    dozen small reads, cached for a minute; nothing else on the page waits for them.
   */
-  const hero = all.find(hasPhoto);
-  const lead =
-    filter.kind === 'all'
-      ? all.filter((e) => e.id !== hero?.id)
-      : photosFirst(filtered.data?.data ?? []);
+  const filteredAll = photosFirst(filtered.data?.data ?? []);
+  const checkSlugs = [
+    ...new Set([
+      ...heroCandidates(all),
+      ...all.slice(0, 9).map((e) => e.slug),
+      ...(filter.kind === 'all' ? [] : filteredAll.slice(0, 9).map((e) => e.slug)),
+    ]),
+  ];
+  const details = useQueries({
+    queries: checkSlugs.map((slug) => ({
+      queryKey: ['event', slug],
+      queryFn: () => api.getEvent(slug),
+      staleTime: 60_000,
+      retry: false,
+    })),
+  });
+  const states = new Map<string, Buyability | undefined>(
+    checkSlugs.map((slug, i) => {
+      const q = details[i];
+      // A listing whose page will not open (unpublished since) cannot be bought either.
+      return [slug, q.data ? buyability(q.data) : q.isError ? 'CLOSED' : undefined];
+    }),
+  );
+  /*
+    The hero needs a photo AND a ticket you can buy now (see `chooseHero`): a review caught a
+    sold-out show as the Bengaluru hero, "Book tickets" over a house with no seats left.
+    Without one, the stage steps down to a compact band naming the place and the count - the
+    same as for a city whose organizers uploaded no art, where a title-only hero once set
+    "Free Talk 1791849580330" in 80px type as the face of the page.
+  */
+  const { hero, pending: heroPending } = chooseHero(all, states);
+  /*
+    What can still be bought leads the section; a sold-out or closed listing stays, labelled,
+    at the end rather than becoming the 16:9 feature (sort is stable, so the rest keep order).
+  */
+  const unbuyable = (e: { slug: string }) => {
+    const st = states.get(e.slug);
+    return st === 'SOLD_OUT' || st === 'CLOSED' ? 1 : 0;
+  };
+  const lead = (filter.kind === 'all' ? all.filter((e) => e.id !== hero?.id) : filteredAll).sort(
+    (a, b) => unbuyable(a) - unbuyable(b),
+  );
   const leadLoading = filter.kind === 'all' ? scoped.isLoading : filtered.isLoading;
   const leadTotal =
     filter.kind === 'all' ? (scoped.data?.meta.total ?? 0) : (filtered.data?.meta.total ?? 0);
@@ -276,7 +322,7 @@ export function DiscoverHome() {
       <h1 className="sr-only">{place ? t('page.title', { place }) : t('page.titleAnywhere')}</h1>
 
       {/* 1. The stage. */}
-      {scoped.isLoading ? (
+      {scoped.isLoading || heroPending ? (
         <div data-brand-tone="stage" className="bg-brand-canvas">
           <div
             className={`${WRAP} flex min-h-[520px] flex-col justify-end pb-8 lg:min-h-[600px] lg:pb-16`}
@@ -476,18 +522,18 @@ export function DiscoverHome() {
                 <ul className="grid gap-x-10 divide-y divide-brand-line lg:grid-cols-2 lg:divide-y-0">
                   {lead.slice(0, 8).map((e) => (
                     <li key={e.id} className="lg:border-b lg:border-brand-line">
-                      <EventRow event={e} />
+                      <EventRow event={e} state={states.get(e.slug)} />
                     </li>
                   ))}
                 </ul>
               ) : (
                 <div className="grid gap-8 lg:grid-cols-[7fr_5fr] lg:gap-10">
-                  <FeatureCard event={lead[0]} />
+                  <FeatureCard event={lead[0]} state={states.get(lead[0].slug)} />
                   {lead.length > 1 && (
                     <ul className="divide-y divide-brand-line lg:-mt-4">
                       {lead.slice(1, 5).map((e) => (
                         <li key={e.id}>
-                          <EventRow event={e} />
+                          <EventRow event={e} state={states.get(e.slug)} />
                         </li>
                       ))}
                     </ul>

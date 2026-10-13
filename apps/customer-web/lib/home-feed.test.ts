@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { nearestFirst, outsideGroups, photosFirst, postersFirst } from './home-feed';
+import {
+  buyability,
+  chooseHero,
+  heroCandidates,
+  nearestFirst,
+  outsideGroups,
+  photosFirst,
+  postersFirst,
+} from './home-feed';
 
 const ev = (id: string, country: string, photo: boolean) => ({
   id,
@@ -93,5 +101,82 @@ describe('outsideGroups', () => {
       ['CAD', 1],
       ['USD', 1],
     ]);
+  });
+});
+
+describe('buyability', () => {
+  const now = new Date('2026-11-01T00:00:00Z');
+  const session = (
+    startsAt: string,
+    types: { available: number; saleState?: 'ON_SALE' | 'NOT_YET' | 'CLOSED' }[],
+    status = 'SCHEDULED',
+  ) => ({ startsAt, status, ticketTypes: types });
+
+  it('is buyable with a ticket on sale and some left', () => {
+    expect(
+      buyability({ sessions: [session('2026-11-20T00:00:00Z', [{ available: 3 }])] }, now),
+    ).toBe('BUYABLE');
+  });
+
+  it('is sold out when every on-sale ticket has none left', () => {
+    expect(
+      buyability(
+        { sessions: [session('2026-11-20T00:00:00Z', [{ available: 0, saleState: 'ON_SALE' }])] },
+        now,
+      ),
+    ).toBe('SOLD_OUT');
+  });
+
+  it('does not count a session that started, or one that is paused', () => {
+    expect(
+      buyability(
+        {
+          sessions: [
+            session('2026-10-20T00:00:00Z', [{ available: 9 }]),
+            session('2026-11-20T00:00:00Z', [{ available: 9 }], 'PAUSED'),
+          ],
+        },
+        now,
+      ),
+    ).toBe('CLOSED');
+  });
+
+  it('knows sales that have not opened from sales that have closed', () => {
+    const at = '2026-11-20T00:00:00Z';
+    expect(
+      buyability({ sessions: [session(at, [{ available: 5, saleState: 'NOT_YET' }])] }, now),
+    ).toBe('NOT_YET');
+    expect(
+      buyability({ sessions: [session(at, [{ available: 5, saleState: 'CLOSED' }])] }, now),
+    ).toBe('CLOSED');
+  });
+});
+
+describe('chooseHero', () => {
+  const card = (slug: string, photo: boolean) => ({ ...ev(slug, 'IN', photo), slug });
+  const list = [card('soldout', true), card('nophoto', false), card('open', true)];
+
+  it('skips a sold-out show and a listing without a photo', () => {
+    const states = new Map([
+      ['soldout', 'SOLD_OUT' as const],
+      ['open', 'BUYABLE' as const],
+    ]);
+    expect(chooseHero(list, states)).toEqual({ hero: list[2], pending: false });
+  });
+
+  it('waits rather than guess while an earlier candidate is unknown', () => {
+    expect(chooseHero(list, new Map([['open', 'BUYABLE' as const]]))).toEqual({
+      hero: null,
+      pending: true,
+    });
+  });
+
+  it('has no hero when nothing with a photo can be bought', () => {
+    const states = new Map([
+      ['soldout', 'SOLD_OUT' as const],
+      ['open', 'CLOSED' as const],
+    ]);
+    expect(chooseHero(list, states)).toEqual({ hero: null, pending: false });
+    expect(heroCandidates(list)).toEqual(['soldout', 'open']);
   });
 });
