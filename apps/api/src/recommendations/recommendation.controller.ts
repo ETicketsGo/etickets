@@ -1,6 +1,7 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
+import { PrismaService } from '../prisma/prisma.service';
 import { Public } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { RecommendationService } from './recommendation.service';
@@ -15,7 +16,10 @@ const querySchema = z.object({
 @ApiTags('public')
 @Controller('public/recommendations')
 export class RecommendationsController {
-  constructor(private readonly recommendations: RecommendationService) {}
+  constructor(
+    private readonly recommendations: RecommendationService,
+    private readonly prisma: PrismaService,
+  ) {}
 
   @Public()
   @Get()
@@ -30,7 +34,15 @@ export class RecommendationsController {
       strategy?: string;
     },
   ) {
+    // The seed's market, so the blend never crosses currencies without saying so.
+    const seed = q.eventId
+      ? await this.prisma.event.findUnique({
+          where: { id: q.eventId },
+          select: { venue: { select: { country: true } } },
+        })
+      : null;
     const ctx: RecommendationContext = {
+      seedCountry: seed?.venue.country ?? null,
       userId: null,
       seedEventId: q.eventId,
       excludeEventIds: q.eventId ? [q.eventId] : [],

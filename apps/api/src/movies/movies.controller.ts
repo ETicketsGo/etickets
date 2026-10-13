@@ -76,6 +76,7 @@ export class MoviesController {
  */
 const showsQuerySchema = z.object({
   city: z.string().trim().min(1).max(80).optional(),
+  country: z.string().trim().min(2).max(60).optional(),
   /** Inclusive lower bound. Clamped to now by the service — the past is never bookable. */
   from: z.coerce.date().optional(),
   /** Exclusive upper bound. */
@@ -136,7 +137,7 @@ export class PublicMoviesController {
   shows(
     @Param('slug') slug: string,
     @Query(new ZodValidationPipe(showsQuerySchema))
-    query: { city?: string; from?: Date; to?: Date; limit: number },
+    query: { city?: string; country?: string; from?: Date; to?: Date; limit: number },
   ) {
     return this.publicMovies.shows(slug, query);
   }

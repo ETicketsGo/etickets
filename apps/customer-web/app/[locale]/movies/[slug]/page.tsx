@@ -42,13 +42,21 @@ export default function MovieDetailPage() {
   const t = useTranslations('showtimes');
   const { slug } = useParams<{ slug: string }>();
 
-  // The header's location, as Movies applies it. The showtimes endpoint narrows by city only.
+  // The header's location, as Movies applies it: a chosen city, else the visitor's country. Sending
+  // the city alone let a "United States" visitor see a Hyderabad screening priced in rupees.
   const preference = useCity();
-  const city = cityScope(preference).city ?? null;
+  const scope = cityScope(preference);
+  const city = scope.city ?? null;
+  const country = scope.country ?? null;
 
   const { data, isLoading, isError, error, refetch } = useQuery({
-    queryKey: ['movie-shows', slug, city],
-    queryFn: () => api.publicMovies.shows(slug, { city: city ?? undefined, limit: SHOW_LIMIT }),
+    queryKey: ['movie-shows', slug, city, country],
+    queryFn: () =>
+      api.publicMovies.shows(slug, {
+        city: city ?? undefined,
+        country: country ?? undefined,
+        limit: SHOW_LIMIT,
+      }),
   });
 
   const [picked, setPicked] = useState<string | null>(null);

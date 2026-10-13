@@ -194,6 +194,20 @@ describe('admin calendar: which zone a session is read in', () => {
     expect(out.room).toBe('Screen 2');
   });
 
+  it("keeps the venue's zone when the room's cinema is set up in another one", () => {
+    /*
+      Found by the design audit: a film show whose event is at a Boise venue but whose room
+      belongs to a cinema in Asia/Kolkata. Admin read 7:30 AM GMT-6; the organizer calendar, which
+      puts a film in its cinema's zone, read 19:00 GMT+5:30. Admin follows the venue, as tickets,
+      check-in and the public page do, so it must never be pulled to the room's zone.
+    */
+    const r = row({
+      screen: { name: 'Room 1', venue: null, cinema: { timezone: 'Asia/Kolkata' } },
+    });
+    r.event.venue = { name: 'Arena', city: 'Boise', country: 'US', timezone: 'America/Boise' };
+    expect(adminCalendarRow(r).timezone).toBe('America/Boise');
+  });
+
   it('answers null rather than guess the launch market', () => {
     const r = row();
     r.event.venue = { name: 'Hall', city: 'Toronto', country: 'CA', timezone: null };
