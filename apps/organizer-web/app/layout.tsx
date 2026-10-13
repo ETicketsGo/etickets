@@ -22,20 +22,18 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       data-console=""
       suppressHydrationWarning
     >
-      <head>
+      <body>
         {/*
-          Runs before the first paint, so a workspace opens in its own colours rather than
-          flashing the platform's and correcting itself. React applies both in effects, which
-          run after paint — on a dark-mode console that is a white flash on every navigation,
-          which is the difference between an application and a web page.
-
-          `suppressHydrationWarning` on <html> because this script deliberately changes the
-          element's class and attributes before React hydrates; without it React reports a
-          mismatch for markup it was always going to be handed.
+          WHY THIS IS IN <body> AND NOT IN AN EXPLICIT <head>: a <head> element in this layout
+          puts a non-hoistable child (this script) in the document head, and React then has to
+          walk the head during hydration. Next puts its own <meta charset> there, so about one
+          load in ten (QA, Chromium 390) React met that meta first, took it for the script, and
+          threw error #418 - and the client re-render that follows discards the `dark` class this
+          script set, so the console fell back to light. Without a <head> here Next owns the
+          head and the script is body content, which hydrates by position. It still runs before
+          the first paint: the parser executes it before reading the markup below it.
         */}
         <script dangerouslySetInnerHTML={{ __html: workspaceThemeScript }} />
-      </head>
-      <body>
         <WebProviders>{children}</WebProviders>
       </body>
     </html>
