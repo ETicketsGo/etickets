@@ -119,7 +119,12 @@ node scripts/showcase/load-showcase.mjs --target qa --remove    # takes the show
   custom domains, other Railway hosts and any other port or scheme are refused before a request.
   If Railway changes the generated host, change `QA_API` in `local-guard.mjs` in a reviewed commit.
 - It signs in as the QA admin (`SHOWCASE_ADMIN_EMAIL` / `SHOWCASE_ADMIN_PASSWORD`; the seeded
-  test admin if unset). An admin that asks for an authenticator code is a refusal.
+  test admin if unset). When the admin has MFA armed, the loader computes the TOTP code
+  (RFC 6238, SHA-1, 6 digits) from the base32 secret in `--admin-totp-file` (default
+  `C:/etg-wt/qa-secrets/qa-mfa.json`, a JSON object keyed by email; never printed), completes
+  `/auth/mfa/verify`, and answers a `MFA_STEP_UP_REQUIRED` with `/auth/mfa/step-up` once. A code
+  is never used twice in one 30 s step, so a second sign-in waits for the next step. No secret
+  for the account means a refusal.
 - Organizer passwords are random and written to `C:/etg-wt/qa-secrets/showcase-qa-accounts.json`
   (`--accounts-file` to change), before the account is registered. They are never printed.
   Keep that file: a re-run needs it. There is no fallback to the seeded owner's organization.

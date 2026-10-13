@@ -31,6 +31,8 @@
  *   options: --target <local|qa> (default local)
  *            --api <base>        (default http://localhost:4131/api; this machine only, or the
  *                                 exact QA API with --target qa)
+ *            --admin-totp-file <f> (admin MFA: JSON of base32 secrets keyed by email, default
+ *                                 C:/etg-wt/qa-secrets/qa-mfa.json; never printed)
  *            --accounts-file <f> (qa: where organizer passwords are kept, default
  *                                 C:/etg-wt/qa-secrets/showcase-qa-accounts.json)
  *            --images <dir>      (default C:/etg-wt/showcase/images)
@@ -45,6 +47,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { DEFAULT_LOCAL_API, QA_API, targetVerdict } from './local-guard.mjs';
+import { nextFreshCode } from './totp.mjs';
 import { venueTimeToInstant } from '../qa-demo/venue-time.mjs';
 import { pathToFileURL } from 'node:url';
 import { SHOWCASE_MARKER, SHOWCASE_MARKER_QA, showcaseKeyLine } from './catalogue.mjs';
@@ -72,6 +75,7 @@ if (!verdict.allowed) {
 }
 const API = verdict.apiBase;
 const ON_QA = TARGET === 'qa';
+const TOTP_FILE = option('--admin-totp-file') ?? 'C:/etg-wt/qa-secrets/qa-mfa.json';
 const ACCOUNTS_FILE = option('--accounts-file') ?? 'C:/etg-wt/qa-secrets/showcase-qa-accounts.json';
 /** The sentence every listing carries. Both say "fictional"; either marks the loader's own. */
 const ACTIVE_MARKER = ON_QA ? SHOWCASE_MARKER_QA : SHOWCASE_MARKER;
@@ -113,13 +117,31 @@ const warn = (msg) => {
 
 // ── HTTP ────────────────────────────────────────────────────────────────────────────
 
+/** original token -> stepped-up token, and which account a token belongs to (for its secret). */
+const tokenAlias = new Map();
+const stepUpOwner = new Map();
+
+/** The account's base32 TOTP secret from TOTP_FILE (a string, or { secret }); never printed. */
+function totpSecretFor(email) {
+  if (!email || !existsSync(TOTP_FILE)) return null;
+  try {
+    const v = JSON.parse(readFileSync(TOTP_FILE, 'utf8'))[email];
+    return typeof v === 'string' ? v : (v?.secret ?? null);
+  } catch {
+    return null;
+  }
+}
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
  * One API call. Retries a 429 (the per-IP throttle) and a 502/503 (a restarting server) and
  * nothing else: a 4xx is an answer, not an accident.
  */
-async function call(method, path, { token, body, form, idempotencyKey } = {}, attempt = 1) {
+async function call(method, path, opts = {}, attempt = 1, steppedUp = false) {
+  const { body, form, idempotencyKey } = opts;
+  // A token that has been stepped up is replaced by the fresh one wherever it is still held.
+  const token = tokenAlias.get(opts.token) ?? opts.token;
   const headers = {};
   if (token) headers.authorization = `Bearer ${token}`;
   if (idempotencyKey) headers['idempotency-key'] = idempotencyKey;
@@ -138,7 +160,26 @@ async function call(method, path, { token, body, form, idempotencyKey } = {}, at
   }
   if ((res.status === 429 || res.status === 502 || res.status === 503) && attempt < 5) {
     await sleep(1500 * attempt);
-    return call(method, path, { token, body, form, idempotencyKey }, attempt + 1);
+    return call(method, path, opts, attempt + 1, steppedUp);
+  }
+  // A back-office action that wants a fresh second factor: confirm it once and retry once.
+  if (
+    res.status === 403 &&
+    !steppedUp &&
+    token &&
+    JSON.stringify(data).includes('MFA_STEP_UP_REQUIRED')
+  ) {
+    const secret = totpSecretFor(stepUpOwner.get(opts.token));
+    if (secret) {
+      const r = await call('POST', '/auth/mfa/step-up', {
+        token,
+        body: { code: await nextFreshCode(secret) },
+      });
+      if (r?.accessToken) {
+        tokenAlias.set(opts.token, r.accessToken);
+        return call(method, path, opts, attempt, true);
+      }
+    }
   }
   if (!res.ok) {
     const raw = typeof data === 'object' && data ? (data.message ?? data.error) : data;
@@ -154,15 +195,27 @@ async function call(method, path, { token, body, form, idempotencyKey } = {}, at
 /** Lists come back bare or wrapped, depending on the endpoint. */
 const rows = (data) => (Array.isArray(data) ? data : (data?.data ?? data?.items ?? []));
 
-/** Tokens, or the reason there are none. A back-office MFA challenge is a refusal here. */
+/**
+ * Tokens, or the reason there are none. When the account has a second factor and its secret is
+ * in TOTP_FILE, the sign-in is completed with a computed code; otherwise it is a refusal.
+ */
 async function login(email, password) {
-  const r = await call('POST', '/auth/login', { body: { email, password } });
+  let r = await call('POST', '/auth/login', { body: { email, password } });
   if (r?.mfaRequired) {
-    const err = new Error(`${email} needs an authenticator code to sign in.`);
-    err.mfa = true;
-    throw err;
+    const secret = totpSecretFor(email);
+    if (!secret || !r.challengeToken) {
+      const err = new Error(
+        `${email} needs an authenticator code to sign in and no secret for it is in ${TOTP_FILE}.`,
+      );
+      err.mfa = true;
+      throw err;
+    }
+    r = await call('POST', '/auth/mfa/verify', {
+      body: { challengeToken: r.challengeToken, code: await nextFreshCode(secret) },
+    });
   }
   if (!r?.accessToken) throw new Error(`No access token for ${email}.`);
+  stepUpOwner.set(r.accessToken, email);
   return r.accessToken;
 }
 
