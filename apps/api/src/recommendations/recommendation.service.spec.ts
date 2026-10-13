@@ -125,6 +125,42 @@ describe('RecommendationService.recommend', () => {
   });
 });
 
+describe('RecommendationService.recommend: one market per list', () => {
+  const inCountry = (id: string, country: string): PublicEventCardLike => ({
+    ...card(id),
+    venue: { name: 'Hall', city: 'X', country, timezone: null },
+    currency: country === 'India' ? 'INR' : 'USD',
+  });
+
+  it('keeps a Boise event recommendations in the United States', async () => {
+    const content = stub('content-based', [
+      inCountry('hyd', 'India'),
+      inCountry('nyc', 'US'),
+      inCountry('den', 'United States'),
+    ]);
+    const { service } = build({ content });
+    const out = await service.recommend({
+      seedEventId: 'seed',
+      seedCountry: 'US',
+      limit: 10,
+      now: NOW,
+    });
+    expect(ids(out)).toEqual(['nyc', 'den']);
+  });
+
+  it('filters nothing when the seed has no known market', async () => {
+    const content = stub('content-based', [inCountry('hyd', 'India'), inCountry('nyc', 'US')]);
+    const { service } = build({ content });
+    const out = await service.recommend({
+      seedEventId: 'seed',
+      seedCountry: null,
+      limit: 10,
+      now: NOW,
+    });
+    expect(ids(out)).toEqual(['hyd', 'nyc']);
+  });
+});
+
 describe('RecommendationService.recommendWith', () => {
   it('runs the named single strategy', async () => {
     const trending = stub('trending', [card('t1')]);
