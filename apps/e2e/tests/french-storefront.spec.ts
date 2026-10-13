@@ -7,6 +7,7 @@ import {
   uniqueEmail,
   NEW_ACCOUNT_PASSWORD,
 } from './helpers';
+import { chooseQuantity } from './ticket-quantity';
 
 /**
  * Buying a ticket in French, from the storefront to the receipt.
@@ -238,9 +239,14 @@ test.describe('the storefront in French', () => {
       CHROME keeps the reader in French, and `.first()` would silently start testing
       whichever link happened to be earlier in the DOM.
     */
-    await page.locator('header').getByRole('link', { name: 'Aide' }).click();
+    /*
+      The header's destinations are Explore, Movies and Tickets since the storefront top bar
+      was redesigned (help moved to the footer, which test 3b covers). The claim is unchanged:
+      a link in the shared header keeps the reader in French.
+    */
+    await page.locator('header').getByRole('link', { name: 'Films', exact: true }).click();
 
-    await expect(page).toHaveURL(/\/fr-CA\/help/, { timeout: 30_000 });
+    await expect(page).toHaveURL(/\/fr-CA\/movies/, { timeout: 30_000 });
     await expect(page.locator('html')).toHaveAttribute('lang', 'fr-CA');
   });
 
@@ -287,7 +293,7 @@ test.describe('the storefront in French', () => {
     await expect(page.getByText('Aucun paiement requis')).toBeVisible();
     await expect(page.getByText('Total')).toBeVisible();
 
-    await page.getByLabel('Quantité de Admission générale').selectOption('2');
+    await chooseQuantity(page.getByLabel('Quantité de Admission générale'), 2);
     await page.getByRole('button', { name: 'Obtenir mes billets' }).click();
 
     // The confirmation, which is the page a customer reads most carefully.
@@ -361,7 +367,7 @@ test.describe('the storefront in French', () => {
     const paid = await paidEvent(page.request);
     await page.goto(`${CUSTOMER}/fr-CA/events/${paid.slug}`, { waitUntil: 'networkidle' });
 
-    await page.getByLabel(/Quantité de/).selectOption('1');
+    await chooseQuantity(page.getByLabel(/Quantité de/).first(), 1);
     await page.getByRole('button', { name: 'Passer au paiement' }).click();
 
     await expect(page).toHaveURL(/\/fr-CA\/booking\/[^/]+\/payment/, { timeout: 30_000 });

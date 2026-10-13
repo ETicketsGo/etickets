@@ -1,4 +1,5 @@
 import type { ActionQueue } from '@eticketsgo/web-kit';
+import { FAILED_PAYMENTS_WEEK_SCOPE } from './dashboard-labels';
 
 /**
  * What the admin dashboard leads with: the queues that need a person, and the indicators that
@@ -101,7 +102,11 @@ export function failedPaymentsQueue(now: Date): AttentionQueue {
     key: 'payments-failed-7d',
     kind: 'info',
     label: (n) =>
-      plural(n, 'failed payment in the last 7 days', 'failed payments in the last 7 days'),
+      plural(
+        n,
+        `failed payment in the last 7 days, ${FAILED_PAYMENTS_WEEK_SCOPE}`,
+        `failed payments in the last 7 days, ${FAILED_PAYMENTS_WEEK_SCOPE}`,
+      ),
     consequence:
       'Usually a declined card, and the buyer can try again. Nothing to do unless it is a sudden spike.',
     href: `/admin/payments?status=FAILED&from=${from}&to=${to}`,

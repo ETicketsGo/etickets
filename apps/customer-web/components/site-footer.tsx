@@ -1,6 +1,11 @@
+'use client';
+
 import { Link } from '@/i18n/navigation';
 import { useTranslations } from 'next-intl';
-import { Logo } from '@eticketsgo/web-kit';
+import { BRAND_FOCUS, BrandStatusPill } from '@eticketsgo/web-kit';
+import { Wordmark } from '@/components/wordmark';
+import { LanguageSwitcher } from '@/components/language-switcher';
+import { FeedbackButton } from '@/components/feedback-widget';
 
 /**
  * The end of a storefront page.
@@ -117,14 +122,23 @@ export function SiteFooter({
 }) {
   const f = useTranslations('common.footer');
   const g = useTranslations('storefront.guest');
+  const h = useTranslations('home.footer');
+  const nav = useTranslations('common.nav');
+
+  const link = `inline-flex min-h-11 items-center rounded-sm text-brand-ui text-brand-ink-2 transition-colors hover:text-brand-ink lg:min-h-8 ${BRAND_FOCUS}`;
 
   return (
     /*
-      `mt-auto` with the shell's flex column pins this to the bottom of short pages, so a
-      listing with two results does not leave the footer floating halfway up the window.
+      The stage tone (DESIGN-SYSTEM.md section 1: the footer is one of the dark bands), so a page
+      has a visual end instead of fading into grey. `mt-auto` with the shell's flex column pins
+      it to the bottom of short pages.
     */
-    <footer className="mt-auto border-t border-border bg-background-subtle/50">
-      <div className="mx-auto max-w-shell px-4 py-12 sm:px-6 lg:px-8">
+    <footer
+      data-brand="customer"
+      data-brand-tone="stage"
+      className="mt-auto bg-brand-canvas font-brand-text text-brand-ink"
+    >
+      <div className="mx-auto max-w-shell px-4 py-12 sm:px-6 lg:px-10 lg:py-16">
         <div
           className={`grid gap-10 sm:grid-cols-2 lg:grid-cols-[1.6fr_repeat(3,1fr)] ${
             compact ? 'max-lg:hidden' : ''
@@ -133,34 +147,39 @@ export function SiteFooter({
           <div>
             <Link
               href="/"
-              className="inline-flex items-center gap-2 font-bold tracking-tight text-text-primary"
+              aria-label={nav('home')}
+              className={`inline-flex h-11 items-center rounded-brand-control ${BRAND_FOCUS}`}
             >
-              {/* Compact, not full. A footer lockup is ~36px and the full mark's streaks
-                  and tear line are two pixels each at that size — they render as a smudge
-                  beside the wordmark rather than as motion. The full mark earns its detail
-                  above roughly 40px; below it, the ticket and the E carry the brand alone. */}
-              <Logo markClassName="h-9 w-9" id="ftr" />
+              <Wordmark className="text-[1.625rem]" />
             </Link>
-            {/* Translated, not inlined. The marketing footer's tagline is a hardcoded
-                English string, which is how a page passes a build that fails on missing
-                keys and still shows English to a French reader. */}
-            <p className="mt-3 max-w-xs text-[0.9375rem] leading-relaxed text-text-secondary">
-              {f('tagline')}
-            </p>
+            {/* Translated, not inlined: a hardcoded tagline passes a build that fails on
+                missing keys and still shows English to a French reader. */}
+            <p className="mt-3 max-w-xs text-brand-ui text-brand-ink-2">{f('tagline')}</p>
+            {/*
+              Language and feedback live here, on every page (EXPERIENCE-AUDIT.md C2 and C5).
+              The language select spent the phone header's first row on the word "English";
+              the feedback pill floated over content, prices included.
+            */}
+            <div className="mt-6 flex flex-wrap items-center gap-3">
+              <LanguageSwitcher
+                selectClassName={`h-11 rounded-brand-control border border-brand-field bg-brand-surface px-3 text-brand-ui text-brand-ink ${BRAND_FOCUS}`}
+              />
+              <FeedbackButton
+                label={h('feedback')}
+                className={`inline-flex h-11 items-center gap-2 rounded-brand-control border border-brand-line-strong px-4 text-brand-ui font-semibold text-brand-ink transition-colors hover:border-brand-ink-3 ${BRAND_FOCUS}`}
+              />
+            </div>
           </div>
 
           {COLUMNS.map((col) => (
             <div key={col.title}>
-              <h2 className="text-caption font-semibold uppercase tracking-wide text-text-secondary">
+              <h2 className="text-brand-eyebrow uppercase text-brand-ink-3">
                 {f(`columns.${col.title}`)}
               </h2>
-              <ul className="mt-4 lg:space-y-2.5">
+              <ul className="mt-4 lg:space-y-1">
                 {col.links.map((l) => (
                   <li key={l.href}>
-                    <Link
-                      href={l.href}
-                      className="inline-flex min-h-11 items-center rounded-sm text-[0.9375rem] text-text-secondary transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 lg:min-h-0"
-                    >
+                    <Link href={l.href} className={link}>
                       {l.guest ? g(l.label) : f(`links.${l.label}`)}
                     </Link>
                   </li>
@@ -174,10 +193,7 @@ export function SiteFooter({
           <ul className="flex flex-wrap gap-x-6 lg:hidden">
             {CHECKOUT_LINKS.map((l) => (
               <li key={l.href}>
-                <Link
-                  href={l.href}
-                  className="inline-flex min-h-11 items-center rounded-sm text-[0.9375rem] text-text-secondary transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 lg:min-h-0"
-                >
+                <Link href={l.href} className={link}>
                   {f(`links.${l.label}`)}
                 </Link>
               </li>
@@ -186,12 +202,11 @@ export function SiteFooter({
         )}
 
         <div
-          className={`flex flex-col items-start justify-between gap-3 border-t border-border pt-6 text-caption text-text-muted sm:flex-row sm:items-center ${
-            compact ? 'mt-6 lg:mt-10' : 'mt-10'
+          className={`flex flex-col items-start justify-between gap-3 border-t border-brand-line pt-6 text-brand-meta text-brand-ink-3 sm:flex-row sm:items-center ${
+            compact ? 'mt-6 lg:mt-10' : 'mt-12'
           }`}
         >
-          {/* The year is read at render rather than typed. A literal `2026` in the markup
-              is wrong on the first of January and nobody is watching the footer then. */}
+          {/* The year is read at render rather than typed: a literal is wrong on 1 January. */}
           <p>{f('rights', { year: new Date().getFullYear() })}</p>
           {buildId && (
             <p data-testid="build-id" className="tabular-nums">
@@ -199,9 +214,7 @@ export function SiteFooter({
             </p>
           )}
           {environmentNotice && (
-            <p className="rounded-md bg-status-warning/10 px-2.5 py-1 font-medium text-status-warning">
-              {environmentNotice}
-            </p>
+            <BrandStatusPill status="caution">{environmentNotice}</BrandStatusPill>
           )}
         </div>
       </div>

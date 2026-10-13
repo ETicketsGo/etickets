@@ -61,6 +61,63 @@ export const BUYER_SEAT_MAP_LABELS_EN: BuyerSeatMapLabels = {
   priceFrom: (price) => `From ${price}`,
 };
 
+/**
+ * How the map is painted. `classic` is the app's existing look (the organizer's preview and
+ * every page not yet on the brand layer). `stage` is the storefront's brand look
+ * (docs/design/DESIGN-SYSTEM.md): the map sits on the stage tone, chosen seats are the marigold
+ * light, and its classes resolve only inside `data-brand="customer"` with
+ * `data-brand-tone="stage"`. Only class names differ; every seat, label and state is the same.
+ */
+export type BuyerSeatMapAppearance = 'classic' | 'stage';
+
+export const SEAT_MAP_LOOK = {
+  classic: {
+    zoom: 'flex h-8 w-8 items-center justify-center rounded-md border border-border-input bg-background-surface text-text-secondary hover:text-action-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-40',
+    scroller:
+      'overflow-auto overscroll-x-contain rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
+    screen:
+      'mx-auto h-1.5 w-[88%] rounded-t-[100%] bg-gradient-to-b from-action-primary/60 to-transparent',
+    screenLabel:
+      'mt-1 flex items-center justify-center gap-1.5 text-caption font-medium uppercase tracking-widest text-text-muted',
+    sectionRule: 'mb-2.5 flex items-center gap-2 border-b border-border pb-1.5',
+    sectionName: 'text-caption font-semibold uppercase tracking-wide text-text-secondary',
+    sectionPrice: 'tabular-nums text-text-primary',
+    sectionTier: 'font-medium normal-case tracking-normal text-text-muted',
+    rowLabel:
+      'sticky left-0 z-10 shrink-0 bg-background-surface pr-2 text-center text-caption font-medium text-text-muted',
+    seat: 'flex shrink-0 items-center justify-center rounded-[0.3125rem] border font-medium tabular-nums leading-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background-surface motion-safe:transition-colors',
+    selected: 'border-action-primary bg-action-primary text-action-primary-foreground',
+    available:
+      'bg-background-surface text-text-secondary hover:border-action-primary hover:bg-tint-primary hover:text-action-primary',
+    stranded: 'border-dashed border-status-warning',
+    edge: 'border-border-input',
+    sold: 'cursor-not-allowed border-transparent bg-background-subtle',
+    held: 'cursor-not-allowed border-dashed border-border-strong bg-background-canvas',
+  },
+  stage: {
+    zoom: 'flex h-11 w-11 items-center justify-center rounded-brand-control border border-brand-line-strong text-brand-ink-2 hover:border-brand-ink-3 hover:text-brand-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-focus disabled:cursor-not-allowed disabled:opacity-40',
+    scroller:
+      'overflow-auto overscroll-x-contain rounded-brand-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-focus',
+    screen:
+      'mx-auto h-1.5 w-[88%] rounded-t-[100%] bg-gradient-to-b from-brand-ink-3/70 to-transparent',
+    screenLabel:
+      'mt-1 flex items-center justify-center gap-1.5 text-brand-eyebrow uppercase text-brand-ink-3',
+    sectionRule: 'mb-2.5 flex items-center gap-2 border-b border-brand-line pb-1.5',
+    sectionName: 'text-brand-eyebrow uppercase text-brand-ink-2',
+    sectionPrice: 'tabular-nums text-brand-ink',
+    sectionTier: 'font-medium normal-case tracking-normal text-brand-ink-3',
+    rowLabel:
+      'sticky left-0 z-10 shrink-0 bg-brand-canvas pr-2 text-center text-brand-meta font-medium text-brand-ink-3',
+    seat: 'flex shrink-0 items-center justify-center rounded-[0.3125rem] border font-medium tabular-nums leading-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-focus focus-visible:ring-offset-1 focus-visible:ring-offset-brand-canvas motion-safe:transition-colors',
+    selected: 'border-brand-marigold bg-brand-marigold text-brand-on-marigold',
+    available: 'bg-transparent text-brand-ink-2 hover:border-brand-marigold hover:text-brand-ink',
+    stranded: 'border-dashed border-brand-caution',
+    edge: 'border-brand-ink-3',
+    sold: 'cursor-not-allowed border-transparent bg-brand-sunken',
+    held: 'cursor-not-allowed border-dashed border-brand-line-strong bg-transparent',
+  },
+} as const;
+
 export interface BuyerSeatMapProps {
   layout: SeatLayout;
   selected: ReadonlySet<string>;
@@ -72,6 +129,8 @@ export interface BuyerSeatMapProps {
   /** The words for an accessible seat kind, e.g. "Wheelchair space". */
   kindLabel: (kind: string) => string | null;
   labels?: BuyerSeatMapLabels;
+  /** `stage` on the storefront's brand layer; `classic` (default) everywhere else. */
+  appearance?: BuyerSeatMapAppearance;
 }
 
 /**
@@ -102,8 +161,10 @@ export function BuyerSeatMap({
   seatStatusLabel,
   kindLabel,
   labels = BUYER_SEAT_MAP_LABELS_EN,
+  appearance = 'classic',
 }: BuyerSeatMapProps) {
   const instructionsId = useId();
+  const look = SEAT_MAP_LOOK[appearance];
 
   const categories = useMemo(() => new Map(layout.categories.map((c) => [c.id, c])), [layout]);
   const rows = useMemo(() => layout.sections.flatMap((section) => section.rows), [layout]);
@@ -134,8 +195,17 @@ export function BuyerSeatMap({
   }, []);
   const [zoom, setZoom] = useState<number>(FIT_STEP);
   const span = columns.max - columns.min + 1;
-  const fitted = width > 0 ? clamp((width - 48) / (span * 1.24), 22, 32) : 28;
-  const size = Math.round(fitted * ZOOM_STEPS[zoom]);
+  /*
+    On the storefront's stage map no seat is drawn smaller than 24px, the WCAG 2.5.8 target
+    size, whatever the zoom: on a phone the fitted size was 22px, which passed only through the
+    spacing exception. A room wider than the screen then pans inside its own box, as it already
+    does when zoomed in. The organizer's preview keeps its fit-to-box behaviour.
+  */
+  const minSeat = appearance === 'stage' ? 24 : 0;
+  const fitted = width > 0 ? clamp((width - 48) / (span * 1.24), Math.max(22, minSeat), 32) : 28;
+  const size = Math.max(minSeat, Math.round(fitted * ZOOM_STEPS[zoom]));
+  // Zooming out further would not change anything once the floor is reached.
+  const atSmallest = zoom === 0 || size <= minSeat;
   const gap = Math.max(3, Math.round(size * 0.22));
   const step = size + gap;
   const gutter = Math.max(28, Math.round(size * 1.15));
@@ -160,7 +230,7 @@ export function BuyerSeatMap({
       <div className="flex items-center justify-end gap-1">
         {(
           [
-            { label: labels.zoomOut, icon: Minus, disabled: zoom === 0, next: zoom - 1 },
+            { label: labels.zoomOut, icon: Minus, disabled: atSmallest, next: zoom - 1 },
             {
               label: labels.zoomReset,
               icon: ScanLine,
@@ -182,7 +252,7 @@ export function BuyerSeatMap({
             title={label}
             disabled={disabled}
             onClick={() => setZoom(next)}
-            className="flex h-8 w-8 items-center justify-center rounded-md border border-border-input bg-background-surface text-text-secondary hover:text-action-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-40"
+            className={look.zoom}
           >
             <Icon className="h-4 w-4" aria-hidden />
           </button>
@@ -197,7 +267,7 @@ export function BuyerSeatMap({
         aria-describedby={instructionsId}
         // A scrollable box must be reachable by keyboard; with no seat to stop on, the box is.
         tabIndex={tabStop ? undefined : 0}
-        className="overflow-auto overscroll-x-contain rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        className={look.scroller}
       >
         <p id={instructionsId} className="sr-only">
           {labels.mapInstructions}
@@ -205,8 +275,8 @@ export function BuyerSeatMap({
         <div className="mx-auto w-max pb-3 pr-2">
           {/* The screen — or stage — spans the seats, not the row letters beside them. */}
           <div style={{ paddingLeft: gutter }}>
-            <div className="mx-auto h-1.5 w-[88%] rounded-t-[100%] bg-gradient-to-b from-action-primary/60 to-transparent" />
-            <p className="mt-1 flex items-center justify-center gap-1.5 text-caption font-medium uppercase tracking-widest text-text-muted">
+            <div className={look.screen} />
+            <p className={look.screenLabel}>
               <MonitorPlay className="h-3.5 w-3.5" aria-hidden />
               {focalLabel}
             </p>
@@ -240,10 +310,7 @@ export function BuyerSeatMap({
 
               return (
                 <div key={`${sectionIndex}-${section.name}`}>
-                  <div
-                    className="mb-2.5 flex items-center gap-2 border-b border-border pb-1.5"
-                    style={{ marginLeft: gutter }}
-                  >
+                  <div className={look.sectionRule} style={{ marginLeft: gutter }}>
                     {swatch ? (
                       <span
                         aria-hidden
@@ -251,20 +318,15 @@ export function BuyerSeatMap({
                         style={{ backgroundColor: swatch }}
                       />
                     ) : null}
-                    <p className="text-caption font-semibold uppercase tracking-wide text-text-secondary">
+                    <p className={look.sectionName}>
                       {price ? (
                         <>
-                          <span className="tabular-nums text-text-primary">{price}</span>
+                          <span className={look.sectionPrice}>{price}</span>
                           <span aria-hidden> - </span>
                         </>
                       ) : null}
                       {section.name}
-                      {tier ? (
-                        <span className="font-medium normal-case tracking-normal text-text-muted">
-                          {' '}
-                          - {tier}
-                        </span>
-                      ) : null}
+                      {tier ? <span className={look.sectionTier}> - {tier}</span> : null}
                     </p>
                   </div>
 
@@ -281,10 +343,7 @@ export function BuyerSeatMap({
                       }));
                       return (
                         <div key={`${sectionIndex}-${row.label}`} className="flex items-center">
-                          <span
-                            className="sticky left-0 z-10 shrink-0 bg-background-surface pr-2 text-center text-caption font-medium text-text-muted"
-                            style={{ width: gutter }}
-                          >
+                          <span className={look.rowLabel} style={{ width: gutter }}>
                             {row.label}
                           </span>
                           <div className="flex">
@@ -301,17 +360,15 @@ export function BuyerSeatMap({
                               const priceLabel = category ? formatMinor(category.priceMinor) : null;
                               const name = `${row.label}${seat.label}`;
 
-                              const look = isSelected
-                                ? 'border-action-primary bg-action-primary text-action-primary-foreground'
+                              const state = isSelected
+                                ? look.selected
                                 : available
-                                  ? `bg-background-surface text-text-secondary hover:border-action-primary hover:bg-tint-primary hover:text-action-primary ${
-                                      stranded.has(seat.id)
-                                        ? 'border-dashed border-status-warning'
-                                        : 'border-border-input'
+                                  ? `${look.available} ${
+                                      stranded.has(seat.id) ? look.stranded : look.edge
                                     }`
                                   : seat.status === 'SOLD'
-                                    ? 'cursor-not-allowed border-transparent bg-background-subtle'
-                                    : 'cursor-not-allowed border-dashed border-border-strong bg-background-canvas';
+                                    ? look.sold
+                                    : look.held;
 
                               return (
                                 <button
@@ -360,7 +417,7 @@ export function BuyerSeatMap({
                                     marginLeft: offset,
                                     fontSize: Math.max(9, Math.round(size * 0.37)),
                                   }}
-                                  className={`flex shrink-0 items-center justify-center rounded-[0.3125rem] border font-medium tabular-nums leading-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background-surface motion-safe:transition-colors ${look}`}
+                                  className={`${look.seat} ${state}`}
                                 >
                                   {/*
                                     Only a seat that can be had shows its number. A sold seat is a

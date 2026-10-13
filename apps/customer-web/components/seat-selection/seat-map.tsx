@@ -16,6 +16,7 @@ export function SeatMap(props: SeatMapProps) {
   const s = useTranslations('storefront.seats');
   return (
     <BuyerSeatMap
+      appearance="stage"
       {...props}
       labels={{
         screenThisWay: s('screenThisWay'),

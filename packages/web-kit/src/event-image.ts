@@ -59,3 +59,24 @@ export function eventImageSource(
     ? { src: largest.url, srcSet: sized.map((s) => `${s.url} ${s.width}w`).join(', ') }
     : { src: largest.url };
 }
+
+/**
+ * A stored poster or picture URL, made to work against the API this app is talking to.
+ *
+ * ── WHY ────────────────────────────────────────────────────────────────────────────
+ * A film's `posterUrl` must be an absolute URL (the movie schema validates it as one), so a
+ * poster uploaded as one of the platform's own event images is saved with whatever API host
+ * was current at the time: `http://localhost:4131/api/public/events/...` on a designer's
+ * machine, a since-renamed Railway hostname on QA. Every page then asked a host that no longer
+ * answers, and every poster fell back to the no-image artwork.
+ *
+ * The platform's own image route is the same on every host, so a URL that points at it is
+ * re-based onto this app's API. Any other URL (a distributor's CDN, a provider's poster) is
+ * returned untouched.
+ */
+export function portableImageUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  if (!/^https?:\/\//i.test(url)) return url;
+  const at = url.indexOf('/api/public/events/');
+  return at >= 0 ? apiAssetUrl(url.slice(at + '/api'.length)) : url;
+}

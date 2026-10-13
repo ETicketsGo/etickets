@@ -3,14 +3,22 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'next/navigation';
 import { useRouter } from '@/i18n/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Clock, QrCode, RefreshCcw, ShieldCheck } from 'lucide-react';
-import { api as webKit } from '@eticketsgo/web-kit';
+import { BrandButton, api as webKit, brandButtonClasses } from '@eticketsgo/web-kit';
 import { razorpayFailureReason } from '@eticketsgo/shared-types';
 import { api, ApiRequestError, tokenStore } from '@/lib/api';
 import { loadRazorpay } from '@/lib/razorpay';
 import { useFormat } from '@/lib/format';
-import { Button, ButtonLink, Card, Dialog, ErrorState, Stepper, useToast } from '@/components/ui';
+import { Button, Dialog, ErrorState, useToast } from '@/components/ui';
+import {
+  BRAND_EYEBROW,
+  BRAND_FIELD,
+  BRAND_LINK,
+  BRAND_PANEL,
+  BrandSteps,
+  useVenueWhenText,
+} from '@/components/booking-brand';
 import { paymentsActivatingCopy } from '@/components/payment/payments-activating';
 import { PriceBreakdown } from '@/components/price-breakdown';
 import { RefundTerms } from '@/components/refund-terms';
@@ -26,17 +34,6 @@ import { useTranslations } from 'next-intl';
 
 // The same step names as the confirmation screen, from the same messages.
 const BOOKING_STEPS = ['tickets', 'payment', 'confirmation', 'ticket'] as const;
-
-function Row({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
-  return (
-    <div
-      className={`flex justify-between ${strong ? 'text-title font-semibold' : 'text-[0.9375rem]'}`}
-    >
-      <span className={strong ? 'text-text-primary' : 'text-text-secondary'}>{label}</span>
-      <span className="text-text-primary">{value}</span>
-    </div>
-  );
-}
 
 /**
  * True only for an absolute http(s) URL on a *different* host than this app —
@@ -74,6 +71,75 @@ function useCountdown(expiresAt: string | undefined) {
   return { expired: remaining <= 0, label: `${mm}:${ss}`, totalSeconds };
 }
 
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex justify-between gap-4 text-brand-ui">
+      <span className="text-brand-ink-2">{label}</span>
+      <span className="tabular-nums text-brand-ink">{value}</span>
+    </div>
+  );
+}
+
+/**
+ * Review & pay on the brand layer (docs/design/DESIGN-SYSTEM.md): paper, ink, one primary
+ * action. Out to the page column's edges like the event page, with its own gutters, so the
+ * flow from event to payment reads as one place.
+ */
+function PayShell({ children }: { children: ReactNode }) {
+  return (
+    <div
+      data-brand="customer"
+      className="-mx-4 -mt-6 min-h-[60vh] bg-brand-canvas px-4 pb-16 pt-6 font-brand-text text-brand-ink sm:-mx-6 sm:-mt-10 sm:px-6 sm:pt-10 lg:-mx-8 lg:px-10"
+    >
+      <div className="mx-auto max-w-5xl space-y-6">{children}</div>
+    </div>
+  );
+}
+
+function PayHeader({ title, steps, lead }: { title: string; steps: string[]; lead?: string }) {
+  return (
+    <div className="space-y-3">
+      <BrandSteps steps={steps} current={1} />
+      <h1 className="font-brand-display text-brand-d1 text-brand-ink">{title}</h1>
+      {lead ? <p className="text-brand-ui text-brand-ink-2">{lead}</p> : null}
+    </div>
+  );
+}
+
+/**
+ * The hold, counted down. Quiet while there is time, caution under two minutes, critical when
+ * it has run out - and always in words, so the state never rests on colour.
+ */
+function HoldTimer({ countdown }: { countdown: ReturnType<typeof useCountdown> }) {
+  const k = useTranslations('storefront.checkout');
+  const expired = countdown.expired;
+  const short = !expired && countdown.totalSeconds < 120;
+  return (
+    <div
+      className={`flex items-center justify-between gap-3 rounded-brand-card px-4 py-3 ${
+        expired ? 'bg-brand-critical-tint' : short ? 'bg-brand-caution-tint' : 'bg-brand-sunken'
+      }`}
+    >
+      <span
+        className={`flex items-center gap-2 text-brand-ui ${
+          expired ? 'text-brand-critical' : 'text-brand-ink-2'
+        }`}
+      >
+        <Clock className="h-4 w-4" aria-hidden />
+        {expired ? k('holdExpiredTitle') : k('ticketsHeldForYou')}
+      </span>
+      {!expired && (
+        <span
+          className={`text-brand-figure-sm tabular-nums ${short ? 'text-brand-caution' : 'text-brand-ink'}`}
+          aria-live="polite"
+        >
+          {countdown.label}
+        </span>
+      )}
+    </div>
+  );
+}
+
 /**
  * Paying for a booking, with or without an account.
  *
@@ -103,7 +169,8 @@ function AccountPayment() {
   const k = useTranslations('storefront.checkout');
   const c = useTranslations('storefront.confirmation');
   const tx = useTranslations('common');
-  const { money, dateTime, zoneAbbrev } = useFormat();
+  const { money, moneyFractionDigits } = useFormat();
+  const venueWhenText = useVenueWhenText();
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const qc = useQueryClient();
@@ -346,47 +413,49 @@ function AccountPayment() {
       ? tx(statusKey)
       : booking.status.replaceAll('_', ' ').toLowerCase();
     return (
-      <Card className="mx-auto max-w-md text-center">
-        <p className="text-text-primary">{k('bookingStatus', { status: statusLabel })}</p>
-        <Button className="mt-4" onClick={() => router.push(`/booking/${id}/confirmation`)}>
-          {k('viewBooking')}
-        </Button>
-      </Card>
+      <PayShell>
+        <div className={`${BRAND_PANEL} mx-auto max-w-md p-6 text-center`}>
+          <p className="text-brand-body text-brand-ink">
+            {k('bookingStatus', { status: statusLabel })}
+          </p>
+          <BrandButton className="mt-4" onClick={() => router.push(`/booking/${id}/confirmation`)}>
+            {k('viewBooking')}
+          </BrandButton>
+        </div>
+      </PayShell>
     );
   }
 
   const expired = countdown.expired;
+  /*
+    One decision about decimals for everything this screen prints, so "2 x Classic" and the
+    breakdown under it show one figure one way (Rs 500.00 twice, not Rs 500 above Rs 500.00).
+    Every amount the breakdown draws goes into the decision, as on the event page.
+  */
+  const digits = moneyFractionDigits(
+    [
+      ...booking.items.map((i) => i.unitPriceMinor * i.quantity),
+      booking.subtotalMinor,
+      booking.discountMinor,
+      booking.bookingFeeMinor,
+      booking.paymentFeeMinor,
+      booking.customerFeeMinor ?? 0,
+      booking.feeTaxMinor ?? 0,
+      booking.maintenanceMinor ?? 0,
+      ...(booking.taxLines ?? []).map((l) => l.amountMinor),
+      booking.totalMinor,
+    ],
+    booking.currency,
+  );
+  // The building, as the seat page and the confirmation name it.
+  const where = booking.place
+    ? [booking.place.name, booking.place.city].filter(Boolean).join(', ')
+    : null;
 
   return (
-    <div className="mx-auto max-w-lg space-y-6">
-      <Stepper steps={BOOKING_STEPS.map((s) => c(`steps.${s}`))} current={1} />
-      <h1 className="text-h2 font-bold tracking-tight text-text-primary">{k('reviewAndPay')}</h1>
-
-      {/* Hold timer */}
-      <div
-        className={`flex items-center justify-between rounded-md border px-4 py-3 ${
-          expired
-            ? 'border-status-error/30 bg-status-error/5'
-            : countdown.totalSeconds < 120
-              ? 'border-status-warning/30 bg-status-warning/5'
-              : 'border-border bg-background-subtle/60'
-        }`}
-      >
-        <span className="flex items-center gap-2 text-[0.9375rem] text-text-secondary">
-          <Clock className={`h-4 w-4 ${expired ? 'text-status-error' : 'text-text-muted'}`} />
-          {expired ? k('holdExpiredTitle') : k('ticketsHeldForYou')}
-        </span>
-        {!expired && (
-          <span
-            className={`font-mono text-title font-semibold tabular-nums ${
-              countdown.totalSeconds < 120 ? 'text-status-warning' : 'text-text-primary'
-            }`}
-            aria-live="polite"
-          >
-            {countdown.label}
-          </span>
-        )}
-      </div>
+    <PayShell>
+      <PayHeader title={k('reviewAndPay')} steps={BOOKING_STEPS.map((s) => c(`steps.${s}`))} />
+      <HoldTimer countdown={countdown} />
 
       {/*
         More time, for anybody who needs it.
@@ -407,250 +476,285 @@ function AccountPayment() {
       {!expired && countdown.totalSeconds < 120 && (
         <div
           role="alert"
-          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-status-warning/30 bg-tint-warning px-4 py-3"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-brand-card bg-brand-caution-tint px-4 py-3"
         >
-          <span className="text-[0.9375rem] text-text-primary">
+          <span className="text-brand-ui text-brand-ink">
             {extendHold.data?.extensionsRemaining === 0
               ? k('noMoreExtensions')
               : `${k('expiringSoon')} ${k('needMoreTime')}`}
           </span>
           {extendHold.data?.extensionsRemaining !== 0 && (
-            <Button
-              variant="outline"
-              size="sm"
-              loading={extendHold.isPending}
+            <BrandButton
+              variant="secondary"
+              aria-busy={extendHold.isPending || undefined}
               disabled={extendHold.isPending}
               onClick={() => extendHold.mutate()}
             >
               {extendHold.isPending ? k('extending') : k('keepMySeats')}
-            </Button>
+            </BrandButton>
           )}
         </div>
       )}
 
-      <Card className="space-y-3">
-        <div>
-          <p className="font-semibold text-text-primary">{booking.event.title}</p>
-          <p className="text-[0.9375rem] text-text-muted">
-            {dateTime(booking.eventSession.startsAt, undefined, booking.timeZone ?? undefined)}
-            {(() => {
-              const zoneLabel = zoneAbbrev(
-                booking.eventSession.startsAt,
-                booking.timeZone ?? undefined,
-              );
-              return zoneLabel ? ` ${zoneLabel}` : '';
-            })()}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_24rem] lg:gap-8">
+        {/* What is being bought: the show, the seats, the lines, and a place for a code. */}
+        <section
+          aria-labelledby="order-heading"
+          className={`${BRAND_PANEL} p-4 sm:p-6 lg:self-start`}
+        >
+          <p id="order-heading" className={BRAND_EYEBROW}>
+            {c('yourOrder')}
           </p>
-        </div>
-        <div className="space-y-1 border-t border-border pt-3">
+          <h2 className="mt-2 font-brand-display text-brand-d3 text-brand-ink">
+            {booking.event.title}
+          </h2>
+          <p className="mt-1 text-brand-ui text-brand-ink-2">
+            {venueWhenText(booking.eventSession.startsAt, booking.timeZone ?? undefined)}
+          </p>
+          {where ? <p className="text-brand-ui text-brand-ink-2">{where}</p> : null}
+
+          <div className="mt-5 space-y-2 border-t border-brand-line pt-5">
+            {/*
+              The seats, named, before the money moves.
+
+              Reported from QA: this screen showed "2 x A" — a count and a ticket-type name —
+              so a buyer choosing reserved seats had no way to confirm they were buying the
+              ones they picked. It is the last point where a mistake is free to fix.
+            */}
+            {(booking.seatLabels?.length ?? 0) > 0 ? (
+              <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 pb-2">
+                <span className="text-brand-ui text-brand-ink-2">
+                  {booking.seatLabels!.length === 1 ? k('seat') : k('seats')}
+                </span>
+                <span className="text-brand-ui font-semibold text-brand-ink">
+                  {booking.seatLabels!.join(', ')}
+                </span>
+              </div>
+            ) : null}
+
+            {booking.items.map((i, idx) => (
+              <Row
+                key={idx}
+                label={`${i.quantity} x ${i.label ?? i.ticketType?.name ?? i.addOn?.name ?? i.bundle?.name ?? k('item')}`}
+                value={money(i.unitPriceMinor * i.quantity, booking.currency, undefined, digits)}
+              />
+            ))}
+          </div>
           {/*
-            The seats, named, before the money moves.
+            Somewhere to put a code.
 
-            Reported from QA: this screen showed "2 x A" — a count and a ticket-type name —
-            so a buyer choosing reserved seats had no way to confirm they were buying the
-            ones they picked. It is the last point where a mistake is free to fix.
+            Reported from QA: an organizer created a promotion and found nowhere in the buying
+            flow to use it. The API had accepted a code since the beginning — but only when the
+            booking was CREATED, which is while the buyer is picking seats and not thinking
+            about money. A discount box belongs on the screen showing the total.
           */}
-          {(booking.seatLabels?.length ?? 0) > 0 ? (
-            <div className="mb-3 flex flex-wrap items-baseline gap-x-2 gap-y-1 border-b border-border pb-3">
-              <span className="text-[0.9375rem] text-text-secondary">
-                {booking.seatLabels!.length === 1 ? k('seat') : k('seats')}
-              </span>
-              <span className="font-medium text-text-primary">
-                {booking.seatLabels!.join(', ')}
-              </span>
-            </div>
-          ) : null}
-
-          {booking.items.map((i, idx) => (
-            <Row
-              key={idx}
-              label={`${i.quantity} x ${i.label ?? i.ticketType?.name ?? i.addOn?.name ?? i.bundle?.name ?? k('item')}`}
-              value={money(i.unitPriceMinor * i.quantity, booking.currency)}
-            />
-          ))}
-        </div>
-        {/*
-          Somewhere to put a code.
-
-          Reported from QA: an organizer created a promotion and found nowhere in the buying
-          flow to use it. The API had accepted a code since the beginning — but only when the
-          booking was CREATED, which is while the buyer is picking seats and not thinking
-          about money. A discount box belongs on the screen showing the total.
-        */}
-        <div className="mb-3 border-t border-border pt-3">
-          {booking.discountMinor > 0 ? (
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-[0.9375rem] text-text-secondary">{k('discountApplied')}</span>
-              <button
-                type="button"
-                onClick={() => coupon.mutate(null)}
-                disabled={coupon.isPending}
-                className="text-caption text-text-muted underline hover:text-text-primary disabled:opacity-50"
-              >
-                {k('remove')}
-              </button>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {(offersQ.data?.length ?? 0) > 0 && (
-                <select
-                  aria-label={k('availableOffers')}
-                  value=""
-                  onChange={(e) => {
-                    if (!e.target.value) return;
-                    setCode(e.target.value);
-                    setCouponError(null);
-                    // Applied on selection: picking an offer IS the intent, and making
-                    // somebody choose it and then press Apply is a step that earns nothing.
-                    coupon.mutate(e.target.value);
-                  }}
-                  className="w-full rounded-md border border-border bg-background-surface px-3 py-2 text-[0.9375rem] text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-                >
-                  <option value="">{k('availableOffers')}</option>
-                  {offersQ.data!.map((o) => (
-                    <option key={o.code} value={o.code}>
-                      {o.code} - {o.label}
-                    </option>
-                  ))}
-                </select>
-              )}
-              <div className="flex items-start gap-2">
-                <input
-                  aria-label={k('discountCode')}
-                  placeholder={k('discountCode')}
-                  value={code}
-                  onChange={(e) => {
-                    setCode(e.target.value.toUpperCase());
-                    setCouponError(null);
-                  }}
-                  className="min-w-0 flex-1 rounded-md border border-border bg-background-surface px-3 py-2 text-[0.9375rem] uppercase text-text-primary placeholder:normal-case placeholder:text-text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-                />
+          <div className="mt-5 border-t border-brand-line pt-5">
+            {booking.discountMinor > 0 ? (
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-brand-ui text-brand-ink-2">{k('discountApplied')}</span>
                 <button
                   type="button"
-                  disabled={!code.trim() || coupon.isPending}
-                  onClick={() => coupon.mutate(code)}
-                  className="shrink-0 rounded-md border border-border px-3 py-2 text-[0.9375rem] font-medium text-text-primary transition-colors hover:bg-background-subtle disabled:opacity-40"
+                  onClick={() => coupon.mutate(null)}
+                  disabled={coupon.isPending}
+                  className={`min-h-11 text-brand-meta disabled:opacity-50 ${BRAND_LINK}`}
                 >
-                  {coupon.isPending ? k('applying') : k('apply')}
+                  {k('remove')}
                 </button>
               </div>
-            </div>
-          )}
-          {couponError && (
-            <p role="alert" className="mt-1.5 text-caption text-status-error">
-              {couponError}
-            </p>
-          )}
-        </div>
+            ) : (
+              <div className="space-y-2">
+                {(offersQ.data?.length ?? 0) > 0 && (
+                  <select
+                    aria-label={k('availableOffers')}
+                    value=""
+                    onChange={(e) => {
+                      if (!e.target.value) return;
+                      setCode(e.target.value);
+                      setCouponError(null);
+                      // Applied on selection: picking an offer IS the intent, and making
+                      // somebody choose it and then press Apply is a step that earns nothing.
+                      coupon.mutate(e.target.value);
+                    }}
+                    className={`${BRAND_FIELD} w-full`}
+                  >
+                    <option value="">{k('availableOffers')}</option>
+                    {offersQ.data!.map((o) => (
+                      <option key={o.code} value={o.code}>
+                        {o.code} - {o.label}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                <div className="flex items-start gap-2">
+                  <input
+                    aria-label={k('discountCode')}
+                    placeholder={k('discountCode')}
+                    value={code}
+                    onChange={(e) => {
+                      setCode(e.target.value.toUpperCase());
+                      setCouponError(null);
+                    }}
+                    className={`${BRAND_FIELD} min-w-0 flex-1 uppercase placeholder:normal-case`}
+                  />
+                  <BrandButton
+                    variant="secondary"
+                    disabled={!code.trim() || coupon.isPending}
+                    onClick={() => coupon.mutate(code)}
+                    className="shrink-0"
+                  >
+                    {coupon.isPending ? k('applying') : k('apply')}
+                  </BrandButton>
+                </div>
+              </div>
+            )}
+            {couponError && (
+              <p role="alert" className="mt-2 text-brand-meta text-brand-critical">
+                {couponError}
+              </p>
+            )}
+          </div>
+        </section>
 
         {/*
-          ── THE SAME BREAKDOWN THE EVENT PAGE SHOWED ──────────────────────────────────
-          This screen used to itemise the fee its own way — "Booking fee ₹20" and "Payment
-          fee ₹60.38" — while the event page showed "Platform fee ₹80.38" for the identical
-          money. Same order, two presentations, and a buyer left to work out whether they had
-          just been charged something new between one screen and the next.
-
-          It also spelled its labels in hardcoded English, so a French checkout showed
-          "Booking fee". Reusing the shared component fixes the disagreement and the
-          translation in the same move, and there is now one place where the rule "these rows
-          must add up to the total" is tested.
+          ── PAYING ───────────────────────────────────────────────────────────────────
+          The money and the one action, together, beside the order on a wide screen and under
+          it on a phone. The breakdown is the same component the event page showed - the same
+          rows, the same total - so nothing changes between "I chose" and "I pay".
         */}
-        <PriceBreakdown
-          quote={{
-            currency: booking.currency,
-            subtotalMinor: booking.subtotalMinor,
-            discountMinor: booking.discountMinor,
-            bookingFeeMinor: booking.bookingFeeMinor,
-            paymentFeeMinor: booking.paymentFeeMinor,
-            customerFeeInclusiveMinor: booking.customerFeeInclusiveMinor,
-            customerFeeMinor: booking.customerFeeMinor,
-            feeTaxRateBasisPoints: booking.feeTaxRateBasisPoints,
-            feeTaxMinor: booking.feeTaxMinor,
-            maintenanceMinor: booking.maintenanceMinor,
-            maintenanceTreatment: booking.maintenanceTreatment,
-            taxLines: booking.taxLines,
-            totalMinor: booking.totalMinor,
-          }}
-          totalLabel={k('totalPayable')}
-        />
-      </Card>
-
-      {paymentsActivating && (
-        /*
-          Deliberately an INFO tint, not the error red: nothing went wrong for this buyer. The
-          operator line names the legal entity, because the person most likely to read this first
-          is the payment gateway's own reviewer opening the site we gave them.
-        */
-        <div
-          role="status"
-          className="space-y-2 rounded-lg border border-status-info/30 bg-tint-info p-4"
+        <section
+          aria-labelledby="pay-heading"
+          className={`${BRAND_PANEL} p-4 sm:p-6 lg:sticky lg:top-24 lg:h-fit`}
         >
-          <p className="font-medium text-text-primary">{k('paymentsActivatingTitle')}</p>
-          <p className="text-[0.9375rem] text-text-secondary">
-            {k(paymentsActivatingCopy(booking.currency).body)}
-          </p>
-          {paymentsActivatingCopy(booking.currency).showOperator && (
-            <p className="text-caption text-text-muted">{k('paymentsActivatingOperator')}</p>
-          )}
-        </div>
-      )}
+          <h2 id="pay-heading" className="font-brand-display text-brand-d3 text-brand-ink">
+            {c('steps.payment')}
+          </h2>
+          <div className="mt-2">
+            <PriceBreakdown
+              brand
+              quote={{
+                currency: booking.currency,
+                subtotalMinor: booking.subtotalMinor,
+                discountMinor: booking.discountMinor,
+                bookingFeeMinor: booking.bookingFeeMinor,
+                paymentFeeMinor: booking.paymentFeeMinor,
+                customerFeeInclusiveMinor: booking.customerFeeInclusiveMinor,
+                customerFeeMinor: booking.customerFeeMinor,
+                feeTaxRateBasisPoints: booking.feeTaxRateBasisPoints,
+                feeTaxMinor: booking.feeTaxMinor,
+                maintenanceMinor: booking.maintenanceMinor,
+                maintenanceTreatment: booking.maintenanceTreatment,
+                taxLines: booking.taxLines,
+                totalMinor: booking.totalMinor,
+              }}
+              totalLabel={k('totalPayable')}
+              fractionDigits={digits}
+            />
+          </div>
 
-      {error && (
-        <p role="alert" className="text-caption text-status-error">
-          {error}
-        </p>
-      )}
-
-      {expired ? (
-        <div className="space-y-3 text-center">
-          <p className="text-[0.9375rem] text-text-muted">{k('ticketsReleased')}</p>
-          <ButtonLink href={`/events/${booking.event.slug}`} className="w-full">
-            {k('backToEvent')}
-          </ButtonLink>
-        </div>
-      ) : (
-        <>
-          <Button className="w-full" loading={pay.isPending} onClick={() => pay.mutate()}>
-            {pay.isPending
-              ? k('processing')
-              : k('payAmount', { amount: money(booking.totalMinor, booking.currency) })}
-          </Button>
-          <Button
-            variant="outline"
-            className="w-full"
-            disabled={pay.isPending}
-            onClick={() => setConfirmingCancel(true)}
-          >
-            {k('cancelBooking')}
-          </Button>
-          <Dialog
-            open={confirmingCancel}
-            onClose={() => setConfirmingCancel(false)}
-            title={k('cancelBookingTitle')}
-          >
-            <div className="space-y-4">
-              <p className="text-[0.9375rem] text-text-secondary">{k('cancelBookingBody')}</p>
-              <div className="flex flex-wrap justify-end gap-2">
-                <Button
-                  variant="outline"
-                  disabled={cancelBooking.isPending}
-                  onClick={() => setConfirmingCancel(false)}
-                >
-                  {k('keepBooking')}
-                </Button>
-                <Button
-                  variant="danger"
-                  loading={cancelBooking.isPending}
-                  onClick={() => cancelBooking.mutate()}
-                >
-                  {k('confirmCancelBooking')}
-                </Button>
-              </div>
+          {paymentsActivating && (
+            /*
+              Deliberately an INFO tint, not the error red: nothing went wrong for this buyer. The
+              operator line names the legal entity, because the person most likely to read this
+              first is the payment gateway's own reviewer opening the site we gave them.
+            */
+            <div
+              role="status"
+              className="mt-5 space-y-2 rounded-brand-control bg-brand-info-tint p-4"
+            >
+              <p className="text-brand-ui font-semibold text-brand-ink">
+                {k('paymentsActivatingTitle')}
+              </p>
+              <p className="text-brand-ui text-brand-ink-2">
+                {k(paymentsActivatingCopy(booking.currency).body)}
+              </p>
+              {paymentsActivatingCopy(booking.currency).showOperator && (
+                <p className="text-brand-meta text-brand-ink-3">
+                  {k('paymentsActivatingOperator')}
+                </p>
+              )}
             </div>
-          </Dialog>
+          )}
 
-          {/* Booking confidence */}
-          <div className="grid grid-cols-3 gap-2 text-center">
+          {error && (
+            <p
+              role="alert"
+              className="mt-5 rounded-brand-control bg-brand-critical-tint px-3 py-2 text-brand-ui text-brand-critical"
+            >
+              {error}
+            </p>
+          )}
+
+          {expired ? (
+            <div className="mt-5 space-y-3 text-center">
+              <p className="text-brand-ui text-brand-ink-2">{k('ticketsReleased')}</p>
+              <Link
+                href={`/events/${booking.event.slug}`}
+                className={`${brandButtonClasses('primary', 'lg')} w-full`}
+              >
+                {k('backToEvent')}
+              </Link>
+            </div>
+          ) : (
+            <div className="mt-6 space-y-3">
+              <BrandButton
+                size="lg"
+                className="w-full"
+                aria-busy={pay.isPending || undefined}
+                disabled={pay.isPending}
+                onClick={() => pay.mutate()}
+              >
+                {pay.isPending
+                  ? k('processing')
+                  : k('payAmount', {
+                      amount: money(booking.totalMinor, booking.currency, undefined, digits),
+                    })}
+              </BrandButton>
+              <p className="flex items-start gap-2 text-brand-meta text-brand-ink-3">
+                <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+                {k('securePaymentNote')}
+              </p>
+              <BrandButton
+                variant="quiet"
+                className="w-full"
+                disabled={pay.isPending}
+                onClick={() => setConfirmingCancel(true)}
+              >
+                {k('cancelBooking')}
+              </BrandButton>
+              <Dialog
+                open={confirmingCancel}
+                onClose={() => setConfirmingCancel(false)}
+                title={k('cancelBookingTitle')}
+              >
+                <div className="space-y-4">
+                  <p className="text-[0.9375rem] text-text-secondary">{k('cancelBookingBody')}</p>
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <Button
+                      variant="outline"
+                      disabled={cancelBooking.isPending}
+                      onClick={() => setConfirmingCancel(false)}
+                    >
+                      {k('keepBooking')}
+                    </Button>
+                    <Button
+                      variant="danger"
+                      loading={cancelBooking.isPending}
+                      onClick={() => cancelBooking.mutate()}
+                    >
+                      {k('confirmCancelBooking')}
+                    </Button>
+                  </div>
+                </div>
+              </Dialog>
+            </div>
+          )}
+        </section>
+      </div>
+
+      {!expired && (
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_24rem] lg:gap-8">
+          {/* What happens after paying, said plainly: words, not three icon tiles. */}
+          <ul className="grid gap-3 sm:grid-cols-3">
             {[
               { icon: QrCode, label: k('instantQr') },
               {
@@ -661,28 +765,24 @@ function AccountPayment() {
                     : k('refundablePerPolicy'),
               },
               { icon: ShieldCheck, label: k('noHiddenFees') },
-            ].map((c) => (
-              <div
-                key={c.label}
-                className="rounded-md border border-border bg-background-surface p-3"
+            ].map((item) => (
+              <li
+                key={item.label}
+                className="flex items-center gap-2 text-brand-meta text-brand-ink-2"
               >
-                <c.icon className="mx-auto h-4 w-4 text-status-success" />
-                <p className="mt-1.5 text-caption text-text-muted">{c.label}</p>
-              </div>
+                <item.icon className="h-4 w-4 shrink-0 text-brand-ink-3" aria-hidden />
+                {item.label}
+              </li>
             ))}
-          </div>
+          </ul>
           <RefundTerms
             refundsEnabled={booking.event.refundsEnabled}
             refundCutoffHours={booking.event.refundCutoffHours}
             refundPolicy={booking.event.refundPolicy}
           />
-          <p className="flex items-center justify-center gap-1.5 text-center text-caption text-text-muted">
-            <ShieldCheck className="h-3.5 w-3.5" />
-            {k('securePaymentNote')}
-          </p>
-        </>
+        </div>
       )}
-    </div>
+    </PayShell>
   );
 }
 
@@ -851,145 +951,167 @@ function GuestPayment({ id, anonSession }: { id: string; anonSession: string }) 
       ? tx(statusKey)
       : view.status.replaceAll('_', ' ').toLowerCase();
     return (
-      <Card className="mx-auto max-w-md text-center">
-        <p className="text-text-primary">{k('bookingStatus', { status: statusLabel })}</p>
-        <Button className="mt-4" onClick={() => router.push(`/booking/${id}/confirmation`)}>
-          {k('viewBooking')}
-        </Button>
-      </Card>
+      <PayShell>
+        <div className={`${BRAND_PANEL} mx-auto max-w-md p-6 text-center`}>
+          <p className="text-brand-body text-brand-ink">
+            {k('bookingStatus', { status: statusLabel })}
+          </p>
+          <BrandButton className="mt-4" onClick={() => router.push(`/booking/${id}/confirmation`)}>
+            {k('viewBooking')}
+          </BrandButton>
+        </div>
+      </PayShell>
     );
   }
 
   const expired = countdown.expired;
 
   return (
-    <div className="mx-auto max-w-lg space-y-6">
-      <Stepper steps={BOOKING_STEPS.map((step) => c(`steps.${step}`))} current={1} />
-      <h1 className="text-h2 font-bold tracking-tight text-text-primary">{k('reviewAndPay')}</h1>
+    <PayShell>
+      <PayHeader
+        title={k('reviewAndPay')}
+        steps={BOOKING_STEPS.map((step) => c(`steps.${step}`))}
+        lead={g('payingAsGuest')}
+      />
+      <HoldTimer countdown={countdown} />
 
-      <p className="text-[0.9375rem] text-text-secondary">{g('payingAsGuest')}</p>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_24rem] lg:gap-8">
+        {/*
+          The guest summary is shared with the emailed booking link (/booking/access), which has
+          not moved to the brand layer yet; it keeps its own card here until that page does.
+        */}
+        <div className="min-w-0">
+          <GuestBookingSummary view={view} />
+        </div>
 
-      <div
-        className={`flex items-center justify-between rounded-md border px-4 py-3 ${
-          expired
-            ? 'border-status-error/30 bg-status-error/5'
-            : countdown.totalSeconds < 120
-              ? 'border-status-warning/30 bg-status-warning/5'
-              : 'border-border bg-background-subtle/60'
-        }`}
-      >
-        <span className="flex items-center gap-2 text-[0.9375rem] text-text-secondary">
-          <Clock className={`h-4 w-4 ${expired ? 'text-status-error' : 'text-text-muted'}`} />
-          {expired ? k('holdExpiredTitle') : k('ticketsHeldForYou')}
-        </span>
-        {!expired && (
-          <span
-            className={`font-mono text-title font-semibold tabular-nums ${
-              countdown.totalSeconds < 120 ? 'text-status-warning' : 'text-text-primary'
-            }`}
-            aria-live="polite"
-          >
-            {countdown.label}
-          </span>
-        )}
+        <section
+          aria-labelledby="pay-heading"
+          className={`${BRAND_PANEL} p-4 sm:p-6 lg:sticky lg:top-24 lg:h-fit`}
+        >
+          <h2 id="pay-heading" className="font-brand-display text-brand-d3 text-brand-ink">
+            {c('steps.payment')}
+          </h2>
+          <div className="mt-3 flex items-baseline justify-between gap-4 border-t border-brand-line pt-3">
+            <span className="text-brand-ui text-brand-ink-2">{k('totalPayable')}</span>
+            <span className="text-brand-figure-sm tabular-nums text-brand-ink">
+              {money(view.totals.totalMinor, view.currency)}
+            </span>
+          </div>
+
+          {paymentsActivating && (
+            <div
+              role="status"
+              className="mt-5 space-y-2 rounded-brand-control bg-brand-info-tint p-4"
+            >
+              <p className="text-brand-ui font-semibold text-brand-ink">
+                {k('paymentsActivatingTitle')}
+              </p>
+              <p className="text-brand-ui text-brand-ink-2">
+                {k(paymentsActivatingCopy(view.currency).body)}
+              </p>
+              {paymentsActivatingCopy(view.currency).showOperator && (
+                <p className="text-brand-meta text-brand-ink-3">
+                  {k('paymentsActivatingOperator')}
+                </p>
+              )}
+            </div>
+          )}
+          {error && (
+            <p
+              role="alert"
+              className="mt-5 rounded-brand-control bg-brand-critical-tint px-3 py-2 text-brand-ui text-brand-critical"
+            >
+              {error}
+            </p>
+          )}
+
+          {expired ? (
+            <div className="mt-5 space-y-3 text-center">
+              <p className="text-brand-ui text-brand-ink-2">{k('ticketsReleased')}</p>
+              <Link
+                href={`/events/${view.event.slug}`}
+                className={`${brandButtonClasses('primary', 'lg')} w-full`}
+              >
+                {k('backToEvent')}
+              </Link>
+            </div>
+          ) : (
+            <div className="mt-6 space-y-3">
+              <BrandButton
+                size="lg"
+                className="w-full"
+                aria-busy={pay.isPending || undefined}
+                disabled={pay.isPending}
+                onClick={() => pay.mutate()}
+              >
+                {pay.isPending
+                  ? k('processing')
+                  : k('payAmount', { amount: money(view.totals.totalMinor, view.currency) })}
+              </BrandButton>
+              <p className="flex items-start gap-2 text-brand-meta text-brand-ink-3">
+                <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+                {k('securePaymentNote')}
+              </p>
+              {cancelUnavailable ? (
+                <p
+                  role="status"
+                  className="rounded-brand-control bg-brand-sunken px-4 py-3 text-brand-ui text-brand-ink-2"
+                >
+                  {g('cancelUnavailable')}
+                </p>
+              ) : (
+                <BrandButton
+                  variant="quiet"
+                  className="w-full"
+                  disabled={pay.isPending}
+                  onClick={() => setConfirmingCancel(true)}
+                >
+                  {k('cancelBooking')}
+                </BrandButton>
+              )}
+              <Dialog
+                open={confirmingCancel}
+                onClose={() => setConfirmingCancel(false)}
+                title={k('cancelBookingTitle')}
+              >
+                <div className="space-y-4">
+                  <p className="text-[0.9375rem] text-text-secondary">{k('cancelBookingBody')}</p>
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <Button
+                      variant="outline"
+                      disabled={cancelBooking.isPending}
+                      onClick={() => setConfirmingCancel(false)}
+                    >
+                      {k('keepBooking')}
+                    </Button>
+                    <Button
+                      variant="danger"
+                      loading={cancelBooking.isPending}
+                      onClick={() => cancelBooking.mutate()}
+                    >
+                      {k('confirmCancelBooking')}
+                    </Button>
+                  </div>
+                </div>
+              </Dialog>
+              <p className="text-center text-brand-meta text-brand-ink-3">
+                {g('wantAnAccount')}{' '}
+                <Link href="/register" className={BRAND_LINK}>
+                  {g('createAccountLater')}
+                </Link>
+              </p>
+            </div>
+          )}
+        </section>
       </div>
 
-      <GuestBookingSummary view={view} />
-
-      {paymentsActivating && (
-        <div
-          role="status"
-          className="space-y-2 rounded-lg border border-status-info/30 bg-tint-info p-4"
-        >
-          <p className="font-medium text-text-primary">{k('paymentsActivatingTitle')}</p>
-          <p className="text-[0.9375rem] text-text-secondary">
-            {k(paymentsActivatingCopy(view.currency).body)}
-          </p>
-          {paymentsActivatingCopy(view.currency).showOperator && (
-            <p className="text-caption text-text-muted">{k('paymentsActivatingOperator')}</p>
-          )}
-        </div>
+      {!expired && (
+        <RefundTerms
+          refundsEnabled={view.event.refundsEnabled}
+          refundCutoffHours={view.event.refundCutoffHours}
+          refundPolicy={view.event.refundPolicy}
+        />
       )}
-      {error && (
-        <p role="alert" className="text-caption text-status-error">
-          {error}
-        </p>
-      )}
-
-      {expired ? (
-        <div className="space-y-3 text-center">
-          <p className="text-[0.9375rem] text-text-muted">{k('ticketsReleased')}</p>
-          <ButtonLink href={`/events/${view.event.slug}`} className="w-full">
-            {k('backToEvent')}
-          </ButtonLink>
-        </div>
-      ) : (
-        <>
-          <Button className="w-full" loading={pay.isPending} onClick={() => pay.mutate()}>
-            {pay.isPending
-              ? k('processing')
-              : k('payAmount', { amount: money(view.totals.totalMinor, view.currency) })}
-          </Button>
-          {cancelUnavailable ? (
-            <p
-              role="status"
-              className="rounded-md border border-border bg-background-subtle/60 px-4 py-3 text-[0.9375rem] text-text-secondary"
-            >
-              {g('cancelUnavailable')}
-            </p>
-          ) : (
-            <Button
-              variant="outline"
-              className="w-full"
-              disabled={pay.isPending}
-              onClick={() => setConfirmingCancel(true)}
-            >
-              {k('cancelBooking')}
-            </Button>
-          )}
-          <Dialog
-            open={confirmingCancel}
-            onClose={() => setConfirmingCancel(false)}
-            title={k('cancelBookingTitle')}
-          >
-            <div className="space-y-4">
-              <p className="text-[0.9375rem] text-text-secondary">{k('cancelBookingBody')}</p>
-              <div className="flex flex-wrap justify-end gap-2">
-                <Button
-                  variant="outline"
-                  disabled={cancelBooking.isPending}
-                  onClick={() => setConfirmingCancel(false)}
-                >
-                  {k('keepBooking')}
-                </Button>
-                <Button
-                  variant="danger"
-                  loading={cancelBooking.isPending}
-                  onClick={() => cancelBooking.mutate()}
-                >
-                  {k('confirmCancelBooking')}
-                </Button>
-              </div>
-            </div>
-          </Dialog>
-
-          <RefundTerms
-            refundsEnabled={view.event.refundsEnabled}
-            refundCutoffHours={view.event.refundCutoffHours}
-            refundPolicy={view.event.refundPolicy}
-          />
-          <p className="flex items-center justify-center gap-1.5 text-center text-caption text-text-muted">
-            <ShieldCheck className="h-3.5 w-3.5" />
-            {k('securePaymentNote')}
-          </p>
-          <p className="text-center text-caption text-text-muted">
-            {g('wantAnAccount')}{' '}
-            <Link href="/register" className="text-action-primary underline">
-              {g('createAccountLater')}
-            </Link>
-          </p>
-        </>
-      )}
-    </div>
+    </PayShell>
   );
 }

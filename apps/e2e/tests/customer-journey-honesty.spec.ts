@@ -1,5 +1,6 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import { API, CUSTOMER, apiLogin } from './helpers';
+import { chooseQuantity, moreButton } from './ticket-quantity';
 
 /**
  * Two things the customer-journey review found a buyer could not trust (QA, 2026-10-12):
@@ -67,9 +68,9 @@ test('a closed ticket tier cannot be picked, and the refund terms show before pa
   await page.goto(`${CUSTOMER}/events/${fx.slug}`);
 
   await expect(page.getByText('Sales closed')).toBeVisible();
-  await expect(page.getByLabel(/Quantity of Closed tier/)).toBeDisabled();
+  await expect(moreButton(page.getByLabel(/Quantity of Closed tier/))).toBeDisabled();
 
-  await page.getByLabel(/Quantity of Open tier/).selectOption('1');
+  await chooseQuantity(page.getByLabel(/Quantity of Open tier/), 1);
   await page.getByLabel('Your name').fill('Journey Buyer');
   await page.getByLabel('Email', { exact: true }).fill(`journey_${Date.now()}@e2e.test`);
   await page.getByRole('button', { name: 'Continue to payment' }).click();

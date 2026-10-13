@@ -2,7 +2,8 @@
 
 import { usePathname } from '@/i18n/navigation';
 import { useEffect, useState } from 'react';
-import { Home, Compass, Ticket, Bell, User } from 'lucide-react';
+import { Home, Compass, Ticket, User } from 'lucide-react';
+import { BRAND_FOCUS } from '@eticketsgo/web-kit';
 import { tokenStore } from '@/lib/api';
 import { Link } from '@/i18n/navigation';
 import { useTranslations } from 'next-intl';
@@ -15,9 +16,15 @@ import { useTranslations } from 'next-intl';
 */
 type Item = { href: string; label: string; icon: typeof Home; match: (p: string) => boolean };
 
+/*
+  Four places, not five (docs/design/DESIGN-SYSTEM.md, section 5). Alerts left the bar: the
+  notification list is one tap inside Account, and a fifth tab made every label smaller on the
+  320px screen where they matter most. "Browse" became Explore; Browse is still where the search
+  field and every "See all" link land.
+*/
 const ITEMS: Item[] = [
   { href: '/', label: 'home', icon: Home, match: (p) => p === '/' },
-  { href: '/events', label: 'browse', icon: Compass, match: (p) => p.startsWith('/events') },
+  { href: '/explore', label: 'explore', icon: Compass, match: (p) => p.startsWith('/explore') },
   {
     href: '/account/tickets',
     label: 'tickets',
@@ -25,19 +32,10 @@ const ITEMS: Item[] = [
     match: (p) => p.startsWith('/account/tickets'),
   },
   {
-    href: '/account/notifications',
-    label: 'alerts',
-    icon: Bell,
-    match: (p) => p.startsWith('/account/notifications'),
-  },
-  {
     href: '/account/bookings',
     label: 'account',
     icon: User,
-    match: (p) =>
-      p.startsWith('/account') &&
-      !p.startsWith('/account/tickets') &&
-      !p.startsWith('/account/notifications'),
+    match: (p) => p.startsWith('/account') && !p.startsWith('/account/tickets'),
   },
 ];
 
@@ -60,6 +58,7 @@ const ITEMS: Item[] = [
  */
 export function BottomNav() {
   const t = useTranslations('common.nav');
+  const h = useTranslations('home.bottomNav');
   const pathname = usePathname();
   const [authed, setAuthed] = useState(false);
   /*
@@ -77,16 +76,41 @@ export function BottomNav() {
   */
   useEffect(() => setAuthed(!!tokenStore.access), [pathname]);
   /*
+    Out of the way while somebody is typing. With the on-screen keyboard up, a fixed bar sits
+    on top of it and takes 56px of the little room left - measured at 320x508 with the search
+    focused, the bar covered most of what was left below the field. It comes back on blur.
+  */
+  const [typing, setTyping] = useState(false);
+  useEffect(() => {
+    const isField = (t: EventTarget | null) =>
+      t instanceof HTMLElement &&
+      (t.tagName === 'TEXTAREA' ||
+        t.isContentEditable ||
+        (t.tagName === 'INPUT' &&
+          !['button', 'checkbox', 'radio', 'submit', 'reset', 'range'].includes(
+            (t as HTMLInputElement).type,
+          )));
+    const on = (e: FocusEvent) => setTyping(isField(e.target));
+    const off = () => setTyping(false);
+    document.addEventListener('focusin', on);
+    document.addEventListener('focusout', off);
+    return () => {
+      document.removeEventListener('focusin', on);
+      document.removeEventListener('focusout', off);
+    };
+  }, []);
+  /*
     Not while choosing seats. That screen has its own bar at the bottom — the seats, the amount
     and the pay button — and a navigation bar under it would put five ways to leave the booking
     beneath the one thing the buyer came to press.
   */
-  if (pathname.startsWith('/shows/')) return null;
+  if (pathname.startsWith('/shows/') || typing) return null;
 
   return (
     <nav
-      aria-label="Primary"
-      className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-background-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md lg:hidden print:hidden"
+      data-brand="customer"
+      aria-label={h('label')}
+      className="fixed inset-x-0 bottom-0 z-40 border-t border-brand-line bg-brand-canvas pb-[env(safe-area-inset-bottom)] font-brand-text lg:hidden print:hidden"
     >
       <ul className="mx-auto flex max-w-lg items-stretch justify-around">
         {ITEMS.map((item) => {
@@ -106,12 +130,24 @@ export function BottomNav() {
                     : `/login?next=${encodeURIComponent(item.href)}`
                 }
                 aria-current={active ? 'page' : undefined}
-                className={`flex min-h-[3.25rem] flex-col items-center justify-center gap-0.5 px-1 py-1.5 text-[0.6875rem] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${
-                  active ? 'text-action-primary' : 'text-text-muted hover:text-text-primary'
+                /*
+                  The current tab is told by weight and a marigold dot, never by colour alone:
+                  ink stays ink, so it reads in greyscale and in bright sun.
+                */
+                className={`relative flex h-14 flex-col items-center justify-center gap-0.5 px-1 text-[0.75rem] leading-none transition-colors ${BRAND_FOCUS} ${
+                  active
+                    ? 'font-semibold text-brand-ink'
+                    : 'font-medium text-brand-ink-3 hover:text-brand-ink'
                 }`}
               >
-                <Icon className="h-5 w-5" aria-hidden />
+                <Icon className="h-5 w-5" strokeWidth={active ? 2.4 : 1.8} aria-hidden />
                 {t(item.label)}
+                {active && (
+                  <span
+                    aria-hidden
+                    className="absolute top-1.5 h-1.5 w-1.5 translate-x-3 rounded-full bg-brand-marigold"
+                  />
+                )}
               </Link>
             </li>
           );

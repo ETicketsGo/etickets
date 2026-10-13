@@ -7,6 +7,7 @@ import {
   uniqueEmail,
   NEW_ACCOUNT_PASSWORD,
 } from './helpers';
+import { chooseQuantity } from './ticket-quantity';
 
 /**
  * A free event, end to end, with the payment system never involved.
@@ -214,11 +215,17 @@ test.describe('a free event', () => {
 
     await page.goto(`${CUSTOMER}/events/${fx.slug}`, { waitUntil: 'networkidle' });
     await expect(page.getByText('Free entry')).toBeVisible({ timeout: 30_000 });
-    // The ticket line and the summary both say Free.
-    await expect(page.getByText(/^Free -/)).toBeVisible();
+    // The ticket line and the summary both say Free. The line now prints its price on its own
+    // ("Free") beside the availability, rather than "Free - 100 left" as one string.
+    await expect(
+      page
+        .getByTestId('ticket-selection')
+        .locator('li', { hasText: 'Free entry' })
+        .getByText('Free', { exact: true }),
+    ).toBeVisible();
     await expect(page.getByRole('button', { name: 'Get my tickets' })).toBeVisible();
 
-    await page.getByLabel('Quantity of Free entry').selectOption('1');
+    await chooseQuantity(page.getByLabel('Quantity of Free entry'), 1);
     await expect(page.getByText('No payment needed')).toBeVisible();
     await page.getByRole('button', { name: 'Get my tickets' }).click();
 

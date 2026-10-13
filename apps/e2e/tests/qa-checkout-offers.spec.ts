@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { QA_VALIDATE, QA_SKIP_REASON } from './qa-target';
 import { apiLogin, seedBrowserAuth, type AuthTokens } from './helpers';
+import { chooseQuantity } from './ticket-quantity';
 
 // Deployment-facing: skipped unless asked for. See qa-target.ts for why.
 test.skip(!QA_VALIDATE, QA_SKIP_REASON);
@@ -53,10 +54,7 @@ test('the offers an organizer advertises are offered at checkout', async ({
 
   await seedBrowserAuth(context, tokens);
   await page.goto(`${CUSTOMER}/events/${target!.slug}`, { waitUntil: 'networkidle' });
-  await page
-    .getByRole('combobox', { name: /^Quantity of / })
-    .first()
-    .selectOption('1');
+  await chooseQuantity(page.getByRole('group', { name: /^Quantity of / }).first(), 1);
   await page.getByRole('button', { name: /Continue to payment/i }).click();
   await expect(page).toHaveURL(/\/booking\/.+\/payment/, { timeout: 40_000 });
 

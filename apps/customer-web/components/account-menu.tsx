@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { BellRing, ExternalLink, LogOut, Receipt, Store, Ticket, User } from 'lucide-react';
+import { Bell, BellRing, ExternalLink, LogOut, Receipt, Store, Ticket, User } from 'lucide-react';
 import {
   accountContact,
   accountInitials,
@@ -32,8 +32,12 @@ const ORGANIZER_URL = process.env.NEXT_PUBLIC_ORGANIZER_URL ?? 'http://localhost
  * showing "Become an organizer" to people who had just become one, so they clicked it again
  * expecting it to have not worked. What they actually want at that point is the way back in.
  */
+/*
+  Brand tokens (DESIGN-SYSTEM.md): the menu opens inside the storefront header, which carries
+  `data-brand="customer"`, so these resolve to paper, ink and the one overlay shadow.
+*/
 const item =
-  'flex w-full items-center gap-2.5 px-3 py-2 text-left text-[0.9375rem] text-text-secondary transition-colors hover:bg-background-subtle hover:text-text-primary focus-visible:bg-background-subtle focus-visible:text-text-primary focus-visible:outline-none';
+  'flex min-h-11 w-full items-center gap-2.5 px-3 py-2 text-left text-brand-ui text-brand-ink-2 transition-colors hover:bg-brand-sunken hover:text-brand-ink focus-visible:bg-brand-sunken focus-visible:text-brand-ink focus-visible:outline-none';
 
 export function AccountMenu({ onSignOut }: { onSignOut: () => void }) {
   const t = useTranslations('common.nav');
@@ -99,15 +103,15 @@ export function AccountMenu({ onSignOut }: { onSignOut: () => void }) {
         aria-haspopup="menu"
         aria-label={a('accountMenuFor', { name: label })}
         data-testid="account-menu-trigger"
-        className="flex items-center gap-2 rounded-md px-2 py-1.5 text-text-secondary transition-colors hover:bg-background-subtle hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
+        className="flex h-11 items-center gap-2 rounded-brand-control px-1.5 text-brand-ui font-semibold text-brand-ink-2 transition-colors hover:text-brand-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-focus focus-visible:ring-offset-2 focus-visible:ring-offset-brand-canvas"
       >
         <span
           aria-hidden
-          className="flex h-7 w-7 items-center justify-center rounded-full bg-action-primary text-[0.6875rem] font-semibold text-action-primary-foreground"
+          className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-action text-[0.75rem] font-semibold text-brand-on-action"
         >
           {initials ?? <User className="h-4 w-4" />}
         </span>
-        <span className="hidden max-w-[10rem] truncate sm:inline">{label}</span>
+        <span className="hidden max-w-[10rem] truncate xl:inline">{label}</span>
       </button>
 
       {open && (
@@ -115,14 +119,16 @@ export function AccountMenu({ onSignOut }: { onSignOut: () => void }) {
           role="menu"
           aria-label={t('account')}
           data-testid="account-menu"
-          className="absolute right-0 z-50 mt-2 w-64 overflow-hidden rounded-lg border border-border bg-background-surface py-1 shadow-lg"
+          className="absolute right-0 z-50 mt-2 w-64 overflow-hidden rounded-brand-card border border-brand-line bg-brand-surface py-1 font-brand-text shadow-brand-overlay"
         >
           {/* Identity first: on a shared device the question is "who am I signed in as". */}
-          <div className="border-b border-border px-3 py-2.5">
-            <p className="truncate text-[0.9375rem] font-medium text-text-primary">
+          <div className="border-b border-brand-line px-3 py-2.5">
+            <p className="truncate text-brand-ui font-semibold text-brand-ink">
               {name || 'Your account'}
             </p>
-            {contact ? <p className="truncate text-caption text-text-muted">{contact}</p> : null}
+            {contact ? (
+              <p className="truncate text-brand-meta text-brand-ink-3">{contact}</p>
+            ) : null}
           </div>
 
           <Link
@@ -142,6 +148,20 @@ export function AccountMenu({ onSignOut }: { onSignOut: () => void }) {
           >
             <Receipt className="h-4 w-4" />
             My bookings
+          </Link>
+          {/*
+            The inbox. It was a tab of its own in the phone's bottom bar, which now carries four
+            places (DESIGN-SYSTEM.md section 5), so this is where a phone reaches it; on a wide
+            screen the bell in the header leads to the same page.
+          */}
+          <Link
+            href="/account/notifications"
+            role="menuitem"
+            className={item}
+            onClick={() => setOpen(false)}
+          >
+            <Bell className="h-4 w-4" />
+            {t('alerts')}
           </Link>
           {/*
             Distinct from "Notifications", which is the inbox. This is where somebody decides
@@ -167,7 +187,7 @@ export function AccountMenu({ onSignOut }: { onSignOut: () => void }) {
             My tickets
           </Link>
 
-          <div className="my-1 border-t border-border" />
+          <div className="my-1 border-t border-brand-line" />
           {organization ? (
             // A different origin with its own session, so this is a real navigation rather
             // than a route — and it is marked as one, instead of looking like an in-app link
@@ -182,11 +202,11 @@ export function AccountMenu({ onSignOut }: { onSignOut: () => void }) {
               <Store className="h-4 w-4" />
               <span className="min-w-0">
                 Organizer console
-                <span className="block truncate text-caption text-text-muted">
+                <span className="block truncate text-brand-meta text-brand-ink-3">
                   {organization.name}
                 </span>
               </span>
-              <ExternalLink className="ml-auto h-3.5 w-3.5 shrink-0 text-text-muted" aria-hidden />
+              <ExternalLink className="ml-auto h-3.5 w-3.5 shrink-0 text-brand-ink-3" aria-hidden />
             </a>
           ) : (
             <Link
@@ -199,12 +219,14 @@ export function AccountMenu({ onSignOut }: { onSignOut: () => void }) {
               <Store className="h-4 w-4" />
               <span>
                 Become an organizer
-                <span className="block text-caption text-text-muted">Sell your own tickets</span>
+                <span className="block text-brand-meta text-brand-ink-3">
+                  Sell your own tickets
+                </span>
               </span>
             </Link>
           )}
 
-          <div className="my-1 border-t border-border" />
+          <div className="my-1 border-t border-brand-line" />
           <button type="button" role="menuitem" className={item} onClick={onSignOut}>
             <LogOut className="h-4 w-4" />
             Sign out

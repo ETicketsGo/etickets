@@ -7,6 +7,7 @@ import {
   seedBrowserAuth,
   uniqueEmail,
 } from './helpers';
+import { chooseQuantity } from './ticket-quantity';
 
 type DemoEvent = {
   venue: { country: string; timezone: string };
@@ -59,8 +60,8 @@ test.describe('intentional demo venue buyer paths', () => {
     const vip = page.getByLabel('Quantity of VIP Pit');
     await expect(ga).toBeVisible();
     await expect(vip).toBeVisible();
-    await ga.selectOption('2');
-    await vip.selectOption('1');
+    await chooseQuantity(ga, 2);
+    await chooseQuantity(vip, 1);
     await expect(page.getByText(/\$280\.00/)).toBeVisible();
     await page.getByRole('button', { name: /Continue to payment/i }).click();
     await expect(page).toHaveURL(/\/booking\/[^/]+\/payment/, { timeout: 30_000 });

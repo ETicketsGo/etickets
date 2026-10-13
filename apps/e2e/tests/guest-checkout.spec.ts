@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { API, CUSTOMER, apiLogin, uniqueEmail } from './helpers';
 import { openPaidEvent } from './pick-event';
+import { chooseQuantity, quantitySteppers } from './ticket-quantity';
 
 /**
  * Buying a ticket without an account.
@@ -67,9 +68,9 @@ test.describe('guest checkout', () => {
     await page.goto(`${CUSTOMER}/events`);
     await openPaidEvent(page);
 
-    const quantity = page.locator('select[aria-label^="Quantity"]').first();
+    const quantity = quantitySteppers(page).first();
     await expect(quantity).toBeVisible({ timeout: 20_000 });
-    await quantity.selectOption('1');
+    await chooseQuantity(quantity, 1);
 
     // The guest form appears once there is something to buy, not before.
     await expect(page.getByText('Buy as a guest')).toBeVisible();
@@ -220,9 +221,9 @@ test.describe('guest checkout', () => {
     await page.goto(`${CUSTOMER}/events`);
     await openPaidEvent(page);
 
-    const quantity = page.locator('select[aria-label^="Quantity"]').first();
+    const quantity = quantitySteppers(page).first();
     await expect(quantity).toBeVisible({ timeout: 20_000 });
-    await quantity.selectOption('1');
+    await chooseQuantity(quantity, 1);
     await page.getByLabel('Your name').fill(guest.name);
     await page.getByLabel('Email', { exact: true }).fill(uniqueEmail('guestcancel'));
     await page.getByRole('button', { name: /Continue to payment/ }).click();

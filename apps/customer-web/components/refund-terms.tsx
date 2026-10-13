@@ -10,6 +10,8 @@ import { useTranslations } from 'next-intl';
  * on the event page, one step back, and for an event with refunds switched off the tile still
  * said "Refundable". Buyers decide whether to pay on this screen, so the terms are here, in
  * the organizer's own words when they wrote some, and as a plain rule when they did not.
+ *
+ * Drawn on the brand layer: Review & pay, its only caller, sits inside data-brand="customer".
  */
 export function RefundTerms({
   refundsEnabled,
@@ -36,17 +38,17 @@ export function RefundTerms({
     <section
       aria-labelledby="refund-terms-heading"
       data-testid="refund-terms"
-      className="rounded-md border border-border bg-background-surface p-3 text-left"
+      className="rounded-brand-card border border-brand-line bg-brand-surface p-4 text-left"
     >
       <h3
         id="refund-terms-heading"
-        className="flex items-center gap-2 text-[0.9375rem] font-semibold text-text-primary"
+        className="flex items-center gap-2 text-brand-ui font-semibold text-brand-ink"
       >
-        <RefreshCcw className="h-4 w-4 text-status-success" aria-hidden="true" />
+        <RefreshCcw className="h-4 w-4 text-brand-ink-3" aria-hidden="true" />
         {k('refundTermsHeading')}
       </h3>
-      {rule && <p className="mt-1 text-[0.9375rem] text-text-secondary">{rule}</p>}
-      {refundPolicy && <p className="mt-1 text-caption text-text-muted">{refundPolicy}</p>}
+      {rule && <p className="mt-1 text-brand-ui text-brand-ink-2">{rule}</p>}
+      {refundPolicy && <p className="mt-1 text-brand-meta text-brand-ink-3">{refundPolicy}</p>}
     </section>
   );
 }

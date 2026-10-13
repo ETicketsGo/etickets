@@ -88,9 +88,9 @@ export function monthRange(key: string): { from: string; to: string } {
   };
 }
 
-/** The zone a session's day is counted in: its cinema's, else its venue's. */
+/** The zone a session's day is counted in: its venue's, else its cinema's (as every other screen reads it). */
 export function sessionZone(s: CalendarSessionLike): string | undefined {
-  return s.cinemaTimezone || venueZone(s.venue.timezone, s.venue.country) || undefined;
+  return venueZone(s.venue.timezone, s.venue.country) || s.cinemaTimezone || undefined;
 }
 
 /**
