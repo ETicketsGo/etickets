@@ -1,6 +1,6 @@
 import {
   dateTime,
-  zoneAbbrev,
+  zoneShortName,
   type BadgeTone,
   type ImageCategory,
   type OrgEventRow,
@@ -105,27 +105,7 @@ export function timeAtVenue(
   return abbrev ? `${when} ${abbrev}` : when;
 }
 
-/**
- * The zone's short name an organizer would say: "IST", "CDT", "EST".
- *
- * Each English locale knows the names of its own region's zones and spells the rest as an
- * offset - en-US says "GMT+5:30" for India, en-IN says "IST" but "GMT-5" for Chicago. Both are
- * asked, and the first real name wins; an offset is the fallback, which is never wrong.
- */
-export function zoneShortName(iso: string, zone: string): string {
-  const names = ['en-US', 'en-IN'].map((locale) => {
-    try {
-      return (
-        new Intl.DateTimeFormat(locale, { timeZone: zone, timeZoneName: 'short' })
-          .formatToParts(new Date(iso))
-          .find((p) => p.type === 'timeZoneName')?.value ?? ''
-      );
-    } catch {
-      return '';
-    }
-  });
-  return names.find((n) => n && !/^(GMT|UTC)/.test(n)) ?? (names[0] || zoneAbbrev(iso, zone));
-}
+export { zoneShortName };
 
 export interface ScheduleSummary {
   /** "Next", "Last" or null when there are no sessions. */

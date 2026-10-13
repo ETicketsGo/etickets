@@ -160,7 +160,7 @@ export default function AdminBookings() {
             value={q}
             onChange={setQ}
             onSubmit={() => filters.set({ q: q.trim() })}
-            placeholder="Search booking reference or buyer email"
+            placeholder="Search booking reference, buyer email or event title"
           />
           <FilterBar
             filters={{ ...filters, clear: clearAll }}

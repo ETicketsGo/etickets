@@ -14,6 +14,7 @@ import {
   ErrorState,
   money,
   dateOnly,
+  zoneShortName,
   useToast,
   errorMessage,
   type Column,
@@ -72,7 +73,7 @@ export default function ReportsTab() {
     refundsMinor: r.refundsMinor,
     salesByTicketType: r.salesByTicketType,
     salesByDay: r.salesByDay.map((s) => ({
-      day: new Date(s.day).toISOString().slice(0, 10),
+      day: s.day,
       bookings: s.bookings,
       grossMinor: s.grossMinor,
     })),
@@ -99,7 +100,7 @@ export default function ReportsTab() {
     { key: 'g', header: 'Gross', render: (x) => money(x.grossMinor, currency) },
   ];
   const byDay: Column<(typeof r.salesByDay)[number]>[] = [
-    { key: 'd', header: 'Day', render: (x) => dateOnly(x.day) },
+    { key: 'd', header: 'Day', render: (x) => dateOnly(x.day, 'en-IN', 'UTC') },
     { key: 'b', header: 'Bookings', render: (x) => x.bookings },
     { key: 'g', header: 'Gross', render: (x) => money(x.grossMinor, currency) },
   ];
@@ -135,7 +136,7 @@ export default function ReportsTab() {
         </Card>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <MetricCard
           label="Gross sales"
           value={money(r.grossTicketSalesMinor, currency)}
@@ -158,7 +159,7 @@ export default function ReportsTab() {
         <MetricCard label="Payment fees" value={money(r.paymentFeesMinor, currency)} />
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card title="Sales by ticket type">
           <DataTable
             columns={byType}
@@ -167,7 +168,13 @@ export default function ReportsTab() {
             empty={<p className="p-4 text-sm text-text-muted">No sales yet.</p>}
           />
         </Card>
-        <Card title="Sales by day">
+        <Card
+          title={
+            r.salesDayZone
+              ? `Sales by day (${zoneShortName(new Date().toISOString(), r.salesDayZone)})`
+              : 'Sales by day'
+          }
+        >
           <DataTable
             columns={byDay}
             rows={r.salesByDay}
@@ -194,7 +201,7 @@ export default function ReportsTab() {
             </Button>
           }
         >
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <MetricCard
               label="Add-on revenue"
               value={money(commerceQ.data.addOnRevenueMinor, commerceQ.data.currency)}
@@ -222,7 +229,7 @@ export default function ReportsTab() {
               value={money(commerceQ.data.foodBeverageRevenueMinor, commerceQ.data.currency)}
             />
           </div>
-          <div className="mt-6 grid gap-6 lg:grid-cols-2">
+          <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
             <div>
               <p className="mb-2 text-caption font-semibold text-text-secondary">Top add-ons</p>
               <DataTable

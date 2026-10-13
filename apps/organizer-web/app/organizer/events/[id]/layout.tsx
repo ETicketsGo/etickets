@@ -248,9 +248,9 @@ export default function EventLayout({ children }: { children: React.ReactNode })
       <nav aria-label="Breadcrumb" className="text-sm text-text-muted">
         <Link
           href="/organizer/events"
-          className="rounded hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+          className="inline-flex min-h-6 items-center rounded hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
         >
-          <span aria-hidden="true">&larr; </span>All events
+          <span aria-hidden="true">&larr;&nbsp;</span>All events
         </Link>
       </nav>
 

@@ -18,11 +18,12 @@ import {
   useToast,
   useOnline,
   errorMessage,
-  dateTime,
   type CheckInOutcome,
   type BadgeTone,
+  dateTime,
 } from '@eticketsgo/web-kit';
 import { OfflineCheckin } from '@/components/offline-checkin';
+import { timeAtVenue } from '@/components/events/event-list-model';
 
 interface DetectedBarcode {
   rawValue: string;
@@ -73,6 +74,16 @@ export default function CheckinTab() {
   const [scanning, setScanning] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
 
+  // One place that records an admission, so a scan and an admission by eye read the same:
+  // the counter refetches and the line appears under Recent scans without a reload.
+  const recordAdmission = (res: CheckInOutcome) => {
+    setHistory((h) => [{ at: new Date().toISOString(), outcome: res }, ...h].slice(0, 10));
+    if (res.result === 'SUCCESS') {
+      qc.invalidateQueries({ queryKey: ['report', id] });
+      qc.invalidateQueries({ queryKey: ['attendee-lookup', id] });
+    }
+  };
+
   const scan = useMutation({
     mutationFn: (t: string) =>
       api.checkins.scan({
@@ -82,11 +93,8 @@ export default function CheckinTab() {
       }),
     onSuccess: (res) => {
       setOutcome(res);
-      setHistory((h) => [{ at: new Date().toISOString(), outcome: res }, ...h].slice(0, 10));
-      if (res.result === 'SUCCESS') {
-        toast.push('Checked in.', 'success');
-        qc.invalidateQueries({ queryKey: ['report', id] });
-      }
+      recordAdmission(res);
+      if (res.result === 'SUCCESS') toast.push('Checked in.', 'success');
     },
     onError: (e) => toast.push(errorMessage(e), 'error'),
   });
@@ -96,6 +104,7 @@ export default function CheckinTab() {
     onSuccess: () => {
       toast.push('Check-in reversed.', 'success');
       setOutcome(null);
+      qc.invalidateQueries({ queryKey: ['report', id] });
     },
     onError: (e) => toast.push(errorMessage(e), 'error'),
   });
@@ -194,6 +203,8 @@ export default function CheckinTab() {
               className="h-full rounded-full bg-action-primary transition-all duration-500"
               style={{ width: `${pct}%` }}
               role="progressbar"
+              aria-label="Tickets checked in"
+              aria-valuetext={`${checkedIn} of ${expected} checked in`}
               aria-valuenow={pct}
               aria-valuemin={0}
               aria-valuemax={100}
@@ -215,7 +226,7 @@ export default function CheckinTab() {
                 <option value="">Any session</option>
                 {event?.sessions.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {dateTime(s.startsAt)}
+                    {event ? timeAtVenue(s.startsAt, event.venue) : dateTime(s.startsAt)}
                   </option>
                 ))}
               </Select>
@@ -318,8 +329,14 @@ export default function CheckinTab() {
             is the better evidence; where it is not — which is most Indian cinemas — this is
             what the door actually does, and it is now recorded instead of invisible.
           */}
-          <AdmitByEye sessionId={sessionId} />
-          <AttendeeLookup eventId={id} onReversed={() => toast.push('Reversed.', 'success')} />
+          <AdmitByEye sessionId={sessionId} onAdmitted={recordAdmission} />
+          <AttendeeLookup
+            eventId={id}
+            onReversed={() => {
+              toast.push('Reversed.', 'success');
+              qc.invalidateQueries({ queryKey: ['report', id] });
+            }}
+          />
           <Card title="Recent scans">
             {history.length === 0 ? (
               <p className="text-sm text-text-muted">No scans yet in this session.</p>
@@ -402,6 +419,8 @@ function AttendeeLookup({ eventId, onReversed }: { eventId: string; onReversed: 
                 <p className="text-xs text-text-muted">
                   {a.ticketType}
                   {a.seatLabel ? ` - seat ${a.seatLabel}` : ''}
+                  {/* Two tickets of one booking read the same without it. */}
+                  {a.serial && <span className="ml-1.5 font-mono">{a.serial}</span>}
                 </p>
               </div>
               <div className="flex items-center gap-2">

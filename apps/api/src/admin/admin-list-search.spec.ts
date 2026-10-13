@@ -157,6 +157,23 @@ describe('event moderation queue', () => {
   });
 });
 
+describe('booking list', () => {
+  it('also finds a booking by the title of its event', async () => {
+    const count = jest.fn();
+    const prisma = prismaMock({
+      booking: { count, findMany: jest.fn() },
+      $transaction: jest.fn().mockResolvedValue([0, []]),
+    });
+    const service = new AdminService(prisma as never, {} as never);
+
+    await service.bookings({ page: 1, pageSize: 15, q: 'Garden Sessions' });
+
+    expect(whereOf(count).OR).toContainEqual({
+      event: { title: { contains: 'Garden Sessions', mode: 'insensitive' } },
+    });
+  });
+});
+
 describe('payment ledger', () => {
   it('searches provider reference, buyer email and booking reference in Postgres', async () => {
     const count = jest.fn();
@@ -173,6 +190,7 @@ describe('payment ledger', () => {
           { providerRef: { contains: 'pay_abc', mode: 'insensitive' } },
           { booking: { buyerEmail: { contains: 'pay_abc', mode: 'insensitive' } } },
           { booking: { reference: { contains: 'pay_abc', mode: 'insensitive' } } },
+          { booking: { event: { title: { contains: 'pay_abc', mode: 'insensitive' } } } },
         ],
       },
     ]);

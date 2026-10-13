@@ -66,7 +66,7 @@ export class OrganizerAiService {
       checkInCount: report.checkInCount,
       salesByTicketType: report.salesByTicketType,
       salesByDay: report.salesByDay.map((d) => ({
-        day: new Date(d.day).toISOString().slice(0, 10),
+        day: d.day,
         bookings: d.bookings,
         grossMinor: d.grossMinor,
       })),

@@ -16,7 +16,10 @@ const asUser = (globalRoles: string[] = []): RequestUser => ({
   roles: globalRoles as never,
 });
 
-function makeService(membership: { status: string; role: string } | null) {
+function makeService(
+  membership: { status: string; role: string } | null,
+  eventExtra: Record<string, unknown> = {},
+) {
   const prisma = {
     event: {
       findUnique: jest.fn().mockResolvedValue({
@@ -24,10 +27,16 @@ function makeService(membership: { status: string; role: string } | null) {
         organizationId: 'org-1',
         title: 'Show',
         status: 'PUBLISHED',
+        venue: null,
+        sessions: [],
+        ...eventExtra,
       }),
     },
     organizationMember: { findUnique: jest.fn().mockResolvedValue(membership) },
-    booking: { aggregate: jest.fn().mockResolvedValue({ _sum: {} }) },
+    booking: {
+      aggregate: jest.fn().mockResolvedValue({ _sum: {} }),
+      findMany: jest.fn().mockResolvedValue([]),
+    },
     refund: { aggregate: jest.fn().mockResolvedValue({ _sum: {} }) },
     ticket: { count: jest.fn().mockResolvedValue(0) },
     ticketInventory: { aggregate: jest.fn().mockResolvedValue({ _sum: {} }) },
@@ -95,5 +104,39 @@ describe('ReportsService.organizerEventReport financial-read gating', () => {
     const { service, prisma } = makeService({ status: 'ACTIVE', role: Role.CHECKIN_STAFF });
     prisma.event.findUnique.mockResolvedValueOnce(null);
     await expect(service.organizerEventReport(asUser(), 'missing')).resolves.toBeNull();
+  });
+});
+
+describe('ReportsService.organizerEventReport sales by day', () => {
+  const owner = { status: 'ACTIVE', role: Role.ORGANIZER_OWNER };
+
+  it('puts a late-evening IST sale on the venue day, not the UTC day', async () => {
+    // 11:26 pm IST on 13 Oct is 17:56 UTC on 13 Oct; 1:30 am IST on 14 Oct is 20:00 UTC on 13 Oct.
+    const { service, prisma } = makeService(owner, {
+      venue: { timezone: 'Asia/Kolkata', country: 'India' },
+    });
+    prisma.booking.findMany.mockResolvedValue([
+      { confirmedAt: new Date('2026-10-13T17:56:00Z'), subtotalMinor: 25000 },
+      { confirmedAt: new Date('2026-10-13T20:00:00Z'), subtotalMinor: 10000 },
+      { confirmedAt: new Date('2026-10-12T19:00:00Z'), subtotalMinor: 5000 },
+    ]);
+    const r = await service.organizerEventReport(asUser(), 'ev-1');
+    expect(r?.salesDayZone).toBe('Asia/Kolkata');
+    expect(r?.salesByDay).toEqual([
+      { day: '2026-10-13', bookings: 2, grossMinor: 30000 },
+      { day: '2026-10-14', bookings: 1, grossMinor: 10000 },
+    ]);
+  });
+
+  it('uses the venue zone for a US event too', async () => {
+    const { service, prisma } = makeService(owner, {
+      venue: { timezone: 'America/Los_Angeles', country: 'United States' },
+    });
+    // 03:00 UTC on 14 Oct is 8:00 pm PDT on 13 Oct.
+    prisma.booking.findMany.mockResolvedValue([
+      { confirmedAt: new Date('2026-10-14T03:00:00Z'), subtotalMinor: 7000 },
+    ]);
+    const r = await service.organizerEventReport(asUser(), 'ev-1');
+    expect(r?.salesByDay).toEqual([{ day: '2026-10-13', bookings: 1, grossMinor: 7000 }]);
   });
 });
