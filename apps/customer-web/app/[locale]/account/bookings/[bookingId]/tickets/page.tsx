@@ -446,7 +446,7 @@ export default function BookingTicketsViewer() {
 
             <Link
               href={`/account/tickets/${current.id}`}
-              className="mt-4 text-caption font-medium text-action-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+              className="mt-4 inline-flex min-h-6 items-center text-caption font-medium text-action-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
             >
               {b('fullDetails')}
             </Link>
@@ -526,13 +526,13 @@ export default function BookingTicketsViewer() {
         <div className="flex items-center justify-between gap-3">
           <button
             onClick={() => setEventDayOpen(true)}
-            className="inline-flex items-center gap-1.5 text-caption font-medium text-text-secondary hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            className="inline-flex min-h-6 items-center gap-1.5 text-caption font-medium text-text-secondary hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
           >
             <Maximize2 className="h-3.5 w-3.5" /> {b('eventDayMode')}
           </button>
           <Link
             href="/help"
-            className="inline-flex items-center gap-1.5 text-caption font-medium text-text-secondary hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            className="inline-flex min-h-6 items-center gap-1.5 text-caption font-medium text-text-secondary hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
           >
             <LifeBuoy className="h-3.5 w-3.5" /> {b('support')}
           </Link>
@@ -550,7 +550,7 @@ export default function BookingTicketsViewer() {
                   type="checkbox"
                   checked={autoAdvance}
                   onChange={toggleAutoAdvance}
-                  className="h-3.5 w-3.5 rounded border-border text-action-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                  className="h-6 w-6 rounded border-border text-action-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
                 />
                 {b('autoAdvance')}
               </label>

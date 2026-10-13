@@ -104,7 +104,7 @@ const STYLES = {
     value: 'text-text-primary',
     valueMuted: 'text-text-secondary',
     toggle:
-      'rounded text-caption text-action-primary underline underline-offset-2 hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-action-primary',
+      'inline-flex min-h-6 items-center rounded text-caption text-action-primary underline underline-offset-2 hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-action-primary',
     groupToggle:
       'inline-flex items-center gap-1 rounded text-left text-text-secondary hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-action-primary',
     panel: 'mt-1 space-y-1 border-l-2 border-border pl-3',
@@ -119,7 +119,7 @@ const STYLES = {
     value: 'text-brand-ink',
     valueMuted: 'text-brand-ink-2',
     toggle:
-      'rounded-sm text-brand-meta font-medium text-brand-ink underline decoration-brand-line-strong underline-offset-4 hover:decoration-brand-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-focus focus-visible:ring-offset-2',
+      'inline-flex min-h-6 items-center rounded-sm text-brand-meta font-medium text-brand-ink underline decoration-brand-line-strong underline-offset-4 hover:decoration-brand-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-focus focus-visible:ring-offset-2',
     groupToggle:
       'inline-flex items-center gap-1 rounded-sm text-left text-brand-ink-2 hover:text-brand-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-focus focus-visible:ring-offset-2',
     panel: 'mt-1 space-y-1 border-l-2 border-brand-line pl-3',
@@ -475,6 +475,11 @@ function Breakdown({
                 g.baseMinor,
                 ...g.taxLines.map((t) => t.amountMinor),
               ]),
+              // The GST inside the ticket price is printed too ("Includes Rs 45.76 GST"). Left out,
+              // a whole-rupee order deciding "no decimals" rounded it to Rs 46 where the payment
+              // page, which counts it, showed Rs 45.76.
+              ...breakdown.includedTax.map((t) => t.amountMinor),
+              breakdown.includedMaintenanceMinor,
               breakdown.totalMinor,
             ],
             currency,

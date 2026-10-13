@@ -206,14 +206,14 @@ export default function ExperienceWalletPage() {
           <button
             onClick={() => refetch()}
             disabled={!online || isFetching}
-            className="inline-flex items-center gap-1.5 font-medium text-action-primary hover:underline disabled:pointer-events-none disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            className="inline-flex min-h-6 items-center gap-1.5 font-medium text-action-primary hover:underline disabled:pointer-events-none disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? 'animate-spin' : ''}`} />{' '}
             {w('syncNow')}
           </button>
           <button
             onClick={clearOffline}
-            className="inline-flex items-center gap-1.5 font-medium text-text-muted hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            className="inline-flex min-h-6 items-center gap-1.5 font-medium text-text-muted hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
           >
             <Trash2 className="h-3.5 w-3.5" /> {w('clearOffline')}
           </button>

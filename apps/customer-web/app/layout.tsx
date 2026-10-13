@@ -1,4 +1,7 @@
 import type { ReactNode } from 'react';
+// Here rather than in the locale layout so the 404 for an unknown locale (`app/not-found.tsx`,
+// which renders outside that layout) is styled too.
+import './globals.css';
 
 /**
  * A pass-through, on purpose.

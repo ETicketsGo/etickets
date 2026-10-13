@@ -33,6 +33,8 @@ export interface BookingGroup {
   venueName: string | null;
   screenName: string | null;
   cinemaName: string | null;
+  /** The venue's IANA zone for `startsAt`, so a screen can print the show's own clock. */
+  timeZone: string | null;
   /** Single ticket-type name, or "N ticket types" when a booking mixes them. */
   ticketTypeSummary: string;
   /** Naturally-sorted seat labels present on the booking (movies / reserved seating). */
@@ -249,6 +251,7 @@ function buildGroup(key: string, input: WalletTicket[]): BookingGroup {
     venueName: first.venueName ?? null,
     screenName: first.screenName ?? null,
     cinemaName: first.cinemaName ?? null,
+    timeZone: first.timezone ?? null,
     ticketTypeSummary,
     seatLabels,
     tickets,

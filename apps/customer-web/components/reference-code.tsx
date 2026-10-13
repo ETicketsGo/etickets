@@ -60,7 +60,9 @@ export function ReferenceCode({
           type="button"
           onClick={copy}
           aria-label={`${label}: ${copied ? t('copied') : t('copy')}`}
-          className="rounded p-0.5 text-text-muted transition-colors hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+          // -m-1.5 + p-2 keeps the 14px icon where it was and makes the target 30px, over the 24px minimum
+          // (WCAG 2.5.8); it was 18px.
+          className="-m-1.5 rounded p-2 text-text-muted transition-colors hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
         >
           {copied ? (
             <Check className="h-3.5 w-3.5 text-status-success" aria-hidden />

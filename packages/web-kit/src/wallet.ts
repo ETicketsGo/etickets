@@ -88,6 +88,8 @@ export interface WalletItem {
   icon: WalletItemType;
   artworkSeed: string;
   startsAt: string | null;
+  /** The zone `startsAt` is read in (the venue's); null when unknown. */
+  timeZone?: string | null;
   expiresAt: string | null;
   reference: string | null;
   sections: WalletSection[];
@@ -225,6 +227,7 @@ function ticketGroupToItem(
     icon: 'TICKET',
     artworkSeed: group.bookingId,
     startsAt: group.startsAt,
+    timeZone: group.timeZone,
     expiresAt: null,
     reference: group.bookingRef,
     sections,
