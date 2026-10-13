@@ -433,7 +433,7 @@ describe('from the API', () => {
     expect(concert.movieId).toBeNull();
   });
 
-  it('places a film show in its cinema zone, and nothing else', () => {
+  it('places a film show in its cinema zone when the venue names none, and nothing else', () => {
     const film = row({
       event: {
         id: 'e',
@@ -453,6 +453,24 @@ describe('from the API', () => {
       cinemaTimezone: 'Asia/Kolkata',
     });
     expect(sessionZone(concert).zone).toBe('America/Boise');
+  });
+
+  it("keeps the venue's zone when the film's cinema is set up in another one", () => {
+    // The design audit's case: a Boise event in a room whose cinema is in Asia/Kolkata. Admin,
+    // tickets and the public page read Boise, so the organizer must too.
+    const film = row({
+      event: {
+        id: 'e',
+        title: 'Film',
+        category: 'Film',
+        status: 'PUBLISHED',
+        experienceType: 'MOVIE',
+        movieId: 'm1',
+      },
+      venue: { id: 'v', name: 'Arena', city: 'Boise', country: 'US', timezone: 'America/Boise' },
+      cinemaTimezone: 'Asia/Kolkata',
+    });
+    expect(sessionZone(film)).toEqual({ zone: 'America/Boise', known: true });
   });
 
   it('flags a multi-zone country with no venue zone as a guess', () => {

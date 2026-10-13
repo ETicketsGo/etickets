@@ -186,6 +186,27 @@ describe('GET /public/movies/:slug/shows — what is queried', () => {
     });
   });
 
+  it('scopes to the visitor country when no city is chosen, under every spelling of it', async () => {
+    const { service, count } = makeService({ sessions: [] });
+
+    await service.shows('skyfront-protocol', { country: 'US', limit: 50 });
+
+    const { country } = count.mock.calls[0][0].where.event.venue;
+    expect(country.mode).toBe('insensitive');
+    // The database holds whatever the organizer typed, so "United States" must match too.
+    expect(country.in).toEqual(expect.arrayContaining(['us', 'united states']));
+  });
+
+  it('lets a chosen city beat the country, rather than ANDing two hints into an empty page', async () => {
+    const { service, count } = makeService({ sessions: [] });
+
+    await service.shows('skyfront-protocol', { city: 'Boise', country: 'US', limit: 50 });
+
+    expect(count.mock.calls[0][0].where.event.venue).toEqual({
+      city: { equals: 'Boise', mode: 'insensitive' },
+    });
+  });
+
   it('caps limit at 200 however large the request', async () => {
     const { service } = makeService({ sessions: [] });
 

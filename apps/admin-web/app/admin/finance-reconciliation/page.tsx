@@ -25,6 +25,7 @@ import {
 } from '@eticketsgo/web-kit';
 import { useUrlFilters } from '../../../components/list-filters';
 import { missingDutyNote, useHolds } from '@/lib/capabilities';
+import { describeDiscrepancy } from '@/lib/discrepancy-detail';
 
 /*
   The queue is read by a finance person, not by the code that files the rows, so the row says
@@ -139,7 +140,10 @@ export default function FinanceReconciliationPage() {
       render: (r) => (
         <div className="min-w-0 space-y-1">
           <p className="font-semibold text-text-primary">{TYPE_LABELS[r.type] ?? r.type}</p>
-          <p className="text-caption text-text-secondary">{r.detail}</p>
+          {/* The stored sentence is evidence: kept whole in the title for finance staff. */}
+          <p className="text-caption text-text-secondary" title={r.detail ?? undefined}>
+            {describeDiscrepancy(r.detail, r.currency)}
+          </p>
           <p className="text-caption text-text-muted">
             {r.provider}
             {r.entityRef ? ` · ${r.entityRef}` : ''}

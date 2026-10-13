@@ -22,6 +22,7 @@ import { QuickLinks } from '@/components/overview/quick-links';
 import { RecentActivity } from '@/components/overview/recent-activity';
 import { TodayShows } from '@/components/overview/today-shows';
 import { WelcomeBand } from '@/components/overview/welcome-band';
+import { bookingsLabel, failedPaymentsAllTimeLabel } from '@/lib/dashboard-labels';
 import {
   api,
   ErrorState,
@@ -172,7 +173,7 @@ export default function AdminDashboard() {
             density={density}
             icon={Ticket}
             tile="purple"
-            label="Total bookings"
+            label={bookingsLabel(market?.currency)}
             value={market ? market.totalBookings : d.totalBookings}
             hint={
               market
@@ -195,9 +196,9 @@ export default function AdminDashboard() {
             density={density}
             icon={CreditCard}
             tile="rose"
-            label="Payment failures"
+            label={failedPaymentsAllTimeLabel(market?.currency)}
             value={market ? market.paymentFailures : d.paymentFailures}
-            hint={market ? `On ${market.currency} bookings` : undefined}
+            hint={market ? `On ${market.currency} bookings, since launch` : undefined}
             tone={(market ? market.paymentFailures : d.paymentFailures) > 0 ? 'error' : 'neutral'}
           />,
           <StatCard
@@ -462,7 +463,7 @@ export default function AdminDashboard() {
                         All bookings
                       </th>
                       <th scope="col" className="whitespace-nowrap py-2.5 text-right font-semibold">
-                        Payment failures
+                        Payment failures, all time
                       </th>
                     </tr>
                   </thead>
