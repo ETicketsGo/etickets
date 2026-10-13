@@ -2,23 +2,22 @@
 
 import { useState } from 'react';
 import { MessageSquarePlus } from 'lucide-react';
-import { usePathname } from '@/i18n/navigation';
 import { api, ApiRequestError } from '@/lib/api';
 import { Button, Dialog, Textarea, RatingStars, useToast } from '@/components/ui';
 
 /**
- * Unobtrusive floating "Feedback" button mounted app-wide. Opens a dialog for a
- * quick message plus an optional star rating. When a rating is given the
- * submission is a CSAT; otherwise it is GENERAL feedback. Dismissible via the
- * close button, Escape, or backdrop click (Dialog handles focus trapping).
+ * "Send feedback": a quiet button that opens a dialog for a short message and an optional star
+ * rating. With a rating the submission is a CSAT; otherwise it is GENERAL feedback.
+ *
+ * ── WHY IT IS NOT FLOATING ANY MORE ────────────────────────────────────────────────
+ * It was a pill pinned to a corner of every page, and a floating button always covers
+ * something: on a phone it sat behind the navigation bar, then over a card's badge, then over a
+ * PRICE ("From Rs 49_"); on a desktop it sat over the first card of every list and over
+ * Review & pay (EXPERIENCE-AUDIT.md, C5). It is a utility, so it lives where utilities live: in
+ * the footer, on every page, covering nothing.
  */
-export function FeedbackWidget() {
+export function FeedbackButton({ label, className = '' }: { label: string; className?: string }) {
   const toast = useToast();
-  /*
-    Not over the seat page's pay bar on a phone. The button sits bottom-left, exactly where that
-    bar shows the seats and the amount, and covered the number the buyer is about to pay.
-  */
-  const onSeatPage = usePathname().startsWith('/shows/');
   const [open, setOpen] = useState(false);
   const [message, setMessage] = useState('');
   const [rating, setRating] = useState(0);
@@ -65,27 +64,9 @@ export function FeedbackWidget() {
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        aria-label="Send feedback"
-        /*
-          ── A FLOATING BUTTON ON A PHONE ALWAYS COVERS SOMETHING ──────────────────────
-          Pinned bottom-left it sat behind the 56px navigation bar and could not be pressed at
-          all; moved above the bar it covered the first card's category badge while scrolling;
-          moved to the right it covered the ticket PRICE - photographed on the device reading
-          "From ₹49_" with the bubble over the last digit. A card fills the width of a phone, so
-          every bottom corner is on top of something, and one of them is on top of the number
-          the buyer is deciding on.
-
-          So it is a desktop control now. Nothing is lost on a phone: the help centre carries
-          Contact us, Report a bug, Request a feature and Make a complaint, and it is linked
-          from the footer of every page.
-        */
-        className={`fixed bottom-5 left-5 z-30 ${onSeatPage ? 'hidden' : 'hidden lg:flex'} print:hidden items-center gap-2 rounded-full border border-border bg-background-elevated px-4 py-2.5 text-[0.9375rem] font-medium text-text-secondary shadow-lg transition-all duration-200 ease-premium hover:-translate-y-0.5 hover:text-text-primary hover:shadow-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas`}
-      >
+      <button type="button" onClick={() => setOpen(true)} className={className}>
         <MessageSquarePlus className="h-4 w-4" aria-hidden />
-        <span className="hidden sm:inline">Feedback</span>
+        {label}
       </button>
 
       <Dialog

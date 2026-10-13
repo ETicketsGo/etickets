@@ -33,6 +33,7 @@
  *            --only <key,key>    only these catalogue keys
  *            --report <file>     write what was found/created/changed, with ids
  *            --single-org        skip organizer sign-up; use the seeded owner's organization
+ *            --catalogue <file>  load another catalogue module with the same exports
  */
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
@@ -40,15 +41,8 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { DEFAULT_LOCAL_API, localTargetVerdict } from './local-guard.mjs';
 import { venueTimeToInstant } from '../qa-demo/venue-time.mjs';
-import {
-  CITIES,
-  EVENTS,
-  FILMS,
-  ORGANIZERS,
-  SHOWCASE_MARKER,
-  VENUES,
-  showcaseKeyLine,
-} from './catalogue.mjs';
+import { pathToFileURL } from 'node:url';
+import { SHOWCASE_MARKER, showcaseKeyLine } from './catalogue.mjs';
 
 const args = process.argv.slice(2);
 const flag = (name) => args.includes(name);
@@ -70,6 +64,15 @@ if (!verdict.allowed) {
   process.exit(2);
 }
 const API = verdict.apiBase;
+/*
+  Another catalogue with the same exports, for stress content a designer should also see (long
+  titles, listings with no picture, one-event cities) without putting it in the curated
+  showcase. It is marked and removed exactly like the showcase's own items.
+*/
+const CATALOGUE = option('--catalogue');
+const { CITIES, EVENTS, FILMS, ORGANIZERS, VENUES } = CATALOGUE
+  ? await import(pathToFileURL(CATALOGUE).href)
+  : await import('./catalogue.mjs');
 const IMAGE_DIR = option('--images') ?? 'C:/etg-wt/showcase/images';
 const CREDITS_FILE = option('--credits') ?? join(dirname(IMAGE_DIR), 'credits.json');
 

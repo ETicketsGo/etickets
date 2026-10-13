@@ -238,9 +238,14 @@ test.describe('the storefront in French', () => {
       CHROME keeps the reader in French, and `.first()` would silently start testing
       whichever link happened to be earlier in the DOM.
     */
-    await page.locator('header').getByRole('link', { name: 'Aide' }).click();
+    /*
+      The header's destinations are Explore, Movies and Tickets since the storefront top bar
+      was redesigned (help moved to the footer, which test 3b covers). The claim is unchanged:
+      a link in the shared header keeps the reader in French.
+    */
+    await page.locator('header').getByRole('link', { name: 'Films', exact: true }).click();
 
-    await expect(page).toHaveURL(/\/fr-CA\/help/, { timeout: 30_000 });
+    await expect(page).toHaveURL(/\/fr-CA\/movies/, { timeout: 30_000 });
     await expect(page.locator('html')).toHaveAttribute('lang', 'fr-CA');
   });
 
