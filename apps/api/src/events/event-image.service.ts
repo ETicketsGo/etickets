@@ -55,6 +55,12 @@ export interface UploadedImageFile {
  */
 const LOCKED: EventStatus[] = [EventStatus.CANCELLED, EventStatus.COMPLETED, EventStatus.ARCHIVED];
 const ORGANIZER_ROLES = [Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER];
+/*
+  The image and its copies are written as bytes into Postgres, all in one transaction. A large
+  poster's copies took 6.1 s on QA, past Prisma's default 5 s, and the commit was refused: the
+  organizer got a 500 and nothing was saved. Generous, but still bounded.
+*/
+const IMAGE_WRITE_TX = { timeout: 30_000, maxWait: 10_000 };
 
 /** An image as the public routes hand it to `sendEventImage`. */
 export interface ServedEventImage {
@@ -195,7 +201,7 @@ export class EventImageService {
           },
           select: { id: true },
         });
-      });
+      }, IMAGE_WRITE_TX);
     } catch (err) {
       // The same file under the same key, committed first by an earlier copy of this request.
       if (keyed && isUniqueViolation(err) && (await this.keyUsed(keyed))) {
@@ -328,7 +334,7 @@ export class EventImageService {
       await tx.eventImageVariant.createMany({
         data: variantRows.map((variant) => ({ ...variant, imageId })),
       });
-    });
+    }, IMAGE_WRITE_TX);
     await this.audit.record({
       actorUserId: user.id,
       organizationId: event.organizationId,

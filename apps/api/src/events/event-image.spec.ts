@@ -189,6 +189,15 @@ describe('EventImageService', () => {
     expect(result.images.map((image) => image.id)).toEqual(['img1', 'img2', 'new1']);
   });
 
+  it('writes the image and its copies with a longer transaction timeout than the 5 s default', async () => {
+    // A large poster's copies took 6.1 s on QA and the commit was refused with a 500.
+    const { service, prisma } = setup();
+    await service.add(organizer, 'ev1', png);
+    const options = (prisma.$transaction.mock.calls[0] as unknown[])[1] as
+      { timeout?: number } | undefined;
+    expect(options?.timeout).toBeGreaterThanOrEqual(30_000);
+  });
+
   it(`refuses the ${EVENT_IMAGE_MAX_COUNT + 1}th image`, async () => {
     const { service, prisma } = setup(
       EventStatus.DRAFT,
