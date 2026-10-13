@@ -1,77 +1,97 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { Link, useRouter } from '@/i18n/navigation';
 import { useMemo, useState } from 'react';
-import { Clock3, ReceiptText, Search, Sparkles, TrendingUp, Undo2, WifiOff } from 'lucide-react';
+import { useLocale, useTranslations } from 'next-intl';
+import {
+  BRAND_FOCUS,
+  BrandButton,
+  api as webKitApi,
+  brandButtonClasses,
+  brandChipClasses,
+  cityScope,
+  countryName,
+  countryPhrase,
+  inCityScope,
+  useCity,
+} from '@eticketsgo/web-kit';
 import { api } from '@/lib/api';
-import { EventCard } from '@/components/event-card';
+import { nearestFirst, photosFirst, postersFirst } from '@/lib/home-feed';
+import { Link } from '@/i18n/navigation';
 import { useRecentlyViewed } from '@/lib/use-live-events';
-import { api as webKitApi, cityScope, countryPhrase, useCity } from '@eticketsgo/web-kit';
-import { Button, ButtonLink, EmptyState } from '@/components/ui';
+import {
+  EventRow,
+  EventTile,
+  FeatureCard,
+  Placeholder,
+  PosterCard,
+  Rail,
+  RailItem,
+  SectionHead,
+  StageHero,
+  sectionLinkClasses,
+} from '@/components/home/parts';
+
+/*
+  ── THE FRONT DOOR IS A STAGE (docs/design/DESIGN-SYSTEM.md; EXPERIENCE-AUDIT.md C1, C2, C5) ──
+  What it replaced: a white box with a sparkle badge, "Find your next experience", a search field
+  and six chips, then uniform grids of pastel cards. On a phone the whole first screen was that
+  box: no event, no date, no price (C2). It could have been any product (C5).
+
+  What it is now, top to bottom:
+    1. A stage hero made of ONE real event in the visitor's scope: its photo under a scrim, the
+       title, venue date and time, venue, organizer, "Book tickets" and the From price. The only
+       primary action on the page.
+    2. Day and kind chips that filter the section under them in place.
+    3. An editorial section for the city: a 16:9 feature beside a 4:3 list.
+    4. "Now showing": a 2:3 poster rail on a stage band.
+    5. Events OUTSIDE the visitor's city, in their own titled group with the city on every card
+       and the currency code beside every price (audit C3: a buyer must be able to tell what
+       "near me" means and what they will be charged).
+    6. Recently viewed, the promises a buyer needs before paying, and the organizer path.
+
+  Nothing here is invented: every figure is a field the public API already returns, every
+  price is in the event's own currency, and no event is picked by hand. "Featured" is the API's
+  own order (newest listed first) with listings that have a photo ahead of those without, so
+  the front door does not lead with a blank.
+*/
+
+type ChipKey = 'concerts' | 'comedy' | 'sports' | 'workshops' | 'theatre';
 
 /**
- * The categories to offer, from the categories that exist.
+ * The kinds of event offered as chips, and the category names each one covers.
  *
- * This was a hardcoded ['Music', 'Tech', 'Comedy', 'Sports', 'Theatre']. On QA that meant
- * three of the five chips led to a guaranteed empty page — there is no Tech, Sports or
- * Theatre event on the platform — while Community, which has two, was not offered at all.
- * A chip that cannot return a result is worse than no chip: the customer reads the empty
- * page as "nothing on", not as "we suggested something we do not have".
- *
- * `/public/categories` already returns exactly this with counts, and Browse already used
- * it. The homepage simply was not asking.
+ * A chip appears only when `/public/categories` reports at least one of its names: a chip that
+ * can only lead to an empty page reads as "nothing on" (the lesson the old hardcoded list
+ * taught, when three of five chips were guaranteed empty). The API matches a category exactly
+ * (case aside), so when a kind is stored under two spellings the chip asks for the busier one.
  */
-const MAX_CATEGORY_CHIPS = 6;
+const KIND_CHIPS: { key: ChipKey; names: string[] }[] = [
+  { key: 'concerts', names: ['music', 'concert', 'concerts'] },
+  { key: 'comedy', names: ['comedy'] },
+  { key: 'sports', names: ['sports', 'sport'] },
+  { key: 'workshops', names: ['workshop', 'workshops'] },
+  { key: 'theatre', names: ['theatre', 'theater'] },
+];
 
-function Skeletons({ count = 6 }: { count?: number }) {
-  return (
-    <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-      {Array.from({ length: count }).map((_, i) => (
-        <div
-          key={i}
-          className="h-72 animate-pulse rounded-lg border border-border bg-background-subtle"
-        />
-      ))}
-    </div>
-  );
+type Filter =
+  | { kind: 'all' }
+  | { kind: 'today' }
+  | { kind: 'weekend' }
+  | { kind: 'category'; chip: ChipKey; category: string };
+
+/** Now until the end of today, on the visitor's clock. */
+function todayRange(): { dateFrom: string; dateTo: string } {
+  const now = new Date();
+  const end = new Date(now);
+  end.setHours(23, 59, 59, 0);
+  return { dateFrom: now.toISOString(), dateTo: end.toISOString() };
 }
 
-function Section({
-  title,
-  subtitle,
-  icon: Icon,
-  action,
-  children,
-}: {
-  title: string;
-  subtitle?: string;
-  icon?: typeof Sparkles;
-  action?: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="space-y-5">
-      <div className="flex items-end justify-between gap-4">
-        <div>
-          <h2 className="flex items-center gap-2 text-h3 font-bold tracking-tight text-text-primary">
-            {Icon && <Icon className="h-5 w-5 text-action-primary" />}
-            {title}
-          </h2>
-          {subtitle && <p className="mt-1 text-[0.9375rem] text-text-muted">{subtitle}</p>}
-        </div>
-        {action}
-      </div>
-      {children}
-    </section>
-  );
-}
-
-// This weekend = the upcoming Saturday 00:00 → Sunday 23:59 (local).
+/** This weekend: the coming Saturday 00:00 to Sunday 23:59, on the visitor's clock. */
 function weekendRange(): { dateFrom: string; dateTo: string } {
   const now = new Date();
-  const day = now.getDay(); // 0 Sun … 6 Sat
-  const daysToSat = (6 - day + 7) % 7;
+  const daysToSat = (6 - now.getDay() + 7) % 7;
   const sat = new Date(now);
   sat.setDate(now.getDate() + daysToSat);
   sat.setHours(0, 0, 0, 0);
@@ -81,450 +101,488 @@ function weekendRange(): { dateFrom: string; dateTo: string } {
   return { dateFrom: sat.toISOString(), dateTo: sun.toISOString() };
 }
 
+/** The page's side gutters, matching the header's (DESIGN-SYSTEM.md section 3). */
+const WRAP = 'mx-auto max-w-shell px-4 sm:px-6 lg:px-10';
+
 export function DiscoverHome() {
-  const router = useRouter();
-  const [q, setQ] = useState('');
-
-  /*
-    Where the customer said they are.
-
-    This page ignored the header's city entirely, so choosing Bengaluru changed Browse and
-    left the homepage — the page most people actually land on — showing Mumbai. The chip
-    said one thing and the grid below it said another, which reads as the filter being
-    broken, and it was.
-
-    `cityScope` is shared with Browse and Movies so all three ask the same question: the
-    chosen city if there is one, otherwise the country we think they are in, otherwise
-    everywhere.
-  */
+  const t = useTranslations('home');
+  const locale = useLocale();
   const preference = useCity();
   const scope = cityScope(preference);
-  // Current, still on sale, and in scope. One implementation, shared with Explore; see the hook.
-  const { events: scopedRecent } = useRecentlyViewed(preference);
   const scopeKey = JSON.stringify(scope);
+  const [filter, setFilter] = useState<Filter>({ kind: 'all' });
 
-  const categoriesQ = useQuery({
+  /*
+    The place as words. English reads it inside a sentence ("Coming up in the United States");
+    the French strings put it after a colon, where the bare name is correct.
+  */
+  const whereCountry = preference.city ? null : preference.country;
+  const place =
+    preference.city ??
+    (whereCountry
+      ? locale.startsWith('en')
+        ? countryPhrase(whereCountry)
+        : countryName(whereCountry)
+      : null);
+
+  // Everything on in scope: the hero, and the section under the chips when nothing is chosen.
+  const scoped = useQuery({
+    queryKey: ['events', 'home', scopeKey],
+    queryFn: () => api.listEvents({ pageSize: '24', ...scope }),
+  });
+
+  const filterParams = useMemo((): Record<string, string> => {
+    if (filter.kind === 'today') return todayRange();
+    if (filter.kind === 'weekend') return weekendRange();
+    if (filter.kind === 'category') return { category: filter.category };
+    return {};
+    // The ranges are recomputed when the chip is pressed, which is when they should be.
+  }, [filter]);
+  const filtered = useQuery({
+    queryKey: ['events', 'home', scopeKey, filterParams],
+    queryFn: () => api.listEvents({ pageSize: '24', ...scope, ...filterParams }),
+    enabled: filter.kind !== 'all',
+  });
+
+  const categories = useQuery({
     queryKey: ['public-categories'],
     queryFn: () => api.publicCategories(),
   });
-  /*
-    One chip per category, whatever case the rows are stored in.
-
-    `/public/categories` groups on the raw string, so a platform holding both `Comedy` and
-    `COMEDY` returns both - and the homepage offered the buyer two identical chips side by
-    side, one shouting. It reads as a bug because it is one; the categories are the same
-    category. The first spelling seen wins, the counts are added, and the order the endpoint
-    chose (most events first) is preserved.
-
-    Normalised HERE rather than in the API because the stored values are an organizer-facing
-    data question and this is a display question. The API is not wrong to report what it has.
-  */
-  const categories = useMemo(() => {
-    const bySlug = new Map<string, { label: string; count: number }>();
-    for (const c of categoriesQ.data ?? []) {
+  const kindChips = useMemo(() => {
+    const counts = new Map<string, { name: string; count: number }>();
+    for (const c of categories.data ?? []) {
       const key = c.category.trim().toLowerCase();
-      if (!key) continue;
-      const seen = bySlug.get(key);
-      if (seen) seen.count += c.count;
-      else bySlug.set(key, { label: c.category.trim(), count: c.count });
+      const seen = counts.get(key);
+      if (!seen || c.count > seen.count)
+        counts.set(key, { name: c.category.trim(), count: c.count });
     }
-    return [...bySlug.values()].map((c) => c.label).slice(0, MAX_CATEGORY_CHIPS);
-  }, [categoriesQ.data]);
+    return KIND_CHIPS.flatMap((chip) => {
+      const best = chip.names
+        .map((n) => counts.get(n))
+        .filter((c): c is { name: string; count: number } => Boolean(c))
+        .sort((a, b) => b.count - a.count)[0];
+      return best ? [{ key: chip.key, category: best.name }] : [];
+    });
+  }, [categories.data]);
 
-  const featured = useQuery({
-    queryKey: ['events', 'featured', scopeKey],
-    queryFn: () => api.listEvents({ pageSize: '12', ...scope }),
-  });
-
-  const weekend = weekendRange();
-  const weekendQ = useQuery({
-    queryKey: ['events', 'weekend', scopeKey],
+  const movies = useQuery({
+    queryKey: ['movies', 'home', scopeKey],
     queryFn: () =>
-      api.listEvents({
-        pageSize: '6',
-        dateFrom: weekend.dateFrom,
-        dateTo: weekend.dateTo,
-        ...scope,
-      }),
+      api.listMovies(
+        preference.city
+          ? { city: preference.city }
+          : preference.country
+            ? { country: preference.country }
+            : undefined,
+      ),
   });
+  const films = postersFirst(movies.data ?? []).slice(0, 5);
 
-  /**
-   * What the sections below are actually showing, for the copy that describes them.
-   *
-   * The country is named, not coded — "No events available in US yet" is a database row read
-   * aloud. And it is tracked separately from the city because the way out of each differs:
-   * leaving a city lands you in the rest of the country, which for a visitor whose country
-   * we do not sell in yet is the same empty page they are already looking at.
-   */
+  // Events elsewhere, asked for only when there is a "here" to be outside of.
+  const outsideScope = Boolean(preference.city || preference.country);
+  const everywhere = useQuery({
+    queryKey: ['events', 'home', 'everywhere'],
+    queryFn: () => api.listEvents({ pageSize: '48' }),
+    enabled: outsideScope,
+  });
   /*
-    Cities we actually sell in, asked for ONLY when the place we are showing has nothing.
-
-    A visitor whose browser reports a region we do not sell in is scoped to that country, and
-    `location/resolve` returns `topCities: []` for it - so the empty state offered "Search for
-    a city" into a picker with nothing to suggest. That is a dead end on the front door.
-
-    This is a search SUGGESTION, not a browse-everywhere button: it names the places that have
-    something on, which is the question somebody in that position is actually asking.
+    Nearest first, in the plainest sense: the visitor's own country ahead of the rest of the
+    world, so somebody in Dallas sees New York before Bengaluru. Then photos first, then the
+    API's order.
   */
+  const homeCountry = preference.place?.country ?? preference.country;
+  const outside = useMemo(
+    () =>
+      nearestFirst(
+        (everywhere.data?.data ?? []).filter((e) => !inCityScope(e, preference)),
+        homeCountry,
+      ).slice(0, 4),
+    [everywhere.data, preference, homeCountry],
+  );
+
+  const { events: recent } = useRecentlyViewed(preference);
+
+  /*
+    Cities we actually sell in, asked for ONLY when the place we are showing has nothing, so
+    the empty front door names places with something on instead of an empty picker.
+  */
+  const nothingHere = scoped.isSuccess && scoped.data.data.length === 0;
   const sellableCities = useQuery({
     queryKey: ['public-sellable-cities'],
     queryFn: () => webKitApi.location.cities({ limit: 6 }),
-    enabled: (featured.data?.data.length ?? 0) === 0 && preference.topCities.length === 0,
+    enabled: nothingHere && preference.topCities.length === 0,
   });
-
-  /** Cities to offer when the place we are showing has nothing: ours first, then the API's. */
   const suggestedCities = (
     preference.topCities.length > 0 ? preference.topCities : (sellableCities.data ?? [])
   ).slice(0, 6);
 
-  const whereCountry = preference.city ? null : preference.country;
-  const where = preference.city ?? (whereCountry ? countryPhrase(whereCountry) : null);
+  const all = photosFirst(scoped.data?.data ?? []);
+  const hero = all[0];
+  const lead =
+    filter.kind === 'all'
+      ? all.filter((e) => e.id !== hero?.id)
+      : photosFirst(filtered.data?.data ?? []);
+  const leadLoading = filter.kind === 'all' ? scoped.isLoading : filtered.isLoading;
+  const leadTotal =
+    filter.kind === 'all' ? (scoped.data?.meta.total ?? 0) : (filtered.data?.meta.total ?? 0);
 
-  const freeEvents = useMemo(
-    () => (featured.data?.data ?? []).filter((e) => e.fromPriceMinor === 0),
-    [featured.data],
-  );
+  const kindLabel = filter.kind === 'category' ? t(`chips.${filter.chip}`) : null;
+  const leadTitle = (() => {
+    if (filter.kind === 'today')
+      return place ? t('sections.todayIn', { place }) : t('sections.today');
+    if (filter.kind === 'weekend')
+      return place ? t('sections.weekendIn', { place }) : t('sections.weekend');
+    if (kindLabel) return place ? t('sections.kindIn', { kind: kindLabel, place }) : kindLabel;
+    return place ? t('sections.upcomingIn', { place }) : t('sections.upcoming');
+  })();
 
-  /**
-   * Search suggestions: the categories that exist, plus the cities we can sell in.
-   *
-   * Both come from the server rather than from whatever happened to load into the grid
-   * below. The previous version read cities out of the featured events, which meant the
-   * suggestions changed depending on what had loaded and offered nothing at all before the
-   * first fetch returned.
-   */
-  const suggestions = useMemo(
-    () => [...categories, ...preference.topCities.map((c) => c.city)],
-    [categories, preference.topCities],
-  );
-
-  const search = (e: React.FormEvent) => {
-    e.preventDefault();
-    // Carries the city through, so searching from here lands on Browse already scoped the
-    // way the header says it is — rather than silently widening back out to everywhere.
+  /** Browse, scoped and filtered the way this section is, for "See all". */
+  const seeAllHref = (() => {
     const params = new URLSearchParams();
-    if (q.trim()) params.set('q', q.trim());
     if (preference.city) params.set('city', preference.city);
-    const query = params.toString();
-    router.push(query ? `/events?${query}` : '/events');
-  };
+    for (const [k, v] of Object.entries(filterParams)) params.set(k, v);
+    const q = params.toString();
+    return q ? `/events?${q}` : '/events';
+  })();
+
+  const chip = (selected: boolean) => `${brandChipClasses(selected)} h-11 shrink-0 lg:h-9`;
 
   return (
-    <div className="space-y-16">
-      {/* Hero */}
-      <section className="relative overflow-hidden rounded-[1.75rem] border border-border bg-background-surface px-6 py-16 text-center shadow-sm sm:py-20">
-        <div className="pointer-events-none absolute inset-x-0 -top-24 mx-auto h-64 w-[36rem] max-w-full rounded-full bg-action-primary/10 blur-3xl" />
-        <div className="relative mx-auto max-w-2xl">
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background-canvas px-3 py-1 text-caption font-medium text-text-secondary">
-            <Sparkles className="h-3.5 w-3.5 text-action-primary" />
-            Discover events worth showing up for
-          </span>
-          <h1 className="mt-6 text-h1 font-bold tracking-tight text-text-primary sm:text-hero">
-            Find your next experience
-          </h1>
-          <p className="mx-auto mt-4 max-w-xl text-[1.05rem] leading-relaxed text-text-secondary">
-            Concerts, conferences, comedy and more - transparent pricing, instant QR tickets, no
-            surprises.
-          </p>
+    <div data-brand="customer" className="bg-brand-canvas font-brand-text text-brand-ink">
+      <h1 className="sr-only">{place ? t('page.title', { place }) : t('page.titleAnywhere')}</h1>
 
-          <form onSubmit={search} className="mx-auto mt-8 flex max-w-xl gap-2" role="search">
-            <div className="relative flex-1">
-              <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-text-muted" />
-              <input
-                aria-label="Search events"
-                list="search-suggestions"
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                placeholder="Search events, artists, cities..."
-                className="w-full rounded-md border border-border bg-background-canvas py-3.5 pl-12 pr-4 text-[0.9375rem] text-text-primary shadow-sm placeholder:text-text-muted focus:border-ring focus:outline-none focus:ring-4 focus:ring-ring/15"
-              />
-              <datalist id="search-suggestions">
-                {suggestions.map((s) => (
-                  <option key={s} value={s} />
-                ))}
-              </datalist>
-            </div>
-            <button
-              type="submit"
-              className="rounded-md bg-action-primary px-6 font-semibold text-action-primary-foreground shadow-sm transition-all hover:bg-action-primary-hover hover:shadow-md active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
-            >
-              Search
-            </button>
-          </form>
-
-          <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
-            {categories.map((c) => (
-              <button
-                key={c}
-                onClick={() => router.push(`/events?category=${encodeURIComponent(c)}`)}
-                className="min-h-11 rounded-full border border-border bg-background-surface px-4 py-1.5 text-caption font-medium text-text-secondary transition-all hover:border-border-strong hover:bg-background-subtle hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
-              >
-                {c}
-              </button>
-            ))}
+      {/* 1. The stage. */}
+      {scoped.isLoading ? (
+        <div data-brand-tone="stage" className="bg-brand-canvas">
+          <div
+            className={`${WRAP} flex min-h-[520px] flex-col justify-end pb-8 lg:min-h-[600px] lg:pb-16`}
+          >
+            <Placeholder className="h-4 w-40" />
+            <Placeholder className="mt-4 h-20 w-full max-w-xl" />
+            <Placeholder className="mt-6 h-12 w-48" />
           </div>
         </div>
-      </section>
-
-      {/*
-        Recently viewed: current, still on sale, and scoped like everything else on this page.
-
-        It was the one list nothing filtered — read straight from this browser's history —
-        so with Meridian chosen it offered a Hyderabad comedy show and a Mumbai gig directly
-        under a header saying Meridian. The other sections were scoped correctly, which made
-        it worse: the only events on screen were the out-of-scope ones, so the filtering
-        looked broken precisely when it was working.
-
-        See `useRecentlyViewed` for the second half of the same story: it was also the one list
-        nothing kept up to date, so it went on advertising shows that were over.
-      */}
-      {scopedRecent.length > 0 && (
-        <Section title="Continue exploring" subtitle="Events you recently viewed." icon={Clock3}>
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {scopedRecent.slice(0, 3).map((e, index) => (
-              <EventCard key={e.id} event={e} priority={index === 0} />
-            ))}
+      ) : scoped.isError ? (
+        <section data-brand-tone="stage" className="bg-brand-canvas">
+          <div className={`${WRAP} py-16 lg:py-24`}>
+            <p className="max-w-prose text-brand-lead text-brand-ink">{t('empty.loadFailed')}</p>
+            <BrandButton className="mt-6" onClick={() => void scoped.refetch()}>
+              {t('empty.retry')}
+            </BrandButton>
           </div>
-        </Section>
+        </section>
+      ) : hero ? (
+        <StageHero event={hero} />
+      ) : (
+        /*
+          Empty because of WHERE, and it says so - on the stage, where the hero would be.
+
+          "No events yet" on a page quietly narrowed to one city is the most misleading thing
+          this product can say: the visitor concludes the platform is dead when there are
+          events one city over. So the way out is right here: the cities that have something
+          on (real cities with a count, the same action as typing one), and the picker.
+        */
+        <section data-brand-tone="stage" className="bg-brand-canvas">
+          <div className={`${WRAP} py-16 lg:py-24`}>
+            <h2 className="max-w-3xl text-balance font-brand-display text-brand-d1 text-brand-ink">
+              {place ? t('empty.noneIn', { place }) : t('empty.none')}
+            </h2>
+            <p className="mt-4 max-w-prose text-brand-lead text-brand-ink-2">
+              {!place
+                ? t('empty.noneHint')
+                : whereCountry
+                  ? t('empty.sellingHere')
+                  : t('empty.otherPlaces')}
+            </p>
+            {place && (
+              <div className="mt-8 flex flex-wrap items-center gap-3">
+                {whereCountry ? (
+                  <>
+                    {suggestedCities.map((c) => (
+                      <button
+                        key={`${c.country}-${c.city}`}
+                        type="button"
+                        onClick={() =>
+                          preference.setCity(c.city, {
+                            region: c.region ?? null,
+                            country: c.country,
+                          })
+                        }
+                        className={chip(false)}
+                      >
+                        {c.city}
+                        <span className="tabular-nums text-brand-ink-3">{c.eventCount}</span>
+                      </button>
+                    ))}
+                    <BrandButton variant="quiet" onClick={() => preference.requestPicker()}>
+                      {t('empty.searchCity')}
+                    </BrandButton>
+                  </>
+                ) : (
+                  <BrandButton variant="secondary" onClick={() => preference.setCity(null)}>
+                    {t('empty.everywhere')}
+                  </BrandButton>
+                )}
+              </div>
+            )}
+          </div>
+        </section>
       )}
 
-      {/* This weekend */}
-      {weekendQ.data && weekendQ.data.data.length > 0 && (
-        <Section
-          title="This weekend"
-          subtitle="Plans sorted - happening in the next few days."
-          icon={Sparkles}
-          action={
-            <ButtonLink
-              href={`/events?dateFrom=${weekend.dateFrom}&dateTo=${weekend.dateTo}`}
-              variant="ghost"
+      {/* 2 and 3. The chips, and the section they filter. */}
+      {!nothingHere && !scoped.isError && (
+        <section aria-labelledby="home-lead" className={`${WRAP} pt-6 lg:pt-8`}>
+          <div
+            role="group"
+            aria-label={t('chips.label')}
+            className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-2 sm:-mx-6 sm:px-6 lg:mx-0 lg:flex-wrap lg:overflow-visible lg:px-0"
+          >
+            <button
+              type="button"
+              aria-pressed={filter.kind === 'all'}
+              onClick={() => setFilter({ kind: 'all' })}
+              className={chip(filter.kind === 'all')}
             >
-              View all
-            </ButtonLink>
-          }
-        >
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {weekendQ.data.data.map((e, index) => (
-              <EventCard key={e.id} event={e} priority={index === 0 && scopedRecent.length === 0} />
-            ))}
+              {t('chips.all')}
+            </button>
+            <button
+              type="button"
+              aria-pressed={filter.kind === 'today'}
+              onClick={() => setFilter({ kind: 'today' })}
+              className={chip(filter.kind === 'today')}
+            >
+              {t('chips.today')}
+            </button>
+            <button
+              type="button"
+              aria-pressed={filter.kind === 'weekend'}
+              onClick={() => setFilter({ kind: 'weekend' })}
+              className={chip(filter.kind === 'weekend')}
+            >
+              {t('chips.weekend')}
+            </button>
+            {/* Films have their own page with showtimes; this chip goes there. */}
+            {films.length > 0 && (
+              <Link href="/movies" className={chip(false)}>
+                {t('chips.movies')}
+              </Link>
+            )}
+            {kindChips.map((k) => {
+              const on = filter.kind === 'category' && filter.chip === k.key;
+              return (
+                <button
+                  key={k.key}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() =>
+                    setFilter(
+                      on
+                        ? { kind: 'all' }
+                        : { kind: 'category', chip: k.key, category: k.category },
+                    )
+                  }
+                  className={chip(on)}
+                >
+                  {t(`chips.${k.key}`)}
+                </button>
+              );
+            })}
           </div>
-        </Section>
-      )}
 
-      {/* Free events */}
-      {freeEvents.length > 0 && (
-        <Section title="Free events" subtitle="Great experiences, no ticket price.">
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {freeEvents.map((e, index) => (
-              <EventCard
-                key={e.id}
-                event={e}
-                priority={index === 0 && scopedRecent.length === 0 && !weekendQ.data?.data.length}
-              />
-            ))}
-          </div>
-        </Section>
-      )}
-
-      {/* Trending / featured */}
-      <Section
-        title={where ? `Happening in ${where}` : 'Trending now'}
-        subtitle="Popular events people are booking."
-        icon={TrendingUp}
-        action={
-          <ButtonLink href="/events" variant="ghost">
-            View all
-          </ButtonLink>
-        }
-      >
-        {featured.isLoading ? (
-          <Skeletons />
-        ) : featured.data && featured.data.data.length > 0 ? (
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {featured.data.data.slice(0, 6).map((e, index) => (
-              <EventCard
-                key={e.id}
-                event={e}
-                priority={
-                  index === 0 &&
-                  scopedRecent.length === 0 &&
-                  !weekendQ.data?.data.length &&
-                  freeEvents.length === 0
+          {/*
+            With "All" chosen and the hero the only event in scope, the section would be a heading
+            over nothing; the hero already IS what is on.
+          */}
+          {(filter.kind !== 'all' || leadLoading || lead.length > 0) && (
+            <div className="pt-10 lg:pt-12">
+              <SectionHead
+                id="home-lead"
+                title={leadTitle}
+                action={
+                  leadTotal > 0 ? (
+                    <Link href={seeAllHref} className={sectionLinkClasses()}>
+                      {t('sections.seeAll', { count: leadTotal })}
+                    </Link>
+                  ) : undefined
                 }
               />
-            ))}
-          </div>
-        ) : where ? (
-          /*
-            Empty because of WHERE, and it says so.
-
-            "No events yet" on a page that has quietly been narrowed to one city is the
-            single most misleading thing this product can say: the customer concludes the
-            platform is dead when in fact there are fifteen events one city over. The way
-            out is offered here rather than left to be rediscovered in the header.
-          */
-          <EmptyState
-            title={`No events available in ${where} yet`}
-            hint={
-              whereCountry
-                ? 'Here is where we are selling right now.'
-                : 'Other places have events on sale.'
-            }
-            icon={Sparkles}
-            action={
-              whereCountry ? (
-                /*
-                  Name the places that have something, rather than offering an empty picker.
-
-                  A visitor whose browser reports a region we do not sell in is scoped to that
-                  country, and `location/resolve` answers with no suggestions at all - so the
-                  only way out was to type a city name into a picker while being told there is
-                  nothing on. That is a dead end on the front door, and the front door is the
-                  one page that cannot have one.
-
-                  These are search suggestions, not a browse-everywhere button: each chip is a
-                  real city with tickets on sale today, and choosing one is the same action as
-                  typing it.
-                */
-                <div className="flex flex-col items-center gap-3">
-                  {suggestedCities.length > 0 && (
-                    <div className="flex flex-wrap justify-center gap-2">
-                      {suggestedCities.map((c) => (
-                        <Button
-                          key={`${c.country}-${c.city}`}
-                          variant="secondary"
-                          onClick={() => preference.setCity(c.city)}
-                        >
-                          {c.city}
-                          <span className="ml-1.5 text-text-muted">{c.eventCount}</span>
-                        </Button>
-                      ))}
-                    </div>
-                  )}
-                  <Button variant="ghost" onClick={() => preference.requestPicker()}>
-                    Search for another city
-                  </Button>
+              {leadLoading ? (
+                <div className="grid gap-8 lg:grid-cols-[7fr_5fr]">
+                  <Placeholder className="aspect-video w-full" />
+                  <div className="space-y-4">
+                    <Placeholder className="h-20 w-full" />
+                    <Placeholder className="h-20 w-full" />
+                    <Placeholder className="h-20 w-full" />
+                  </div>
                 </div>
+              ) : lead.length === 0 ? (
+                filter.kind === 'all' ? null : (
+                  // A filter that found nothing says so, and offers the way back in one press.
+                  <div className="rounded-brand-card bg-brand-sunken px-6 py-10 text-center">
+                    <p className="font-brand-display text-brand-d3 text-brand-ink">
+                      {place ? t('empty.noMatch', { place }) : t('empty.noMatchAnywhere')}
+                    </p>
+                    <p className="mt-2 text-brand-ui text-brand-ink-2">{t('empty.noMatchHint')}</p>
+                    <BrandButton
+                      variant="secondary"
+                      className="mt-6"
+                      onClick={() => setFilter({ kind: 'all' })}
+                    >
+                      {t('empty.clear')}
+                    </BrandButton>
+                  </div>
+                )
               ) : (
-                <Button variant="secondary" onClick={() => preference.setCity(null)}>
-                  Show me everywhere
-                </Button>
-              )
+                <div
+                  className={`grid gap-8 ${lead.length > 1 ? 'lg:grid-cols-[7fr_5fr] lg:gap-10' : 'lg:grid-cols-[7fr_5fr]'}`}
+                >
+                  <FeatureCard event={lead[0]} />
+                  {lead.length > 1 && (
+                    <ul className="divide-y divide-brand-line lg:-mt-4">
+                      {lead.slice(1, 5).map((e) => (
+                        <li key={e.id}>
+                          <EventRow event={e} />
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* 4. Now showing, on a stage band. */}
+      {films.length > 0 && (
+        <section
+          data-brand-tone="stage"
+          aria-labelledby="home-films"
+          className="mt-12 bg-brand-canvas py-12 lg:mt-16 lg:py-16"
+        >
+          <div className={WRAP}>
+            <SectionHead
+              id="home-films"
+              title={t('sections.nowShowing')}
+              action={
+                <Link href="/movies" className={sectionLinkClasses()}>
+                  {preference.city
+                    ? t('sections.allFilmsIn', { place: preference.city })
+                    : t('sections.allFilms')}
+                </Link>
+              }
+            />
+            <Rail cols={5} phone="poster" label={t('sections.nowShowing')}>
+              {films.map((m) => (
+                <RailItem key={m.id}>
+                  <PosterCard movie={m} />
+                </RailItem>
+              ))}
+            </Rail>
+          </div>
+        </section>
+      )}
+
+      {/* 5. Elsewhere: titled, with the city on each card and the currency beside each price. */}
+      {outsideScope && outside.length > 0 && (
+        <section aria-labelledby="home-outside" className={`${WRAP} pt-12 lg:pt-16`}>
+          <SectionHead
+            id="home-outside"
+            title={place ? t('sections.outside', { place }) : t('sections.elsewhere')}
+            hint={t('sections.outsideHint')}
+            action={
+              <button
+                type="button"
+                onClick={() => preference.requestPicker()}
+                className={sectionLinkClasses()}
+              >
+                {t('sections.changeCity')}
+              </button>
             }
           />
-        ) : (
-          <EmptyState
-            title="No events yet"
-            hint="Events appear here as soon as an organizer puts tickets on sale."
-            icon={Sparkles}
-          />
-        )}
-      </Section>
-
-      {/* Collections by category */}
-      <Section title="Explore by category" subtitle="Jump straight to what you love.">
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-          {categories.map((c) => (
-            <button
-              key={c}
-              onClick={() => router.push(`/events?category=${encodeURIComponent(c)}`)}
-              className="group rounded-lg border border-border bg-background-surface p-5 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
-            >
-              <p className="font-semibold text-text-primary group-hover:text-action-primary">{c}</p>
-              <p className="mt-0.5 text-caption text-text-muted">Browse {c.toLowerCase()}</p>
-            </button>
-          ))}
-        </div>
-      </Section>
+          <Rail cols={4} label={place ? t('sections.outside', { place }) : t('sections.elsewhere')}>
+            {outside.map((e) => (
+              <RailItem key={e.id}>
+                <EventTile event={e} showCity currencyCode />
+              </RailItem>
+            ))}
+          </Rail>
+        </section>
+      )}
 
       {/*
-        What a buyer needs to know before paying a stranger on the internet.
-
-        The old homepage answered this with our own correctness properties - "we store amounts
-        as whole units", "repeating a request does not charge twice". Those are true, and no
-        buyer has ever chosen a ticketing site for its idempotency. These three are the
-        questions somebody actually asks, and each one is a promise the product already keeps.
-
-        Deliberately absent: who operates ETicketsGo, and where to write if something goes
-        wrong. Both are real questions and neither has a published answer yet, so nothing here
-        invents one. See docs/PRODUCTION_BUSINESS_DETAILS_CHECKLIST.md.
+        6. Recently viewed: current, still on sale, and scoped like everything else here (see
+        `useRecentlyViewed` - it was once the one list nothing filtered or kept up to date).
       */}
-      <section className="rounded-lg border border-border bg-background-surface p-6 shadow-sm sm:p-8">
-        <div className="grid gap-6 sm:grid-cols-3">
-          {[
-            {
-              icon: ReceiptText,
-              title: 'Every fee, before you pay',
-              body: 'The total on the event page is the total you are charged. Each fee is listed on its own line.',
-            },
-            {
-              icon: WifiOff,
-              title: 'Your ticket works without a signal',
-              body: 'The QR code is on your phone and scans at the gate even when the venue network does not.',
-            },
-            {
-              icon: Undo2,
-              title: 'The refund window is on the event',
-              body: 'Before you buy, the event page says whether you can get your money back, and until when.',
-            },
-          ].map((t) => (
-            <div key={t.title}>
-              <t.icon className="h-5 w-5 text-action-primary" aria-hidden />
-              <h3 className="mt-3 text-[0.9375rem] font-semibold text-text-primary">{t.title}</h3>
-              <p className="mt-1 text-caption leading-relaxed text-text-secondary">{t.body}</p>
+      {recent.length > 0 && (
+        <section aria-labelledby="home-recent" className={`${WRAP} pt-12 lg:pt-16`}>
+          <SectionHead id="home-recent" title={t('sections.recent')} />
+          <Rail cols={4} label={t('sections.recent')}>
+            {recent.slice(0, 4).map((e) => (
+              <RailItem key={e.id}>
+                <EventTile event={e} />
+              </RailItem>
+            ))}
+          </Rail>
+        </section>
+      )}
+
+      {/*
+        What a buyer needs to know before paying a stranger on the internet - three promises the
+        product already keeps - and the organizer path, kept and demoted. Quiet on purpose: type
+        and hairlines, no icon tiles.
+      */}
+      <section aria-labelledby="home-trust" className={`${WRAP} pb-16 pt-16 lg:pb-24 lg:pt-24`}>
+        <h2 id="home-trust" className="text-brand-eyebrow uppercase text-brand-ink-3">
+          {t('trust.title')}
+        </h2>
+        <div className="mt-6 grid gap-8 border-t border-brand-line pt-8 sm:grid-cols-3">
+          {(['fees', 'offline', 'refund'] as const).map((k) => (
+            <div key={k}>
+              <h3 className="font-brand-display text-brand-card text-brand-ink">
+                {t(`trust.${k}Title`)}
+              </h3>
+              <p className="mt-2 max-w-prose text-brand-ui text-brand-ink-2">
+                {t(`trust.${k}Body`)}
+              </p>
             </div>
           ))}
         </div>
-        <div className="mt-6 flex flex-wrap gap-x-5 gap-y-0 border-t border-border pt-2 text-caption">
-          <Link
-            href="/refunds"
-            className="inline-flex min-h-11 items-center text-action-primary hover:underline lg:min-h-0"
-          >
-            Refund policy
-          </Link>
-          <Link
-            href="/terms"
-            className="inline-flex min-h-11 items-center text-action-primary hover:underline lg:min-h-0"
-          >
-            Terms
-          </Link>
-          <Link
-            href="/privacy"
-            className="inline-flex min-h-11 items-center text-action-primary hover:underline lg:min-h-0"
-          >
-            Privacy
-          </Link>
-          <Link
-            href="/contact"
-            className="inline-flex min-h-11 items-center text-action-primary hover:underline lg:min-h-0"
-          >
-            Contact us
-          </Link>
+        <div className="mt-6 flex flex-wrap gap-x-6">
+          {(
+            [
+              ['/refunds', 'refundPolicy'],
+              ['/terms', 'terms'],
+              ['/privacy', 'privacy'],
+              ['/contact', 'contact'],
+            ] as const
+          ).map(([href, key]) => (
+            <Link
+              key={href}
+              href={href}
+              className={`inline-flex min-h-11 items-center text-brand-ui text-brand-ink underline decoration-brand-line-strong underline-offset-4 hover:decoration-brand-ink ${BRAND_FOCUS}`}
+            >
+              {t(`trust.${key}`)}
+            </Link>
+          ))}
         </div>
-      </section>
 
-      {/*
-        The organizer path, kept and demoted.
-
-        It used to send a stranger to `NEXT_PUBLIC_ORGANIZER_URL ?? 'http://localhost:3001'` -
-        a console they have no account for, and a localhost address if that variable is ever
-        unset. Somebody who has not signed up wants to read what we offer first, which is what
-        `/organizers` is for.
-      */}
-      <section className="overflow-hidden rounded-lg border border-border bg-background-surface p-8 shadow-sm sm:p-10">
-        <div className="flex flex-col items-start justify-between gap-6 sm:flex-row sm:items-center">
+        {/*
+          The organizer path. It points at `/organizers`, the page that explains what we offer,
+          never at a console a stranger has no account for.
+        */}
+        <div className="mt-16 flex flex-col items-start justify-between gap-6 rounded-brand-card border border-brand-line bg-brand-surface p-6 sm:flex-row sm:items-center lg:p-8">
           <div>
-            <h2 className="text-h3 font-bold tracking-tight text-text-primary">
-              Run events of your own?
+            <h2 className="font-brand-display text-brand-d3 text-brand-ink">
+              {t('organizers.title')}
             </h2>
-            <p className="mt-2 max-w-lg text-[0.9375rem] text-text-secondary">
-              Sell tickets, reserve seats and check people in at the gate - including when the venue
-              network drops.
+            <p className="mt-2 max-w-prose text-brand-ui text-brand-ink-2">
+              {t('organizers.body')}
             </p>
           </div>
-          <ButtonLink href="/organizers" variant="secondary">
-            See how it works
-          </ButtonLink>
+          <Link href="/organizers" className={brandButtonClasses('secondary', 'md')}>
+            {t('organizers.cta')}
+          </Link>
         </div>
       </section>
     </div>

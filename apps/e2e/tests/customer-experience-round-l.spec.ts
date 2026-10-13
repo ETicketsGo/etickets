@@ -187,7 +187,8 @@ test.describe('on a phone', () => {
       return {
         logo: box('a[aria-label="ETicketsGo home"]'),
         signIn: box('header a[href$="/login"]'),
-        language: box('header select'),
+        // The language select moved from the header to the footer in the storefront redesign.
+        language: box('footer select'),
         quantity: box('[data-quantity-stepper]'),
         footerLink: box('footer ul a'),
         under24,

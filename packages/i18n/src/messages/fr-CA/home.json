@@ -1,0 +1,89 @@
+{
+  "header": {
+    "homeLabel": "Accueil ETicketsGo",
+    "mainNav": "Principal",
+    "searchLabel": "Rechercher des événements, des films et des salles",
+    "searchPlaceholder": "Événements, films, salles et artistes",
+    "notifications": "Notifications",
+    "notificationsUnread": "Notifications, {count} non lues"
+  },
+  "bottomNav": {
+    "label": "Navigation principale"
+  },
+  "page": {
+    "title": "À l'affiche : {place}",
+    "titleAnywhere": "À l'affiche"
+  },
+  "hero": {
+    "label": "Événement en vedette",
+    "book": "Réserver des billets",
+    "by": "Par {name}"
+  },
+  "chips": {
+    "label": "Choisir un jour ou un genre d'événement",
+    "all": "Tout",
+    "today": "Aujourd'hui",
+    "weekend": "Ce week-end",
+    "movies": "Films",
+    "concerts": "Concerts",
+    "comedy": "Humour",
+    "sports": "Sports",
+    "workshops": "Ateliers",
+    "theatre": "Théâtre"
+  },
+  "sections": {
+    "upcomingIn": "Prochainement : {place}",
+    "upcoming": "Prochainement",
+    "todayIn": "Aujourd'hui : {place}",
+    "today": "Aujourd'hui",
+    "weekendIn": "Ce week-end : {place}",
+    "weekend": "Ce week-end",
+    "kindIn": "{kind} : {place}",
+    "seeAll": "Tout voir ({count})",
+    "nowShowing": "À l'écran",
+    "allFilmsIn": "Tous les films : {place}",
+    "allFilms": "Tous les films",
+    "outside": "Ailleurs, hors {place}",
+    "elsewhere": "Ailleurs sur ETicketsGo",
+    "outsideHint": "Chaque prix est dans la devise de la salle.",
+    "changeCity": "Changer de ville",
+    "recent": "Poursuivre l'exploration",
+    "film": "Film"
+  },
+  "empty": {
+    "noneIn": "Aucun événement pour le moment : {place}",
+    "sellingHere": "Voici où nous vendons des billets en ce moment.",
+    "otherPlaces": "D'autres endroits ont des événements en vente.",
+    "searchCity": "Chercher une autre ville",
+    "everywhere": "Tout afficher",
+    "none": "Aucun événement pour le moment",
+    "noneHint": "Les événements s'affichent ici dès qu'un organisateur met des billets en vente.",
+    "noMatch": "Rien ne correspond à ce filtre : {place}",
+    "noMatchAnywhere": "Rien ne correspond à ce filtre",
+    "noMatchHint": "Essayez un autre jour ou un autre genre d'événement.",
+    "clear": "Tout afficher",
+    "loadFailed": "Nous n'avons pas pu charger la programmation. Vérifiez votre connexion et réessayez.",
+    "retry": "Réessayer"
+  },
+  "trust": {
+    "title": "Avant de payer",
+    "feesTitle": "Tous les frais, avant de payer",
+    "feesBody": "Le total affiché sur la page de l'événement est le total facturé. Chaque frais figure sur sa propre ligne.",
+    "offlineTitle": "Votre billet fonctionne sans réseau",
+    "offlineBody": "Le code QR est sur votre téléphone et se lit à l'entrée même quand le réseau de la salle ne fonctionne pas.",
+    "refundTitle": "Le délai de remboursement est sur l'événement",
+    "refundBody": "Avant l'achat, la page de l'événement indique si vous pouvez être remboursé, et jusqu'à quand.",
+    "refundPolicy": "Politique de remboursement",
+    "terms": "Conditions",
+    "privacy": "Confidentialité",
+    "contact": "Nous joindre"
+  },
+  "organizers": {
+    "title": "Vous organisez des événements?",
+    "body": "Vendez des billets, réservez des places et faites entrer le public, même quand le réseau de la salle tombe.",
+    "cta": "Voir comment ça marche"
+  },
+  "footer": {
+    "feedback": "Envoyer un commentaire"
+  }
+}
