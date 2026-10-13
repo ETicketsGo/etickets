@@ -279,6 +279,7 @@ export default function OrganizerDashboard() {
             next={next}
             failed={feedQ.isError}
             onRetry={() => feedQ.refetch()}
+            canAct={canCreate}
           />
         </div>
       </div>

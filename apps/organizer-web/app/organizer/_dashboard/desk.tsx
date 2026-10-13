@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useId, useState, type ReactNode } from 'react';
-import { ArrowRight, ChevronDown } from 'lucide-react';
+import { ArrowRight, ChevronDown, ImageOff } from 'lucide-react';
 import {
   BrandStatusPill,
   EventArtwork,
@@ -179,15 +179,18 @@ function Thumb({ row }: { row: ComingUpRow }) {
     );
   }
   /*
-    No picture: the brand's no-image artwork, reduced to what survives 48px - the stage colour
-    and the marigold rule. The title is set right beside it, so it is not repeated as tiny text.
+    No picture: a quiet sunken tile with an image-off glyph, named "No image yet" for assistive
+    technology and in a tooltip. At 48px the brand's typographic artwork has no room for its
+    title, and a mark that explains nothing reads as a placeholder (owner review, round 2).
   */
   return (
     <span
-      aria-hidden
-      className="flex h-12 w-12 shrink-0 items-end rounded-brand-control bg-brand-ink p-2 dark:border dark:border-brand-line dark:bg-brand-sunken"
+      role="img"
+      aria-label="No image yet"
+      title="No image yet"
+      className="flex h-12 w-12 shrink-0 items-center justify-center rounded-brand-control border border-brand-line bg-brand-sunken text-brand-ink-3"
     >
-      <span className="h-1 w-4 rounded-full bg-brand-marigold" />
+      <ImageOff className="h-5 w-5" aria-hidden />
     </span>
   );
 }
@@ -430,14 +433,20 @@ const SEVERITY: Record<NeedsActionItem['severity'], { label: string; tone: Brand
 };
 
 /** The next step: one sentence, one reason, one button. */
+/** What a member who cannot act on an item is told instead of a "Fix this" they would be refused. */
+const OWNER_DOES_IT = "Your organization's owner or a manager needs to do this.";
+
 function StepBlock({
   step,
   eyebrow,
   blocking = false,
+  readOnly = false,
 }: {
   step: NextStep;
   eyebrow: string;
   blocking?: boolean;
+  /** The viewer's role cannot do it: say who can, and offer no button that would refuse them. */
+  readOnly?: boolean;
 }) {
   return (
     <div className="flex flex-col gap-3">
@@ -449,10 +458,14 @@ function StepBlock({
         <p className="text-brand-body font-semibold text-brand-ink">{step.title}</p>
         {step.detail && <p className="text-brand-meta text-brand-ink-2">{step.detail}</p>}
       </div>
-      <Link href={step.href} className={`self-start ${brandButtonClasses('secondary', 'md')}`}>
-        {step.actionLabel}
-        <ArrowRight className="h-4 w-4" aria-hidden />
-      </Link>
+      {readOnly ? (
+        <p className="text-brand-meta font-semibold text-brand-ink-2">{OWNER_DOES_IT}</p>
+      ) : (
+        <Link href={step.href} className={`self-start ${brandButtonClasses('secondary', 'md')}`}>
+          {step.actionLabel}
+          <ArrowRight className="h-4 w-4" aria-hidden />
+        </Link>
+      )}
     </div>
   );
 }
@@ -468,12 +481,15 @@ export function NeedsYou({
   failed,
   onRetry,
   shown = 4,
+  canAct = true,
 }: {
   needs: NeedsAction;
   next: ChosenStep | null;
   failed: boolean;
   onRetry: () => void;
   shown?: number;
+  /** False for check-in staff: the items are shown read-only, with no "Fix this". */
+  canAct?: boolean;
 }) {
   const headingId = useId();
   const rest = needs.items.filter((i) => i.key !== next?.itemKey);
@@ -496,7 +512,7 @@ export function NeedsYou({
             <span className="ml-2 tabular-nums text-brand-ink-3">{count(needs.items.length)}</span>
           )}
         </h2>
-        {needs.suggestions > 0 && (
+        {needs.suggestions > 0 && canAct && (
           <Link href="/organizer/onboarding" className={`text-brand-meta ${LINK}`}>
             {count(needs.suggestions)} optional {needs.suggestions === 1 ? 'step' : 'steps'}
           </Link>
@@ -518,6 +534,7 @@ export function NeedsYou({
             eyebrow={next.itemKey ? 'Do this next' : 'Next step'}
             blocking={next.blocking}
             step={next.step}
+            readOnly={!canAct}
           />
         )}
         {listed.length > 0 && (
@@ -542,23 +559,34 @@ export function NeedsYou({
                     {SEVERITY[item.severity].label}
                   </BrandStatusPill>
                 </div>
-                <Link href={item.href} className={`mt-2 inline-block text-brand-meta ${LINK}`}>
-                  {item.actionLabel}
-                </Link>
+                {canAct ? (
+                  <Link href={item.href} className={`mt-2 inline-block text-brand-meta ${LINK}`}>
+                    {item.actionLabel}
+                  </Link>
+                ) : (
+                  <p className="mt-2 text-brand-meta text-brand-ink-3">{OWNER_DOES_IT}</p>
+                )}
               </li>
             ))}
           </ul>
         )}
-        {rest.length > 0 && (
-          <Link href={moreHref} className={`text-brand-meta xl:hidden ${LINK}`}>
-            {more(rest.length)}
-          </Link>
-        )}
-        {hidden > 0 && (
-          <Link href={moreHref} className={`hidden text-brand-meta xl:inline ${LINK}`}>
-            {more(hidden)}
-          </Link>
-        )}
+        {/* Read-only for a role that cannot open the pages these items are fixed on. */}
+        {rest.length > 0 &&
+          (canAct ? (
+            <Link href={moreHref} className={`text-brand-meta xl:hidden ${LINK}`}>
+              {more(rest.length)}
+            </Link>
+          ) : (
+            <p className="text-brand-meta text-brand-ink-3 xl:hidden">{more(rest.length)}</p>
+          ))}
+        {hidden > 0 &&
+          (canAct ? (
+            <Link href={moreHref} className={`hidden text-brand-meta xl:inline ${LINK}`}>
+              {more(hidden)}
+            </Link>
+          ) : (
+            <p className="hidden text-brand-meta text-brand-ink-3 xl:block">{more(hidden)}</p>
+          ))}
       </div>
     </section>
   );

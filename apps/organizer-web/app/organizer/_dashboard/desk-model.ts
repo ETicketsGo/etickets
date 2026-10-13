@@ -248,8 +248,10 @@ export function nextStepWhenClear({
 export function needsContext(needs: NeedsAction): string {
   if (needs.items.length === 0) return 'All clear';
   if (needs.blocking > 0)
-    return `${needs.blocking} ${needs.blocking === 1 ? 'blocks' : 'block'} sales or payouts`;
-  return `${needs.warnings} to check`;
+    return needs.blocking === 1
+      ? '1 item blocks sales or payouts'
+      : `${needs.blocking} items block sales or payouts`;
+  return needs.warnings === 1 ? '1 item to check' : `${needs.warnings} items to check`;
 }
 
 /**

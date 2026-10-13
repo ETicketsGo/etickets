@@ -196,8 +196,19 @@ describe('needsContext', () => {
       source: 'setup' as const,
     };
     expect(needsContext({ items: [item], blocking: 1, warnings: 0, suggestions: 0 })).toBe(
-      '1 blocks sales or payouts',
+      '1 item blocks sales or payouts',
     );
+    expect(needsContext({ items: [item, item], blocking: 2, warnings: 0, suggestions: 0 })).toBe(
+      '2 items block sales or payouts',
+    );
+    expect(
+      needsContext({
+        items: [{ ...item, severity: 'warning' }],
+        blocking: 0,
+        warnings: 1,
+        suggestions: 0,
+      }),
+    ).toBe('1 item to check');
   });
 });
 
