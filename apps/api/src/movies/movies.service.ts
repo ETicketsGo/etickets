@@ -104,6 +104,8 @@ export interface PublicShowDto {
 
 export interface PublicShowFilters {
   city?: string;
+  /** Country scope for when no city is chosen; ignored when one is, as in `list`. */
+  country?: string;
   from?: Date;
   to?: Date;
   limit: number;
@@ -450,9 +452,21 @@ export class PublicMoviesService {
         movieId: movie.id,
         experienceType: ExperienceType.MOVIE,
         status: EventStatus.PUBLISHED,
+        /*
+          Where the visitor is. A film page opened with "United States" chosen asked only for
+          a city, so it listed a Boise screening at $250.00 beside a Hyderabad one at Rs 250 -
+          two currencies on one page, the second in a market the visitor had not chosen. A chosen
+          city still beats an inferred country, as in `list`.
+        */
         ...(filters.city
           ? { venue: { city: { equals: filters.city, mode: 'insensitive' as const } } }
-          : {}),
+          : filters.country
+            ? {
+                venue: {
+                  country: { in: countryAliases(filters.country), mode: 'insensitive' as const },
+                },
+              }
+            : {}),
       },
     };
 

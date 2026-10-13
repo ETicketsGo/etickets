@@ -24,6 +24,7 @@ import {
 } from '@eticketsgo/web-kit';
 import { CalendarRange } from 'lucide-react';
 import { CountryFilter, CountryLabel, useCountryParam } from '../../../components/country-filter';
+import { alreadyHappened } from '@/lib/event-timing';
 
 /**
  * The event moderation queue.
@@ -159,6 +160,12 @@ export default function AdminEventsPage() {
             </p>
             {e.sessionCount > 1 && (
               <p className="text-caption text-text-muted">{e.sessionCount} shows</p>
+            )}
+            {/* A reviewer must not approve a show that cannot happen; the queue says so, and decides nothing. */}
+            {alreadyHappened(e) && (
+              <p className="text-caption font-semibold text-status-warning">
+                Show already happened
+              </p>
             )}
             {/* An event nobody can buy a ticket to looks identical to a healthy one otherwise. */}
             {when.broken && <p className="text-caption text-text-muted">Nothing to sell yet</p>}
