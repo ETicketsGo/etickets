@@ -146,7 +146,7 @@ export default function AdminPayments() {
             value={q}
             onChange={setQ}
             onSubmit={() => filters.set({ q: q.trim() })}
-            placeholder="Search buyer email, booking reference or provider reference"
+            placeholder="Search event title, buyer email, booking reference or provider reference"
           />
           <FilterBar
             filters={{

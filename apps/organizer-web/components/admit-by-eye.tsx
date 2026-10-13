@@ -3,7 +3,16 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Eye, Search } from 'lucide-react';
-import { api, Badge, Button, Card, Input, errorMessage, useToast } from '@eticketsgo/web-kit';
+import {
+  api,
+  Badge,
+  Button,
+  Card,
+  Input,
+  errorMessage,
+  useToast,
+  type CheckInOutcome,
+} from '@eticketsgo/web-kit';
 
 /**
  * Admitting a customer without scanning anything.
@@ -26,7 +35,14 @@ import { api, Badge, Button, Card, Input, errorMessage, useToast } from '@eticke
  * does the wording here — "Admit" rather than "Check in", because the assurance is different
  * and pretending otherwise would put a claim in the record that nobody made.
  */
-export function AdmitByEye({ sessionId }: { sessionId: string }) {
+export function AdmitByEye({
+  sessionId,
+  onAdmitted,
+}: {
+  sessionId: string;
+  /** Told of every answer the server gives, so the page can keep its counter and log current. */
+  onAdmitted?: (outcome: CheckInOutcome) => void;
+}) {
   const toast = useToast();
   const qc = useQueryClient();
   const [q, setQ] = useState('');
@@ -56,6 +72,7 @@ export function AdmitByEye({ sessionId }: { sessionId: string }) {
       */
       const good = outcome.result === 'SUCCESS';
       toast.push(outcome.message, good ? 'success' : 'error');
+      onAdmitted?.(outcome);
       await qc.invalidateQueries({ queryKey: ['checkin-roster', sessionId] });
     },
     onError: (e) => toast.push(errorMessage(e), 'error'),
@@ -76,8 +93,8 @@ export function AdmitByEye({ sessionId }: { sessionId: string }) {
   return (
     <Card title="Admit by eye">
       <p className="mb-3 text-sm text-text-muted">
-        For when you are reading the ticket rather than scanning it. Search by seat, name or booking
-        reference. Every admission is recorded as a visual check.
+        For when you are reading the ticket rather than scanning it. Search by seat, name, ticket
+        serial or booking reference. Every admission is recorded as a visual check.
       </p>
 
       <form
@@ -88,8 +105,8 @@ export function AdmitByEye({ sessionId }: { sessionId: string }) {
         }}
       >
         <Input
-          aria-label="Search by seat, name or booking reference"
-          placeholder="Seat, name or reference"
+          aria-label="Search by seat, name, serial or booking reference"
+          placeholder="Seat, name, serial or reference"
           value={q}
           onChange={(e) => setQ(e.target.value)}
           className="flex-1"
@@ -122,6 +139,8 @@ export function AdmitByEye({ sessionId }: { sessionId: string }) {
                 <p className="truncate text-xs text-text-muted">
                   {r.ticketType}
                   {r.reference && <span className="ml-1.5 font-mono">{r.reference}</span>}
+                  {/* Tickets of one booking share a name and a reference; the serial tells them apart. */}
+                  <span className="ml-1.5 font-mono">{r.serial}</span>
                   {/*
                     A reprint for a customer who arrived without a phone. Opens in a new tab so
                     the door does not lose its place in the roster it is working through.

@@ -9,11 +9,40 @@ import {
   Role,
   TicketStatus,
   currencyForCountry,
+  venueZone,
 } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
 import type { RequestUser } from '../common/decorators';
 import { toCsv } from '../common/csv';
+
+/**
+ * The calendar day (YYYY-MM-DD) an instant falls on in `zone`.
+ *
+ * Sales are grouped by the day the ORGANIZER lived it, which is the venue's day: a sale at
+ * 11:26 pm in Mumbai is 17:56 UTC the same day, but one at 1:00 am in Mumbai is still the
+ * previous day in UTC. Bucketing by UTC days put such sales on the wrong date.
+ */
+export function dayInZone(at: Date, zone: string): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: zone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(at);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
+  return `${get('year')}-${get('month')}-${get('day')}`;
+}
+
+function safeZone(zone: string | null | undefined): string {
+  if (!zone) return 'UTC';
+  try {
+    new Intl.DateTimeFormat('en-GB', { timeZone: zone });
+    return zone;
+  } catch {
+    return 'UTC';
+  }
+}
 
 @Injectable()
 export class ReportsService {
@@ -41,7 +70,17 @@ export class ReportsService {
 
   /** Organizer report for a single event (section 18). */
   async organizerEventReport(user: RequestUser, eventId: string) {
-    const event = await this.prisma.event.findUnique({ where: { id: eventId } });
+    const event = await this.prisma.event.findUnique({
+      where: { id: eventId },
+      include: {
+        venue: { select: { timezone: true, country: true } },
+        sessions: {
+          take: 1,
+          orderBy: { startsAt: 'asc' },
+          select: { screen: { select: { cinema: { select: { timezone: true } } } } },
+        },
+      },
+    });
     if (!event) return null;
     // This report exposes gross/net revenue, fees and refunds — financial data.
     // Restrict to org owners/managers; CHECKIN_STAFF, other members and platform staff who are
@@ -86,13 +125,26 @@ export class ReportsService {
         where: { ticketTypeId: { not: null }, booking: paidWhere },
         _sum: { quantity: true, lineTotalMinor: true },
       }),
-      this.prisma.$queryRaw<{ day: Date; count: bigint; gross: bigint }[]>`
-        SELECT date_trunc('day', "confirmedAt") AS day, COUNT(*)::bigint AS count, SUM("subtotalMinor")::bigint AS gross
-        FROM "Booking"
-        WHERE "eventId" = ${eventId} AND "confirmedAt" IS NOT NULL
-        GROUP BY 1 ORDER BY 1 ASC
-      `,
+      // Bucketed in code, not SQL, so the day is the venue's day (see dayInZone).
+      this.prisma.booking.findMany({
+        where: paidWhere,
+        select: { confirmedAt: true, subtotalMinor: true },
+      }),
     ]);
+
+    const zone = safeZone(
+      event.sessions[0]?.screen?.cinema?.timezone ??
+        venueZone(event.venue?.timezone, event.venue?.country),
+    );
+    const dayBuckets = new Map<string, { bookings: number; grossMinor: number }>();
+    for (const b of salesByDayRaw) {
+      if (!b.confirmedAt) continue;
+      const key = dayInZone(b.confirmedAt, zone);
+      const bucket = dayBuckets.get(key) ?? { bookings: 0, grossMinor: 0 };
+      bucket.bookings += 1;
+      bucket.grossMinor += b.subtotalMinor;
+      dayBuckets.set(key, bucket);
+    }
 
     const typeNames = await this.prisma.ticketType.findMany({
       where: { id: { in: salesByType.map((s) => s.ticketTypeId).filter((x): x is string => !!x) } },
@@ -125,11 +177,11 @@ export class ReportsService {
         quantity: s._sum.quantity ?? 0,
         grossMinor: s._sum.lineTotalMinor ?? 0,
       })),
-      salesByDay: salesByDayRaw.map((r) => ({
-        day: r.day,
-        bookings: Number(r.count),
-        grossMinor: Number(r.gross),
-      })),
+      salesByDay: [...dayBuckets.entries()]
+        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+        .map(([day, v]) => ({ day, bookings: v.bookings, grossMinor: v.grossMinor })),
+      /** The zone the days above are in, so a screen can say so. */
+      salesDayZone: zone,
     };
   }
 
@@ -157,11 +209,7 @@ export class ReportsService {
     );
     const byDay = toCsv(
       ['day', 'bookings', 'grossMinor'],
-      r.salesByDay.map((s) => [
-        new Date(s.day).toISOString().slice(0, 10),
-        s.bookings,
-        s.grossMinor,
-      ]),
+      r.salesByDay.map((s) => [s.day, s.bookings, s.grossMinor]),
     );
     return `Summary\r\n${summary}\r\n\r\nSales by ticket type\r\n${byType}\r\n\r\nSales by day\r\n${byDay}\r\n`;
   }
