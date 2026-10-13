@@ -65,7 +65,7 @@ export default function OrganizerCinemas() {
     <div className="space-y-4">
       <PageHeader
         title="Spaces"
-        description="Spaces live inside a venue. Venues & spaces shows both together."
+        description="Spaces live inside a venue. Venues & seating shows both together."
         action={<ButtonLink href="/organizer/cinemas/new">New space</ButtonLink>}
       />
       <SearchInput value={q} onChange={setQ} placeholder="Search spaces…" />

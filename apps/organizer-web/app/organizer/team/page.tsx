@@ -165,6 +165,7 @@ export default function TeamPage() {
           rows={data}
           loading={isLoading}
           rowKey={(m) => m.id}
+          mobile="cards"
           error={
             teamListRefused
               ? 'Only owners and managers can see the team list.'

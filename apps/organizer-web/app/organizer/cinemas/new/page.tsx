@@ -129,7 +129,7 @@ export default function NewCinemaPage() {
       <PageHeader
         title="New space"
         breadcrumbs={[
-          { label: 'Venues & spaces', href: '/organizer/venues' },
+          { label: 'Venues & seating', href: '/organizer/venues' },
           { label: 'New space' },
         ]}
       />

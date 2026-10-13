@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api, marketFor, useAuthUser, type AnalyticsOrganizerMarket } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
 import { isForbidden } from '@/lib/org-permissions';
@@ -96,6 +96,13 @@ export default function OrganizerDashboard() {
   });
 
   const [now] = useState(() => new Date());
+  /*
+    The date line is the viewer's own "today", which a server cannot know: it formats in the
+    server's zone, and the first client render in the viewer's. Two different strings in the same
+    place is React error #418 (a hydration mismatch). It is written after mount instead.
+  */
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   const events = useMemo(() => (eventsQ.data ?? []) as EventListRow[], [eventsQ.data]);
   const rows = useMemo(() => comingUpRows(events, now), [events, now]);
   const total = useMemo(() => comingUpTotal(events, now), [events, now]);
@@ -149,9 +156,13 @@ export default function OrganizerDashboard() {
   const header = (
     <OverviewHeader
       // "Tuesday 13 October": the viewer's own today, without the year a desk does not need.
-      dateLine={greetingDate(now)
-        .replace(/ \d{4}$/, '')
-        .replace(',', '')}
+      dateLine={
+        mounted
+          ? greetingDate(now)
+              .replace(/ \d{4}$/, '')
+              .replace(',', '')
+          : ''
+      }
       welcome={firstName ? `Welcome back, ${firstName}.` : undefined}
       status={orgStanding(activeOrg.status)}
     />

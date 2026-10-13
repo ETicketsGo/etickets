@@ -129,7 +129,7 @@ export default function GatePage() {
   if (!sessionId) {
     return (
       <div className="mx-auto max-w-2xl">
-        <PageHeader title="Gate" description="Choose the show you are on the door for." />
+        <PageHeader title="Check-in" description="Choose the show you are on the door for." />
         {sessions.isLoading && (
           <Card className="p-6 text-center text-text-muted">Loading shows...</Card>
         )}

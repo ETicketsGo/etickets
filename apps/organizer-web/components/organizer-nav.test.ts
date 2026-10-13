@@ -1,4 +1,4 @@
-import { readdirSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { filterQuickNav, navSections, quickNavEntries, type NavItem } from '@eticketsgo/web-kit';
@@ -133,4 +133,40 @@ describe('quick navigation and the collapsed rail', () => {
     expect(icons.every(Boolean)).toBe(true);
     expect(new Set(icons).size).toBe(icons.length);
   });
+});
+
+/**
+ * A sidebar label and the title of the page it opens are the same words.
+ *
+ * The walkthrough found "Check-in" opening "Gate", "Marketing" opening "Promotions" and
+ * "Bookings & attendees" opening "Find a booking": a person who clicked a label and landed under
+ * another name was never sure they had arrived. Read from the page source, so a title edited
+ * later cannot drift from the menu without failing here.
+ */
+describe('sidebar labels equal page titles', () => {
+  const owner = navFor({ doesFilmBusiness: true, can: { financials: true, ownerActions: true } });
+  /*
+    Not compared: onboarding's title is a sentence about this organization, and the Overview and
+    Calendar titles are drawn by their own components (desk.tsx "Overview", organizer-calendar.tsx
+    "Calendar"), not by a literal in page.tsx.
+  */
+  const PERSONAL = new Set(['/organizer/onboarding', '/organizer', '/organizer/calendar']);
+
+  function titleOf(href: string): string | null {
+    const file = join(APP, href.replace('/organizer', ''), 'page.tsx');
+    const src = readFileSync(file, 'utf8');
+    const m = /<PageHeader[\s\S]{0,200}?[\s]title=["']([^"']+)["']/.exec(src);
+    return m ? m[1].replace(/&amp;/g, '&') : null;
+  }
+
+  const items = flatten(owner).filter((i) => !PERSONAL.has(i.href));
+
+  it.each(items.map((i) => [i.label, i.href]))(
+    '%s opens a page of the same name',
+    (label, href) => {
+      const title = titleOf(href);
+      expect(title, `${href} has no literal PageHeader title to compare`).not.toBeNull();
+      expect(title).toBe(label);
+    },
+  );
 });

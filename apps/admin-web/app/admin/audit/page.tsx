@@ -222,7 +222,7 @@ export default function AuditPage() {
         </FilterBar>
       </Card>
 
-      <div className="grid gap-6 lg:grid-cols-[20rem_1fr]">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[20rem_minmax(0,1fr)]">
         <Card title="Who was active">
           {summary.isLoading ? (
             <Skeleton className="h-48 w-full" />

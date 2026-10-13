@@ -797,7 +797,7 @@ export function DataTable<T>({
                     <button
                       type="button"
                       onClick={() => toggleSort(c.key)}
-                      className={`-mx-1 inline-flex items-center gap-1 rounded px-1 transition-colors hover:text-text-primary ${focus}`}
+                      className={`-mx-1 inline-flex min-h-6 items-center gap-1 rounded px-1 transition-colors hover:text-text-primary ${focus}`}
                     >
                       {c.header}
                       <SortIcon

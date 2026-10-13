@@ -282,7 +282,7 @@ export default function FinancePage() {
   return (
     <div className="space-y-8">
       <PageHeader
-        title="Finance"
+        title="Finance & payouts"
         description={`What ${activeOrgSentenceName} has earned, what has been paid, and what is still to come.`}
         action={
           <nav aria-label="Finance pages" className="flex flex-wrap gap-2">

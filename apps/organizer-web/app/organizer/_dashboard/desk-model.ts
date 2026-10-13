@@ -323,3 +323,19 @@ export function pickNextStep({
   const plain = nextStepWhenClear({ events, rows, canCreate });
   return plain ? { step: plain, itemKey: null, blocking: false } : null;
 }
+
+/**
+ * The size a figure may take in its own cell.
+ *
+ * A figure stays on one line and is never cut, so its type steps down to fit instead: the cell
+ * is a size container, and `cqi` is the width its text may use. A lakh-grouped payable such as
+ * "Rs 6,989.18" at 36px is 162px wide, and a cell is 134px wide at 1024 (a 4-column row beside
+ * the sidebar) and 111px at 320. Inter's tabular digits run about 0.5em, so 0.56em a character
+ * leaves a little air. The ceiling is the design system's own fluid size, so a short number
+ * ("148") keeps the full size; the floor is 16px, below which a figure stops being the loudest
+ * thing on the page, and an amount that long is a case for the layout, not for smaller type.
+ */
+export function figureSize(value: string): string {
+  const em = Math.max(1, [...value].length) * 0.56;
+  return `max(1rem, min(clamp(1.75rem, 1.53rem + 0.9vw, 2.25rem), calc(100cqi / ${em.toFixed(2)})))`;
+}
