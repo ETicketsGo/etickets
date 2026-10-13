@@ -537,3 +537,114 @@ describe.each(['light', 'dark'] as const)(
     });
   },
 );
+
+/**
+ * ── THE BRAND LAYER (brand.css) ────────────────────────────────────────────────────
+ * The experience-reset palette, held to the same arithmetic as everything above, for every
+ * block it ships: the customer paper, the customer stage band, and the console in light and
+ * dark. Read from brand.css by exact selector, for the same reason `themeBlocks` splits on
+ * `.dark {`: each block redefines the same names, so a whole-file regex would quietly test
+ * the first block four times.
+ */
+const BRAND_CSS = readFileSync(resolve(__dirname, 'brand.css'), 'utf8');
+
+const BRAND_BLOCKS = {
+  customer: "[data-brand='customer'] {",
+  stage: "[data-brand='customer'][data-brand-tone='stage'] {",
+  console: "[data-brand='console'] {",
+  'console dark': ".dark[data-brand='console'] {",
+} as const;
+
+function brandBlock(name: keyof typeof BRAND_BLOCKS): string {
+  const start = BRAND_CSS.indexOf(BRAND_BLOCKS[name]);
+  expect(start, `brand.css has no block for ${name}`).toBeGreaterThanOrEqual(0);
+  return BRAND_CSS.slice(start, BRAND_CSS.indexOf('}', start));
+}
+
+const BRAND_SURFACES = ['brand-canvas', 'brand-surface', 'brand-sunken'];
+
+/** Text a person reads, on every surface it may sit on. */
+const BRAND_TEXT_PAIRS: { fg: string; bg: string; what: string }[] = [
+  ...['brand-ink', 'brand-ink-2', 'brand-ink-3'].flatMap((fg) =>
+    BRAND_SURFACES.map((bg) => ({ fg, bg, what: `${fg} on ${bg}` })),
+  ),
+  { fg: 'brand-on-action', bg: 'brand-action', what: 'the primary button' },
+  { fg: 'brand-on-action', bg: 'brand-action-hover', what: 'the primary button, hover' },
+  { fg: 'brand-on-marigold', bg: 'brand-marigold', what: 'ink on a marigold chip or seat' },
+  { fg: 'brand-on-marigold', bg: 'brand-marigold-hover', what: 'ink on marigold, hover' },
+  ...['positive', 'caution', 'critical', 'info'].flatMap((s) => [
+    { fg: `brand-${s}`, bg: `brand-${s}-tint`, what: `a ${s} pill` },
+    { fg: `brand-${s}`, bg: 'brand-surface', what: `${s} text on a card` },
+    { fg: `brand-${s}`, bg: 'brand-canvas', what: `${s} text on the page` },
+  ]),
+];
+
+/** Boundaries that identify a control (SC 1.4.11). */
+const BRAND_CONTROL_PAIRS: { control: string; behind: string; what: string }[] = [
+  { control: 'brand-action', behind: 'brand-canvas', what: 'a primary button on the page' },
+  { control: 'brand-action', behind: 'brand-surface', what: 'a primary button on a card' },
+  ...BRAND_SURFACES.map((behind) => ({
+    control: 'brand-field',
+    behind,
+    what: `a field outline on ${behind}`,
+  })),
+  { control: 'brand-focus', behind: 'brand-canvas', what: 'the focus ring on the page' },
+  { control: 'brand-focus', behind: 'brand-surface', what: 'the focus ring on a card' },
+];
+
+describe.each(Object.keys(BRAND_BLOCKS) as (keyof typeof BRAND_BLOCKS)[])(
+  'brand layer, %s, clears WCAG AA',
+  (name) => {
+    const block = brandBlock(name);
+
+    it.each(BRAND_TEXT_PAIRS)('$what', ({ fg, bg }) => {
+      const ratio = contrast(readToken(block, fg), readToken(block, bg));
+      expect(
+        Number(ratio.toFixed(2)),
+        `${name}: --${fg} on --${bg} is ${ratio.toFixed(2)}:1, below ${AA_NORMAL}:1`,
+      ).toBeGreaterThanOrEqual(AA_NORMAL);
+    });
+
+    it.each(BRAND_CONTROL_PAIRS)('$what', ({ control, behind }) => {
+      const ratio = contrast(readToken(block, control), readToken(block, behind));
+      expect(
+        Number(ratio.toFixed(2)),
+        `${name}: --${control} against --${behind} is ${ratio.toFixed(2)}:1, below ${AA_NON_TEXT}:1`,
+      ).toBeGreaterThanOrEqual(AA_NON_TEXT);
+    });
+  },
+);
+
+describe('brand layer: marigold is a light, not a warning', () => {
+  it('a selected seat (marigold) stands out from the stage it is drawn on', () => {
+    // Seat maps are drawn on the stage tone. On paper marigold is too pale to mark a state on
+    // its own (about 1.6:1), which is why DESIGN-SYSTEM.md requires ink text or an ink outline
+    // with it there - and why this is asserted for the stage only.
+    const stage = brandBlock('stage');
+    const ratio = contrast(readToken(stage, 'brand-marigold'), readToken(stage, 'brand-canvas'));
+    expect(Number(ratio.toFixed(2))).toBeGreaterThanOrEqual(AA_NON_TEXT);
+  });
+
+  it.each(Object.keys(BRAND_BLOCKS) as (keyof typeof BRAND_BLOCKS)[])(
+    'keeps the caution hue at least 15 degrees from marigold in %s',
+    (name) => {
+      const block = brandBlock(name);
+      const hue = (token: string) => Number(new RegExp(`--${token}:\\s*([\\d.]+)`).exec(block)![1]);
+      expect(Math.abs(hue('brand-marigold') - hue('brand-caution'))).toBeGreaterThanOrEqual(15);
+    },
+  );
+
+  it('defines the same names in every block', () => {
+    const names = (block: string) =>
+      [...block.matchAll(/--(brand-[a-z0-9-]+):/g)]
+        .map((m) => m[1])
+        .filter((n) => {
+          // Geometry and the scrim are inherited from the parent block on purpose.
+          return !/radius|shadow|scrim/.test(n);
+        });
+    const base = names(brandBlock('customer')).sort();
+    for (const name of Object.keys(BRAND_BLOCKS) as (keyof typeof BRAND_BLOCKS)[]) {
+      expect(names(brandBlock(name)).sort(), `${name} defines a different set`).toEqual(base);
+    }
+  });
+});

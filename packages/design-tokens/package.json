@@ -14,12 +14,14 @@
       "default": "./dist/tailwind-preset.js"
     },
     "./tokens.css": "./src/tokens.css",
-    "./themes.css": "./src/themes.css"
+    "./themes.css": "./src/themes.css",
+    "./brand.css": "./src/brand.css"
   },
   "files": [
     "dist",
     "src/tokens.css",
-    "src/themes.css"
+    "src/themes.css",
+    "src/brand.css"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

@@ -1,4 +1,9 @@
 @import '@eticketsgo/design-tokens/tokens.css';
+/*
+  The brand layer (docs/design/DESIGN-SYSTEM.md). Every rule in it is scoped to an element
+  carrying `data-brand`, so until a page opts in this file contributes nothing at all.
+*/
+@import '@eticketsgo/design-tokens/brand.css';
 
 @tailwind base;
 @tailwind components;

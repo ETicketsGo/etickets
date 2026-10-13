@@ -40,3 +40,23 @@ python make-fonts.py "path/to/Inter[opsz,wght].ttf" "path/to/PlusJakartaSans[wgh
 
 If you change a unicode range there, change the latin range in `../src/fonts/*.ts` too
 (next/font only accepts literal options, so it cannot import it).
+
+## The brand display face: Bricolage Grotesque
+
+The brand layer (`docs/design/DESIGN-SYSTEM.md`) adds one display family, loaded the same way
+but by its own module, `../src/fonts/brand-display.ts` (`--font-brand-display`). It is cut by
+`make-brand-fonts.py`, not `make-fonts.py`, so the Inter and Plus Jakarta Sans files above stay
+byte-for-byte what they were.
+
+| Family                    | google/fonts file                                               | google/fonts commit                        | Upstream                                  |
+| ------------------------- | --------------------------------------------------------------- | ------------------------------------------ | ----------------------------------------- |
+| Bricolage Grotesque 1.001 | `ofl/bricolagegrotesque/BricolageGrotesque[opsz,wdth,wght].ttf` | `6ce172f74aa355ea43eb964fa4a91570a4d3064d` | https://github.com/ateliertriay/bricolage |
+
+Licence: SIL Open Font License 1.1, `OFL-BricolageGrotesque.txt` (unchanged from the same
+commit). Width is pinned at 100 and weight limited to 500-800; the optical-size axis (12-96) is
+kept. Only latin (preloaded, about 72 KB) and latin-ext (rupee sign, accented capitals, about
+29 KB) are cut.
+
+```sh
+python make-brand-fonts.py "path/to/BricolageGrotesque[opsz,wdth,wght].ttf"
+```

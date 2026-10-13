@@ -4,6 +4,8 @@ import { WebProviders, workspaceThemeScript } from '@eticketsgo/web-kit';
 // Self-hosted, so `next build` never downloads fonts; the display face is for titles only.
 import { inter } from '@eticketsgo/web-kit/fonts/inter';
 import { display } from '@eticketsgo/web-kit/fonts/display';
+// The brand layer's display face (DESIGN-SYSTEM.md); unused until a page sets `data-brand`.
+import { brandDisplay } from '@eticketsgo/web-kit/fonts/brand-display';
 
 export const metadata: Metadata = {
   title: 'ETicketsGo — Organizer',
@@ -16,7 +18,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     // storefront never sets it, which is what keeps its blue unchanged.
     <html
       lang="en"
-      className={`${inter.variable} ${display.variable}`}
+      className={`${inter.variable} ${display.variable} ${brandDisplay.variable}`}
       data-console=""
       suppressHydrationWarning
     >

@@ -1,0 +1,190 @@
+/**
+ * ── THE BRAND LAYER ────────────────────────────────────────────────────────────────
+ * ETicketsGo's experience-reset palette (docs/design/DESIGN-SYSTEM.md). One brand, two
+ * temperaments: the customer storefront is a stage (paper, ink, a marigold light, and
+ * photography doing the shouting); the organizer and admin consoles are a desk (the same
+ * paper and ink, quieter, with marigold reduced to a signal).
+ *
+ * ── WHY A SEPARATE LAYER ───────────────────────────────────────────────────────────
+ * The tokens in tokens.css paint every screen in three apps today. Changing them would
+ * redesign every page at once and nobody could review that. These variables have their own
+ * names (`--brand-*`) and only exist inside an element that opts in:
+ *
+ *   data-brand="customer"   the storefront palette. Light only - see DESIGN-SYSTEM.md.
+ *   data-brand-tone="stage"  a dark band INSIDE the customer brand: a hero, a film header, a
+ *                            seat map, the footer. Not a dark mode; a lighting change.
+ *   data-brand="console"    the organizer/admin palette, light and dark (follows the
+ *                            console's existing `.dark` class on <html>).
+ *
+ * A page that never sets `data-brand` matches nothing here, so it renders exactly as before.
+ * That is the whole guarantee this PR makes about pages outside the three vertical slices.
+ *
+ * ── RULES THE VALUES ENCODE ───────────────────────────────────────────────────────
+ * - Ink is the action colour on paper; marigold is the action colour on a stage. Marigold is
+ *   NEVER text on paper (it cannot reach 4.5:1 there) and NEVER a warning.
+ * - Status colours say something happened or needs doing. They are not decoration.
+ * - Surfaces: canvas, surface, sunken. No fourth level, no tinted cards.
+ * - Every text pair clears WCAG AA 4.5:1 and every control boundary 3:1;
+ *   `token-contrast.test.ts` reads this file and holds every block to that.
+ *
+ * Values are HSL channels like tokens.css, so Tailwind can compose alpha.
+ */
+
+/* ── customer: paper and ink ───────────────────────────────────────────────────── */
+[data-brand='customer'] {
+  --brand-canvas: 40 33% 97.6%; /* #FBF9F5 warm paper, never pure white */
+  --brand-surface: 0 0% 100%;
+  --brand-sunken: 40 22% 93.5%; /* #F1EEE8 - filter bars, inset panels */
+  --brand-ink: 30 14% 8%; /* #17140F */
+  --brand-ink-2: 30 6% 31%; /* #544F4A - supporting text */
+  --brand-ink-3: 30 5% 39%; /* #69655F - metadata, captions */
+  --brand-line: 36 16% 88%; /* decoration only: card edges, rules */
+  --brand-line-strong: 36 10% 78%;
+  --brand-field: 30 6% 50%; /* a field's outline: 3:1 on every surface */
+
+  --brand-action: 30 14% 8%; /* the primary button is ink */
+  --brand-action-hover: 30 10% 22%;
+  --brand-on-action: 40 33% 98%;
+
+  --brand-marigold: 42 100% 55%; /* #FFB81A - the light: fills only, always with ink on it */
+  --brand-marigold-hover: 40 100% 49%;
+  --brand-on-marigold: 30 14% 8%;
+
+  --brand-positive: 152 64% 25%; /* #17693F */
+  --brand-positive-tint: 148 32% 91%;
+  --brand-caution: 22 86% 33%; /* #9C430C - burnt orange, kept well away from marigold */
+  --brand-caution-tint: 26 60% 92%;
+  --brand-critical: 356 72% 41%; /* #B51D29 */
+  --brand-critical-tint: 356 70% 94.5%;
+  --brand-info: 220 58% 39%; /* #2A4F9D */
+  --brand-info-tint: 220 60% 94.5%;
+
+  --brand-focus: 30 14% 8%;
+  --brand-scrim: 30 14% 6%; /* image overlays, at alpha */
+
+  --brand-radius-control: 0.625rem; /* 10px */
+  --brand-radius-card: 1rem; /* 16px */
+  --brand-shadow-overlay:
+    0 12px 32px -12px rgb(23 20 15 / 0.28), 0 2px 6px -2px rgb(23 20 15 / 0.12);
+}
+
+/* ── customer, stage tone: the lights go down ─────────────────────────────────── */
+[data-brand='customer'] [data-brand-tone='stage'],
+[data-brand='customer'][data-brand-tone='stage'] {
+  --brand-canvas: 30 12% 6%; /* #110F0D */
+  --brand-surface: 30 9% 10%; /* #1C1A17 */
+  --brand-sunken: 30 8% 14%; /* #282522 */
+  --brand-ink: 40 30% 96%; /* #F8F6F2 */
+  --brand-ink-2: 36 10% 76%;
+  --brand-ink-3: 36 7% 66%;
+  --brand-line: 30 7% 20%;
+  --brand-line-strong: 30 6% 30%;
+  --brand-field: 30 5% 52%;
+
+  --brand-action: 42 100% 55%; /* on a stage the action is the marigold light */
+  --brand-action-hover: 44 100% 64%;
+  --brand-on-action: 30 14% 8%;
+
+  --brand-marigold: 42 100% 55%;
+  --brand-marigold-hover: 44 100% 64%;
+  --brand-on-marigold: 30 14% 8%;
+
+  --brand-positive: 150 50% 58%;
+  --brand-positive-tint: 152 30% 15%;
+  --brand-caution: 26 90% 66%;
+  --brand-caution-tint: 22 40% 15%;
+  --brand-critical: 358 85% 72%;
+  --brand-critical-tint: 356 40% 16%;
+  --brand-info: 218 85% 76%;
+  --brand-info-tint: 220 40% 17%;
+
+  --brand-focus: 42 100% 55%;
+  color: hsl(var(--brand-ink));
+}
+
+/* ── console: the same paper and ink, quieter ─────────────────────────────────── */
+[data-brand='console'] {
+  --brand-canvas: 40 12% 96.5%; /* #F7F6F3 */
+  --brand-surface: 0 0% 100%;
+  --brand-sunken: 40 10% 93%; /* #EFEEEA */
+  --brand-ink: 30 12% 9%; /* #1A1714 */
+  --brand-ink-2: 30 5% 31%;
+  --brand-ink-3: 30 4% 38%;
+  --brand-line: 40 8% 88%;
+  --brand-line-strong: 40 6% 78%;
+  --brand-field: 30 5% 50%;
+
+  --brand-action: 30 12% 9%;
+  --brand-action-hover: 30 8% 22%;
+  --brand-on-action: 40 33% 98%;
+
+  /* A signal in the console, not a decoration: today, live, the current nav item's bar. */
+  --brand-marigold: 42 100% 55%;
+  --brand-marigold-hover: 40 100% 49%;
+  --brand-on-marigold: 30 14% 8%;
+
+  --brand-positive: 152 64% 25%;
+  --brand-positive-tint: 148 32% 91%;
+  --brand-caution: 22 86% 33%;
+  --brand-caution-tint: 26 60% 92%;
+  --brand-critical: 356 72% 41%;
+  --brand-critical-tint: 356 70% 94.5%;
+  --brand-info: 220 58% 39%;
+  --brand-info-tint: 220 60% 94.5%;
+
+  --brand-focus: 30 12% 9%;
+  --brand-scrim: 30 14% 6%;
+
+  --brand-radius-control: 0.5rem; /* 8px - a console is denser than a shop window */
+  --brand-radius-card: 0.75rem; /* 12px */
+  --brand-shadow-overlay:
+    0 12px 32px -12px rgb(26 23 20 / 0.24), 0 2px 6px -2px rgb(26 23 20 / 0.1);
+}
+
+/*
+  Console dark. Warm charcoal, not navy and not black: the same family as the light paper, so
+  switching themes changes the light, not the brand. The action inverts to paper-on-charcoal
+  rather than turning a colour - a console's main button should not shout in the dark either.
+*/
+.dark [data-brand='console'],
+.dark[data-brand='console'] {
+  --brand-canvas: 30 8% 7%; /* #131211 */
+  --brand-surface: 30 7% 10.5%; /* #1D1B19 */
+  --brand-sunken: 30 6% 14%;
+  --brand-ink: 40 20% 94%;
+  --brand-ink-2: 36 8% 74%;
+  --brand-ink-3: 36 6% 65%;
+  --brand-line: 30 5% 19%;
+  --brand-line-strong: 30 5% 28%;
+  --brand-field: 30 4% 50%;
+
+  --brand-action: 40 20% 94%;
+  --brand-action-hover: 40 10% 82%;
+  --brand-on-action: 30 12% 9%;
+
+  --brand-marigold: 42 100% 55%;
+  --brand-marigold-hover: 44 100% 64%;
+  --brand-on-marigold: 30 14% 8%;
+
+  --brand-positive: 150 50% 58%;
+  --brand-positive-tint: 152 30% 15%;
+  --brand-caution: 26 90% 66%;
+  --brand-caution-tint: 22 40% 15%;
+  --brand-critical: 358 85% 72%;
+  --brand-critical-tint: 356 40% 16%;
+  --brand-info: 218 85% 76%;
+  --brand-info-tint: 220 40% 17%;
+
+  --brand-focus: 40 20% 94%;
+  --brand-shadow-overlay: 0 12px 32px -12px rgb(0 0 0 / 0.6), 0 2px 6px -2px rgb(0 0 0 / 0.4);
+}
+
+/*
+  Text inside the brand layer sets its numerals as lining figures, and money as tabular ones
+  (the `tabular-nums` utility). Optical size follows the font size, which is how one display
+  face is loud in a hero and quiet in a console title.
+*/
+[data-brand] {
+  font-optical-sizing: auto;
+  font-variant-numeric: lining-nums;
+}

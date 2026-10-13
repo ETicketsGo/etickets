@@ -185,3 +185,67 @@ export type AccentTheme = (typeof ACCENT_THEMES)[number]['key'];
 export function isAccentTheme(value: string | null | undefined): value is AccentTheme {
   return !!value && ACCENT_THEMES.some((t) => t.key === value);
 }
+
+/**
+ * ── THE BRAND LAYER'S TYPE SCALE ───────────────────────────────────────────────────
+ * docs/design/DESIGN-SYSTEM.md. Two faces with one job each: Bricolage Grotesque
+ * (`font-brand-display`) for headlines, event titles and a console page title; Inter
+ * (`font-brand-text`) for everything a person reads, every label and every number.
+ *
+ * Named `brand-*` so none of it collides with the scale above, which every existing screen
+ * still uses. Headlines are fluid like the scale above (they reach their maximum at 1280px
+ * rather than 640px, because a storefront hero is meant to grow on a desktop, and are at their
+ * minimum at 390px, the common phone width); reading sizes are fixed. Weights are part of
+ * each size so a slice cannot drift into a 500 headline.
+ */
+export const brandTypeScale: Record<string, FontSizeValue> = {
+  // Storefront hero line, display face: 40px on a phone, 80px from 1280px.
+  'brand-hero': [
+    'clamp(2.5rem, 1.4rem + 4.5vw, 5rem)',
+    { lineHeight: '0.98', letterSpacing: '-0.03em', fontWeight: '800' },
+  ],
+  // An event or film title on its own page: 32px -> 56px.
+  'brand-d1': [
+    'clamp(2rem, 1.34rem + 2.7vw, 3.5rem)',
+    { lineHeight: '1.02', letterSpacing: '-0.025em', fontWeight: '700' },
+  ],
+  // A section heading on the storefront ("This weekend in Mumbai"): 24px -> 36px.
+  'brand-d2': [
+    'clamp(1.5rem, 1.17rem + 1.35vw, 2.25rem)',
+    { lineHeight: '1.1', letterSpacing: '-0.02em', fontWeight: '700' },
+  ],
+  // A featured card title, a dialog title: 20px -> 24px.
+  'brand-d3': [
+    'clamp(1.25rem, 1.14rem + 0.45vw, 1.5rem)',
+    { lineHeight: '1.2', letterSpacing: '-0.01em', fontWeight: '700' },
+  ],
+  // An ordinary event card title, display face at its small optical size.
+  'brand-card': ['1.0625rem', { lineHeight: '1.3', letterSpacing: '-0.005em', fontWeight: '650' }],
+  // A console page title, display face, deliberately modest: 24px -> 28px.
+  'brand-page': [
+    'clamp(1.5rem, 1.39rem + 0.45vw, 1.75rem)',
+    { lineHeight: '1.15', letterSpacing: '-0.015em', fontWeight: '650' },
+  ],
+  // Text face from here down.
+  'brand-lead': ['1.125rem', { lineHeight: '1.55' }],
+  'brand-body': ['1rem', { lineHeight: '1.6' }],
+  'brand-ui': ['0.875rem', { lineHeight: '1.45' }],
+  'brand-meta': ['0.8125rem', { lineHeight: '1.4', letterSpacing: '0.005em' }],
+  // Section labels and table headers. Set with `uppercase`; never smaller than 12px.
+  'brand-eyebrow': ['0.75rem', { lineHeight: '1.2', letterSpacing: '0.08em', fontWeight: '600' }],
+  // Money and counts that ARE the content: a stat, a balance, a total. Always `tabular-nums`.
+  'brand-figure': [
+    'clamp(1.75rem, 1.53rem + 0.9vw, 2.25rem)',
+    { lineHeight: '1.1', letterSpacing: '-0.02em', fontWeight: '600' },
+  ],
+  'brand-figure-sm': [
+    '1.25rem',
+    { lineHeight: '1.2', letterSpacing: '-0.01em', fontWeight: '600' },
+  ],
+};
+
+/** The display face's stack: the self-hosted family, its metric-matched fallback, then system. */
+export const brandFontFamily = {
+  display: ['var(--font-brand-display)', 'Bricolage Grotesque Fallback', ...fontFamily.sans],
+  text: ['var(--font-inter)', ...fontFamily.sans],
+} as const;

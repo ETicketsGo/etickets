@@ -12,6 +12,7 @@ export * from './api';
 export * from './event-image';
 export * from './connectivity';
 export * from './components';
+export * from './brand';
 export * from './hooks';
 export * from './nav';
 export * from './shell';
