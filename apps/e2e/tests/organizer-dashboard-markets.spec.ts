@@ -60,7 +60,13 @@ test.describe('organizer dashboard: payments by market', () => {
     await seedBrowserAuth(context, owner);
     await page.goto(`${ORGANIZER}/organizer`);
 
-    await expect(page.getByText('By market', { exact: true })).toBeVisible({ timeout: 30_000 });
+    /*
+      Folded on the desk Overview, one click away: the figures above it answer "how much" for the
+      home market, and this is the split somebody selling in several countries opens.
+    */
+    const toggle = page.getByRole('button', { name: /^Sales by market/ });
+    await expect(toggle).toBeVisible({ timeout: 30_000 });
+    await toggle.click();
     const table = page.getByRole('table', { name: /each market/ });
     await expect(table).toBeVisible();
     for (const column of [

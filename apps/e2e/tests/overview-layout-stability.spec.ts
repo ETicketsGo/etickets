@@ -45,7 +45,7 @@ test.describe('the Overviews do not move under the reader', () => {
   });
 
   for (const width of [390, 768]) {
-    test(`organizer Overview at ${width}px: no layout shift, and "Show more" stays put`, async ({
+    test(`organizer Overview at ${width}px: no layout shift, and nothing folded but the markets`, async ({
       page,
       context,
     }) => {
@@ -53,24 +53,27 @@ test.describe('the Overviews do not move under the reader', () => {
       await page.setViewportSize({ width, height: 900 });
       await watchShifts(page);
       await page.goto(`${ORGANIZER}/organizer`);
-      await expect(page.getByRole('heading', { level: 1, name: /^Welcome back/ })).toBeVisible({
+      await expect(page.getByRole('heading', { level: 1, name: 'Overview' })).toBeVisible({
         timeout: 30_000,
       });
       expect(await settledShift(page)).toBeLessThan(CLS_LIMIT);
 
-      // One fold button is shown at each of these widths (the menu has its own, by other names).
-      const more = page.getByRole('button', {
-        name: /^Show more (Other currencies|Calendar|Top events|Markets)/,
-      });
-      await expect(more).toHaveCount(1);
-      await more.scrollIntoViewIfNeeded();
-      const before = (await more.boundingBox())!.y;
-      await more.click();
-      const less = page.getByRole('button', { name: /^Show less/ });
-      await expect(less).toHaveAttribute('aria-expanded', 'true');
-      expect(Math.abs((await less.boundingBox())!.y - before)).toBeLessThanOrEqual(1);
-      // What it opened is there at both widths: the by-market table.
-      await expect(page.getByText('By market', { exact: true })).toBeVisible();
+      /*
+        The desk Overview (docs/design/DESIGN-SYSTEM.md) answers its five questions open, with no
+        "Show more": everything else is one click away in the sidebar. The one thing folded is the
+        market split, for an organizer selling in several countries - and opening it must not move
+        the button that opened it.
+      */
+      await expect(page.getByRole('button', { name: /^Show (more|less)/ })).toHaveCount(0);
+      await expect(page.getByRole('region', { name: 'Coming up' })).toBeVisible();
+      const markets = page.getByRole('button', { name: /^Sales by market/ });
+      await expect(markets).toHaveAttribute('aria-expanded', 'false');
+      await markets.scrollIntoViewIfNeeded();
+      const before = (await markets.boundingBox())!.y;
+      await markets.click();
+      await expect(markets).toHaveAttribute('aria-expanded', 'true');
+      expect(Math.abs((await markets.boundingBox())!.y - before)).toBeLessThanOrEqual(1);
+      await expect(page.getByRole('table', { name: /each market/ })).toBeVisible();
     });
 
     test(`admin Overview at ${width}px: no layout shift`, async ({ page, context }) => {

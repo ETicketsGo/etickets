@@ -2,16 +2,12 @@
 
 import { usePathname } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import {
-  AppShell,
-  ColorSchemeSwitch,
-  NotificationsButton,
-  RequireAuth,
-  api,
-} from '@eticketsgo/web-kit';
+import Link from 'next/link';
+import { AppShell, RequireAuth, api, brandButtonClasses } from '@eticketsgo/web-kit';
 import { navFor } from '@/components/organizer-nav';
 import { OrgProvider, OrgSwitcher } from '@/components/org-context';
 import { WorkspaceTheme, useWorkspace } from '@/components/workspace-chrome';
+import { DeskNotificationsButton, DeskSchemeSwitch } from '@/components/desk-chrome';
 
 /**
  * A page that exists to become paper gets no shell.
@@ -40,7 +36,7 @@ function OrganizerNotifications() {
     staleTime: 30_000,
     refetchInterval: 60_000,
   });
-  return <NotificationsButton href="/organizer/notifications" unread={data?.unreadCount} />;
+  return <DeskNotificationsButton href="/organizer/notifications" unread={data?.unreadCount} />;
 }
 
 /**
@@ -57,26 +53,42 @@ function OrganizerChrome({ children }: { children: React.ReactNode }) {
     would blank on every navigation.
   */
   const nav = navFor({ doesFilmBusiness: workspace.doesFilmBusiness, can: workspace.can });
+  const canCreate = workspace.can.financials || workspace.can.ownerActions;
   return (
     <AppShell
       brand="Organizer"
       nav={nav}
       workspace={{ name: workspace.name, logoUrl: workspace.logoUrl }}
-      headerAccessory={<ColorSchemeSwitch />}
+      headerAccessory={<DeskSchemeSwitch />}
       accountRole={workspace.roleLabel}
       notifications={<OrganizerNotifications />}
       /*
         The console's one primary action, for the members who can create events. Check-in
         staff cannot, and are not offered it - the same rule their sidebar follows.
       */
-      primaryAction={
-        workspace.can.financials || workspace.can.ownerActions
-          ? { label: 'Create event', href: '/organizer/events/new' }
-          : null
+      primaryAction={canCreate ? { label: 'Create event', href: '/organizer/events/new' } : null}
+      /*
+        On a phone the top bar has no room for it beside the appearance switch, so the primary
+        action leads the menu instead: there, with its words, rather than nowhere.
+      */
+      drawerAccessory={
+        canCreate ? (
+          <Link
+            href="/organizer/events/new"
+            className={`w-full ${brandButtonClasses('primary', 'md')}`}
+          >
+            Create event
+          </Link>
+        ) : undefined
       }
       // Organizer pages are tables, schedules and seat maps; the frame should not be what
       // squeezes them. Forms and prose keep their own measure inside it - see AppShell.
       width="fluid"
+      /*
+        The brand layer's desk (docs/design/DESIGN-SYSTEM.md): paper and ink, no navy. Admin keeps
+        the classic frame until it adopts the system; the shell's behaviour is the same in both.
+      */
+      appearance="desk"
     >
       <WorkspaceTheme />
       <OrgProvider>
