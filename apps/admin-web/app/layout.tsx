@@ -20,17 +20,18 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       data-console=""
       suppressHydrationWarning
     >
-      <head>
+      <body>
         {/*
-          The same blocking script the organizer console runs, so a dark-mode choice is applied
-          before the first paint instead of flashing white on every load. The admin console has
-          no organization accent, so only the light/dark half of it does anything here.
-          `suppressHydrationWarning` because the script changes <html>'s class before React
-          hydrates, on purpose.
+          WHY THIS IS IN <body> AND NOT IN AN EXPLICIT <head>: a <head> element in this layout
+          puts a non-hoistable child (this script) in the document head, and React then has to
+          walk the head during hydration. Next puts its own <meta charset> there, so about one
+          load in ten (QA, Chromium 390) React met that meta first, took it for the script, and
+          threw error #418 - and the client re-render that follows discards the `dark` class this
+          script set, so the console fell back to light. Without a <head> here Next owns the
+          head and the script is body content, which hydrates by position. It still runs before
+          the first paint: the parser executes it before reading the markup below it.
         */}
         <script dangerouslySetInnerHTML={{ __html: workspaceThemeScript }} />
-      </head>
-      <body>
         <WebProviders>{children}</WebProviders>
       </body>
     </html>

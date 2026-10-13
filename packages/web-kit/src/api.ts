@@ -5494,7 +5494,10 @@ export interface EventReport {
   ticketsRemaining: number;
   checkInCount: number;
   salesByTicketType: { ticketType: string; quantity: number; grossMinor: number }[];
+  /** Calendar days (YYYY-MM-DD) in the venue's zone, not the viewer's. */
   salesByDay: { day: string; bookings: number; grossMinor: number }[];
+  /** The venue zone those days are in. */
+  salesDayZone?: string;
 }
 
 // ─── Experience Commerce (v1.3) ───
