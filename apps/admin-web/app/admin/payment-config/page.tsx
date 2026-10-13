@@ -267,7 +267,8 @@ function ProvidersTable({
       ),
     },
   ];
-  return <DataTable columns={columns} rows={rows} rowKey={(r) => r.id} />;
+  /* Cards on a phone: a table cut at the card edge hid its Edit and Delete buttons. */
+  return <DataTable columns={columns} rows={rows} rowKey={(r) => r.id} mobile="cards" />;
 }
 
 /**
@@ -334,14 +335,22 @@ function RoutesTable({
           <Button size="sm" variant="secondary" onClick={() => onEdit(r)}>
             Edit
           </Button>
-          <Button size="sm" variant="ghost" onClick={() => onDelete(r.id)}>
-            <Trash2 className="h-4 w-4" />
+          {/* An icon alone has no name for a screen reader (axe button-name, critical). */}
+          <Button
+            size="sm"
+            variant="ghost"
+            aria-label={`Delete route for ${r.country} ${r.currency} ${r.method}`}
+            title="Delete route"
+            onClick={() => onDelete(r.id)}
+          >
+            <Trash2 className="h-4 w-4" aria-hidden />
           </Button>
         </div>
       ),
     },
   ];
-  return <DataTable columns={columns} rows={rows} rowKey={(r) => r.id} />;
+  /* Cards on a phone: a table cut at the card edge hid its Edit and Delete buttons. */
+  return <DataTable columns={columns} rows={rows} rowKey={(r) => r.id} mobile="cards" />;
 }
 
 function ProviderDialog({
@@ -651,6 +660,7 @@ function OperationsSection() {
           rows={health.data?.providers}
           loading={health.isLoading}
           rowKey={(r) => r.provider}
+          mobile="cards"
         />
       </Card>
 
@@ -660,6 +670,7 @@ function OperationsSection() {
           rows={settlement.data}
           loading={settlement.isLoading}
           rowKey={(r) => `${r.provider}-${r.currency}`}
+          mobile="cards"
         />
       </Card>
 
@@ -675,14 +686,17 @@ function LiveReadinessCard() {
   });
   const r = readiness.data;
   const Row = ({ passed, label, detail }: { passed: boolean; label: string; detail?: string }) => (
-    <li className="flex items-center gap-2 text-sm">
+    <li className="flex items-start gap-2 text-sm">
       {passed ? (
-        <CheckCircle2 className="h-4 w-4 text-status-success" />
+        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-status-success" />
       ) : (
-        <XCircle className="h-4 w-4 text-status-error" />
+        <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-status-error" />
       )}
-      <span className={passed ? '' : 'text-status-error'}>{label}</span>
-      {detail && <span className="text-xs text-text-muted">— {detail}</span>}
+      {/* A detail can be one long secret path; it wraps instead of widening the page. */}
+      <span className="min-w-0 break-words">
+        <span className={passed ? '' : 'text-status-error'}>{label}</span>
+        {detail && <span className="text-xs text-text-muted"> - {detail}</span>}
+      </span>
     </li>
   );
   return (

@@ -270,7 +270,7 @@ export default function PromotionsPage() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Promotions"
+        title="Marketing"
         description="Create and manage discount codes buyers can apply at checkout."
         action={<Button onClick={openCreate}>New discount code</Button>}
       />

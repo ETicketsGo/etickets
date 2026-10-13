@@ -170,7 +170,7 @@ export default function CounterBookingsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Find a booking"
+        title="Bookings & attendees"
         description="For the counter: look up a booking by name or reference, then print it."
       />
 

@@ -102,7 +102,7 @@ export default function LayoutPreviewPage() {
           data ? `${data.preview.name ?? 'Layout'}, version ${data.preview.version}` : undefined
         }
         breadcrumbs={[
-          { label: 'Venues & spaces', href: '/organizer/venues' },
+          { label: 'Venues & seating', href: '/organizer/venues' },
           { label: 'Layouts', href: layoutsHref },
           { label: 'Preview as buyer' },
         ]}

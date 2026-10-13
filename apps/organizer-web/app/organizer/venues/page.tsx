@@ -236,7 +236,7 @@ export default function VenuesPage() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Venues & spaces"
+        title="Venues & seating"
         description="Where your events happen, and the spaces inside them. A seating plan belongs to a space."
         action={
           <div className="flex gap-2">

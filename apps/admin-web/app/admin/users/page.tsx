@@ -249,7 +249,7 @@ export default function AdminUsers() {
       )}
 
       <Card>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_180px_180px_180px_auto]">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_180px_180px_180px_auto]">
           <SearchInput
             value={q}
             onChange={setQ}

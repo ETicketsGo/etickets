@@ -15,7 +15,14 @@ import {
   type BrandStatus,
 } from '@eticketsgo/web-kit';
 import type { ChosenStep, ComingUpRow, NextStep } from './desk-model';
-import { isTodayAtVenue, soldShare, venueDate, venueTime, venueWhen } from './desk-model';
+import {
+  figureSize,
+  isTodayAtVenue,
+  soldShare,
+  venueDate,
+  venueTime,
+  venueWhen,
+} from './desk-model';
 import type { NeedsAction, NeedsActionItem } from './overview-model';
 import { lifecycleLabel, type Selling } from './status';
 
@@ -29,7 +36,7 @@ import { lifecycleLabel, type Selling } from './status';
 const RING =
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-focus focus-visible:ring-offset-2 focus-visible:ring-offset-brand-canvas';
 
-const LINK = `rounded-sm font-semibold text-brand-ink underline-offset-4 hover:underline ${RING}`;
+const LINK = `inline-flex min-h-6 items-center rounded-sm py-1 font-semibold text-brand-ink underline-offset-4 hover:underline ${RING}`;
 
 const count = (n: number) => n.toLocaleString('en-IN');
 
@@ -81,7 +88,7 @@ export function OverviewHeader({
 }) {
   return (
     <header className="flex flex-col gap-1">
-      <p className="text-brand-eyebrow uppercase text-brand-ink-3">{dateLine}</p>
+      <p className="min-h-[1.2em] text-brand-eyebrow uppercase text-brand-ink-3">{dateLine}</p>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <h1 className="font-brand-display text-brand-page text-brand-ink">Overview</h1>
         {status && <BrandStatusPill status={status.tone}>{status.label}</BrandStatusPill>}
@@ -118,9 +125,14 @@ export function FigureStrip({ cells }: { cells: FigureCell[] }) {
         {cells.map((c, i) => {
           // One small definition list per figure: valid inside the link that opens its page.
           const body = (
-            <dl>
+            <dl className="[container-type:inline-size]">
               <dt className="text-brand-eyebrow uppercase text-brand-ink-3">{c.label}</dt>
-              <dd className="mt-2 text-brand-figure tabular-nums text-brand-ink">{c.value}</dd>
+              <dd
+                className="mt-2 whitespace-nowrap text-brand-figure tabular-nums text-brand-ink"
+                style={{ fontSize: figureSize(c.value) }}
+              >
+                {c.value}
+              </dd>
               <dd
                 className={`mt-1 text-brand-meta ${c.alert ? 'font-semibold text-brand-critical' : 'text-brand-ink-2'}`}
               >
@@ -309,7 +321,7 @@ export function ComingUp({
                 <th scope="col" className="px-6 py-3 font-semibold">
                   Event
                 </th>
-                <th scope="col" className="w-[8rem] px-3 py-3 font-semibold">
+                <th scope="col" className="w-[7.5rem] px-3 py-3 font-semibold">
                   When
                 </th>
                 <th scope="col" className="w-[7rem] px-3 py-3 font-semibold">
@@ -320,7 +332,7 @@ export function ComingUp({
                     Gross
                   </th>
                 )}
-                <th scope="col" className="w-[9.5rem] px-6 py-3 font-semibold">
+                <th scope="col" className="w-[13rem] px-3 py-3 pr-6 font-semibold">
                   Status
                 </th>
               </tr>
@@ -375,7 +387,7 @@ export function ComingUp({
                       )}
                     </td>
                   )}
-                  <td className="px-6 py-3">
+                  <td className="px-3 py-3 pr-6">
                     <StatePill tone={f.state.tone}>{f.state.label}</StatePill>
                   </td>
                 </tr>
@@ -560,7 +572,7 @@ export function NeedsYou({
                   </BrandStatusPill>
                 </div>
                 {canAct ? (
-                  <Link href={item.href} className={`mt-2 inline-block text-brand-meta ${LINK}`}>
+                  <Link href={item.href} className={`mt-2 text-brand-meta ${LINK}`}>
                     {item.actionLabel}
                   </Link>
                 ) : (
@@ -581,7 +593,7 @@ export function NeedsYou({
           ))}
         {hidden > 0 &&
           (canAct ? (
-            <Link href={moreHref} className={`hidden text-brand-meta xl:inline ${LINK}`}>
+            <Link href={moreHref} className={`hidden text-brand-meta xl:inline-flex ${LINK}`}>
               {more(hidden)}
             </Link>
           ) : (

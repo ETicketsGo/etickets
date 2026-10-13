@@ -168,7 +168,7 @@ export function navFor({
       icon: Wallet,
       children: [
         { label: 'Payouts', href: '/organizer/payouts', icon: Banknote },
-        { label: 'Receipts', href: '/organizer/receipts', icon: ReceiptText },
+        { label: 'Receipts and invoices', href: '/organizer/receipts', icon: ReceiptText },
         { label: 'Refunds', href: '/organizer/refunds', icon: Undo2 },
       ],
     },
@@ -180,7 +180,7 @@ export function navFor({
       label: 'Settings',
       href: '/organizer/settings',
       icon: Settings,
-      children: [{ label: 'Premium', href: '/organizer/premium', icon: Sparkles }],
+      children: [{ label: 'Premium & enterprise', href: '/organizer/premium', icon: Sparkles }],
     },
     { label: 'Help & support', href: '/organizer/help', icon: LifeBuoy },
   ];
