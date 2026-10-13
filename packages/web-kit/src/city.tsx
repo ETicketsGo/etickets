@@ -5,6 +5,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -250,20 +251,28 @@ export interface CityPreference {
   searchCities: (q: string) => Promise<SellableCity[]>;
 }
 
+const useIsomorphicLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect;
+
 export function useCityPreference(): CityPreference {
-  // Read lazily rather than in an effect: the value is known synchronously on the client,
-  // and initialising to null first would flash "All cities" over the chosen one.
-  const [city, setCityState] = useState<string | null>(() =>
-    typeof window === 'undefined' ? null : readStoredCity(),
-  );
-  const [chosen, setChosen] = useState<boolean>(() =>
-    typeof window === 'undefined' ? false : readStoredCity() !== null,
-  );
-  const [place, setPlace] = useState<CityPlace | null>(() => {
-    if (typeof window === 'undefined') return null;
+  /*
+    Storage is read AFTER hydration, never during the first render.
+
+    These used to read `localStorage` in their `useState` initialisers, so the first client
+    render held the stored city while the server render had none - React error #418 on every
+    page that renders the city once one was chosen. The first paint is now server-equal (no
+    city), and a layout effect applies the stored choice before the browser paints, so nobody
+    sees "All cities" flash. A layout effect and not a plain one for exactly that reason.
+  */
+  const [city, setCityState] = useState<string | null>(null);
+  const [chosen, setChosen] = useState<boolean>(false);
+  const [place, setPlace] = useState<CityPlace | null>(null);
+  useIsomorphicLayoutEffect(() => {
     const stored = readStored();
-    return stored && stored.city !== ALL_CITIES ? stored.place : null;
-  });
+    if (!stored) return;
+    setCityState(stored.city);
+    setChosen(true);
+    setPlace(stored.city !== ALL_CITIES ? stored.place : null);
+  }, []);
   const [country, setCountry] = useState<string | null>(null);
   const [topCities, setTopCities] = useState<SellableCity[]>([]);
   const [suggestion, setSuggestion] = useState<ResolvedLocation | null>(null);

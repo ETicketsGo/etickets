@@ -204,3 +204,22 @@ test.describe('an event page never scrolls sideways', () => {
     }
   });
 });
+
+test('a stored city does not cause a hydration mismatch (React #418)', async ({ page }) => {
+  // The city used to be read from localStorage while rendering, so the first client render
+  // differed from the server's. Storage is now read after hydration.
+  await mockCatalogue(page);
+  await select(page, 'Mumbai', 'IN');
+  const problems: string[] = [];
+  page.on('console', (m) => {
+    if (m.type() === 'error' && /418|hydrat/i.test(m.text())) problems.push(m.text());
+  });
+  page.on('pageerror', (e) => {
+    if (/418|hydrat/i.test(String(e))) problems.push(String(e));
+  });
+  for (const path of ['/movies', '/events?q=show', '/']) {
+    await page.goto(`${CUSTOMER}${path}`, { waitUntil: 'networkidle' });
+    await expect(chip(page)).toHaveAccessibleName('Location: Mumbai. Change');
+  }
+  expect(problems).toEqual([]);
+});
