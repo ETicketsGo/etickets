@@ -4,7 +4,6 @@
     "mainNav": "Main",
     "searchLabel": "Search events, films and venues",
     "searchPlaceholder": "Search events, films, venues and artists",
-    "searchSubmit": "Search",
     "notifications": "Notifications",
     "notificationsUnread": "Notifications, {count} unread"
   },

@@ -166,10 +166,11 @@ export function Header({
                 placeholder={h('searchPlaceholder')}
                 className="h-11 w-full rounded-brand-control border border-brand-field bg-brand-surface pl-10 pr-3 text-brand-ui text-brand-ink placeholder:text-brand-ink-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-focus focus-visible:ring-offset-2 focus-visible:ring-offset-brand-canvas"
               />
-              {/* Enter submits; the button is here so the form has a named way to do it. */}
-              <button type="submit" className="sr-only">
-                {h('searchSubmit')}
-              </button>
+              {/*
+                No submit button: a form with one text field submits on Enter by itself
+                (HTML implicit submission). A visually hidden one was a 1x1 px control, which
+                fails the 24px target rule (WCAG 2.5.8) the phone suite enforces.
+              */}
             </div>
           </form>
         )}

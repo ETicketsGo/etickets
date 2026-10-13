@@ -4,7 +4,6 @@
     "mainNav": "Principal",
     "searchLabel": "Rechercher des événements, des films et des salles",
     "searchPlaceholder": "Événements, films, salles et artistes",
-    "searchSubmit": "Rechercher",
     "notifications": "Notifications",
     "notificationsUnread": "Notifications, {count} non lues"
   },
