@@ -1,6 +1,7 @@
 import { EventStatus, ExperienceType, venueZone } from '@eticketsgo/shared-types';
 import { Prisma } from '@prisma/client';
 import type { FeeMode } from '@eticketsgo/shared-types';
+import { contentLabelFor } from '../../common/content-label';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { AdvertisedPriceService } from '../../pricing/advertised-price.service';
 import {
@@ -106,6 +107,7 @@ export async function fetchEventCards(
       const base = e.sessions[0]?.ticketTypes[0]?.priceMinor ?? null;
       return {
         id: e.id,
+        contentLabel: contentLabelFor(e.organizationId),
         title: e.title,
         slug: e.slug,
         category: e.category,

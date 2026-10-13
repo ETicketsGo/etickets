@@ -6,6 +6,7 @@ import { useTranslations } from 'next-intl';
 import { gradientFor, hasRating, portableImageUrl } from '@eticketsgo/web-kit';
 import type { PublicMovieCard } from '@/lib/api';
 import { Badge } from './ui';
+import { ContentLabelBadge } from './content-label-badge';
 import { Link } from '@/i18n/navigation';
 import { useRatingText } from './reviews/use-rating-text';
 
@@ -39,9 +40,10 @@ export function MovieCard({ movie }: { movie: PublicMovieCard }) {
             <Film className="h-10 w-10 text-text-primary/25" aria-hidden />
           </div>
         )}
-        {movie.certificate && (
-          <div className="absolute left-3 top-3">
-            <Badge tone="neutral">{movie.certificate}</Badge>
+        {(movie.certificate || movie.contentLabel) && (
+          <div className="absolute left-3 top-3 flex flex-wrap items-center gap-1.5">
+            {movie.certificate && <Badge tone="neutral">{movie.certificate}</Badge>}
+            <ContentLabelBadge label={movie.contentLabel} />
           </div>
         )}
         {rating && (

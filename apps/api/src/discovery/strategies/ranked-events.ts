@@ -1,6 +1,7 @@
 import type { PublicEventsService } from '../../events/public-events.service';
 import type { PrismaService } from '../../prisma/prisma.service';
 import { confirmedBookingCounts } from './booking-counts';
+import { demoFirst } from '../../common/content-label';
 import { rankBySignals, type RankWeights } from './ranking';
 
 /** The public event card shape returned by PublicEventsService.list. */
@@ -38,5 +39,6 @@ export async function rankedEventCards(
     ctx.now,
     weights,
   );
-  return ranked.slice(0, limit);
+  // Demo before test (outside production) BEFORE the cut, or the limit could drop every demo item.
+  return demoFirst(ranked).slice(0, limit);
 }

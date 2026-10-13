@@ -7,6 +7,7 @@ import type { PaginatedEvents } from '@/lib/api';
 import { useFormat } from '@/lib/format';
 import { isSaved, toggleSaved } from '@/lib/saved';
 import { Badge } from './ui';
+import { ContentLabelBadge } from './content-label-badge';
 import { Link } from '@/i18n/navigation';
 import { useTranslations } from 'next-intl';
 
@@ -82,8 +83,9 @@ export function EventCard({
             {event.title.charAt(0)}
           </span>
         )}
-        <div className="absolute left-3 top-3">
+        <div className="absolute left-3 top-3 flex flex-wrap items-center gap-1.5">
           <Badge tone="info">{event.category}</Badge>
+          <ContentLabelBadge label={event.contentLabel} />
         </div>
         <button
           type="button"

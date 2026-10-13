@@ -4,6 +4,7 @@ import { Clock, Film, Play, Star } from 'lucide-react';
 import { useId, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { BRAND_FOCUS, hasRating, type PublicMovieShows } from '@eticketsgo/web-kit';
+import { ContentLabelBadge } from '@/components/content-label-badge';
 import { useRatingText } from '@/components/reviews/use-rating-text';
 
 /* On the stage band the focus ring is the marigold light, offset from the dark canvas. */
@@ -101,6 +102,7 @@ export function MovieHero({ movie }: { movie: PublicMovieShows['movie'] }) {
               <span className="sr-only">{t('language')}: </span>
               {movie.language}
             </span>
+            <ContentLabelBadge label={movie.contentLabel} />
             {rating && (
               /*
               A link to the ratings section rather than a static badge: the number invites

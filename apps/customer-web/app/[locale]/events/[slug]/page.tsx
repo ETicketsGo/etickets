@@ -31,6 +31,7 @@ import { useFormat } from '@/lib/format';
 import { pushRecent } from '@/lib/recent';
 import { EmptyState, ErrorState, Skeleton, Textarea } from '@/components/ui';
 import { EventCard } from '@/components/event-card';
+import { ContentLabelBadge } from '@/components/content-label-badge';
 import { PriceBreakdown } from '@/components/price-breakdown';
 import { nextStepAfterBooking } from '@/lib/after-booking';
 import { GuestBuyerFields, useGuestBuyer } from '@/components/guest-buyer';
@@ -645,8 +646,9 @@ export default function EventDetailPage() {
       {!hasArt ? (
         <span aria-hidden className="mb-6 block h-1 w-16 rounded-full bg-brand-marigold" />
       ) : null}
-      <p className="text-brand-eyebrow uppercase text-brand-ink-2">
+      <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-brand-eyebrow uppercase text-brand-ink-2">
         {[event.category, event.venue.city].filter(Boolean).join(' / ')}
+        <ContentLabelBadge label={event.contentLabel} />
       </p>
       <h1
         id="event-title"

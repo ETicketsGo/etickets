@@ -2640,8 +2640,16 @@ export interface EventGallery {
   images: OrgEventImage[];
 }
 
+/** What kind of content a listing is, outside production. See the API's common/content-label.ts. */
+export type ContentLabel = 'DEMO' | 'TEST';
+
 export interface PublicEventCard {
   id: string;
+  /**
+   * Outside production only: DEMO for curated sample content, TEST for test data, null in
+   * production (and on an older API). Display only; it never decides what can be bought.
+   */
+  contentLabel?: ContentLabel | null;
   title: string;
   slug: string;
   category: string;
@@ -2682,6 +2690,11 @@ export interface EventDetails {
 
 export interface PublicEvent extends EventDetails {
   id: string;
+  /**
+   * Outside production only: DEMO for curated sample content, TEST for test data, null in
+   * production (and on an older API). Display only; it never decides what can be bought.
+   */
+  contentLabel?: ContentLabel | null;
   title: string;
   slug: string;
   category: string;
@@ -3993,6 +4006,11 @@ export interface CancelShowResult extends ShowSalesResult {
 
 export interface PublicMovieCard {
   id: string;
+  /**
+   * Outside production only: DEMO for curated sample content, TEST for test data, null in
+   * production (and on an older API). Display only; it never decides what can be bought.
+   */
+  contentLabel?: ContentLabel | null;
   title: string;
   slug: string;
   posterUrl: string | null;

@@ -5,6 +5,7 @@ import { PublicMoviesService } from '../movies/movies.service';
 import { PublicEventsService } from '../events/public-events.service';
 import { RECOMMENDATION_ENGINE, type RecommendationEngine } from '../ai/ai.ports';
 import { CacheService } from '../cache/cache.service';
+import { demoFirst } from '../common/content-label';
 import { venueInScope } from './strategies/scope';
 
 const TRENDING_PAGE_SIZE = 8;
@@ -107,8 +108,8 @@ export class DiscoveryService {
     ]);
 
     return {
-      nowShowing,
-      trendingEvents,
+      nowShowing: demoFirst(nowShowing),
+      trendingEvents: demoFirst(trendingEvents),
       thisWeekend: weekend.data,
       categories: categoryRows.map((r) => r.category),
     };

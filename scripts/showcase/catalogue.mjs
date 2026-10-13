@@ -20,6 +20,9 @@
 
 /** The last line of every description, so a person and the loader can both tell it apart. */
 export const SHOWCASE_MARKER = 'Showcase listing: fictional, for design review on a local machine.';
+/** The same note on QA, where the sentence "on a local machine" would be false. Still says fictional. */
+export const SHOWCASE_MARKER_QA =
+  'Showcase listing: fictional, for demonstration on the QA environment.';
 export const showcaseKeyLine = (key) => `Showcase key: showcase/${key}`;
 
 export const CITIES = {
