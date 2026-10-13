@@ -63,8 +63,9 @@ describe('sessionsByDay', () => {
     expect(days.get('2026-10-31')?.map((s) => s.id)).toEqual(['chi']);
   });
 
-  it("uses a seated show's cinema zone over its venue's", () => {
-    const days = sessionsByDay(
+  it("uses a seated show's venue zone over its cinema's, and the cinema's only when the venue has none", () => {
+    // 04:00 UTC on 1 Nov: still 1 Nov in Kolkata (09:30), but 31 Oct in Chicago.
+    const conflict = sessionsByDay(
       [
         session('s', '2026-11-01T04:00:00.000Z', {
           venue: KOLKATA,
@@ -73,7 +74,17 @@ describe('sessionsByDay', () => {
       ],
       null,
     );
-    expect([...days.keys()]).toEqual(['2026-10-31']);
+    expect([...conflict.keys()]).toEqual(['2026-11-01']);
+    const noVenueZone = sessionsByDay(
+      [
+        session('s', '2026-11-01T04:00:00.000Z', {
+          venue: { ...KOLKATA, timezone: null, country: 'CA' },
+          cinemaTimezone: 'America/Chicago',
+        }),
+      ],
+      null,
+    );
+    expect([...noVenueZone.keys()]).toEqual(['2026-10-31']);
   });
 
   it('leaves out cancelled shows and events the other filters dropped, in start order', () => {

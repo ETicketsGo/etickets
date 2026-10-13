@@ -1186,7 +1186,10 @@ export const api = {
      * Every bookable screening of a film, with price, format and availability per show.
      * `from` / `to` are ISO instants (`to` exclusive); `limit` is at most 200.
      */
-    shows: (slug: string, params?: { city?: string; from?: string; to?: string; limit?: number }) =>
+    shows: (
+      slug: string,
+      params?: { city?: string; country?: string; from?: string; to?: string; limit?: number },
+    ) =>
       request<PublicMovieShows>(`/public/movies/${slug}/shows${qs(params ?? {})}`, {
         auth: false,
       }),

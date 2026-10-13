@@ -336,17 +336,22 @@ export function rangeTitle(view: CalendarView, anchor: DayKey, weekStart: WeekSt
 /**
  * The zone a session is placed in, and whether it is really the venue's.
  *
- * A film show in a cinema was typed in the CINEMA's zone (the cinema scheduler converts in it),
- * so it is drawn in that zone. Everything else was typed in the venue's zone - its own, else the
- * only zone its country has - by the same `venueInputZone` the session form uses, so a show is
- * drawn at exactly the time it was entered. A venue in a multi-zone country with no zone set
+ * The venue's own zone first - the zone tickets, check-in, the public page and the admin
+ * calendar all read, so one show is one time everywhere. A film show falls back to its CINEMA's
+ * zone when the venue names none (the cinema scheduler converts in it). Before, a film's cinema
+ * zone came first: for a room whose cinema was set up in Asia/Kolkata under a Boise event the
+ * organizer saw 19:00 GMT+5:30 while admin and buyers saw 7:30 AM GMT-6, the same instant in two
+ * zones. Anything else is the venue's zone, else the only zone its country has - by the same
+ * `venueInputZone` the session form uses. A venue in a multi-zone country with no zone set
  * falls back to the browser's, flagged `known: false` so the preview can say so.
  */
 export function sessionZone(row: OrganizerCalendarSession): { zone: string; known: boolean } {
+  const own = venueInputZone(row.venue);
+  if (own.known) return own;
   if (row.event.experienceType === 'MOVIE' && row.cinemaTimezone) {
     return { zone: row.cinemaTimezone, known: true };
   }
-  return venueInputZone(row.venue);
+  return own;
 }
 
 /** The API's sessions, resolved for the calendar. */

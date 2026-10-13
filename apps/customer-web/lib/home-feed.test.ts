@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { money } from '@eticketsgo/shared-types';
-import { nearestFirst, needsCurrencyCode, photosFirst, postersFirst } from './home-feed';
+import {
+  buyability,
+  chooseHero,
+  heroCandidates,
+  nearestFirst,
+  outsideGroups,
+  photosFirst,
+  postersFirst,
+  priceSlot,
+} from './home-feed';
 
 const ev = (id: string, country: string, photo: boolean) => ({
   id,
@@ -53,14 +61,136 @@ describe('nearestFirst', () => {
   });
 });
 
-describe('needsCurrencyCode', () => {
-  it('asks for the code where the symbol alone is ambiguous', () => {
-    expect(needsCurrencyCode(money(4500, 'USD'))).toBe(true);
-    expect(needsCurrencyCode(money(69900, 'INR'))).toBe(true);
+describe('outsideGroups', () => {
+  const at = (id: string, country: string, currency: string, photo = true) => ({
+    ...ev(id, country, photo),
+    currency,
+  });
+  const list = [
+    at('tor', 'CA', 'CAD'),
+    at('nyc', 'US', 'USD'),
+    at('del', 'IN', 'INR'),
+    at('bom', 'India', 'INR', false),
+    at('boi', 'US', 'USD', false),
+  ];
+
+  it('never puts two currencies in one group', () => {
+    for (const g of outsideGroups(list, { currency: 'INR', country: 'IN' })) {
+      expect(new Set(g.items.map((e) => e.currency))).toEqual(new Set([g.currency]));
+    }
   });
 
-  it('does not repeat a currency the amount already names', () => {
-    expect(needsCurrencyCode(money(3200, 'CAD'))).toBe(false);
-    expect(needsCurrencyCode(money(4500, 'USD', 'fr-CA'))).toBe(false);
+  it("puts the visitor's own currency first", () => {
+    expect(outsideGroups(list, { currency: 'INR', country: 'IN' }).map((g) => g.currency)).toEqual([
+      'INR',
+      'CAD',
+      'USD',
+    ]);
+    expect(outsideGroups(list, { currency: 'USD', country: 'US' })[0]).toMatchObject({
+      currency: 'USD',
+      items: [{ id: 'nyc' }, { id: 'boi' }],
+    });
+  });
+
+  it('caps the groups and the items in each', () => {
+    const groups = outsideGroups(
+      list,
+      { currency: 'CAD', country: 'CA' },
+      { perGroup: 1, maxGroups: 2 },
+    );
+    expect(groups.map((g) => [g.currency, g.items.length])).toEqual([
+      ['CAD', 1],
+      ['USD', 1],
+    ]);
+  });
+});
+
+describe('buyability', () => {
+  const now = new Date('2026-11-01T00:00:00Z');
+  const session = (
+    startsAt: string,
+    types: { available: number; saleState?: 'ON_SALE' | 'NOT_YET' | 'CLOSED' }[],
+    status = 'SCHEDULED',
+  ) => ({ startsAt, status, ticketTypes: types });
+
+  it('is buyable with a ticket on sale and some left', () => {
+    expect(
+      buyability({ sessions: [session('2026-11-20T00:00:00Z', [{ available: 3 }])] }, now),
+    ).toBe('BUYABLE');
+  });
+
+  it('is sold out when every on-sale ticket has none left', () => {
+    expect(
+      buyability(
+        { sessions: [session('2026-11-20T00:00:00Z', [{ available: 0, saleState: 'ON_SALE' }])] },
+        now,
+      ),
+    ).toBe('SOLD_OUT');
+  });
+
+  it('does not count a session that started, or one that is paused', () => {
+    expect(
+      buyability(
+        {
+          sessions: [
+            session('2026-10-20T00:00:00Z', [{ available: 9 }]),
+            session('2026-11-20T00:00:00Z', [{ available: 9 }], 'PAUSED'),
+          ],
+        },
+        now,
+      ),
+    ).toBe('CLOSED');
+  });
+
+  it('knows sales that have not opened from sales that have closed', () => {
+    const at = '2026-11-20T00:00:00Z';
+    expect(
+      buyability({ sessions: [session(at, [{ available: 5, saleState: 'NOT_YET' }])] }, now),
+    ).toBe('NOT_YET');
+    expect(
+      buyability({ sessions: [session(at, [{ available: 5, saleState: 'CLOSED' }])] }, now),
+    ).toBe('CLOSED');
+  });
+});
+
+describe('chooseHero', () => {
+  const card = (slug: string, photo: boolean) => ({ ...ev(slug, 'IN', photo), slug });
+  const list = [card('soldout', true), card('nophoto', false), card('open', true)];
+
+  it('skips a sold-out show and a listing without a photo', () => {
+    const states = new Map([
+      ['soldout', 'SOLD_OUT' as const],
+      ['open', 'BUYABLE' as const],
+    ]);
+    expect(chooseHero(list, states)).toEqual({ hero: list[2], pending: false });
+  });
+
+  it('waits rather than guess while an earlier candidate is unknown', () => {
+    expect(chooseHero(list, new Map([['open', 'BUYABLE' as const]]))).toEqual({
+      hero: null,
+      pending: true,
+    });
+  });
+
+  it('has no hero when nothing with a photo can be bought', () => {
+    const states = new Map([
+      ['soldout', 'SOLD_OUT' as const],
+      ['open', 'CLOSED' as const],
+    ]);
+    expect(chooseHero(list, states)).toEqual({ hero: null, pending: false });
+    expect(heroCandidates(list)).toEqual(['soldout', 'open']);
+  });
+});
+
+describe('priceSlot', () => {
+  it('shows a price only for an event proven to be on sale', () => {
+    expect(priceSlot('BUYABLE')).toBe('price');
+    expect(priceSlot(undefined)).toBe('none');
+  });
+
+  it('names why an unbuyable card has no price', () => {
+    expect(priceSlot('SOLD_OUT')).toBe('soldOut');
+    expect(priceSlot('NOT_YET')).toBe('notYet');
+    expect(priceSlot('CLOSED')).toBe('closed');
   });
 });

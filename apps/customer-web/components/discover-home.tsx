@@ -1,6 +1,6 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
+import { useQueries, useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import {
@@ -15,8 +15,18 @@ import {
   inCityScope,
   useCity,
 } from '@eticketsgo/web-kit';
+import { MARKETS, countryMatches } from '@eticketsgo/shared-types';
 import { api } from '@/lib/api';
-import { nearestFirst, photosFirst, postersFirst } from '@/lib/home-feed';
+import {
+  buyability,
+  chooseHero,
+  hasPhoto,
+  heroCandidates,
+  outsideGroups,
+  photosFirst,
+  postersFirst,
+  type Buyability,
+} from '@/lib/home-feed';
 import { Link } from '@/i18n/navigation';
 import { useRecentlyViewed } from '@/lib/use-live-events';
 import {
@@ -182,23 +192,40 @@ export function DiscoverHome() {
   const outsideScope = Boolean(preference.city || preference.country);
   const everywhere = useQuery({
     queryKey: ['events', 'home', 'everywhere'],
-    queryFn: () => api.listEvents({ pageSize: '48' }),
+    queryFn: () => api.listEvents({ pageSize: '100' }),
     enabled: outsideScope,
   });
   /*
-    Nearest first, in the plainest sense: the visitor's own country ahead of the rest of the
-    world, so somebody in Dallas sees New York before Bengaluru. Then photos first, then the
-    API's order.
+    Elsewhere, in groups of one currency each (see `outsideGroups`): the visitor's own currency
+    first, then other markets, each titled with where it is and what it prices in. Nearest
+    first inside a group: the visitor's own country, then listings with a photo.
   */
   const homeCountry = preference.place?.country ?? preference.country;
+  const homeCurrency =
+    scoped.data?.data[0]?.currency ??
+    MARKETS.find((m) => homeCountry && countryMatches(m.code, homeCountry))?.currency ??
+    null;
   const outside = useMemo(
     () =>
-      nearestFirst(
+      outsideGroups(
         (everywhere.data?.data ?? []).filter((e) => !inCityScope(e, preference)),
-        homeCountry,
-      ).slice(0, 4),
-    [everywhere.data, preference, homeCountry],
+        { currency: homeCurrency, country: homeCountry },
+      ),
+    [everywhere.data, preference, homeCountry, homeCurrency],
   );
+  /** "US Dollar", in the reader's language, for a group's "Prices in" line. */
+  const currencyName = (code: string) => {
+    try {
+      return new Intl.DisplayNames([locale], { type: 'currency' }).of(code) ?? code;
+    } catch {
+      return code;
+    }
+  };
+  const countryLabel = (country: string) => {
+    const code = country.trim().length === 2 ? country.trim().toUpperCase() : null;
+    if (!code) return country;
+    return locale.startsWith('en') ? countryPhrase(code) : countryName(code);
+  };
 
   const { events: recent } = useRecentlyViewed(preference);
 
@@ -217,11 +244,59 @@ export function DiscoverHome() {
   ).slice(0, 6);
 
   const all = photosFirst(scoped.data?.data ?? []);
-  const hero = all[0];
-  const lead =
-    filter.kind === 'all'
-      ? all.filter((e) => e.id !== hero?.id)
-      : photosFirst(filtered.data?.data ?? []);
+  /*
+    Whether the events this page promotes can be bought right now. The listing payload has no
+    availability or sales window, so the few events the page features or lists first are read
+    from `/public/events/:slug` (the same query, and cache, as the event page itself). Bounded:
+    6 hero candidates, 9 listed, 12 in the rails and 4 recent - at most 31 small reads, cached
+    for a minute; nothing else on the page waits for them, and a card shows its price only once
+    its own read proves something is on sale.
+  */
+  const filteredAll = photosFirst(filtered.data?.data ?? []);
+  const checkSlugs = [
+    ...new Set([
+      ...heroCandidates(all),
+      ...all.slice(0, 9).map((e) => e.slug),
+      ...(filter.kind === 'all' ? [] : filteredAll.slice(0, 9).map((e) => e.slug)),
+      // The rails below: at most 3 groups of 4, and 4 recently viewed.
+      ...outside.flatMap((g) => g.items.map((e) => e.slug)),
+      ...recent.slice(0, 4).map((e) => e.slug),
+    ]),
+  ];
+  const details = useQueries({
+    queries: checkSlugs.map((slug) => ({
+      queryKey: ['event', slug],
+      queryFn: () => api.getEvent(slug),
+      staleTime: 60_000,
+      retry: false,
+    })),
+  });
+  const states = new Map<string, Buyability | undefined>(
+    checkSlugs.map((slug, i) => {
+      const q = details[i];
+      // A listing whose page will not open (unpublished since) cannot be bought either.
+      return [slug, q.data ? buyability(q.data) : q.isError ? 'CLOSED' : undefined];
+    }),
+  );
+  /*
+    The hero needs a photo AND a ticket you can buy now (see `chooseHero`): a review caught a
+    sold-out show as the Bengaluru hero, "Book tickets" over a house with no seats left.
+    Without one, the stage steps down to a compact band naming the place and the count - the
+    same as for a city whose organizers uploaded no art, where a title-only hero once set
+    "Free Talk 1791849580330" in 80px type as the face of the page.
+  */
+  const { hero, pending: heroPending } = chooseHero(all, states);
+  /*
+    What can still be bought leads the section; a sold-out or closed listing stays, labelled,
+    at the end rather than becoming the 16:9 feature (sort is stable, so the rest keep order).
+  */
+  const unbuyable = (e: { slug: string }) => {
+    const st = states.get(e.slug);
+    return st === 'SOLD_OUT' || st === 'CLOSED' ? 1 : 0;
+  };
+  const lead = (filter.kind === 'all' ? all.filter((e) => e.id !== hero?.id) : filteredAll).sort(
+    (a, b) => unbuyable(a) - unbuyable(b),
+  );
   const leadLoading = filter.kind === 'all' ? scoped.isLoading : filtered.isLoading;
   const leadTotal =
     filter.kind === 'all' ? (scoped.data?.meta.total ?? 0) : (filtered.data?.meta.total ?? 0);
@@ -252,7 +327,7 @@ export function DiscoverHome() {
       <h1 className="sr-only">{place ? t('page.title', { place }) : t('page.titleAnywhere')}</h1>
 
       {/* 1. The stage. */}
-      {scoped.isLoading ? (
+      {scoped.isLoading || heroPending ? (
         <div data-brand-tone="stage" className="bg-brand-canvas">
           <div
             className={`${WRAP} flex min-h-[520px] flex-col justify-end pb-8 lg:min-h-[600px] lg:pb-16`}
@@ -273,6 +348,18 @@ export function DiscoverHome() {
         </section>
       ) : hero ? (
         <StageHero event={hero} />
+      ) : all.length > 0 ? (
+        <section data-brand-tone="stage" className="bg-brand-canvas">
+          <div className={`${WRAP} py-12 lg:py-16`}>
+            <p className="text-brand-eyebrow uppercase text-brand-ink-2">
+              {t('page.countOnSale', { count: scoped.data?.meta.total ?? all.length })}
+            </p>
+            <h2 className="mt-3 max-w-3xl text-balance font-brand-display text-brand-d1 text-brand-ink">
+              {place ? t('page.title', { place }) : t('page.titleAnywhere')}
+            </h2>
+            <span aria-hidden className="mt-6 block h-1 w-10 rounded-full bg-brand-marigold" />
+          </div>
+        </section>
       ) : (
         /*
           Empty because of WHERE, and it says so - on the stage, where the hero would be.
@@ -432,16 +519,26 @@ export function DiscoverHome() {
                     </BrandButton>
                   </div>
                 )
+              ) : !hasPhoto(lead[0]) ? (
+                /*
+                  No photo to lead with: a 16:9 block of title-on-black above the same title
+                  read as a broken picture. Rows, two columns from lg, say the same with less.
+                */
+                <ul className="grid gap-x-10 divide-y divide-brand-line lg:grid-cols-2 lg:divide-y-0">
+                  {lead.slice(0, 8).map((e) => (
+                    <li key={e.id} className="lg:border-b lg:border-brand-line">
+                      <EventRow event={e} state={states.get(e.slug)} />
+                    </li>
+                  ))}
+                </ul>
               ) : (
-                <div
-                  className={`grid gap-8 ${lead.length > 1 ? 'lg:grid-cols-[7fr_5fr] lg:gap-10' : 'lg:grid-cols-[7fr_5fr]'}`}
-                >
-                  <FeatureCard event={lead[0]} />
+                <div className="grid gap-8 lg:grid-cols-[7fr_5fr] lg:gap-10">
+                  <FeatureCard event={lead[0]} state={states.get(lead[0].slug)} />
                   {lead.length > 1 && (
                     <ul className="divide-y divide-brand-line lg:-mt-4">
                       {lead.slice(1, 5).map((e) => (
                         <li key={e.id}>
-                          <EventRow event={e} />
+                          <EventRow event={e} state={states.get(e.slug)} />
                         </li>
                       ))}
                     </ul>
@@ -483,32 +580,57 @@ export function DiscoverHome() {
         </section>
       )}
 
-      {/* 5. Elsewhere: titled, with the city on each card and the currency beside each price. */}
-      {outsideScope && outside.length > 0 && (
-        <section aria-labelledby="home-outside" className={`${WRAP} pt-12 lg:pt-16`}>
-          <SectionHead
-            id="home-outside"
-            title={place ? t('sections.outside', { place }) : t('sections.elsewhere')}
-            hint={t('sections.outsideHint')}
-            action={
-              <button
-                type="button"
-                onClick={() => preference.requestPicker()}
-                className={sectionLinkClasses()}
-              >
-                {t('sections.changeCity')}
-              </button>
-            }
-          />
-          <Rail cols={4} label={place ? t('sections.outside', { place }) : t('sections.elsewhere')}>
-            {outside.map((e) => (
-              <RailItem key={e.id}>
-                <EventTile event={e} showCity currencyCode />
-              </RailItem>
-            ))}
-          </Rail>
-        </section>
-      )}
+      {/*
+        5. Elsewhere, one currency per group. The first group is the visitor's own currency
+        ("Outside Bengaluru"); others are titled by country ("In Canada") and every group says
+        which currency its prices are in, so no rail mixes Rs, $ and CA$.
+      */}
+      {outsideScope &&
+        outside.map((group, index) => {
+          const same = group.currency === homeCurrency;
+          const title =
+            same && place
+              ? t('sections.outside', { place })
+              : same
+                ? t('sections.elsewhere')
+                : t('sections.inCountry', { country: countryLabel(group.country) });
+          const id = `home-outside-${group.currency.toLowerCase()}`;
+          return (
+            <section
+              key={group.currency}
+              aria-labelledby={id}
+              data-currency={group.currency}
+              className={`${WRAP} pt-12 lg:pt-16`}
+            >
+              <SectionHead
+                id={id}
+                title={title}
+                hint={t('sections.pricesIn', {
+                  name: currencyName(group.currency),
+                  currency: group.currency,
+                })}
+                action={
+                  index === 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => preference.requestPicker()}
+                      className={sectionLinkClasses()}
+                    >
+                      {t('sections.changeCity')}
+                    </button>
+                  ) : undefined
+                }
+              />
+              <Rail cols={4} label={title}>
+                {group.items.map((e) => (
+                  <RailItem key={e.id}>
+                    <EventTile event={e} showCity state={states.get(e.slug)} />
+                  </RailItem>
+                ))}
+              </Rail>
+            </section>
+          );
+        })}
 
       {/*
         6. Recently viewed: current, still on sale, and scoped like everything else here (see
@@ -520,7 +642,7 @@ export function DiscoverHome() {
           <Rail cols={4} label={t('sections.recent')}>
             {recent.slice(0, 4).map((e) => (
               <RailItem key={e.id}>
-                <EventTile event={e} />
+                <EventTile event={e} state={states.get(e.slug)} />
               </RailItem>
             ))}
           </Rail>

@@ -38,6 +38,13 @@ export interface RecommendationContext {
    * today but honoured by `RecentlyViewedRecommendationStrategy`.
    */
   recentEventIds?: string[];
+  /**
+   * The seed event's venue country. When set, the blended list keeps to that market: a visitor on
+   * a Boise event is not offered a Hyderabad one, whose price is in another currency and which
+   * they cannot sensibly attend. Unset (no seed, or a seed with no known country) leaves the
+   * list as the strategies built it.
+   */
+  seedCountry?: string | null;
   /** Maximum number of cards to return. */
   limit: number;
   /** "Now" is injected so strategies are deterministic and unit-testable. */

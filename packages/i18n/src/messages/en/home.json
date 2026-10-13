@@ -12,7 +12,8 @@
   },
   "page": {
     "title": "What is on in {place}",
-    "titleAnywhere": "What is on"
+    "titleAnywhere": "What is on",
+    "countOnSale": "{count, plural, one {# event on sale} other {# events on sale}}"
   },
   "hero": {
     "label": "Featured event",
@@ -45,7 +46,8 @@
     "allFilms": "All films",
     "outside": "Outside {place}",
     "elsewhere": "Elsewhere on ETicketsGo",
-    "outsideHint": "Each price is in the venue's own currency.",
+    "inCountry": "In {country}",
+    "pricesIn": "Prices in {name} ({currency})",
     "changeCity": "Change city",
     "recent": "Continue exploring",
     "film": "Film"
@@ -85,5 +87,9 @@
   },
   "footer": {
     "feedback": "Send feedback"
+  },
+  "state": {
+    "notYet": "On sale soon",
+    "closed": "Sales closed"
   }
 }

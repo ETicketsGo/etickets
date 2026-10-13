@@ -76,11 +76,35 @@ export function BottomNav() {
   */
   useEffect(() => setAuthed(!!tokenStore.access), [pathname]);
   /*
+    Out of the way while somebody is typing. With the on-screen keyboard up, a fixed bar sits
+    on top of it and takes 56px of the little room left - measured at 320x508 with the search
+    focused, the bar covered most of what was left below the field. It comes back on blur.
+  */
+  const [typing, setTyping] = useState(false);
+  useEffect(() => {
+    const isField = (t: EventTarget | null) =>
+      t instanceof HTMLElement &&
+      (t.tagName === 'TEXTAREA' ||
+        t.isContentEditable ||
+        (t.tagName === 'INPUT' &&
+          !['button', 'checkbox', 'radio', 'submit', 'reset', 'range'].includes(
+            (t as HTMLInputElement).type,
+          )));
+    const on = (e: FocusEvent) => setTyping(isField(e.target));
+    const off = () => setTyping(false);
+    document.addEventListener('focusin', on);
+    document.addEventListener('focusout', off);
+    return () => {
+      document.removeEventListener('focusin', on);
+      document.removeEventListener('focusout', off);
+    };
+  }, []);
+  /*
     Not while choosing seats. That screen has its own bar at the bottom — the seats, the amount
     and the pay button — and a navigation bar under it would put five ways to leave the booking
     beneath the one thing the buyer came to press.
   */
-  if (pathname.startsWith('/shows/')) return null;
+  if (pathname.startsWith('/shows/') || typing) return null;
 
   return (
     <nav

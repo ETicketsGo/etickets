@@ -8,12 +8,13 @@ import {
   EventArtwork,
   brandButtonClasses,
   eventImageSource,
+  portableImageUrl,
   type PublicEventCard,
   type PublicMovieCard,
 } from '@eticketsgo/web-kit';
 import { Link } from '@/i18n/navigation';
 import { useFormat } from '@/lib/format';
-import { needsCurrencyCode } from '@/lib/home-feed';
+import { priceSlot, type Buyability } from '@/lib/home-feed';
 
 /*
   ── THE HOME PAGE'S PIECES (docs/design/DESIGN-SYSTEM.md) ─────────────────────────────
@@ -89,17 +90,14 @@ export function isTodayAt(iso: string | null, timeZone?: string | null): boolean
 /**
  * "From Rs 999", "Free", or nothing.
  *
- * Nothing when the API has no price: "From -" reads as a page that failed to load. With
- * `code`, the ISO currency follows the amount, for the group of events outside the reader's
- * city, where "$45" beside "Rs 699" must not be mistaken for one currency.
+ * Nothing when the API has no price: "From -" reads as a page that failed to load. Always the
+ * event's own currency; a group never mixes currencies, and its heading names the one it is in.
  */
 export function FromPrice({
   event,
-  code = false,
   size = 'ui',
 }: {
   event: Pick<PublicEventCard, 'fromPriceMinor' | 'currency'>;
-  code?: boolean;
   size?: 'ui' | 'figure';
 }) {
   const t = useTranslations('common.state');
@@ -110,15 +108,43 @@ export function FromPrice({
       ? 'text-brand-figure-sm text-brand-ink'
       : 'text-brand-ui font-semibold text-brand-ink';
   if (event.fromPriceMinor === 0) return <span className={amount}>{t('free')}</span>;
-  const formatted = money(event.fromPriceMinor, event.currency);
-  // The code only where the amount does not already name its currency (see the helper).
-  const needsCode = code && needsCurrencyCode(formatted);
   return (
     <span className="whitespace-nowrap text-brand-meta text-brand-ink-3">
-      {t('from')} <span className={`tabular-nums ${amount}`}>{formatted}</span>
-      {needsCode && <span className="ml-1 text-brand-meta text-brand-ink-3">{event.currency}</span>}
+      {t('from')}{' '}
+      <span className={`tabular-nums ${amount}`}>
+        {money(event.fromPriceMinor, event.currency)}
+      </span>
     </span>
   );
+}
+
+/**
+ * The price, or - when the event cannot be bought - the reason in one word. "From Rs 799" on a
+ * sold-out show invites a click that ends at "Sold out" one page later. `state` comes from the
+ * event's own payload (see `buyability`).
+ */
+export function PriceOrState({
+  event,
+  state,
+}: {
+  event: Pick<PublicEventCard, 'fromPriceMinor' | 'currency'>;
+  state?: Buyability;
+}) {
+  const common = useTranslations('common.state');
+  const t = useTranslations('home.state');
+  // A price only once the event's own payload proves something is on sale (see priceSlot).
+  switch (priceSlot(state)) {
+    case 'price':
+      return <FromPrice event={event} />;
+    case 'soldOut':
+      return <BrandStatusPill status="neutral">{common('soldOut')}</BrandStatusPill>;
+    case 'notYet':
+      return <BrandStatusPill status="info">{t('notYet')}</BrandStatusPill>;
+    case 'closed':
+      return <BrandStatusPill status="neutral">{t('closed')}</BrandStatusPill>;
+    default:
+      return null;
+  }
 }
 
 export function SectionHead({
@@ -207,7 +233,7 @@ function RowThumb({ event }: { event: PublicEventCard }) {
 }
 
 /** The 16:9 lead of an editorial section. */
-export function FeatureCard({ event }: { event: PublicEventCard }) {
+export function FeatureCard({ event, state }: { event: PublicEventCard; state?: Buyability }) {
   const when = useVenueWhen()(event.nextSessionAt, event.venue.timezone);
   const image = cardImage(event, 'banner');
   return (
@@ -244,22 +270,24 @@ export function FeatureCard({ event }: { event: PublicEventCard }) {
         </span>
       </p>
       <p className="mt-2">
-        <FromPrice event={event} />
+        <PriceOrState event={event} state={state} />
       </p>
     </Link>
   );
 }
 
 /** One row of the 4:3 list beside the feature. */
-export function EventRow({ event }: { event: PublicEventCard }) {
+export function EventRow({ event, state }: { event: PublicEventCard; state?: Buyability }) {
   const when = useVenueWhen()(event.nextSessionAt, event.venue.timezone);
   return (
     <Link
       href={`/events/${event.slug}`}
-      className={`grid grid-cols-[96px_1fr] items-center gap-4 rounded-brand-control py-4 sm:grid-cols-[112px_1fr_auto] ${BRAND_FOCUS}`}
+      className={`grid grid-cols-[96px_1fr] items-center gap-x-4 gap-y-1 rounded-brand-control py-4 sm:grid-cols-[112px_1fr_auto] ${BRAND_FOCUS}`}
     >
-      <RowThumb event={event} />
-      <div className="min-w-0">
+      <div className="row-span-2 sm:row-span-1">
+        <RowThumb event={event} />
+      </div>
+      <div className="min-w-0 self-end sm:self-center">
         <p className="text-brand-eyebrow uppercase text-brand-ink-3">{event.category}</p>
         <h3 className="mt-1 line-clamp-2 font-brand-display text-brand-card text-brand-ink">
           {event.title}
@@ -268,13 +296,14 @@ export function EventRow({ event }: { event: PublicEventCard }) {
           {when ? `${when.day}, ${when.time} - ` : ''}
           {event.venue.name}, {event.venue.city}
         </p>
-        {/* On a phone the price sits under the meta line; from `sm` it has its own column. */}
-        <p className="mt-1 sm:hidden">
-          <FromPrice event={event} />
-        </p>
       </div>
-      <p className="hidden text-right sm:block">
-        <FromPrice event={event} />
+      {/*
+        One price element, placed by the grid: under the meta line on a phone, its own
+        right-hand column from `sm`. Two copies (one hidden per width) left a hidden "From"
+        first in the page, which is what a reader of the DOM - or a test - finds first.
+      */}
+      <p className="col-start-2 self-start sm:col-start-3 sm:row-start-1 sm:self-center sm:text-right">
+        <PriceOrState event={event} state={state} />
       </p>
     </Link>
   );
@@ -284,11 +313,11 @@ export function EventRow({ event }: { event: PublicEventCard }) {
 export function EventTile({
   event,
   showCity = false,
-  currencyCode = false,
+  state,
 }: {
   event: PublicEventCard;
   showCity?: boolean;
-  currencyCode?: boolean;
+  state?: Buyability;
 }) {
   const when = useVenueWhen()(event.nextSessionAt, event.venue.timezone);
   const image = cardImage(event, 'card');
@@ -321,7 +350,7 @@ export function EventTile({
         <span className="text-brand-meta text-brand-ink-2">
           {when ? `${when.day}, ${when.time}` : event.venue.name}
         </span>
-        <FromPrice event={event} code={currencyCode} />
+        <PriceOrState event={event} state={state} />
       </div>
     </Link>
   );
@@ -339,7 +368,7 @@ export function PosterCard({ movie }: { movie: PublicMovieCard }) {
       <div className="relative overflow-hidden rounded-brand-card">
         <div className="transition-transform duration-150 motion-safe:group-hover:scale-[1.02]">
           <EventArtwork
-            src={movie.posterUrl}
+            src={portableImageUrl(movie.posterUrl)}
             sizes="(min-width: 1024px) 18vw, 42vw"
             alt={t('movie.poster', { title: movie.title })}
             title={movie.title}
