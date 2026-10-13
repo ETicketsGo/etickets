@@ -252,10 +252,12 @@ export function EventRow({ event }: { event: PublicEventCard }) {
   return (
     <Link
       href={`/events/${event.slug}`}
-      className={`grid grid-cols-[96px_1fr] items-center gap-4 rounded-brand-control py-4 sm:grid-cols-[112px_1fr_auto] ${BRAND_FOCUS}`}
+      className={`grid grid-cols-[96px_1fr] items-center gap-x-4 gap-y-1 rounded-brand-control py-4 sm:grid-cols-[112px_1fr_auto] ${BRAND_FOCUS}`}
     >
-      <RowThumb event={event} />
-      <div className="min-w-0">
+      <div className="row-span-2 sm:row-span-1">
+        <RowThumb event={event} />
+      </div>
+      <div className="min-w-0 self-end sm:self-center">
         <p className="text-brand-eyebrow uppercase text-brand-ink-3">{event.category}</p>
         <h3 className="mt-1 line-clamp-2 font-brand-display text-brand-card text-brand-ink">
           {event.title}
@@ -264,12 +266,13 @@ export function EventRow({ event }: { event: PublicEventCard }) {
           {when ? `${when.day}, ${when.time} - ` : ''}
           {event.venue.name}, {event.venue.city}
         </p>
-        {/* On a phone the price sits under the meta line; from `sm` it has its own column. */}
-        <p className="mt-1 sm:hidden">
-          <FromPrice event={event} />
-        </p>
       </div>
-      <p className="hidden text-right sm:block">
+      {/*
+        One price element, placed by the grid: under the meta line on a phone, its own
+        right-hand column from `sm`. Two copies (one hidden per width) left a hidden "From"
+        first in the page, which is what a reader of the DOM - or a test - finds first.
+      */}
+      <p className="col-start-2 self-start sm:col-start-3 sm:row-start-1 sm:self-center sm:text-right">
         <FromPrice event={event} />
       </p>
     </Link>
