@@ -67,7 +67,7 @@ import {
 type Count = { count: number; note?: string };
 
 /** One request per queue, each reading the total from the list the link goes to. */
-function fetchCount(queue: AttentionQueue, now: Date): Promise<Count> {
+export function fetchCount(queue: AttentionQueue, now: Date): Promise<Count> {
   const one = { page: 1, pageSize: 1 };
   switch (queue.key) {
     case 'disputes':
