@@ -1,6 +1,7 @@
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { API, CUSTOMER, apiLogin, uniqueEmail } from './helpers';
+import { chooseQuantity, moreButton, quantitySteppers } from './ticket-quantity';
 
 /**
  * Round L: the customer-experience items left open by the pilot journey review.
@@ -188,7 +189,7 @@ test.describe('on a phone', () => {
         signIn: box('header a[href$="/login"]'),
         // The language select moved from the header to the footer in the storefront redesign.
         language: box('footer select'),
-        quantity: box('select[aria-label^="Quantity"]'),
+        quantity: box('[data-quantity-stepper]'),
         footerLink: box('footer ul a'),
         under24,
       };
@@ -211,8 +212,8 @@ test.describe('on a phone', () => {
     const sticky = page.getByTestId('sticky-continue');
     await expect(sticky, 'nothing chosen, nothing sticky').toHaveCount(0);
 
-    const quantity = page.locator('select[aria-label^="Quantity"]').first();
-    await quantity.selectOption('2');
+    const quantity = quantitySteppers(page).first();
+    await chooseQuantity(quantity, 2);
     await expect(sticky).toBeVisible();
     await expect(sticky).toContainText('2 tickets');
 
@@ -271,7 +272,7 @@ test.describe('on a phone', () => {
 
   test('4: opening a booking this browser cancelled says it was cancelled', async ({ page }) => {
     await goToEvent(page, paid);
-    await page.locator('select[aria-label^="Quantity"]').first().selectOption('1');
+    await chooseQuantity(quantitySteppers(page).first(), 1);
     await page.getByLabel('Your name').fill('L Cancel Guest');
     await page.getByLabel('Email', { exact: true }).fill(uniqueEmail('l_cancel'));
     await page.getByRole('button', { name: /Continue to payment/ }).click();
@@ -302,9 +303,14 @@ test.describe('on a phone', () => {
 
 test('5: the hero time names the venue time zone, as the Sessions list does', async ({ page }) => {
   await goToEvent(page, paid);
-  const zone = /\((IST|GMT[+-]\d{1,2}(:\d{2})?|[A-Z]{2,5})\)/;
-  const facts = page.locator('main ul li', { hasText: /\d{4}.*\d:\d{2}/ }).first();
-  await expect(facts).toContainText(zone);
+  /*
+    The hero prints the venue time in a <time> as "Sat 21 Nov 2026 6:30 pm GMT+5:30": the zone
+    is named straight after the clock rather than in brackets in a facts list. Same promise -
+    whose 6:30 it is, said where the time is.
+  */
+  const zone = /\d:\d{2}.*\s(IST|GMT[+-]\d{1,2}(:\d{2})?|[A-Z]{2,5})\b/;
+  const hero = page.locator('main time').first();
+  await expect(hero).toContainText(zone);
 });
 
 test('6: card images state their size, and only the first ones load at once', async ({ page }) => {
@@ -369,8 +375,13 @@ for (const [label, size] of [
       if (route.startsWith('/events/')) {
         await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
         // The sticky bar is part of the page once tickets are chosen; scan that state too.
-        const quantity = page.locator('select[aria-label^="Quantity"]').first();
-        if (await quantity.isEnabled().catch(() => false)) await quantity.selectOption('1');
+        const quantity = quantitySteppers(page).first();
+        if (
+          await moreButton(quantity)
+            .isEnabled()
+            .catch(() => false)
+        )
+          await chooseQuantity(quantity, 1);
       }
       const result = await new AxeBuilder({ page })
         .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])

@@ -1,6 +1,7 @@
 import { test, expect, devices, type Page } from '@playwright/test';
 import { CUSTOMER, uniqueEmail } from './helpers';
 import { openPaidEvent } from './pick-event';
+import { chooseQuantity, quantitySteppers } from './ticket-quantity';
 
 /**
  * The storefront on a phone.
@@ -112,22 +113,22 @@ test.describe('the storefront on a phone', () => {
       is meant to stay clean: "From Rs 200" on a recommendation card is right, and making the whole
       page agree would put paise on every price in the catalogue.
     */
-    const picker = page.locator('select[aria-label^="Quantity"]').first();
+    const picker = quantitySteppers(page).first();
     if (await picker.isVisible()) {
-      await picker.selectOption('1');
+      await chooseQuantity(picker, 1);
       // The quote is fetched when the cart changes, and the fees are what introduce paise.
       await expect(page.getByText(/^Total$/).first()).toBeVisible({ timeout: 20_000 });
       await page.waitForTimeout(1500);
 
       const amounts = await page.evaluate(() => {
-        const card = Array.from(document.querySelectorAll('div')).find(
+        // The booking card is a <section> on the brand layer; it used to be a <div>.
+        const card = Array.from(document.querySelectorAll('div, section')).find(
           (d) =>
-            d.querySelector('select[aria-label^="Quantity"]') &&
+            d.querySelector('[data-quantity-stepper]') &&
             /Total/.test(d.textContent ?? '') &&
             !Array.from(d.children).some(
               (c) =>
-                c.querySelector?.('select[aria-label^="Quantity"]') &&
-                /Total/.test(c.textContent ?? ''),
+                c.querySelector?.('[data-quantity-stepper]') && /Total/.test(c.textContent ?? ''),
             ),
         );
         return (card?.innerText ?? '').match(/\u20b9[\d,]+(?:\.\d+)?/g) ?? [];
@@ -189,7 +190,7 @@ test.describe('the storefront on a phone', () => {
     */
     await page.goto(`${CUSTOMER}/events`);
     await openPaidEvent(page);
-    await page.locator('select[aria-label^="Quantity"]').first().selectOption('1');
+    await chooseQuantity(quantitySteppers(page).first(), 1);
     await page.getByLabel('Your name').fill('Footer Check');
     await page.getByLabel('Email', { exact: true }).fill(uniqueEmail('footer'));
     await page.getByRole('button', { name: /Continue to payment/ }).click();

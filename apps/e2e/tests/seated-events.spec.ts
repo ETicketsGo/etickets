@@ -7,6 +7,7 @@ import {
   uniqueEmail,
   NEW_ACCOUNT_PASSWORD,
 } from './helpers';
+import { quantitySteppers } from './ticket-quantity';
 
 /**
  * A concert with assigned seats, from the seat map to the ticket.
@@ -234,7 +235,7 @@ test.describe('a concert with assigned seats', () => {
     });
     // The quantity control must be absent: offering one would let somebody commit to a price
     // without saying which seats, and be refused at the last step.
-    await expect(page.locator('select[aria-label^="Quantity"]')).toHaveCount(0);
+    await expect(quantitySteppers(page)).toHaveCount(0);
 
     await page.getByRole('link', { name: 'Choose seats' }).click();
     await expect(page).toHaveURL(new RegExp(`/shows/${fx.sessionId}`), { timeout: 30_000 });
@@ -295,7 +296,7 @@ test.describe('a concert with assigned seats', () => {
 
     await seedBrowserAuth(context, tokens);
     await page.goto(`${CUSTOMER}/events/${event.slug}`, { waitUntil: 'networkidle' });
-    await expect(page.locator('select[aria-label^="Quantity"]').first()).toBeVisible({
+    await expect(quantitySteppers(page).first()).toBeVisible({
       timeout: 30_000,
     });
     await expect(page.getByRole('heading', { name: 'Choose your seats' })).toHaveCount(0);

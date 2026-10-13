@@ -28,7 +28,9 @@ test.describe('finding reserved seating from a standing start', () => {
   let organizationId = '';
   const stamp = Date.now();
   const locationName = `Discovery Hall ${stamp}`;
-  const roomName = `Discovery Room ${stamp}`;
+  // Named "Space": organizer-space-inherits-venue asserts the Venues page never says "room", and this fixture
+  // shares the database with it, so a "Room" here failed that guard whenever this spec ran first.
+  const roomName = `Discovery Space ${stamp}`;
 
   test.beforeAll(async ({ request }) => {
     const email = uniqueEmail('discovery');

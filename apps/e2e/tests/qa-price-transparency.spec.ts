@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { QA_VALIDATE, QA_SKIP_REASON } from './qa-target';
+import { chooseQuantity } from './ticket-quantity';
 
 // Deployment-facing: skipped unless asked for. See qa-target.ts for why.
 test.skip(!QA_VALIDATE, QA_SKIP_REASON);
@@ -57,12 +58,9 @@ test.describe('QA: the event page shows the full price, not the subtotal', () =>
     // Nothing selected yet: no invented numbers, and it says why.
     await expect(page.getByTestId('price-breakdown')).toHaveCount(0);
 
-    // By its accessible name, not by position: the first combobox on the page is the
+    // By its accessible name, not by position: the first control on the page is the
     // language switcher, and `.first()` quietly tested that instead.
-    await page
-      .getByRole('combobox', { name: /^Quantity of / })
-      .first()
-      .selectOption('2');
+    await chooseQuantity(page.getByRole('group', { name: /^Quantity of / }).first(), 2);
 
     const breakdown = page.getByTestId('price-breakdown');
     await expect(breakdown).toBeVisible({ timeout: 30_000 });
@@ -110,14 +108,14 @@ test.describe('QA: the event page shows the full price, not the subtotal', () =>
     // A breakdown that does not follow the selection is worse than none: it is a precise
     // number attached to the wrong cart.
     await openFirstPaidEvent(page, request as never);
-    const quantity = page.getByRole('combobox', { name: /^Quantity of / }).first();
+    const quantity = page.getByRole('group', { name: /^Quantity of / }).first();
 
-    await quantity.selectOption('1');
+    await chooseQuantity(quantity, 1);
     await expect(page.getByTestId('price-breakdown')).toBeVisible({ timeout: 30_000 });
     const one = minorFrom(await page.getByTestId('price-total').innerText());
     expect(Number.isNaN(one), 'the total did not parse as an amount').toBe(false);
 
-    await quantity.selectOption('3');
+    await chooseQuantity(quantity, 3);
     await expect
       .poll(async () => minorFrom(await page.getByTestId('price-total').innerText()), {
         timeout: 30_000,

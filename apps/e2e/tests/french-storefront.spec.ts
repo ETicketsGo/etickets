@@ -7,6 +7,7 @@ import {
   uniqueEmail,
   NEW_ACCOUNT_PASSWORD,
 } from './helpers';
+import { chooseQuantity } from './ticket-quantity';
 
 /**
  * Buying a ticket in French, from the storefront to the receipt.
@@ -292,7 +293,7 @@ test.describe('the storefront in French', () => {
     await expect(page.getByText('Aucun paiement requis')).toBeVisible();
     await expect(page.getByText('Total')).toBeVisible();
 
-    await page.getByLabel('Quantité de Admission générale').selectOption('2');
+    await chooseQuantity(page.getByLabel('Quantité de Admission générale'), 2);
     await page.getByRole('button', { name: 'Obtenir mes billets' }).click();
 
     // The confirmation, which is the page a customer reads most carefully.
@@ -366,7 +367,7 @@ test.describe('the storefront in French', () => {
     const paid = await paidEvent(page.request);
     await page.goto(`${CUSTOMER}/fr-CA/events/${paid.slug}`, { waitUntil: 'networkidle' });
 
-    await page.getByLabel(/Quantité de/).selectOption('1');
+    await chooseQuantity(page.getByLabel(/Quantité de/).first(), 1);
     await page.getByRole('button', { name: 'Passer au paiement' }).click();
 
     await expect(page).toHaveURL(/\/fr-CA\/booking\/[^/]+\/payment/, { timeout: 30_000 });

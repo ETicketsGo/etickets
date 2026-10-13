@@ -10,22 +10,20 @@ import {
   Hourglass,
   Instagram,
   MapPin,
-  Tag,
   UserCheck,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import {
+  BRAND_FOCUS,
   apiAssetUrl,
-  showDurationMinutes,
   splitMinutes,
   termsList,
   type EventArtist,
   type PublicEvent,
 } from '@eticketsgo/web-kit';
 import { Link } from '@/i18n/navigation';
-import { useFormat } from '@/lib/format';
-import { whenWithZone } from '@/lib/event-when';
-import { Button, Card, Dialog } from '@/components/ui';
+import { Button, Dialog } from '@/components/ui';
+import { BRAND_EYEBROW, BRAND_LINK, BRAND_PANEL } from '@/components/booking-brand';
 
 /**
  * The event details buyers check before they pay, asked for by the owner after a BookMyShow
@@ -33,8 +31,6 @@ import { Button, Card, Dialog } from '@/components/ui';
  * organizer's terms. Each block renders nothing when the organizer has said nothing - an empty
  * "Artists" heading or "Age limit: none" would be a claim the organizer never made.
  */
-
-type Session = PublicEvent['sessions'][number];
 
 /** "1 hour 30 minutes", in the reader's language. */
 function useDurationText() {
@@ -51,63 +47,59 @@ function useDurationText() {
 }
 
 /**
- * The key facts, at the top of the booking card, where the decision is made.
+ * The key facts, as a row of labelled figures under the hero.
  *
  * Duration is the SELECTED show's, read from its own start and end - never a separate number
- * that could disagree with the ticket. With several dates and none chosen yet, the date line is
- * the range the run covers.
+ * that could disagree with the ticket. The date is the venue's clock with its zone named, and a
+ * short note says so once, here, rather than on every line that prints a time.
  */
 export function EventFacts({
   event,
-  session,
-  zone,
-  standalone = false,
+  when,
+  minutes,
+  note,
 }: {
   event: PublicEvent;
-  session: Session | undefined;
-  zone: string | undefined;
-  /** In a card of its own, with no rule underneath separating it from the tickets. */
-  standalone?: boolean;
+  /** The shown date in the venue's clock, from `useVenueWhen`. */
+  when: { day: string; time: string; zone: string } | null;
+  minutes: number | null;
+  /** "Times are at the venue, in its time zone." */
+  note: string;
 }) {
   const t = useTranslations('storefront.event');
-  const format = useFormat();
-  const { dateOnly } = format;
   const duration = useDurationText();
-  const sessions = event.sessions;
-  const minutes = session ? showDurationMinutes(session.startsAt, session.endsAt) : null;
-
-  const when = session
-    ? whenWithZone(session.startsAt, zone, format)
-    : sessions.length > 1
-      ? t('dateRange', {
-          from: dateOnly(sessions[0].startsAt, undefined, zone),
-          to: dateOnly(sessions[sessions.length - 1].startsAt, undefined, zone),
-        })
-      : sessions[0]
-        ? whenWithZone(sessions[0].startsAt, zone, format)
-        : null;
-
-  const rows = [
-    when ? { icon: CalendarDays, text: when } : null,
-    minutes ? { icon: Hourglass, text: duration(minutes) } : null,
-    event.ageLimit ? { icon: UserCheck, text: t('ageLimit', { age: event.ageLimit }) } : null,
-    { icon: Tag, text: event.category },
-    { icon: MapPin, text: `${event.venue.name}, ${event.venue.city}` },
-  ].filter((row): row is { icon: typeof MapPin; text: string } => row !== null);
+  const facts = [
+    when
+      ? {
+          icon: CalendarDays,
+          label: t('dateLabel'),
+          value: `${when.day}, ${when.time}${when.zone ? ` ${when.zone}` : ''}`,
+        }
+      : null,
+    minutes ? { icon: Hourglass, label: t('durationLabel'), value: duration(minutes) } : null,
+    event.ageLimit
+      ? { icon: UserCheck, label: t('ageLabel'), value: t('ageLimit', { age: event.ageLimit }) }
+      : null,
+    { icon: MapPin, label: t('venueHeading'), value: `${event.venue.name}, ${event.venue.city}` },
+  ].filter((fact): fact is { icon: typeof MapPin; label: string; value: string } => fact !== null);
 
   return (
-    <ul
-      className={`space-y-2.5 text-[0.9375rem] text-text-secondary ${
-        standalone ? '' : 'mb-5 border-b border-border pb-5'
-      }`}
-    >
-      {rows.map(({ icon: Icon, text }) => (
-        <li key={text} className="flex items-start gap-2.5">
-          <Icon className="mt-0.5 h-4 w-4 shrink-0 text-text-muted" aria-hidden />
-          <span>{text}</span>
-        </li>
-      ))}
-    </ul>
+    <div>
+      <dl className="grid gap-x-8 gap-y-5 sm:grid-cols-2">
+        {facts.map(({ icon: Icon, label, value }) => (
+          // dt and dd are the group's only children (a valid definition list); the icon rides
+          // inside the term, positioned into the gutter.
+          <div key={label} className="relative min-w-0 pl-8">
+            <dt className="text-brand-eyebrow uppercase text-brand-ink-3">
+              <Icon className="absolute left-0 top-0.5 h-5 w-5 text-brand-ink-3" aria-hidden />
+              {label}
+            </dt>
+            <dd className="mt-1 text-brand-ui font-medium text-brand-ink">{value}</dd>
+          </div>
+        ))}
+      </dl>
+      {when?.zone ? <p className="mt-4 text-brand-meta text-brand-ink-3">{note}</p> : null}
+    </div>
   );
 }
 
@@ -124,27 +116,36 @@ export function ArtistsCard({ artists }: { artists: EventArtist[] | null | undef
   const t = useTranslations('storefront.event');
   if (!artists?.length) return null;
   return (
-    <Card title={t('artistsHeading')}>
-      <ul className="grid gap-4 sm:grid-cols-2">
+    <section aria-labelledby="artists-heading">
+      <h2 id="artists-heading" className="font-brand-display text-brand-d2 text-brand-ink">
+        {t('artistsHeading')}
+      </h2>
+      <ul className="mt-4 grid gap-6 sm:grid-cols-2">
         {artists.map((artist, index) => (
-          <li key={`${artist.name}-${index}`} className="flex items-start gap-3">
+          <li key={`${artist.name}-${index}`} className="flex items-start gap-4">
+            {/*
+              Initials on the sunken paper, in ink: a face we do not have, said plainly. Never a
+              coloured tile - the brand has no category or decoration colours.
+            */}
             <span
               aria-hidden
-              className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-tint-primary text-sm font-semibold text-action-primary"
+              className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-brand-sunken text-brand-ui font-semibold text-brand-ink-2"
             >
               {initials(artist.name)}
             </span>
             <div className="min-w-0">
-              <p className="font-medium text-text-primary">{artist.name}</p>
-              {artist.role ? <p className="text-caption text-text-muted">{artist.role}</p> : null}
+              <p className="font-brand-display text-brand-card text-brand-ink">{artist.name}</p>
+              {artist.role ? (
+                <p className="text-brand-meta text-brand-ink-3">{artist.role}</p>
+              ) : null}
               {artist.bio ? (
-                <p className="mt-1 text-[0.9375rem] text-text-secondary">{artist.bio}</p>
+                <p className="mt-1 text-brand-ui text-brand-ink-2">{artist.bio}</p>
               ) : null}
             </div>
           </li>
         ))}
       </ul>
-    </Card>
+    </section>
   );
 }
 
@@ -180,51 +181,61 @@ export function OrganizerCard({ organizer }: { organizer: PublicEvent['organizer
   const website = webLink(organizer.website);
   const instagram = webLink(organizer.instagramUrl);
   return (
-    <Card title={t('organizerHeading')}>
-      <Link href={`/organizers/${organizer.id}`} className="group flex items-center gap-3">
+    <section aria-labelledby="organizer-heading" className={`${BRAND_PANEL} p-6`}>
+      <h2 id="organizer-heading" className={BRAND_EYEBROW}>
+        {t('organizerHeading')}
+      </h2>
+      <Link
+        href={`/organizers/${organizer.id}`}
+        className={`group mt-3 flex min-h-11 items-center gap-3 rounded-brand-control ${BRAND_FOCUS}`}
+      >
         {logo ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={logo}
             alt=""
-            width={40}
-            height={40}
-            className="h-10 w-10 shrink-0 rounded-full border border-border bg-white object-cover"
+            width={44}
+            height={44}
+            className="h-11 w-11 shrink-0 rounded-full border border-brand-line bg-brand-surface object-cover"
           />
         ) : (
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-tint-primary font-semibold text-action-primary">
-            {organizer.name.charAt(0)}
+          <span
+            aria-hidden
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand-sunken text-brand-ui font-semibold text-brand-ink-2"
+          >
+            {initials(organizer.name)}
           </span>
         )}
         <div className="min-w-0 flex-1">
-          <p className="flex items-center gap-1 font-medium text-text-primary group-hover:text-action-primary">
-            <span className="truncate">{organizer.name}</span>
+          <p className="flex items-center gap-1 font-brand-display text-brand-card text-brand-ink">
+            <span className="truncate group-hover:underline">{organizer.name}</span>
             {organizer.verified ? (
               <BadgeCheck
-                className="h-4 w-4 shrink-0 text-action-primary"
+                className="h-4 w-4 shrink-0 text-brand-ink"
                 aria-label={t('organizerVerified')}
               />
             ) : null}
           </p>
-          <p className="text-caption text-text-muted">
+          <p className="text-brand-meta text-brand-ink-3">
             {organizer.verified ? t('organizerVerified') : t('viewProfile')}
           </p>
         </div>
-        <ChevronRight className="h-4 w-4 text-text-muted transition-transform group-hover:translate-x-0.5" />
+        <ChevronRight
+          className="h-4 w-4 text-brand-ink-3 transition-transform group-hover:translate-x-0.5"
+          aria-hidden
+        />
       </Link>
       {organizer.description ? (
-        <p className="mt-3 line-clamp-3 text-[0.9375rem] text-text-secondary">
-          {organizer.description}
-        </p>
+        <p className="mt-3 line-clamp-3 text-brand-ui text-brand-ink-2">{organizer.description}</p>
       ) : null}
       {website || instagram ? (
-        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[0.9375rem]">
+        <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-brand-ui">
           {website ? (
             <a
               href={website}
               target="_blank"
               rel="noopener noreferrer nofollow"
-              className="inline-flex items-center gap-1.5 text-action-primary hover:underline"
+              className={`inline-flex min-h-11 items-center gap-1.5 ${BRAND_LINK}`}
             >
               <Globe className="h-4 w-4" aria-hidden /> {t('organizerWebsite')}
               <span className="sr-only">{t('opensInNewTab')}</span>
@@ -235,7 +246,7 @@ export function OrganizerCard({ organizer }: { organizer: PublicEvent['organizer
               href={instagram}
               target="_blank"
               rel="noopener noreferrer nofollow"
-              className="inline-flex items-center gap-1.5 text-action-primary hover:underline"
+              className={`inline-flex min-h-11 items-center gap-1.5 ${BRAND_LINK}`}
             >
               <Instagram className="h-4 w-4" aria-hidden /> {t('organizerInstagram')}
               <span className="sr-only">{t('opensInNewTab')}</span>
@@ -243,7 +254,7 @@ export function OrganizerCard({ organizer }: { organizer: PublicEvent['organizer
           ) : null}
         </div>
       ) : null}
-    </Card>
+    </section>
   );
 }
 
@@ -282,18 +293,17 @@ export function useTermsDialog(event: PublicEvent | undefined) {
   return { hasTerms: terms.length > 0, open: () => setOpen(true), dialog };
 }
 
-/** The row on the page that opens the terms. */
+/** The link that opens the terms, beside the other help links. */
 export function TermsRow({ onOpen }: { onOpen: () => void }) {
   const t = useTranslations('storefront.event');
   return (
     <button
       type="button"
       onClick={onOpen}
-      className="flex w-full items-center gap-3 rounded-lg border border-border bg-background-surface px-4 py-3.5 text-left shadow-sm transition-colors hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+      className={`inline-flex min-h-11 items-center gap-1.5 ${BRAND_LINK}`}
     >
-      <FileText className="h-5 w-5 shrink-0 text-text-muted" aria-hidden />
-      <span className="flex-1 font-semibold text-text-primary">{t('termsHeading')}</span>
-      <ChevronRight className="h-4 w-4 text-text-muted" aria-hidden />
+      <FileText className="h-4 w-4" aria-hidden />
+      {t('termsHeading')}
     </button>
   );
 }
@@ -302,13 +312,9 @@ export function TermsRow({ onOpen }: { onOpen: () => void }) {
 export function TermsAgreeNote({ onOpen }: { onOpen: () => void }) {
   const t = useTranslations('storefront.event');
   return (
-    <p className="mt-3 text-center text-caption text-text-muted">
+    <p className="mt-4 text-center text-brand-meta text-brand-ink-3">
       {t('termsAgree')}{' '}
-      <button
-        type="button"
-        onClick={onOpen}
-        className="font-medium text-action-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-      >
+      <button type="button" onClick={onOpen} className={BRAND_LINK}>
         {t('termsRead')}
       </button>
     </p>
