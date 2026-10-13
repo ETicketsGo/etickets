@@ -1,5 +1,11 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
-import { EventStatus, ExperienceType, SessionStatus, venueZone } from '@eticketsgo/shared-types';
+import {
+  EventStatus,
+  ExperienceType,
+  SessionStatus,
+  marketFor,
+  venueZone,
+} from '@eticketsgo/shared-types';
 import { Prisma } from '@prisma/client';
 import type { FeeMode } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
@@ -49,6 +55,11 @@ export interface PublicEventFilters {
    * and a venue that never recorded its region is kept rather than hidden.
    */
   region?: string;
+  /**
+   * With `country`: leave out this city. The "rest of the country" group under a selected
+   * city's own events. Ignored when `city` is given (that already names the one city wanted).
+   */
+  excludeCity?: string;
   category?: string;
   dateFrom?: Date;
   dateTo?: Date;
@@ -86,7 +97,7 @@ function publicArtists(raw: unknown): { name: string; role: string | null; bio: 
  * price is built from the fee bands that apply at the venue. Returning the row as selected
  * would quietly widen the public response, so the card names its fields.
  */
-function cardVenue(venue: {
+export function cardVenue(venue: {
   name: string;
   city: string;
   /** Null when the venue has not been asked which country it is in. Never guessed. */
@@ -94,10 +105,18 @@ function cardVenue(venue: {
   region: string | null;
   timezone: string | null;
 }) {
+  /*
+    One spelling of the country. Venues store what an organizer typed ("India" on one row, "IN"
+    on the next), so the storefront was grouping the same market twice. Answered here, in the
+    read model, with the market's own name and its code; the stored value is not touched. A
+    country that is not a declared market keeps the spelling it was stored with.
+  */
+  const market = marketFor(venue.country);
   return {
     name: venue.name,
     city: venue.city,
-    country: venue.country,
+    country: market?.name ?? venue.country,
+    countryCode: market?.code ?? null,
     timezone: venueZone(venue.timezone, venue.country),
   };
 }
@@ -174,7 +193,12 @@ export class PublicEventsService {
                 `India`. Applied only when no city is given - a city chosen by hand wins over
                 the visitor's scope, and ANDing a stale scope with it would empty the page.
               */
-              venue: { country: { in: countryAliases(filters.country), mode: 'insensitive' } },
+              venue: {
+                country: { in: countryAliases(filters.country), mode: 'insensitive' },
+                ...(filters.excludeCity
+                  ? { NOT: { city: { equals: filters.excludeCity, mode: 'insensitive' } } }
+                  : {}),
+              },
             }
           : {}),
       // Declared, never inferred. `isFree` is a property of the event, not of whether

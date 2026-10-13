@@ -10,25 +10,25 @@ import {
   brandButtonClasses,
   brandChipClasses,
   cityScope,
+  countryKey,
   countryName,
   countryPhrase,
-  inCityScope,
+  selectedPlace,
   useCity,
 } from '@eticketsgo/web-kit';
-import { MARKETS, countryMatches } from '@eticketsgo/shared-types';
 import { api } from '@/lib/api';
 import {
   buyability,
   chooseHero,
   hasPhoto,
   heroCandidates,
-  outsideGroups,
   photosFirst,
   postersFirst,
   type Buyability,
 } from '@/lib/home-feed';
 import { Link } from '@/i18n/navigation';
 import { useRecentlyViewed } from '@/lib/use-live-events';
+import { usePlaceGroups } from '@/lib/use-place-groups';
 import {
   EventRow,
   EventTile,
@@ -188,31 +188,16 @@ export function DiscoverHome() {
   });
   const films = postersFirst(movies.data ?? []).slice(0, 5);
 
-  // Events elsewhere, asked for only when there is a "here" to be outside of.
-  const outsideScope = Boolean(preference.city || preference.country);
-  const everywhere = useQuery({
-    queryKey: ['events', 'home', 'everywhere'],
-    queryFn: () => api.listEvents({ pageSize: '100' }),
-    enabled: outsideScope,
-  });
   /*
-    Elsewhere, in groups of one currency each (see `outsideGroups`): the visitor's own currency
-    first, then other markets, each titled with where it is and what it prices in. Nearest
-    first inside a group: the visitor's own country, then listings with a photo.
+    What is on beyond the selected city, nearest first: the rest of its country ("More in India"),
+    then each other country under its own title ("Elsewhere: Canada"), every group in its venues'
+    currency. With no city selected the page above already IS the country, so only the other
+    countries follow. Inside a group the API's order is kept (DEMO before TEST).
   */
-  const homeCountry = preference.place?.country ?? preference.country;
-  const homeCurrency =
-    scoped.data?.data[0]?.currency ??
-    MARKETS.find((m) => homeCountry && countryMatches(m.code, homeCountry))?.currency ??
-    null;
-  const outside = useMemo(
-    () =>
-      outsideGroups(
-        (everywhere.data?.data ?? []).filter((e) => !inCityScope(e, preference)),
-        { currency: homeCurrency, country: homeCountry },
-      ),
-    [everywhere.data, preference, homeCountry, homeCurrency],
-  );
+  const place_ = selectedPlace(preference);
+  const homeCode = countryKey(place_.country);
+  const outside = usePlaceGroups(place_, { perGroup: 8 });
+  const outsideScope = Boolean(place_.city || place_.country);
   /** "US Dollar", in the reader's language, for a group's "Prices in" line. */
   const currencyName = (code: string) => {
     try {
@@ -235,13 +220,18 @@ export function DiscoverHome() {
   */
   const nothingHere = scoped.isSuccess && scoped.data.data.length === 0;
   const sellableCities = useQuery({
-    queryKey: ['public-sellable-cities'],
-    queryFn: () => webKitApi.location.cities({ limit: 6 }),
-    enabled: nothingHere && preference.topCities.length === 0,
+    queryKey: ['public-sellable-cities', homeCode],
+    queryFn: () => webKitApi.location.cities({ country: homeCode ?? undefined, limit: 8 }),
+    enabled: nothingHere,
   });
+  // Other cities in the SELECTED city's country that have something on: the nearest honest answer.
   const suggestedCities = (
-    preference.topCities.length > 0 ? preference.topCities : (sellableCities.data ?? [])
-  ).slice(0, 6);
+    sellableCities.data && sellableCities.data.length > 0
+      ? sellableCities.data
+      : preference.topCities
+  )
+    .filter((c) => c.eventCount > 0 && c.city.toLowerCase() !== preference.city?.toLowerCase())
+    .slice(0, 6);
 
   const all = photosFirst(scoped.data?.data ?? []);
   /*
@@ -259,7 +249,8 @@ export function DiscoverHome() {
       ...all.slice(0, 9).map((e) => e.slug),
       ...(filter.kind === 'all' ? [] : filteredAll.slice(0, 9).map((e) => e.slug)),
       // The rails below: at most 3 groups of 4, and 4 recently viewed.
-      ...outside.flatMap((g) => g.items.map((e) => e.slug)),
+      ...outside.sameCountry.slice(0, 8).map((e) => e.slug),
+      ...outside.elsewhere.flatMap((g) => g.items.slice(0, 4).map((e) => e.slug)),
       ...recent.slice(0, 4).map((e) => e.slug),
     ]),
   ];
@@ -377,39 +368,31 @@ export function DiscoverHome() {
             <p className="mt-4 max-w-prose text-brand-lead text-brand-ink-2">
               {!place
                 ? t('empty.noneHint')
-                : whereCountry
+                : suggestedCities.length > 0
                   ? t('empty.sellingHere')
                   : t('empty.otherPlaces')}
             </p>
             {place && (
               <div className="mt-8 flex flex-wrap items-center gap-3">
-                {whereCountry ? (
-                  <>
-                    {suggestedCities.map((c) => (
-                      <button
-                        key={`${c.country}-${c.city}`}
-                        type="button"
-                        onClick={() =>
-                          preference.setCity(c.city, {
-                            region: c.region ?? null,
-                            country: c.country,
-                          })
-                        }
-                        className={chip(false)}
-                      >
-                        {c.city}
-                        <span className="tabular-nums text-brand-ink-3">{c.eventCount}</span>
-                      </button>
-                    ))}
-                    <BrandButton variant="quiet" onClick={() => preference.requestPicker()}>
-                      {t('empty.searchCity')}
-                    </BrandButton>
-                  </>
-                ) : (
-                  <BrandButton variant="secondary" onClick={() => preference.setCity(null)}>
-                    {t('empty.everywhere')}
-                  </BrandButton>
-                )}
+                {suggestedCities.map((c) => (
+                  <button
+                    key={`${c.countryCode ?? c.country}-${c.city}`}
+                    type="button"
+                    onClick={() =>
+                      preference.setCity(c.city, {
+                        region: c.region ?? null,
+                        country: c.countryCode ?? c.country,
+                      })
+                    }
+                    className={chip(false)}
+                  >
+                    {c.city}
+                    <span className="tabular-nums text-brand-ink-3">{c.eventCount}</span>
+                  </button>
+                ))}
+                <BrandButton variant="quiet" onClick={() => preference.requestPicker()}>
+                  {t('empty.searchCity')}
+                </BrandButton>
               </div>
             )}
           </div>
@@ -581,48 +564,70 @@ export function DiscoverHome() {
       )}
 
       {/*
-        5. Elsewhere, one currency per group. The first group is the visitor's own currency
-        ("Outside Bengaluru"); others are titled by country ("In Canada") and every group says
-        which currency its prices are in, so no rail mixes Rs, $ and CA$.
+        5. Beyond the selected city. "More in <country>" first (the same country is the nearest
+        honest alternative), then one "Elsewhere: <country>" group per other country. Every
+        group says which currency its prices are in, so no rail mixes Rs, $ and CA$, and every
+        card names its own venue city and shows its time at that venue.
       */}
+      {outsideScope && outside.sameCountry.length > 0 && (
+        <section
+          aria-labelledby="home-same-country"
+          data-place-group="same-country"
+          className={`${WRAP} pt-12 lg:pt-16`}
+        >
+          <SectionHead
+            id="home-same-country"
+            title={t('sections.moreInCountry', { country: countryLabel(homeCode ?? '') })}
+            action={
+              <button
+                type="button"
+                onClick={() => preference.requestPicker()}
+                className={sectionLinkClasses()}
+              >
+                {t('sections.changeCity')}
+              </button>
+            }
+          />
+          <Rail
+            cols={4}
+            label={t('sections.moreInCountry', { country: countryLabel(homeCode ?? '') })}
+          >
+            {outside.sameCountry.slice(0, 8).map((e) => (
+              <RailItem key={e.id}>
+                <EventTile event={e} showCity state={states.get(e.slug)} />
+              </RailItem>
+            ))}
+          </Rail>
+        </section>
+      )}
       {outsideScope &&
-        outside.map((group, index) => {
-          const same = group.currency === homeCurrency;
-          const title =
-            same && place
-              ? t('sections.outside', { place })
-              : same
-                ? t('sections.elsewhere')
-                : t('sections.inCountry', { country: countryLabel(group.country) });
-          const id = `home-outside-${group.currency.toLowerCase()}`;
+        outside.elsewhere.map((group) => {
+          const items = group.items.slice(0, 4);
+          const currencies = [...new Set(items.map((e) => e.currency))];
+          const title = t('sections.elsewhereIn', { country: countryName(group.code) });
+          const id = `home-elsewhere-${group.code.toLowerCase()}`;
           return (
             <section
-              key={group.currency}
+              key={group.code}
               aria-labelledby={id}
-              data-currency={group.currency}
+              data-place-group="elsewhere"
+              data-country={group.code}
               className={`${WRAP} pt-12 lg:pt-16`}
             >
               <SectionHead
                 id={id}
                 title={title}
-                hint={t('sections.pricesIn', {
-                  name: currencyName(group.currency),
-                  currency: group.currency,
-                })}
-                action={
-                  index === 0 ? (
-                    <button
-                      type="button"
-                      onClick={() => preference.requestPicker()}
-                      className={sectionLinkClasses()}
-                    >
-                      {t('sections.changeCity')}
-                    </button>
-                  ) : undefined
+                hint={
+                  currencies.length === 1
+                    ? t('sections.pricesIn', {
+                        name: currencyName(currencies[0]),
+                        currency: currencies[0],
+                      })
+                    : undefined
                 }
               />
               <Rail cols={4} label={title}>
-                {group.items.map((e) => (
+                {items.map((e) => (
                   <RailItem key={e.id}>
                     <EventTile event={e} showCity state={states.get(e.slug)} />
                   </RailItem>

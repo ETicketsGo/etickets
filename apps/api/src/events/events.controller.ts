@@ -409,6 +409,9 @@ export class PublicEventsController {
           // The country OF the chosen city, and its state: two places can share a name.
           cityCountry: z.string().trim().min(2).max(60).optional(),
           region: z.string().trim().max(80).optional(),
+          // With `country`: everything in the country EXCEPT this city. "More in India" under
+          // the selected city's own events, without a busy city crowding the page's quota.
+          excludeCity: z.string().trim().min(1).max(80).optional(),
           category: z.string().optional(),
           dateFrom: z.coerce.date().optional(),
           dateTo: z.coerce.date().optional(),
@@ -428,6 +431,7 @@ export class PublicEventsController {
       country?: string;
       cityCountry?: string;
       region?: string;
+      excludeCity?: string;
       category?: string;
       dateFrom?: Date;
       dateTo?: Date;

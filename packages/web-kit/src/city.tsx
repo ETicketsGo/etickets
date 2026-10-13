@@ -11,7 +11,8 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { MapPin, Check, Crosshair, Globe, Search, X, Loader2 } from 'lucide-react';
-import { MARKETS, countryMatches } from '@eticketsgo/shared-types';
+import { MARKETS, countryMatches, marketFor } from '@eticketsgo/shared-types';
+import { groupCitiesByCountry } from './place-groups';
 import { api, type ResolvedLocation, type SellableCity } from './api';
 import { visitorCountry } from './locale';
 
@@ -89,10 +90,16 @@ export interface CityPlace {
   country: string | null;
 }
 
-/** A two-letter country code, or null. Venue data spells countries out; scope uses codes. */
+/**
+ * A two-letter country code, or null. Venue data spells countries out ("India"); scope uses codes.
+ * Read through the market table so a city picked from the list - which names its country - keeps
+ * its own country as the scope, instead of silently falling back to a guess.
+ */
 function isoCountry(value: string | null | undefined): string | null {
-  const v = (value ?? '').trim().toUpperCase();
-  return /^[A-Z]{2}$/.test(v) ? v : null;
+  const v = (value ?? '').trim();
+  if (!v) return null;
+  if (/^[A-Za-z]{2}$/.test(v)) return v.toUpperCase();
+  return marketFor(v)?.code ?? null;
 }
 
 /** Reading storage throws in some privacy modes; a missing city is never worth a crash. */
@@ -554,6 +561,22 @@ export function cityScope(preference: CityPreference): {
 }
 
 /**
+ * The place the customer SELECTED, as the grouping functions want it.
+ *
+ * The chosen city and that city's own country - not the visitor's guessed scope, which a
+ * hand-picked city overrides. With no city, the country scope alone.
+ */
+export function selectedPlace(preference: CityPreference): {
+  city: string | null;
+  country: string | null;
+} {
+  if (preference.city) {
+    return { city: preference.city, country: preference.place?.country ?? preference.country };
+  }
+  return { city: null, country: preference.country };
+}
+
+/**
  * Whether an event is inside the scope the customer is currently browsing in.
  *
  * ── WHY A CLIENT-SIDE TWIN OF `cityScope` IS NEEDED AT ALL ─────────────────────────
@@ -667,6 +690,8 @@ export function CityPicker({
   const [mounted, setMounted] = useState(false);
   const [q, setQ] = useState('');
   const [results, setResults] = useState<SellableCity[] | null>(null);
+  // Every city in the catalogue, fetched when the panel first opens - see `groups` below.
+  const [catalogue, setCatalogue] = useState<SellableCity[] | null>(null);
   const [searching, setSearching] = useState(false);
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -724,6 +749,27 @@ export function CityPicker({
     return () => clearTimeout(timer);
   }, [q, searchCities]);
 
+  /*
+    The picker opens on the whole catalogue, grouped by country - India, the United States
+    and Canada - not on a shortlist of the visitor's own country. Somebody who lives in
+    Mumbai and is planning a trip to Toronto should find Toronto without knowing to type it,
+    and a city we sell in is the only kind worth listing. The API caps it (50), folds the
+    "India"/"IN" spellings into one country and drops countries discovery does not cover.
+  */
+  useEffect(() => {
+    if (!open || catalogue) return;
+    let cancelled = false;
+    api.location
+      .cities({ limit: 50 })
+      .then((all) => {
+        if (!cancelled) setCatalogue(all);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [open, catalogue]);
+
   // Focus the box on open, so the control is usable from the keyboard without tabbing
   // through the buttons above it, and so typing works the instant it appears.
   useEffect(() => {
@@ -753,16 +799,25 @@ export function CityPicker({
     return () => globalThis.removeEventListener?.('keydown', onKey);
   }, [open]);
 
-  const shown = results ?? topCities;
   /*
-    The chip names the scope it is actually applying.
-
-    With no city but a known country the feed is that country, and saying "All cities" there
-    invites exactly the question this change came from -- why am I being shown another
-    country? The country name is no longer than the label it replaces, which matters: this
-    chip is the widest thing in the header at 320px.
+    One flat list in the order the groups are drawn, so the arrow keys walk the screen top to
+    bottom and "Enter" picks what is highlighted. The visitor's own country leads.
   */
-  const label = city ?? (country ? countryName(country) : allCitiesLabel);
+  const groups = useMemo(
+    () => groupCitiesByCountry(results ?? catalogue ?? topCities, country),
+    [results, catalogue, topCities, country],
+  );
+  const shown = useMemo(() => groups.flatMap((g) => g.cities), [groups]);
+  /*
+    The chip names the SELECTED CITY, and only a city.
+
+    It used to fall back to the country when no city was chosen, so "United States" sat in the
+    header (truncated to "United Sta...") whenever a search or "all cities" had cleared the
+    city. A country is not a place somebody selected; the panel below still says which country
+    the page is showing, and the chip is the one thing in the header that must not change
+    because of where the visitor looked.
+  */
+  const label = city ?? allCitiesLabel;
 
   const choose = (next: string | null, nextPlace?: CityPlace | null) => {
     setCity(next, nextPlace);
@@ -794,7 +849,10 @@ export function CityPicker({
     }
     if (e.key === 'Enter' && shown[active]) {
       e.preventDefault();
-      choose(shown[active].city, { region: null, country: shown[active].country });
+      choose(shown[active].city, {
+        region: shown[active].region ?? null,
+        country: shown[active].countryCode ?? shown[active].country,
+      });
     }
   };
 
@@ -819,7 +877,7 @@ export function CityPicker({
           case: a translated string is not the same size as the one it replaces. It truncates
           rather than wraps — the chip has to stay one line.
         */}
-        <span className="max-w-[5.5rem] truncate sm:max-w-[9rem]">{label}</span>
+        <span className="max-w-[7rem] truncate sm:max-w-[12rem]">{label}</span>
       </button>
 
       {open
@@ -871,7 +929,7 @@ export function CityPicker({
                     </p>
                     <p className="truncate text-caption text-text-muted">
                       {city
-                        ? 'Showing events near you'
+                        ? 'Events here come first'
                         : country
                           ? `Showing events across ${countryPhrase(country)}`
                           : 'Showing events everywhere'}
@@ -950,16 +1008,6 @@ export function CityPicker({
                   role="listbox"
                   className="max-h-[45vh] overflow-auto p-1.5 sm:max-h-64"
                 >
-                  {/* Named, so the shortlist before you type is not mistaken for all of them. */}
-                  {!results && shown.length > 0 ? (
-                    <li
-                      aria-hidden="true"
-                      className="px-2.5 pb-1 pt-1.5 text-caption font-medium uppercase tracking-wide text-text-muted"
-                    >
-                      Popular near you
-                    </li>
-                  ) : null}
-
                   {/*
                 Said plainly, because the alternative is a panel that looks like it failed to
                 load. Scoping to a country we do not sell in yet is correct and it is not
@@ -972,37 +1020,54 @@ export function CityPicker({
                     </li>
                   ) : null}
 
-                  {shown.map((c, i) => (
-                    <li
-                      key={`${c.country}-${c.city}`}
-                      role="option"
-                      aria-selected={city === c.city}
-                    >
-                      <button
-                        type="button"
-                        onClick={() =>
-                          choose(c.city, { region: c.region ?? null, country: c.country })
-                        }
-                        onMouseEnter={() => setActive(i)}
-                        className={`flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-[0.9375rem] text-text-primary transition-colors ${
-                          i === active ? 'bg-background-subtle' : ''
-                        }`}
-                      >
-                        <span className="min-w-0 flex-1 truncate">
-                          {c.city}
-                          {/* The country disambiguates: more than one place is called Springfield. */}
-                          <span className="ml-1.5 text-caption text-text-muted">
-                            {c.region ? `${c.region}, ${c.country}` : c.country}
-                          </span>
-                        </span>
-                        {/* The count is the honest reason to pick one city over another. */}
-                        <span className="shrink-0 text-caption text-text-muted">
-                          {c.eventCount > 0 ? c.eventCount : 'No events yet'}
-                        </span>
-                        {city === c.city ? (
-                          <Check className="h-4 w-4 shrink-0 text-action-primary" />
-                        ) : null}
-                      </button>
+                  {groups.map((g) => (
+                    <li key={g.code} role="presentation">
+                      {/* The country is the heading: more than one place is called Springfield. */}
+                      <p className="px-2.5 pb-1 pt-2 text-caption font-medium uppercase tracking-wide text-text-muted">
+                        {g.name}
+                      </p>
+                      <ul role="group" aria-label={g.name}>
+                        {g.cities.map((c) => {
+                          const i = shown.indexOf(c);
+                          return (
+                            <li
+                              key={`${g.code}-${c.city}-${c.region ?? ''}`}
+                              role="option"
+                              aria-selected={city === c.city}
+                            >
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  choose(c.city, {
+                                    region: c.region ?? null,
+                                    country: c.countryCode ?? c.country,
+                                  })
+                                }
+                                onMouseEnter={() => setActive(i)}
+                                className={`flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-[0.9375rem] text-text-primary transition-colors ${
+                                  i === active ? 'bg-background-subtle' : ''
+                                }`}
+                              >
+                                <span className="min-w-0 flex-1 truncate">
+                                  {c.city}
+                                  {c.region ? (
+                                    <span className="ml-1.5 text-caption text-text-muted">
+                                      {c.region}
+                                    </span>
+                                  ) : null}
+                                </span>
+                                {/* The count is the honest reason to pick one city over another. */}
+                                <span className="shrink-0 text-caption text-text-muted">
+                                  {c.eventCount > 0 ? c.eventCount : 'No events yet'}
+                                </span>
+                                {city === c.city ? (
+                                  <Check className="h-4 w-4 shrink-0 text-action-primary" />
+                                ) : null}
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
                     </li>
                   ))}
 

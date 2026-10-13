@@ -1,9 +1,10 @@
-import { EventStatus, ExperienceType, venueZone } from '@eticketsgo/shared-types';
+import { EventStatus, ExperienceType } from '@eticketsgo/shared-types';
 import { Prisma } from '@prisma/client';
 import type { FeeMode } from '@eticketsgo/shared-types';
 import { contentLabelFor } from '../../common/content-label';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { AdvertisedPriceService } from '../../pricing/advertised-price.service';
+import { cardVenue } from '../../events/public-events.service';
 import {
   EVENT_IMAGE_URL_SELECT,
   coverImagePath,
@@ -111,12 +112,8 @@ export async function fetchEventCards(
         title: e.title,
         slug: e.slug,
         category: e.category,
-        venue: {
-          name: e.venue.name,
-          city: e.venue.city,
-          country: e.venue.country,
-          timezone: venueZone(e.venue.timezone, e.venue.country),
-        },
+        // The same card venue as the browse list, so a carousel names the country the same way.
+        venue: cardVenue(e.venue),
         organizer: e.organization.name,
         imagePath: coverImagePath(e.id, e.images),
         imageVariants: coverImageVariants(e.id, e.images),

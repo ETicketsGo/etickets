@@ -42,12 +42,10 @@ test.describe('QA: a city that empties a page says so', () => {
     await chooseCity(page, /^Mumbai/, 'mumbai');
 
     await expect(page.getByText(/No films in Mumbai just yet/)).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText(/Other places have films showing/)).toBeVisible();
-
-    // One click out, offered here rather than left to be rediscovered in the header.
-    await page.getByRole('button', { name: 'Show all cities' }).click();
-    await expect(page.getByText(/No films in Mumbai just yet/)).toHaveCount(0);
-    await expect(page.locator('a[href^="/movies/"]').first()).toBeVisible({ timeout: 30_000 });
+    // The way on is cities with films, and the films elsewhere, titled by country. The selected
+    // city is never silently widened.
+    await expect(page.getByText(/Elsewhere: /).first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole('button', { name: /^Location: Mumbai/ })).toBeVisible();
   });
 
   test('Browse names the city and offers the way out', async ({ page }) => {
@@ -58,8 +56,9 @@ test.describe('QA: a city that empties a page says so', () => {
     await expect(page.getByText(/No events available in Bengaluru yet/)).toBeVisible({
       timeout: 30_000,
     });
-    await page.getByRole('button', { name: 'Show all cities' }).click();
-    await expect(page.getByText(/No events available in Bengaluru yet/)).toHaveCount(0);
+    // The selected city stays; the rest of the country and the world follow under their own titles.
+    await expect(page.getByRole('button', { name: /^Location: Bengaluru/ })).toBeVisible();
+    await expect(page.getByText(/More in |Elsewhere: /).first()).toBeVisible({ timeout: 30_000 });
   });
 
   test('a search term makes the message about the search, not the city', async ({ page }) => {
