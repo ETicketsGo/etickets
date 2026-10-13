@@ -55,6 +55,8 @@ export class AdminService {
             OR: [
               { buyerEmail: { contains: params.q, mode: 'insensitive' as const } },
               { reference: { contains: params.q, mode: 'insensitive' as const } },
+              // What an admin remembers about a sale is the event it was for.
+              { event: { title: { contains: params.q, mode: 'insensitive' as const } } },
             ],
           }
         : {}),
@@ -125,6 +127,11 @@ export class AdminService {
                 { providerRef: { contains: params.q, mode: 'insensitive' as const } },
                 { booking: { buyerEmail: { contains: params.q, mode: 'insensitive' as const } } },
                 { booking: { reference: { contains: params.q, mode: 'insensitive' as const } } },
+                {
+                  booking: {
+                    event: { title: { contains: params.q, mode: 'insensitive' as const } },
+                  },
+                },
               ],
             }
           : null,

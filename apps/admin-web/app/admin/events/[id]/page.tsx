@@ -18,9 +18,11 @@ import {
   errorMessage,
   titleCase,
   dateTime,
+  zoneShortName,
   money,
   termsList,
 } from '@eticketsgo/web-kit';
+import { venueZone } from '@eticketsgo/shared-types';
 
 export default function AdminEventDetail() {
   const { id } = useParams<{ id: string }>();
@@ -91,6 +93,16 @@ export default function AdminEventDetail() {
       <ErrorState message="We couldn't load this. Please try again." onRetry={() => refetch()} />
     );
   if (isLoading || !event) return <Skeleton className="h-64 w-full" />;
+
+  // The show time at the venue, with its zone said, like every other screen. Where the venue
+  // has no known zone the reader's own is used and called theirs, not passed off as the venue's.
+  const zone = venueZone(event.venue.timezone, event.venue.country) ?? undefined;
+  const showTime = (iso: string) => {
+    const when = dateTime(iso, 'en-IN', zone);
+    if (!zone) return `${when} (your time)`;
+    const abbrev = zoneShortName(iso, zone);
+    return abbrev ? `${when} ${abbrev}` : when;
+  };
 
   return (
     <div className="space-y-6">
@@ -181,7 +193,7 @@ export default function AdminEventDetail() {
           <div className="mt-2 space-y-3">
             {event.sessions.map((s) => (
               <div key={s.id} className="rounded-md border border-border p-3 text-sm">
-                <p className="font-medium text-text-primary">{dateTime(s.startsAt)}</p>
+                <p className="font-medium text-text-primary">{showTime(s.startsAt)}</p>
                 <ul className="mt-1 text-text-secondary">
                   {(s.ticketTypes ?? []).map((t) => (
                     <li key={t.id}>
@@ -249,8 +261,22 @@ export default function AdminEventDetail() {
                 Republish event
               </Button>
             )}
+          </div>
+        </Card>
+
+        {/*
+          Cancelling and deleting are not review decisions. They sit in their own section, away
+          from Approve and Reject, so a reviewer's thumb does not land on them, and each one
+          asks again before it acts.
+        */}
+        <Card title="Danger zone" className="border-status-error/40 lg:col-span-3">
+          <p className="mb-3 text-sm text-text-secondary">
+            These actions change what buyers can do and cannot be undone from here. Each one asks
+            you to confirm.
+          </p>
+          <div className="flex flex-col gap-2 sm:flex-row">
             {['PUBLISHED', 'PAUSED', 'UNDER_REVIEW'].includes(event.status) && (
-              <Button variant="danger" className="w-full" onClick={() => setConfirmCancel(true)}>
+              <Button variant="danger" className="sm:w-auto" onClick={() => setConfirmCancel(true)}>
                 Cancel event
               </Button>
             )}
@@ -261,7 +287,7 @@ export default function AdminEventDetail() {
               expired hold, and says so; this surfaces that refusal rather than hiding the
               button, because "why can I not delete this" is the question worth answering.
             */}
-            <Button variant="ghost" className="w-full" onClick={() => setConfirmDelete(true)}>
+            <Button variant="danger" className="sm:w-auto" onClick={() => setConfirmDelete(true)}>
               Delete event
             </Button>
           </div>

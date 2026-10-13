@@ -2234,7 +2234,7 @@ function NewEventWizard() {
                     className="rounded-md border border-status-warning/40 bg-tint-warning p-4"
                   >
                     <h3 id="review-org" className="font-semibold text-status-warning">
-                      Before tickets can sell, your organization needs
+                      Your organization still needs
                     </h3>
                     <ul className="mt-2 space-y-2">
                       {orgReadinessQ
@@ -2258,6 +2258,14 @@ function NewEventWizard() {
                     {/* Ink, not the secondary grey: grey on the warning tint fails AA in dark mode. */}
                     <p className="mt-2 text-caption text-text-primary">
                       You can still create the event now.
+                      {/*
+                        What the platform actually does: a missing bank account does not stop a
+                        sale, it holds the payout. The server's own `consequence` line above says
+                        the same; this says it in the sentence a worried organizer reads last.
+                      */}
+                      {orgReadinessQ.data?.items.some((i) => i.key === 'payout-account')
+                        ? ' Tickets can sell without a bank account. Payouts wait until a verified bank account is on file.'
+                        : ''}
                     </p>
                   </section>
                 ) : null}
