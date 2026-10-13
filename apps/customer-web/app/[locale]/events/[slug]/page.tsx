@@ -1367,18 +1367,24 @@ export default function EventDetailPage() {
             <ul className="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-brand-ui">
               {supportEmail ? (
                 <li>
-                  <a href={`mailto:${supportEmail}`} className={BRAND_LINK}>
+                  <a
+                    href={`mailto:${supportEmail}`}
+                    className={`${BRAND_LINK} inline-flex min-h-6 items-center`}
+                  >
                     {sf('event.supportEmail', { email: supportEmail })}
                   </a>
                 </li>
               ) : null}
               <li>
-                <Link href="/help" className={BRAND_LINK}>
+                <Link href="/help" className={`${BRAND_LINK} inline-flex min-h-6 items-center`}>
                   {sf('event.supportHelp')}
                 </Link>
               </li>
               <li>
-                <Link href="/help/contact" className={BRAND_LINK}>
+                <Link
+                  href="/help/contact"
+                  className={`${BRAND_LINK} inline-flex min-h-6 items-center`}
+                >
                   {sf('event.supportContact')}
                 </Link>
               </li>

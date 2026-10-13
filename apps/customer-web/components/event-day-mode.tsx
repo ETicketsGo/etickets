@@ -54,7 +54,7 @@ export function EventDayMode({
   const current = tickets[index];
   const e = useTranslations('storefront.eventDay');
   const b = useTranslations('storefront.bookingTickets');
-  const { dateTime } = useFormat();
+  const { dateTime, zoneAbbrev } = useFormat();
   const statusLabel = useStatusLabel();
   const wake = useWakeLock(true);
   const countdown = useCountdown(current?.startsAt);
@@ -235,7 +235,10 @@ export function EventDayMode({
             {seat && <Row label={b('seat')} value={seat} />}
             <Row label={group.isMovie ? b('ticket') : e('type')} value={current.ticketType} />
             {place && <Row label={group.isMovie ? e('cinema') : e('venue')} value={place} />}
-            <Row label={e('when')} value={dateTime(current.startsAt)} />
+            <Row
+              label={e('when')}
+              value={`${dateTime(current.startsAt, undefined, current.timezone ?? undefined)}${current.timezone ? ` (${zoneAbbrev(current.startsAt, current.timezone)})` : ''}`}
+            />
           </dl>
 
           <div className="mt-4 flex items-center justify-center gap-2 landscape:justify-start">

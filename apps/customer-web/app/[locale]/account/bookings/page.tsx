@@ -1,8 +1,8 @@
 'use client';
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ReferenceCode } from '@/components/reference-code';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useRouter } from '@/i18n/navigation';
 import { CalendarDays, MessageSquareWarning, Receipt } from 'lucide-react';
 import {
@@ -23,6 +23,7 @@ import { ButtonLink, Drawer, ErrorState } from '@/components/ui';
 import { useTranslations } from 'next-intl';
 import { useMounted } from '@/lib/use-mounted';
 import { useStatusLabel } from '@/lib/status-label';
+import { splitBookings } from '@/lib/booking-list';
 
 const REFUNDABLE = ['CONFIRMED', 'PARTIALLY_REFUNDED'];
 
@@ -63,13 +64,23 @@ export default function BookingsPage() {
     if (!tokenStore.access) router.push('/login?next=/account/bookings');
   }, [router]);
 
-  const list = useQuery({
+  const [showPast, setShowPast] = useState(false);
+  const list = useInfiniteQuery({
     queryKey: ['bookings'],
-    queryFn: () => api.listBookings(),
+    queryFn: ({ pageParam }) => api.listBookings(pageParam),
+    initialPageParam: 1,
+    // Pages of 50, asked for on demand, so nothing is cut off at the first page.
+    getNextPageParam: (last) =>
+      last.meta.page < last.meta.totalPages ? last.meta.page + 1 : undefined,
     // Not `typeof window`: that differs between the server and the first client render, which
     // is the React #418 QA saw on every load. See useMounted.
     enabled: mounted && !!tokenStore.access,
   });
+
+  const rows = useMemo(() => list.data?.pages.flatMap((p) => p.data) ?? [], [list.data]);
+  // `mounted` first: the clock differs between the server and the first client render.
+  const { current, past } = useMemo(() => splitBookings(rows, Date.now()), [rows]);
+  const visible = showPast ? rows : current;
 
   const detail = useQuery({
     queryKey: ['booking', selectedId],
@@ -147,25 +158,47 @@ export default function BookingsPage() {
   const b = detail.data;
 
   return (
-    <div className="space-y-8">
-      <div>
-        <h1 className="text-h2 font-bold tracking-tight text-text-primary">
-          {a('bookingsHeading')}
-        </h1>
-        <p className="mt-1.5 text-[0.9375rem] text-text-muted">{a('bookingsLead')}</p>
-      </div>
-
-      {list.isError ? (
-        <ErrorState message={a('bookingsLoadError')} onRetry={() => list.refetch()} />
-      ) : !mounted || list.isLoading ? (
-        <div className="space-y-3">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-20 w-full" />
-          ))}
+    <>
+      <div className="space-y-8">
+        <div>
+          <h1 className="text-h2 font-bold tracking-tight text-text-primary">
+            {a('bookingsHeading')}
+          </h1>
+          <p className="mt-1.5 text-[0.9375rem] text-text-muted">{a('bookingsLead')}</p>
         </div>
-      ) : list.data && list.data.data.length > 0 ? (
-        <div className="space-y-3">
-          {/*
+
+        {list.isError ? (
+          <ErrorState message={a('bookingsLoadError')} onRetry={() => list.refetch()} />
+        ) : !mounted || list.isLoading ? (
+          <div className="space-y-3">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} className="h-20 w-full" />
+            ))}
+          </div>
+        ) : rows.length > 0 ? (
+          <div className="space-y-3">
+            {/*
+            The way back to everything that is not current. A toggle button (aria-pressed), not
+            a filter that quietly drops rows: the count says how many are out of sight.
+          */}
+            {past.length > 0 && (
+              <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+                <p className="text-caption text-text-muted" role="status">
+                  {showPast ? '' : a('pastBookingsHidden', { count: past.length })}
+                </p>
+                <Button
+                  variant="outline"
+                  aria-pressed={showPast}
+                  onClick={() => setShowPast((v) => !v)}
+                >
+                  {showPast ? a('hidePastBookings') : a('showPastBookings')}
+                </Button>
+              </div>
+            )}
+            {visible.length === 0 && (
+              <p className="text-text-secondary">{a('noCurrentBookings')}</p>
+            )}
+            {/*
             A card with one control that opens it, not a button wrapping the whole card.
 
             The row was a <button> containing the reference's own Copy button — a button inside
@@ -174,50 +207,68 @@ export default function BookingsPage() {
             card so a click anywhere still opens it; the reference sits above that layer so its
             Copy button stays its own control.
           */}
-          {list.data.data.map((row) => (
-            <div
-              key={row.id}
-              className="relative flex w-full items-center justify-between gap-4 rounded-lg border border-border bg-background-surface p-5 text-left shadow-sm transition-all focus-within:ring-2 focus-within:ring-ring/50 hover:-translate-y-0.5 hover:shadow-md"
-            >
-              <div className="min-w-0">
-                <p className="font-semibold text-text-primary">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedId(row.id)}
-                    className="block w-full truncate text-left after:absolute after:inset-0 after:rounded-lg after:content-[''] focus-visible:outline-none"
-                  >
-                    {row.event.title}
-                  </button>
-                </p>
-                <p className="mt-1 flex items-center gap-1.5 text-caption text-text-muted">
-                  <CalendarDays className="h-3.5 w-3.5" aria-hidden />
-                  {/*
+            {visible.map((row) => (
+              <div
+                key={row.id}
+                className="relative flex w-full items-center justify-between gap-4 rounded-lg border border-border bg-background-surface p-5 text-left shadow-sm transition-all focus-within:ring-2 focus-within:ring-ring/50 hover:-translate-y-0.5 hover:shadow-md"
+              >
+                <div className="min-w-0">
+                  <p className="font-semibold text-text-primary">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedId(row.id)}
+                      className="block w-full truncate text-left after:absolute after:inset-0 after:rounded-lg after:content-[''] focus-visible:outline-none"
+                    >
+                      {row.event.title}
+                    </button>
+                  </p>
+                  <p className="mt-1 flex items-center gap-1.5 text-caption text-text-muted">
+                    <CalendarDays className="h-3.5 w-3.5" aria-hidden />
+                    {/*
                     The venue's clock, named, as in the drawer. This row used the reader's browser
                     zone, so on QA it printed a different time from the drawer it opens.
                   */}
-                  {dateTime(row.eventSession.startsAt, undefined, row.timeZone ?? undefined)}
-                  {row.timeZone ? ` (${zoneAbbrev(row.eventSession.startsAt, row.timeZone)})` : ''}
-                  {ticketCount(row) && ` - ${ticketCount(row)}`}
-                </p>
-                {row.reference && (
-                  <p className="relative z-10 mt-1 w-fit text-caption text-text-muted">
-                    <ReferenceCode value={row.reference} label={c('bookingReference')} />
+                    {dateTime(row.eventSession.startsAt, undefined, row.timeZone ?? undefined)}
+                    {row.timeZone
+                      ? ` (${zoneAbbrev(row.eventSession.startsAt, row.timeZone)})`
+                      : ''}
+                    {ticketCount(row) && ` - ${ticketCount(row)}`}
                   </p>
-                )}
+                  {row.reference && (
+                    <p className="relative z-10 mt-1 w-fit text-caption text-text-muted">
+                      <ReferenceCode value={row.reference} label={c('bookingReference')} />
+                    </p>
+                  )}
+                </div>
+                <StatusBadge status={row.status} label={statusLabel('booking', row.status)} />
               </div>
-              <StatusBadge status={row.status} label={statusLabel('booking', row.status)} />
-            </div>
-          ))}
-        </div>
-      ) : (
-        <EmptyState
-          title={a('noBookingsTitle')}
-          hint={a('noBookingsHint')}
-          icon={Receipt}
-          action={<ButtonLink href="/events">{n('browseEvents')}</ButtonLink>}
-        />
-      )}
+            ))}
+            {list.hasNextPage && (
+              <Button
+                variant="outline"
+                className="w-full"
+                loading={list.isFetchingNextPage}
+                onClick={() => void list.fetchNextPage()}
+              >
+                {a('loadOlderBookings')}
+              </Button>
+            )}
+          </div>
+        ) : (
+          <EmptyState
+            title={a('noBookingsTitle')}
+            hint={a('noBookingsHint')}
+            icon={Receipt}
+            action={<ButtonLink href="/events">{n('browseEvents')}</ButtonLink>}
+          />
+        )}
+      </div>
 
+      {/*
+        Outside the spaced column, on purpose: `space-y-8` gives every later sibling a top margin,
+        and the drawer is `position: fixed; inset: 0`. The margin moved it 32px down, so on a
+        phone the site header showed above the panel.
+      */}
       <Drawer open={!!selectedId} onClose={closeDrawer} title={a('bookingDetails')}>
         {detail.isError ? (
           <ErrorState message={a('detailsLoadError')} onRetry={() => detail.refetch()} />
@@ -440,6 +491,8 @@ export default function BookingsPage() {
                   </p>
                   <Textarea
                     id="reason"
+                    // The placeholder is not a name: it vanishes once somebody types.
+                    aria-label={a('refundReasonLabel')}
                     className="mt-3"
                     rows={3}
                     placeholder={free ? a('cancelReasonPlaceholder') : a('refundReasonPlaceholder')}
@@ -481,6 +534,6 @@ export default function BookingsPage() {
           </div>
         )}
       </Drawer>
-    </div>
+    </>
   );
 }

@@ -26,6 +26,7 @@ import {
 import type { Locale } from '@eticketsgo/i18n';
 import { api, tokenStore } from '@/lib/api';
 import { useFormat } from '@/lib/format';
+import { bookingAmounts } from '@/lib/booking-amounts';
 import { Link, getPathname } from '@/i18n/navigation';
 import { EventCard } from '@/components/event-card';
 import { PriceBreakdown } from '@/components/price-breakdown';
@@ -208,8 +209,12 @@ function AccountConfirmation() {
     heading reads as something that failed to load.
   */
   const upcoming = useQuery({
-    queryKey: ['recommendations', 'confirmation'],
-    queryFn: () => api.recommendations({ limit: 5 }),
+    queryKey: ['recommendations', 'confirmation', booking?.event.id],
+    // Seeded by the event bought: the server keeps the blend to that event's market, so an
+    // India booking is not offered Boise and Toronto (the rule the event page already has).
+    queryFn: () => api.recommendations({ eventId: booking?.event.id, limit: 5 }),
+    // Wait for the booking: asked without the seed it would be the unscoped, cross-market list.
+    enabled: !!booking,
   });
   /*
     The tickets themselves, on the confirmation screen.
@@ -273,11 +278,12 @@ function AccountConfirmation() {
     );
   const seats = booking.seatLabels ?? [];
   const items = booking.items.filter((item) => item.quantity > 0);
-  // One number of decimals for the order lines, so ₹499 does not sit above ₹10.18.
-  const itemDigits = moneyFractionDigits(
-    [...items.map((item) => item.unitPriceMinor * item.quantity), booking.totalMinor],
-    booking.currency,
-  );
+  /*
+    One decision about decimals for the order lines AND the breakdown under them, with every
+    amount either prints - the payment page's rule. Deciding from the lines alone printed
+    "300" and "Includes Rs 46 GST" here where payment had shown "300.00" and "45.76".
+  */
+  const itemDigits = moneyFractionDigits(bookingAmounts({ ...booking, items }), booking.currency);
   /*
     When and where, as the venue reads them.
 
@@ -596,6 +602,7 @@ function AccountConfirmation() {
                 totalMinor: booking.totalMinor,
               }}
               totalLabel={confirmed ? c('totalPaid') : undefined}
+              fractionDigits={itemDigits}
               note={null}
             />
           )}

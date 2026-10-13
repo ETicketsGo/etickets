@@ -631,7 +631,8 @@ export const api = {
         body: JSON.stringify(body),
         headers: idempotencyKey ? { 'idempotency-key': idempotencyKey } : undefined,
       }),
-    list: () => request<Paged<BookingSummary>>('/bookings?pageSize=50'),
+    /** One page, newest first. Pages are 50 rows; the list screen asks for the next on demand. */
+    list: (page = 1) => request<Paged<BookingSummary>>(`/bookings?pageSize=50&page=${page}`),
     get: (id: string) => request<BookingDetail>(`/bookings/${id}`),
     /**
      * A customer's booking, read by platform staff. Needs BOOKING_READ and is audited. The
@@ -2855,6 +2856,8 @@ export interface BookingDetail {
   buyerName: string;
   buyerEmail: string;
   event: {
+    /** Seeds the recommendations on the confirmation, so they stay in this booking's market. */
+    id?: string;
     title: string;
     slug: string;
     /** The organizer's terms. False means no refund is offered for this event. */

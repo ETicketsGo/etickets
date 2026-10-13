@@ -21,6 +21,7 @@ import {
 } from '@eticketsgo/web-kit';
 import { useTranslations } from 'next-intl';
 import { useFormat } from '@/lib/format';
+import { useVenueWhenText } from '@/components/booking-brand';
 import { Link } from '@/i18n/navigation';
 
 const TYPE_ICON: Record<WalletItemType, LucideIcon> = {
@@ -53,6 +54,8 @@ export function WalletCard({
 }) {
   const wc = useTranslations('storefront.walletCard');
   const { dateTime } = useFormat();
+  // A show is read on the venue's clock with the zone written out, as on every booking page.
+  const venueWhenText = useVenueWhenText();
   const Icon = TYPE_ICON[item.icon] ?? TicketIcon;
   const tone = TONE[item.statusTone];
   const pct = item.progress ? Math.round((item.progress.done / item.progress.total) * 100) : 0;
@@ -94,7 +97,9 @@ export function WalletCard({
             {item.status}
           </span>
           {item.startsAt && (
-            <span className="text-caption text-text-muted">- {dateTime(item.startsAt)}</span>
+            <span className="text-caption text-text-muted">
+              - {venueWhenText(item.startsAt, item.timeZone ?? undefined)}
+            </span>
           )}
           {item.expiresAt && !item.startsAt && (
             <span className="text-caption text-text-muted">
