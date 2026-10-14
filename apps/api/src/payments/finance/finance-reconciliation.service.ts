@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { HttpStatus, Injectable, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { PaymentEnv, ReconciliationDiscrepancy } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -14,6 +14,8 @@ import {
   type OurPayment,
   type OurRefund,
 } from './discrepancy-detectors';
+import { OpsAlertService } from '../../ops/alerts/ops-alert.service';
+import { discrepancyOpenedAlert } from '../../ops/alerts/ops-alert-messages';
 
 interface Actor {
   userId?: string;
@@ -35,6 +37,8 @@ export class FinanceReconciliationService {
     private readonly audit: AuditService,
     private readonly registry: PaymentProviderRegistry,
     config: ConfigService,
+    // Optional so a hand-built service in a unit test needs no alert double.
+    @Optional() private readonly alerts?: OpsAlertService,
   ) {
     this.env = resolvePaymentEnv(config.get<string>('APP_ENV'));
   }
@@ -145,7 +149,7 @@ export class FinanceReconciliationService {
       },
     });
     if (existing) return false;
-    await this.prisma.reconciliationDiscrepancy.create({
+    const row = await this.prisma.reconciliationDiscrepancy.create({
       data: {
         env: this.env as PaymentEnv,
         type: c.type,
@@ -156,6 +160,19 @@ export class FinanceReconciliationService {
         detail: c.detail,
       },
     });
+    // Only a NEW open item alerts; the dedupe above already stopped repeats. Not awaited.
+    void this.alerts?.notify(
+      discrepancyOpenedAlert({
+        discrepancyId: row?.id ?? 'unknown',
+        type: c.type,
+        provider: c.provider,
+        entityRef: c.entityRef,
+        amountMinor: c.amountMinor ?? null,
+        currency: c.currency ?? null,
+        env: this.env,
+        detail: c.detail,
+      }),
+    );
     return true;
   }
 

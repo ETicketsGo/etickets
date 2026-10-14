@@ -11,6 +11,7 @@ import type { PaymentEvent } from './provider/payment-provider.interface';
 import { MetricsService } from '../metrics/metrics.service';
 import { BookingReferenceService } from '../bookings/booking-reference.service';
 import { AddOnInventoryService } from '../commerce/addon-inventory.service';
+import { OpsAlertService } from '../ops/alerts/ops-alert.service';
 
 const SUCCEEDED_EVENT: PaymentEvent = {
   type: 'payment.succeeded',
@@ -76,6 +77,8 @@ function setup(opts: {
   specs?: Array<{ ticketTypeId: string; seatId?: string; seatLabel?: string }>;
   /** The booking's Payment row as read outside the confirm transaction. */
   payment?: Record<string, unknown> | null;
+  /** The ops alert service, when a test is about alerting. Absent = the code before alerts. */
+  alerts?: unknown;
 }) {
   const tx = makeTx(opts.claimCount ?? 1);
   const prisma = {
@@ -154,6 +157,7 @@ function setup(opts: {
     eventPublisher as never,
     { onConfirmed: async () => undefined, preConfirm: async () => ({ handled: false }) } as never,
     finance as never,
+    opts.alerts as never,
   );
   return {
     service,
@@ -730,5 +734,145 @@ describe('PaymentsService.collectCash — the stamp and the confirmation are one
       bookingId: 'b1',
     });
     expect(audit.record).not.toHaveBeenCalled();
+  });
+});
+
+/*
+  Ops alerts (H-7). The capture-on-unpayable path and a failed confirmation now tell a person.
+  The only acceptable difference between alerts on and off is that someone hears about it: the
+  result, every write and every refusal must be identical.
+*/
+describe('PaymentsService - ops alerts on money paths', () => {
+  const expired = () =>
+    ({ ...pendingBooking({ status: BookingStatus.EXPIRED }), currency: 'INR' }) as BookingShape;
+  const unapplied = {
+    ...APPLIED_PAYMENT,
+    status: PaymentStatus.PROCESSING,
+    providerRef: 'order_1',
+    providerPaymentIntentId: null,
+  };
+  const spy = () => {
+    const seen: Array<{ kind: string; facts: Record<string, unknown> }> = [];
+    return {
+      seen,
+      notify: jest.fn(async (a: { kind: string; facts: Record<string, unknown> }) => {
+        seen.push(a);
+        return { raised: true, count: 1, delivered: 1 };
+      }),
+    };
+  };
+  /** A real alert service whose email and Redis both throw. */
+  const hostile = () => {
+    const fail = async () => {
+      throw new Error('down');
+    };
+    return new OpsAlertService(
+      { get: (k: string) => (k === 'OPS_ALERT_EMAILS' ? 'ops@eticketsgo.test' : 'QA') } as never,
+      { name: 'ses', send: fail } as never,
+      { client: { incr: fail, pexpire: fail, set: fail, getset: fail, get: fail } } as never,
+    );
+  };
+
+  it('alerts when money is captured for a booking that cannot take it, with ids only', async () => {
+    const alerts = spy();
+    const { service } = setup({ booking: expired(), payment: unapplied, alerts });
+    await expect(service.handleWebhook(webhook)).resolves.toMatchObject({
+      status: 'captured_on_unpayable_booking',
+    });
+    expect(alerts.seen).toEqual([
+      expect.objectContaining({
+        kind: 'CAPTURE_NOT_APPLIED',
+        facts: expect.objectContaining({
+          bookingId: 'b1',
+          paymentId: 'pay-row-1',
+          providerRef: 'mock_pi_123',
+          amountMinor: 5000,
+          currency: 'INR',
+          bookingStatus: BookingStatus.EXPIRED,
+        }),
+      }),
+    ]);
+    // The booking carries the buyer's name and address; neither may reach an ops inbox.
+    const text = JSON.stringify(alerts.seen);
+    expect(text).not.toContain('ada@example.test');
+    expect(text).not.toContain('Ada');
+  });
+
+  it('does not alert again for a redelivery the path already recorded', async () => {
+    const alerts = spy();
+    const { service, prisma } = setup({ booking: expired(), payment: unapplied, alerts });
+    prisma.paymentAttempt.findFirst.mockResolvedValue({ id: 'att-1' });
+    await service.handleWebhook(webhook);
+    expect(alerts.seen).toEqual([]);
+  });
+
+  it('records the unapplied capture identically with alerts off, on, or broken', async () => {
+    const runs: unknown[] = [];
+    for (const alerts of [undefined, spy(), hostile()]) {
+      const { service, prisma, finance, audit } = setup({
+        booking: expired(),
+        payment: unapplied,
+        alerts,
+      });
+      const result = await service.handleWebhook(webhook);
+      runs.push({
+        result,
+        attempts: prisma.paymentAttempt.create.mock.calls,
+        payment: prisma.payment.update.mock.calls,
+        finance: finance.fileDiscrepancy.mock.calls,
+        audit: audit.record.mock.calls,
+        tx: prisma.$transaction.mock.calls.length,
+      });
+    }
+    expect(runs[1]).toEqual(runs[0]);
+    expect(runs[2]).toEqual(runs[0]);
+  });
+
+  it('alerts when a successful payment cannot confirm its booking, and rethrows the same error', async () => {
+    const alerts = spy();
+    const { service, provider } = setup({ booking: pendingBooking(), alerts });
+    provider.verifyWebhook.mockResolvedValue({ ...SUCCEEDED_EVENT, amountMinor: 4000 });
+    await expect(service.handleWebhook(webhook)).rejects.toMatchObject({
+      code: ErrorCodes.PAYMENT_WEBHOOK_INVALID,
+    });
+    expect(alerts.seen).toEqual([
+      expect.objectContaining({
+        kind: 'CONFIRMATION_FAILED_AFTER_PAYMENT',
+        facts: expect.objectContaining({
+          bookingId: 'b1',
+          providerRef: 'mock_pi_123',
+          amountMinor: 4000,
+          errorCode: ErrorCodes.PAYMENT_WEBHOOK_INVALID,
+        }),
+      }),
+    ]);
+  });
+
+  it('refuses a mismatched amount identically with alerts off, on, or broken', async () => {
+    const runs: unknown[] = [];
+    for (const alerts of [undefined, spy(), hostile()]) {
+      const { service, provider, audit, prisma } = setup({ booking: pendingBooking(), alerts });
+      provider.verifyWebhook.mockResolvedValue({ ...SUCCEEDED_EVENT, amountMinor: 4000 });
+      const err = await service.handleWebhook(webhook).catch((e: AppException) => e);
+      runs.push({
+        code: (err as AppException).code,
+        message: (err as AppException).message,
+        audit: audit.record.mock.calls,
+        tx: prisma.$transaction.mock.calls.length,
+      });
+    }
+    expect(runs[1]).toEqual(runs[0]);
+    expect(runs[2]).toEqual(runs[0]);
+  });
+
+  it('does not alert on a normal confirmation or a failed payment', async () => {
+    const alerts = spy();
+    const { service } = setup({
+      booking: pendingBooking(),
+      specs: [{ ticketTypeId: 't1' }, { ticketTypeId: 't1' }],
+      alerts,
+    });
+    await expect(service.handleWebhook(webhook)).resolves.toMatchObject({ status: 'confirmed' });
+    expect(alerts.seen).toEqual([]);
   });
 });

@@ -6513,6 +6513,17 @@ export interface OpsHealth {
   nodeEnv: string;
   /** LOCAL / QA / UAT / PRODUCTION. QA and UAT run NODE_ENV=production, so show this instead. */
   appEnv?: string | null;
+  /** Whether money-critical failures are emailed to operators. Absent on an older API. */
+  opsAlerts?: OpsAlertsStatus;
+}
+export interface OpsAlertsStatus {
+  configured: boolean;
+  status: 'configured' | 'not_configured';
+  reason: string | null;
+  recipients: number;
+  emailProvider: string;
+  lastAlertAt: string | null;
+  lastAlertKind: string | null;
 }
 
 export interface OpsQueueCounts {

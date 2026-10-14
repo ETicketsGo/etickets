@@ -43,6 +43,7 @@ import { ReportsModule } from './reports/reports.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AdminModule } from './admin/admin.module';
 import { OpsModule } from './ops/ops.module';
+import { OpsAlertsModule } from './ops/alerts/ops-alerts.module';
 import { ReviewsModule } from './reviews/reviews.module';
 import { SupportModule } from './support/support.module';
 import { AiModule } from './ai/ai.module';
@@ -138,6 +139,7 @@ import { HttpObservationMiddleware } from './common/http-observation.middleware'
     AnalyticsModule,
     AdminModule,
     OpsModule,
+    OpsAlertsModule,
     ReviewsModule,
     SupportModule,
     AiModule,

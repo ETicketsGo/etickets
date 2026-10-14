@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import {
   FailureClass,
   NotificationType,
@@ -30,6 +30,8 @@ import { SuppressionService } from './delivery/suppression.service';
 import { resolvePhoneDestination } from './channels/phone-destination';
 import { redactProviderText } from './channels/transports/provider-text';
 import { ProviderEventReplayService } from './delivery/webhook/provider-event-replay.service';
+import { OpsAlertService } from '../ops/alerts/ops-alert.service';
+import { notificationFailedAlert } from '../ops/alerts/ops-alert-messages';
 
 /**
  * Input to {@link NotificationService.send}. `channels` and `locale` are
@@ -171,6 +173,11 @@ export class NotificationService {
       one sweep later; with it, it lands the moment the SID is written.
     */
     private readonly replay?: ProviderEventReplayService,
+    /*
+      Optional for the same reason, and decorated so DI never insists on it. Told only when a
+      message has stopped retrying; it never touches the row or the outcome.
+    */
+    @Optional() private readonly alerts?: OpsAlertService,
   ) {}
 
   /**
@@ -743,6 +750,16 @@ export class NotificationService {
               `[${failureClass}]${permanent ? ' (permanent)' : ''}`,
           );
           this.metrics?.recordNotification(key, attributedTo, 'failed');
+          void this.alerts?.notify(
+            notificationFailedAlert({
+              notificationId: row.id,
+              type: String(row.type),
+              channel: key,
+              failureClass: String(failureClass),
+              attempts,
+              permanent,
+            }),
+          );
         } else {
           summary.retried += 1;
           this.metrics?.recordNotification(key, attributedTo, 'retried');

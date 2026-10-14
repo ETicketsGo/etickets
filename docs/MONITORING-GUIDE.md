@@ -39,3 +39,31 @@ warn routing with a synthetic alert before launch.
 Central log sink (platform); no PII (verified P6.5/6.8). Sentry wired (API + worker) via `SENTRY_DSN`
 
 - `SENTRY_ENVIRONMENT`. Correlation ids flow through domain events for cross-service tracing.
+
+## Ops alert emails (money-critical failures)
+
+The API and the worker email operators when a money path meets something it cannot handle. This
+needs no Prometheus or Alertmanager: it goes through the email transport the platform already
+uses (`EMAIL_PROVIDER`, SES in QA/PROD). Code: `apps/api/src/ops/alerts/`.
+
+| Variable           | Meaning                                                                         |
+| ------------------ | ------------------------------------------------------------------------------- |
+| `OPS_ALERT_EMAILS` | Comma-separated operator addresses. Set on BOTH the api and the worker service. |
+| `SENTRY_DSN`       | Error tracking (API + worker). Unset means Sentry is never initialised.         |
+
+- Unset `OPS_ALERT_EMAILS` (or `EMAIL_PROVIDER=log`): alerts are written to the log at ERROR only,
+  and Admin console > Operations > System health shows "Ops alerts: Not configured" with the reason.
+  It never blocks a request and never stops the API from booting.
+- What alerts: a payment webhook rejected for its signature (Razorpay, Stripe); money captured for a
+  booking that cannot take it; the expiry sweep finding a capture on a booking it was about to
+  release; a new finance discrepancy; a booking that could not be confirmed after a successful
+  payment; a payment webhook dead-lettered; a customer notification that has stopped retrying.
+- Throttle: the first occurrence alerts at once, then at most one email per 15 minutes per kind and
+  key (provider, discrepancy type, notification channel + cause), or per 6 hours for one booking or
+  capture. The next email says how many happened since the last one. The gate is in Redis, so all
+  API replicas and the worker share it; if Redis is down each process throttles on its own.
+- Content: what happened, `APP_ENV`, UTC time, ids (booking, payment, provider reference, webhook
+  event), amounts, and where to look. Never secrets, signatures, card or UPI data, customer email
+  or phone, or payloads. Values are redacted again before sending.
+- Last alert time is shown on the same System health card (`GET /api/admin/ops/health`,
+  field `opsAlerts`).
