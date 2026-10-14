@@ -107,17 +107,17 @@ export function BulkScheduler({
     <Dialog open onClose={onClose} title="Create shows">
       <ol className="mb-4 flex gap-4 text-sm" aria-label="Progress">
         <li aria-current={step === 'configure' ? 'step' : undefined}>
-          <span className={step === 'configure' ? 'font-semibold' : 'text-slate-400'}>
+          <span className={step === 'configure' ? 'font-semibold' : 'text-text-muted'}>
             1. Configure
           </span>
         </li>
         <li aria-current={step === 'preview' ? 'step' : undefined}>
-          <span className={step === 'preview' ? 'font-semibold' : 'text-slate-400'}>
+          <span className={step === 'preview' ? 'font-semibold' : 'text-text-muted'}>
             2. Preview
           </span>
         </li>
         <li>
-          <span className="text-slate-400">3. Publish</span>
+          <span className="text-text-muted">3. Publish</span>
         </li>
       </ol>
 
@@ -172,7 +172,7 @@ export function BulkScheduler({
                 <option value="range">Date range (daily)</option>
               </Select>
               <div>
-                <label htmlFor="bulk-from" className="mb-1 block text-xs text-slate-500">
+                <label htmlFor="bulk-from" className="mb-1 block text-xs text-text-muted">
                   {mode === 'single' ? 'Date' : 'From'}
                 </label>
                 <Input
@@ -184,7 +184,7 @@ export function BulkScheduler({
               </div>
               {mode === 'range' ? (
                 <div>
-                  <label htmlFor="bulk-to" className="mb-1 block text-xs text-slate-500">
+                  <label htmlFor="bulk-to" className="mb-1 block text-xs text-text-muted">
                     To
                   </label>
                   <Input
@@ -204,17 +204,17 @@ export function BulkScheduler({
             </label>
             <textarea
               id="bulk-times"
-              className="w-full rounded-md border border-slate-300 p-2 font-mono text-sm"
+              className="w-full rounded-md border border-border-input p-2 font-mono text-sm"
               rows={5}
               value={timesText}
               onChange={(e) => setTimesText(e.target.value)}
               aria-describedby="bulk-times-help"
             />
-            <p id="bulk-times-help" className="mt-1 text-xs text-slate-500">
+            <p id="bulk-times-help" className="mt-1 text-xs text-text-muted">
               Local time at the cinema. End times are worked out from the film&rsquo;s runtime.
             </p>
             {invalidTimes.length ? (
-              <p role="alert" className="mt-1 text-sm text-red-600">
+              <p role="alert" className="mt-1 text-sm text-status-error">
                 Not valid 24-hour times: {invalidTimes.join(', ')}
               </p>
             ) : null}
@@ -280,17 +280,18 @@ function PreviewStep({
 
   return (
     <div className="space-y-4">
-      <div className="rounded-md bg-slate-50 p-3 text-sm" role="status">
+      <div className="rounded-md bg-background-subtle p-3 text-sm" role="status">
         <strong>{preview.proposed}</strong> slot{preview.proposed === 1 ? '' : 's'} proposed
         {' · '}
-        <strong className="text-green-700">{willCreate}</strong> will be created
+        <strong className="text-status-success">{willCreate}</strong> will be created
         {preview.rejected.length ? (
           <>
             {' · '}
-            <strong className="text-amber-700">{preview.rejected.length}</strong> will be skipped
+            <strong className="text-status-warning">{preview.rejected.length}</strong> will be
+            skipped
           </>
         ) : null}
-        <div className="mt-1 text-xs text-slate-500">
+        <div className="mt-1 text-xs text-text-muted">
           Screens need {preview.turnaroundMinutes} min between shows.
         </div>
       </div>
@@ -302,17 +303,17 @@ function PreviewStep({
             {preview.rejected.map((r, i) => (
               <li
                 key={`${r.startsAt}-${i}`}
-                className="rounded-md border border-amber-200 bg-amber-50 p-2 text-sm"
+                className="rounded-md border border-border bg-tint-warning p-2 text-sm"
               >
                 {explainRejection(r, preview.turnaroundMinutes, timezone)}
                 {/* The raw code stays visible for diagnostics without being the message. */}
-                <span className="ml-2 font-mono text-xs text-slate-400">{r.reason}</span>
+                <span className="ml-2 font-mono text-xs text-text-muted">{r.reason}</span>
               </li>
             ))}
           </ul>
         </div>
       ) : (
-        <p className="text-sm text-green-700">No conflicts — every slot is free.</p>
+        <p className="text-sm text-status-success">No conflicts — every slot is free.</p>
       )}
 
       <div className="flex justify-end gap-2 pt-2">

@@ -13,7 +13,9 @@ import {
   type AnalyticsOrganizerMarket,
   type BadgeTone,
   type BrandStatus,
+  type NotificationFeedGroup,
 } from '@eticketsgo/web-kit';
+import { relativeTime } from '@/lib/notification-feed-view';
 import type { ChosenStep, ComingUpRow, NextStep } from './desk-model';
 import {
   figureSize,
@@ -439,11 +441,6 @@ export function ComingUp({
 
 // ─── Needs you, and the next step ───────────────────────────────────────────────
 
-const SEVERITY: Record<NeedsActionItem['severity'], { label: string; tone: BrandStatus }> = {
-  blocking: { label: 'Blocking', tone: 'critical' },
-  warning: { label: 'Warning', tone: 'caution' },
-};
-
 /** The next step: one sentence, one reason, one button. */
 /** What a member who cannot act on an item is told instead of a "Fix this" they would be refused. */
 const OWNER_DOES_IT = "Your organization's owner or a manager needs to do this.";
@@ -492,26 +489,32 @@ export function NeedsYou({
   next,
   failed,
   onRetry,
-  shown = 4,
+  perGroup = 3,
   canAct = true,
 }: {
   needs: NeedsAction;
   next: ChosenStep | null;
   failed: boolean;
   onRetry: () => void;
-  shown?: number;
+  /** How many items each severity lists before "N more". */
+  perGroup?: number;
   /** False for check-in staff: the items are shown read-only, with no "Fix this". */
   canAct?: boolean;
 }) {
   const headingId = useId();
   const rest = needs.items.filter((i) => i.key !== next?.itemKey);
-  const listed = rest.slice(0, shown - 1);
-  const hidden = rest.length - listed.length;
+  /*
+    Grouped by severity, blocking first (organizer recovery): the most important blocking issue
+    is the next step above, then what else stops sales or payouts, then what only may. Each group
+    names itself and its size, so "13" is never one undifferentiated column.
+  */
+  const groups = (['blocking', 'warning'] as const)
+    .map((sev) => ({ sev, items: rest.filter((i) => i.severity === sev) }))
+    .filter((g) => g.items.length > 0);
   // Setup steps are listed on Get started; anything from the feed is in Notifications.
-  const moreHref = rest.every((i) => i.source === 'setup')
-    ? '/organizer/onboarding'
-    : '/organizer/notifications';
-  const more = (n: number) => `${count(n)} more ${n === 1 ? 'item' : 'items'}`;
+  const moreHref = (items: NeedsActionItem[]) =>
+    items.every((i) => i.source === 'setup') ? '/organizer/onboarding' : '/organizer/notifications';
+  const more = (n: number) => `${count(n)} more`;
   return (
     <section
       aria-labelledby={headingId}
@@ -524,9 +527,9 @@ export function NeedsYou({
             <span className="ml-2 tabular-nums text-brand-ink-3">{count(needs.items.length)}</span>
           )}
         </h2>
-        {needs.suggestions > 0 && canAct && (
-          <Link href="/organizer/onboarding" className={`text-brand-meta ${LINK}`}>
-            {count(needs.suggestions)} optional {needs.suggestions === 1 ? 'step' : 'steps'}
+        {needs.items.length > 0 && canAct && (
+          <Link href="/organizer/notifications" className={`text-brand-meta ${LINK}`}>
+            All notifications
           </Link>
         )}
       </div>
@@ -549,57 +552,216 @@ export function NeedsYou({
             readOnly={!canAct}
           />
         )}
-        {listed.length > 0 && (
-          /*
-            Below `xl` the panel sits ABOVE the events, so it shows the next step alone and counts
-            the rest: a column of warnings there pushed "Coming up" off a laptop's first screen.
-          */
-          <ul className="hidden flex-col border-t border-brand-line xl:flex">
-            {listed.map((item) => (
-              <li
-                key={item.key}
-                className="border-b border-brand-line py-3 last:border-b-0 last:pb-0"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex min-w-0 flex-col gap-1">
+        {groups.map(({ sev, items }) => {
+          const listed = items.slice(0, perGroup);
+          const hidden = items.length - listed.length;
+          return (
+            <div key={sev} className="flex flex-col border-t border-brand-line pt-4">
+              <p className="flex items-center justify-between gap-2 text-brand-eyebrow uppercase text-brand-ink-3">
+                {sev === 'blocking' ? 'Also blocking' : 'Warnings'}
+                <span className="tabular-nums">{count(items.length)}</span>
+              </p>
+              {/*
+                Below `xl` the panel sits ABOVE the events, so each group is its count and a link:
+                a column of warnings there pushed "Coming up" off a laptop's first screen.
+              */}
+              <ul className="hidden flex-col xl:flex">
+                {listed.map((item) => (
+                  <li
+                    key={item.key}
+                    className="border-b border-brand-line py-3 last:border-b-0 last:pb-0"
+                  >
                     <p className="text-brand-ui font-semibold text-brand-ink">{item.title}</p>
                     {item.detail && (
-                      <p className="line-clamp-2 text-brand-meta text-brand-ink-2">{item.detail}</p>
+                      <p className="mt-1 line-clamp-3 text-brand-meta text-brand-ink-2">
+                        {item.detail}
+                      </p>
                     )}
-                  </div>
-                  <BrandStatusPill status={SEVERITY[item.severity].tone}>
-                    {SEVERITY[item.severity].label}
-                  </BrandStatusPill>
-                </div>
-                {canAct ? (
-                  <Link href={item.href} className={`mt-2 text-brand-meta ${LINK}`}>
-                    {item.actionLabel}
+                    {canAct ? (
+                      <Link href={item.href} className={`mt-1 text-brand-meta ${LINK}`}>
+                        {item.actionLabel}
+                      </Link>
+                    ) : (
+                      <p className="mt-2 text-brand-meta text-brand-ink-3">{OWNER_DOES_IT}</p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              {/* Read-only for a role that cannot open the pages these items are fixed on. */}
+              {canAct ? (
+                <>
+                  <Link href={moreHref(items)} className={`mt-1 text-brand-meta xl:hidden ${LINK}`}>
+                    See {count(items.length)} {items.length === 1 ? 'item' : 'items'}
                   </Link>
-                ) : (
-                  <p className="mt-2 text-brand-meta text-brand-ink-3">{OWNER_DOES_IT}</p>
-                )}
-              </li>
-            ))}
-          </ul>
+                  {hidden > 0 && (
+                    <Link
+                      href={moreHref(items)}
+                      className={`mt-2 hidden text-brand-meta xl:inline-flex ${LINK}`}
+                    >
+                      {more(hidden)}
+                    </Link>
+                  )}
+                </>
+              ) : (
+                hidden > 0 && (
+                  <p className="mt-2 text-brand-meta text-brand-ink-3">{more(hidden)}</p>
+                )
+              )}
+            </div>
+          );
+        })}
+        {needs.suggestions > 0 && canAct && (
+          // Optional steps are not "needs": they are counted here and listed on Get started.
+          <Link
+            href="/organizer/onboarding"
+            className={`border-t border-brand-line pt-4 text-brand-meta ${LINK}`}
+          >
+            {count(needs.suggestions)} optional setup {needs.suggestions === 1 ? 'step' : 'steps'}{' '}
+            in Get started
+          </Link>
         )}
-        {/* Read-only for a role that cannot open the pages these items are fixed on. */}
-        {rest.length > 0 &&
-          (canAct ? (
-            <Link href={moreHref} className={`text-brand-meta xl:hidden ${LINK}`}>
-              {more(rest.length)}
-            </Link>
-          ) : (
-            <p className="text-brand-meta text-brand-ink-3 xl:hidden">{more(rest.length)}</p>
-          ))}
-        {hidden > 0 &&
-          (canAct ? (
-            <Link href={moreHref} className={`hidden text-brand-meta xl:inline-flex ${LINK}`}>
-              {more(hidden)}
-            </Link>
-          ) : (
-            <p className="hidden text-brand-meta text-brand-ink-3 xl:block">{more(hidden)}</p>
-          ))}
       </div>
+    </section>
+  );
+}
+
+// ─── Recent activity and best sellers ───────────────────────────────────────────
+
+/**
+ * The latest things that happened (approvals, bookings, payouts), from the notification feed
+ * the bell reads - not the action items, which are under Needs you. Newest first, a few rows.
+ */
+export function RecentActivity({
+  groups,
+  failed,
+}: {
+  groups: NotificationFeedGroup[];
+  failed: boolean;
+}) {
+  const headingId = useId();
+  return (
+    <section
+      aria-labelledby={headingId}
+      className="min-w-0 rounded-brand-card border border-brand-line bg-brand-surface"
+    >
+      <div className="flex items-baseline justify-between gap-4 px-4 pb-3 pt-4 md:px-6">
+        <h2 id={headingId} className="text-brand-body font-semibold text-brand-ink">
+          Recent activity
+        </h2>
+        <Link href="/organizer/notifications" className={`text-brand-meta ${LINK}`}>
+          All
+        </Link>
+      </div>
+      {groups.length === 0 ? (
+        <p className="border-t border-brand-line px-4 py-4 text-brand-meta text-brand-ink-2 md:px-6">
+          {failed
+            ? 'We could not load recent activity.'
+            : 'Approvals, bookings and payouts will show here as they happen.'}
+        </p>
+      ) : (
+        <ul className="border-t border-brand-line">
+          {groups.map((g) => (
+            <li key={g.key} className="border-b border-brand-line last:border-b-0">
+              <Link
+                href={g.action?.href ?? '/organizer/notifications'}
+                className={`flex items-start gap-3 px-4 py-3 transition-colors duration-150 hover:bg-brand-sunken md:px-6 ${RING} focus-visible:ring-offset-0`}
+              >
+                <span
+                  aria-hidden
+                  className={`mt-2 h-1.5 w-1.5 shrink-0 rounded-full ${g.read ? 'bg-brand-line-strong' : 'bg-brand-ink'}`}
+                />
+                <span className="flex min-w-0 flex-1 flex-col">
+                  <span
+                    className={`line-clamp-2 text-brand-meta text-brand-ink ${g.read ? '' : 'font-semibold'}`}
+                  >
+                    {!g.read && <span className="sr-only">New: </span>}
+                    {g.title}
+                  </span>
+                  <time dateTime={g.lastAt} className="text-brand-meta text-brand-ink-3">
+                    {relativeTime(g.lastAt)}
+                  </time>
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/**
+ * The events that have sold the most, from the organization analytics (`topEvents`): bookings
+ * and gross, each in its own currency and never added across currencies.
+ */
+export function BestSellers({
+  events,
+}: {
+  events: {
+    eventId: string;
+    title: string;
+    currency: string;
+    grossMinor: number;
+    bookings: number;
+  }[];
+}) {
+  const headingId = useId();
+  return (
+    <section
+      aria-labelledby={headingId}
+      className="min-w-0 overflow-hidden rounded-brand-card border border-brand-line bg-brand-surface"
+    >
+      <div className="flex items-baseline justify-between gap-4 px-4 pb-3 pt-4 md:px-6">
+        <h2 id={headingId} className="text-brand-body font-semibold text-brand-ink">
+          Best sellers
+        </h2>
+        <Link href="/organizer/finance" className={`text-brand-meta ${LINK}`}>
+          Finance
+        </Link>
+      </div>
+      <table className="w-full table-fixed border-t border-brand-line text-left">
+        <caption className="sr-only">Your events with the most sales: bookings and gross</caption>
+        <thead>
+          <tr className="text-brand-eyebrow uppercase text-brand-ink-3">
+            <th scope="col" className="px-4 py-3 font-semibold md:px-6">
+              Event
+            </th>
+            <th
+              scope="col"
+              className="hidden w-[6.5rem] px-3 py-3 text-right font-semibold sm:table-cell"
+            >
+              Bookings
+            </th>
+            <th scope="col" className="w-[7rem] px-4 py-3 text-right font-semibold md:pr-6">
+              Gross
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {events.map((e) => (
+            <tr key={`${e.eventId}-${e.currency}`} className="border-t border-brand-line">
+              <td className="px-4 py-3 md:px-6">
+                <Link
+                  href={`/organizer/events/${e.eventId}`}
+                  className={`line-clamp-2 text-brand-ui font-semibold text-brand-ink hover:underline ${RING}`}
+                >
+                  {e.title}
+                </Link>
+                {/* On a phone the bookings move under the title, so the title keeps its room. */}
+                <span className="block text-brand-meta tabular-nums text-brand-ink-3 sm:hidden">
+                  {count(e.bookings)} {e.bookings === 1 ? 'booking' : 'bookings'}
+                </span>
+              </td>
+              <td className="hidden whitespace-nowrap px-3 py-3 text-right sm:table-cell text-brand-ui tabular-nums text-brand-ink">
+                {count(e.bookings)}
+              </td>
+              <td className="whitespace-nowrap px-4 py-3 text-right text-brand-ui tabular-nums text-brand-ink md:pr-6">
+                {money(e.grossMinor, e.currency)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </section>
   );
 }

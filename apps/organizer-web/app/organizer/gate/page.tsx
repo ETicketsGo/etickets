@@ -128,7 +128,7 @@ export default function GatePage() {
   // ── 1. Pick the show ──────────────────────────────────────────────────────────────
   if (!sessionId) {
     return (
-      <div className="mx-auto max-w-2xl">
+      <div className="max-w-3xl">
         <PageHeader title="Check-in" description="Choose the show you are on the door for." />
         {sessions.isLoading && (
           <Card className="p-6 text-center text-text-muted">Loading shows...</Card>
@@ -167,7 +167,7 @@ export default function GatePage() {
   const shown = outcome ? OUTCOME[outcome.result] : null;
 
   return (
-    <div className="mx-auto max-w-2xl">
+    <div className="max-w-3xl">
       <div className="mb-4 flex items-center justify-between gap-3">
         <div className="min-w-0">
           <p className="truncate text-lg font-semibold text-text-primary">{chosen?.eventTitle}</p>

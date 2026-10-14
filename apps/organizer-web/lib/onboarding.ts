@@ -80,10 +80,12 @@ export interface OnboardingProgress {
  */
 const SETUP_CATEGORIES: OrganizerAction['category'][] = ['OPERATIONS', 'MONEY'];
 
-export function useOnboardingProgress(orgId: string): OnboardingProgress {
+export function useOnboardingProgress(orgId: string, enabled = true): OnboardingProgress {
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['organizer', 'actions', orgId],
     queryFn: () => api.organizations.actions(orgId),
+    // The sidebar asks before the organization list has answered, and for every role.
+    enabled: enabled && Boolean(orgId),
   });
 
   const steps: OnboardingStep[] = (data?.actions ?? [])

@@ -3,9 +3,18 @@
 import { usePathname } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
-import { AppShell, RequireAuth, api, brandButtonClasses } from '@eticketsgo/web-kit';
+import { Rocket } from 'lucide-react';
+import {
+  AppShell,
+  RequireAuth,
+  SectionTabs,
+  api,
+  brandButtonClasses,
+  type ShellNotice,
+} from '@eticketsgo/web-kit';
 import { navFor } from '@/components/organizer-nav';
 import { OrgProvider, OrgSwitcher } from '@/components/org-context';
+import { useOnboardingDismissed, useOnboardingProgress } from '@/lib/onboarding';
 import { WorkspaceTheme, useWorkspace } from '@/components/workspace-chrome';
 import { DeskNotificationsButton, DeskSchemeSwitch } from '@/components/desk-chrome';
 
@@ -40,6 +49,30 @@ function OrganizerNotifications() {
 }
 
 /**
+ * "Finish setup, 3 of 5 done" at the top of the sidebar, while setup is unfinished.
+ *
+ * Get started used to be a permanent sidebar row under Overview; a setup checklist is a job
+ * done once, so it is offered only while there is something left, and it goes when the required
+ * steps are done (or the organizer chose "Skip for now" on the page). The same server action
+ * list as Get started and Overview, read from the same react-query key.
+ */
+function useSetupNotice(orgId: string, enabled: boolean): ShellNotice | null {
+  const dismissed = useOnboardingDismissed();
+  const { completed, total, allComplete, isLoading, isError } = useOnboardingProgress(
+    orgId,
+    enabled,
+  );
+  if (!enabled || dismissed || isLoading || isError || total === 0 || allComplete) return null;
+  return {
+    label: 'Finish setup',
+    detail: `${completed} of ${total} done`,
+    href: '/organizer/onboarding',
+    icon: Rocket,
+    progress: completed / total,
+  };
+}
+
+/**
  * The organizer's own masthead, their palette, and their team's chrome.
  *
  * Split out from the layout because it reads the workspace, and the layout's job is to decide
@@ -54,6 +87,9 @@ function OrganizerChrome({ children }: { children: React.ReactNode }) {
   */
   const nav = navFor({ doesFilmBusiness: workspace.doesFilmBusiness, can: workspace.can });
   const canCreate = workspace.can.financials || workspace.can.ownerActions;
+  const pathname = usePathname() ?? '';
+  // Owners and managers set an organization up; check-in staff have nothing to finish.
+  const setup = useSetupNotice(workspace.id ?? '', workspace.can.financials);
   return (
     <AppShell
       brand="Organizer"
@@ -61,6 +97,7 @@ function OrganizerChrome({ children }: { children: React.ReactNode }) {
       workspace={{ name: workspace.name, logoUrl: workspace.logoUrl }}
       headerAccessory={<DeskSchemeSwitch />}
       accountRole={workspace.roleLabel}
+      sidebarNotice={setup}
       notifications={<OrganizerNotifications />}
       /*
         The console's one primary action, for the members who can create events. Check-in
@@ -95,6 +132,8 @@ function OrganizerChrome({ children }: { children: React.ReactNode }) {
         <div className="mb-4 flex justify-end empty:mb-0">
           <OrgSwitcher />
         </div>
+        {/* Finance's Payouts / Receipts / Refunds, Bookings' Counter, Settings' Premium. */}
+        <SectionTabs items={nav} pathname={pathname} />
         {children}
       </OrgProvider>
     </AppShell>

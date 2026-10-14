@@ -1,0 +1,132 @@
+/**
+ * ── THE CONSOLE BRIDGE ─────────────────────────────────────────────────────────────
+ * Inside the organizer desk (`AppShell appearance="desk"`, which carries `data-brand="console"`),
+ * the classic console tokens resolve to the brand layer's paper and ink.
+ *
+ * ── WHY THIS EXISTS ────────────────────────────────────────────────────────────────
+ * #355 painted the desk shell (sidebar, top bar, Overview) in `brand-*` tokens and left every
+ * other page on the classic ones. The classic console palette is navy and teal (tokens.css,
+ * `:root[data-console]`), so one screen showed a warm paper frame around cool blue-white cards
+ * with teal buttons - and in dark mode a charcoal frame around navy cards. That split is the
+ * main reason the owner read the organizer as inconsistent (docs/design/ORGANIZER-REGRESSION.md).
+ *
+ * Re-styling some sixty pages one by one would take weeks and would drift again. The pages and
+ * the shared web-kit components already speak in semantic tokens (`bg-background-surface`,
+ * `text-text-secondary`, `bg-action-primary`), so the fix is to say what those tokens MEAN
+ * inside the desk. Every page inherits the brand at once, and a page that later moves to the
+ * `brand-*` classes looks exactly the same as it did before the move.
+ *
+ * ── WHAT IT DOES NOT CHANGE ────────────────────────────────────────────────────────
+ * - Nothing outside an element carrying `data-brand="console"`. Admin keeps its classic frame;
+ *   the storefront never sets the attribute.
+ * - An organization that chose its own accent in Settings (`data-accent` on <html>, themes.css)
+ *   keeps it: the action and focus colours are bridged only when no accent was chosen.
+ * - No pair is new. Every value here is a `brand-*` token, and `token-contrast.test.ts` already
+ *   holds each brand pair (ink on every surface, status on its tint, the field outline, the
+ *   primary button) to WCAG AA in light and dark.
+ *
+ * Values are `var()` references, resolved on the element: the dark block of brand.css redefines
+ * the `brand-*` names under `.dark`, and these follow it with no dark block of their own.
+ */
+[data-brand='console'] {
+  /* Surfaces: one page colour, one card colour, one inset colour. */
+  --background-canvas: var(--brand-canvas);
+  --background-surface: var(--brand-surface);
+  --background-subtle: var(--brand-sunken);
+  --background-elevated: var(--brand-surface);
+
+  /* Text. */
+  --text-primary: var(--brand-ink);
+  --text-secondary: var(--brand-ink-2);
+  --text-muted: var(--brand-ink-3);
+
+  /* Hairlines are decoration; a field's outline is the 3:1 one. */
+  --border-default: var(--brand-line);
+  --border-strong: var(--brand-line-strong);
+  --border-input: var(--brand-field);
+
+  /* Secondary actions sit on the inset colour, never a tinted one. */
+  --action-secondary: var(--brand-sunken);
+  --action-secondary-foreground: var(--brand-ink);
+  --action-danger: var(--brand-critical);
+  --action-danger-foreground: var(--brand-on-action);
+
+  /* States, in the brand's four state colours. They say something happened or needs doing. */
+  --status-success: var(--brand-positive);
+  --status-warning: var(--brand-caution);
+  --status-error: var(--brand-critical);
+  --status-info: var(--brand-info);
+  --tint-success: var(--brand-positive-tint);
+  --tint-warning: var(--brand-caution-tint);
+  --tint-error: var(--brand-critical-tint);
+  --tint-info: var(--brand-info-tint);
+
+  /*
+    No pastel tiles (DESIGN-SYSTEM.md section 1): the old blue / purple / amber / teal / rose
+    squares behind icons become one quiet inset with ink. The icon still reads; it no longer
+    competes with the numbers.
+  */
+  --tile-blue: var(--brand-sunken);
+  --tile-blue-foreground: var(--brand-ink-2);
+  --tile-purple: var(--brand-sunken);
+  --tile-purple-foreground: var(--brand-ink-2);
+  --tile-amber: var(--brand-sunken);
+  --tile-amber-foreground: var(--brand-ink-2);
+  --tile-teal: var(--brand-sunken);
+  --tile-teal-foreground: var(--brand-ink-2);
+  --tile-rose: var(--brand-sunken);
+  --tile-rose-foreground: var(--brand-ink-2);
+
+  /*
+    The classic navy palette has one use left inside the desk: the no-image placeholder of
+    `ImageFrame` (event and movie cards), which painted a navy-to-teal glow. Here it is a quiet
+    inset with an ink-3 icon - a missing picture should not be the loudest thing in a list.
+  */
+  --nav-background: var(--brand-sunken);
+  --nav-foreground: var(--brand-ink-2);
+  --nav-muted: var(--brand-ink-3);
+  --nav-hover: var(--brand-sunken);
+  --nav-active: var(--brand-sunken);
+  --nav-active-foreground: var(--brand-ink);
+  --nav-accent: var(--brand-ink-3);
+  --nav-border: var(--brand-line);
+
+  /* "Today" and "live" stay the marigold signal; its words are ink on the fill. */
+  --marquee: var(--brand-ink);
+  --tint-marquee: var(--brand-sunken);
+  --marquee-fill: var(--brand-marigold);
+
+  /*
+    Geometry: the desk's 8px controls and 12px cards. Cards are flat (hairline, no shadow);
+    only floating things keep a shadow, and that is the one overlay shadow.
+  */
+  --radius-sm: 0.375rem;
+  --radius-md: var(--brand-radius-control);
+  --radius-lg: var(--brand-radius-card);
+  --radius-xl: var(--brand-radius-card);
+  --shadow-xs: 0 0 #0000;
+  --shadow-sm: 0 0 #0000;
+  --shadow-md: var(--brand-shadow-overlay);
+  --shadow-lg: var(--brand-shadow-overlay);
+
+  /* Page titles in the brand display face, everything else stays Inter. */
+  --font-display: var(--font-brand-display);
+}
+
+/*
+  The action, its tint and the focus ring: ink on paper (paper on charcoal in the dark), unless
+  the organization picked an accent. `:root:not([data-accent])` is evaluated on <html>, where
+  WorkspaceAccent writes the attribute.
+*/
+:root:not([data-accent]) [data-brand='console'] {
+  --action-primary: var(--brand-action);
+  --action-primary-hover: var(--brand-action-hover);
+  --action-primary-foreground: var(--brand-on-action);
+  --tint-primary: var(--brand-sunken);
+  --ring: var(--brand-focus);
+}
+
+/* The placeholder's teal glow and grain: no gradients on the desk (DESIGN-SYSTEM.md). */
+[data-brand='console'] [data-placeholder-glow] {
+  display: none;
+}

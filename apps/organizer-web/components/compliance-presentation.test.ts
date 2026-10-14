@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   bookingFeeWording,
   classHasNoRate,
+  classificationSummary,
   complianceHeadline,
   missingRateWarning,
   splitPrices,
@@ -93,5 +94,47 @@ describe('missing rate warning', () => {
     expect(missingRateWarning({ name: 'G', regulatoryClass: 'PREMIUM' })).toBeNull();
     expect(classHasNoRate(rates, 'NON_PREMIUM')).toBe(true);
     expect(classHasNoRate(undefined, 'NON_PREMIUM')).toBe(false);
+  });
+});
+
+describe('classificationSummary (F3)', () => {
+  const invalid = {
+    status: 'INVALID_CINEMA_CLASSIFICATION' as const,
+    jurisdiction: {
+      country: 'India',
+      region: 'Andhra Pradesh',
+      district: 'NTR',
+      city: 'Vijayawada',
+      localBodyType: 'MUNICIPAL_CORPORATION',
+    },
+    classification: { cinemaFormat: 'MULTIPLEX', climateType: 'AC' },
+  };
+
+  it('does not tell a classified cinema to set its classification', () => {
+    const text = classificationSummary(invalid);
+    expect(text).toContain('seat class');
+    expect(text).not.toContain('Set its local body');
+  });
+
+  it('keeps the server sentence when a classification field really is missing', () => {
+    expect(
+      classificationSummary({
+        ...invalid,
+        classification: { cinemaFormat: null, climateType: 'AC' },
+      }),
+    ).toBeNull();
+  });
+
+  it('says nothing for any other status', () => {
+    expect(classificationSummary({ ...invalid, status: 'COMPLIANT' as const })).toBeNull();
+  });
+
+  it('is what the headline leads with when no readiness blocker is current', () => {
+    const h = complianceHeadline(
+      { ...invalid, summary: 'has not been classified', blocksPublishing: true },
+      [],
+    );
+    expect(h.text).toContain('seat class');
+    expect(h.tone).toBe('error');
   });
 });

@@ -331,7 +331,7 @@ export default function ScreenSeatMapPage() {
   const needsConfirmation = capacity.differsFromRequest && confirmedBookable !== capacity.bookable;
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6">
+    <div className="space-y-6">
       <PageHeader
         title={screen ? `${screen.name} · Seat map` : 'Seat map'}
         breadcrumbs={[
@@ -451,7 +451,7 @@ export default function ScreenSeatMapPage() {
                                       ? ' - companion seat'
                                       : ''
                                 }`}
-                                style={color ? { borderColor: color, color } : undefined}
+                                style={color ? { borderColor: color } : undefined}
                                 className="flex h-7 w-7 items-center justify-center rounded-md border border-border bg-background-surface text-[0.625rem] font-medium text-text-secondary"
                               >
                                 {accessible ? (

@@ -1,46 +1,128 @@
 'use client';
 
 import Link from 'next/link';
+import { useId, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   api,
-  Badge,
-  Button,
-  ButtonLink,
-  Card,
+  ErrorState,
   PageHeader,
+  brandButtonClasses,
   errorMessage,
   useToast,
 } from '@eticketsgo/web-kit';
 import { venuePayload } from '@/components/venue-fields';
-import {
-  Building2,
-  Users,
-  CalendarDays,
-  Banknote,
-  CheckCircle2,
-  Sparkles,
-  FlaskConical,
-  ArrowRight,
-  LifeBuoy,
-} from 'lucide-react';
+import { ArrowRight, Banknote, CheckCircle2, Circle, FlaskConical, LifeBuoy } from 'lucide-react';
 import { useOrg } from '@/components/org-context';
-import { OnboardingChecklist } from '@/components/onboarding-checklist';
-import { useOnboardingProgress, setOnboardingDismissed } from '@/lib/onboarding';
+import {
+  useOnboardingProgress,
+  setOnboardingDismissed,
+  type OnboardingStep,
+} from '@/lib/onboarding';
 import { EXPERIENCE_TEMPLATES } from '@/lib/templates';
 
-function StepBadge({ done, optional }: { done: boolean; optional?: boolean }) {
-  if (done) {
-    return (
-      <Badge tone="success">
-        <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
-        Done
-      </Badge>
-    );
-  }
-  // "To do" on a step most organizers should skip reads as work outstanding. Say which it is.
-  return <Badge tone="neutral">{optional ? 'Optional' : 'To do'}</Badge>;
+/*
+  ── GET STARTED (organizer recovery) ──────────────────────────────────────────────
+  This page used to show the same five steps twice: once as a progress checklist (the server's
+  action list) and again as a wall of six cards that re-derived the same steps in the browser,
+  two of them always "Done". Below that, five template cards and two more cards. An organizer
+  scrolled past 2,000px to read one list.
+
+  Now there is one list, from the server's one action list (`useOnboardingProgress`, the same
+  read as the sidebar's "Finish setup" and Overview's "Needs you"): the required steps with the
+  progress they make up, then the optional ones, each with ONE action. Beside it, the shortcuts
+  that are not steps - templates, a sample draft event, payouts and help - as short rows.
+*/
+
+const RING =
+  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-focus focus-visible:ring-offset-2 focus-visible:ring-offset-brand-surface';
+
+function StepRow({ step }: { step: OnboardingStep }) {
+  return (
+    <li className="flex flex-col gap-3 border-t border-brand-line py-4 first:border-t-0 sm:flex-row sm:items-center sm:gap-4">
+      <div className="flex min-w-0 flex-1 items-start gap-3">
+        {step.done ? (
+          <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-brand-positive" aria-hidden />
+        ) : (
+          <Circle className="mt-0.5 h-5 w-5 shrink-0 text-brand-ink-3" aria-hidden />
+        )}
+        <div className="min-w-0">
+          <p className="text-brand-ui font-semibold text-brand-ink">
+            {step.title}
+            <span className="sr-only">{step.done ? ', done' : ', to do'}</span>
+          </p>
+          <p className="text-brand-meta text-brand-ink-2">{step.description}</p>
+        </div>
+      </div>
+      {step.done ? (
+        <Link
+          href={step.href}
+          className={`self-start text-brand-meta font-semibold text-brand-ink underline-offset-4 hover:underline sm:self-center ${RING}`}
+        >
+          {step.cta}
+        </Link>
+      ) : (
+        <Link
+          href={step.href}
+          className={`self-start sm:self-center ${brandButtonClasses('secondary', 'sm')}`}
+        >
+          {step.cta}
+          <ArrowRight className="h-4 w-4" aria-hidden />
+        </Link>
+      )}
+    </li>
+  );
+}
+
+function Panel({
+  title,
+  aside,
+  children,
+}: {
+  title: string;
+  aside?: ReactNode;
+  children: ReactNode;
+}) {
+  const id = useId();
+  return (
+    <section
+      aria-labelledby={id}
+      className="min-w-0 rounded-brand-card border border-brand-line bg-brand-surface"
+    >
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-4 pb-3 pt-4 md:px-6">
+        <h2 id={id} className="text-brand-body font-semibold text-brand-ink">
+          {title}
+        </h2>
+        {aside}
+      </div>
+      <div className="border-t border-brand-line px-4 md:px-6">{children}</div>
+    </section>
+  );
+}
+
+/** A shortcut that is not a setup step: an icon, a line of words, and where it goes. */
+function ShortcutRow({
+  icon: Icon,
+  title,
+  detail,
+  action,
+}: {
+  icon: typeof Banknote;
+  title: string;
+  detail: string;
+  action: ReactNode;
+}) {
+  return (
+    <li className="flex items-start gap-3 border-t border-brand-line py-4 first:border-t-0">
+      <Icon className="mt-0.5 h-5 w-5 shrink-0 text-brand-ink-3" aria-hidden />
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <p className="text-brand-ui font-semibold text-brand-ink">{title}</p>
+        <p className="text-brand-meta text-brand-ink-2">{detail}</p>
+        <div className="mt-1">{action}</div>
+      </div>
+    </li>
+  );
 }
 
 export default function OnboardingPage() {
@@ -54,12 +136,6 @@ export default function OnboardingPage() {
     queryKey: ['venues', activeOrg.id],
     queryFn: () => api.venues.list(activeOrg.id),
   });
-  const hasVenue = (venuesQ.data?.length ?? 0) > 0;
-
-  const stepMap = Object.fromEntries(progress.steps.map((s) => [s.key, s])) as Record<
-    (typeof progress.steps)[number]['key'],
-    (typeof progress.steps)[number]
-  >;
 
   // ── Load a sample DRAFT event (never published) using existing endpoints ──
   const loadSample = useMutation({
@@ -120,246 +196,167 @@ export default function OnboardingPage() {
     onError: (e) => toast.push(errorMessage(e), 'error'),
   });
 
+  const required = progress.steps.filter((s) => !s.optional);
+  const optional = progress.steps.filter((s) => s.optional);
+  const pct = progress.total === 0 ? 0 : Math.round((progress.completed / progress.total) * 100);
+  const link = `text-brand-meta font-semibold text-brand-ink underline-offset-4 hover:underline ${RING}`;
+
   return (
-    <div className="mx-auto max-w-4xl space-y-6">
+    <div>
       <PageHeader
-        title={`Welcome to ETicketsGo, ${activeOrg.name}`}
-        description="Let's get your account ready to sell tickets. Follow the steps below — each links to the real tools."
+        title="Get started"
+        description={`Set up ${activeOrg.name} to sell tickets. The required steps come first; the optional ones can wait until you need them.`}
         action={
-          <Button variant="ghost" onClick={() => setOnboardingDismissed(true)}>
+          <button
+            type="button"
+            onClick={() => setOnboardingDismissed(true)}
+            className={brandButtonClasses('quiet', 'md')}
+          >
             Skip for now
-          </Button>
+          </button>
         }
       />
 
-      <OnboardingChecklist progress={progress} />
-
-      {/* ── Guided steps ── */}
-      <div className="grid gap-4 md:grid-cols-2">
-        {/* 1. Organization */}
-        <Card>
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-tint-primary text-action-primary">
-              <Building2 className="h-5 w-5" />
-            </span>
-            <StepBadge done={stepMap.organization?.done ?? true} />
-          </div>
-          <p className="font-semibold text-text-primary">1. Confirm your organization</p>
-          <p className="mt-1 text-[0.9375rem] text-text-muted">
-            You&apos;re set up as{' '}
-            <span className="font-medium text-text-secondary">{activeOrg.name}</span>. Manage its
-            details and profile in Settings.
-          </p>
-          <ButtonLink href="/organizer/settings" variant="outline" size="sm" className="mt-4">
-            Organization settings
-          </ButtonLink>
-        </Card>
-
-        {/*
-          2. Venue.
-
-          This card used to carry its OWN create form — name, city, capacity, and a hardcoded
-          country of India. Two forms for one object is how they drift, and they had: the
-          venues page asks where the venue is, this one assumed. It now sends the organizer to
-          the one form, which is also what the checklist link beside it does, so there is a
-          single answer to "where do I add a venue".
-        */}
-        <Card>
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-tint-primary text-action-primary">
-              <Building2 className="h-5 w-5" />
-            </span>
-            <StepBadge done={hasVenue} />
-          </div>
-          <p className="font-semibold text-text-primary">2. Add your first venue</p>
-          {hasVenue ? (
-            <>
-              <p className="mt-1 text-[0.9375rem] text-text-muted">
-                {venuesQ.data?.length} venue(s) ready. You can add more any time.
-              </p>
-              <div className="mt-4 flex flex-wrap gap-2">
-                <ButtonLink href="/organizer/venues" variant="outline" size="sm">
-                  Manage venues
-                </ButtonLink>
-                <ButtonLink href="/organizer/events/new" variant="outline" size="sm">
-                  Use in an event
-                </ButtonLink>
-              </div>
-            </>
+      <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_22rem] xl:gap-8">
+        <div className="flex min-w-0 flex-col gap-6">
+          {progress.isError ? (
+            <ErrorState
+              message="We couldn't load your progress. Please try again."
+              onRetry={progress.refetch}
+            />
+          ) : progress.isLoading ? (
+            <div
+              role="status"
+              aria-busy="true"
+              aria-label="Loading your setup steps"
+              className="h-72 rounded-brand-card bg-brand-sunken motion-safe:animate-pulse"
+            />
           ) : (
             <>
-              <p className="mt-1 text-[0.9375rem] text-text-muted">
-                The hall, theatre or ground where your events happen. Its country decides the
-                currency you sell in and the clock every show time is quoted in.
-              </p>
-              <ButtonLink href="/organizer/venues?new=1" size="sm" className="mt-4">
-                Add venue
-              </ButtonLink>
+              <Panel
+                title="Required to start selling"
+                aside={
+                  <p className="text-brand-meta tabular-nums text-brand-ink-2">
+                    {progress.completed} of {progress.total} done
+                  </p>
+                }
+              >
+                <div className="pt-4">
+                  <div
+                    role="progressbar"
+                    aria-valuenow={progress.completed}
+                    aria-valuemin={0}
+                    aria-valuemax={progress.total}
+                    aria-label={`Setup progress: ${progress.completed} of ${progress.total} required steps done`}
+                    className="h-1.5 w-full overflow-hidden rounded-full bg-brand-sunken"
+                  >
+                    <div
+                      className="h-full rounded-full bg-brand-ink transition-[width] duration-500 motion-reduce:transition-none"
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                </div>
+                {required.length === 0 ? (
+                  <p className="py-4 text-brand-ui text-brand-ink-2">
+                    Nothing is required. You can sell tickets.
+                  </p>
+                ) : (
+                  <ul className="mt-2">
+                    {required.map((s) => (
+                      <StepRow key={s.key} step={s} />
+                    ))}
+                  </ul>
+                )}
+              </Panel>
+
+              {optional.length > 0 && (
+                <Panel
+                  title="Optional"
+                  aside={
+                    <p className="text-brand-meta text-brand-ink-2">Not counted in your progress</p>
+                  }
+                >
+                  <ul>
+                    {optional.map((s) => (
+                      <StepRow key={s.key} step={s} />
+                    ))}
+                  </ul>
+                </Panel>
+              )}
             </>
           )}
-        </Card>
-
-        {/*
-          Seating — listed because it is otherwise undiscoverable.
-
-          A room with a published seat map is the prerequisite for selling numbered seats,
-          and the only route to one is a section that used to be called "Cinemas". An
-          organizer running concerts had no reason to look there and no reason to know they
-          needed to. Marked optional rather than numbered, because plenty of organizers never
-          need it and a checklist should not manufacture work.
-        */}
-        <Card>
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-tint-primary text-action-primary">
-              <Building2 className="h-5 w-5" />
-            </span>
-            <StepBadge done={stepMap.seating?.done ?? false} optional />
-          </div>
-          <p className="font-semibold text-text-primary">Set up a space with a seat map</p>
-          <p className="mt-1 text-[0.9375rem] text-text-muted">
-            Only if buyers should choose their own seats. Draw the space once and any event held
-            there can sell reserved seating — a concert or a play, not only a film.
-          </p>
-          <ButtonLink href="/organizer/cinemas" variant="outline" size="sm" className="mt-4">
-            {stepMap.seating?.done ? 'Manage spaces' : 'Set up a space'}
-          </ButtonLink>
-        </Card>
-
-        {/*
-          Payouts. Placed before team because it is the step that decides whether the money
-          from a sale can ever reach the organizer, and it was previously absent from a
-          checklist that claimed to cover starting to sell.
-        */}
-        <Card>
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-tint-primary text-action-primary">
-              <Banknote className="h-5 w-5" />
-            </span>
-            <StepBadge done={stepMap.payouts?.done ?? false} />
-          </div>
-          <p className="font-semibold text-text-primary">3. Set up how you get paid</p>
-          <p className="mt-1 text-[0.9375rem] text-text-muted">
-            Connect a payout account so settlements can reach your bank. Needed before you can sell
-            paid tickets — free events do not require it.
-          </p>
-          <ButtonLink href="/organizer/payouts" variant="outline" size="sm" className="mt-4">
-            {stepMap.payouts?.done ? 'View payouts' : 'Set up payouts'}
-          </ButtonLink>
-        </Card>
-
-        {/* 4. Team */}
-        <Card>
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-tint-primary text-action-primary">
-              <Users className="h-5 w-5" />
-            </span>
-            <StepBadge done={stepMap.team?.done ?? false} />
-          </div>
-          <p className="font-semibold text-text-primary">4. Invite a team member</p>
-          <p className="mt-1 text-[0.9375rem] text-text-muted">
-            Add managers to help run events or check-in staff to scan tickets at the door.
-          </p>
-          <ButtonLink href="/organizer/team" variant="outline" size="sm" className="mt-4">
-            Invite team
-          </ButtonLink>
-        </Card>
-
-        {/* 5. Experience */}
-        <Card>
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-tint-primary text-action-primary">
-              <CalendarDays className="h-5 w-5" />
-            </span>
-            <StepBadge done={stepMap.experience?.done ?? false} />
-          </div>
-          <p className="font-semibold text-text-primary">5. Create &amp; publish an experience</p>
-          <p className="mt-1 text-[0.9375rem] text-text-muted">
-            Build your event with sessions and ticket types, then submit it for review to go live.
-          </p>
-          <ButtonLink href="/organizer/events/new" size="sm" className="mt-4">
-            Create experience
-          </ButtonLink>
-        </Card>
-      </div>
-
-      {/* ── Templates ── */}
-      <Card
-        title="Start from a template"
-        action={
-          <span className="flex items-center gap-1.5 text-caption text-text-muted">
-            <Sparkles className="h-4 w-4" />
-            Pre-fills the wizard
-          </span>
-        }
-      >
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {EXPERIENCE_TEMPLATES.map((t) => {
-            const Icon = t.icon;
-            return (
-              <Link
-                key={t.id}
-                href={`/organizer/events/new?template=${t.id}`}
-                className="group flex flex-col rounded-lg border border-border bg-background-surface p-4 shadow-sm transition-all duration-200 ease-premium hover:-translate-y-0.5 hover:border-border-strong hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-              >
-                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-tint-primary text-action-primary">
-                  <Icon className="h-5 w-5" />
-                </span>
-                <p className="mt-3 font-semibold text-text-primary">{t.label}</p>
-                <p className="mt-1 flex-1 text-caption text-text-muted">{t.blurb}</p>
-                <span className="mt-3 inline-flex items-center gap-1 text-caption font-semibold text-action-primary">
-                  Use template
-                  <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
-                </span>
-              </Link>
-            );
-          })}
         </div>
-      </Card>
 
-      {/* ── Sample data + Help ── */}
-      <div className="grid gap-4 md:grid-cols-2">
-        <Card>
-          <div className="flex items-start gap-3">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-tint-primary text-action-primary">
-              <FlaskConical className="h-5 w-5" />
-            </span>
-            <div>
-              <p className="font-semibold text-text-primary">Just exploring?</p>
-              <p className="mt-1 text-[0.9375rem] text-text-muted">
-                Load a <span className="font-medium text-text-secondary">sample draft event</span>{' '}
-                to explore the tools. It is created as a draft only — never published — and you can
-                delete it any time.
-              </p>
-              <Button
-                variant="outline"
-                size="sm"
-                className="mt-4"
-                loading={loadSample.isPending}
-                onClick={() => loadSample.mutate()}
-              >
-                Load a sample draft event
-              </Button>
-            </div>
-          </div>
-        </Card>
+        <div className="flex min-w-0 flex-col gap-6">
+          <Panel title="Start from a template">
+            <ul>
+              {EXPERIENCE_TEMPLATES.map((t) => {
+                const Icon = t.icon;
+                return (
+                  <li key={t.id} className="border-t border-brand-line first:border-t-0">
+                    <Link
+                      href={`/organizer/events/new?template=${t.id}`}
+                      className={`group -mx-2 my-1 flex items-start gap-3 rounded-brand-control px-2 py-2.5 transition-colors duration-150 hover:bg-brand-sunken ${RING}`}
+                    >
+                      <Icon className="mt-0.5 h-5 w-5 shrink-0 text-brand-ink-3" aria-hidden />
+                      <span className="flex min-w-0 flex-col">
+                        <span className="text-brand-ui font-semibold text-brand-ink group-hover:underline">
+                          {t.label}
+                        </span>
+                        <span className="text-brand-meta text-brand-ink-2">{t.blurb}</span>
+                      </span>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </Panel>
 
-        <Card>
-          <div className="flex items-start gap-3">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-tint-primary text-action-primary">
-              <LifeBuoy className="h-5 w-5" />
-            </span>
-            <div>
-              <p className="font-semibold text-text-primary">Need a hand?</p>
-              <p className="mt-1 text-[0.9375rem] text-text-muted">
-                Browse the organizer knowledge base — creating events, ticket types, publishing,
-                payouts, refunds, and check-in.
-              </p>
-              <ButtonLink href="/organizer/help" variant="outline" size="sm" className="mt-4">
-                Visit help center
-              </ButtonLink>
-            </div>
-          </div>
-        </Card>
+          <Panel title="Also useful">
+            <ul>
+              {/*
+                Payouts is listed here as well as in the required steps when the bank account is
+                missing, because the payout ACCOUNT (Stripe or Razorpay) is a separate thing from
+                the bank details, and an organizer selling only free events never needs it.
+              */}
+              <ShortcutRow
+                icon={Banknote}
+                title="Set up how you get paid"
+                detail="Connect a payout account so settlements can reach your bank. Needed before you sell paid tickets; free events do not need it."
+                action={
+                  <Link href="/organizer/payouts" className={link}>
+                    Open payouts
+                  </Link>
+                }
+              />
+              <ShortcutRow
+                icon={FlaskConical}
+                title="Just exploring?"
+                detail="Load a sample draft event to try the tools. It stays a draft, it is never published, and you can delete it any time."
+                action={
+                  <button
+                    type="button"
+                    disabled={loadSample.isPending}
+                    onClick={() => loadSample.mutate()}
+                    className={`${link} disabled:opacity-50`}
+                  >
+                    {loadSample.isPending ? 'Creating the sample...' : 'Load a sample draft event'}
+                  </button>
+                }
+              />
+              <ShortcutRow
+                icon={LifeBuoy}
+                title="Need a hand?"
+                detail="Guides for events, ticket types, publishing, payouts, refunds and check-in."
+                action={
+                  <Link href="/organizer/help" className={link}>
+                    Visit help center
+                  </Link>
+                }
+              />
+            </ul>
+          </Panel>
+        </div>
       </div>
     </div>
   );

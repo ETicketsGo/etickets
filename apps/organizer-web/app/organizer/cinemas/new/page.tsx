@@ -125,7 +125,7 @@ export default function NewCinemaPage() {
   };
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6">
+    <div className="max-w-3xl space-y-6">
       <PageHeader
         title="New space"
         breadcrumbs={[

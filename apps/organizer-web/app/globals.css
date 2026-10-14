@@ -10,6 +10,11 @@
   carrying `data-brand`, so until a page opts in this file contributes nothing at all.
 */
 @import '@eticketsgo/design-tokens/brand.css';
+/*
+  Inside the desk, the classic token names resolve to the brand's paper and ink, so every page
+  inherits one palette (console-bridge.css explains why). Organizer only: admin has no desk.
+*/
+@import '@eticketsgo/design-tokens/console-bridge.css';
 
 @tailwind base;
 @tailwind components;

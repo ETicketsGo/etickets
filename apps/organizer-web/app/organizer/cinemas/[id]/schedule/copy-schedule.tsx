@@ -103,7 +103,7 @@ export function CopyScheduleDialog({
                 </option>
               ))}
             </Select>
-            <p className="mt-1 text-xs text-slate-500">on {sourceDate}</p>
+            <p className="mt-1 text-xs text-text-muted">on {sourceDate}</p>
           </div>
           <div>
             <label htmlFor="copy-target-screen" className="mb-1 block text-sm font-medium">
@@ -155,20 +155,21 @@ export function CopyScheduleDialog({
           </div>
         </div>
 
-        <p className="rounded-md bg-slate-50 p-2 text-xs text-slate-600">
+        <p className="rounded-md bg-background-subtle p-2 text-xs text-text-secondary">
           This creates new shows. Bookings on the source day are not moved or affected.
         </p>
 
         {preview ? (
           <div className="space-y-3">
-            <div className="rounded-md bg-slate-50 p-3 text-sm" role="status">
+            <div className="rounded-md bg-background-subtle p-3 text-sm" role="status">
               Source times: <span className="font-mono">{preview.times.join(', ') || 'none'}</span>
               <div className="mt-1">
-                <strong className="text-green-700">{willCreate}</strong> will be created
+                <strong className="text-status-success">{willCreate}</strong> will be created
                 {preview.rejected.length ? (
                   <>
                     {' · '}
-                    <strong className="text-amber-700">{preview.rejected.length}</strong> skipped
+                    <strong className="text-status-warning">{preview.rejected.length}</strong>{' '}
+                    skipped
                   </>
                 ) : null}
               </div>
@@ -178,16 +179,16 @@ export function CopyScheduleDialog({
                 {preview.rejected.map((r, i) => (
                   <li
                     key={`${r.startsAt}-${i}`}
-                    className="rounded-md border border-amber-200 bg-amber-50 p-2 text-sm"
+                    className="rounded-md border border-border bg-tint-warning p-2 text-sm"
                   >
                     {explainRejection(r, preview.turnaroundMinutes, timezone)}
-                    <span className="ml-2 font-mono text-xs text-slate-400">{r.reason}</span>
+                    <span className="ml-2 font-mono text-xs text-text-muted">{r.reason}</span>
                   </li>
                 ))}
               </ul>
             ) : null}
             {preview.proposed === 0 ? (
-              <p className="text-sm text-slate-600">
+              <p className="text-sm text-text-secondary">
                 Nothing is scheduled on {sourceDate} for that screen and movie.
               </p>
             ) : null}

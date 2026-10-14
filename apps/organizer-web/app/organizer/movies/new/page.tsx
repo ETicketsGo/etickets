@@ -91,7 +91,7 @@ export default function NewMoviePage() {
   };
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6">
+    <div className="max-w-3xl space-y-6">
       <PageHeader
         title="New movie"
         breadcrumbs={[{ label: 'Movies', href: '/organizer/movies' }, { label: 'New' }]}
