@@ -3185,6 +3185,13 @@ export interface CinemaComplianceView {
   };
   classification: { cinemaFormat: string | null; climateType: string | null };
   status: PricingComplianceStatus;
+  /**
+   * Why INVALID_CINEMA_CLASSIFICATION was given (null for any other status): an unmapped seat
+   * category, or a cinema with no classification. Absent on an older API.
+   */
+  reasonCode?: 'SEAT_CLASS_UNMAPPED' | 'CINEMA_NOT_CLASSIFIED' | null;
+  /** The seat categories with no regulatory seat class, when that is the reason. */
+  unmappedSeatCategories?: string[];
   summary: string;
   regulatoryReference: string | null;
   effectiveFrom: string | null;

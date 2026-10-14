@@ -30,7 +30,7 @@ export interface ComplianceHeadline {
  */
 export function complianceHeadline(
   view: Pick<CinemaComplianceView, 'summary' | 'status' | 'blocksPublishing'> &
-    Partial<Pick<CinemaComplianceView, 'jurisdiction' | 'classification'>>,
+    Partial<Pick<CinemaComplianceView, 'jurisdiction' | 'classification' | 'reasonCode'>>,
   checks: readonly PilotReadinessCheck[] | undefined,
 ): ComplianceHeadline {
   const current = (checks ?? []).filter((c) => c.section === 'SALES' && c.level === 'BLOCKED');
@@ -50,12 +50,16 @@ export function complianceHeadline(
  * fields WERE set to the wrong form. When the same response shows all three set, this says what
  * is actually left to check. Wording only: the status, and whether publishing is blocked, are the
  * server's.
+ *
+ * A server that sends `reasonCode` already says which of the two it is, and names the seat
+ * category, so its own sentence stands; this guess is only for an older API.
  */
 export function classificationSummary(
   view: Pick<CinemaComplianceView, 'status'> &
-    Partial<Pick<CinemaComplianceView, 'jurisdiction' | 'classification'>>,
+    Partial<Pick<CinemaComplianceView, 'jurisdiction' | 'classification' | 'reasonCode'>>,
 ): string | null {
   if (view.status !== 'INVALID_CINEMA_CLASSIFICATION') return null;
+  if (view.reasonCode !== undefined) return null;
   const classified =
     !!view.jurisdiction?.localBodyType &&
     !!view.classification?.cinemaFormat &&

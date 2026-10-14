@@ -4,6 +4,10 @@ import { RouteParamtypes } from '@nestjs/common/enums/route-paramtypes.enum';
 import { CinemaComplianceService } from './cinema-compliance.service';
 import { CinemasController } from './cinemas.controller';
 import { OrgAccessService } from '../tenancy/org-access.service';
+import {
+  resolvePolicy,
+  type PolicyRow,
+} from '../pricing/cinema-policy/cinema-pricing-policy.resolver';
 
 /**
  * Who may say which regulatory class a seat is, and what they may say.
@@ -171,5 +175,152 @@ describe('CinemaComplianceService.forCinema - what the panel may blame, and what
     const svc = build({ status: 'COMPLIANT', policy, explanation: 'ok' }, []);
     const v = await svc.forCinema(MEMBER, 'cin-1', NOW);
     expect(v.onlineFee).toMatchObject({ policy: 'ALLOWED', maxMinor: null });
+  });
+});
+
+describe('CinemaComplianceService.forCinema - INVALID_CINEMA_CLASSIFICATION names its real cause (F3)', () => {
+  /*
+    Through the REAL resolver, so the status (and therefore what sells) is the engine's own
+    answer and only the words are under test. The fixture rates are invented, as elsewhere.
+  */
+  const NOW = new Date('2026-10-11T10:00:00Z');
+  const rows: PolicyRow[] = [
+    {
+      id: 'ap-mc-multiplex-regular',
+      version: 1,
+      country: 'IN',
+      region: 'Andhra Pradesh',
+      district: '*',
+      city: '*',
+      currency: '*',
+      localBodyType: 'MUNICIPAL_CORPORATION',
+      cinemaFormat: 'MULTIPLEX',
+      climateType: 'AC',
+      seatCategory: 'REGULAR',
+      maintenanceChargeMinor: 0,
+      maintenanceTreatment: 'NOT_APPLICABLE',
+      maintenanceTaxCategory: null,
+      onlineFeePolicy: 'ALLOWED',
+      onlineFeeCapMinor: null,
+      ticketPriceMinMinor: null,
+      ticketPriceMaxMinor: 15000,
+      ticketPriceRule: null,
+      effectiveFrom: new Date('2020-01-01T00:00:00Z'),
+      effectiveTo: null,
+      regulatoryReference: 'FIXTURE-ORDER-1',
+    } as PolicyRow,
+  ];
+  const CLASSIFIED: Classification = {
+    localBodyType: 'MUNICIPAL_CORPORATION',
+    cinemaFormat: 'MULTIPLEX',
+    climateType: 'AC',
+  };
+  const UNCLASSIFIED: Classification = {
+    localBodyType: null,
+    cinemaFormat: null,
+    climateType: null,
+  };
+
+  type Classification = {
+    localBodyType: string | null;
+    cinemaFormat: string | null;
+    climateType: string | null;
+  };
+  function build(classification: Classification, ticketTypes: unknown[]) {
+    const cinema = {
+      organizationId: 'org-1',
+      country: 'IN',
+      region: 'Andhra Pradesh',
+      district: null,
+      city: 'Vijayawada',
+      venue: null,
+      ...classification,
+    };
+    const prisma = {
+      cinema: { findUnique: jest.fn().mockResolvedValue(cinema) },
+      ticketType: { findMany: jest.fn().mockResolvedValue(ticketTypes) },
+      organizationMember: {
+        findUnique: jest.fn().mockResolvedValue({ status: 'ACTIVE', role: 'ORGANIZER_OWNER' }),
+      },
+    };
+    // The same context the real service builds, handed to the real resolver.
+    const policies = {
+      resolveForCinema: async (
+        c: typeof cinema,
+        currency: string,
+        seatCategories: string[],
+        at: Date,
+        unmappedSeatCategories: string[] = [],
+      ) =>
+        resolvePolicy(rows, {
+          country: c.country,
+          region: c.region,
+          district: c.district,
+          city: c.city,
+          currency,
+          localBodyType: c.localBodyType as never,
+          cinemaFormat: c.cinemaFormat as never,
+          climateType: c.climateType as never,
+          seatCategories,
+          unmappedSeatCategories,
+          at,
+        }),
+    };
+    return new CinemaComplianceService(
+      prisma as never,
+      new OrgAccessService(prisma as never, { record: async () => undefined } as never),
+      policies as never,
+      {} as never,
+    );
+  }
+  const tt = (name: string, seatCategory: { name: string; regulatoryClass: string | null }) => ({
+    id: name,
+    name,
+    priceMinor: 12000,
+    seatCategory,
+    eventSession: { startsAt: new Date('2026-10-20T10:00:00Z') },
+  });
+  const PLATINUM = { name: 'Platinum Executive', regulatoryClass: null };
+  const GOLD = { name: 'Gold', regulatoryClass: 'REGULAR' };
+
+  it('blames the unmapped seat class, by name, when the cinema IS classified', async () => {
+    const svc = build(CLASSIFIED, [tt('Gold', GOLD), tt('Platinum', PLATINUM)]);
+    const v = await svc.forCinema(MEMBER, 'cin-1', NOW);
+    // Sellability is the engine's and is unchanged: still refused, for the same status.
+    expect(v.status).toBe('INVALID_CINEMA_CLASSIFICATION');
+    expect(v.blocksPublishing).toBe(true);
+    expect(v.reasonCode).toBe('SEAT_CLASS_UNMAPPED');
+    expect(v.unmappedSeatCategories).toEqual(['Platinum Executive']);
+    expect(v.summary).toMatch(/"Platinum Executive" has no regulatory seat class/);
+    expect(v.summary).toMatch(/Seat classes/);
+    expect(v.summary).not.toMatch(/has not been classified/);
+    expect(v.summary).not.toMatch(/local body/);
+  });
+
+  it('keeps the classification message for a cinema that is genuinely unclassified', async () => {
+    const svc = build(UNCLASSIFIED, [tt('Gold', GOLD)]);
+    const v = await svc.forCinema(MEMBER, 'cin-1', NOW);
+    expect(v.status).toBe('INVALID_CINEMA_CLASSIFICATION');
+    expect(v.blocksPublishing).toBe(true);
+    expect(v.reasonCode).toBe('CINEMA_NOT_CLASSIFIED');
+    expect(v.unmappedSeatCategories).toEqual([]);
+    expect(v.summary).toMatch(/has not been classified/);
+  });
+
+  it('names the seat class first and the missing classification after, when both are wrong', async () => {
+    const svc = build(UNCLASSIFIED, [tt('Platinum', PLATINUM)]);
+    const v = await svc.forCinema(MEMBER, 'cin-1', NOW);
+    expect(v.blocksPublishing).toBe(true);
+    expect(v.reasonCode).toBe('SEAT_CLASS_UNMAPPED');
+    expect(v.summary).toMatch(/"Platinum Executive"/);
+    expect(v.summary).toMatch(/also needs its local body, format and climate type/);
+  });
+
+  it('reports no reason code for a cinema that sells', async () => {
+    const svc = build(CLASSIFIED, [tt('Gold', GOLD)]);
+    const v = await svc.forCinema(MEMBER, 'cin-1', NOW);
+    expect(v.status).toBe('COMPLIANT');
+    expect(v.blocksPublishing).toBe(false);
+    expect(v.reasonCode).toBeNull();
   });
 });
