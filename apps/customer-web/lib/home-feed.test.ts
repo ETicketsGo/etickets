@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buyability,
   chooseHero,
+  emptyStage,
   heroCandidates,
   photosFirst,
   postersFirst,
@@ -195,5 +196,30 @@ describe('sample content ordering', () => {
       { id: 'demo', posterUrl: null, contentLabel: 'DEMO' as const },
     ];
     expect(postersFirst(films).map((f) => f.id)).toEqual(['demo', 'test']);
+  });
+});
+
+describe('emptyStage', () => {
+  it('says nothing is on sale anywhere when the unscoped listing is empty', () => {
+    // PROD 2026-10-14: zero public events, yet the page said "Other places have events on sale".
+    expect(emptyStage(0, 0)).toBe('nowhere');
+  });
+
+  it('ignores remembered city suggestions when nothing is on sale anywhere', () => {
+    // A stale top-city count must not bring back a city chip that leads to nothing.
+    expect(emptyStage(0, 3)).toBe('nowhere');
+  });
+
+  it('names cities when they have something on', () => {
+    expect(emptyStage(12, 2)).toBe('cities');
+  });
+
+  it('claims other places sell only when the API counts events', () => {
+    expect(emptyStage(5, 0)).toBe('elsewhere');
+  });
+
+  it('claims nothing while the global count is still loading', () => {
+    expect(emptyStage(undefined, 0)).toBe('pending');
+    expect(emptyStage(undefined, 4)).toBe('pending');
   });
 });

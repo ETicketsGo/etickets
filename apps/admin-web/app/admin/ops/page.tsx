@@ -28,6 +28,7 @@ import {
   type OpsAlertsStatus,
 } from '@eticketsgo/web-kit';
 import { missingDutyNote, useHolds } from '@/lib/capabilities';
+import { backupHealthView } from '@/lib/backup-health';
 
 function statusTone(status: string): BadgeTone {
   switch (status) {
@@ -78,6 +79,25 @@ function DependencyTile({
             : ` - ${check.recentFailed} in the last 24 hours`}
         </p>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * The database backup, as the health endpoint already reports it. In PRODUCTION a stale or
+ * missing backup is what turns Overall to Degraded, so the page has to say which it is.
+ */
+function BackupTile({ backup }: { backup: Parameters<typeof backupHealthView>[0] }) {
+  const v = backupHealthView(backup, dateTime);
+  if (!v) return null;
+  return (
+    <div className="rounded-lg border border-border bg-background-surface p-4">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[0.9375rem] text-text-muted">Database backup</p>
+        <Badge tone={v.tone}>{v.label}</Badge>
+      </div>
+      <p className="mt-2 break-words text-sm text-text-secondary">{v.detail}</p>
+      {v.note && <p className="mt-1 text-caption text-text-secondary">{v.note}</p>}
     </div>
   );
 }
@@ -324,6 +344,7 @@ export default function AdminOps() {
               <DependencyTile label="Queue (holds)" check={h.queue} />
               <DependencyTile label="Storage (S3/blob)" check={h.storage} />
             </div>
+            <BackupTile backup={h.backup} />
             <OpsAlertsLine alerts={h.opsAlerts} />
           </div>
         )}
