@@ -20,6 +20,7 @@ import { api } from '@/lib/api';
 import {
   buyability,
   chooseHero,
+  emptyStage,
   hasPhoto,
   heroCandidates,
   photosFirst,
@@ -232,6 +233,22 @@ export function DiscoverHome() {
   )
     .filter((c) => c.eventCount > 0 && c.city.toLowerCase() !== preference.city?.toLowerCase())
     .slice(0, 6);
+  /*
+    Whether ANYTHING is on sale anywhere, asked only when this place has nothing: the unscoped
+    public listing's own total, one row long. Without it the page claimed "Other places have
+    events on sale" while there were none at all (PROD, 2026-10-14) and offered a city search
+    that could only lead to another empty page.
+  */
+  const anywhere = useQuery({
+    queryKey: ['events', 'home', 'anywhere-total'],
+    queryFn: () => api.listEvents({ pageSize: '1' }),
+    enabled: nothingHere && Boolean(place),
+    staleTime: 60_000,
+  });
+  const empty = emptyStage(
+    anywhere.data?.meta.total,
+    sellableCities.isLoading ? 0 : suggestedCities.length,
+  );
 
   const all = photosFirst(scoped.data?.data ?? []);
   /*
@@ -359,20 +376,30 @@ export function DiscoverHome() {
           this product can say: the visitor concludes the platform is dead when there are
           events one city over. So the way out is right here: the cities that have something
           on (real cities with a count, the same action as typing one), and the picker.
+          The reverse misleads as much: when nothing is on sale ANYWHERE it says that, and
+          offers no search (see `emptyStage`).
         */
         <section data-brand-tone="stage" className="bg-brand-canvas">
           <div className={`${WRAP} py-16 lg:py-24`}>
             <h2 className="max-w-3xl text-balance font-brand-display text-brand-d1 text-brand-ink">
-              {place ? t('empty.noneIn', { place }) : t('empty.none')}
-            </h2>
-            <p className="mt-4 max-w-prose text-brand-lead text-brand-ink-2">
               {!place
-                ? t('empty.noneHint')
-                : suggestedCities.length > 0
-                  ? t('empty.sellingHere')
-                  : t('empty.otherPlaces')}
-            </p>
-            {place && (
+                ? t('empty.none')
+                : empty === 'nowhere'
+                  ? t('empty.noneAnywhere')
+                  : t('empty.noneIn', { place })}
+            </h2>
+            {(!place || empty !== 'pending') && (
+              <p className="mt-4 max-w-prose text-brand-lead text-brand-ink-2">
+                {!place
+                  ? t('empty.noneHint')
+                  : empty === 'nowhere'
+                    ? t('empty.checkBack')
+                    : empty === 'cities'
+                      ? t('empty.sellingHere')
+                      : t('empty.otherPlaces')}
+              </p>
+            )}
+            {place && (empty === 'cities' || empty === 'elsewhere') && (
               <div className="mt-8 flex flex-wrap items-center gap-3">
                 {suggestedCities.map((c) => (
                   <button

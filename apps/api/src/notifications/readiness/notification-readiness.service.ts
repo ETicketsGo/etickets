@@ -10,6 +10,11 @@ import { TemplateBindingService } from '../templates/template-binding.service';
 import { fallbackChannelFor, immediateChannels } from '../policy/notification-policy';
 import { NotificationType, WebhookProcessingStatus } from '@eticketsgo/shared-types';
 import { messageContentLoggable } from '../channels/transports/content-logging';
+import {
+  OTP_SMS_KIND,
+  REJECTED_SENDER_HEADERS,
+  dltTemplateFor,
+} from '../templates/dlt-sms-templates';
 
 export type ReadinessState =
   | 'CONFIGURED'
@@ -185,8 +190,48 @@ export class NotificationReadinessService {
     if (!this.set('DLT_SENDER_HEADER') && !this.set('MSG91_SENDER_ID')) {
       gaps.push('DLT_SENDER_HEADER (registered sender header)');
     }
-    if (this.unboundTypes('msg91', 'sms').length > 0) {
-      gaps.push('approved DLT template ids');
+    const header = (
+      this.config.get<string>('DLT_SENDER_HEADER') ??
+      this.config.get<string>('MSG91_SENDER_ID') ??
+      ''
+    )
+      .trim()
+      .toUpperCase();
+    if (header && REJECTED_SENDER_HEADERS.includes(header)) {
+      gaps.push(`DLT_SENDER_HEADER (${header} was rejected; set the approved header)`);
+    }
+    gaps.push(...this.dltTemplateGaps());
+    return gaps;
+  }
+
+  /**
+   * The registered SMS templates India needs and does not yet have both ids for.
+   *
+   * ── WHY THE SIGN-IN CODE IS ASKED FOR BY NAME ──────────────────────────────────────
+   * This used to ask only about notification types policy routes to SMS, and the code is
+   * not a notification type -- so readiness could report India SMS complete while every phone
+   * sign-in was refused for want of a template. It is the one SMS every Indian phone user
+   * needs, so it is checked first and always.
+   *
+   * Policy types with no registered wording at all are named too: the transport refuses
+   * them, and "no template id" would send somebody looking for an id that cannot exist.
+   */
+  private dltTemplateGaps(): string[] {
+    const viaSms = Object.values(NotificationType).filter(
+      (t) => immediateChannels(t).includes('sms') || fallbackChannelFor(t) === 'sms',
+    );
+    const kinds = [OTP_SMS_KIND, ...viaSms.map(String)];
+    const gaps: string[] = [];
+    for (const kind of [...new Set(kinds)]) {
+      const template = dltTemplateFor(kind);
+      if (!template) {
+        gaps.push(`registered DLT wording for ${kind}`);
+        continue;
+      }
+      const missing = [template.msg91TemplateIdEnv, template.dltTemplateIdEnv].filter(
+        (k) => !this.set(k),
+      );
+      if (missing.length > 0) gaps.push(`${template.label}: ${missing.join(', ')}`);
     }
     return gaps;
   }

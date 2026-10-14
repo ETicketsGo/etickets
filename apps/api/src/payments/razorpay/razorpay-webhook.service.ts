@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable, Logger } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger, Optional } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { WebhookProcessingStatus } from '@eticketsgo/shared-types';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -6,6 +6,8 @@ import { MetricsService } from '../../metrics/metrics.service';
 import { AppException, ErrorCodes } from '../../common/errors';
 import { PaymentProviderResolver } from '../provider/payment-provider.resolver';
 import { RazorpayWebhookProcessor } from './razorpay-webhook.processor';
+import { OpsAlertService } from '../../ops/alerts/ops-alert.service';
+import { webhookSignatureAlert } from '../../ops/alerts/ops-alert-messages';
 
 const PROVIDER = 'razorpay';
 
@@ -24,6 +26,8 @@ export class RazorpayWebhookService {
     private readonly resolver: PaymentProviderResolver,
     private readonly processor: RazorpayWebhookProcessor,
     private readonly metrics: MetricsService,
+    // Optional so a hand-built service in a unit test needs no alert double.
+    @Optional() private readonly alerts?: OpsAlertService,
   ) {}
 
   async ingest(
@@ -61,6 +65,8 @@ export class RazorpayWebhookService {
           `webhook secret does not match the one signing these deliveries. Payments may be ` +
           `captured without their bookings being confirmed until this is fixed.`,
       );
+      // Not awaited: the alert can neither delay nor change the 400 this delivery gets.
+      void this.alerts?.notify(webhookSignatureAlert(PROVIDER, eventIdHeader, rawBody.length));
       throw err;
     }
 

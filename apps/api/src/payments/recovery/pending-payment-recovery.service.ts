@@ -1,9 +1,12 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PaymentStatus } from '@eticketsgo/shared-types';
 import { MetricsService } from '../../metrics/metrics.service';
 import { PaymentProviderResolver } from '../provider/payment-provider.resolver';
 import { PaymentsService } from '../payments.service';
 import { verdictFromOrderPayments, type CapturedPaymentVerdict } from './captured-payment-verdict';
+import { OpsAlertService } from '../../ops/alerts/ops-alert.service';
+import { expiryFoundCaptureAlert } from '../../ops/alerts/ops-alert-messages';
+import { AppException } from '../../common/errors';
 
 /**
  * What the sweep is allowed to do with a lapsed booking.
@@ -61,6 +64,8 @@ export class PendingPaymentRecoveryService {
     private readonly resolver: PaymentProviderResolver,
     private readonly payments: PaymentsService,
     private readonly metrics: MetricsService,
+    // Optional so a hand-built service in a unit test needs no alert double.
+    @Optional() private readonly alerts?: OpsAlertService,
   ) {}
 
   /**
@@ -117,6 +122,14 @@ export class PendingPaymentRecoveryService {
         `confirmation was received. Routing through the canonical confirmation path.`,
     );
     this.metrics.recordPaymentWebhook?.(payment.provider, 'expiry_capture_recovered');
+    const captured = {
+      bookingId: booking.id,
+      provider: payment.provider,
+      providerOrderId: orderId,
+      providerRef: verdict.providerRef,
+      amountMinor: verdict.amountMinor,
+      currency: verdict.currency,
+    };
 
     try {
       await this.payments.processVerifiedEvent({
@@ -135,8 +148,20 @@ export class PendingPaymentRecoveryService {
         `Recovery of booking ${booking.id} failed; stock stays held: ${(err as Error).message}`,
       );
       this.metrics.recordPaymentWebhook?.(payment.provider, 'expiry_recovery_failed');
+      void this.alerts?.notify(
+        expiryFoundCaptureAlert({
+          ...captured,
+          outcome: 'recovery_failed',
+          errorCode: err instanceof AppException ? err.code : (err as Error)?.name,
+        }),
+      );
       return 'hold_back';
     }
+    /*
+      Recovered, and still worth a person's attention: money reached the provider and no
+      confirmation reached us, which is how the 2026-10-06 incident looked from the inside.
+    */
+    void this.alerts?.notify(expiryFoundCaptureAlert({ ...captured, outcome: 'recovered' }));
     return 'recovered';
   }
 

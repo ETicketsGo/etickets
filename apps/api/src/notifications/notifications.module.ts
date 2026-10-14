@@ -131,6 +131,8 @@ import { PUSH_TRANSPORT, selectPushTransport } from './channels/transports/push.
   ],
   exports: [
     NotificationService,
+    // Exported so OpsAlertService mails operators through the same transport (SES) customers get.
+    EMAIL_TRANSPORT,
     // Exported so the grouped notification centre renders rows the way the inbox does.
     NotificationTemplateService,
     TemplateBindingService,

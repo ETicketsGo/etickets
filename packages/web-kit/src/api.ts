@@ -3185,6 +3185,13 @@ export interface CinemaComplianceView {
   };
   classification: { cinemaFormat: string | null; climateType: string | null };
   status: PricingComplianceStatus;
+  /**
+   * Why INVALID_CINEMA_CLASSIFICATION was given (null for any other status): an unmapped seat
+   * category, or a cinema with no classification. Absent on an older API.
+   */
+  reasonCode?: 'SEAT_CLASS_UNMAPPED' | 'CINEMA_NOT_CLASSIFIED' | null;
+  /** The seat categories with no regulatory seat class, when that is the reason. */
+  unmappedSeatCategories?: string[];
   summary: string;
   regulatoryReference: string | null;
   effectiveFrom: string | null;
@@ -6513,6 +6520,30 @@ export interface OpsHealth {
   nodeEnv: string;
   /** LOCAL / QA / UAT / PRODUCTION. QA and UAT run NODE_ENV=production, so show this instead. */
   appEnv?: string | null;
+  /** Age of the newest VERIFIED backup, from its evidence row (apps/api/src/ops/backup-freshness.ts). */
+  backup?: OpsBackupFreshness;
+  /** Whether money-critical failures are emailed to operators. Absent on an older API. */
+  opsAlerts?: OpsAlertsStatus;
+}
+
+/** The API's BackupFreshness. 'never' means no evidence row, not proof that no dump exists. */
+export interface OpsBackupFreshness {
+  status: 'fresh' | 'stale' | 'never' | 'unknown';
+  lastVerifiedAt: string | null;
+  ageHours: number | null;
+  maxAgeHours: number;
+  lastBackupName: string | null;
+  lastRestoreDrillAt: string | null;
+}
+
+export interface OpsAlertsStatus {
+  configured: boolean;
+  status: 'configured' | 'not_configured';
+  reason: string | null;
+  recipients: number;
+  emailProvider: string;
+  lastAlertAt: string | null;
+  lastAlertKind: string | null;
 }
 
 export interface OpsQueueCounts {

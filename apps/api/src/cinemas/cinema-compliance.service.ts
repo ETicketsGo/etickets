@@ -36,6 +36,20 @@ export interface ComplianceView {
   };
   classification: { cinemaFormat: string | null; climateType: string | null };
   status: PricingComplianceStatus;
+  /**
+   * WHY an INVALID_CINEMA_CLASSIFICATION status was given, in the sale-blocker codes the
+   * readiness report already uses; null for every other status.
+   *
+   * The resolver gives that one status for two different jobs: a seat category with no
+   * regulatory seat class (the organizer maps it under Seat classes) and a cinema with no
+   * local body, format or climate type on record. The summary used to describe only the
+   * second, so an exhibitor whose cinema WAS classified (QA Vijayawada, "Platinum Executive"
+   * unmapped) was sent to fields that were already set. Wording only: `status` and
+   * `blocksPublishing` are unchanged, and nothing here decides what sells.
+   */
+  reasonCode: 'SEAT_CLASS_UNMAPPED' | 'CINEMA_NOT_CLASSIFIED' | null;
+  /** Display names of seat categories with no regulatory seat class, for the reason above. */
+  unmappedSeatCategories: string[];
   /** One sentence an exhibitor can act on. */
   summary: string;
   /** The cited order. Never the internal notes. */
@@ -185,6 +199,18 @@ export class CinemaComplianceService {
     );
     // Display only: what the headline may blame. A finished show's old price is history.
     const livePrices = prices.filter((p) => p.upcoming);
+    /*
+      The resolver checks unmapped seat categories BEFORE classification, so when it was given
+      any and answered INVALID_CINEMA_CLASSIFICATION, they are the reason. Otherwise that
+      status means the classification itself is missing.
+    */
+    const reasonCode: ComplianceView['reasonCode'] =
+      resolution.status !== 'INVALID_CINEMA_CLASSIFICATION'
+        ? null
+        : unmappedSeatCategories.length > 0
+          ? 'SEAT_CLASS_UNMAPPED'
+          : 'CINEMA_NOT_CLASSIFIED';
+    const classified = Boolean(cinema.localBodyType && cinema.cinemaFormat && cinema.climateType);
 
     return {
       jurisdiction: {
@@ -196,7 +222,13 @@ export class CinemaComplianceService {
       },
       classification: { cinemaFormat: cinema.cinemaFormat, climateType: cinema.climateType },
       status: resolution.status,
-      summary: this.summarise(resolution.status, resolution.explanation, livePrices),
+      reasonCode,
+      unmappedSeatCategories: reasonCode === 'SEAT_CLASS_UNMAPPED' ? unmappedSeatCategories : [],
+      summary: this.summarise(resolution.status, resolution.explanation, livePrices, {
+        reasonCode,
+        unmappedSeatCategories,
+        classified,
+      }),
       regulatoryReference: policy?.regulatoryReference ?? null,
       effectiveFrom: policy?.effectiveFrom?.toISOString() ?? null,
       maintenance: policy?.maintenanceChargeMinor
@@ -360,6 +392,11 @@ export class CinemaComplianceService {
     status: PricingComplianceStatus,
     explanation: string,
     prices: { name: string; priceMinor: number; ok: boolean; reason: string | null }[],
+    why: {
+      reasonCode: ComplianceView['reasonCode'];
+      unmappedSeatCategories: string[];
+      classified: boolean;
+    },
   ): string {
     const over = prices.find((p) => !p.ok);
     if (over) {
@@ -375,6 +412,19 @@ export class CinemaComplianceService {
       case 'REQUIRES_APPROVAL':
         return 'Compliance review required — the online booking fee for this jurisdiction is pending confirmation, so no booking fee is charged.';
       case 'INVALID_CINEMA_CLASSIFICATION':
+        if (why.reasonCode === 'SEAT_CLASS_UNMAPPED') {
+          const names = why.unmappedSeatCategories.map((n) => `"${n}"`).join(', ');
+          const one = why.unmappedSeatCategories.length === 1;
+          // Named, because the fix is one field on one seat category. Mentions the
+          // classification too when that is ALSO missing, so the next wall is not a surprise.
+          return (
+            `Cannot publish: seat ${one ? 'category' : 'categories'} ${names} ${one ? 'has' : 'have'} no regulatory seat class. ` +
+            'This location sets a price limit for each seat class. Set it under Seat classes.' +
+            (why.classified
+              ? ''
+              : ' This cinema also needs its local body, format and climate type set.')
+          );
+        }
         return 'Cannot publish — this jurisdiction prices by cinema classification and this cinema has not been classified. Set its local body, format and climate type.';
       case 'POLICY_NOT_FOUND':
         return `Cannot publish — no pricing order is configured for this location. ${explanation}`;

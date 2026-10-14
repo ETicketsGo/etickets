@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import {
   PaymentStatus,
   RefundStatus,
@@ -11,6 +11,8 @@ import { PaymentsService } from '../payments.service';
 import { SettlementService } from '../settlement/settlement.service';
 import { DisputeService } from '../dispute/dispute.service';
 import type { PaymentEvent } from '../provider/payment-provider.interface';
+import { OpsAlertService } from '../../ops/alerts/ops-alert.service';
+import { webhookDeadLetteredAlert } from '../../ops/alerts/ops-alert-messages';
 
 const MAX_ATTEMPTS = 6;
 const RETRY_BACKOFF_MS = 30_000;
@@ -83,6 +85,8 @@ export class RazorpayWebhookProcessor {
     private readonly settlements: SettlementService,
     private readonly disputes: DisputeService,
     private readonly audit: AuditService,
+    // Optional so a hand-built processor in a unit test needs no alert double.
+    @Optional() private readonly alerts?: OpsAlertService,
   ) {}
 
   async process(webhookEventId: string): Promise<void> {
@@ -153,6 +157,15 @@ export class RazorpayWebhookProcessor {
           entityId: webhookEventId,
           metadata: { provider: PROVIDER, eventType: record.eventType },
         });
+        void this.alerts?.notify(
+          webhookDeadLetteredAlert({
+            provider: PROVIDER,
+            webhookEventId,
+            providerEventId: record.providerEventId,
+            eventType: record.eventType,
+            attempts: record.attempts,
+          }),
+        );
       }
     }
   }

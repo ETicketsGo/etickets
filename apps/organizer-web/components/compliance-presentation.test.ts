@@ -110,6 +110,22 @@ describe('classificationSummary (F3)', () => {
     classification: { cinemaFormat: 'MULTIPLEX', climateType: 'AC' },
   };
 
+  it('lets a server that names the reason speak for itself', () => {
+    // The newer API's summary names the unmapped seat category; the generic guess would hide it.
+    expect(classificationSummary({ ...invalid, reasonCode: 'SEAT_CLASS_UNMAPPED' })).toBeNull();
+    const h = complianceHeadline(
+      {
+        ...invalid,
+        reasonCode: 'SEAT_CLASS_UNMAPPED',
+        blocksPublishing: true,
+        summary: 'Cannot publish: seat category "Platinum Executive" has no regulatory seat class.',
+      },
+      [],
+    );
+    expect(h.text).toContain('Platinum Executive');
+    expect(h.tone).toBe('error');
+  });
+
   it('does not tell a classified cinema to set its classification', () => {
     const text = classificationSummary(invalid);
     expect(text).toContain('seat class');

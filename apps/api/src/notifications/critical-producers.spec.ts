@@ -60,6 +60,9 @@ const NOT_PRODUCERS = new Set(
     // The email layout: it names types to decide which facts each one shows and what its
     // button says. It is handed a message that has already been composed and sent.
     'notifications/templates/email-view.ts',
+    // The India DLT SMS wording: it names types to say which registered text each one uses.
+    // It is handed a message that is already being sent; it has no way to send one.
+    'notifications/templates/dlt-sms-templates.ts',
   ].map((p) => p.replace(/\//g, require('node:path').sep)),
 );
 
