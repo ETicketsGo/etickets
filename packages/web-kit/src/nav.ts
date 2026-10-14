@@ -53,6 +53,19 @@ export interface NavItem {
   groupIcon?: LucideIcon;
   /** Other words somebody might type into quick navigation to find this page. */
   keywords?: string[];
+  /**
+   * False keeps the page out of the sidebar while quick navigation still finds it.
+   *
+   * For a page with its own way in that the sidebar should not repeat: the organizer's Get
+   * started is offered as a setup link while setup is unfinished, and a permanent row for a
+   * job that is done once was clutter in the list people scan every day.
+   */
+  sidebar?: boolean;
+  /**
+   * This item's name as the first tab of its own section ("Finance" beside Payouts and
+   * Refunds), where the sidebar's longer name would repeat the section. Defaults to `label`.
+   */
+  tabLabel?: string;
 }
 
 /** Who is looking: their roles and, for platform staff, their back-office capabilities. */

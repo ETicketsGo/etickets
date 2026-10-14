@@ -2,19 +2,9 @@
 
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
-import {
-  Banknote,
-  CalendarClock,
-  Clock,
-  Info,
-  ReceiptText,
-  Undo2,
-  Wallet,
-  type LucideIcon,
-} from 'lucide-react';
+import { Banknote, CalendarClock, Clock, Info, Wallet, type LucideIcon } from 'lucide-react';
 import {
   api,
-  ButtonLink,
   DataTable,
   ErrorState,
   MARKETS,
@@ -284,19 +274,7 @@ export default function FinancePage() {
       <PageHeader
         title="Finance & payouts"
         description={`What ${activeOrgSentenceName} has earned, what has been paid, and what is still to come.`}
-        action={
-          <nav aria-label="Finance pages" className="flex flex-wrap gap-2">
-            <ButtonLink href="/organizer/payouts" variant="outline" size="sm" icon={Banknote}>
-              Payouts
-            </ButtonLink>
-            <ButtonLink href="/organizer/receipts" variant="outline" size="sm" icon={ReceiptText}>
-              Receipts
-            </ButtonLink>
-            <ButtonLink href="/organizer/refunds" variant="outline" size="sm" icon={Undo2}>
-              Refunds
-            </ButtonLink>
-          </nav>
-        }
+        // Payouts, Receipts and invoices and Refunds are this section's tabs (SectionTabs).
       />
 
       {/*

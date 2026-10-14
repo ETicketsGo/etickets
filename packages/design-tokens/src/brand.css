@@ -143,20 +143,22 @@
 
 /*
   Console dark. Warm charcoal, not navy and not black: the same family as the light paper, so
-  switching themes changes the light, not the brand. The action inverts to paper-on-charcoal
+  switching themes changes the light, not the brand. Lifted in the organizer recovery: the first
+  values put page, card and inset at 7%, 10.5% and 14% lightness, which read as one near-black
+  sheet with no visible cards. Now 9.5 / 13.5 / 17.5 with hairlines at 23%, so a card is a card. The action inverts to paper-on-charcoal
   rather than turning a colour - a console's main button should not shout in the dark either.
 */
 .dark [data-brand='console'],
 .dark[data-brand='console'] {
-  --brand-canvas: 30 8% 7%; /* #131211 */
-  --brand-surface: 30 7% 10.5%; /* #1D1B19 */
-  --brand-sunken: 30 6% 14%;
+  --brand-canvas: 30 6% 9.5%; /* #1A1817 */
+  --brand-surface: 30 6% 13.5%; /* #24221F */
+  --brand-sunken: 30 5% 17.5%; /* #302D2A */
   --brand-ink: 40 20% 94%;
   --brand-ink-2: 36 8% 74%;
-  --brand-ink-3: 36 6% 65%;
-  --brand-line: 30 5% 19%;
-  --brand-line-strong: 30 5% 28%;
-  --brand-field: 30 4% 50%;
+  --brand-ink-3: 36 6% 67%;
+  --brand-line: 30 5% 23%;
+  --brand-line-strong: 30 5% 32%;
+  --brand-field: 30 4% 53%;
 
   --brand-action: 40 20% 94%;
   --brand-action-hover: 40 10% 82%;
@@ -167,13 +169,13 @@
   --brand-on-marigold: 30 14% 8%;
 
   --brand-positive: 150 50% 58%;
-  --brand-positive-tint: 152 30% 15%;
+  --brand-positive-tint: 152 28% 18.5%;
   --brand-caution: 26 90% 66%;
-  --brand-caution-tint: 22 40% 15%;
+  --brand-caution-tint: 22 38% 18.5%;
   --brand-critical: 358 85% 72%;
-  --brand-critical-tint: 356 40% 16%;
+  --brand-critical-tint: 356 38% 19.5%;
   --brand-info: 218 85% 76%;
-  --brand-info-tint: 220 40% 17%;
+  --brand-info-tint: 220 38% 20%;
 
   --brand-focus: 40 20% 94%;
   --brand-shadow-overlay: 0 12px 32px -12px rgb(0 0 0 / 0.6), 0 2px 6px -2px rgb(0 0 0 / 0.4);

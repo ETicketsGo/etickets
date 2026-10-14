@@ -4,10 +4,13 @@ import { ADMIN, ORGANIZER, apiLogin, seedBrowserAuth, type AuthTokens } from './
 /**
  * The console navigation, driven the way a keyboard user drives it.
  *
- * Organizer and admin share one shell (`AppShell` + `sidebar-nav.tsx`), so the same claims
- * are checked in both: groups start folded except the current one, Ctrl+K finds a page by
- * name, the collapsed rail is a row of NAMED group buttons whose tooltip shows on focus and
- * whose flyout opens, walks and closes from the keyboard, and the sidebar never adds a
+ * Organizer and admin share one shell (`AppShell` + `sidebar-nav.tsx`) but no longer one
+ * sidebar. Admin keeps the classic tree: groups start folded except the current one, and the
+ * collapsed rail is a row of NAMED group buttons whose tooltip shows on focus and whose flyout
+ * opens, walks and closes from the keyboard. The organizer desk is one flat list (organizer
+ * recovery, docs/design/ORGANIZER-REGRESSION.md): every top-level page always visible, group
+ * names as labels that cannot be clicked, secondary pages as the tabs of their section, and a
+ * rail of named icon links. Both: Ctrl+K finds a page by name, and the sidebar never adds a
  * second scroll at a 768px-tall window.
  *
  * Found by role and name only: if a test cannot find a control that way, neither can a
@@ -24,20 +27,6 @@ async function setRail(page: Page, collapsed: boolean) {
 }
 
 for (const app of [
-  {
-    name: 'organizer',
-    base: ORGANIZER,
-    email: 'owner@eticketsgo.test',
-    home: '/organizer',
-    nav: 'Main',
-    // A page in a group that is folded on the home page, and a word to find it by.
-    target: { query: 'payouts', label: 'Payouts', url: /\/organizer\/payouts$/ },
-    group: 'Business',
-    groupLink: 'Finance & payouts',
-    // The page whose open group is the longest: the worst case for a short window.
-    tallest: '/organizer/payouts',
-    drawer: 'Navigation',
-  },
   {
     name: 'admin',
     base: ADMIN,
@@ -247,3 +236,159 @@ for (const app of [
     });
   });
 }
+
+test.describe('organizer navigation (flat desk sidebar)', () => {
+  let tokens: AuthTokens;
+  test.beforeAll(async ({ request }) => {
+    tokens = await apiLogin(request, 'owner@eticketsgo.test');
+  });
+  test.beforeEach(async ({ context }) => {
+    await seedBrowserAuth(context, tokens);
+  });
+
+  // Movies is listed only for an organization with films, so it is not asserted here.
+  const TOP = [
+    'Overview',
+    'Events',
+    'Calendar',
+    'Venues & seating',
+    'Bookings & attendees',
+    'Check-in',
+    'Notifications',
+    'Marketing',
+    'Finance & payouts',
+    'Team',
+    'Settings',
+    'Help & support',
+  ];
+
+  test('every top-level page is listed, and nothing folds', async ({ page }) => {
+    await setRail(page, false);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`${ORGANIZER}/organizer`);
+    const nav = page.getByRole('navigation', { name: 'Main' });
+    await expect(nav.getByRole('link', { name: 'Overview', exact: true })).toBeVisible({
+      timeout: 30_000,
+    });
+    for (const label of TOP) {
+      await expect(nav.getByRole('link', { name: label, exact: true })).toBeVisible();
+    }
+    // Group names are labels, not controls: no disclosure anywhere in the list.
+    await expect(nav.locator('button[aria-expanded]')).toHaveCount(0);
+    await expect(nav.locator('[aria-current="page"]')).toHaveCount(1);
+    await expect(nav.locator('[aria-current="page"]')).toHaveText('Overview');
+  });
+
+  test('Ctrl+K finds a secondary page; its section is marked and its tab is current', async ({
+    page,
+  }) => {
+    await setRail(page, false);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`${ORGANIZER}/organizer`);
+    await expect(page.getByRole('button', { name: /Find a page/ })).toBeVisible({
+      timeout: 30_000,
+    });
+    await page.keyboard.press('Control+k');
+    const dialog = page.getByRole('dialog', { name: 'Find a page' });
+    const field = dialog.getByRole('combobox', { name: 'Page name' });
+    await expect(field).toBeFocused();
+    await field.fill('payouts');
+    await expect(dialog.getByRole('option').first()).toContainText('Payouts');
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(/\/organizer\/payouts$/);
+    const nav = page.getByRole('navigation', { name: 'Main' });
+    await expect(nav.getByRole('link', { name: 'Finance & payouts', exact: true })).toHaveAttribute(
+      'aria-current',
+      'true',
+    );
+    const tabs = page.getByRole('navigation', { name: 'Finance & payouts pages' });
+    await expect(tabs.getByRole('link', { name: 'Payouts', exact: true })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    // And a tab takes you to its sibling.
+    await tabs.getByRole('link', { name: 'Refunds', exact: true }).click();
+    await expect(page).toHaveURL(/\/organizer\/refunds$/);
+  });
+
+  test('Escape closes quick navigation and gives focus back', async ({ page }) => {
+    await setRail(page, false);
+    await page.goto(`${ORGANIZER}/organizer`);
+    const trigger = page.getByRole('button', { name: /Find a page/ });
+    await trigger.click();
+    const dialog = page.getByRole('dialog', { name: 'Find a page' });
+    await dialog.getByRole('combobox').fill('zzzz-no-such-page');
+    await expect(dialog.getByText(/No page matches/)).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(dialog).toBeHidden();
+    await expect(trigger).toBeFocused();
+  });
+
+  test('the collapsed rail is named icon links, with a tooltip on keyboard focus', async ({
+    page,
+  }) => {
+    await setRail(page, true);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(`${ORGANIZER}/organizer`);
+    const nav = page.getByRole('navigation', { name: 'Main' });
+    const team = nav.getByRole('link', { name: 'Team', exact: true });
+    await expect(team).toBeVisible({ timeout: 30_000 });
+    // Reach it from the link above with Tab, as a keyboard user would.
+    await nav.getByRole('link', { name: 'Finance & payouts', exact: true }).focus();
+    await page.keyboard.press('Tab');
+    await expect(team).toBeFocused();
+    await expect(page.locator('[data-rail-tooltip]')).toHaveText('Team');
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(/\/organizer\/team$/);
+    await expect(nav.getByRole('link', { name: 'Team', exact: true })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    // Expand again: the labels are back and the current page is still marked.
+    await page.getByRole('button', { name: 'Expand sidebar' }).click();
+    await expect(page.getByRole('button', { name: 'Collapse sidebar' })).toBeFocused();
+    await expect(nav.locator('[aria-current="page"]')).toHaveText('Team');
+  });
+
+  test('at a 768px-tall window the sidebar adds no second scroll', async ({ page }) => {
+    await setRail(page, false);
+    await page.setViewportSize({ width: 1024, height: 768 });
+    await page.goto(`${ORGANIZER}/organizer/payouts`);
+    const nav = page.getByRole('navigation', { name: 'Main' });
+    await expect(nav.getByRole('link', { name: 'Help & support', exact: true })).toBeVisible({
+      timeout: 30_000,
+    });
+    const overflow = await nav.evaluate((el) => el.scrollHeight - el.clientHeight);
+    expect(overflow, 'the sidebar list scrolls on its own').toBeLessThanOrEqual(1);
+  });
+
+  test('on a phone the drawer opens, closes and hands focus back', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`${ORGANIZER}/organizer`);
+    const toggle = page.getByRole('button', { name: 'Toggle navigation' });
+    await expect(toggle).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole('button', { name: 'Collapse sidebar' })).toBeHidden();
+
+    const drawer = page.getByRole('dialog', { name: 'Navigation' });
+    await toggle.click();
+    await expect(drawer).toBeVisible();
+    await expect(drawer.locator('[aria-current="page"]')).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(drawer).toBeHidden();
+    await expect(toggle).toBeFocused();
+
+    await toggle.click();
+    await drawer.getByRole('button', { name: 'Close navigation' }).click();
+    await expect(drawer).toBeHidden();
+    await expect(toggle).toBeFocused();
+
+    // Every page is one press away: there is no group to open first.
+    await toggle.click();
+    await drawer.getByRole('link', { name: 'Finance & payouts', exact: true }).click();
+    await expect(page).toHaveURL(/\/organizer\/finance$/);
+    await expect(drawer).toBeHidden();
+    await toggle.click();
+    await expect(drawer.locator('[aria-current="page"]')).toHaveText('Finance & payouts');
+    await page.keyboard.press('Escape');
+  });
+});

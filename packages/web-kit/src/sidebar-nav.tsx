@@ -41,6 +41,10 @@ import {
     focus and a flyout listing that group's pages by name. A rail of thirty unlabelled icons
     is a memory test; a rail of nine named groups is a menu.
 
+  The organizer desk no longer folds (organizer recovery): with `appearance="desk"` the tree and
+  the rail are `DeskNavList` and `DeskRail` below, one flat list with icons. Admin (`classic`)
+  keeps everything described above.
+
   Visibility is UX, never authorization: the shell is handed the nav AFTER `visibleNav`
   removed what the viewer cannot open, and every route keeps its own guard.
 */
@@ -144,7 +148,16 @@ export function QuickNavTrigger({
  * arriving on a page opens its group whatever was folded before, so the current page is
  * never hidden inside a closed heading.
  */
-export function NavTree({
+export function NavTree(props: {
+  items: NavItem[];
+  pathname: string;
+  onNavigate?: () => void;
+  appearance?: ShellAppearance;
+}) {
+  return props.appearance === 'desk' ? <DeskNavList {...props} /> : <ClassicNavTree {...props} />;
+}
+
+function ClassicNavTree({
   items,
   pathname,
   onNavigate,
@@ -325,6 +338,192 @@ export function NavTree({
   );
 }
 
+/*
+  ── THE DESK: ONE FLAT LIST ───────────────────────────────────────────────────────────
+  The organizer console's sidebar (docs/design/ORGANIZER-REGRESSION.md). Folding groups and
+  per-item disclosure (#289) meant an organizer opened two levels of headings to reach a page
+  they use every day, and the desk restyle (#355) then removed the icons, so the list was words
+  in collapsed boxes. The owner rejected it as hard to navigate.
+
+  The desk now lists every top-level page, always, in one column:
+  - Group names are labels, not buttons. They do not fold and cannot be clicked.
+  - Every row has its icon in one 18px column, one row height (44px touch, 36px from `lg`),
+    and the current page is a surface pill with a hairline and the marigold bar.
+  - Secondary pages (Payouts under Finance, Counter under Bookings) are not listed here; the
+    page they belong to shows them as tabs (`SectionTabs`), and quick navigation finds them by
+    name. While one of them is open, its parent row is marked as the current SECTION
+    (`aria-current="true"`); the tab carries `aria-current="page"`.
+  - The collapsed rail is the same list as icons, each with its name as a tooltip on hover and
+    on keyboard focus. No flyouts: one press, one page.
+*/
+
+/** The sidebar's rows: what is listed (not `sidebar: false`), in the sections it belongs to. */
+function deskSections(items: NavItem[]): NavSection[] {
+  return navSections(items.filter((i) => i.sidebar !== false)).filter((s) => s.items.length > 0);
+}
+
+/** `page` for the page itself; `true` for the section a secondary page belongs to. */
+function deskCurrent(pathname: string, item: NavItem, current: string | null) {
+  if (item.href === current) return 'page' as const;
+  return navInSection(pathname, item) ? ('true' as const) : undefined;
+}
+
+function DeskNavList({
+  items,
+  pathname,
+  onNavigate,
+}: {
+  items: NavItem[];
+  pathname: string;
+  onNavigate?: () => void;
+}) {
+  const sections = useMemo(() => deskSections(items), [items]);
+  const current = navCurrentHref(pathname, items);
+  const baseId = useId();
+  return (
+    <div className="flex flex-col gap-3">
+      {sections.map((section, si) => {
+        const labelId = `${baseId}-l${si}`;
+        return (
+          <div key={section.label ?? `s${si}`}>
+            {section.label && (
+              <p id={labelId} className="px-3 pb-1 text-brand-eyebrow uppercase text-brand-ink-3">
+                {section.label}
+              </p>
+            )}
+            <ul
+              className="flex flex-col gap-0.5"
+              aria-labelledby={section.label ? labelId : undefined}
+            >
+              {section.items.map((item) => {
+                const state = deskCurrent(pathname, item, current);
+                const Icon = item.icon;
+                return (
+                  <li key={item.href}>
+                    <Link
+                      href={item.href}
+                      onClick={onNavigate}
+                      aria-current={state}
+                      className={`group/link relative flex min-h-[2.75rem] min-w-0 items-center gap-3 rounded-brand-control border px-3 text-brand-ui transition-colors duration-150 lg:min-h-[2.25rem] ${DESK_FOCUS} ${
+                        state
+                          ? 'border-brand-line bg-brand-surface font-semibold text-brand-ink'
+                          : 'border-transparent text-brand-ink-2 hover:bg-brand-sunken hover:text-brand-ink'
+                      }`}
+                    >
+                      {state && (
+                        // Shape as well as fill: the current row is told apart without colour.
+                        <span
+                          className="absolute inset-y-2 -left-3 w-[3px] rounded-r-full bg-brand-marigold"
+                          aria-hidden
+                        />
+                      )}
+                      {Icon && (
+                        <Icon
+                          className={`h-[1.125rem] w-[1.125rem] shrink-0 ${
+                            state
+                              ? 'text-brand-ink'
+                              : 'text-brand-ink-3 group-hover/link:text-brand-ink'
+                          }`}
+                          aria-hidden
+                        />
+                      )}
+                      <span className="truncate">{item.label}</span>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function DeskRail({ items, pathname }: { items: NavItem[]; pathname: string }) {
+  const sections = useMemo(() => deskSections(items), [items]);
+  const current = navCurrentHref(pathname, items);
+  return (
+    <div className="flex flex-col items-center gap-2">
+      {sections.map((section, si) => (
+        <ul
+          key={section.label ?? `s${si}`}
+          aria-label={section.label}
+          className={`flex flex-col items-center gap-1 ${si > 0 ? 'border-t border-brand-line pt-2' : ''}`}
+        >
+          {section.items.map((item) => {
+            const Icon = item.icon;
+            const state = deskCurrent(pathname, item, current);
+            return (
+              <li key={item.href}>
+                <RailTip label={item.label}>
+                  {(tip) => (
+                    <Link
+                      href={item.href}
+                      aria-label={item.label}
+                      aria-current={state}
+                      {...tip}
+                      className={`relative flex h-10 w-10 items-center justify-center rounded-brand-control border transition-colors duration-150 ${DESK_FOCUS} ${
+                        state
+                          ? 'border-brand-line bg-brand-surface text-brand-ink'
+                          : 'border-transparent text-brand-ink-3 hover:bg-brand-sunken hover:text-brand-ink'
+                      }`}
+                    >
+                      {state && (
+                        <span
+                          className="absolute inset-y-2 -left-2 w-[3px] rounded-r-full bg-brand-marigold"
+                          aria-hidden
+                        />
+                      )}
+                      {Icon && <Icon className="h-[1.125rem] w-[1.125rem]" aria-hidden />}
+                    </Link>
+                  )}
+                </RailTip>
+              </li>
+            );
+          })}
+        </ul>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * A section's own pages as tabs under the page header: Finance, Payouts, Receipts and invoices,
+ * Refunds. The shell renders it for whichever top-level item is open and has secondary pages;
+ * nothing otherwise. The open tab carries `aria-current="page"`.
+ */
+export function SectionTabs({ items, pathname }: { items: NavItem[]; pathname: string }) {
+  const parent = items.find((i) => (i.children?.length ?? 0) > 0 && navInSection(pathname, i));
+  if (!parent) return null;
+  const tabs = [parent, ...(parent.children ?? [])];
+  const current = navCurrentHref(pathname, tabs);
+  return (
+    <nav aria-label={`${parent.label} pages`} className="mb-6 border-b border-brand-line">
+      <ul className="-mb-px flex gap-1 overflow-x-auto [scrollbar-width:none]">
+        {tabs.map((t) => {
+          const on = t.href === current;
+          return (
+            <li key={t.href} className="shrink-0">
+              <Link
+                href={t.href}
+                aria-current={on ? 'page' : undefined}
+                className={`inline-flex min-h-[2.75rem] items-center whitespace-nowrap border-b-2 px-3 text-brand-ui transition-colors duration-150 ${DESK_FOCUS} ${
+                  on
+                    ? 'border-brand-ink font-semibold text-brand-ink'
+                    : 'border-transparent text-brand-ink-2 hover:border-brand-line-strong hover:text-brand-ink'
+                }`}
+              >
+                {t === parent ? (parent.tabLabel ?? parent.label) : t.label}
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+    </nav>
+  );
+}
+
 /**
  * A tooltip for the rail: shown on hover AND on keyboard focus, beside the control.
  *
@@ -393,7 +592,15 @@ export function RailTip({
  * desktop menu bar expects to go. Items listed outside any group (check-in staff have two
  * pages and no groups) are links straight in the rail, each with its tooltip.
  */
-export function NavRail({
+export function NavRail(props: {
+  items: NavItem[];
+  pathname: string;
+  appearance?: ShellAppearance;
+}) {
+  return props.appearance === 'desk' ? <DeskRail {...props} /> : <ClassicNavRail {...props} />;
+}
+
+function ClassicNavRail({
   items,
   pathname,
   appearance = 'classic',

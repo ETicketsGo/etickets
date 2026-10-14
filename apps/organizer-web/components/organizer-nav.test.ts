@@ -67,13 +67,47 @@ describe('the organizer sidebar', () => {
     expect(reachable(route, owner), `${route} has no way in from the sidebar`).toBe(true);
   });
 
-  it('has the four groups the owner asked for, in order', () => {
+  it('has the three section labels, in order', () => {
     expect(owner.filter((i) => i.group).map((i) => i.group)).toEqual([
-      'Workspace',
+      'Selling',
       'Operations',
       'Business',
-      'Account',
     ]);
+  });
+
+  it('lists the top-level pages in the order the owner asked for', () => {
+    // The sidebar rows: every item except the ones kept for quick navigation only.
+    expect(owner.filter((i) => i.sidebar !== false).map((i) => i.label)).toEqual([
+      'Overview',
+      'Events',
+      'Calendar',
+      'Venues & seating',
+      'Movies',
+      'Bookings & attendees',
+      'Check-in',
+      'Notifications',
+      'Marketing',
+      'Finance & payouts',
+      'Team',
+      'Settings',
+      'Help & support',
+    ]);
+  });
+
+  it('keeps Get started out of the sidebar list but findable', () => {
+    const start = owner.find((i) => i.href === '/organizer/onboarding');
+    expect(start?.sidebar).toBe(false);
+    expect(filterQuickNav(quickNavEntries(owner), 'get started')[0].href).toBe(
+      '/organizer/onboarding',
+    );
+  });
+
+  it('has one level only: secondary pages are tabs of Bookings, Finance and Settings', () => {
+    const parents = owner.filter((i) => i.children?.length).map((i) => i.href);
+    expect(parents).toEqual(['/organizer/bookings', '/organizer/finance', '/organizer/settings']);
+    for (const kid of owner.flatMap((i) => i.children ?? [])) {
+      expect(kid.children, `${kid.href} nests a third level`).toBeUndefined();
+    }
   });
 
   it('links the calendar', () => {
@@ -128,7 +162,7 @@ describe('quick navigation and the collapsed rail', () => {
     ]);
   });
 
-  it('gives every rail group its own picture', () => {
+  it('gives every section its own picture', () => {
     const icons = navSections(owner).map((s) => s.icon);
     expect(icons.every(Boolean)).toBe(true);
     expect(new Set(icons).size).toBe(icons.length);

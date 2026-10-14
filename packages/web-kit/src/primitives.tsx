@@ -676,6 +676,7 @@ export function ImageFrame({
           {/* Two soft teal glows and a fine diagonal grain: branded, and plainly artwork. */}
           <span
             aria-hidden
+            data-placeholder-glow=""
             className="absolute inset-0 opacity-90"
             style={{
               backgroundImage:

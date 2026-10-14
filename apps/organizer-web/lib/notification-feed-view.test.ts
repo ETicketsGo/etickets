@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { NotificationFeedGroup } from '@eticketsgo/web-kit';
 import {
   affectedLabel,
+  filterFeed,
+  isStandingProblem,
   relativeTime,
   severityView,
   splitByAttention,
@@ -74,5 +76,51 @@ describe('affected count', () => {
     expect(affectedLabel(0)).toBeNull();
     expect(affectedLabel(1)).toBe('1 showtime affected');
     expect(affectedLabel(18)).toBe('18 showtimes affected');
+  });
+});
+
+describe('narrowing the list', () => {
+  const problem = group({ key: 'p' });
+  const readApproval = group({
+    key: 'r',
+    category: 'EVENT_APPROVALS',
+    severity: 'SUCCESS',
+    read: true,
+    unreadIds: [],
+  });
+  const newApproval = group({ key: 'n', category: 'EVENT_APPROVALS', severity: 'SUCCESS' });
+  const sections = [
+    { category: 'ACTION_REQUIRED' as const, label: 'Action required', groups: [problem] },
+    {
+      category: 'EVENT_APPROVALS' as const,
+      label: 'Event approvals',
+      groups: [readApproval, newApproval],
+    },
+    { category: 'SYSTEM_UPDATES' as const, label: 'System updates', groups: [] },
+  ];
+
+  it('All keeps the server order and drops empty subjects', () => {
+    expect(filterFeed(sections, 'all').map((s) => s.category)).toEqual([
+      'ACTION_REQUIRED',
+      'EVENT_APPROVALS',
+    ]);
+  });
+
+  it('Unread keeps only unread rows, and their subjects', () => {
+    const out = filterFeed(sections, 'unread');
+    expect(out.map((s) => s.groups.map((g) => g.key))).toEqual([['p'], ['n']]);
+  });
+
+  it('a subject filter shows that subject alone', () => {
+    expect(filterFeed(sections, 'EVENT_APPROVALS').map((s) => s.category)).toEqual([
+      'EVENT_APPROVALS',
+    ]);
+    expect(filterFeed(sections, 'SYSTEM_UPDATES')).toEqual([]);
+  });
+
+  it('a standing problem is one not known to be fixed', () => {
+    expect(isStandingProblem(problem)).toBe(true);
+    expect(isStandingProblem(group({ resolved: true }))).toBe(false);
+    expect(isStandingProblem(newApproval)).toBe(false);
   });
 });

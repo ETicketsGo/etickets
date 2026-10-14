@@ -18,6 +18,8 @@ import { useActiveOrgId } from './org-context';
  * would blank on every navigation.
  */
 export function useWorkspace(): {
+  /** The organization the console is showing; undefined while the list is in flight. */
+  id?: string;
   name: string;
   logoUrl?: string | null;
   accent?: string | null;
@@ -55,6 +57,7 @@ export function useWorkspace(): {
     than a brief blank — it is the exact impression this header exists to remove.
   */
   return {
+    id: org?.id,
     name: org?.name ?? ' ',
     logoUrl: org?.logoUrl,
     accent: org?.consoleTheme,
