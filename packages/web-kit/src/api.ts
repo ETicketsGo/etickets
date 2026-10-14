@@ -6522,6 +6522,8 @@ export interface OpsHealth {
   appEnv?: string | null;
   /** Age of the newest VERIFIED backup, from its evidence row (apps/api/src/ops/backup-freshness.ts). */
   backup?: OpsBackupFreshness;
+  /** Whether money-critical failures are emailed to operators. Absent on an older API. */
+  opsAlerts?: OpsAlertsStatus;
 }
 
 /** The API's BackupFreshness. 'never' means no evidence row, not proof that no dump exists. */
@@ -6532,6 +6534,16 @@ export interface OpsBackupFreshness {
   maxAgeHours: number;
   lastBackupName: string | null;
   lastRestoreDrillAt: string | null;
+}
+
+export interface OpsAlertsStatus {
+  configured: boolean;
+  status: 'configured' | 'not_configured';
+  reason: string | null;
+  recipients: number;
+  emailProvider: string;
+  lastAlertAt: string | null;
+  lastAlertKind: string | null;
 }
 
 export interface OpsQueueCounts {

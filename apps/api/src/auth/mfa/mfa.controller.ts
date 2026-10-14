@@ -15,6 +15,7 @@ import {
   type RequestUser,
 } from '../../common/decorators';
 import { AppException, ErrorCodes } from '../../common/errors';
+import { AUTH_THROTTLE } from '../../common/throttle';
 
 const code = z
   .string()
@@ -45,11 +46,8 @@ function meta(req: Request) {
   return { ip: req.ip, userAgent: req.header('user-agent') ?? undefined };
 }
 
-// Same per-IP ceiling as every credential route (10/min by default); the per-account lockout
-// inside MfaService is the control that actually bounds guessing.
-const AUTH_THROTTLE = {
-  default: { limit: Number(process.env.AUTH_THROTTLE_LIMIT ?? 10), ttl: 60_000 },
-};
+// Same per-client ceiling as every credential route (AUTH_THROTTLE, 10/min by default); the
+// per-account lockout inside MfaService is the control that actually bounds guessing.
 
 /**
  * Back-office second factor. See docs/security/ADMIN-MFA.md.

@@ -1,5 +1,10 @@
 import { createHash } from 'node:crypto';
-import sharp from 'sharp';
+/*
+  Types by name, not as `sharp.Metadata`: since 0.35 the package's top-level types are its ESM
+  ones, which have no `sharp` namespace. Runtime is unchanged - `require('sharp')` is still the
+  constructor - and named type imports read the same from either set of types.
+*/
+import sharp, { type Metadata, type OutputInfo } from 'sharp';
 import {
   EVENT_IMAGE_VARIANTS,
   focalCrop,
@@ -82,7 +87,7 @@ export async function renderEventImage(
   input: Buffer,
   focal: FocalPoint,
 ): Promise<RenderedEventImage> {
-  let metadata: sharp.Metadata;
+  let metadata: Metadata;
   try {
     metadata = await sharp(input, { limitInputPixels: false }).metadata();
   } catch {
@@ -104,7 +109,7 @@ export async function renderEventImage(
     `failOn: 'warning'` refuses a file the decoder had to guess at - a truncated download, a
     JPEG cut off half way - rather than storing a picture whose bottom half is grey.
   */
-  let pixels: { data: Buffer; info: sharp.OutputInfo };
+  let pixels: { data: Buffer; info: OutputInfo };
   try {
     pixels = await sharp(input, { failOn: 'warning', limitInputPixels: EVENT_IMAGE_MAX_PIXELS })
       .rotate()

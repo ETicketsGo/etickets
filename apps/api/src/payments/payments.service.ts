@@ -41,6 +41,8 @@ import {
 } from '../common/domain-events';
 import { BookingConfirmationBridge } from '../bookings/orchestration/booking-confirmation-bridge';
 import { FinanceReconciliationService } from './finance/finance-reconciliation.service';
+import { OpsAlertService } from '../ops/alerts/ops-alert.service';
+import { captureNotAppliedAlert, confirmationFailedAlert } from '../ops/alerts/ops-alert-messages';
 
 /** Payment statuses that mean a capture has been applied to its booking. */
 const APPLIED_PAYMENT_STATUSES: string[] = [
@@ -85,6 +87,8 @@ export class PaymentsService {
     private readonly bookingBridge: BookingConfirmationBridge,
     // Where money that arrived but could not be applied is filed for a person to refund.
     @Optional() private readonly finance?: FinanceReconciliationService,
+    // Tells a person when money and records disagree. Never awaited, never changes a result.
+    @Optional() private readonly alerts?: OpsAlertService,
   ) {}
 
   private readonly logger = new Logger(PaymentsService.name);
@@ -426,28 +430,49 @@ export class PaymentsService {
    */
   async processVerifiedEvent(event: PaymentEvent) {
     if (event.type === 'payment.succeeded') {
-      // ADR-042 §10 (P5.2B S3): give a PROVIDER_AUTHORITATIVE workflow the chance to own
-      // confirmation (provider-confirm BEFORE local-confirm). If it handles the event, the
-      // default local confirm below is skipped. Local/allocated bookings decline and proceed
-      // unchanged. Flag-off ⇒ no handler ⇒ unchanged behaviour.
-      const pre = await this.bookingBridge.preConfirm({
-        bookingId: event.bookingId,
-        providerRef: event.providerRef,
-        amountMinor: event.amountMinor,
-      });
-      if (pre.handled) return pre.result;
-
-      const result = await this.confirm(event);
-      // ADR-042 P5.2A: reconcile the durable booking workflow to CONFIRMED (active mode
-      // only — no-op when no workflow exists). Runs AFTER the atomic confirm commits and
-      // never changes the confirmation result.
-      const status = (result as { status?: string }).status;
-      if (status === 'confirmed' || status === 'already_confirmed') {
-        await this.bookingBridge.onConfirmed(event.bookingId);
+      try {
+        return await this.processSucceeded(event);
+      } catch (err) {
+        /*
+          The provider has the customer's money and we could not confirm the booking. The
+          error is rethrown untouched, so the webhook retries and dead-letters exactly as
+          before; the only addition is that somebody is told the first time it happens.
+        */
+        void this.alerts?.notify(
+          confirmationFailedAlert({
+            bookingId: event.bookingId,
+            providerRef: event.providerRef,
+            amountMinor: event.amountMinor,
+            error: err,
+          }),
+        );
+        throw err;
       }
-      return result;
     }
     return this.fail(event);
+  }
+
+  private async processSucceeded(event: PaymentEvent) {
+    // ADR-042 §10 (P5.2B S3): give a PROVIDER_AUTHORITATIVE workflow the chance to own
+    // confirmation (provider-confirm BEFORE local-confirm). If it handles the event, the
+    // default local confirm below is skipped. Local/allocated bookings decline and proceed
+    // unchanged. Flag-off ⇒ no handler ⇒ unchanged behaviour.
+    const pre = await this.bookingBridge.preConfirm({
+      bookingId: event.bookingId,
+      providerRef: event.providerRef,
+      amountMinor: event.amountMinor,
+    });
+    if (pre.handled) return pre.result;
+
+    const result = await this.confirm(event);
+    // ADR-042 P5.2A: reconcile the durable booking workflow to CONFIRMED (active mode
+    // only — no-op when no workflow exists). Runs AFTER the atomic confirm commits and
+    // never changes the confirmation result.
+    const status = (result as { status?: string }).status;
+    if (status === 'confirmed' || status === 'already_confirmed') {
+      await this.bookingBridge.onConfirmed(event.bookingId);
+    }
+    return result;
   }
 
   /**
@@ -1151,6 +1176,19 @@ export class PaymentsService {
       },
     });
     this.logger.error(detail);
+    void this.alerts?.notify(
+      captureNotAppliedAlert({
+        bookingId: booking.id,
+        paymentId: payment?.id ?? null,
+        provider: payment?.provider ?? 'unknown',
+        providerRef: event.providerRef,
+        amountMinor: event.amountMinor,
+        currency: booking.currency,
+        bookingStatus: booking.status,
+        duplicate: !unpayable,
+        reason,
+      }),
+    );
     return 'recorded';
   }
 

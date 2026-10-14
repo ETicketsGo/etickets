@@ -1,5 +1,5 @@
-import sharp from 'sharp';
-import { CENTRE_FOCAL_POINT } from '@eticketsgo/shared-types';
+import sharp, { type Sharp } from 'sharp';
+import { CENTRE_FOCAL_POINT, EVENT_IMAGE_VARIANTS } from '@eticketsgo/shared-types';
 import { EVENT_IMAGE_MAX_BYTES } from './event-image';
 import {
   EVENT_IMAGE_MAX_PIXELS,
@@ -255,5 +255,44 @@ describe('renderEventImage: what it refuses', () => {
       '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>',
     );
     expect(await rejection(svg)).toBe('unreadable');
+  });
+});
+
+/*
+  The decoder is a native library that changes with every sharp release (0.35 moved to libvips
+  8.18 and a new libheif). These pin what an upgrade must not change: the three formats we take
+  still become every copy, and the format we do not take is still refused rather than crashing.
+*/
+describe('renderEventImage: across the decoder', () => {
+  it.each([
+    ['JPEG', (s: Sharp) => s.jpeg()],
+    ['PNG', (s: Sharp) => s.png()],
+    ['WebP', (s: Sharp) => s.webp()],
+  ])('turns a real %s into every copy, each a readable WebP', async (_name, encode) => {
+    const input = await encode(sharp(await bands(1200, 800, [RED, GREEN, BLUE]))).toBuffer();
+    const rendered = await renderEventImage(input, CENTRE_FOCAL_POINT);
+    expect(rendered.variants.map((v) => v.name)).toEqual(EVENT_IMAGE_VARIANTS.map((v) => v.name));
+    for (const variant of rendered.variants) {
+      const meta = await sharp(variant.bytes).metadata();
+      expect(meta.format).toBe('webp');
+      expect(`${meta.width}x${meta.height}`).toBe(`${variant.width}x${variant.height}`);
+    }
+  });
+
+  it('refuses a real AVIF picture, which the decoder CAN read', async () => {
+    const avif = await solid(600, 400).avif().toBuffer();
+    // The library reads it fine: what refuses it is our own list, not a decoder failure.
+    expect((await sharp(avif).metadata()).format).toBe('heif');
+    expect(await rejection(avif)).toBe('unreadable');
+  });
+
+  it('refuses an iPhone HEIC header without crashing the process', async () => {
+    // ftyp box with the "heic" brand, then nothing a decoder can use.
+    const heic = Buffer.concat([
+      Buffer.from([0, 0, 0, 0x18]),
+      Buffer.from('ftypheicmif1heic'),
+      Buffer.alloc(4000, 0x41),
+    ]);
+    expect(await rejection(heic)).toBe('unreadable');
   });
 });

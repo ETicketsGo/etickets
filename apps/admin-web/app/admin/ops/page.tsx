@@ -25,6 +25,7 @@ import {
   type OpsDependencyCheck,
   type OpsQueueCheck,
   type OpsFailedJob,
+  type OpsAlertsStatus,
 } from '@eticketsgo/web-kit';
 import { missingDutyNote, useHolds } from '@/lib/capabilities';
 import { backupHealthView } from '@/lib/backup-health';
@@ -97,6 +98,31 @@ function BackupTile({ backup }: { backup: Parameters<typeof backupHealthView>[0]
       </div>
       <p className="mt-2 break-words text-sm text-text-secondary">{v.detail}</p>
       {v.note && <p className="mt-1 text-caption text-text-secondary">{v.note}</p>}
+    </div>
+  );
+}
+
+/**
+ * Whether a money-critical failure (a refused payment webhook, money captured for a booking
+ * that cannot take it, a new finance discrepancy) reaches a person by email. Read-only: the
+ * recipients are set with OPS_ALERT_EMAILS on the API and the worker, never from here.
+ */
+function OpsAlertsLine({ alerts }: { alerts?: OpsAlertsStatus }) {
+  if (!alerts) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-border bg-background-surface p-4">
+      <p className="text-[0.9375rem] text-text-muted">Ops alerts</p>
+      <Badge tone={alerts.configured ? 'success' : 'warning'}>
+        {alerts.configured ? 'Configured' : 'Not configured'}
+      </Badge>
+      <p className="min-w-0 flex-1 text-sm text-text-secondary">
+        {alerts.configured
+          ? `Emailed to ${alerts.recipients} ${alerts.recipients === 1 ? 'address' : 'addresses'} (${alerts.emailProvider}).`
+          : (alerts.reason ?? 'Alerts are written to the log only.')}{' '}
+        {alerts.lastAlertAt
+          ? `Last alert: ${dateTime(alerts.lastAlertAt)}${alerts.lastAlertKind ? ` (${alerts.lastAlertKind})` : ''}.`
+          : 'No alert has been sent yet.'}
+      </p>
     </div>
   );
 }
@@ -319,6 +345,7 @@ export default function AdminOps() {
               <DependencyTile label="Storage (S3/blob)" check={h.storage} />
             </div>
             <BackupTile backup={h.backup} />
+            <OpsAlertsLine alerts={h.opsAlerts} />
           </div>
         )}
       </Card>

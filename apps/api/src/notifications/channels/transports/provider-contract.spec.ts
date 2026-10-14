@@ -53,6 +53,15 @@ function msg(over: Partial<RenderedNotification> = {}): RenderedNotification {
   };
 }
 
+/** What the show-cancellation producer actually sends, so the DLT variables can be filled. */
+const SHOW_CANCELLED_PAYLOAD = {
+  phone: '+919999000011',
+  reference: 'ETG-IN-2026-000042',
+  eventTitle: 'Kalki 2898 AD',
+  startsAt: '2026-11-01T13:30:00.000Z',
+  timeZone: 'Asia/Kolkata',
+};
+
 const fetchMock = jest.fn();
 beforeEach(() => {
   fetchMock.mockReset();
@@ -83,9 +92,14 @@ const ADAPTERS: Adapter[] = [
     success: JSON.stringify({ type: 'success', message: 'abc123' }),
     send: () =>
       new Msg91SmsTransport(
-        configFor({ MSG91_AUTH_KEY: 'k', MSG91_SENDER_ID: 'ETGOSM' }),
-        bindingsFor('msg91:sms:SHOW_CANCELLED:*=1707161234567890'),
-      ).send(msg()),
+        configFor({
+          MSG91_AUTH_KEY: 'k',
+          MSG91_SENDER_ID: 'DPTRCS',
+          // MSG91's id comes from the binding; the DLT approval is recorded per template.
+          DLT_TEMPLATE_ID_SHOW_CANCELLED: '1707161234567890123',
+        }),
+        bindingsFor('msg91:sms:SHOW_CANCELLED:*=65f0c0ffee0000000000abcd'),
+      ).send(msg({ payload: SHOW_CANCELLED_PAYLOAD })),
   },
   {
     name: 'MSG91 WhatsApp',
@@ -186,7 +200,10 @@ describe('provider contract: every adapter, against every provider misbehaviour'
       [
         'MSG91 SMS',
         () =>
-          new Msg91SmsTransport(configFor({ MSG91_AUTH_KEY: 'k' }), bindingsFor('')).send(msg()),
+          new Msg91SmsTransport(
+            configFor({ MSG91_AUTH_KEY: 'k', MSG91_SENDER_ID: 'DPTRCS' }),
+            bindingsFor(''),
+          ).send(msg({ payload: SHOW_CANCELLED_PAYLOAD })),
       ],
       [
         'MSG91 WhatsApp',

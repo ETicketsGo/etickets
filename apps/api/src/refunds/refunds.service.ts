@@ -19,7 +19,7 @@ import { AuditService } from '../audit/audit.service';
 import { NotificationService } from '../notifications/notification.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import { checkRefundEligibility } from './refund-eligibility';
-import { refundTax, ticketNetPrices } from './refund-tax';
+import { refundTaxForTickets, ticketNetPrices } from './refund-tax';
 import { ACCEPTED_TRANSFERS, currentHolderUserId, isTransferred } from '../tickets/ticket-holder';
 import type { RequestUser } from '../common/decorators';
 import { MetricsService } from '../metrics/metrics.service';
@@ -439,7 +439,7 @@ export class RefundsService {
       would mean the customer paid tax on a ticket they no longer hold.
 
       HOW it goes back depends on how it was charged — inside the ticket price or added to it,
-      on the tickets or on the fees — which is decided per line in `refundTax`. Treating every
+      on the tickets or on the fees — which is decided per line in `refundTaxForTickets`. Treating every
       line as added refunded Indian GST twice and refused the refund as exceeding the balance.
       Nothing here decides WHAT rate applies — that is TaxRule configuration, and with none
       active this whole block is zero.
@@ -459,10 +459,18 @@ export class RefundsService {
       */
       const cancellation = options.sessionCancelled === true;
 
-      // Fee tax comes back only when the fees do.
-      const tax = refundTax(booking.taxLines ?? [], ticketsMinor, bookingTicketsMinor, {
-        includeFeeTax: cancellation,
-      });
+      /*
+        Fee tax comes back only when the fees do. Worked out for THESE tickets by their place
+        in the booking, so a booking's partial refunds together return each tax line exactly
+        and the credit note, given the same tickets, states the same figure.
+      */
+      const tax = refundTaxForTickets(
+        booking.taxLines ?? [],
+        netByTicket,
+        targetTickets.map((t) => t.id),
+        bookingTicketsMinor,
+        { includeFeeTax: cancellation },
+      );
       const taxMinor = tax.taxMinor;
 
       const priorAmount = priorRefunds.reduce((s, r) => s + r.amountMinor, 0);
