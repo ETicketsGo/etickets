@@ -296,6 +296,41 @@ function splitComponents(
   ];
 }
 
+/**
+ * Divide one tax amount between the components it is presented as, so they add back to it
+ * EXACTLY.
+ *
+ * ── THE ONE ROUNDING POLICY ────────────────────────────────────────────────────────────
+ * A levy's tax is worked out once, at its full rate, in integer minor units and rounded
+ * once half-up (`Math.round` on a non-negative amount). Splitting comes afterwards and
+ * never rounds the total again. It used to be the other way round for a levy added to the
+ * price: each 9% half was rounded on its own, so a Rs 35.27 fee carried IGST of 635 paise
+ * but CGST 317 + SGST 317 = 634, and the buyer's STATE moved the price by a paisa (QA
+ * readiness F1: quote 103,960 vs booking 103,961 for one cart).
+ *
+ * Shares are proportional to each component's rate and allocated cumulatively, half-up, so
+ * an odd paisa goes to the FIRST component: 635 at 9% + 9% is CGST 318 + SGST 317.
+ */
+export function splitTaxAmount(totalMinor: number, rates: readonly number[]): number[] {
+  const total = Math.round(totalMinor);
+  if (rates.length <= 1) return [total];
+  const rateSum = rates.reduce((s, r) => s + r, 0);
+  if (rateSum <= 0) {
+    // A 0% levy: nothing to share out, but every component still gets its line.
+    return rates.map((_, i) => (i === 0 ? total : 0));
+  }
+  const parts: number[] = [];
+  let cumulativeRate = 0;
+  let allocated = 0;
+  rates.forEach((rate, i) => {
+    cumulativeRate += rate;
+    const upTo = i === rates.length - 1 ? total : Math.round((total * cumulativeRate) / rateSum);
+    parts.push(upTo - allocated);
+    allocated = upTo;
+  });
+  return parts;
+}
+
 function baseFor(
   rule: TaxRuleInput,
   netSubtotalMinor: number,
@@ -362,10 +397,14 @@ export interface TaxCalcInput {
 /**
  * Compute the tax lines for one booking.
  *
- * Each line rounds independently. That is not a shortcut — it is how a multi-tax
+ * Each RULE rounds independently. That is not a shortcut — it is how a multi-tax
  * jurisdiction actually works: Canada computes GST and PST as separate amounts on the same
  * base, and each is rounded to the cent on its own. Rounding a combined rate once would
  * produce a total that neither tax authority's arithmetic agrees with.
+ *
+ * The halves of ONE rule are different: CGST and SGST are one rate presented two ways, so
+ * the rule's amount is rounded once and then divided (`splitTaxAmount`), and the buyer pays
+ * the same whether it reaches the invoice as CGST + SGST or as IGST.
  */
 export function computeTax(input: TaxCalcInput): TaxCalcResult {
   const net = Math.max(0, Math.round(input.netSubtotalMinor));
@@ -519,28 +558,30 @@ export function computeTax(input: TaxCalcInput): TaxCalcResult {
       : grossMinor;
 
     const components = splitComponents(rule, rate, crossesStateBorder(rule, input.place));
-    const amounts = components.map((c) => Math.round((taxableMinor * c.rateBasisPoints) / 10_000));
 
     /*
-      An inclusive tax must reconcile with the price EXACTLY.
+      ── ONE LEVY, ONE AMOUNT, WHICHEVER WAY IT IS PRESENTED ──────────────────────────
+      The rule's tax is computed ONCE at its full rate and only then divided into components
+      (see `splitTaxAmount`), so CGST + SGST is always exactly the IGST the same sale would
+      carry, and the buyer's state can change the headings on the invoice but never the price.
 
-      The taxable value is derived by rounding and each component rounds again, so the parts
-      do not necessarily add back up to the price they came out of. Caught by asking whether
-      an intra-state and an inter-state sale of the same ticket cost the same: ₹250 at 18%
-      gives a ₹211.86 taxable value, from which two 9% halves round to ₹38.14 while one 18%
-      line rounds to ₹38.13 — leaving a paisa of the ₹250 belonging to nobody. On a receipt
-      that has to foot, an orphan paisa is not a rounding preference.
+      Inclusive: the price already contains the tax, so the amount is `gross - taxable`,
+      exact by construction - ₹250 at 18% leaves no orphan paisa belonging to nobody.
+      Exclusive: the full rate on the taxable value, rounded once, half-up.
 
-      So the total is `gross - taxable`, which is exact by construction, and the last
-      component absorbs whatever the per-component rounding left over. An exclusive levy has
-      nothing to reconcile against and keeps rounding each component on its own, which is how
-      a multi-tax jurisdiction actually computes.
+      Rounding each component on its own was the defect: on an added fee, 0.09 x 3,527 rounds
+      to 317 twice (634) where 0.18 x 3,527 rounds to 635 once, and a quote and a booking for
+      one cart differed by a paisa because one knew the buyer's state and one did not (QA
+      readiness F1). Separate RULES - Canada's GST and PST - still round independently, as
+      their authorities do; this concerns only the halves of one rate.
     */
-    if (rule.inclusive) {
-      const exact = grossMinor - taxableMinor;
-      const allocated = amounts.slice(0, -1).reduce((sum, a) => sum + a, 0);
-      amounts[amounts.length - 1] = exact - allocated;
-    }
+    const levyMinor = rule.inclusive
+      ? grossMinor - taxableMinor
+      : Math.round((taxableMinor * rate) / 10_000);
+    const amounts = splitTaxAmount(
+      levyMinor,
+      components.map((c) => c.rateBasisPoints),
+    );
 
     components.forEach((component, i) => {
       taxLines.push({

@@ -2,7 +2,7 @@ import { HttpStatus, Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppException, ErrorCodes } from '../common/errors';
-import { refundTax, ticketNetPrices } from '../refunds/refund-tax';
+import { refundTaxForTickets, ticketNetPrices } from '../refunds/refund-tax';
 import {
   buildReceiptDocument,
   negateTotals,
@@ -261,7 +261,23 @@ export class ReceiptsService {
     );
     const ticketsMinor = refund.ticketIds.reduce((s, id) => s + (netByTicket.get(id) ?? 0), 0);
     const perLine =
-      ticketsMinor > 0 ? refundTax(booking.taxLines, ticketsMinor, bookingTicketsMinor) : null;
+      ticketsMinor > 0
+        ? refundTaxForTickets(
+            booking.taxLines,
+            netByTicket,
+            refund.ticketIds,
+            bookingTicketsMinor,
+            {
+              /*
+              A cancellation returned the fees, and the tax on them with them (see the refund
+              service); the refund row records that as `platformFeeRefundedMinor`. Without
+              this the credit note listed the ticket tax lines only while its total tax
+              included the fee tax, so its own lines did not add up to it.
+            */
+              includeFeeTax: (refund.platformFeeRefundedMinor ?? 0) > 0,
+            },
+          )
+        : null;
     const addedTaxMinor = perLine ? perLine.addedMinor : taxMinor;
 
     const positive: ReceiptTotals = {
