@@ -115,7 +115,7 @@ function OpsAlertsLine({ alerts }: { alerts?: OpsAlertsStatus }) {
       <Badge tone={alerts.configured ? 'success' : 'warning'}>
         {alerts.configured ? 'Configured' : 'Not configured'}
       </Badge>
-      <p className="min-w-0 flex-1 text-sm text-text-secondary">
+      <p className="min-w-0 flex-1 text-sm text-text-secondary [overflow-wrap:anywhere]">
         {alerts.configured
           ? `Emailed to ${alerts.recipients} ${alerts.recipients === 1 ? 'address' : 'addresses'} (${alerts.emailProvider}).`
           : (alerts.reason ?? 'Alerts are written to the log only.')}{' '}
