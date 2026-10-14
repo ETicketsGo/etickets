@@ -113,7 +113,7 @@ function Amount({
 
   So each currency now leads with where its money stands, in the order it moves (see the
   `PayoutSummaryCurrency` field docs in the payouts service):
-    held     - ticket sales of shows not yet payable (gross, before fees and refunds)
+    held     - ticket sales of shows not yet payable (after completed refunds, before fees - as `heldRevenue` computes it)
     net      - payable now and not in a payout yet (after fees and refunds)
     pending  - in a payout that has not been sent (that payout's net)
     paid     - in a payout that has been sent (that payout's net)
@@ -131,7 +131,7 @@ function CurrencyBlock({ row }: { row: PayoutSummaryCurrency }) {
     {
       label: 'Held until shows finish',
       value: row.held,
-      hint: 'Ticket sales, before fees and refunds. Not payable yet.',
+      hint: 'Ticket sales after refunds, before fees. Not payable yet.',
       icon: CalendarClock,
       tile: 'amber',
     },

@@ -346,7 +346,7 @@ export default function CinemaDetailPage() {
   const cinema = cinemaQ.data;
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6">
+    <div className="space-y-6">
       <PageHeader
         title={cinema.name}
         breadcrumbs={[

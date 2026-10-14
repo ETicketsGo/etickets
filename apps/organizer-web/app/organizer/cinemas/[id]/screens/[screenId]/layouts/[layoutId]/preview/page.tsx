@@ -95,7 +95,7 @@ export default function LayoutPreviewPage() {
   const activeBlock = overview?.sections.find((s) => s.id === sectionId);
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6">
+    <div className="space-y-6">
       <PageHeader
         title="Preview as buyer"
         description={

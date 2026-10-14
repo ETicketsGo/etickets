@@ -176,7 +176,7 @@ function CoverImage({ orgId, coverImageUrl }: { orgId: string; coverImageUrl?: s
           className="h-28 w-full rounded-md border border-border object-cover"
         />
       ) : (
-        <div className="h-28 w-full rounded-md border border-dashed border-border bg-gradient-to-br from-action-primary/20 via-action-primary/5 to-background-subtle" />
+        <div className="h-28 w-full rounded-md border border-dashed border-border bg-background-subtle" />
       )}
       <input
         ref={fileInput}

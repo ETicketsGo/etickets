@@ -59,6 +59,32 @@ function initials(name: string): string {
   );
 }
 
+/**
+ * An address that wraps at the "@" (and at dots in the domain) before it ever breaks a word:
+ * `break-all` split "owner@etick|etsgo.test" mid-name at laptop widths.
+ */
+function EmailText({ email }: { email: string }) {
+  const at = email.indexOf('@');
+  if (at < 0) return <>{email}</>;
+  const domain = email.slice(at + 1).split('.');
+  return (
+    <>
+      {email.slice(0, at)}
+      <wbr />@
+      {domain.map((part, i) => (
+        <span key={i}>
+          {i > 0 && (
+            <>
+              <wbr />.
+            </>
+          )}
+          {part}
+        </span>
+      ))}
+    </>
+  );
+}
+
 /** A status the API may add later, said in sentence case rather than as a code. */
 const sentence = (s: string) => s.charAt(0) + s.slice(1).toLowerCase().replaceAll('_', ' ');
 
@@ -129,7 +155,9 @@ export default function TeamPage() {
           </span>
           <span className="flex min-w-0 flex-col">
             <span className="break-words font-semibold text-brand-ink">{m.user.fullName}</span>
-            <span className="break-all text-brand-meta text-brand-ink-2">{m.user.email}</span>
+            <span className="break-words text-brand-meta text-brand-ink-2">
+              <EmailText email={m.user.email} />
+            </span>
           </span>
         </span>
       ),

@@ -48,12 +48,41 @@ nothing.
 5. Page title in Bricolage at the console size; everything else Inter; status as words in pills.
 6. Every number from an existing API field; nothing computed across currencies.
 
-## Not converted yet (rollout list)
+## Rollout (owner approved the baseline on #368)
 
-The bridge already moves these pages onto the brand palette, so they are consistent in colour and
-surface. They still use the classic components' own layouts and have not had a page-by-page
-review: Events list (card grid; its no-image cover is now a quiet inset), event detail and its
-seven sections, the create-event wizard, Calendar, Venues & seating and the seat-map editor,
-Movies, Bookings & attendees and Counter, Check-in (gate), Marketing, Finance, Payouts, Receipts,
-Refunds, Settings, Premium, Help. The `ClassicNavTree` keeps its unused desk branches until admin
-adopts the desk. Toasts render outside the shell and keep the classic colours.
+Every organizer route was then brought onto the baseline and checked in a real browser against
+QA data (51 routes x 1440 light, 1440 dark, 1024, 390, 320; screenshots in
+`C:\etg-wt\k-shots\org-recovery
+ollout\`). Most pages needed no layout change: they already
+used the shared PageHeader, DataTable, Card, form fields, Badge and EmptyState, and the bridge
+gives those the brand. What was changed:
+
+- **Toasts, tooltips and menus** render outside the desk (portalled to `<body>`), so they kept
+  the navy/teal console colours. `data-brand="console"` now sits on the organizer `<body>`, so every
+  surface - including sign-in, invite and print - reads the brand tokens.
+- **One width rule**: the seat-map editor, layout preview, cinema detail and Help were centred
+  672-896px columns inside a 1144px page; they now use the shell width. Single forms (new cinema,
+  new movie) and the door scanner keep a form measure, aligned to the page's left edge with
+  every other page rather than floating in the middle.
+- **Seat map, dark mode**: seat numbers were drawn in the category's own colour, which failed
+  contrast on charcoal (axe, 72 nodes). The colour is now the seat's edge only.
+- **Cinema bulk scheduler and copy schedule** used raw Tailwind slate/amber/green/red; now the
+  semantic tokens, so they follow the theme.
+- **Promotion**: the share link field and the email template had no accessible name / were not
+  keyboard-scrollable (axe).
+- **Settings**: the default workspace colour was labelled "ETicketsGo teal" and showed a teal
+  swatch; the desk default is ink, so it says so.
+- **Event overview** printed the fee mode as a code ("CUSTOMER PAYS"); now "Customer pays".
+- **Team**: email addresses wrap at "@" and dots instead of mid-word.
+- **Finance (F4)**: "Held until shows finish" said "before fees and refunds", but the figure
+  (`heldRevenue` in the payout service) already subtracts completed refunds. It now says "Ticket
+  sales after refunds, before fees". Label only.
+- **Cinema readiness (F3)**: the compliance summary told a cinema whose local body, format and
+  climate type ARE set to "set its local body, format and climate type" (the server returns
+  INVALID_CINEMA_CLASSIFICATION also when a seat category has no regulatory class). When the same
+  response shows all three set, the panel now says to check the seat-class mapping. Wording only;
+  the server's sentence is unchanged and still wrong for API clients (follow-up for the API).
+
+Known and accepted: the buyer-facing previews in the create-event wizard keep the storefront's
+gradient fallback on purpose (they show what a buyer will see). `ClassicNavTree` keeps unused
+desk branches until admin adopts the desk.
