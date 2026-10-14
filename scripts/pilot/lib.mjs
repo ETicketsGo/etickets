@@ -88,7 +88,25 @@ export function saveState(file, state) {
  * first and a 5xx with a non-JSON body is retried a few times.
  */
 export function createApi(base) {
-  async function call(method, p, { token, body, headers = {}, retries = 3 } = {}) {
+  // A full run waits minutes for holds and the reconciliation sweep, longer than an access token
+  // lives. Each token this helper issued remembers who it belongs to; on a 401 the user signs in
+  // again once, and every later call made with the old token uses the new one.
+  const owners = new Map(); // token -> { email, password }
+  const replaced = new Map(); // old token -> newer token
+  const latest = (t) => {
+    while (t && replaced.has(t)) t = replaced.get(t);
+    return t;
+  };
+  async function call(method, p, opts = {}) {
+    const token = latest(opts.token);
+    const r = await send(method, p, { ...opts, token });
+    if (r.status !== 401 || !token || !owners.has(token) || p.startsWith('/auth/')) return r;
+    const again = await login(owners.get(token).email, owners.get(token).password);
+    if (!again.token) return r;
+    replaced.set(token, again.token);
+    return send(method, p, { ...opts, token: again.token });
+  }
+  async function send(method, p, { token, body, headers = {}, retries = 3 } = {}) {
     for (let attempt = 0; ; attempt++) {
       const res = await fetch(`${base}${p}`, {
         method,
@@ -114,8 +132,9 @@ export function createApi(base) {
     }
   }
   const login = async (email, password) => {
-    const r = await call('POST', '/auth/login', { body: { email, password } });
+    const r = await send('POST', '/auth/login', { body: { email, password } });
     const token = r.body?.accessToken ?? r.body?.tokens?.accessToken;
+    if (token) owners.set(token, { email, password });
     return { ...r, token, userId: r.body?.user?.id };
   };
   return { call, login };
