@@ -119,3 +119,24 @@ export function priceSlot(state: Buyability | undefined): PriceSlot {
       return 'none';
   }
 }
+
+/**
+ * What the empty front door says when the visitor's place has nothing on.
+ *
+ * - `cities`: name the cities that DO have something on (with their counts).
+ * - `elsewhere`: other places sell, but none we can name; offer the city search.
+ * - `nowhere`: nothing is on sale anywhere. Say so plainly and offer no search: a search
+ *   that can only lead to another empty page is the dead end this exists to prevent. PROD
+ *   once said "Other places have events on sale." with zero public events in the world.
+ * - `pending`: the global count has not arrived; claim nothing yet.
+ *
+ * `anywhereTotal` is the unscoped public listing's own `meta.total`, so "other places sell"
+ * is said only when the API says it.
+ */
+export type EmptyStage = 'cities' | 'elsewhere' | 'nowhere' | 'pending';
+
+export function emptyStage(anywhereTotal: number | undefined, suggestedCities: number): EmptyStage {
+  if (anywhereTotal === undefined) return 'pending';
+  if (anywhereTotal <= 0) return 'nowhere';
+  return suggestedCities > 0 ? 'cities' : 'elsewhere';
+}
