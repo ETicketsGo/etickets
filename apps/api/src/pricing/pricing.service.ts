@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { FeeMode } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
@@ -11,8 +11,15 @@ import {
   type FeePlace,
   type FeeTier,
 } from './fee-calculator';
-import type { TaxPlace } from './tax-calculator';
-import { TAX_PROVIDER, type TaxProvider } from '../tax/tax-provider.interface';
+import { TaxClassificationError, type TaxPlace } from './tax-calculator';
+import {
+  TAX_PROVIDER,
+  type TaxProvider,
+  type TaxQuoteRequest,
+  type TaxQuoteResult,
+} from '../tax/tax-provider.interface';
+import { AppException, ErrorCodes } from '../common/errors';
+import { BUYER_SALE_NOT_OPEN, SALE_NOT_OPEN_REASON } from './cinema-policy/sale-eligibility';
 import type { PolicyEffect } from './cinema-policy/apply-policy';
 
 @Injectable()
@@ -67,6 +74,39 @@ export class PricingService {
    * as before — and with no tax rules configured, the result is identical to before tax
    * existed in this codebase.
    */
+  /**
+   * The provider's quote, with a ticket it cannot rate turned into a refusal.
+   *
+   * ── WHY A REFUSAL AND NOT A RATE ─────────────────────────────────────────────────
+   * Where tax depends on what a ticket is (India's cinema, sport and performance rates), a
+   * ticket with no classification, or one no active rule covers, used to be taxed at the 18%
+   * catch-all - an assumed rate on a real customer's money. It now refuses with a stable code.
+   *
+   * The buyer reads the same "not open for online booking" sentence any unsellable show gives,
+   * with the same `reason`, because the fix is the organizer's or the platform's and never
+   * theirs; the code and the blockers say which, for the console and the logs.
+   */
+  private async quoteTax(request: TaxQuoteRequest): Promise<TaxQuoteResult> {
+    try {
+      return await this.tax.quote(request);
+    } catch (err) {
+      if (!(err instanceof TaxClassificationError)) throw err;
+      throw new AppException(
+        err.code === 'TAX_CLASSIFICATION_MISSING'
+          ? ErrorCodes.TAX_CLASSIFICATION_MISSING
+          : ErrorCodes.TAX_RULE_NOT_FOUND,
+        BUYER_SALE_NOT_OPEN,
+        HttpStatus.CONFLICT,
+        {
+          reason: SALE_NOT_OPEN_REASON,
+          blockers: [err.code],
+          // The categories involved, never a rate: there is no rate to report.
+          categories: [...new Set(err.gaps.map((g) => g.category))],
+        },
+      );
+    }
+  }
+
   async quote(
     subtotalMinor: number,
     feeMode: FeeMode,
@@ -135,7 +175,7 @@ export class PricingService {
       configuration change and an adapter, with no edit to the money model, the booking, the
       receipt or the refund path.
     */
-    const { taxLines, taxMinor, taxAddedMinor } = await this.tax.quote({
+    const { taxLines, taxMinor, taxAddedMinor } = await this.quoteTax({
       // Spread first, then pin the currency: `taxPlace.currency` is nullable and a caller
       // leaving it unset must not blank out the currency the quote is actually priced in.
       /*

@@ -22,7 +22,7 @@ import {
   money,
   termsList,
 } from '@eticketsgo/web-kit';
-import { venueZone } from '@eticketsgo/shared-types';
+import { taxCategoryLabel, venueZone } from '@eticketsgo/shared-types';
 
 export default function AdminEventDetail() {
   const { id } = useParams<{ id: string }>();
@@ -147,6 +147,12 @@ export default function AdminEventDetail() {
             <dd className="text-text-primary">
               {event.venue.name}, {event.venue.city}
             </dd>
+            {/*
+              What the event is for tax. Shown to the reviewer because the GST rate a buyer pays
+              follows from it, and an organizer who changes it on a live event sends it back here.
+            */}
+            <dt className="text-text-muted">Tax classification</dt>
+            <dd className="text-text-primary">{taxCategoryLabel(event.taxCategory)}</dd>
             <dt className="text-text-muted">Fee handling</dt>
             <dd className="text-text-primary">{titleCase(event.feeMode)}</dd>
             <dt className="text-text-muted">Age limit</dt>

@@ -50,7 +50,7 @@ function quote(unitMinor: number, active: boolean) {
   const tax = computeTax({
     netSubtotalMinor: fees.netSubtotalMinor,
     customerFeeMinor: fees.customerFeeMinor,
-    admissionLines: [{ unitPriceMinor: unitMinor, quantity: 1, category: 'MOVIE' }],
+    admissionLines: [{ unitPriceMinor: unitMinor, quantity: 1, category: 'CINEMA' }],
     rules: shipped(active),
     place: PLACE,
   });

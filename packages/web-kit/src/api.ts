@@ -1469,6 +1469,9 @@ export const api = {
         method: 'PUT',
         body: JSON.stringify(point),
       }),
+    /** Whether an event at this venue must be classified for tax; see TaxClassificationRequirement. */
+    taxClassification: (venueId: string) =>
+      request<TaxClassificationRequirement>(`/events/tax-classification${qs({ venueId })}`),
     /** Rooms with a published seat map that an event could be seated in. */
     seatingRooms: (organizationId: string) =>
       request<SeatingRoom[]>(`/events/seating-rooms${qs({ organizationId })}`),
@@ -4268,6 +4271,8 @@ export interface TicketType {
   salesEndAt: string | null;
   status: string;
   inventory?: { quantityTotal: number; quantitySold: number; quantityHeld: number } | null;
+  /** Overrides the event's tax classification for this ticket type. Null inherits it. */
+  taxCategory?: string | null;
 }
 export interface OrgEventDetail extends EventDetails {
   id: string;
@@ -4279,6 +4284,8 @@ export interface OrgEventDetail extends EventDetails {
   feeMode: string;
   /** Nobody is charged: no checkout, no booking fee, no platform share. */
   isFree: boolean;
+  /** What the event is for tax (one of TAX_CATEGORIES). Null: not classified. */
+  taxCategory?: string | null;
   refundPolicy: string | null;
   publishedAt: string | null;
   reviewNote: string | null;
@@ -4315,6 +4322,15 @@ export interface CreateEventBody extends EventDetails {
   feeMode: string;
   /** Declared, never inferred from the ticket prices — see the API's Event.isFree. */
   isFree?: boolean;
+  /** What the event is for tax (one of TAX_CATEGORIES). Null clears it. Never inferred. */
+  taxCategory?: string | null;
+}
+/** Whether an event at a venue needs a tax classification, and which ones have a rate there. */
+export interface TaxClassificationRequirement {
+  /** True only where active tax rules depend on the classification. False while GST is off. */
+  required: boolean;
+  /** Classifications an active rule can rate here. Any other is refused at checkout. */
+  ratedCategories: string[];
 }
 export interface CreateTicketTypeBody {
   eventSessionId: string;

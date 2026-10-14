@@ -78,6 +78,14 @@ export const ErrorCodes = {
   ORGANIZATION_LIMIT_REACHED: 'ORGANIZATION_LIMIT_REACHED',
   RATE_LIMITED: 'RATE_LIMITED',
   /**
+   * Tax where this sale happens depends on what the ticket is, and the ticket (and its event)
+   * carry no tax classification. Refused rather than taxed at an assumed rate; the organizer
+   * sets the classification on the event.
+   */
+  TAX_CLASSIFICATION_MISSING: 'TAX_CLASSIFICATION_MISSING',
+  /** The ticket is classified, but no active tax rule covers that classification and price. */
+  TAX_RULE_NOT_FOUND: 'TAX_RULE_NOT_FOUND',
+  /**
    * A text message cannot be delivered to this number: it is not a reachable mobile, or its
    * owner has opted out. Deliberately one code for both, so it cannot be used to learn which.
    */

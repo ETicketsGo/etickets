@@ -33,7 +33,12 @@ import { BookingShadowObserver } from './orchestration/booking-shadow-observer.s
 import { PaymentsService } from '../payments/payments.service';
 import { PendingPaymentRecoveryService } from '../payments/recovery/pending-payment-recovery.service';
 import { CinemaPricingPolicyService } from '../pricing/cinema-policy/cinema-pricing-policy.service';
-import { admissionLinesFromItems, saleTaxPlace } from './sale-tax-place';
+import {
+  admissionLinesFromItems,
+  saleTaxPlace,
+  taxAdmissionLines,
+  ticketTaxCategory,
+} from './sale-tax-place';
 import type { PolicyEffect } from '../pricing/cinema-policy/apply-policy';
 import {
   BUYER_SALE_NOT_OPEN,
@@ -478,7 +483,12 @@ export class BookingsService {
       discountMinor,
       currency,
       taxPlace,
-      admissionLines,
+      /*
+        Rated by the TAX classification, not by the seat class the cinema policy above uses.
+        The two used to be one field, so the tax rules (written for 'MOVIE') were handed
+        REGULAR or RECLINER and never matched - see `taxAdmissionLines`.
+      */
+      taxAdmissionLines(admissionLines),
       policy.effect,
     );
 
@@ -647,6 +657,8 @@ export class BookingsService {
                 quantity: pl.quantity,
                 unitPriceMinor: pl.unitPriceMinor,
                 lineTotalMinor: pl.lineTotalMinor,
+                // What this line was taxed as, so a re-price rates the same thing.
+                taxCategory: ticketTaxCategory(byId.get(pl.ticketTypeId), session.event),
               })),
               ...commerce.itemCreates,
             ],
@@ -971,13 +983,14 @@ export class BookingsService {
    * to call "Gold".
    */
   private admissionLinesFor(
-    _event: { experienceType: string; category?: string | null },
+    event: { experienceType: string; category?: string | null; taxCategory?: string | null },
     items: { ticketTypeId: string; quantity: number }[],
     byId: Map<
       string,
       {
         name?: string;
         priceMinor: number;
+        taxCategory?: string | null;
         seatCategory?: { name: string; regulatoryClass: string | null } | null;
       }
     >,
@@ -991,6 +1004,12 @@ export class BookingsService {
     category: string | null;
     /** What the operator calls it — for the refusal message, never for matching. */
     seatCategoryName: string | null;
+    /**
+     * What the ticket is FOR TAX: the ticket type's override, else the event's. Deliberately a
+     * separate field from `category`: the seat class prices a cinema seat under a state rate
+     * order and says nothing about which GST rate applies.
+     */
+    taxCategory: string | null;
   }[] {
     return items
       .map((i) => {
@@ -1002,6 +1021,7 @@ export class BookingsService {
           ticketTypeName: tt?.name ?? null,
           category: tt?.seatCategory?.regulatoryClass ?? null,
           seatCategoryName: tt?.seatCategory?.name ?? null,
+          taxCategory: ticketTaxCategory(tt, event),
         };
       })
       .filter((line) => line.quantity > 0);
@@ -1160,7 +1180,8 @@ export class BookingsService {
       // The one derivation `create` uses: a quote and the booking that follows it must not
       // disagree about where the sale happens or where the buyer is.
       saleTaxPlace(session.event, input.buyerRegion, now),
-      quoteAdmissionLines,
+      // The same tax lines `create` rates, so the quote and the booking cannot disagree.
+      taxAdmissionLines(quoteAdmissionLines),
       quotePolicy.effect,
     );
 
@@ -1335,6 +1356,7 @@ export class BookingsService {
             // was not merely incomplete but destructive.
             venue: { select: { country: true, region: true } },
             organization: { select: { registeredCountry: true, registeredRegion: true } },
+            taxCategory: true,
           },
         },
         /*
@@ -1347,7 +1369,8 @@ export class BookingsService {
           select: {
             unitPriceMinor: true,
             quantity: true,
-            ticketType: { select: { seatCategory: { select: { regulatoryClass: true } } } },
+            taxCategory: true,
+            ticketType: { select: { taxCategory: true } },
           },
         },
       },
@@ -1447,7 +1470,7 @@ export class BookingsService {
         a code at checkout threw instead of re-pricing. Rebuilt from the stored unit prices,
         not today's ticket type, because the booking is what the buyer was quoted.
       */
-      admissionLinesFromItems(booking.items ?? []),
+      admissionLinesFromItems(booking.items ?? [], booking.event),
       snapshotEffect,
     );
 

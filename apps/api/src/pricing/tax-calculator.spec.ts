@@ -1,6 +1,11 @@
 import { FeeMode } from '@eticketsgo/shared-types';
 import { calculateFees } from './fee-calculator';
-import { computeTax, selectTaxRules, type TaxRuleInput } from './tax-calculator';
+import {
+  TaxClassificationError,
+  computeTax,
+  selectTaxRules,
+  type TaxRuleInput,
+} from './tax-calculator';
 
 /**
  * Every rate in this file is a FIXTURE, invented to exercise arithmetic. None of them is a
@@ -617,17 +622,28 @@ describe('alternatives, not additions', () => {
     expect(r.taxLines[0].baseMinor + r.taxMinor).toBe(50000);
   });
 
-  it('lets the catch-all take what no band claimed', () => {
-    // A concert is not cinema, so the specific rules do not match and the general one must.
-    const r = computeTax({
-      netSubtotalMinor: 150000,
-      customerFeeMinor: 0,
-      admissionLines: [{ unitPriceMinor: 150000, quantity: 1, category: 'Music' }],
-      rules: indiaAdmission,
-      place,
-    });
-    expect(r.taxLines).toHaveLength(2);
-    expect(r.taxLines[0].baseMinor + r.taxMinor).toBe(150000);
+  it('REFUSES what no band claimed, rather than letting a catch-all take it (H-8)', () => {
+    /*
+      This used to say "lets the catch-all take what no band claimed": a concert matched no
+      cinema rule and the '*' rule taxed it at 18%. That catch-all is the assumed rate the owner
+      ruled out - it is also what taxed every CINEMA ticket at 18% once the booking passed the
+      seat class as the category. In a group on the ticket base a '*' rule now rates nothing,
+      and a ticket no named rule rates is refused with a typed error.
+    */
+    let thrown: unknown;
+    try {
+      computeTax({
+        netSubtotalMinor: 150000,
+        customerFeeMinor: 0,
+        admissionLines: [{ unitPriceMinor: 150000, quantity: 1, category: 'Music' }],
+        rules: indiaAdmission,
+        place,
+      });
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(TaxClassificationError);
+    expect((thrown as TaxClassificationError).code).toBe('TAX_RULE_NOT_FOUND');
   });
 
   it('resolves the group PER TICKET, so one order can use two bands', () => {
@@ -753,6 +769,8 @@ describe('one order, two places of supply', () => {
     inclusive: true,
     split: 'CGST_SGST',
     taxGroup: 'ADMISSION',
+    // A grouped admission rule must name what it rates (H-8); a '*' one rates nothing.
+    category: 'CINEMA',
   });
   const fee = rule({
     label: 'GST',
@@ -766,7 +784,7 @@ describe('one order, two places of supply', () => {
     const r = computeTax({
       netSubtotalMinor: 30_000,
       customerFeeMinor: 4_000,
-      admissionLines: [{ unitPriceMinor: 15_000, quantity: 2 }],
+      admissionLines: [{ unitPriceMinor: 15_000, quantity: 2, category: 'CINEMA' }],
       rules: [admission, fee],
       place,
     });

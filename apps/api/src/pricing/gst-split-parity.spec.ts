@@ -125,7 +125,7 @@ describe('GST inside a ticket price: CGST + SGST equals IGST', () => {
 
   it('agrees for every ticket price from Rs 1 to Rs 2,000, on both rates', () => {
     for (let price = 100; price <= 200_000; price += 37) {
-      const lines = [{ unitPriceMinor: price, quantity: 3, category: 'MOVIE' }];
+      const lines = [{ unitPriceMinor: price, quantity: 3, category: 'CINEMA' }];
       const intra = computeTax({
         netSubtotalMinor: price * 3,
         customerFeeMinor: 0,

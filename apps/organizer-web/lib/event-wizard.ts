@@ -18,6 +18,7 @@
  */
 
 import type { EventArtist, LocationValue } from '@eticketsgo/web-kit';
+import { TAX_CATEGORIES } from '@eticketsgo/shared-types';
 
 export type WizardStepId = 'basics' | 'where' | 'tickets' | 'details' | 'review';
 
@@ -629,6 +630,11 @@ export interface WizardDraft {
   /** Country, state and clock for a venue created here. Null when the saved value is unusable. */
   newVenueWhere: LocationValue | null;
   feeMode: string;
+  /**
+   * What the event is for tax, or '' when not chosen. Only asked where tax depends on it; see
+   * components/tax-classification-field.tsx. Absent on a draft from before it existed.
+   */
+  taxCategory: string;
   sessions: SessionDraft[];
   tickets: TicketDraft[];
 }
@@ -680,6 +686,7 @@ export function initialWizardDraft(seed: WizardSeed = {}): WizardDraft {
     newVenue: { name: '', city: '', address: '', capacity: '' },
     newVenueWhere: null,
     feeMode: 'CUSTOMER_PAYS',
+    taxCategory: '',
     sessions: [{ ...EMPTY_SESSION }],
     tickets: [
       {
@@ -716,6 +723,7 @@ export function isMeaningfulDraft(draft: WizardDraft, initial: WizardDraft): boo
       d.venueId,
       d.newVenue,
       d.feeMode,
+      d.taxCategory,
       d.sessions,
       d.tickets,
     ]);
@@ -804,6 +812,10 @@ export function restoreWizardDraft(raw: unknown): WizardDraft | null {
     },
     newVenueWhere: isLocation(d.newVenueWhere) ? d.newVenueWhere : null,
     feeMode: str(d.feeMode, 'CUSTOMER_PAYS'),
+    // Only a classification that still exists; anything else starts unchosen.
+    taxCategory: (TAX_CATEGORIES as readonly string[]).includes(str(d.taxCategory))
+      ? str(d.taxCategory)
+      : '',
     sessions,
     tickets,
   };

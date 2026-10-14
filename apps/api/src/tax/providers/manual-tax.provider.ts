@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { computeTax, type TaxRuleInput } from '../../pricing/tax-calculator';
+import { computeTax } from '../../pricing/tax-calculator';
+import { taxRuleFromRow } from '../tax-rule-row';
 import type { TaxProvider, TaxQuoteRequest, TaxQuoteResult } from '../tax-provider.interface';
 
 /**
@@ -27,24 +28,7 @@ export class ManualTaxProvider implements TaxProvider {
       where: { active: true, currency: { in: [currency, '*'] } },
       orderBy: { priority: 'asc' },
     });
-    const rules: TaxRuleInput[] = rows.map((r) => ({
-      label: r.label,
-      rateBasisPoints: r.rateBasisPoints,
-      appliesTo: r.appliesTo as TaxRuleInput['appliesTo'],
-      country: r.country,
-      region: r.region,
-      currency: r.currency,
-      priority: r.priority,
-      active: r.active,
-      effectiveFrom: r.effectiveFrom,
-      effectiveTo: r.effectiveTo,
-      taxGroup: r.taxGroup,
-      category: r.category,
-      minUnitMinor: r.minUnitMinor,
-      maxUnitMinor: r.maxUnitMinor,
-      inclusive: r.inclusive,
-      split: r.split as TaxRuleInput['split'],
-    }));
+    const rules = rows.map(taxRuleFromRow);
 
     const { taxLines, taxMinor, taxAddedMinor } = computeTax({
       netSubtotalMinor: request.netSubtotalMinor,

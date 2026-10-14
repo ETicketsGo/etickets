@@ -117,6 +117,39 @@ describe('TaxRulesService', () => {
       ).rejects.toThrow(/typo|basis points/i);
     });
 
+    it('refuses a catch-all in a ticket tax group, which would never charge anything (H-8)', async () => {
+      const { service } = setup(null);
+      for (const category of ['*', undefined, 'MOVIE']) {
+        await expect(
+          service.create('admin-1', {
+            label: 'GST',
+            rateBasisPoints: 1800,
+            appliesTo: 'TICKETS',
+            taxGroup: 'ADMISSION',
+            category,
+          }),
+        ).rejects.toThrow(/tax classification/i);
+      }
+    });
+
+    it('accepts a ticket group rule that names a classification, and an ungrouped catch-all', async () => {
+      const { service, create } = setup(null);
+      await service.create('admin-1', {
+        label: 'GST',
+        rateBasisPoints: 500,
+        appliesTo: 'TICKETS',
+        taxGroup: 'ADMISSION',
+        category: 'CINEMA',
+      });
+      // A flat tax on every ticket (no group) is not a classification question.
+      await service.create('admin-1', {
+        label: 'HST',
+        rateBasisPoints: 1300,
+        appliesTo: 'TICKETS',
+      });
+      expect(create).toHaveBeenCalledTimes(2);
+    });
+
     it('records who created it', async () => {
       const { service, audit } = setup(null);
       await service.create('admin-1', {

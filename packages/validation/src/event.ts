@@ -1,5 +1,11 @@
 import { z } from 'zod';
-import { FeeMode } from '@eticketsgo/shared-types';
+import { FeeMode, TAX_CATEGORIES } from '@eticketsgo/shared-types';
+
+/**
+ * What a ticket is, for tax. One of a closed list so a typo cannot create a category no tax
+ * rule will ever match; null clears it. Never inferred - see `TAX_CATEGORIES`.
+ */
+export const taxCategorySchema = z.enum(TAX_CATEGORIES).nullable().optional();
 
 export const createVenueSchema = z.object({
   name: z.string().trim().min(2).max(160),
@@ -123,6 +129,11 @@ export const createEventSchema = z.object({
   termsAndConditions: z.string().trim().max(5000).nullable().optional(),
   /** Who performs or presents, in the order to show them. Null or [] clears the list. */
   artists: z.array(eventArtistSchema).max(20).nullable().optional(),
+  /**
+   * The event's tax classification. Optional while no tax is charged where the event is; a
+   * market with active classified tax rules refuses to sell it until it is set.
+   */
+  taxCategory: taxCategorySchema,
 });
 export type CreateEventInput = z.infer<typeof createEventSchema>;
 
@@ -195,6 +206,8 @@ export const createTicketTypeSchema = z.object({
   salesStartAt: z.coerce.date().optional(),
   salesEndAt: z.coerce.date().optional(),
   maxPerOrder: z.number().int().min(1).max(50).default(10),
+  /** Overrides the event's tax classification for this ticket type. Null inherits it. */
+  taxCategory: taxCategorySchema,
 });
 export type CreateTicketTypeInput = z.infer<typeof createTicketTypeSchema>;
 
@@ -208,6 +221,7 @@ export const updateTicketTypeSchema = z.object({
   salesEndAt: z.coerce.date().nullable().optional(),
   maxPerOrder: z.number().int().min(1).max(50).optional(),
   status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
+  taxCategory: taxCategorySchema,
 });
 export type UpdateTicketTypeInput = z.infer<typeof updateTicketTypeSchema>;
 

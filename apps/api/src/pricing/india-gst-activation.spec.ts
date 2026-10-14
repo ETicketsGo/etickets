@@ -1,4 +1,5 @@
 import { computeTax, type TaxRuleInput } from './tax-calculator';
+import { TAX_CATEGORIES } from '@eticketsgo/shared-types';
 import { INDIA_GST_RULES } from '../../prisma/india-gst-rules';
 
 /**
@@ -53,20 +54,53 @@ describe('the shipped table matches the published one', () => {
         `${r.category}/${r.appliesTo} ${r.rateBasisPoints} [${r.minUnitMinor ?? '-'}..${r.maxUnitMinor ?? '-'}]`,
     );
     expect(summary).toEqual([
-      'MOVIE/TICKETS 500 [-..10000]',
-      'MOVIE/TICKETS 1800 [10001..-]',
-      'Sports/TICKETS 0 [-..50000]',
-      'Sports/TICKETS 1800 [50001..-]',
-      '*/TICKETS 1800 [-..-]',
+      'CINEMA/TICKETS 500 [-..10000]',
+      'CINEMA/TICKETS 1800 [10001..-]',
+      'SPORTS_RECOGNISED/TICKETS 0 [-..50000]',
+      'SPORTS_RECOGNISED/TICKETS 1800 [50001..-]',
+      'LIVE_PERFORMANCE/TICKETS 0 [-..50000]',
+      'LIVE_PERFORMANCE/TICKETS 1800 [50001..-]',
+      'AMUSEMENT/TICKETS 1800 [-..-]',
+      'OTHER_ENTERTAINMENT/TICKETS 1800 [-..-]',
       '*/FEES 1800 [-..-]',
     ]);
   });
 
   it('bands meet exactly, with no rupee falling between them', () => {
     // ₹100.00 is the 5% band; ₹100.01 is the 18% one. A gap here would untax a ticket.
-    const low = INDIA_GST_RULES.find((r) => r.category === 'MOVIE' && r.rateBasisPoints === 500)!;
-    const high = INDIA_GST_RULES.find((r) => r.category === 'MOVIE' && r.rateBasisPoints === 1800)!;
+    const low = INDIA_GST_RULES.find((r) => r.category === 'CINEMA' && r.rateBasisPoints === 500)!;
+    const high = INDIA_GST_RULES.find(
+      (r) => r.category === 'CINEMA' && r.rateBasisPoints === 1800,
+    )!;
     expect(high.minUnitMinor).toBe((low.maxUnitMinor ?? 0) + 1);
+    // The same for each Rs 500 exemption edge.
+    for (const category of ['SPORTS_RECOGNISED', 'LIVE_PERFORMANCE']) {
+      const exempt = INDIA_GST_RULES.find(
+        (r) => r.category === category && r.rateBasisPoints === 0,
+      )!;
+      const taxed = INDIA_GST_RULES.find((r) => r.category === category && r.rateBasisPoints > 0)!;
+      expect(taxed.minUnitMinor).toBe((exempt.maxUnitMinor ?? 0) + 1);
+    }
+  });
+
+  it('names a tax classification on every admission rule, and ships no catch-all (H-8)', () => {
+    /*
+      The old table banded on 'MOVIE' and 'Sports' while bookings passed the seat class as the
+      category, so every ticket fell to a '*' rule at 18%. Every admission rule now names one
+      of TAX_CATEGORIES, and nothing catches what they do not.
+    */
+    const admission = INDIA_GST_RULES.filter((r) => r.appliesTo === 'TICKETS');
+    for (const r of admission) expect(TAX_CATEGORIES as readonly string[]).toContain(r.category);
+    expect(admission.map((r) => r.category)).not.toContain('*');
+  });
+
+  it('ships NO rule for the categories that need a professional decision first', () => {
+    // IPL-style sport is 40% under 9996 (iiia) but the Rs 500 exemption question is open, and a
+    // conference is not heading 9996 at all. Both are refused at checkout until somebody
+    // qualified writes their rule.
+    const categories = INDIA_GST_RULES.map((r) => r.category);
+    expect(categories).not.toContain('SPORTS_OTHER');
+    expect(categories).not.toContain('CONFERENCE');
   });
 
   it('puts admission rates in one group, so a band and the catch-all cannot stack', () => {
@@ -91,7 +125,7 @@ describe('switching it on changes the receipt, not the price', () => {
   /** ₹250 cinema × 2 + ₹20 fee — the first worked example in the guide. */
   const order = {
     netSubtotalMinor: 50_000,
-    admissionLines: [{ unitPriceMinor: 25_000, quantity: 2, category: 'MOVIE' }],
+    admissionLines: [{ unitPriceMinor: 25_000, quantity: 2, category: 'CINEMA' }],
     customerFeeMinor: 2_000,
   };
 
@@ -180,7 +214,7 @@ describe('switching it on changes the receipt, not the price', () => {
     */
     const out = computeTax({
       netSubtotalMinor: 18_000,
-      admissionLines: [{ unitPriceMinor: 9_000, quantity: 2, category: 'MOVIE' }],
+      admissionLines: [{ unitPriceMinor: 9_000, quantity: 2, category: 'CINEMA' }],
       customerFeeMinor: 1_000,
       rules: shipped({ active: true }),
       place: INTRA_STATE,
@@ -252,7 +286,7 @@ describe('a market that is not India is untouched by any of it', () => {
   it('ignores the Indian table for a US sale', () => {
     const out = computeTax({
       netSubtotalMinor: 50_000,
-      admissionLines: [{ unitPriceMinor: 25_000, quantity: 2, category: 'MOVIE' }],
+      admissionLines: [{ unitPriceMinor: 25_000, quantity: 2, category: 'CINEMA' }],
       customerFeeMinor: 2_000,
       rules: shipped({ active: true }),
       place: { country: 'United States', region: 'CA', supplierRegion: 'CA' },
