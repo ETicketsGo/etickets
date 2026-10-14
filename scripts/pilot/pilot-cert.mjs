@@ -589,7 +589,9 @@ async function stagePurchase() {
           via: 'paid in an earlier run (screenshot ' + envKey + '-' + tag + '-4-after.png)',
         }
       : await payBooking(c, S[key].id, 'success', tag);
-    const bk = await waitBooking(c, S[key].id, 'CONFIRMED');
+    // QA confirms from the Razorpay webhook in seconds. UAT shares QA's test key, so Razorpay
+    // sends its webhooks to QA and UAT confirms from the reconciliation sweep (every 5 minutes).
+    const bk = await waitBooking(c, S[key].id, 'CONFIRMED', 160);
     const p0 = (bk?.payments ?? [])[0] ?? {};
     S[key].confirmed = {
       status: bk?.status,
@@ -603,9 +605,9 @@ async function stagePurchase() {
     rec(
       'payments',
       `PAY-2-${key}`,
-      `Razorpay TEST Netbanking payment completes; booking ${key} CONFIRMED by the webhook`,
+      `Razorpay TEST Netbanking payment completes; booking ${key} CONFIRMED (webhook or reconciliation sweep)`,
       bk?.status === 'CONFIRMED' && pay.ok ? 'PASS' : 'FAIL',
-      JSON.stringify(S[key].confirmed),
+      JSON.stringify({ ...S[key].confirmed, browser: pay.ok ? (pay.via ?? pay.steps) : pay.error }),
       { bookingId: S[key].id },
     );
   }
@@ -870,7 +872,19 @@ async function stageRefunds() {
 async function stageRecon() {
   const c = S.cust.token;
   const admin = S.adminToken ?? (await getStaff());
-  const ab = (await api.call('GET', `/bookings/${S.abandoned.id}`, { token: c })).body;
+  // The hold must have passed, and the expiry sweep run, before this means anything: checking
+  // early recorded a FAIL for a hold that then expired exactly as it should.
+  const holdEnds = Date.parse(S.abandoned.holdExpiresAt ?? '') || 0;
+  const wait = holdEnds + 90_000 - Date.now();
+  if (wait > 0) {
+    console.log(`waiting ${Math.ceil(wait / 1000)}s for the abandoned hold to pass`);
+    await sleep(wait);
+  }
+  let ab = (await api.call('GET', `/bookings/${S.abandoned.id}`, { token: c })).body;
+  for (let i = 0; i < 60 && ab?.status === 'PENDING_PAYMENT'; i++) {
+    await sleep(5000);
+    ab = (await api.call('GET', `/bookings/${S.abandoned.id}`, { token: c })).body;
+  }
   const avail = await available();
   const exp = ab?.status === 'EXPIRED' || ab?.status === 'CANCELLED';
   rec(
