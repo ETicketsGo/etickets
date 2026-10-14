@@ -135,4 +135,76 @@ describe('loadConfig: SMS', () => {
       expect(() => loadConfig()).not.toThrow();
     });
   });
+  /*
+    India DLT values that are set and cannot be right. Only refused where MSG91 carries SMS:
+    with India in log mode none of them reaches a carrier, and a leftover value must not turn
+    into a boot failure.
+  */
+  describe('India DLT', () => {
+    it('boots with the approved header and well-formed ids', () => {
+      process.env = env({
+        DLT_SENDER_HEADER: 'DPTRCS',
+        MSG91_SENDER_ID: 'DPTRCS',
+        DLT_PRINCIPAL_ENTITY_ID: '1701179092181018311',
+        MSG91_SMS_TEMPLATE_OTP: 'tmpl-otp',
+        DLT_TEMPLATE_ID_OTP: '1707000000000000009',
+      });
+      expect(() => loadConfig()).not.toThrow();
+    });
+
+    it('refuses the rejected ETKTGO header by name', () => {
+      process.env = env({ DLT_SENDER_HEADER: 'ETKTGO', MSG91_SENDER_ID: 'ETKTGO' });
+      expect(() => loadConfig()).toThrow(/ETKTGO was REJECTED/);
+    });
+
+    it('refuses a header that is not six letters', () => {
+      process.env = env({ DLT_SENDER_HEADER: 'DPTRC5', MSG91_SENDER_ID: 'DPTRC5' });
+      expect(() => loadConfig()).toThrow(/six-letter DLT header/);
+    });
+
+    it.each([
+      'DLT_PRINCIPAL_ENTITY_ID',
+      'DLT_TEMPLATE_ID_OTP',
+      'DLT_TEMPLATE_ID_SHOW_CANCELLED',
+      'DLT_TEMPLATE_ID_BOOKING_CONFIRMED',
+      'DLT_TEMPLATE_ID_BOOKING_CANCELLED',
+      'DLT_TEMPLATE_ID_REFUND_COMPLETED',
+    ])('refuses %s that is not 19 digits', (key) => {
+      process.env = env({ [key]: '170700000000' });
+      expect(() => loadConfig()).toThrow(new RegExp(`${key} must be the 19-digit id`));
+    });
+
+    it.each(['MSG91_SMS_TEMPLATE_ID', 'MSG91_SMS_BODY_VAR'])(
+      'refuses the removed %s rather than silently ignoring it',
+      (key) => {
+        process.env = env({ [key]: 'x' });
+        expect(() => loadConfig()).toThrow(new RegExp(`${key} is no longer used`));
+      },
+    );
+
+    it('refuses an OTP_SMS_TEMPLATE that differs from the registered wording', () => {
+      process.env = env({ OTP_SMS_TEMPLATE: 'Your ETicketsGo code is {code}' });
+      expect(() => loadConfig()).toThrow(/OTP_SMS_TEMPLATE differs/);
+    });
+
+    it('accepts an OTP_SMS_TEMPLATE identical to the registered wording', () => {
+      process.env = env({
+        OTP_SMS_TEMPLATE:
+          '{code} is your ETicketsGo sign-in code. It expires in {minutes} minutes. Never share it with anyone.',
+      });
+      expect(() => loadConfig()).not.toThrow();
+    });
+
+    it('leaves all of it alone while India SMS is not on MSG91', () => {
+      process.env = env({
+        APP_ENV: 'QA',
+        SMS_PROVIDER_BY_MARKET: 'IN=log,US=twilio,CA=twilio',
+        DLT_SENDER_HEADER: 'ETKTGO',
+        MSG91_SENDER_ID: 'ETKTGO',
+        DLT_TEMPLATE_ID_OTP: '123',
+        MSG91_SMS_BODY_VAR: 'body',
+      });
+      expect(() => loadConfig()).not.toThrow();
+    });
+  });
 });

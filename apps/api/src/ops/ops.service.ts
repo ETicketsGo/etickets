@@ -18,6 +18,7 @@ import {
   evaluateBackupFreshness,
   type BackupFreshness,
 } from './backup-freshness';
+import { OpsAlertService, type OpsAlertStatus } from './alerts/ops-alert.service';
 
 type CheckStatus = 'up' | 'down';
 
@@ -64,7 +65,24 @@ export interface OpsHealth {
    * so labelling by NODE_ENV told an admin on QA they were looking at "production".
    */
   appEnv: string | null;
+  /**
+   * Whether money-critical failures reach a person by email, and when the last one fired.
+   * Informational: it never changes `status`, because a missing alert list is a setup gap, not
+   * a system that is down.
+   */
+  opsAlerts: OpsAlertStatus;
 }
+
+/** What health reports when the alert service is not wired (a hand-built service in a test). */
+const ALERTS_ABSENT: OpsAlertStatus = {
+  configured: false,
+  status: 'not_configured',
+  reason: 'The ops alert service is not available in this process.',
+  recipients: 0,
+  emailProvider: 'none',
+  lastAlertAt: null,
+  lastAlertKind: null,
+};
 
 export interface QueueCounts {
   waiting: number;
@@ -109,6 +127,7 @@ export class OpsService implements OnModuleDestroy {
     @Inject(HOLDS_QUEUE) private readonly queue: Queue,
     // Optional so a service built by hand in a unit test needs no audit double.
     @Optional() private readonly audit?: AuditService,
+    @Optional() private readonly alerts?: OpsAlertService,
   ) {}
 
   async onModuleDestroy(): Promise<void> {
@@ -118,11 +137,12 @@ export class OpsService implements OnModuleDestroy {
   // ─────────────────────────── Health ───────────────────────────
 
   async health(): Promise<OpsHealth> {
-    const [database, redis, queue, backup] = await Promise.all([
+    const [database, redis, queue, backup, opsAlerts] = await Promise.all([
       this.checkDatabase(),
       this.checkRedis(),
       this.checkQueue(),
       this.checkBackup(),
+      this.alerts ? this.alerts.status().catch(() => ALERTS_ABSENT) : ALERTS_ABSENT,
     ]);
     const appEnv = this.config.get<string>('APP_ENV') ?? null;
     const backupRequired =
@@ -144,6 +164,7 @@ export class OpsService implements OnModuleDestroy {
       uptime: process.uptime(),
       nodeEnv: this.config.get<string>('NODE_ENV', 'development'),
       appEnv: this.config.get<string>('APP_ENV') ?? null,
+      opsAlerts,
     };
   }
 

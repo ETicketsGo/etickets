@@ -56,6 +56,8 @@
     "sellingHere": "Here is where we are selling right now.",
     "otherPlaces": "Other places have events on sale.",
     "searchCity": "Search for another city",
+    "noneAnywhere": "No events are on sale yet.",
+    "checkBack": "Check back soon.",
     "none": "No events yet",
     "noneHint": "Events appear here as soon as an organizer puts tickets on sale.",
     "noMatch": "Nothing matches this filter in {place}",

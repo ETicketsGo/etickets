@@ -56,6 +56,8 @@
     "sellingHere": "Voici où nous vendons des billets en ce moment.",
     "otherPlaces": "D'autres endroits ont des événements en vente.",
     "searchCity": "Chercher une autre ville",
+    "noneAnywhere": "Aucun événement n'est en vente pour le moment.",
+    "checkBack": "Revenez bientôt.",
     "none": "Aucun événement pour le moment",
     "noneHint": "Les événements s'affichent ici dès qu'un organisateur met des billets en vente.",
     "noMatch": "Rien ne correspond à ce filtre : {place}",

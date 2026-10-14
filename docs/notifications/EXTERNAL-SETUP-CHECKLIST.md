@@ -23,14 +23,17 @@ Start here. Everything else can be done in an afternoon; this cannot.
 
 - [ ] **Principal Entity** registered on an operator portal (Jio / Airtel / VI TrueConnect)
 - [ ] **PE ID** issued → `DLT_PRINCIPAL_ENTITY_ID`
-- [ ] **Sender header** registered → `DLT_SENDER_HEADER`, and it must equal `MSG91_SENDER_ID`
+- [x] **Sender header** registered: **DPTRCS is APPROVED** (ETKTGO was REJECTED; boot refuses it)
+      → `DLT_SENDER_HEADER`, and it must equal `MSG91_SENDER_ID`
       _(the platform refuses to boot if the two disagree — the carrier believes the one we
       send, not the one we recorded)_
 - [ ] **PE–TM linkage**: MSG91 registered as your telemarketer against the PE
-- [ ] **Content templates** submitted and approved
+- [ ] **Content templates** submitted and approved. The exact texts, variables and env keys
+      are in [INDIA-DLT-TEMPLATES.md](INDIA-DLT-TEMPLATES.md), the single source of truth.
 
-**Only one SMS template is needed to launch.** `SHOW_CANCELLED` is the only type this
-platform ever sends by SMS, and only as a fallback when nothing free got through.
+**Two SMS templates are needed to launch:** the sign-in code (phone sign-in) and
+`SHOW_CANCELLED`, the only notification type this platform sends by SMS, and only as a
+fallback when nothing free got through.
 
 Before submitting, run `GET /api/admin/notifications/readiness/templates/sms`. It reports
 character count, encoding and **segment count** for the wording as it actually renders. One
@@ -41,7 +44,8 @@ approval, for as long as the approval lasts. That is a decision worth making on 
 ### 3. MSG91 account
 
 - [ ] Account created, transactional SMS enabled → `MSG91_AUTH_KEY`
-- [ ] Approved DLT template ids recorded → `NOTIFICATION_TEMPLATE_BINDINGS`
+- [ ] Approved templates recorded, two ids each → `MSG91_SMS_TEMPLATE_<KIND>` and
+      `DLT_TEMPLATE_ID_<KIND>` (see [INDIA-DLT-TEMPLATES.md](INDIA-DLT-TEMPLATES.md))
 - [ ] Delivery-report URL registered:
       `https://<PUBLIC_API_URL>/api/notifications/webhooks/msg91/<MSG91_WEBHOOK_SECRET>`
 - [ ] `MSG91_WEBHOOK_SECRET` generated (32+ random characters)
