@@ -15,13 +15,15 @@
     },
     "./tokens.css": "./src/tokens.css",
     "./themes.css": "./src/themes.css",
-    "./brand.css": "./src/brand.css"
+    "./brand.css": "./src/brand.css",
+    "./console-bridge.css": "./src/console-bridge.css"
   },
   "files": [
     "dist",
     "src/tokens.css",
     "src/themes.css",
-    "src/brand.css"
+    "src/brand.css",
+    "src/console-bridge.css"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

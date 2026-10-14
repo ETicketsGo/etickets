@@ -1,4 +1,8 @@
-import type { NotificationFeedGroup, NotificationFeedSeverity } from '@eticketsgo/web-kit';
+import type {
+  NotificationFeedCategory,
+  NotificationFeedGroup,
+  NotificationFeedSeverity,
+} from '@eticketsgo/web-kit';
 
 /**
  * Presentation for the notification centre. What folds into what, and whether a problem is
@@ -76,4 +80,27 @@ export function splitByAttention(groups: NotificationFeedGroup[]): {
 export function affectedLabel(count: number): string | null {
   if (count <= 0) return null;
   return `${count} ${count === 1 ? 'showtime' : 'showtimes'} affected`;
+}
+
+/** A problem the server says is still there (or could not check): it is never folded away. */
+export function isStandingProblem(g: Pick<NotificationFeedGroup, 'category' | 'resolved'>) {
+  return g.category === 'ACTION_REQUIRED' && g.resolved !== true;
+}
+
+/** What the notification centre is narrowed to: everything, the unread, or one subject. */
+export type FeedFilter = 'all' | 'unread' | NotificationFeedCategory;
+
+/**
+ * The feed's subjects for one filter, in the server's order (action required first), with
+ * subjects that end up empty left out. Display only: nothing is re-sorted or re-grouped here.
+ */
+export function filterFeed<
+  S extends { category: NotificationFeedCategory; groups: NotificationFeedGroup[] },
+>(sections: S[], filter: FeedFilter): S[] {
+  if (filter === 'all') return sections.filter((s) => s.groups.length > 0);
+  if (filter === 'unread')
+    return sections
+      .map((s) => ({ ...s, groups: s.groups.filter((g) => !g.read) }))
+      .filter((s) => s.groups.length > 0);
+  return sections.filter((s) => s.category === filter && s.groups.length > 0);
 }

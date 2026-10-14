@@ -2,11 +2,19 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
-import { api, marketFor, useAuthUser, type AnalyticsOrganizerMarket } from '@eticketsgo/web-kit';
+import Link from 'next/link';
+import { Plus } from 'lucide-react';
+import {
+  api,
+  brandButtonClasses,
+  marketFor,
+  useAuthUser,
+  type AnalyticsOrganizerMarket,
+} from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
 import { isForbidden } from '@/lib/org-permissions';
 import type { EventListRow } from '@/components/events/event-list-model';
-import { greetingDate, pendingActions } from './_dashboard/model';
+import { greetingDate, pendingActions, recentActivity } from './_dashboard/model';
 import { moneyPanels, needsAction } from './_dashboard/overview-model';
 import { sellingOf } from './_dashboard/status';
 import {
@@ -18,6 +26,7 @@ import {
   pickNextStep,
 } from './_dashboard/desk-model';
 import {
+  BestSellers,
   ComingUp,
   DeskOverviewError,
   DeskOverviewSkeleton,
@@ -25,6 +34,7 @@ import {
   MarketsDisclosure,
   NeedsYou,
   OverviewHeader,
+  RecentActivity,
   type FigureCell,
 } from './_dashboard/desk';
 
@@ -170,7 +180,7 @@ export default function OrganizerDashboard() {
 
   if (eventsQ.isError || analyticsQ.isError)
     return (
-      <div data-brand="console" className="mx-auto flex max-w-brand-console flex-col gap-6">
+      <div data-brand="console" className="flex flex-col gap-6">
         {header}
         <DeskOverviewError
           onRetry={() => {
@@ -196,7 +206,7 @@ export default function OrganizerDashboard() {
     summaryQ.isLoading;
   if (booting)
     return (
-      <div data-brand="console" className="mx-auto max-w-brand-console">
+      <div data-brand="console">
         <DeskOverviewSkeleton />
       </div>
     );
@@ -248,7 +258,7 @@ export default function OrganizerDashboard() {
   ];
 
   const empty = (
-    <div className="flex max-w-prose flex-col gap-2">
+    <div className="flex max-w-prose flex-col items-start gap-2">
       <p className="font-brand-display text-brand-d3 text-brand-ink">
         {events.length === 0 ? 'Your first event starts here' : 'Nothing is on sale right now'}
       </p>
@@ -257,8 +267,20 @@ export default function OrganizerDashboard() {
           ? 'Events you create show here with their dates, how they are selling and what they have earned.'
           : 'Events you publish show here with their next date and how they are selling.'}
       </p>
+      {/* The one useful thing to do from an empty list, for the members who can do it. */}
+      {canCreate && (
+        <Link
+          href={events.length === 0 ? '/organizer/events/new' : '/organizer/events'}
+          className={`mt-2 ${brandButtonClasses('secondary', 'md')}`}
+        >
+          {events.length === 0 && <Plus className="h-4 w-4" aria-hidden />}
+          {events.length === 0 ? 'Create your first event' : 'Publish an event'}
+        </Link>
+      )}
     </div>
   );
+  const activity = recentActivity(feedQ.data, 5);
+  const topEvents = can.financials ? (analytics?.topEvents ?? []).slice(0, 5) : [];
 
   /*
     ── ONE ORDER FOR EVERY WIDTH ──────────────────────────────────────────────────────
@@ -268,7 +290,7 @@ export default function OrganizerDashboard() {
     after the first paint.
   */
   return (
-    <div data-brand="console" className="mx-auto flex max-w-brand-console flex-col gap-6 md:gap-8">
+    <div data-brand="console" className="flex flex-col gap-6 md:gap-8">
       {header}
       <FigureStrip cells={cells} />
       <div className="grid grid-cols-1 items-start gap-6 xl:grid-cols-[minmax(0,1fr)_20rem] xl:gap-8">
@@ -282,16 +304,25 @@ export default function OrganizerDashboard() {
             }
             empty={empty}
           />
+          {topEvents.length > 0 && <BestSellers events={topEvents} />}
           {can.financials && markets.length > 1 && <MarketsDisclosure markets={markets} />}
         </div>
-        <div className="order-1 min-w-0 xl:order-2">
+        <div className="order-1 flex min-w-0 flex-col gap-6 xl:order-2">
           <NeedsYou
             needs={needs}
             next={next}
             failed={feedQ.isError}
             onRetry={() => feedQ.refetch()}
             canAct={canCreate}
+            perGroup={2}
           />
+          {/* Below `xl` it would sit between Needs you and the events; there it waits its turn. */}
+          <div className="hidden xl:block">
+            <RecentActivity groups={activity} failed={feedQ.isError} />
+          </div>
+        </div>
+        <div className="order-3 min-w-0 xl:hidden">
+          <RecentActivity groups={activity} failed={feedQ.isError} />
         </div>
       </div>
     </div>

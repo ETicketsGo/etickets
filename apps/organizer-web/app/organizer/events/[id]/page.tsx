@@ -14,7 +14,6 @@ import {
   ErrorState,
   useToast,
   errorMessage,
-  titleCase,
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
 import { SellabilityPanel } from '@/components/sellability-panel';
@@ -225,7 +224,13 @@ export default function EventOverview() {
                   'Artists',
                   event.artists?.length ? event.artists.map((a) => a.name).join(', ') : 'None',
                 ],
-                ['Fee handling', event.isFree ? 'Free event' : titleCase(event.feeMode)],
+                [
+                  'Fee handling',
+                  event.isFree
+                    ? 'Free event'
+                    : event.feeMode.charAt(0) +
+                      event.feeMode.slice(1).toLowerCase().replaceAll('_', ' '),
+                ],
                 [
                   'Published',
                   event.publishedAt ? timeAtVenue(event.publishedAt, event.venue) : 'Not yet',

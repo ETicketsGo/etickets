@@ -15,7 +15,7 @@ describe('console root layouts', () => {
       const code = src.replace(/\{\/\*[\s\S]*?\*\/\}/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
       expect(code).not.toMatch(/<head[\s>]/);
       expect(code).toMatch(
-        /<body>\s*<script dangerouslySetInnerHTML=\{\{ __html: workspaceThemeScript \}\} \/>/,
+        /<body(?: data-brand="console")?>\s*<script dangerouslySetInnerHTML=\{\{ __html: workspaceThemeScript \}\} \/>/,
       );
     });
   }

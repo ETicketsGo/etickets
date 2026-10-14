@@ -168,6 +168,7 @@ Hope to see you there!`;
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <input
               readOnly
+              aria-label="Public event link"
               value={publicUrl}
               className="flex-1 rounded-lg border border-border-strong bg-background-subtle px-3 py-2 text-sm text-text-primary"
               onFocus={(e) => e.currentTarget.select()}
@@ -206,7 +207,7 @@ Hope to see you there!`;
         </div>
       </Card>
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 [&>*]:min-w-0">
         <Card title="QR code & poster">
           <div className="flex flex-col items-center gap-4">
             {qrDataUrl ? (
@@ -238,7 +239,11 @@ Hope to see you there!`;
 
         <Card title="Email invitation">
           <div className="space-y-3">
-            <pre className="max-h-56 overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-background-subtle p-3 text-caption text-text-secondary">
+            <pre
+              tabIndex={0}
+              aria-label="Email template"
+              className="max-h-56 overflow-auto whitespace-pre-wrap [overflow-wrap:anywhere] rounded-lg border border-border bg-background-subtle p-3 text-caption text-text-secondary"
+            >
               {emailTemplate}
             </pre>
             <div className="flex flex-wrap gap-2">

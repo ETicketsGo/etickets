@@ -29,7 +29,8 @@ export interface ComplianceHeadline {
  * refusal, so they win. Without any, the server's summary stands (it ignores finished shows).
  */
 export function complianceHeadline(
-  view: Pick<CinemaComplianceView, 'summary' | 'status' | 'blocksPublishing'>,
+  view: Pick<CinemaComplianceView, 'summary' | 'status' | 'blocksPublishing'> &
+    Partial<Pick<CinemaComplianceView, 'jurisdiction' | 'classification'>>,
   checks: readonly PilotReadinessCheck[] | undefined,
 ): ComplianceHeadline {
   const current = (checks ?? []).filter((c) => c.section === 'SALES' && c.level === 'BLOCKED');
@@ -38,7 +39,29 @@ export function complianceHeadline(
   }
   const tone: HeadlineTone =
     view.status === 'REQUIRES_APPROVAL' ? 'warning' : view.blocksPublishing ? 'error' : 'success';
-  return { tone, text: view.summary, more: 0 };
+  return { tone, text: classificationSummary(view) ?? view.summary, more: 0 };
+}
+
+/**
+ * The server says INVALID_CINEMA_CLASSIFICATION both when the cinema has no classification AND
+ * when it has one but the order cannot be applied to it - in QA, a seat category with no
+ * regulatory seat class (F3, READINESS-VERIFY.md). Its sentence always says "this cinema has not
+ * been classified. Set its local body, format and climate type", which sent an exhibitor whose
+ * fields WERE set to the wrong form. When the same response shows all three set, this says what
+ * is actually left to check. Wording only: the status, and whether publishing is blocked, are the
+ * server's.
+ */
+export function classificationSummary(
+  view: Pick<CinemaComplianceView, 'status'> &
+    Partial<Pick<CinemaComplianceView, 'jurisdiction' | 'classification'>>,
+): string | null {
+  if (view.status !== 'INVALID_CINEMA_CLASSIFICATION') return null;
+  const classified =
+    !!view.jurisdiction?.localBodyType &&
+    !!view.classification?.cinemaFormat &&
+    !!view.classification?.climateType;
+  if (!classified) return null;
+  return 'Cannot publish: this cinema is classified, but the pricing order cannot be applied to it yet. Check that every seat category is mapped to a regulatory seat class (Seat classes, below).';
 }
 
 /** Prices on finished shows only. History, never a headline. */

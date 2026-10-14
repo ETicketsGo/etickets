@@ -87,6 +87,20 @@ export function accountRoleLabel(roles: readonly string[] | null | undefined): s
   return ROLE_LABEL.find(([r]) => roles?.includes(r))?.[1] ?? null;
 }
 
+/**
+ * A short notice at the top of the sidebar: the organizer's "Finish setup, 3 of 5 done" while
+ * setup is unfinished. One link, words always; in the collapsed rail it is the icon with its
+ * words as a tooltip. The app decides when there is one - it disappears when setup is done.
+ */
+export interface ShellNotice {
+  label: string;
+  detail?: string;
+  href: string;
+  icon: LucideIcon;
+  /** 0..1, drawn as a thin bar under the words. The words say the same thing. */
+  progress?: number;
+}
+
 /** The top bar's one primary action: "Create event". */
 export interface ShellAction {
   label: string;
@@ -99,10 +113,10 @@ export interface ShellAction {
  * drawer and quick navigation (docs/design/eticketsgo-premium-reference.png).
  *
  * ── ONE SHELL FOR BOTH CONSOLES ────────────────────────────────────────────────────
- * Both consoles are this component and behave identically: folding groups (only the current
- * one open), a rail of named group buttons with tooltips and flyouts, Ctrl/Cmd+K quick
- * navigation, a sticky sidebar that never adds a second scroll, and the drawer on a phone.
- * See `sidebar-nav.tsx`. What differs is the menu, the name in the masthead and the slots.
+ * Both consoles are this component: Ctrl/Cmd+K quick navigation, a sticky sidebar that never
+ * adds a second scroll, and the drawer on a phone. The classic (admin) sidebar folds its groups
+ * and its rail opens flyouts; the desk (organizer) sidebar is one flat list with icons and a
+ * rail of named icon links (organizer recovery). See `sidebar-nav.tsx`.
  *
  * ── THE LAYOUT ─────────────────────────────────────────────────────────────────────
  * From `lg` up it is a two-column grid: the sidebar takes the full height of the window on the
@@ -138,6 +152,7 @@ export function AppShell({
   primaryAction,
   notifications,
   accountRole,
+  sidebarNotice,
   navLabel = 'Main',
   drawerLabel = 'Navigation',
   width = 'contained',
@@ -163,6 +178,8 @@ export function AppShell({
   notifications?: ReactNode;
   /** The line under the person's name. Defaults to their platform role. */
   accountRole?: string | null;
+  /** A notice above the sidebar's list (desk only): see `ShellNotice`. */
+  sidebarNotice?: ShellNotice | null;
   /** The accessible name of the navigation landmark ("Main" for organizers, "Admin"). */
   navLabel?: string;
   /** The accessible name of the phone drawer. */
@@ -554,6 +571,9 @@ export function AppShell({
             collapsed ? 'px-2 pt-3' : `px-3 ${desk ? 'pt-4' : 'pt-3'}`
           }`}
         >
+          {desk && sidebarNotice && (
+            <DeskNotice notice={sidebarNotice} compact={collapsed} pathname={pathname} />
+          )}
           {collapsed ? (
             <NavRail items={items} pathname={pathname} appearance={appearance} />
           ) : (
@@ -624,6 +644,9 @@ export function AppShell({
                 aria-label={navLabel}
                 className="flex-1 overflow-y-auto px-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-3 [scrollbar-width:thin]"
               >
+                {desk && sidebarNotice && (
+                  <DeskNotice notice={sidebarNotice} pathname={pathname} onNavigate={closeMobile} />
+                )}
                 <NavTree
                   items={items}
                   pathname={pathname}
@@ -650,6 +673,70 @@ export function AppShell({
         </div>
       </main>
     </div>
+  );
+}
+
+/** The sidebar notice, expanded (words and a thin progress bar) or as a rail icon. */
+function DeskNotice({
+  notice,
+  compact = false,
+  pathname,
+  onNavigate,
+}: {
+  notice: ShellNotice;
+  compact?: boolean;
+  pathname: string;
+  onNavigate?: () => void;
+}) {
+  const Icon = notice.icon;
+  const here = pathname === notice.href;
+  if (compact) {
+    return (
+      <div className="mb-2 flex justify-center border-b border-brand-line pb-2">
+        <RailTip label={notice.detail ? `${notice.label}, ${notice.detail}` : notice.label}>
+          {(tip) => (
+            <Link
+              href={notice.href}
+              aria-label={notice.detail ? `${notice.label}, ${notice.detail}` : notice.label}
+              aria-current={here ? 'page' : undefined}
+              {...tip}
+              className={`flex h-10 w-10 items-center justify-center rounded-brand-control border border-brand-line bg-brand-surface text-brand-ink transition-colors duration-150 hover:bg-brand-sunken ${DESK_RING}`}
+            >
+              <Icon className="h-[1.125rem] w-[1.125rem]" aria-hidden />
+            </Link>
+          )}
+        </RailTip>
+      </div>
+    );
+  }
+  const pct = Math.round(Math.min(1, Math.max(0, notice.progress ?? 0)) * 100);
+  // Two short lines and a hairline of progress: it must not push the list into a scroll.
+  return (
+    <Link
+      href={notice.href}
+      onClick={onNavigate}
+      aria-current={here ? 'page' : undefined}
+      className={`mb-3 flex flex-col gap-1.5 rounded-brand-control border border-brand-line bg-brand-surface px-3 py-2 transition-colors duration-150 hover:border-brand-line-strong ${DESK_RING}`}
+    >
+      <span className="flex min-w-0 items-center gap-3">
+        <Icon className="h-[1.125rem] w-[1.125rem] shrink-0 text-brand-ink" aria-hidden />
+        <span className="flex min-w-0 flex-col leading-tight">
+          <span className="truncate text-brand-ui font-semibold text-brand-ink">
+            {notice.label}
+          </span>
+          {notice.detail && (
+            <span className="truncate text-brand-meta tabular-nums text-brand-ink-2">
+              {notice.detail}
+            </span>
+          )}
+        </span>
+      </span>
+      {notice.progress !== undefined && (
+        <span aria-hidden className="h-1 w-full overflow-hidden rounded-full bg-brand-sunken">
+          <span className="block h-full rounded-full bg-brand-ink" style={{ width: `${pct}%` }} />
+        </span>
+      )}
+    </Link>
   );
 }
 

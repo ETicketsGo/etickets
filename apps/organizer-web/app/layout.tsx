@@ -22,7 +22,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       data-console=""
       suppressHydrationWarning
     >
-      <body>
+      {/*
+        `data-brand="console"` on <body>, not only on the shell: toasts, tooltips and menus are
+        portalled to the body and rendered OUTSIDE the desk, so they kept the classic navy/teal
+        colours. Here every organizer surface - including sign-in, the invite page and the print
+        sheets - reads the brand console tokens through console-bridge.css.
+      */}
+      <body data-brand="console">
         {/*
           WHY THIS IS IN <body> AND NOT IN AN EXPLICIT <head>: a <head> element in this layout
           puts a non-hoistable child (this script) in the document head, and React then has to
