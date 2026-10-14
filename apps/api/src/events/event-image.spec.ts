@@ -23,6 +23,14 @@ const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46]);
 const WEBP = Buffer.concat([Buffer.from('RIFF'), Buffer.alloc(4), Buffer.from('WEBPVP8 ')]);
 const SVG = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>');
 const HTML = Buffer.from('<!doctype html><script>alert(1)</script>');
+/*
+  HEIF and AVIF are ISO-BMFF files: a 4-byte box size, then "ftyp" and a brand. An iPhone saves
+  photos as HEIC by default, so this is the upload most likely to arrive that is not one of ours.
+*/
+const ftyp = (brand: string) =>
+  Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from(`ftyp${brand}`), Buffer.alloc(12)]);
+const HEIC = ftyp('heic');
+const AVIF = ftyp('avif');
 
 /**
  * The object store, as these tests need it: the database driver, which is the default and what
@@ -58,6 +66,8 @@ describe('sniffImageType', () => {
     ['HTML', HTML],
     ['an empty file', Buffer.alloc(0)],
     ['a truncated PNG header', PNG.subarray(0, 4)],
+    ['an iPhone HEIC photo', HEIC],
+    ['an AVIF picture', AVIF],
   ])('refuses %s', (_name, bytes) => {
     expect(sniffImageType(bytes)).toBeNull();
   });
@@ -226,6 +236,16 @@ describe('EventImageService', () => {
     await expect(
       service.add(organizer, 'ev1', { buffer: forged, size: forged.length }),
     ).rejects.toMatchObject({ code: 'VALIDATION_FAILED', status: 415 });
+    expect(prisma.eventImage.create).not.toHaveBeenCalled();
+  });
+
+  it('refuses a HEIC or AVIF photo with a plain 415, storing nothing', async () => {
+    const { service, prisma } = setup();
+    for (const buffer of [HEIC, AVIF]) {
+      await expect(
+        service.add(organizer, 'ev1', { buffer, size: buffer.length, mimetype: 'image/heic' }),
+      ).rejects.toMatchObject({ code: 'VALIDATION_FAILED', status: 415 });
+    }
     expect(prisma.eventImage.create).not.toHaveBeenCalled();
   });
 

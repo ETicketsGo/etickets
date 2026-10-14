@@ -292,7 +292,7 @@ export class MarketCertificationService {
   /** The exact console action a human must take. Never a vague "configure the provider". */
   private externalAction(provider: string, channel: string): string {
     if (provider === 'msg91' && channel === 'sms') {
-      return 'Register the DLT templates on the operator portal and set MSG91_SMS_TEMPLATE_IDS.';
+      return 'Register the DLT templates in docs/notifications/INDIA-DLT-TEMPLATES.md and set MSG91_SMS_TEMPLATE_<KIND> and DLT_TEMPLATE_ID_<KIND> for each.';
     }
     if (provider === 'msg91' && channel === 'whatsapp') {
       return 'Register the WhatsApp business number with MSG91 and set MSG91_WHATSAPP_NUMBER and MSG91_WHATSAPP_TEMPLATES.';

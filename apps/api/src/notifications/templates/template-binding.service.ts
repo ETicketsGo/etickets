@@ -6,6 +6,7 @@ import {
   type TemplateBinding,
   type TemplateBindingQuery,
 } from '@eticketsgo/shared-types';
+import { DLT_SMS_TEMPLATES } from './dlt-sms-templates';
 
 /**
  * Where a provider's template id for a message comes from.
@@ -28,9 +29,26 @@ import {
 export class TemplateBindingService {
   constructor(private readonly config: ConfigService) {}
 
-  /** Everything configured, canonical entries first. */
+  /** Everything configured: the per-template DLT keys, then canonical, then legacy. */
   all(): TemplateBinding[] {
-    return [...this.canonical(), ...this.legacy()];
+    return [...this.dltRegistry(), ...this.canonical(), ...this.legacy()];
+  }
+
+  /**
+   * The per-template MSG91 ids named in the DLT registry (`MSG91_SMS_TEMPLATE_<KIND>`).
+   *
+   * First, because each one is named for exactly one registered wording: it cannot be a
+   * wildcard left over from an earlier setup. Read here rather than only in the transport so
+   * the readiness report sees the same answer the transport sends with.
+   */
+  private dltRegistry(): TemplateBinding[] {
+    const out: TemplateBinding[] = [];
+    for (const t of Object.values(DLT_SMS_TEMPLATES)) {
+      const id = this.config.get<string>(t.msg91TemplateIdEnv)?.trim();
+      if (!id) continue;
+      out.push({ provider: 'msg91', channel: 'sms', type: t.kind, locale: '*', externalId: id });
+    }
+    return out;
   }
 
   /** The canonical `NOTIFICATION_TEMPLATE_BINDINGS` entries. */
