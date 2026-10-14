@@ -34,23 +34,17 @@ const phoneVerifySchema = z.object({
     .regex(/^\d{6}$/, 'The code is six digits.'),
 });
 import { AllowMfaPending, CurrentUser, Public, type RequestUser } from '../common/decorators';
+import { AUTH_THROTTLE } from '../common/throttle';
 
 function meta(req: Request) {
   return { userAgent: req.header('user-agent') ?? undefined, ip: req.ip };
 }
 
-/**
- * Tight per-route throttle for credential/token endpoints. The global guard is
- * 120 req/60s (fine for general browsing); auth endpoints are brute-force and
- * token-replay targets, so they get 10 req/60s per client. Well above what any
- * legitimate login/refresh flow (or the e2e suite's handful of logins) needs.
- */
-// Production default is 10/min per IP (brute-force protection). The limit is
-// env-overridable ONLY so a login-heavy local/e2e run (many suites in one minute)
-// doesn't trip it — production leaves AUTH_THROTTLE_LIMIT unset and keeps 10.
-const AUTH_THROTTLE = {
-  default: { limit: Number(process.env.AUTH_THROTTLE_LIMIT ?? 10), ttl: 60_000 },
-};
+/*
+  Every credential route below carries AUTH_THROTTLE (10 a minute per client, per route) on top
+  of the global 120 a minute. Defined once in common/throttle.ts, with the MFA routes, so the
+  two controllers cannot drift apart.
+*/
 
 @ApiTags('auth')
 @Controller('auth')

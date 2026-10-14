@@ -16,8 +16,8 @@
  *   levied on FEES      → nothing goes back; fees are not refunded, so neither is their tax.
  *   INSIDE the price    → goes back inside the ticket price, not on top of it. Its share of
  *                         the line is recorded so the credit note can state the tax returned.
- *   ADDED to the price  → the rate re-applied to the tickets returned, capped at the line's
- *                         base (unchanged from before, and what a US-style sales tax needs).
+ *   ADDED to the price  → the returned tickets' share of the line, out of the line's base:
+ *                         the rate re-applied to them, without re-rounding a split half.
  *
  * A line that predates `basis`/`inclusive` is treated as added, exactly as before this
  * change — rows written since 2026-09-06 state both.
@@ -58,19 +58,39 @@ export interface RefundTax {
 }
 
 /**
- * @param ticketsMinor         the returned tickets at the price they were sold for
- * @param bookingTicketsMinor  every ticket on the booking at that price — the whole an
- *                             inclusive line was levied on, so a partial refund returns its
- *                             share of the line rather than re-deriving a rounded figure
+ * A stretch of the booking's tickets, in minor units, as a cumulative range.
+ *
+ * The booking's tickets are laid end to end in a fixed order (by id) at what each cost after
+ * the discount; a refund returns the stretches its tickets occupy. Every tax line is dealt
+ * out over that same line, so ANY grouping of the tickets into refunds returns each line
+ * exactly - never a paisa more or less in total.
  */
-export function refundTax(
+type Stretch = readonly [from: number, to: number];
+
+/**
+ * Each line's share of a set of stretches, rounded on the CUMULATIVE figure.
+ *
+ * Rounding a share per refund is what made partial refunds drift: three one-ticket refunds of
+ * a 10,001-paise line returned 3,334 three times, 10,002 in all. Taking the difference of
+ * rounded cumulative amounts instead (as `ticketNetPrices` does for the discount) makes the
+ * pieces telescope back to the line.
+ */
+function taxOverStretches(
   lines: readonly TaxLineSnapshot[],
-  ticketsMinor: number,
+  stretches: readonly Stretch[],
   bookingTicketsMinor: number,
-  options: { includeFeeTax?: boolean } = {},
+  options: { includeFeeTax?: boolean },
 ): RefundTax {
-  const share = bookingTicketsMinor > 0 ? Math.min(1, ticketsMinor / bookingTicketsMinor) : 0;
   const out: RefundTaxLine[] = [];
+  /** `amount` dealt over `whole`, summed across the stretches; `whole` caps each end. */
+  const dealt = (amount: number, whole: number) => {
+    if (whole <= 0) return 0;
+    const upTo = (x: number) => {
+      const clamped = Math.min(Math.max(0, x), whole);
+      return clamped >= whole ? amount : Math.round((amount * clamped) / whole);
+    };
+    return stretches.reduce((sum, [from, to]) => sum + upTo(to) - upTo(from), 0);
+  };
   for (const line of lines) {
     if (line.basis === 'FEES' && !options.includeFeeTax) continue;
     /*
@@ -96,25 +116,80 @@ export function refundTax(
       basis: line.basis ?? null,
     };
     if (line.inclusive === true) {
+      // Inside the price: the returned tickets' share of the whole ticket total.
       out.push({
         ...common,
         inclusive: true,
-        baseMinor: Math.round(line.baseMinor * share),
-        amountMinor: Math.round(line.amountMinor * share),
+        baseMinor: dealt(line.baseMinor, bookingTicketsMinor),
+        amountMinor: dealt(line.amountMinor, bookingTicketsMinor),
       });
     } else {
-      const base = Math.min(ticketsMinor, line.baseMinor);
+      /*
+        Added to the price: the returned tickets' share of the line, out of the line's own
+        base. This used to re-apply the rate to the tickets returned, which is the same
+        figure before rounding - but a CGST half now carries the odd paisa of its levy (see
+        `splitTaxAmount`), and re-applying 9% to the whole base would not give it back.
+        Dealing out the stored amount returns exactly what was charged.
+      */
       out.push({
         ...common,
         inclusive: false,
-        baseMinor: base,
-        amountMinor: Math.round((base * line.rateBasisPoints) / 10_000),
+        baseMinor: dealt(line.baseMinor, line.baseMinor),
+        amountMinor: dealt(line.amountMinor, line.baseMinor),
       });
     }
   }
   const addedMinor = out.filter((l) => !l.inclusive).reduce((s, l) => s + l.amountMinor, 0);
   const includedMinor = out.filter((l) => l.inclusive).reduce((s, l) => s + l.amountMinor, 0);
   return { addedMinor, includedMinor, taxMinor: addedMinor + includedMinor, lines: out };
+}
+
+/**
+ * The tax that goes back with an amount of returned tickets, treated as ONE stretch from the
+ * start of the booking. Right for a single refund; for refunds that name tickets use
+ * `refundTaxForTickets`, which is what makes several partial refunds add up.
+ *
+ * @param ticketsMinor         the returned tickets at the price they were sold for
+ * @param bookingTicketsMinor  every ticket on the booking at that price — the whole an
+ *                             inclusive line was levied on, so a partial refund returns its
+ *                             share of the line rather than re-deriving a rounded figure
+ */
+export function refundTax(
+  lines: readonly TaxLineSnapshot[],
+  ticketsMinor: number,
+  bookingTicketsMinor: number,
+  options: { includeFeeTax?: boolean } = {},
+): RefundTax {
+  return taxOverStretches(lines, [[0, Math.max(0, ticketsMinor)]], bookingTicketsMinor, options);
+}
+
+/**
+ * The tax that goes back with these particular tickets.
+ *
+ * Each ticket's share of every line is fixed by its place in the booking (tickets in id
+ * order, at what they cost after the discount - the order `ticketNetPrices` deals the
+ * discount in), not by which refund it happens to be in. So the refund service and the
+ * credit note, given the same tickets, compute the same figure; and all of a booking's
+ * partial refunds together return each tax line to the paisa.
+ *
+ * @param netByTicket  from `ticketNetPrices`, for EVERY ticket on the booking
+ */
+export function refundTaxForTickets(
+  lines: readonly TaxLineSnapshot[],
+  netByTicket: ReadonlyMap<string, number>,
+  ticketIds: readonly string[],
+  bookingTicketsMinor: number,
+  options: { includeFeeTax?: boolean } = {},
+): RefundTax {
+  const wanted = new Set(ticketIds);
+  const stretches: Stretch[] = [];
+  let position = 0;
+  for (const id of [...netByTicket.keys()].sort((a, b) => a.localeCompare(b))) {
+    const net = netByTicket.get(id) ?? 0;
+    if (wanted.has(id)) stretches.push([position, position + net]);
+    position += net;
+  }
+  return taxOverStretches(lines, stretches, bookingTicketsMinor, options);
 }
 
 /**

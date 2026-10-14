@@ -2,15 +2,15 @@ import { RedisThrottlerStorage, throttlerStorageMode } from './redis-throttler.s
 import { throttleKeyPrefix } from './redis-namespace';
 
 /**
- * unit - rate-limit counters that survive a restart, and a default that changes nothing.
+ * unit - rate-limit counters that survive a restart, and the default each environment gets.
  *
  * ── WHAT THIS IS FOR ───────────────────────────────────────────────────────────────
  * The credential limit lived in one process, so it was lost on every restart and multiplied by
  * the replica count. This moves it to Redis - which is already provisioned, with a client
  * already in the dependency tree.
  *
- * The tests weighted hardest are the DEFAULT (production sets nothing, so the default IS
- * production) and the DEGRADED path, because a security control whose failure mode has never
+ * The tests weighted hardest are the DEFAULT (deployed environments set nothing, so the
+ * default IS production) and the DEGRADED path, because a security control whose failure mode has never
  * been exercised is a guess.
  */
 
@@ -21,21 +21,39 @@ function makeStorage(evalImpl: (...a: unknown[]) => Promise<unknown>) {
   return { storage, client };
 }
 
-describe('the default is the behaviour we already had', () => {
-  it('is memory when nothing is configured', () => {
-    // Production sets no THROTTLE_STORAGE, so this is what production runs.
-    expect(throttlerStorageMode({ get: () => undefined })).toBe('memory');
-  });
+/** A config with THROTTLE_STORAGE = `storage` and APP_ENV = `env`. */
+function cfg(storage: string | undefined, env: string | undefined) {
+  return {
+    get: <T>(k: string) =>
+      (k === 'THROTTLE_STORAGE' ? storage : k === 'APP_ENV' ? env : undefined) as T | undefined,
+  };
+}
 
-  it('is memory for anything unrecognised, rather than something nobody chose', () => {
-    for (const raw of ['', '  ', 'REDISS', 'yes', 'true', 'memcached']) {
-      expect(throttlerStorageMode({ get: () => raw as never })).toBe('memory');
+describe('the default follows the environment', () => {
+  it('is redis in every deployed environment when nothing is configured', () => {
+    // Deployed environments set no THROTTLE_STORAGE, so this is what they run.
+    for (const env of ['QA', 'UAT', 'STAGING', 'PRODUCTION', 'production']) {
+      expect(throttlerStorageMode(cfg(undefined, env))).toBe('redis');
     }
   });
 
-  it('selects redis only on an exact, case-insensitive match', () => {
-    expect(throttlerStorageMode({ get: () => 'redis' as never })).toBe('redis');
-    expect(throttlerStorageMode({ get: () => ' Redis ' as never })).toBe('redis');
+  it('is memory on a developer machine or in a test run, which has no Redis to rely on', () => {
+    for (const env of ['LOCAL', 'DEV', 'TEST', undefined, '']) {
+      expect(throttlerStorageMode(cfg(undefined, env))).toBe('memory');
+    }
+  });
+
+  it('obeys an explicit choice in either direction, case-insensitively', () => {
+    expect(throttlerStorageMode(cfg(' Memory ', 'PRODUCTION'))).toBe('memory');
+    expect(throttlerStorageMode(cfg('redis', 'LOCAL'))).toBe('redis');
+    expect(throttlerStorageMode(cfg(' Redis ', 'LOCAL'))).toBe('redis');
+  });
+
+  it('reads anything unrecognised as the environment default, not as something nobody chose', () => {
+    for (const raw of ['', '  ', 'REDISS', 'yes', 'true', 'memcached']) {
+      expect(throttlerStorageMode(cfg(raw, 'PRODUCTION'))).toBe('redis');
+      expect(throttlerStorageMode(cfg(raw, 'LOCAL'))).toBe('memory');
+    }
   });
 });
 
