@@ -8,6 +8,16 @@ import { maskPhone, resolveDestination } from './recipient.util';
 import { TransportError, transportJson } from './transport-http';
 import { messageContentLoggable } from './content-logging';
 import { redactProviderText } from './provider-text';
+import {
+  DLT_ID_PATTERN,
+  DLT_VARIABLE_MAX_LENGTH,
+  OTP_SMS_KIND,
+  REJECTED_SENDER_HEADERS,
+  dltTemplateFor,
+  dltVariablesFromPayload,
+  matchDltSms,
+  type DltSmsTemplate,
+} from '../../templates/dlt-sms-templates';
 
 /** DI token for the SMS transport bound in notifications.module.ts. */
 export const SMS_TRANSPORT = Symbol('SMS_TRANSPORT');
@@ -190,26 +200,37 @@ export function classifyTwilioError(err: unknown, provider: string): TransportEr
  *
  * ── WHY INDIA CANNOT USE TWILIO'S SHAPE ────────────────────────────────────────────
  * An Indian operator will not carry a transactional SMS whose wording is not a template
- * registered against the sender on a DLT portal, and will not carry it under a sender id
+ * registered against the sender on a DLT portal, and will not carry it under a sender header
  * that is not registered either. So there is no "here is some text, send it": the request
- * names an APPROVED TEMPLATE and supplies its variables, and the approved wording lives at
- * the operator, not in this repository.
+ * names an APPROVED TEMPLATE and supplies its variables.
  *
- * That is why the template ids are configuration and why none of them have defaults. A
- * hardcoded template id is a compliance decision baked into a build, and a wrong one is a
- * message that is accepted by the API and then silently dropped by the carrier.
+ * ── WHAT CHANGED, AND WHY ──────────────────────────────────────────────────────────
+ * This used to send the catalogue's rendered body as one variable (`MSG91_SMS_BODY_VAR`), fall
+ * back to one shared template id for every type (`MSG91_SMS_TEMPLATE_ID`), and send whatever a
+ * payload put in `smsTemplateVars`. None of those can match a DLT approval: DLT does not
+ * approve a template that is only a variable, one id cannot cover five wordings, and a payload
+ * cannot know what was registered. Every one of them was a message MSG91 accepts and the
+ * carrier drops -- recorded here as SENT.
  *
- * ── WHAT MUST BE SET UP OUTSIDE THIS CODE ──────────────────────────────────────────
- * An MSG91 account, a DLT-registered sender id, and one approved template per message type,
- * with its variable names. None of that can be created from here and none of it is faked in
- * tests: with no template id configured for a type this transport refuses the send with a
- * permanent error rather than guessing one.
+ * Now the wording comes from one registry (`templates/dlt-sms-templates.ts`), and a kind is
+ * sent only when ALL of these hold, otherwise it is refused permanently with the exact key to
+ * set:
+ *   - the kind has registered wording in the registry;
+ *   - a sender header is configured and is not one the portal rejected;
+ *   - both its MSG91 template id and its 19-digit DLT template id are configured;
+ *   - its variables are present and each fits DLT's 30-character limit.
+ *
+ * The sign-in code arrives already rendered (PhoneOtpService owns the code and never puts it
+ * in a payload), so for that kind the body is matched against the registered wording and the
+ * variables are read back out of it. A body that does not match is refused -- the carrier
+ * would drop it -- and the error never contains the body, because the body is the code.
  *
  * ── ON THE REQUEST SHAPE ───────────────────────────────────────────────────────────
- * This is written against MSG91's published v5 flow API. The base URL and path are
- * configurable precisely because a vendor's API is not something this repository can assert
- * from the outside: verify it against the account's own documentation before enabling, which
- * is what EXTERNAL SETUP REQUIRED in the report means.
+ * Written against MSG91's published v5 flow API. The route is the template's: a flow request
+ * takes no route parameter, and a template added under the DLT transactional (service) route
+ * is sent on it. The base URL and path are configurable because a vendor's API is not
+ * something this repository can assert from the outside; verify against the account's own
+ * documentation before enabling.
  */
 export class Msg91SmsTransport implements SmsTransport {
   readonly name = 'msg91' as const;
@@ -217,21 +238,20 @@ export class Msg91SmsTransport implements SmsTransport {
   private readonly authKey: string;
   private readonly url: string;
   private readonly timeoutMs: number;
-  private readonly templateIds: Record<string, string>;
-  private readonly defaultTemplateId?: string;
-  private readonly senderId?: string;
-  private readonly bodyVar: string;
+  private readonly legacyTemplateIds: Record<string, string>;
+  private readonly senderHeader?: string;
+  private readonly config: ConfigService;
   /**
    * The canonical binding source, when one is wired.
    *
    * Optional because this transport is constructed directly in tests and by the legacy
-   * single-provider factory, and neither has a Nest container to hand. Absent, the
-   * environment maps below are the whole answer -- which is exactly the behaviour that
-   * shipped before, so nothing that works today stops working.
+   * single-provider factory, and neither has a Nest container to hand. Absent, the per-kind
+   * keys and the legacy map are the whole answer.
    */
   private readonly bindings?: TemplateBindingService;
 
   constructor(config: ConfigService, bindings?: TemplateBindingService) {
+    this.config = config;
     this.authKey = requireKey(config, 'msg91', 'MSG91_AUTH_KEY');
     const base = (config.get<string>('MSG91_BASE_URL') ?? 'https://control.msg91.com').replace(
       /\/+$/,
@@ -239,53 +259,82 @@ export class Msg91SmsTransport implements SmsTransport {
     );
     this.url = `${base}${config.get<string>('MSG91_SMS_PATH') ?? '/api/v5/flow'}`;
     this.timeoutMs = Number(config.get('MSG91_TIMEOUT_MS') ?? 10_000);
-    this.templateIds = parseTemplateIds(config.get<string>('MSG91_SMS_TEMPLATE_IDS'));
-    this.defaultTemplateId = config.get<string>('MSG91_SMS_TEMPLATE_ID') ?? undefined;
+    this.legacyTemplateIds = parseTemplateIds(config.get<string>('MSG91_SMS_TEMPLATE_IDS'));
     this.bindings = bindings;
-    this.senderId = config.get<string>('MSG91_SENDER_ID') ?? undefined;
-    this.bodyVar = config.get<string>('MSG91_SMS_BODY_VAR') ?? 'body';
+    /*
+      The registered header, from configuration only. Startup refuses the two keys disagreeing,
+      so either one is the same answer. There is deliberately no default: a header is granted
+      to one legal entity, and the one this code once assumed (ETKTGO) was rejected.
+    */
+    this.senderHeader =
+      (config.get<string>('DLT_SENDER_HEADER') || config.get<string>('MSG91_SENDER_ID'))?.trim() ||
+      undefined;
   }
 
   async send(msg: RenderedNotification): Promise<DeliveryOutcome> {
     const to = resolveDestination(msg);
     if (!to) return noRecipient(msg, this.logger, this.name);
 
-    /*
-      Locale first, because a DLT template is approved for one wording in one language and
-      the ids differ. The legacy map has no locale, so it answers for every language -- which
-      is what it always did, and why it resolves after the canonical binding rather than
-      before it.
-    */
-    const bound = this.bindings?.resolve({
-      provider: this.name,
-      channel: 'sms',
-      type: msg.type,
-      locale: msg.locale,
-    });
-    const templateId = bound?.externalId ?? this.templateIds[msg.type] ?? this.defaultTemplateId;
-    if (!templateId) {
-      /*
-        Permanent on purpose. There is no template to retry with, and retrying twelve times
-        over an hour would only delay the moment somebody notices the configuration is
-        incomplete. The message names the exact key to set.
-      */
+    const template = dltTemplateFor(msg.type);
+    if (!template) {
       throw new TransportError(
-        `MSG91 has no DLT template bound for ${msg.type} (locale ${msg.locale ?? '*'}). ` +
-          `Set NOTIFICATION_TEMPLATE_BINDINGS=msg91:sms:${msg.type}:*=<dlt_template_id>.`,
+        `${msg.type} has no registered DLT wording, so it cannot be sent by SMS in India. ` +
+          `Register it in templates/dlt-sms-templates.ts and on the DLT portal first.`,
         this.name,
         FailureClass.TEMPLATE_NOT_FOUND,
       );
     }
 
-    /*
-      Structured variables from the caller when it has them, otherwise the rendered message as
-      one variable. Both exist because a DLT template can be either shape: a sentence with
-      named slots ("Your booking ##ref## is confirmed"), or a single variable that the
-      approved wording wraps. Which one an account has is the account's business.
-    */
-    const vars =
-      (msg.payload?.['smsTemplateVars'] as Record<string, unknown> | undefined) ??
-      ({ [this.bodyVar]: msg.body } as Record<string, unknown>);
+    if (!this.senderHeader) {
+      throw new TransportError(
+        'MSG91 has no sender header. Set DLT_SENDER_HEADER (and MSG91_SENDER_ID, the same ' +
+          'value) to the header approved on the DLT portal.',
+        this.name,
+        FailureClass.CONFIGURATION_ERROR,
+      );
+    }
+    if (REJECTED_SENDER_HEADERS.includes(this.senderHeader.toUpperCase())) {
+      throw new TransportError(
+        `Sender header ${this.senderHeader} was rejected on the DLT portal. Set the approved header.`,
+        this.name,
+        FailureClass.CONFIGURATION_ERROR,
+      );
+    }
+
+    const templateId =
+      this.config.get<string>(template.msg91TemplateIdEnv)?.trim() ||
+      this.bindings?.resolve({
+        provider: this.name,
+        channel: 'sms',
+        type: msg.type,
+        locale: msg.locale,
+      })?.externalId ||
+      this.legacyTemplateIds[msg.type];
+    const dltTemplateId = this.config.get<string>(template.dltTemplateIdEnv)?.trim();
+    if (!templateId || !dltTemplateId || !DLT_ID_PATTERN.test(dltTemplateId)) {
+      /*
+        Permanent on purpose. There is no template to retry with, and retrying over an hour
+        would only delay the moment somebody notices the registration is incomplete. The
+        message names the exact keys to set.
+      */
+      const missing = [
+        ...(templateId ? [] : [template.msg91TemplateIdEnv]),
+        ...(dltTemplateId && DLT_ID_PATTERN.test(dltTemplateId)
+          ? []
+          : [`${template.dltTemplateIdEnv} (19 digits)`]),
+      ];
+      throw new TransportError(
+        `MSG91 has no approved DLT template bound for ${msg.type}. Set ${missing.join(' and ')}.`,
+        this.name,
+        FailureClass.TEMPLATE_NOT_FOUND,
+      );
+    }
+
+    const values = this.variablesFor(template, msg);
+    const recipient: Record<string, string> = { mobiles: to.replace(/^\+/, '') };
+    template.variables.forEach((name, i) => {
+      recipient[name] = values[i];
+    });
 
     const { data } = await transportJson<Msg91Response>(this.name, this.url, {
       method: 'POST',
@@ -298,34 +347,79 @@ export class Msg91SmsTransport implements SmsTransport {
       },
       body: JSON.stringify({
         template_id: templateId,
-        ...(this.senderId ? { sender: this.senderId } : {}),
+        sender: this.senderHeader,
         short_url: '0',
         realTimeResponse: '1',
         // MSG91 wants the number without a leading '+'.
-        recipients: [{ mobiles: to.replace(/^\+/, ''), ...vars }],
+        recipients: [recipient],
       }),
     });
 
     /*
       MSG91 answers HTTP 200 for a refusal as well as an acceptance, distinguishing them in
       `type`. Treating 200 as success would record "sent" for messages the provider had just
-      told us it would not carry — which is the exact class of lie this phase set out to
-      remove from the status column.
+      told us it would not carry. The provider's text is redacted: it can name the number.
     */
     if (data?.type && data.type !== 'success') {
       throw new TransportError(
-        `MSG91 refused the message: ${data.message ?? data.type}`,
+        `MSG91 refused the message: ${redactProviderText(String(data.message ?? data.type)).slice(0, 300)}`,
         this.name,
-        // MSG91 answers 200 for a refusal, so this is the provider having considered the
-        // message and declined it -- their answer, not our configuration.
+        // The provider having considered the message and declined it -- their answer, not
+        // our configuration.
         FailureClass.PERMANENT_REJECTION,
       );
     }
-    this.logger.log(`[sms:${msg.type}] msg91 accepted -> ${maskPhone(to)}`);
-    return {
-      provider: this.name,
-      providerMessageId: typeof data?.message === 'string' ? data.message : null,
-    };
+    const providerMessageId = typeof data?.message === 'string' ? data.message : null;
+    /*
+      The request id is logged because it is the only handle on a sign-in code's delivery: a
+      code is never written to a Notification row, so its delivery report arrives with nothing
+      to attach to, and this line is how support matches the two.
+    */
+    this.logger.log(
+      `[sms:${msg.type}] msg91 accepted -> ${maskPhone(to)} request ${providerMessageId ?? 'n/a'}`,
+    );
+    return { provider: this.name, providerMessageId };
+  }
+
+  /** The template's variable values in order, or a permanent refusal naming what is wrong. */
+  private variablesFor(template: DltSmsTemplate, msg: RenderedNotification): string[] {
+    if (template.kind === OTP_SMS_KIND) {
+      const values = matchDltSms(template, msg.body);
+      if (!values) {
+        /*
+          Never the body in this message: the body is the code. Only that it differs, and
+          where the wording comes from.
+        */
+        throw new TransportError(
+          'The sign-in code text does not match the registered DLT wording. Unset ' +
+            'OTP_SMS_TEMPLATE or make it identical to the ACCOUNT_SECURITY text in ' +
+            'templates/dlt-sms-templates.ts.',
+          this.name,
+          FailureClass.CONFIGURATION_ERROR,
+        );
+      }
+      return values;
+    }
+    const result = dltVariablesFromPayload(template, msg.payload);
+    if ('missing' in result) {
+      throw new TransportError(
+        `${msg.type} is missing DLT variable(s): ${result.missing.join(', ')}. The registered ` +
+          `wording cannot be sent with a blank in it.`,
+        this.name,
+        FailureClass.CONFIGURATION_ERROR,
+      );
+    }
+    const tooLong = template.variables.filter(
+      (_, i) => result.values[i].length > DLT_VARIABLE_MAX_LENGTH,
+    );
+    if (tooLong.length > 0) {
+      throw new TransportError(
+        `${msg.type} variable(s) ${tooLong.join(', ')} exceed the 30-character DLT limit.`,
+        this.name,
+        FailureClass.CONFIGURATION_ERROR,
+      );
+    }
+    return result.values;
   }
 }
 

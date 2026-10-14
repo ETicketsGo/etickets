@@ -4,6 +4,14 @@ import {
   parseMarketProviderMap,
   parseTemplateBindings,
 } from '@eticketsgo/shared-types';
+import {
+  DLT_ID_PATTERN,
+  DLT_SMS_TEMPLATES,
+  DLT_VARIABLE,
+  DOCUMENTED_APPROVED_SENDER_HEADER,
+  OTP_SMS_KIND,
+  REJECTED_SENDER_HEADERS,
+} from '../notifications/templates/dlt-sms-templates';
 
 /** Validated environment. Fails fast on boot if misconfigured. */
 const envSchema = z.object({
@@ -692,9 +700,12 @@ const envSchema = z.object({
   MSG91_TIMEOUT_MS: z.coerce.number().default(10_000),
   /** `BOOKING_CANCELLED=<dlt_template_id>,...` -- one approved template per message type. */
   MSG91_SMS_TEMPLATE_IDS: z.string().optional(),
-  /** Fallback template id for types not named above. */
+  /*
+    REMOVED, and refused at boot when set (see assertNotificationConfigConsistency): one shared
+    template id for every type, and the whole rendered body as one variable. Neither can match
+    a DLT approval. Kept in the schema only so the refusal can name them.
+  */
   MSG91_SMS_TEMPLATE_ID: z.string().optional(),
-  /** The variable name in the approved template that receives the rendered message. */
   MSG91_SMS_BODY_VAR: z.string().optional(),
   /** The WhatsApp business number registered with MSG91 (their `integrated_number`). */
   MSG91_WHATSAPP_NUMBER: z.string().optional(),
@@ -806,6 +817,22 @@ const envSchema = z.object({
   DLT_PRINCIPAL_ENTITY_ID: z.string().optional(),
   /** The registered sender header. Must match MSG91_SENDER_ID; startup checks that it does. */
   DLT_SENDER_HEADER: z.string().optional(),
+  /*
+    One pair per registered India SMS template (notifications/templates/dlt-sms-templates.ts
+    names these keys): MSG91's own template id, and the 19-digit DLT Content Template ID. A
+    kind with either missing is refused by the MSG91 transport rather than guessed. No
+    defaults, and none ever: an approval belongs to one entity and can be withdrawn.
+  */
+  MSG91_SMS_TEMPLATE_OTP: z.string().trim().optional(),
+  DLT_TEMPLATE_ID_OTP: z.string().trim().optional(),
+  MSG91_SMS_TEMPLATE_BOOKING_CONFIRMED: z.string().trim().optional(),
+  DLT_TEMPLATE_ID_BOOKING_CONFIRMED: z.string().trim().optional(),
+  MSG91_SMS_TEMPLATE_BOOKING_CANCELLED: z.string().trim().optional(),
+  DLT_TEMPLATE_ID_BOOKING_CANCELLED: z.string().trim().optional(),
+  MSG91_SMS_TEMPLATE_REFUND_COMPLETED: z.string().trim().optional(),
+  DLT_TEMPLATE_ID_REFUND_COMPLETED: z.string().trim().optional(),
+  MSG91_SMS_TEMPLATE_SHOW_CANCELLED: z.string().trim().optional(),
+  DLT_TEMPLATE_ID_SHOW_CANCELLED: z.string().trim().optional(),
   /** Random path secret embedded in the MSG91 delivery-report URL. */
   MSG91_WEBHOOK_SECRET: z.string().optional(),
   /*
@@ -1402,6 +1429,86 @@ function assertPlatformConfigConsistency(cfg: AppConfig): void {
  * production boot with EMAIL_PROVIDER=log, because that configuration charges customers and
  * sends them nothing.
  */
+/**
+ * India DLT values that cannot be right, whatever the operator meant.
+ *
+ * Each is a value that is SET and wrong. An unset one is incompleteness, which readiness
+ * reports as BLOCKED_DLT; refusing to boot for it would stop the report that says so.
+ *
+ * Only where MSG91 carries SMS. With India SMS still in log mode none of these values reaches
+ * a carrier, and refusing to boot over a leftover value would turn a harmless typo into an
+ * outage; readiness still reports it.
+ */
+export function dltConfigContradictions(cfg: AppConfig): string[] {
+  const errors: string[] = [];
+  const msg91Sms =
+    cfg.SMS_PROVIDER === 'msg91' ||
+    Object.values(parseMarketProviderMap(cfg.SMS_PROVIDER_BY_MARKET)).includes('msg91');
+  if (!msg91Sms) return errors;
+
+  /*
+    A header the portal rejected. ETKTGO was applied for and refused, and messages under it are
+    dropped by the carrier exactly like unregistered wording -- while MSG91 reports them sent.
+  */
+  for (const key of ['DLT_SENDER_HEADER', 'MSG91_SENDER_ID'] as const) {
+    const header = cfg[key]?.trim();
+    if (!header) continue;
+    if (REJECTED_SENDER_HEADERS.includes(header.toUpperCase())) {
+      errors.push(
+        `  - ${key}=${header} was REJECTED on the DLT portal. Use the approved header ` +
+          `(${DOCUMENTED_APPROVED_SENDER_HEADER}).`,
+      );
+    } else if (!/^[A-Za-z]{6}$/.test(header)) {
+      // A transactional or service header is exactly six letters; anything else is a typo.
+      errors.push(`  - ${key} must be the six-letter DLT header, e.g. DPTRCS.`);
+    }
+  }
+
+  // Ids the portal issues are 19 digits. A shorter or longer value was mistyped or truncated.
+  const ids: (keyof AppConfig)[] = [
+    'DLT_PRINCIPAL_ENTITY_ID',
+    ...(Object.values(DLT_SMS_TEMPLATES).map((t) => t.dltTemplateIdEnv) as (keyof AppConfig)[]),
+  ];
+  for (const key of ids) {
+    const value = String(cfg[key] ?? '').trim();
+    if (value && !DLT_ID_PATTERN.test(value)) {
+      errors.push(`  - ${String(key)} must be the 19-digit id from the DLT portal.`);
+    }
+  }
+
+  /*
+    Keys whose behaviour was removed. Setting one means somebody expects it to work, and it
+    would quietly do nothing -- so it is named instead.
+  */
+  for (const key of ['MSG91_SMS_TEMPLATE_ID', 'MSG91_SMS_BODY_VAR'] as const) {
+    if (cfg[key]?.trim()) {
+      errors.push(
+        `  - ${key} is no longer used: one shared template, or the whole body as one ` +
+          `variable, cannot match a DLT approval. Set the per-template keys instead ` +
+          `(docs/notifications/INDIA-DLT-TEMPLATES.md).`,
+      );
+    }
+  }
+
+  /*
+    A custom OTP text where MSG91 carries the code. The transport would refuse every code it
+    produced, so phone sign-in would fail for every Indian buyer at once; it is one line here.
+  */
+  if (cfg.OTP_SMS_TEMPLATE) {
+    const asDlt = cfg.OTP_SMS_TEMPLATE.replace('{code}', DLT_VARIABLE).replace(
+      '{minutes}',
+      DLT_VARIABLE,
+    );
+    if (asDlt !== DLT_SMS_TEMPLATES[OTP_SMS_KIND].text) {
+      errors.push(
+        '  - OTP_SMS_TEMPLATE differs from the registered DLT sign-in text, so MSG91 would ' +
+          'refuse every code. Unset it, or make it match templates/dlt-sms-templates.ts.',
+      );
+    }
+  }
+  return errors;
+}
+
 function assertNotificationConfigConsistency(cfg: AppConfig): void {
   const errors: string[] = [];
   const enabled = parseEnabledMarkets(cfg.NOTIFICATION_MARKETS);
@@ -1500,6 +1607,8 @@ function assertNotificationConfigConsistency(cfg: AppConfig): void {
         'header actually sent must be the same string.',
     );
   }
+
+  errors.push(...dltConfigContradictions(cfg));
 
   /*
     A binding naming a provider no channel routes to. Harmless at runtime and almost always
