@@ -626,13 +626,22 @@ const envSchema = z.object({
 
   // --- SMS (recipient = payload.phone) ---
   /*
-    Where rate-limit counters live. `memory` is what this platform has always done and stays
-    the default, so a deploy cannot change a security control - only a decision can.
+    Where rate-limit counters live. Deliberately NO schema default: unset means "this
+    environment's default" - `redis` when deployed, `memory` on a developer's machine - and a
+    schema default would turn unset into an explicit `memory` before anything could tell.
 
     `redis` shares the counters between replicas and keeps them across a restart. See
-    src/common/redis-throttler.storage.ts for what it costs when Redis is away.
+    src/common/redis-throttler.storage.ts for the default and for what it costs when Redis is
+    away (a per-process fallback, never a refusal).
   */
-  THROTTLE_STORAGE: z.enum(['memory', 'redis']).default('memory'),
+  THROTTLE_STORAGE: z.enum(['memory', 'redis']).optional(),
+
+  /*
+    The request header that carries the visitor's address, for rate limits. Unset: `x-real-ip`
+    on Railway (which sets it at the edge), `req.ip` anywhere else. `none` forces `req.ip`.
+    See src/common/client-ip.ts for why `req.ip` alone counted Railway's edge nodes, not people.
+  */
+  THROTTLE_CLIENT_IP_HEADER: z.string().trim().max(64).optional(),
 
   /*
     How "use my current location" turns coordinates into a city. `offline` uses the bundled

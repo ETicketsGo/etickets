@@ -1,5 +1,19 @@
 # Redis-backed rate limits: QA activation and rollback
 
+> **Superseded by the distributed auth throttle fix (branch `fix/distributed-auth-throttle`).**
+> Unset `THROTTLE_STORAGE` now means `redis` in every deployed environment, so no variable
+> change is needed: deploying the fix activates it. The rate-limit key also changed, from
+> `req.ip` (which behind Railway is the edge proxy node) to Railway's `X-Real-IP`.
+> The **Verify** table below is still the post-deploy check, with two additions:
+>
+> - **Edge nodes:** 15 wrong logins in a row from one machine give 401 x10, then 429. Before the
+>   fix QA gave 401 x15, with `x-ratelimit-remaining` falling one per two requests.
+> - **Header spoofing:** 15 wrong logins, each sending a different invented `X-Real-IP` and
+>   `X-Forwarded-For`, still give 429 on the 11th. If they do not, Railway passed the client's
+>   `X-Real-IP` through: set `THROTTLE_CLIENT_IP_HEADER=none` and report it.
+>
+> **Roll back** is now `THROTTLE_STORAGE=memory` (counters) and `THROTTLE_CLIENT_IP_HEADER=none` (key).
+
 **Scope: QA only.** Production keeps `THROTTLE_STORAGE` unset (in-memory). Turning it on in
 production is a separate owner decision, taken after this procedure passes on QA.
 
