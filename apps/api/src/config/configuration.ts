@@ -46,6 +46,12 @@ const envSchema = z.object({
   */
   METRICS_TOKEN: z.string().min(16).optional(),
   SENTRY_DSN: z.string().optional(),
+  /*
+    Who is emailed when a money-critical path fails (comma separated). Optional and never
+    validated strictly: a typo must not stop the API booting, so an entry that is not shaped like
+    an address is dropped and the admin ops health says alerts are not configured.
+  */
+  OPS_ALERT_EMAILS: z.string().optional(),
   SENTRY_ENVIRONMENT: z.string().optional(),
   SENTRY_RELEASE: z.string().optional(),
   SENTRY_TRACES_SAMPLE_RATE: z.coerce.number().optional(),

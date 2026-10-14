@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { WebhookProcessingStatus } from '@eticketsgo/shared-types';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { AuditService } from '../../../audit/audit.service';
@@ -8,6 +8,8 @@ import { SettlementService } from '../../settlement/settlement.service';
 import { DisputeService, type StripeDisputeLike } from '../../dispute/dispute.service';
 import { PaymentStatus } from '@eticketsgo/shared-types';
 import type { PaymentEvent } from '../../provider/payment-provider.interface';
+import { OpsAlertService } from '../../../ops/alerts/ops-alert.service';
+import { webhookDeadLetteredAlert } from '../../../ops/alerts/ops-alert-messages';
 
 /** Max processing attempts before an event is dead-lettered for ops review. */
 const MAX_ATTEMPTS = 6;
@@ -80,6 +82,8 @@ export class StripeWebhookProcessor {
     private readonly settlements: SettlementService,
     private readonly disputes: DisputeService,
     private readonly audit: AuditService,
+    // Optional so a hand-built processor in a unit test needs no alert double.
+    @Optional() private readonly alerts?: OpsAlertService,
   ) {}
 
   /** Process one webhook event by id (best-effort fast path + the sweep both call this). */
@@ -138,6 +142,15 @@ export class StripeWebhookProcessor {
           entityId: webhookEventId,
           metadata: { eventType: record.eventType, providerEventId: record.providerEventId },
         });
+        void this.alerts?.notify(
+          webhookDeadLetteredAlert({
+            provider: 'stripe',
+            webhookEventId,
+            providerEventId: record.providerEventId,
+            eventType: record.eventType,
+            attempts,
+          }),
+        );
       } else {
         this.logger.warn(
           `Stripe webhook ${record.providerEventId} (${record.eventType}) failed (attempt ${attempts}): ${message}`,
