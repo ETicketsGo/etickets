@@ -6520,6 +6520,18 @@ export interface OpsHealth {
   nodeEnv: string;
   /** LOCAL / QA / UAT / PRODUCTION. QA and UAT run NODE_ENV=production, so show this instead. */
   appEnv?: string | null;
+  /** Age of the newest VERIFIED backup, from its evidence row (apps/api/src/ops/backup-freshness.ts). */
+  backup?: OpsBackupFreshness;
+}
+
+/** The API's BackupFreshness. 'never' means no evidence row, not proof that no dump exists. */
+export interface OpsBackupFreshness {
+  status: 'fresh' | 'stale' | 'never' | 'unknown';
+  lastVerifiedAt: string | null;
+  ageHours: number | null;
+  maxAgeHours: number;
+  lastBackupName: string | null;
+  lastRestoreDrillAt: string | null;
 }
 
 export interface OpsQueueCounts {
