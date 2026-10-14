@@ -33,6 +33,7 @@ import { BookingShadowObserver } from './orchestration/booking-shadow-observer.s
 import { PaymentsService } from '../payments/payments.service';
 import { PendingPaymentRecoveryService } from '../payments/recovery/pending-payment-recovery.service';
 import { CinemaPricingPolicyService } from '../pricing/cinema-policy/cinema-pricing-policy.service';
+import { admissionLinesFromItems, saleTaxPlace } from './sale-tax-place';
 import type { PolicyEffect } from '../pricing/cinema-policy/apply-policy';
 import {
   BUYER_SALE_NOT_OPEN,
@@ -407,33 +408,9 @@ export class BookingsService {
       session.event.organizationId,
       currency,
     );
-    const taxPlace = {
-      country:
-        session.event.venue?.country ?? session.event.organization?.registeredCountry ?? null,
-      /*
-        `region` is the PLACE OF SUPPLY — where the event is HELD, per s.12(6) of India's
-        IGST Act — and `supplierRegion` is where the seller is registered. Comparing them is
-        what decides CGST + SGST against IGST.
-
-        These were the same value before: the seller's own state was being used as the place
-        of supply, which is right only when the organizer never sells outside their state.
-      */
-      region: session.event.venue?.region ?? session.event.organization?.registeredRegion ?? null,
-      supplierRegion: session.event.organization?.registeredRegion ?? null,
-      /*
-        Where the BUYER is, which is a different question from where the event is.
-
-        Admission follows the venue; a platform's service follows the recipient. On one
-        Indian order that produces CGST + SGST on the ticket and IGST on the convenience
-        fee, which is exactly what a real competitor's order summary shows.
-
-        Optional, and safe to omit: the amount does not change either way, only which
-        government is owed it. Absent, the engine treats the sale as intra-state — the same
-        answer the law reaches for a buyer with no address on record.
-      */
-      customerRegion: input.buyerRegion?.trim() || null,
-      at: now,
-    };
+    // Where this sale happens, for tax. The same function the quote uses, so the two cannot
+    // disagree about the place of supply or the buyer's state - see `saleTaxPlace`.
+    const taxPlace = saleTaxPlace(session.event, input.buyerRegion, now);
     /*
       ── REGULATORY PRICING, FOR CINEMA SESSIONS ──────────────────────────────────────
       Resolved ONCE here and passed down, rather than looked up inside the pricing service:
@@ -1180,18 +1157,9 @@ export class BookingsService {
       session.event.feeMode as FeeMode,
       discountMinor,
       currency,
-      {
-        country:
-          session.event.venue?.country ?? session.event.organization?.registeredCountry ?? null,
-        // Place of supply is the venue's state; the seller's is a separate question. A quote
-        // and the booking that follows it must not disagree about either.
-        region: session.event.venue?.region ?? session.event.organization?.registeredRegion ?? null,
-        supplierRegion: session.event.organization?.registeredRegion ?? null,
-        // The comment above applies to this too: quote it with the buyer's state or the
-        // breakdown shown before they commit is not the one they are charged.
-        customerRegion: input.buyerRegion?.trim() || null,
-        at: now,
-      },
+      // The one derivation `create` uses: a quote and the booking that follows it must not
+      // disagree about where the sale happens or where the buyer is.
+      saleTaxPlace(session.event, input.buyerRegion, now),
       quoteAdmissionLines,
       quotePolicy.effect,
     );
@@ -1369,6 +1337,19 @@ export class BookingsService {
             organization: { select: { registeredCountry: true, registeredRegion: true } },
           },
         },
+        /*
+          The tickets as they were priced, so the re-price rates them per ticket exactly as
+          `create` did. See `admissionLinesFromItems`.
+        */
+        items: {
+          where: { kind: BookingItemKind.TICKET },
+          orderBy: { id: 'asc' },
+          select: {
+            unitPriceMinor: true,
+            quantity: true,
+            ticketType: { select: { seatCategory: { select: { regulatoryClass: true } } } },
+          },
+        },
       },
     });
     if (!booking) {
@@ -1452,23 +1433,21 @@ export class BookingsService {
       booking.feeMode as FeeMode,
       discountMinor,
       booking.currency,
-      {
-        country:
-          booking.event?.venue?.country ?? booking.event?.organization?.registeredCountry ?? null,
-        region:
-          booking.event?.venue?.region ?? booking.event?.organization?.registeredRegion ?? null,
-        supplierRegion: booking.event?.organization?.registeredRegion ?? null,
-        /*
-          Read from the booking, not re-derived. This runs after the buyer has committed, and
-          the place of supply that goes on their invoice is the one that applied when they
-          bought — not whatever a later lookup would return.
-        */
-        customerRegion: booking.customerRegion ?? null,
-        at: new Date(),
-      },
-      // No admission lines: this re-prices a stored subtotal, and a banded tax rule would
-      // refuse rather than rate the whole order in one band — which is the correct refusal.
-      undefined,
+      /*
+        The buyer's state is read from the booking, not re-derived. This runs after the buyer
+        has committed, and the place of supply that goes on their invoice is the one that
+        applied when they bought - not whatever a later lookup would return.
+      */
+      saleTaxPlace(booking.event ?? {}, booking.customerRegion, new Date()),
+      /*
+        The SAME admission lines `create` priced, rebuilt from the booking's own ticket rows.
+
+        This passed none, and a banded rule refuses an order it cannot rate per ticket - so
+        with India GST active (its cinema and sport rates band on the ticket price), entering
+        a code at checkout threw instead of re-pricing. Rebuilt from the stored unit prices,
+        not today's ticket type, because the booking is what the buyer was quoted.
+      */
+      admissionLinesFromItems(booking.items ?? []),
       snapshotEffect,
     );
 
