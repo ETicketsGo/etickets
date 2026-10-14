@@ -340,3 +340,70 @@ So every night at 02:00 the job wrote `mode: TEST` onto the live Razorpay provid
 It is closed twice over and needed no payment change: `SEED_OPERATION` is cleared, so
 `payment-providers` no longer runs nightly, and `db-seed` now carries the fix. Nightly
 payment-provider re-assertion is **not** to be restored.
+
+---
+
+## 12. Making real backups visible to the API (`backup: never` on QA and PROD)
+
+### What is wrong
+
+`GET /admin/ops/health` reports `backup: { status: "never", lastBackupName: null }` on QA and
+PROD although both take and verify a dump every night (QA 2026-10-14: 12 kept, newest
+`etg-qa-2026-10-14T02-01-13-267Z.dump`, `verified yes`). The API cannot read the db-seed volume.
+It reads the newest `AuditLog` row with `action = 'BACKUP_VERIFIED'`, `entityType =
+'DatabaseBackup'`, which `recordOpsEvidence` in `apps/api/prisma/backup.ts` writes right after
+`pg_restore --list` passes. That function arrived in `d3287f84` (2026-10-11). QA db-seed runs
+`8b0f97f` (2026-10-08) and PROD db-seed was last seen on `311ebb7` (2026-10-05), so neither
+writes the row.
+
+In PRODUCTION (`backupFailsHealth(..., required = true)`) a `never` makes Overall **degraded**.
+
+### Why the API cannot work around it
+
+The old job leaves nothing in the database: only the dump on its own volume and its log lines.
+Reading those would mean giving the API a Railway token or the volume, which is neither read-only
+nor simple. So the fix is to deploy the newer db-seed code, which is a drop-in.
+
+### Why the newer db-seed is a drop-in for `SEED_DEFAULT_OPERATION=backup`
+
+Checked against `8b0f97f` (QA's db-seed) on 2026-10-14:
+
+- `deploy/railway/db-seed.railway.json` (start command, `cronSchedule: "0 2 * * *"`,
+  `restartPolicyType: NEVER`), `apps/api/prisma/scheduled-operation.ts` (how the operation is
+  resolved, including the `SEED_OPERATION_UNTIL` guard) and `apps/api/Dockerfile` are
+  byte-for-byte unchanged.
+- The `backup` branch still takes the dump, reads it back and prunes exactly as before. Two
+  things are added, both unable to fail the run:
+  1. `recordOpsEvidence` inserts one `AuditLog` row with `psql` (in the image since
+     `postgresql16-client`; the restore drill already used it). On error it prints a WARNING and
+     the run still succeeds.
+  2. `uploadOffsite` (`84c31a84`) does nothing unless `BACKUP_OFFSITE_BUCKET` is set. It never
+     rejects. `@aws-sdk/client-s3` is already an API dependency, so the import resolves.
+- PROD's `311ebb7` is older still: it predates `scheduled-operation.ts`. The one behaviour
+  change from that is the expiry guard in section 11: an explicit `SEED_OPERATION` without a live
+  `SEED_OPERATION_UNTIL` now exits non-zero. With `SEED_OPERATION` unset (step 1 below) the
+  resolution is the same as before, `SEED_DEFAULT_OPERATION=backup`.
+- No new variable is required. `AuditLog` exists in every deployed schema; the insert names only
+  `id, action, entityType, entityId, metadata`, the rest default.
+
+### Steps for the lead (owner action; one environment at a time, QA first)
+
+1. Confirm the service holds **no** `SEED_OPERATION` and **no** `SEED_OPERATION_UNTIL`, and
+   still holds `SEED_DEFAULT_OPERATION=backup`. A deployment captures the variables live at the
+   moment it is created, not at tick time: a leftover value would be
+   baked into the new deployment and shadow every nightly backup.
+2. Deploy current `main` to the `db-seed` service only (a plain deploy of the commit; change no
+   variables, because a variable change redeploys LATEST main for every service it touches).
+   On a cron service the deploy reaches SUCCESS **without starting a container**. That is
+   expected; nothing runs until 02:00 UTC.
+3. After the next 02:00 UTC tick, read the db-seed logs for `seed-operation: backup`,
+   `backup written`, `verified yes` and the `SEED_EVIDENCE` line with `"resolved":"backup"`. A
+   line starting `WARNING: backup is on the volume but its evidence row was NOT recorded` means
+   the dump is good but the row failed; the run still counts as a backup.
+4. Read `GET /admin/ops/health` (or the admin Operations page, "Database backup" tile): `backup.status`
+   is `fresh`, and `lastBackupName` equals the dump named in step 3.
+5. Repeat for PROD only after QA shows `fresh`. On PROD, Overall stops being degraded for this
+   reason.
+
+Rollback: redeploy the previous db-seed deployment. Backups continue exactly as before; only the
+evidence row stops.

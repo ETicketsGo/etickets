@@ -2,7 +2,7 @@ import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
-import { RedisThrottlerStorage, throttlerStorageMode } from './common/redis-throttler.storage';
+import { throttlerOptions } from './common/throttle';
 import { RedisService } from './redis/redis.service';
 import { loadConfig } from './config/configuration';
 import { MfaGuard } from './auth/mfa/mfa.guard';
@@ -43,6 +43,7 @@ import { ReportsModule } from './reports/reports.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AdminModule } from './admin/admin.module';
 import { OpsModule } from './ops/ops.module';
+import { OpsAlertsModule } from './ops/alerts/ops-alerts.module';
 import { ReviewsModule } from './reviews/reviews.module';
 import { SupportModule } from './support/support.module';
 import { AiModule } from './ai/ai.module';
@@ -90,29 +91,16 @@ import { HttpObservationMiddleware } from './common/http-observation.middleware'
       at. Deployments that set nothing keep the production value.
     */
     /*
-      ── WHERE THE COUNTERS LIVE ────────────────────────────────────────────────────
-      In memory by default, which is where they have always lived, so merging and deploying
-      this changes nothing until somebody sets THROTTLE_STORAGE=redis deliberately.
-
-      That default is the point. A rate limit is a security control, and a change to one
-      belongs to a decision rather than to a deploy. `redis-throttler.storage.ts` explains
-      what the shared store buys (counters that survive a restart and are shared between
-      replicas) and what it costs (a degraded, per-process fallback when Redis is away).
+      ── WHERE THE COUNTERS LIVE, AND WHOSE THEY ARE ────────────────────────────────
+      Assembled in `common/throttle.ts`: Redis-backed counters in every deployed environment
+      (shared between replicas, kept across a restart, per-process memory if Redis is away),
+      keyed on the visitor's address rather than on the Railway edge node that carried the
+      request. `common/client-ip.ts` has the QA evidence that the old key counted edge nodes.
     */
     ThrottlerModule.forRootAsync({
       imports: [RedisModule],
       inject: [ConfigService, RedisService],
-      useFactory: (config: ConfigService, redis: RedisService) => ({
-        throttlers: [
-          {
-            ttl: Number(process.env.THROTTLE_TTL_MS ?? 60_000),
-            limit: Number(process.env.THROTTLE_LIMIT ?? 120),
-          },
-        ],
-        ...(throttlerStorageMode(config) === 'redis'
-          ? { storage: new RedisThrottlerStorage(redis, config) }
-          : {}),
-      }),
+      useFactory: (config: ConfigService, redis: RedisService) => throttlerOptions(config, redis),
     }),
     PrismaModule,
     StorageModule,
@@ -151,6 +139,7 @@ import { HttpObservationMiddleware } from './common/http-observation.middleware'
     AnalyticsModule,
     AdminModule,
     OpsModule,
+    OpsAlertsModule,
     ReviewsModule,
     SupportModule,
     AiModule,

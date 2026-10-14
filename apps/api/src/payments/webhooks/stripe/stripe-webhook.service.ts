@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable, Logger } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger, Optional } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { WebhookProcessingStatus } from '@eticketsgo/shared-types';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -7,6 +7,8 @@ import { AppException, ErrorCodes } from '../../../common/errors';
 import { type WebhookEnvelope } from '../../provider/payment-provider.interface';
 import { PaymentProviderResolver } from '../../provider/payment-provider.resolver';
 import { StripeWebhookProcessor } from './stripe-webhook.processor';
+import { OpsAlertService } from '../../../ops/alerts/ops-alert.service';
+import { webhookSignatureAlert } from '../../../ops/alerts/ops-alert-messages';
 
 export interface WebhookIngestResult {
   received: true;
@@ -45,6 +47,8 @@ export class StripeWebhookService {
     private readonly resolver: PaymentProviderResolver,
     private readonly processor: StripeWebhookProcessor,
     private readonly metrics: MetricsService,
+    // Optional so a hand-built service in a unit test needs no alert double.
+    @Optional() private readonly alerts?: OpsAlertService,
   ) {}
 
   async ingest(rawBody: string, signature: string): Promise<WebhookIngestResult> {
@@ -60,10 +64,17 @@ export class StripeWebhookService {
     }
 
     // Signature verification against the exact raw body (throws PAYMENT_WEBHOOK_INVALID).
-    const envelope: WebhookEnvelope = provider.verifySignedEnvelope({
-      rawBody,
-      signature,
-    });
+    // A refusal is rethrown unchanged; the only addition is an ops alert, not awaited.
+    let envelope: WebhookEnvelope;
+    try {
+      envelope = provider.verifySignedEnvelope({
+        rawBody,
+        signature,
+      });
+    } catch (err) {
+      void this.alerts?.notify(webhookSignatureAlert(this.provider, undefined, rawBody.length));
+      throw err;
+    }
 
     // Idempotency: Stripe event ids are globally unique. A duplicate delivery that is
     // already processed (or in flight) is acknowledged without re-processing.

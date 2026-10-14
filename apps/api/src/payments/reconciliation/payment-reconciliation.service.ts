@@ -8,21 +8,119 @@ import type { PaymentStatusResult } from '../provider/payment-provider.interface
 export type ReconcileVerdict = 'matched' | 'mismatched' | 'unverifiable';
 
 /**
- * Compare our recorded payment against the provider's truth. Pure and
- * unit-testable. A null provider result (adapter can't be queried) is
- * "unverifiable"; a settled/amount disagreement is "mismatched".
+ * Why a payment was reported as mismatched. One code per finding, the first that applies, so an
+ * operator reads the most serious disagreement first rather than a list of consequences of it.
  */
+export type ReconcileReason =
+  | 'AMOUNT_DIFFERS' // the provider holds a different captured amount from ours
+  | 'NEGATIVE_REFUND' // Payment.refundedMinor < 0 - must never happen
+  | 'OVER_REFUND' // more refunded (recorded or by refund rows) than was captured
+  | 'DUPLICATE_REFUND' // two completed refunds carry the same provider refund reference
+  | 'REFUND_ROWS_DISAGREE' // completed refund rows do not add up to Payment.refundedMinor
+  | 'STATUS_DISAGREES_WITH_REFUNDS' // our status does not describe the amount refunded
+  | 'PROVIDER_STATUS_DIFFERS'; // the provider's status does not describe our position
+
+/** A refund row as reconciliation reads it. Only COMPLETED ones count as money returned. */
+export interface ReconcileRefundRow {
+  status: string;
+  amountMinor: number;
+  providerRef: string | null;
+}
+
+/** Our side of a payment: the Payment row plus every Refund row on its booking. */
+export interface ReconcileOurPayment {
+  status: string;
+  amountMinor: number;
+  refundedMinor: number;
+  refunds: ReconcileRefundRow[];
+}
+
+export interface ReconcileOutcome {
+  verdict: ReconcileVerdict;
+  reason?: ReconcileReason;
+}
+
+const PROVIDER_HOLDS_FUNDS = new Set(['CAPTURED', 'SUCCEEDED']);
+
+/**
+ * Compare our recorded payment against the provider's truth. Pure and unit-testable.
+ *
+ * A null provider result (adapter can't be queried) is "unverifiable". Everything else is judged
+ * on the money position, not on our status name alone.
+ *
+ * ── WHY A PARTIAL REFUND IS NOT A MISMATCH ─────────────────────────────────
+ * This used to count only SUCCEEDED as "settled" on our side. A partly refunded payment is
+ * PARTIALLY_REFUNDED here while Razorpay keeps it `captured` (its status changes to `refunded`
+ * only once the whole amount has gone back), so every healthy partial refund - including the
+ * common case of a buyer refund that returns the tickets but keeps the fees - was reported as
+ * mismatched. On QA that was 5 of 27 payments, and noise like that hides the real ones.
+ *
+ * A partial refund is valid when the captured amounts agree, the completed refund rows add up to
+ * Payment.refundedMinor, that total is above zero and below the capture, our status says
+ * PARTIALLY_REFUNDED, and the provider still holds the payment as captured. Anything else that
+ * involves refunds is still reported, with a reason.
+ *
+ * Read-only: this decides what a report says. It changes no row and moves no money.
+ */
+export function reconcilePaymentDetailed(
+  our: ReconcileOurPayment,
+  provider: PaymentStatusResult | null,
+): ReconcileOutcome {
+  if (!provider) return { verdict: 'unverifiable' };
+  const mismatch = (reason: ReconcileReason): ReconcileOutcome => ({
+    verdict: 'mismatched',
+    reason,
+  });
+
+  // The provider reports the ORIGINAL captured amount whether or not part of it was refunded.
+  if (our.amountMinor !== provider.amountMinor) return mismatch('AMOUNT_DIFFERS');
+
+  const refunded = our.refundedMinor;
+  if (refunded < 0) return mismatch('NEGATIVE_REFUND');
+
+  // A refund that is requested, processing or failed has returned nothing, so only COMPLETED
+  // rows are money back. A failed refund that was counted anyway shows up as a disagreement
+  // between these rows and refundedMinor below.
+  const completed = our.refunds.filter((r) => r.status === 'COMPLETED');
+  const completedSum = completed.reduce((sum, r) => sum + r.amountMinor, 0);
+  if (refunded > our.amountMinor || completedSum > our.amountMinor) return mismatch('OVER_REFUND');
+
+  const refs = completed.map((r) => r.providerRef).filter((ref): ref is string => !!ref);
+  if (new Set(refs).size !== refs.length) return mismatch('DUPLICATE_REFUND');
+
+  if (completedSum !== refunded) return mismatch('REFUND_ROWS_DISAGREE');
+
+  const providerHoldsFunds = PROVIDER_HOLDS_FUNDS.has(provider.status);
+
+  if (refunded === 0) {
+    if (our.status === 'REFUNDED' || our.status === 'PARTIALLY_REFUNDED') {
+      return mismatch('STATUS_DISAGREES_WITH_REFUNDS');
+    }
+    // No refund in play: the original rule - both settled or both not, at the same amount.
+    const settledOur = our.status === 'SUCCEEDED';
+    return settledOur === providerHoldsFunds
+      ? { verdict: 'matched' }
+      : mismatch('PROVIDER_STATUS_DIFFERS');
+  }
+
+  if (refunded < our.amountMinor) {
+    if (our.status !== 'PARTIALLY_REFUNDED') return mismatch('STATUS_DISAGREES_WITH_REFUNDS');
+    return providerHoldsFunds ? { verdict: 'matched' } : mismatch('PROVIDER_STATUS_DIFFERS');
+  }
+
+  // Fully refunded: both sides must say so.
+  if (our.status !== 'REFUNDED') return mismatch('STATUS_DISAGREES_WITH_REFUNDS');
+  return provider.status === 'REFUNDED'
+    ? { verdict: 'matched' }
+    : mismatch('PROVIDER_STATUS_DIFFERS');
+}
+
+/** The verdict alone, for callers that only count. */
 export function reconcilePayment(
-  our: { status: string; amountMinor: number },
+  our: ReconcileOurPayment,
   provider: PaymentStatusResult | null,
 ): ReconcileVerdict {
-  if (!provider) return 'unverifiable';
-  const settledOur = our.status === 'SUCCEEDED';
-  const settledProvider = provider.status === 'CAPTURED' || provider.status === 'SUCCEEDED';
-  if (settledOur === settledProvider && our.amountMinor === provider.amountMinor) {
-    return 'matched';
-  }
-  return 'mismatched';
+  return reconcilePaymentDetailed(our, provider).verdict;
 }
 
 export interface ReconcileMismatch {
@@ -33,6 +131,9 @@ export interface ReconcileMismatch {
   providerStatus: string;
   ourAmountMinor: number;
   providerAmountMinor: number;
+  /** Payment.refundedMinor, so a refund-related finding can be read without another lookup. */
+  ourRefundedMinor: number;
+  reason: ReconcileReason;
 }
 
 export interface ReconciliationReport {
@@ -79,6 +180,10 @@ export class PaymentReconciliationService {
         providerRef: true,
         status: true,
         amountMinor: true,
+        refundedMinor: true,
+        booking: {
+          select: { refunds: { select: { status: true, amountMinor: true, providerRef: true } } },
+        },
       },
     });
 
@@ -100,7 +205,16 @@ export class PaymentReconciliationService {
           providerResult = null;
         }
       }
-      const verdict = reconcilePayment(p, providerResult);
+      const outcome = reconcilePaymentDetailed(
+        {
+          status: p.status,
+          amountMinor: p.amountMinor,
+          refundedMinor: p.refundedMinor,
+          refunds: p.booking?.refunds ?? [],
+        },
+        providerResult,
+      );
+      const verdict = outcome.verdict;
       if (verdict === 'matched') matched += 1;
       else if (verdict === 'unverifiable') unverifiable += 1;
       else {
@@ -113,6 +227,8 @@ export class PaymentReconciliationService {
           providerStatus: providerResult?.status ?? 'unknown',
           ourAmountMinor: p.amountMinor,
           providerAmountMinor: providerResult?.amountMinor ?? 0,
+          ourRefundedMinor: p.refundedMinor,
+          reason: outcome.reason ?? 'PROVIDER_STATUS_DIFFERS',
         });
       }
     }

@@ -63,10 +63,20 @@ afterAll(() => {
 });
 
 describe('MSG91 SMS', () => {
-  const templated = () =>
-    new Msg91SmsTransport(
-      config({ MSG91_SMS_TEMPLATE_IDS: 'BOOKING_CANCELLED=tmpl-123', MSG91_SENDER_ID: 'ETGGO' }),
-    );
+  /*
+    A complete India setup for BOOKING_CANCELLED: the approved header, MSG91's id for the
+    template, and the DLT approval recorded alongside it. Ids are invented shapes, not real.
+  */
+  const READY = {
+    MSG91_SENDER_ID: 'DPTRCS',
+    DLT_SENDER_HEADER: 'DPTRCS',
+    MSG91_SMS_TEMPLATE_BOOKING_CANCELLED: 'tmpl-123',
+    DLT_TEMPLATE_ID_BOOKING_CANCELLED: '1707000000000000001',
+  };
+  const templated = (over: Record<string, string> = {}) =>
+    new Msg91SmsTransport(config({ ...READY, ...over }));
+  const cancelled = (over: Partial<RenderedNotification> = {}) =>
+    msg({ payload: { reference: 'ETG-IN-2026-000042' }, ...over });
 
   it('refuses permanently when no DLT template is configured for the type', async () => {
     /*
@@ -74,8 +84,8 @@ describe('MSG91 SMS', () => {
       registered template, so there is nothing to fall back to — and retrying twelve times
       over an hour only delays somebody noticing the registration is missing.
     */
-    const err = await new Msg91SmsTransport(config())
-      .send(msg())
+    const err = await new Msg91SmsTransport(config({ MSG91_SENDER_ID: 'DPTRCS' }))
+      .send(cancelled())
       .catch((e: unknown) => e as TransportError);
     expect(err).toBeInstanceOf(TransportError);
     expect((err as TransportError).retryable).toBe(false);
@@ -85,69 +95,173 @@ describe('MSG91 SMS', () => {
       approval out of MSG91's failure rate, where it would look like an outage.
     */
     expect((err as TransportError).failureClass).toBe(FailureClass.TEMPLATE_NOT_FOUND);
-    // The message names the exact key to set, because that is what makes it actionable.
-    expect((err as TransportError).message).toContain('NOTIFICATION_TEMPLATE_BINDINGS');
+    // The message names the exact keys to set, because that is what makes it actionable.
+    expect((err as TransportError).message).toContain('MSG91_SMS_TEMPLATE_BOOKING_CANCELLED');
+    expect((err as TransportError).message).toContain('DLT_TEMPLATE_ID_BOOKING_CANCELLED');
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('sends the approved template and returns the provider message id', async () => {
+  it.each([
+    ['the DLT approval is not recorded', { DLT_TEMPLATE_ID_BOOKING_CANCELLED: '' }],
+    ['the DLT id is not 19 digits', { DLT_TEMPLATE_ID_BOOKING_CANCELLED: '17070000' }],
+    ['MSG91 has no id for it', { MSG91_SMS_TEMPLATE_BOOKING_CANCELLED: '' }],
+  ])('refuses, calling nobody, when %s', async (_why, over) => {
+    const err = await templated(over)
+      .send(cancelled())
+      .catch((e: unknown) => e as TransportError);
+    expect((err as TransportError).failureClass).toBe(FailureClass.TEMPLATE_NOT_FOUND);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('refuses a type with no registered DLT wording, whatever ids are configured', async () => {
+    /*
+      PAYMENT_FAILED has no registered SMS text. The old fallback (MSG91_SMS_TEMPLATE_ID) would
+      have sent it under some other type's template -- accepted by MSG91, dropped by the carrier.
+    */
+    const err = await templated({ MSG91_SMS_TEMPLATE_ID: 'tmpl-any' })
+      .send(cancelled({ type: NotificationType.PAYMENT_FAILED }))
+      .catch((e: unknown) => e as TransportError);
+    expect((err as TransportError).failureClass).toBe(FailureClass.TEMPLATE_NOT_FOUND);
+    expect((err as TransportError).message).toContain('no registered DLT wording');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('refuses with no sender header, and never invents one', async () => {
+    const err = await templated({ MSG91_SENDER_ID: '', DLT_SENDER_HEADER: '' })
+      .send(cancelled())
+      .catch((e: unknown) => e as TransportError);
+    expect((err as TransportError).failureClass).toBe(FailureClass.CONFIGURATION_ERROR);
+    expect((err as TransportError).message).toContain('DLT_SENDER_HEADER');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('refuses the rejected ETKTGO header', async () => {
+    const err = await templated({ MSG91_SENDER_ID: 'ETKTGO', DLT_SENDER_HEADER: 'ETKTGO' })
+      .send(cancelled())
+      .catch((e: unknown) => e as TransportError);
+    expect((err as TransportError).message).toContain('rejected');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('sends the approved template, its variables by name, and returns the request id', async () => {
     respond(200, { type: 'success', message: 'req-9f2c' });
-    const out = await templated().send(msg());
+    const out = await templated().send(cancelled());
 
     expect(out).toEqual({ provider: 'msg91', providerMessageId: 'req-9f2c' });
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe('https://control.msg91.com/api/v5/flow');
     const body = JSON.parse((init as { body: string }).body);
     expect(body.template_id).toBe('tmpl-123');
-    expect(body.sender).toBe('ETGGO');
-    // MSG91 wants the number without a leading '+'.
-    expect(body.recipients[0].mobiles).toBe('919876543210');
+    expect(body.sender).toBe('DPTRCS');
+    // Exactly the registered variables: no `body`, nothing a payload smuggled in.
+    expect(body.recipients[0]).toEqual({
+      mobiles: '919876543210',
+      reference: 'ETG-IN-2026-000042',
+    });
   });
 
-  it('passes structured template variables when the caller supplies them', async () => {
+  it('ignores free-form variables in the payload: the registry decides what is sent', async () => {
     respond(200, { type: 'success', message: 'req-1' });
     await templated().send(
-      msg({ payload: { smsTemplateVars: { ref: 'ETG-IN-2026-0042', show: 'Kalki' } } }),
+      cancelled({
+        payload: { reference: 'ETG-IN-2026-000042', smsTemplateVars: { body: 'anything' } },
+      }),
     );
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
-    expect(body.recipients[0]).toMatchObject({ ref: 'ETG-IN-2026-0042', show: 'Kalki' });
+    expect(body.recipients[0]).not.toHaveProperty('body');
   });
 
-  it('treats a refusal returned inside an HTTP 200 as a refusal', async () => {
+  it('refuses a payload missing a variable rather than sending a blank', async () => {
+    const err = await templated()
+      .send(cancelled({ payload: {} }))
+      .catch((e: unknown) => e as TransportError);
+    expect((err as TransportError).failureClass).toBe(FailureClass.CONFIGURATION_ERROR);
+    expect((err as TransportError).message).toContain('reference');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  describe('the sign-in code', () => {
+    const OTP = {
+      MSG91_SENDER_ID: 'DPTRCS',
+      MSG91_SMS_TEMPLATE_OTP: 'tmpl-otp',
+      DLT_TEMPLATE_ID_OTP: '1707000000000000009',
+    };
+    const otp = (body: string) =>
+      msg({ type: 'ACCOUNT_SECURITY' as never, body, payload: { phone: '+919876543210' } });
+
+    it('reads the code and minutes back out of the registered wording', async () => {
+      respond(200, { type: 'success', message: 'req-otp' });
+      await new Msg91SmsTransport(config(OTP)).send(
+        otp(
+          '042917 is your ETicketsGo sign-in code. It expires in 10 minutes. Never share it with anyone.',
+        ),
+      );
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(body.template_id).toBe('tmpl-otp');
+      expect(body.recipients[0]).toEqual({
+        mobiles: '919876543210',
+        otp: '042917',
+        minutes: '10',
+      });
+    });
+
+    it('refuses different wording without ever repeating the code', async () => {
+      const err = await new Msg91SmsTransport(config(OTP))
+        .send(otp('Your code is 042917'))
+        .catch((e: unknown) => e as TransportError);
+      expect((err as TransportError).failureClass).toBe(FailureClass.CONFIGURATION_ERROR);
+      expect((err as TransportError).message).not.toContain('042917');
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+  });
+
+  it('still reads the legacy per-type map for the MSG91 id', async () => {
+    respond(200, { type: 'success', message: 'r' });
+    await new Msg91SmsTransport(
+      config({
+        MSG91_SENDER_ID: 'DPTRCS',
+        MSG91_SMS_TEMPLATE_IDS: 'BOOKING_CANCELLED=tmpl-legacy',
+        DLT_TEMPLATE_ID_BOOKING_CANCELLED: '1707000000000000001',
+      }),
+    ).send(cancelled());
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).template_id).toBe('tmpl-legacy');
+  });
+
+  it('treats a refusal returned inside an HTTP 200 as a refusal, without the number', async () => {
     /*
       MSG91 answers 200 for "no" as well as "yes", saying which in `type`. Believing the
-      status code would write SENT for a message the provider had just declined to carry —
-      the exact class of lie this phase removed from the status column.
+      status code would write SENT for a message the provider had just declined to carry.
     */
-    respond(200, { type: 'error', message: 'template not approved' });
+    respond(200, { type: 'error', message: 'template not approved for 919876543210' });
     const err = await templated()
-      .send(msg())
+      .send(cancelled())
       .catch((e: unknown) => e as TransportError);
     expect((err as TransportError).retryable).toBe(false);
     expect((err as TransportError).message).toContain('template not approved');
+    expect((err as TransportError).message).not.toContain('919876543210');
   });
 
   it('classifies a bad credential as permanent and an outage as retryable', async () => {
     respond(401, { message: 'invalid authkey' });
-    await expect(templated().send(msg())).rejects.toMatchObject({ retryable: false });
+    await expect(templated().send(cancelled())).rejects.toMatchObject({ retryable: false });
 
     respond(503, { message: 'upstream busy' });
-    await expect(templated().send(msg())).rejects.toMatchObject({ retryable: true });
+    await expect(templated().send(cancelled())).rejects.toMatchObject({ retryable: true });
 
     respond(429, { message: 'slow down' });
     // A rate limit is the request being fine and there being too much of it.
-    await expect(templated().send(msg())).rejects.toMatchObject({ retryable: true });
+    await expect(templated().send(cancelled())).rejects.toMatchObject({ retryable: true });
   });
 
   it('treats a timeout as retryable', async () => {
     fetchMock.mockRejectedValue(Object.assign(new Error('aborted'), { name: 'AbortError' }));
-    await expect(templated().send(msg())).rejects.toMatchObject({ retryable: true });
+    await expect(templated().send(cancelled())).rejects.toMatchObject({ retryable: true });
   });
 
   it('never puts the auth key in an error', async () => {
     respond(401, { message: 'invalid authkey' });
     const err = await templated()
-      .send(msg())
+      .send(cancelled())
       .catch((e: unknown) => e as Error);
     expect((err as Error).message).not.toContain(AUTH_KEY);
     // It travels in a header, which is the only place it belongs.
@@ -155,20 +269,17 @@ describe('MSG91 SMS', () => {
   });
 
   it('skips cleanly with no destination, without calling the provider', async () => {
-    const out = await templated().send(msg({ destination: null, userId: 'u1' }));
+    const out = await templated().send(cancelled({ destination: null, userId: 'u1' }));
     expect(out).toMatchObject({ skipped: true, reason: 'no_destination' });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('takes its endpoint from configuration, so a vendor path change is not a deploy', async () => {
     respond(200, { type: 'success', message: 'r' });
-    await new Msg91SmsTransport(
-      config({
-        MSG91_SMS_TEMPLATE_ID: 't',
-        MSG91_BASE_URL: 'https://api.msg91.example/',
-        MSG91_SMS_PATH: '/v6/send',
-      }),
-    ).send(msg());
+    await templated({
+      MSG91_BASE_URL: 'https://api.msg91.example/',
+      MSG91_SMS_PATH: '/v6/send',
+    }).send(cancelled());
     expect(fetchMock.mock.calls[0][0]).toBe('https://api.msg91.example/v6/send');
   });
 });
