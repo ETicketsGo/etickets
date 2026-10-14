@@ -40,18 +40,31 @@ import { throttleKeyPrefix } from './redis-namespace';
  * may be presented, never whether it is correct.
  */
 /**
- * Where rate-limit counters are kept. `memory` unless somebody chooses otherwise.
+ * Where rate-limit counters are kept.
  *
- * Anything unrecognised reads as `memory`, so a typo degrades to the behaviour this platform
- * has always had rather than to an unintended one. The DEFAULT is what production runs, which
- * is why it is the case the tests pin hardest.
+ * ── THE DEFAULT FOLLOWS THE ENVIRONMENT ────────────────────────────────────────────
+ * Unset, a deployed environment (QA, UAT, STAGING, PRODUCTION) uses `redis` and a developer's
+ * machine (LOCAL, DEV, TEST) uses `memory`. This used to be `memory` everywhere until somebody
+ * chose otherwise, and nobody did: the QA activation stayed "not performed", so every deployed
+ * environment kept a login limit that a restart erased and a second replica doubled. A deployed
+ * environment always has its own Redis (the API refuses to boot without one, see
+ * `config/redis-url.ts`), and when that Redis is away this storage falls back to the very
+ * in-memory counter the old default used - so the new default is never worse than the old one.
+ *
+ * An explicit value always wins, in either direction. Anything unrecognised reads as the
+ * environment's default rather than as something nobody chose.
  */
 export function throttlerStorageMode(config: {
   get<T>(key: string): T | undefined;
 }): 'memory' | 'redis' {
   const raw = (config.get<string>('THROTTLE_STORAGE') ?? '').trim().toLowerCase();
-  return raw === 'redis' ? 'redis' : 'memory';
+  if (raw === 'redis' || raw === 'memory') return raw;
+  const env = (config.get<string>('APP_ENV') ?? '').trim().toUpperCase() || 'LOCAL';
+  return DEVELOPER_ENVIRONMENTS.includes(env) ? 'memory' : 'redis';
 }
+
+/** Environments with no Redis of their own to rely on: a laptop, or a test run. */
+const DEVELOPER_ENVIRONMENTS = ['LOCAL', 'DEV', 'TEST'];
 
 @Injectable()
 export class RedisThrottlerStorage implements ThrottlerStorage {
@@ -70,6 +83,14 @@ export class RedisThrottlerStorage implements ThrottlerStorage {
     config: ConfigService,
   ) {
     this.prefix = `${throttleKeyPrefix(config.get<string>('APP_ENV'))}:`;
+  }
+
+  /**
+   * The fallback counts with one timer per hit. Clear them on shutdown, as the library's own
+   * storage does, or a process that degraded during an outage holds its exit for a minute.
+   */
+  onApplicationShutdown(): void {
+    this.fallback.onApplicationShutdown();
   }
 
   /**
