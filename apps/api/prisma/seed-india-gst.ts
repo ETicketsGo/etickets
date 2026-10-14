@@ -121,7 +121,7 @@ function describe(rule: IndiaGstRule): string {
       : rule.maxUnitMinor != null
         ? `up to ₹${rule.maxUnitMinor / RUPEE}`
         : 'any price';
-  return `${(rule.rateBasisPoints / 100).toFixed(0).padStart(2)}%  ${rule.category.padEnd(8)} ${rule.appliesTo.padEnd(8)} ${band}`;
+  return `${(rule.rateBasisPoints / 100).toFixed(0).padStart(2)}%  ${rule.category.padEnd(20)} ${rule.appliesTo.padEnd(8)} ${band}`;
 }
 
 /*

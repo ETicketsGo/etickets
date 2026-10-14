@@ -48,6 +48,9 @@ import {
   type AdminCalendarQuery,
 } from './admin-event-calendar';
 import { spaceOrganizationId, spaceVenueName } from '../spaces/space-owner';
+import { ratedTaxCategories, requiresTaxClassification } from '../pricing/tax-calculator';
+import { taxRuleFromRow } from '../tax/tax-rule-row';
+import { currencyForCountry } from '../common/country';
 
 const ORGANIZER_ROLES = [Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER];
 
@@ -106,6 +109,8 @@ const REVIEWED_EVENT_FIELDS = [
   'ageLimit',
   'termsAndConditions',
   'artists',
+  // What the buyer is taxed at follows from it, so a change after approval is reviewed.
+  'taxCategory',
 ] as const satisfies readonly (keyof CreateEventInput)[];
 
 /**
@@ -288,6 +293,8 @@ export class EventsService {
         : {}),
       feeMode: input.feeMode,
       isFree: input.isFree,
+      // Declared or absent - never guessed. See `Event.taxCategory`.
+      ...(input.taxCategory !== undefined ? { taxCategory: input.taxCategory } : {}),
       ...eventDetailsData(input),
       status: EventStatus.DRAFT,
     };
@@ -411,6 +418,8 @@ export class EventsService {
           description: original.description,
           feeMode: original.feeMode,
           isFree: original.isFree,
+          // The copy is the same kind of event, so it is the same thing for tax.
+          taxCategory: original.taxCategory,
           refundPolicy: original.refundPolicy,
           // A copy inherits the terms, not just the prose describing them.
           refundsEnabled: original.refundsEnabled,
@@ -479,6 +488,7 @@ export class EventsService {
                 salesStartAt: t.salesStartAt,
                 salesEndAt: t.salesEndAt,
                 status: t.status,
+                taxCategory: t.taxCategory,
               },
             });
           }
@@ -499,6 +509,7 @@ export class EventsService {
               salesStartAt: t.salesStartAt,
               salesEndAt: t.salesEndAt,
               status: t.status,
+              taxCategory: t.taxCategory,
               // Fresh inventory — none of the original's sales/holds carry over.
               inventory: { create: { quantityTotal: t.quantityTotal } },
             },
@@ -868,6 +879,43 @@ export class EventsService {
    * excluded: a room drawn as twenty-four positions with two aisle columns seats twenty, and
    * twenty is the number the organizer is choosing between rooms on.
    */
+  /**
+   * Whether an event at this venue needs a tax classification, and which ones have a rate.
+   *
+   * ── WHY THE FORM ASKS THE SERVER ─────────────────────────────────────────────────
+   * The field only matters where tax depends on what the event is - a market with active
+   * classified tax rules. GST is off in every environment today, so the organizer is not
+   * asked a tax question nothing reads. The moment it is switched on, the same form asks it,
+   * because checkout will refuse an unclassified ticket rather than assume a rate.
+   *
+   * Asked by VENUE because the event may not exist yet: the create wizard needs the answer
+   * on the step where the venue is chosen.
+   */
+  async taxClassificationFor(user: RequestUser, venueId: string, at: Date = new Date()) {
+    const venue = await this.prisma.venue.findUnique({
+      where: { id: venueId },
+      select: { organizationId: true, country: true, region: true },
+    });
+    if (!venue) {
+      throw new AppException(ErrorCodes.NOT_FOUND, 'Venue not found.', HttpStatus.NOT_FOUND);
+    }
+    await this.access.assertMember(user, venue.organizationId, ORGANIZER_ROLES);
+    const rules = (await this.prisma.taxRule.findMany({ where: { active: true } })).map(
+      taxRuleFromRow,
+    );
+    const place = {
+      country: venue.country,
+      region: venue.region,
+      currency: currencyForCountry(venue.country) ?? null,
+      at,
+    };
+    return {
+      required: requiresTaxClassification(rules, place),
+      /** Categories an active rule can rate here. Any other choice will be refused at checkout. */
+      ratedCategories: ratedTaxCategories(rules, place),
+    };
+  }
+
   async listSeatingRooms(user: RequestUser, organizationId: string) {
     /*
       Scoped to the ORGANIZATION rather than to an event, because the event does not exist
@@ -1221,6 +1269,7 @@ export class EventsService {
         maxPerOrder: input.maxPerOrder,
         salesStartAt: input.salesStartAt,
         salesEndAt: input.salesEndAt,
+        ...(input.taxCategory !== undefined ? { taxCategory: input.taxCategory } : {}),
         inventory: { create: { quantityTotal: input.quantityTotal } },
       },
       include: { inventory: true },
@@ -1292,6 +1341,8 @@ export class EventsService {
         salesStartAt: input.salesStartAt === undefined ? undefined : input.salesStartAt,
         salesEndAt: input.salesEndAt === undefined ? undefined : input.salesEndAt,
         quantityTotal: input.quantityTotal ?? undefined,
+        // Null is meaningful: it clears the override so the ticket type inherits the event's.
+        taxCategory: input.taxCategory === undefined ? undefined : input.taxCategory,
         ...(input.quantityTotal !== undefined
           ? { inventory: { update: { quantityTotal: input.quantityTotal } } }
           : {}),

@@ -64,6 +64,8 @@ interface TicketTypeFixture {
   id: string;
   priceMinor: number;
   regulatoryClass?: string | null;
+  /** The ticket type's own tax classification, overriding the event's. */
+  taxCategory?: string | null;
 }
 
 interface Scenario {
@@ -75,6 +77,13 @@ interface Scenario {
   /** Where the platform is registered; decides whether the fee is IGST. */
   platformRegion?: string;
   feeMode?: FeeMode;
+  /**
+   * The event's tax classification (H-8). Defaults to OTHER_ENTERTAINMENT, the 18% admission
+   * rate every scenario here was written against; null is an event nobody classified.
+   */
+  eventTaxCategory?: string | null;
+  /** The TaxRule rows the provider reads. Defaults to the shipped table, all active. */
+  taxRows?: unknown[];
 }
 
 function setup(sc: Scenario) {
@@ -109,6 +118,8 @@ function setup(sc: Scenario) {
           experienceType: ExperienceType.EVENT,
           feeMode: sc.feeMode ?? FeeMode.CUSTOMER_PAYS,
           isFree: false,
+          taxCategory:
+            sc.eventTaxCategory === undefined ? 'OTHER_ENTERTAINMENT' : sc.eventTaxCategory,
           venue: { country: 'India', region: 'Andhra Pradesh', city: 'Vijayawada' },
           organization: {
             registeredCountry: 'India',
@@ -137,6 +148,7 @@ function setup(sc: Scenario) {
           salesStartAt: null,
           salesEndAt: null,
           status: 'ACTIVE',
+          taxCategory: t.taxCategory ?? null,
         })),
       ),
     },
@@ -173,7 +185,7 @@ function setup(sc: Scenario) {
       ),
     },
     feeRule: { findMany: jest.fn().mockResolvedValue([]) },
-    taxRule: { findMany: jest.fn().mockResolvedValue(GST_ROWS) },
+    taxRule: { findMany: jest.fn().mockResolvedValue(sc.taxRows ?? GST_ROWS) },
     $transaction: jest.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
   };
   const pricingConfig = { PLATFORM_TAX_REGION: sc.platformRegion ?? 'Karnataka' };
@@ -231,6 +243,7 @@ type Written = {
       quantity: number;
       unitPriceMinor: number;
       lineTotalMinor: number;
+      taxCategory?: string | null;
     }[];
   };
   payment?: { create: { amountMinor: number } };
@@ -397,6 +410,8 @@ describe('GST quote and booking agree to the paisa', () => {
   it('multiple ticket types, including a banded cinema class', async () => {
     for (const buyerRegion of BUYERS) {
       await assertParity({
+        // Cinema by CLASSIFICATION; the seat classes below are pricing classes, not tax.
+        eventTaxCategory: 'CINEMA',
         ticketTypes: [
           { id: 'reg', priceMinor: 15_000, regulatoryClass: 'REGULAR' },
           { id: 'rec', priceMinor: 25_000, regulatoryClass: 'RECLINER' },
@@ -525,9 +540,12 @@ describe('a code entered at checkout re-prices exactly as if it had been in the 
       threw instead of applying it. It now rebuilds the lines from the booking's own tickets.
     */
     const scenario: Scenario = {
+      // A cinema event with a concert ticket type on it: both classifications are rated, and
+      // both must survive the re-price.
+      eventTaxCategory: 'CINEMA',
       ticketTypes: [
         { id: 'reg', priceMinor: 15_001, regulatoryClass: 'REGULAR' },
-        { id: 'gen', priceMinor: 52_281 },
+        { id: 'gen', priceMinor: 52_281, taxCategory: 'LIVE_PERFORMANCE' },
       ],
       items: [
         { ticketTypeId: 'reg', quantity: 2 },
@@ -553,17 +571,21 @@ describe('a code entered at checkout re-prices exactly as if it had been in the 
         feeMode: FeeMode.CUSTOMER_PAYS,
         venue: { country: 'India', region: 'Andhra Pradesh' },
         organization: { registeredCountry: 'India', registeredRegion: 'Andhra Pradesh' },
+        /*
+          Reclassified since the booking. Rated as a live performance the Rs 150.01 seat would be
+          exempt (0%), as cinema it is 18%: the re-price must rate the SNAPSHOT, not this.
+        */
+        taxCategory: 'LIVE_PERFORMANCE',
       },
       items: written.items.create
         .filter((i) => i.kind === 'TICKET')
-        .map((i) => {
-          const cls = byType.get(i.ticketTypeId as string)?.regulatoryClass ?? null;
-          return {
-            unitPriceMinor: i.unitPriceMinor,
-            quantity: i.quantity,
-            ticketType: { seatCategory: cls ? { regulatoryClass: cls } : null },
-          };
-        }),
+        .map((i) => ({
+          unitPriceMinor: i.unitPriceMinor,
+          quantity: i.quantity,
+          // What `create` snapshotted on the line.
+          taxCategory: i.taxCategory,
+          ticketType: { taxCategory: byType.get(i.ticketTypeId as string)?.taxCategory ?? null },
+        })),
     });
     // ... the code applied on the payment page ...
     const coupon = { type: 'PERCENT' as const, value: 20 };
@@ -597,5 +619,118 @@ describe('a code entered at checkout re-prices exactly as if it had been in the 
       quote.fees.taxLines.map((l) => [l.label, l.amountMinor]),
     );
     expect(paymentUpdate.mock.calls[0][0].data.amountMinor).toBe(quote.fees.totalMinor);
+  });
+});
+
+describe('the tax category comes from the classification, never the seat class (H-8)', () => {
+  /** What `quote` or `create` threw, so the refusal itself can be read. */
+  async function refusedWith(run: () => Promise<unknown>) {
+    try {
+      await run();
+    } catch (err) {
+      return err as { code?: string; details?: Record<string, unknown> };
+    }
+    throw new Error('expected a refusal, and the order was priced instead');
+  }
+
+  it('a Rs 90 cinema seat is taxed at 5%, and quote = booking = payment = receipt', async () => {
+    /*
+      THE DEFECT, end to end. The booking passed the seat's regulatory class (REGULAR) to the
+      tax engine as the category; the shipped cinema bands were written for 'MOVIE', so the
+      seat matched nothing and the 18% catch-all took it. It is now rated by the event's
+      classification, and the line remembers it.
+    */
+    for (const buyerRegion of [undefined, 'Andhra Pradesh', 'Telangana']) {
+      const { written } = await assertParity({
+        eventTaxCategory: 'CINEMA',
+        ticketTypes: [{ id: 'reg', priceMinor: 9_000, regulatoryClass: 'REGULAR' }],
+        items: [{ ticketTypeId: 'reg', quantity: 2 }],
+        buyerRegion,
+      });
+      const ticketRates = written.taxLines.create
+        .filter((l) => l.basis === 'TICKETS')
+        .map((l) => l.rateBasisPoints);
+      expect(ticketRates).toEqual([250, 250]);
+      expect(written.items.create[0].taxCategory).toBe('CINEMA');
+    }
+  });
+
+  it.each([
+    ['SPORTS_RECOGNISED', 50_000, 0],
+    ['SPORTS_RECOGNISED', 50_001, 1800],
+    ['LIVE_PERFORMANCE', 150_000, 1800],
+    ['AMUSEMENT', 49_900, 1800],
+  ])('%s at %i paise: rated at %i bp, and every figure agrees', async (cat, price, bp) => {
+    const { written } = await assertParity({
+      eventTaxCategory: cat,
+      ticketTypes: [{ id: 'gen', priceMinor: price }],
+      items: [{ ticketTypeId: 'gen', quantity: 3 }],
+      buyerRegion: 'Telangana',
+    });
+    const ticketRate = written.taxLines.create
+      .filter((l) => l.basis === 'TICKETS')
+      .reduce((s, l) => s + l.rateBasisPoints, 0);
+    expect(ticketRate).toBe(bp);
+  });
+
+  it('a ticket type override beats the event classification', async () => {
+    const { written } = await assertParity({
+      eventTaxCategory: 'LIVE_PERFORMANCE',
+      ticketTypes: [{ id: 'film', priceMinor: 9_000, taxCategory: 'CINEMA' }],
+      items: [{ ticketTypeId: 'film', quantity: 1 }],
+    });
+    // Rs 90 as a live performance would be exempt (0%); as cinema it is 5%.
+    expect(written.taxLines.create.filter((l) => l.basis === 'TICKETS')[0].rateBasisPoints).toBe(
+      250,
+    );
+    expect(written.items.create[0].taxCategory).toBe('CINEMA');
+  });
+
+  it('refuses an UNCLASSIFIED event with GST on - the quote and the booking - and writes nothing', async () => {
+    const sc: Scenario = {
+      eventTaxCategory: null,
+      ticketTypes: [{ id: 'reg', priceMinor: 9_000, regulatoryClass: 'REGULAR' }],
+      items: [{ ticketTypeId: 'reg', quantity: 2 }],
+    };
+    const { service, cart, bookingCreate } = setup(sc);
+    const quoted = await refusedWith(() => service.quote(cart as never));
+    expect(quoted.code).toBe('TAX_CLASSIFICATION_MISSING');
+    // The buyer reads the "not open for online booking" sentence any unsellable show gives.
+    expect(quoted.details?.reason).toBe('SALE_NOT_OPEN');
+    expect(quoted.details?.blockers).toEqual(['TAX_CLASSIFICATION_MISSING']);
+
+    const booked = await refusedWith(() =>
+      service.create(BUYER, { ...cart, buyerName: 'G', buyerEmail: 'gst@t.test' } as never),
+    );
+    expect(booked.code).toBe('TAX_CLASSIFICATION_MISSING');
+    expect(bookingCreate).not.toHaveBeenCalled();
+  });
+
+  it('refuses a classification no active rule rates (an IPL-style league) as TAX_RULE_NOT_FOUND', async () => {
+    const { service, cart } = setup({
+      eventTaxCategory: 'SPORTS_OTHER',
+      ticketTypes: [{ id: 'gen', priceMinor: 150_000 }],
+      items: [{ ticketTypeId: 'gen', quantity: 1 }],
+    });
+    const quoted = await refusedWith(() => service.quote(cart as never));
+    expect(quoted.code).toBe('TAX_RULE_NOT_FOUND');
+    expect(quoted.details?.categories).toEqual(['SPORTS_OTHER']);
+  });
+
+  it('with GST inactive an unclassified event prices exactly as before: no tax, no refusal', async () => {
+    const inactive = GST_ROWS.map((r) => ({ ...r, active: false }));
+    const { service, cart } = setup({
+      eventTaxCategory: null,
+      // Handed over even though inactive: the engine itself must ignore them.
+      taxRows: inactive,
+      ticketTypes: [{ id: 'reg', priceMinor: 9_000, regulatoryClass: 'REGULAR' }],
+      items: [{ ticketTypeId: 'reg', quantity: 2 }],
+    });
+    const quote = (await service.quote(cart as never)) as {
+      fees: { taxMinor: number; taxLines: unknown[]; totalMinor: number; customerFeeMinor: number };
+    };
+    expect(quote.fees.taxMinor).toBe(0);
+    expect(quote.fees.taxLines).toEqual([]);
+    expect(quote.fees.totalMinor).toBe(18_000 + quote.fees.customerFeeMinor);
   });
 });

@@ -480,6 +480,7 @@ describe('the saved draft', () => {
     newVenue: { name: 'Hall', city: 'Pune', address: '1 Road', capacity: '200' },
     newVenueWhere: { country: 'IN', region: 'MH', timezone: 'Asia/Kolkata' },
     feeMode: 'SHARED',
+    taxCategory: 'LIVE_PERFORMANCE',
     sessions: [
       { startsAt: '2027-03-14T19:00', endsAt: '2027-03-14T21:00', screenId: 'r', seatMapId: 'm' },
     ],
@@ -491,6 +492,13 @@ describe('the saved draft', () => {
   it('comes back exactly as it was saved', () => {
     expect(restoreWizardDraft(serializeWizardDraft(draft))).toEqual(draft);
     expect(restoreWizardDraft(JSON.parse(serializeWizardDraft(draft)))).toEqual(draft);
+  });
+
+  it('restores a draft saved before the tax classification with none, and drops an unknown one', () => {
+    // Never guessed: an absent or unrecognised classification starts unchosen.
+    const { taxCategory: _gone, ...old } = draft;
+    expect(restoreWizardDraft(old)?.taxCategory).toBe('');
+    expect(restoreWizardDraft({ ...draft, taxCategory: 'MOVIE' })?.taxCategory).toBe('');
   });
 
   it('restores a draft saved before the experience question with no experience', () => {

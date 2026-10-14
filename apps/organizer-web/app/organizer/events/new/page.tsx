@@ -110,6 +110,7 @@ import {
   eventDetailsBody,
   type EventDetailsValue,
 } from '@/components/event-details-fields';
+import { TaxClassificationField } from '@/components/tax-classification-field';
 import {
   EVENT_IMAGE_MAX_COUNT,
   EventGalleryEditor,
@@ -317,6 +318,7 @@ function NewEventWizard() {
   // Same three interdependent answers as the venues page, from the same component.
   const [newVenueWhere, setNewVenueWhere] = useState<LocationValue>(defaultLocation);
   const [feeMode, setFeeMode] = useState(initial.feeMode);
+  const [taxCategory, setTaxCategory] = useState(initial.taxCategory);
 
   /*
     An organization with no venues yet starts on "New venue": the saved-venue list would be an
@@ -384,6 +386,7 @@ function NewEventWizard() {
     newVenue,
     newVenueWhere,
     feeMode,
+    taxCategory,
     sessions,
     tickets,
   };
@@ -508,6 +511,7 @@ function NewEventWizard() {
     setNewVenue(d.newVenue);
     setNewVenueWhere(d.newVenueWhere ?? defaultLocation);
     setFeeMode(d.feeMode);
+    setTaxCategory(d.taxCategory);
     setSessions(d.sessions);
     setTickets(d.tickets);
     setRestoredAt(found.savedAt);
@@ -775,6 +779,8 @@ function NewEventWizard() {
           refundCutoffHours: Number(basics.refundCutoffHours),
           feeMode,
           isFree,
+          // Sent only once chosen: an unanswered question is not an answer.
+          ...(taxCategory ? { taxCategory } : {}),
           ...eventDetailsBody(details),
         },
         createKey.current,
@@ -2392,6 +2398,18 @@ function NewEventWizard() {
                 {isFree ? (
                   <p className="text-caption text-text-muted">{buyerFeeNote(admission, feeMode)}</p>
                 ) : null}
+
+                {/*
+                  Asked only where tax depends on it, and only for a saved venue: a venue made
+                  here does not exist yet, so the event page asks once it does.
+                */}
+                {venueMode === 'existing' && (
+                  <TaxClassificationField
+                    venueId={venueId}
+                    value={taxCategory}
+                    onChange={setTaxCategory}
+                  />
+                )}
 
                 {/*
                   ── WHAT THE TWO BUTTONS DO ─────────────────────────────────────────────

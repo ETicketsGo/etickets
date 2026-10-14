@@ -181,6 +181,21 @@ export class EventsController {
     return this.events.listSeatingRooms(user, q.organizationId);
   }
 
+  /*
+    Declared before `@Get(':id')` for the same reason as 'seating-rooms'.
+  */
+  @Get('tax-classification')
+  @ApiOperation({
+    summary: 'Whether an event at this venue needs a tax classification, and which have a rate.',
+  })
+  taxClassification(
+    @CurrentUser() user: RequestUser,
+    @Query(new ZodValidationPipe(z.object({ venueId: z.string().cuid() })))
+    q: { venueId: string },
+  ) {
+    return this.events.taxClassificationFor(user, q.venueId);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get an event with sessions and ticket types.' })
   get(@CurrentUser() user: RequestUser, @Param('id') id: string) {

@@ -19,7 +19,11 @@ import { EventSellabilityService } from './event-sellability.service';
  */
 
 function prismaWith(event: Record<string, unknown> | null) {
-  return { event: { findUnique: async () => event } } as never;
+  return {
+    event: { findUnique: async () => event },
+    // No active tax rule: GST is off in every environment, so no tax issue is reported.
+    taxRule: { findMany: async () => [] },
+  } as never;
 }
 
 const CINEMA = {

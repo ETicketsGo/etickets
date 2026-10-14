@@ -1396,6 +1396,16 @@ model Event {
   /// gateway asked to collect nothing is a support ticket waiting to happen. Everything
   /// after the money still runs: tickets, QR codes, notifications, transfers, cancellation.
   isFree       Boolean @default(false)
+  /// What this event is, FOR TAX: one of TAX_CATEGORIES in @eticketsgo/shared-types (CINEMA,
+  /// SPORTS_RECOGNISED, LIVE_PERFORMANCE...). A TaxRule's `category` matches on it.
+  ///
+  /// Declared by a person and never inferred. The free-text `category` above is whatever the
+  /// organizer typed, and a seat category's `regulatoryClass` is a cinema PRICING class; the
+  /// tax rules banded on "MOVIE" could never match either, so every cinema ticket would have
+  /// been taxed at the 18% catch-all. Null means nobody has said: a market with active
+  /// classified tax rules refuses the sale (TAX_CLASSIFICATION_MISSING) rather than guess.
+  /// Nullable with no backfill, because any backfill would be a guess.
+  taxCategory  String?
   /// Free text shown to buyers. Describes the policy; does not enforce it.
   refundPolicy String?
 
@@ -1637,6 +1647,9 @@ model TicketType {
   salesStartAt   DateTime?
   salesEndAt     DateTime?
   status         String        @default("ACTIVE")
+  /// Overrides the event's `taxCategory` for this ticket type only - a festival that sells a
+  /// film screening beside its concerts. Null inherits the event's.
+  taxCategory    String?
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
@@ -1891,6 +1904,10 @@ model BookingItem {
   quantity       Int
   unitPriceMinor Int
   lineTotalMinor Int
+  /// The tax category this line was priced under, snapshotted at booking. A re-price (a
+  /// coupon applied at checkout) rates what the buyer was quoted, not an event the organizer
+  /// has since reclassified. Null for add-ons and for every row older than the column.
+  taxCategory    String?
   createdAt      DateTime        @default(now())
 
   @@index([bookingId])

@@ -56,6 +56,7 @@ import {
   type EventDetailsValue,
 } from '@/components/event-details-fields';
 import { BuyerPreview } from '@/components/create-event/buyer-preview';
+import { TaxClassificationField, taxCategoryBody } from '@/components/tax-classification-field';
 import {
   FEE_MODE_CHOICES,
   REFUND_CUTOFF_CHOICES,
@@ -86,6 +87,8 @@ interface EditForm {
   refundCutoffHours: string;
   feeMode: string;
   isFree: boolean;
+  /** '' is "not set". */
+  taxCategory: string;
 }
 
 function formFrom(event: WithRefundRule): EditForm {
@@ -98,6 +101,7 @@ function formFrom(event: WithRefundRule): EditForm {
     refundCutoffHours: String(event.refundCutoffHours ?? 0),
     feeMode: event.feeMode,
     isFree: event.isFree,
+    taxCategory: event.taxCategory ?? '',
   };
 }
 
@@ -145,6 +149,7 @@ export default function EditEvent() {
     refundCutoffHours: '0',
     feeMode: 'CUSTOMER_PAYS',
     isFree: false,
+    taxCategory: '',
   });
   /* What the server holds, for "unsaved changes" and for sending the refund rule only if it moved. */
   const [loaded, setLoaded] = useState<{ form: EditForm; details: EventDetailsValue } | null>(null);
@@ -200,6 +205,7 @@ export default function EditEvent() {
         refundPolicy: form.refundPolicy || undefined,
         feeMode: form.feeMode,
         isFree: form.isFree,
+        taxCategory: taxCategoryBody(form.taxCategory),
         ...(refundChanged
           ? {
               refundsEnabled: form.refundsEnabled,
@@ -622,6 +628,13 @@ export default function EditEvent() {
                 ))}
               </Select>
             )}
+            {/* Shown only where tax depends on it - see TaxClassificationField. */}
+            <TaxClassificationField
+              venueId={event?.venue?.id}
+              value={form.taxCategory}
+              onChange={(taxCategory) => setForm({ ...form, taxCategory })}
+              disabled={!editable}
+            />
             {/*
               The way to what most people come back to change. Ticket types, dates and seats
               are saved on their own pages, each with its own rules; listed here with what each

@@ -3,6 +3,7 @@ import type { TaxBase } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { AppException, ErrorCodes } from '../common/errors';
+import { TAX_CATEGORIES, isTaxCategory } from '@eticketsgo/shared-types';
 
 /**
  * Tax rules, as an administrator edits them.
@@ -81,6 +82,7 @@ export class TaxRulesService {
 
   async create(actorUserId: string, input: TaxRuleInput) {
     this.assertBandShape(input);
+    this.assertNamesClassification(input);
 
     const created = await this.prisma.taxRule.create({
       data: {
@@ -285,6 +287,30 @@ export class TaxRulesService {
    * but priced at a rate somebody meant to be an exemption — that IS valid (zero is a rate),
    * so it is deliberately not refused here.
    */
+  /**
+   * A rule in a tax GROUP on the ticket base must name the tax classification it rates.
+   *
+   * A group on tickets holds alternatives chosen by what the ticket is - India's cinema, sport
+   * and performance rates. The engine lets only a rule NAMING a ticket's classification rate it,
+   * so a '*' or misspelt category there would be a rule that never charges anything, which
+   * looks configured and is not. Refused here, where the person typing it can still fix it. (A
+   * '*' catch-all is exactly what used to tax every cinema ticket at 18%: H-8.)
+   *
+   * Checked on create only: switching an existing rule off must never be blocked.
+   */
+  private assertNamesClassification(rule: TaxRuleInput): void {
+    const onTickets = rule.appliesTo === 'TICKETS' || rule.appliesTo === 'TICKETS_AND_FEES';
+    if (!onTickets || !(rule.taxGroup ?? '').trim()) return;
+    if (!isTaxCategory((rule.category ?? '').trim())) {
+      throw new AppException(
+        ErrorCodes.VALIDATION_FAILED,
+        'A ticket rule in a tax group must name one tax classification (' +
+          TAX_CATEGORIES.join(', ') +
+          '). A catch-all would never be applied.',
+      );
+    }
+  }
+
   private assertBandShape(rule: {
     minUnitMinor?: number | null;
     maxUnitMinor?: number | null;

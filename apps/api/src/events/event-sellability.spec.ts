@@ -1,4 +1,5 @@
 import { EventSellabilityService } from './event-sellability.service';
+import { INDIA_GST_RULES } from '../../prisma/india-gst-rules';
 
 /**
  * The checks that decide whether publishing this event would strand a customer.
@@ -18,7 +19,11 @@ type Event = Record<string, unknown> | null;
 
 /** A Prisma stand-in returning one event. The service issues exactly one findUnique. */
 function prismaWith(event: Event) {
-  return { event: { findUnique: async () => event } } as never;
+  return {
+    event: { findUnique: async () => event },
+    // No active tax rule: GST is off in every environment, so no tax issue is reported.
+    taxRule: { findMany: async () => [] },
+  } as never;
 }
 
 /** A cinema in a jurisdiction that caps prices, as the resolver understands one. */
@@ -235,5 +240,104 @@ describe('what an organizer is told before publishing', () => {
     const service = new EventSellabilityService(prismaWith(null), openPolicies);
     const report = await service.check('missing');
     expect(report.sellable).toBe(false);
+  });
+});
+
+describe('tax classification, before a customer meets the refusal (H-8)', () => {
+  /** The shipped India table, as active rows. Only ever in memory here. */
+  const ACTIVE_GST = INDIA_GST_RULES.map((r, i) => ({
+    id: `tr-${i}`,
+    label: r.label,
+    rateBasisPoints: r.rateBasisPoints,
+    appliesTo: r.appliesTo,
+    country: 'India',
+    region: '*',
+    currency: 'INR',
+    priority: r.priority,
+    active: true,
+    effectiveFrom: null,
+    effectiveTo: null,
+    taxGroup: r.taxGroup,
+    category: r.category,
+    minUnitMinor: r.minUnitMinor ?? null,
+    maxUnitMinor: r.maxUnitMinor ?? null,
+    inclusive: r.appliesTo === 'TICKETS',
+    split: 'CGST_SGST',
+  }));
+  /** A concert hall: no cinema, so only the tax check can say anything. */
+  const concert = (over: Record<string, unknown> = {}, ticket: Record<string, unknown> = {}) =>
+    eventWith({
+      sessions: [
+        session({
+          seatMapId: null,
+          screen: null,
+          ticketTypes: [
+            {
+              id: 't1',
+              name: 'Floor',
+              priceMinor: 150_000,
+              currency: 'INR',
+              seatCategory: null,
+              ...ticket,
+            },
+          ],
+        }),
+      ],
+      ...over,
+    });
+  const withRules = (event: Event, rules: unknown[]) =>
+    ({
+      event: { findUnique: async () => event },
+      taxRule: { findMany: async () => rules },
+    }) as never;
+
+  it('says nothing while GST is inactive, classified or not', async () => {
+    const service = new EventSellabilityService(withRules(concert(), []), openPolicies);
+    const report = await service.check('e1');
+    expect(report.sellable).toBe(true);
+  });
+
+  it('blocks an unclassified event once classified rules are active, and the organizer fixes it', async () => {
+    const service = new EventSellabilityService(withRules(concert(), ACTIVE_GST), openPolicies);
+    const report = await service.check('e1');
+    expect(report.sellable).toBe(false);
+    const [issue] = report.blockers;
+    expect(issue.code).toBe('TAX_CLASSIFICATION_MISSING');
+    expect(issue.owner).toBe('ORGANIZER');
+    expect(issue.fixPath).toBe('/organizer/events/e1/edit');
+    // Plain ASCII copy (house rule).
+    expect(`${issue.message} ${issue.fix}`).toMatch(/^[\x20-\x7E]+$/);
+  });
+
+  it('is satisfied by the event classification, or by a ticket type override', async () => {
+    const byEvent = new EventSellabilityService(
+      withRules(concert({ taxCategory: 'LIVE_PERFORMANCE' }), ACTIVE_GST),
+      openPolicies,
+    );
+    expect((await byEvent.check('e1')).sellable).toBe(true);
+    const byTicket = new EventSellabilityService(
+      withRules(concert({}, { taxCategory: 'LIVE_PERFORMANCE' }), ACTIVE_GST),
+      openPolicies,
+    );
+    expect((await byTicket.check('e1')).sellable).toBe(true);
+  });
+
+  it('a classification no active rule rates is the PLATFORM to fix, and names it', async () => {
+    const service = new EventSellabilityService(
+      withRules(concert({ taxCategory: 'SPORTS_OTHER' }), ACTIVE_GST),
+      openPolicies,
+    );
+    const [issue] = (await service.check('e1')).blockers;
+    expect(issue.code).toBe('TAX_RULE_NOT_FOUND');
+    expect(issue.owner).toBe('PLATFORM');
+    expect(issue.subject).toMatch(/Other sporting event/);
+  });
+
+  it('does not block a free ticket for want of a classification', async () => {
+    const service = new EventSellabilityService(
+      withRules(concert({ isFree: true }, { priceMinor: 0 }), ACTIVE_GST),
+      openPolicies,
+    );
+    expect((await service.check('e1')).sellable).toBe(true);
   });
 });

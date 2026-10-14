@@ -44,7 +44,7 @@ const order = (rules: unknown[]) =>
   computeTax({
     netSubtotalMinor: 15_000,
     customerFeeMinor: 2_000,
-    admissionLines: [{ unitPriceMinor: 15_000, quantity: 1 }],
+    admissionLines: [{ unitPriceMinor: 15_000, quantity: 1, category: 'OTHER_ENTERTAINMENT' }],
     rules: rules as never,
     place: {
       country: 'India',
@@ -108,7 +108,14 @@ describe('the ticket price still contains its own tax', () => {
 describe('both on one order, which is every real Indian booking', () => {
   it('charges ₹150 for the seat and ₹23.60 for the fee', () => {
     const r = order([
-      rule({ id: 't', appliesTo: 'TICKETS', inclusive: true, taxGroup: 'ADMISSION' }),
+      // A grouped admission rule names what it rates (H-8).
+      rule({
+        id: 't',
+        appliesTo: 'TICKETS',
+        inclusive: true,
+        taxGroup: 'ADMISSION',
+        category: 'OTHER_ENTERTAINMENT',
+      }),
       rule({ id: 'f', appliesTo: 'FEES', inclusive: false, taxGroup: 'FEE' }),
     ]);
 

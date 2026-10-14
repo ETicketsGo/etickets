@@ -22,9 +22,18 @@ numbers.
 | Cinema admission                                    | > ₹100 | **18%** |
 | Recognised sporting event                           | ≤ ₹500 | **0%**  |
 | Recognised sporting event                           | > ₹500 | **18%** |
+| Concert, theatre, dance, circus, award show         | ≤ ₹500 | **0%**  |
+| Concert, theatre, dance, circus, award show         | > ₹500 | **18%** |
 | IPL, casinos, betting, horse racing, gambling       | any    | **40%** |
 | Other entertainment / cultural / artistic admission | any    | **18%** |
 | Convenience or booking fee charged by the platform  | any    | **18%** |
+
+Which row a ticket falls in is decided by the event's **tax classification** (H-8), set by a
+person and never inferred. The per-category table, SAC codes, CBIC sources and the list of
+points needing professional review are in
+[docs/finance/INDIA-GST-CLASSIFICATION.md](../finance/INDIA-GST-CLASSIFICATION.md). A ticket
+with no classification, or one no rule covers (IPL-style sport, conferences), is refused at
+checkout rather than taxed at an assumed rate.
 
 Admission services are **SAC 9996**. The platform's booking fee is a separate supply of
 service by the platform and is taxed in its own right — which is why a receipt carries two
@@ -180,9 +189,10 @@ first constructing a successor.
 ## Still to build
 
 - **No entertainment duty**, per the note above.
-- **Categories are matched on the event's own category text.** A MOVIE experience maps to
-  `MOVIE` automatically; everything else uses whatever the organizer typed, so a `Sports`
-  rule only fires for an event categorised `Sports`. Nothing validates that.
+- ~~Categories are matched on the event's own category text.~~ Fixed by H-8: rules match the
+  event's dedicated tax classification (`Event.taxCategory`, optional per ticket type), and an
+  unclassified or unmapped ticket is refused. The free-text category and the cinema seat class
+  no longer reach the tax engine.
 
 ## Sources
 

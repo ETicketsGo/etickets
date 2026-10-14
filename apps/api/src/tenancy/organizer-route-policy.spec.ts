@@ -149,6 +149,8 @@ export const ORGANIZER_ROUTE_POLICY: Record<string, StaffPolicy> = {
   'POST /events': 'NONE',
   'GET /events': 'NONE',
   'GET /events/seating-rooms': 'NONE',
+  /** Whether the event form must ask for a tax classification at this venue (H-8). */
+  'GET /events/tax-classification': 'NONE',
   /** The admin console's event page. */
   'GET /events/:id': ORG_READ('event.read'),
   'PATCH /events/:id': 'NONE',

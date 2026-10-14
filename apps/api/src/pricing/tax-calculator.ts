@@ -232,6 +232,146 @@ function inBand(rule: TaxRuleInput, line: AdmissionLine): boolean {
   return true;
 }
 
+/** Levied on the admission - the ticket base - whether or not also on the fee. */
+function isTicketRule(rule: TaxRuleInput): boolean {
+  return rule.appliesTo === 'TICKETS' || rule.appliesTo === 'TICKETS_AND_FEES';
+}
+
+/** Names one category rather than '*'. */
+function namesCategory(rule: TaxRuleInput): boolean {
+  const category = (rule.category ?? WILDCARD).trim();
+  return category !== '' && category !== WILDCARD;
+}
+
+/**
+ * A CLASSIFIED admission rule: one of a group of alternatives on the ticket base.
+ *
+ * ── WHY A GROUP MEANS "CLASSIFY OR REFUSE" ────────────────────────────────────────
+ * A group on the ticket base exists for one reason: the rate depends on WHAT is being
+ * admitted to - India's cinema, sporting and performance rates are alternatives in one
+ * group. In such a group a '*' rule is a guess: it is what taxed every cinema ticket at 18%
+ * when the cinema rules (written for category 'MOVIE') never matched the seat class the
+ * booking passed as the category. So within a group on the ticket base only a rule that
+ * NAMES the line's category may rate it, and a line no such rule rates is refused (see
+ * `admissionClassificationGaps`) instead of falling to an assumed rate.
+ *
+ * Ungrouped rules are untouched: Canada's GST and PST on every ticket are not alternatives
+ * and do not depend on what the ticket is for.
+ */
+function isClassifiedTicketRule(rule: TaxRuleInput): boolean {
+  return isTicketRule(rule) && (rule.taxGroup ?? '').trim() !== '';
+}
+
+/** Why a ticket could not be rated. Both are refusals, never a default rate. */
+export type TaxClassificationGapCode =
+  /** The ticket (and its event) carry no tax category. The organizer fixes it. */
+  | 'TAX_CLASSIFICATION_MISSING'
+  /** It has one, but no active rule covers that category at this price. The platform fixes it. */
+  | 'TAX_RULE_NOT_FOUND';
+
+export interface TaxClassificationGap {
+  code: TaxClassificationGapCode;
+  /** The category the line carried, or null when it carried none. */
+  category: string | null;
+  unitPriceMinor: number;
+  /** Which admission line, in the order the caller passed them. -1: no lines were passed. */
+  lineIndex: number;
+}
+
+/**
+ * Thrown when a market rates admissions by classification and a ticket cannot be rated.
+ *
+ * A distinct type, not an `Error` with a sentence, so the pricing service can turn it into a
+ * refusal with a stable code while every other failure stays a 500.
+ */
+export class TaxClassificationError extends Error {
+  constructor(readonly gaps: TaxClassificationGap[]) {
+    super(
+      gaps.some((g) => g.code === 'TAX_CLASSIFICATION_MISSING')
+        ? 'A ticket in this order has no tax classification, and tax here depends on it.'
+        : 'No tax rule covers the classification of a ticket in this order.',
+    );
+    this.name = 'TaxClassificationError';
+  }
+
+  /** The more actionable of the two, so a caller can report one code. */
+  get code(): TaxClassificationGapCode {
+    return this.gaps.some((g) => g.code === 'TAX_CLASSIFICATION_MISSING')
+      ? 'TAX_CLASSIFICATION_MISSING'
+      : 'TAX_RULE_NOT_FOUND';
+  }
+}
+
+/**
+ * The tickets in an order that the APPLICABLE rules cannot rate - empty when all can.
+ *
+ * `rules` must already be the rules that apply here and now (`selectTaxRules`). With no
+ * classified admission rule among them - every environment today, GST being inactive - this
+ * returns nothing and the order prices exactly as before. A zero-value line is never a gap:
+ * there is nothing to tax on it, so a free ticket is not refused for want of a category.
+ */
+export function admissionClassificationGaps(
+  rules: readonly TaxRuleInput[],
+  lines: readonly AdmissionLine[],
+): TaxClassificationGap[] {
+  const classified = rules.filter(isClassifiedTicketRule);
+  if (classified.length === 0) return [];
+  const groups = [...new Set(classified.map((r) => (r.taxGroup ?? '').trim()))];
+
+  const gaps: TaxClassificationGap[] = [];
+  lines.forEach((line, lineIndex) => {
+    if (Math.round(line.unitPriceMinor) * Math.round(line.quantity) <= 0) return;
+    const category = line.category?.trim() || null;
+    if (!category) {
+      gaps.push({
+        code: 'TAX_CLASSIFICATION_MISSING',
+        category: null,
+        unitPriceMinor: line.unitPriceMinor,
+        lineIndex,
+      });
+      return;
+    }
+    const unrated = groups.some(
+      (group) =>
+        !classified.some(
+          (r) =>
+            (r.taxGroup ?? '').trim() === group &&
+            namesCategory(r) &&
+            matches(r.category, category) &&
+            inBand(r, line),
+        ),
+    );
+    if (unrated) {
+      gaps.push({
+        code: 'TAX_RULE_NOT_FOUND',
+        category,
+        unitPriceMinor: line.unitPriceMinor,
+        lineIndex,
+      });
+    }
+  });
+  return gaps;
+}
+
+/**
+ * Whether tax where and when this sale happens depends on a ticket's classification - so the
+ * organizer must set one. False everywhere GST is inactive.
+ */
+export function requiresTaxClassification(rules: TaxRuleInput[], place: TaxPlace = {}): boolean {
+  return selectTaxRules(rules, place).some(isClassifiedTicketRule);
+}
+
+/** The categories the applicable rules can rate - what is worth offering an organizer. */
+export function ratedTaxCategories(rules: TaxRuleInput[], place: TaxPlace = {}): string[] {
+  return [
+    ...new Set(
+      selectTaxRules(rules, place)
+        .filter((r) => isClassifiedTicketRule(r) && namesCategory(r))
+        .map((r) => (r.category ?? '').trim().toUpperCase()),
+    ),
+  ].sort();
+}
+
 /** Scoped = decided per ticket. Such a rule cannot be applied to an order total. */
 function isScoped(rule: TaxRuleInput): boolean {
   const categorised = rule.category != null && rule.category.trim() !== WILDCARD;
@@ -443,12 +583,25 @@ export function computeTax(input: TaxCalcInput): TaxCalcResult {
   const maintenanceRules = applicable.filter((r) => r.appliesTo === 'MAINTENANCE');
 
   if (input.admissionLines) {
+    /*
+      ── FAIL CLOSED ON AN UNCLASSIFIED OR UNMAPPED TICKET ─────────────────────────────
+      Checked before anything is rated. A ticket the classified rules cannot rate used to fall
+      to the group's '*' catch-all at 18%: an assumed rate on a real customer's money. It is
+      now a refusal the caller turns into a clear code, and the organizer's readiness page
+      reports the same gap before anybody reaches checkout.
+    */
+    const gaps = admissionClassificationGaps(applicable, input.admissionLines);
+    if (gaps.length > 0) throw new TaxClassificationError(gaps);
+
     for (const line of input.admissionLines) {
       const lineTotal = Math.round(line.unitPriceMinor) * Math.round(line.quantity);
       if (lineTotal <= 0) continue;
       const taken = new Set<string>();
       for (const rule of ticketRules) {
         if (!matches(rule.category, line.category) || !inBand(rule, line)) continue;
+        // A '*' rule in a group on the ticket base never rates a ticket - see
+        // `isClassifiedTicketRule`. Only a rule naming the line's category does.
+        if (isClassifiedTicketRule(rule) && !namesCategory(rule)) continue;
         const group = (rule.taxGroup ?? '').trim();
         if (group) {
           /*
@@ -486,6 +639,22 @@ export function computeTax(input: TaxCalcInput): TaxCalcResult {
     }
   } else {
     for (const rule of ticketRules) {
+      /*
+        A classified rule rates a ticket by what it is, and an order total says nothing about
+        that. Refused with the same typed error as an unclassified ticket rather than applied
+        to the subtotal - which is how a grouped catch-all would otherwise charge its rate.
+      */
+      if (isClassifiedTicketRule(rule)) {
+        if (net <= 0) continue;
+        throw new TaxClassificationError([
+          {
+            code: 'TAX_CLASSIFICATION_MISSING',
+            category: null,
+            unitPriceMinor: net,
+            lineIndex: -1,
+          },
+        ]);
+      }
       if (isScoped(rule)) {
         throw new Error(
           `Tax rule "${rule.label}" is scoped by price band or category, which can only be ` +
