@@ -547,7 +547,7 @@ async function stagePurchase() {
     (await api.call('GET', `/bookings/${S.bGw.id}`, { token: c.token })).body?.status ===
     'CONFIRMED';
   const retry = gwDone ? { ok: true } : await payBooking(c, S.bGw.id, 'success', 'gw-retry');
-  const bRetry = await waitBooking(c, S.bGw.id, 'CONFIRMED');
+  const bRetry = await waitBooking(c, S.bGw.id, 'CONFIRMED', 260);
   rec(
     'failure',
     'F-GW-2',
@@ -591,7 +591,7 @@ async function stagePurchase() {
       : await payBooking(c, S[key].id, 'success', tag);
     // QA confirms from the Razorpay webhook in seconds. UAT shares QA's test key, so Razorpay
     // sends its webhooks to QA and UAT confirms from the reconciliation sweep (every 5 minutes).
-    const bk = await waitBooking(c, S[key].id, 'CONFIRMED', 160);
+    const bk = await waitBooking(c, S[key].id, 'CONFIRMED', 260);
     const p0 = (bk?.payments ?? [])[0] ?? {};
     S[key].confirmed = {
       status: bk?.status,
