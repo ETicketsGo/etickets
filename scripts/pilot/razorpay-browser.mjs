@@ -57,12 +57,20 @@ export async function payInBrowser({
     const frame = page.frames().find((f) => f.url().includes('api.razorpay.com/v1/checkout'));
     if (!frame) throw new Error('Razorpay checkout frame did not open');
     await shot('2-razorpay-open');
+    // The "Contact details" dialog can open seconds after the payment options, on top of them,
+    // and blocks every click underneath. Wait for it rather than checking once.
     const tel = frame.locator('input[type="tel"]').first();
-    if (await tel.count()) {
+    const asked = await tel
+      .waitFor({ state: 'visible', timeout: 15000 })
+      .then(() => true)
+      .catch(() => false);
+    if (asked) {
       await tel.fill('8121234567');
       await frame.getByRole('button', { name: /^Continue$/ }).click();
+      await tel.waitFor({ state: 'hidden', timeout: 15000 }).catch(() => {});
       await page.waitForTimeout(3000);
     }
+    result.steps.push(asked ? 'contact-filled' : 'contact-not-asked');
     // Razorpay changes this screen now and then; the recommended bank row is the shortest path,
     // the Netbanking tab the fallback.
     const popupP = ctx.waitForEvent('page', { timeout: 90000 });
