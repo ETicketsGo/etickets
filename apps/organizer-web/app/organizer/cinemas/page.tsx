@@ -56,19 +56,31 @@ export default function OrganizerCinemas() {
     },
     {
       key: 'screens',
-      header: 'Spaces',
+      header: 'Screens',
       render: (c) => c.screens?.length ?? 0,
     },
   ];
 
   return (
     <div className="space-y-4">
+      {/*
+        CINEMAS, called what they are.
+
+        This list was titled "Spaces" and its button said "New space", but every row is a
+        cinema - the film business at a venue - and its count was of screens. A space is a
+        screen, a hall or an arena; it is added from Venues & seating, and a cinema screen joins
+        its venue's cinema there.
+      */}
       <PageHeader
-        title="Spaces"
-        description="Spaces live inside a venue. Venues & seating shows both together."
-        action={<ButtonLink href="/organizer/cinemas/new">New space</ButtonLink>}
+        title="Cinemas"
+        description="A cinema is the film business at one of your venues. Its screens are spaces, listed in Venues & seating."
+        action={
+          <ButtonLink href="/organizer/spaces/new?kind=CINEMA_SCREEN">
+            Add a cinema screen
+          </ButtonLink>
+        }
       />
-      <SearchInput value={q} onChange={setQ} placeholder="Search spaces…" />
+      <SearchInput value={q} onChange={setQ} placeholder="Search cinemas..." />
       <DataTable
         columns={columns}
         rows={rows}
@@ -79,14 +91,14 @@ export default function OrganizerCinemas() {
         onRowClick={(c) => router.push(`/organizer/cinemas/${c.id}`)}
         empty={
           <EmptyState
-            title="No spaces yet"
+            title="No cinemas yet"
             /*
               The old hint said "to start scheduling screenings", which reads to anybody not
               running a cinema as "this section is not for you" — and this is the only place
               a seat map can be made. Say what it unlocks instead, and say it for the general
               case, with films as the special case rather than the whole story.
             */
-            hint="A venue holds spaces, and a space with a published seat map is what lets buyers pick their own seat — for a concert or a play, not only a film."
+            hint="A cinema is made for a venue when you add its first cinema screen. For a concert or a play, add a hall or an arena in Venues & seating instead."
           />
         }
       />

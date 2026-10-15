@@ -347,6 +347,8 @@ export class CinemasService {
         name: input.name,
         screenType: input.screenType,
         capacity: input.capacity,
+        // A screen added to a cinema is a cinema screen, whatever the caller sent.
+        kind: 'CINEMA_SCREEN',
       },
     });
   }
@@ -362,6 +364,7 @@ export class CinemasService {
   async updateScreen(user: RequestUser, id: string, patch: UpdateScreenInput) {
     const screen = await this.loadOwnedScreen(user, id);
     const { statusReason, ...data } = patch;
+    if (patch.kind !== undefined) await this.assertKindFits(screen, patch.kind);
     const updated = await this.prisma.screen.update({ where: { id }, data });
 
     if (patch.status && patch.status !== screen.status) {
@@ -391,8 +394,67 @@ export class CinemasService {
     return updated;
   }
 
+  /**
+   * A kind may change only to one the space can actually be.
+   *
+   * Being a cinema screen is a FACT about the row (it has a cinema), so the kind cannot say
+   * otherwise in either direction: a cinema's screen stays a cinema screen, and a hall cannot
+   * claim to be one without a cinema to show films from. And a space cannot become a standing
+   * floor while it still sells numbered seats from a published layout - its sessions would be
+   * seated in a space that says it has no seats.
+   */
+  private async assertKindFits(
+    screen: { id: string; cinemaId: string | null },
+    kind: NonNullable<UpdateScreenInput['kind']>,
+  ) {
+    const isCinemaScreen = !!screen.cinemaId;
+    if (isCinemaScreen !== (kind === 'CINEMA_SCREEN')) {
+      throw new AppException(
+        ErrorCodes.VALIDATION_FAILED,
+        isCinemaScreen
+          ? 'This is a screen in a cinema, so it stays a cinema screen.'
+          : 'Only a screen in a cinema can be a cinema screen. Add a new cinema screen to the venue instead.',
+        HttpStatus.BAD_REQUEST,
+        { reason: 'SPACE_KIND_MISMATCH' },
+      );
+    }
+    if (kind === 'STANDING') {
+      const published = await this.prisma.seatMap.count({
+        where: { screenId: screen.id, status: 'PUBLISHED' },
+      });
+      if (published > 0) {
+        throw new AppException(
+          ErrorCodes.CONFLICT,
+          'This space has a published seat layout. Archive its layouts before you make it a standing space.',
+          HttpStatus.CONFLICT,
+          { reason: 'SPACE_HAS_SEATS' },
+        );
+      }
+    }
+  }
+
+  /**
+   * Delete a space - only one that nothing was ever sold or scheduled in.
+   *
+   * -- WHY THIS REFUSES ------------------------------------------------------------------
+   * This was an unconditional delete, and the cascade behind it is the whole inventory:
+   * deleting a Screen deletes its SeatMaps, which delete their Seats, which delete every
+   * ShowSeat sold from them - and every session on the screen silently lost its space
+   * (`screenId` is SET NULL). A space with sessions, past or future, is history that tickets
+   * point at. It can be taken out of use (status INACTIVE), which stops new scheduling and
+   * leaves every sold seat exactly where it is.
+   */
   async removeScreen(user: RequestUser, id: string) {
     await this.loadOwnedScreen(user, id);
+    const sessions = await this.prisma.eventSession.count({ where: { screenId: id } });
+    if (sessions > 0) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        `This space has ${sessions} session${sessions === 1 ? '' : 's'}, so it cannot be deleted. Take it out of use instead: nothing new can be scheduled in it, and tickets already sold stay valid.`,
+        HttpStatus.CONFLICT,
+        { reason: 'SPACE_HAS_SESSIONS', sessions },
+      );
+    }
     await this.prisma.screen.delete({ where: { id } });
     return { success: true };
   }

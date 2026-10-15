@@ -56,16 +56,9 @@ const KIND_LABEL: Record<string, string> = {
 };
 
 export default function LayoutPreviewPage() {
-  // `id` is absent on /organizer/spaces/<screenId>/...: a space that is not a cinema screen.
-  const {
-    id: cinemaId,
-    screenId,
-    layoutId,
-  } = useParams<{
-    id?: string;
-    screenId: string;
-    layoutId: string;
-  }>();
+  // Reached under /organizer/spaces/<screenId> or, for older links, under a cinema. Only the
+  // space and the layout are read.
+  const { screenId, layoutId } = useParams<{ screenId: string; layoutId: string }>();
   const [sectionId, setSectionId] = useState<string | null>(null);
 
   const previewQ = useQuery({
@@ -83,9 +76,8 @@ export default function LayoutPreviewPage() {
   const currency = currencyForCountry(data?.country) ?? 'INR';
   const formatMinor = (minor: number) => money(minor, currency);
   const counts = useMemo(() => reconcileSeats(data?.preview.kindCounts ?? []), [data]);
-  const layoutsHref = cinemaId
-    ? `/organizer/cinemas/${cinemaId}/screens/${screenId}/layouts`
-    : `/organizer/spaces/${screenId}/layouts`;
+  // Every space, cinema screen or not, has one page, and its layouts are on it.
+  const layoutsHref = `/organizer/spaces/${screenId}`;
 
   const overview = asOverview(data);
   const seatsView = asSeats(data) ?? asSeats(blockQ.data);
@@ -103,12 +95,12 @@ export default function LayoutPreviewPage() {
         }
         breadcrumbs={[
           { label: 'Venues & seating', href: '/organizer/venues' },
-          { label: 'Layouts', href: layoutsHref },
+          { label: 'Space', href: layoutsHref },
           { label: 'Preview as buyer' },
         ]}
         action={
           <ButtonLink variant="outline" href={layoutsHref}>
-            Back to layouts
+            Back to the space
           </ButtonLink>
         }
       />

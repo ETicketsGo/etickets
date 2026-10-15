@@ -316,6 +316,7 @@ export const ORGANIZER_ROUTE_POLICY: Record<string, StaffPolicy> = {
   'POST /venues': 'NONE',
   'GET /venues': 'NONE',
   'GET /venues/spaces': 'NONE',
+  'GET /venues/spaces/:spaceId': 'NONE',
   'PATCH /venues/:id': 'NONE',
   'GET /venues/:id': 'NONE',
   'GET /venues/:id/spaces': 'NONE',

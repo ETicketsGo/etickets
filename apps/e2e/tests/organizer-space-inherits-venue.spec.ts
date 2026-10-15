@@ -30,7 +30,7 @@ test.describe('a space takes its location from its venue', () => {
   });
 
   test('the venue is asked for first, and then decides the location', async ({ page }) => {
-    await page.goto(`${ORGANIZER}/organizer/cinemas/new`);
+    await page.goto(`${ORGANIZER}/organizer/spaces/new`);
     await expect(page.locator('#venueId')).toBeVisible();
 
     /*
@@ -38,7 +38,7 @@ test.describe('a space takes its location from its venue', () => {
       before the name, because it is what the rest of the form depends on.
     */
     const venueBox = await page.locator('#venueId').boundingBox();
-    const nameBox = await page.locator('#name').boundingBox();
+    const nameBox = await page.locator('#space-name').boundingBox();
     expect(venueBox!.y, 'the venue is chosen before the space is named').toBeLessThan(nameBox!.y);
 
     const options = page.locator('#venueId option');
@@ -64,9 +64,9 @@ test.describe('a space takes its location from its venue', () => {
   }) => {
     // The other half of the rule: inheriting is right only when there is something to
     // inherit from. Choosing to create a venue must still collect where it is.
-    await page.goto(`${ORGANIZER}/organizer/cinemas/new`);
+    await page.goto(`${ORGANIZER}/organizer/spaces/new`);
     await page.selectOption('#venueId', '');
-    await expect(page.locator('#city')).toBeVisible();
+    await expect(page.locator('#venue-city')).toBeVisible();
   });
 
   test('the console calls the thing one name', async ({ page }) => {
@@ -74,7 +74,7 @@ test.describe('a space takes its location from its venue', () => {
       "Rooms" and "spaces" were both on screen at once - the sidebar said one, the page it
       opened said the other. One word, checked on the pages an organizer actually crosses.
     */
-    for (const path of ['/organizer/venues', '/organizer/cinemas', '/organizer/cinemas/new']) {
+    for (const path of ['/organizer/venues', '/organizer/cinemas', '/organizer/spaces/new']) {
       await page.goto(`${ORGANIZER}${path}`);
       await expect(page.getByRole('link', { name: 'Venues & seating' }).first()).toBeVisible();
       const body = await page.locator('body').innerText();
