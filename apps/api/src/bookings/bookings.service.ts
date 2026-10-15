@@ -33,6 +33,8 @@ import { BookingShadowObserver } from './orchestration/booking-shadow-observer.s
 import { PaymentsService } from '../payments/payments.service';
 import { PendingPaymentRecoveryService } from '../payments/recovery/pending-payment-recovery.service';
 import { CinemaPricingPolicyService } from '../pricing/cinema-policy/cinema-pricing-policy.service';
+import { PilotGuardService } from '../pilot/pilot-guard.service';
+import type { PilotSale } from '../pilot/pilot-config';
 import {
   admissionLinesFromItems,
   saleTaxPlace,
@@ -161,6 +163,12 @@ export class BookingsService {
       the hand-built test harnesses above keep compiling.
     */
     @Optional() private readonly recovery?: PendingPaymentRecoveryService,
+
+    /*
+      ON THE END, as above. The controlled India pilot's limits (apps/api/src/pilot). Absent, or
+      present with PILOT_MODE unset, the quote and the booking are exactly what they were.
+    */
+    @Optional() private readonly pilot?: PilotGuardService,
   ) {}
 
   /**
@@ -450,6 +458,24 @@ export class BookingsService {
       our configuration and a state's rate order, and they can do nothing with it. The full
       explanation goes to the audit, where the person who can act on it will read it.
     */
+    /*
+      The pilot's limits that do not need the total, BEFORE the cinema-policy refusal: a cinema
+      show in pilot mode is refused as the quote refused it, PILOT_RESERVED_SEATING, rather than
+      with whatever the policy says. "Charged" is read from the subtotal after discount, which
+      is zero exactly when the total is. The order cap waits for the total, below.
+    */
+    if (this.pilot?.active()) {
+      this.pilot.assertSale(
+        this.pilotSale(
+          session,
+          currency,
+          Math.max(0, subtotal - discountMinor),
+          input.paymentMethod === 'CASH',
+          [input.buyerEmail, ...(user ? [user.email] : [])],
+        ),
+        'beforePrice',
+      );
+    }
     const blockers = saleBlockersFromPolicy(policy, {
       cinemaId: session.screen?.cinema?.id ?? null,
       ticketTypeIds: input.items.map((i) => i.ticketTypeId),
@@ -491,6 +517,21 @@ export class BookingsService {
       taxAdmissionLines(admissionLines),
       policy.effect,
     );
+
+    /*
+      ── THE PILOT'S LIMITS ───────────────────────────────────────────────────────────
+      After the price, because two of them are about the total. The daily cap is checked again
+      inside the transaction below, under the pilot lock, which is what makes it hold for two
+      buyers at once; this first pass refuses everything else before any stock is touched.
+    */
+    if (this.pilot?.active()) {
+      this.pilot.assertSale(
+        this.pilotSale(session, currency, fees.totalMinor, input.paymentMethod === 'CASH', [
+          input.buyerEmail,
+          ...(user ? [user.email] : []),
+        ]),
+      );
+    }
 
     /*
       A free event is free all the way down.
@@ -567,6 +608,11 @@ export class BookingsService {
     }));
 
     const booking = await this.prisma.$transaction(async (tx) => {
+      // The pilot's daily cap, serialized: see `PilotGuardService.reserveDailyCapacity`. A
+      // refusal here rolls back before the booking row or any hold exists.
+      if (this.pilot?.active()) {
+        await this.pilot.reserveDailyCapacity(tx, { currency, totalMinor: fees.totalMinor });
+      }
       // Create the pending booking first so the strategy can bind held seats to
       // it, then perform the atomic, oversell-/double-book-proof hold. If the
       // hold fails the whole transaction (booking + items + payment) rolls back.
@@ -1184,6 +1230,19 @@ export class BookingsService {
       taxAdmissionLines(quoteAdmissionLines),
       quotePolicy.effect,
     );
+
+    /*
+      The pilot answers a quote as it will answer the booking: the same rules on the same
+      total, the daily cap read without the lock (a quote holds nothing). Only the buyer
+      allowlist waits for the booking, because a quote does not say who is buying.
+    */
+    if (this.pilot?.active()) {
+      const pilotBlockers = await this.pilot.blockersFor(
+        this.pilotSale(session, currency, fees.totalMinor, false, undefined),
+        now,
+      );
+      if (pilotBlockers.length > 0) this.pilot.refuse(pilotBlockers);
+    }
 
     return {
       fees,
@@ -2021,6 +2080,35 @@ export class BookingsService {
    * Deliberately not EVENT_NOT_PUBLISHED. The event is fine. The customer is told the organizer is
    * not selling right now, which is true and is not the customer's fault.
    */
+  /** What the pilot rules read about a cart. The same for a quote and a create. */
+  private pilotSale(
+    session: {
+      screenId: string | null;
+      seatMapId?: string | null;
+      event: {
+        organizationId: string;
+        experienceType: string;
+        venue?: { country?: string | null } | null;
+      };
+      screen?: { cinema?: { id: string } | null } | null;
+    },
+    currency: string,
+    totalMinor: number,
+    cash: boolean,
+    buyerEmails: PilotSale['buyerEmails'],
+  ): PilotSale {
+    return {
+      organizationId: session.event.organizationId,
+      reservedSeating: Boolean(session.screenId || session.seatMapId),
+      cinema: Boolean(session.screen?.cinema) || session.event.experienceType === 'MOVIE',
+      currency,
+      provider: totalMinor > 0 ? (this.pilot?.predictProvider(currency) ?? null) : null,
+      paymentMethod: cash ? 'CASH' : 'ONLINE',
+      totalMinor,
+      buyerEmails,
+    };
+  }
+
   private assertOrganizerSelling(
     organization: { status?: string | null; name?: string | null } | null | undefined,
   ) {

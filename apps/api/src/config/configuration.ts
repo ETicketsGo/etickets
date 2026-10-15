@@ -60,6 +60,21 @@ const envSchema = z.object({
     an address is dropped and the admin ops health says alerts are not configured.
   */
   OPS_ALERT_EMAILS: z.string().optional(),
+  /*
+    The controlled India pilot (apps/api/src/pilot, docs/go-live/PILOT-GUARD.md). Raw strings on
+    purpose: pilot mode that cannot be read must close sales, not stop the API booting, so the
+    pilot parses them itself and reports what is wrong on Admin > Operations.
+  */
+  PILOT_MODE: z.string().optional(),
+  PILOT_ALLOWED_ORGANIZATION_IDS: z.string().optional(),
+  PILOT_ALLOWED_CURRENCIES: z.string().optional(),
+  PILOT_ALLOWED_PROVIDERS: z.string().optional(),
+  PILOT_GA_ONLY: z.string().optional(),
+  PILOT_MAX_ORDER_MINOR: z.string().optional(),
+  PILOT_MAX_DAILY_SALES_MINOR: z.string().optional(),
+  PILOT_ALLOWED_BUYER_EMAILS: z.string().optional(),
+  PILOT_AUTO_PAUSE: z.string().optional(),
+  PILOT_WEBHOOK_REJECT_PAUSE_THRESHOLD: z.string().optional(),
   SENTRY_ENVIRONMENT: z.string().optional(),
   SENTRY_RELEASE: z.string().optional(),
   SENTRY_TRACES_SAMPLE_RATE: z.coerce.number().optional(),

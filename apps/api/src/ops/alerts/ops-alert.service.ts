@@ -21,7 +21,8 @@ export type OpsAlertKind =
   | 'FINANCE_DISCREPANCY_OPENED'
   | 'CONFIRMATION_FAILED_AFTER_PAYMENT'
   | 'WEBHOOK_DEAD_LETTERED'
-  | 'NOTIFICATION_FAILED';
+  | 'NOTIFICATION_FAILED'
+  | 'PILOT_AUTO_PAUSED';
 
 /** A fact printed in the alert. Ids, amounts, codes and statuses only - never a person. */
 export type OpsAlertFact = string | number | boolean | null | undefined;
@@ -79,7 +80,15 @@ const THROTTLE_MS: Record<OpsAlertKind, number> = {
   CONFIRMATION_FAILED_AFTER_PAYMENT: PER_ENTITY_THROTTLE_MS,
   WEBHOOK_DEAD_LETTERED: DEFAULT_THROTTLE_MS,
   NOTIFICATION_FAILED: DEFAULT_THROTTLE_MS,
+  // Grouped by trigger. Each pause is written to the audit log; the email is the nudge.
+  PILOT_AUTO_PAUSED: DEFAULT_THROTTLE_MS,
 };
+
+/**
+ * Something that wants to act on every occurrence, not only on the throttled email: the pilot's
+ * automatic pause (apps/api/src/pilot). Called before the throttle, never awaited by `notify`.
+ */
+export type OpsAlertListener = (alert: OpsAlert) => unknown;
 
 const REDIS_PREFIX = 'ops-alert';
 const LAST_KEY = `${REDIS_PREFIX}:last`;
@@ -149,6 +158,7 @@ export class OpsAlertService implements OnModuleInit {
   /** Used when Redis is absent or refusing: per-process, so a restart forgets. */
   private readonly memory = new Map<string, { gateUntil: number; count: number }>();
   private memoryLast: { at: string; kind: OpsAlertKind } | null = null;
+  private readonly listeners: OpsAlertListener[] = [];
 
   constructor(
     @Optional() private readonly config?: ConfigService,
@@ -176,6 +186,7 @@ export class OpsAlertService implements OnModuleInit {
    * caller that has already finished its own work.
    */
   async notify(alert: OpsAlert): Promise<OpsAlertResult> {
+    this.fanOut(alert);
     try {
       const gate = await this.claim(alert.kind, alert.key);
       if (!gate.won) return { raised: false, count: gate.count, delivered: 0 };
@@ -192,6 +203,28 @@ export class OpsAlertService implements OnModuleInit {
         `Ops alert ${alert.kind} could not be raised: ${err instanceof Error ? err.message : err}`,
       );
       return { raised: false, count: 0, delivered: 0 };
+    }
+  }
+
+  /**
+   * Hear about every occurrence. The listener runs on its own promise: a slow or failing
+   * listener cannot delay or fail `notify`, and so cannot reach the money path that called it.
+   */
+  subscribe(listener: OpsAlertListener): void {
+    this.listeners.push(listener);
+  }
+
+  private fanOut(alert: OpsAlert): void {
+    for (const listener of this.listeners) {
+      void Promise.resolve()
+        .then(() => listener(alert))
+        .catch((err: unknown) =>
+          this.logger.error(
+            `Ops alert listener failed on ${alert.kind}: ${
+              err instanceof Error ? redactForOps(err.message) : 'unknown error'
+            }`,
+          ),
+        );
     }
   }
 

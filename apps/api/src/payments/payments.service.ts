@@ -42,6 +42,7 @@ import {
 import { BookingConfirmationBridge } from '../bookings/orchestration/booking-confirmation-bridge';
 import { FinanceReconciliationService } from './finance/finance-reconciliation.service';
 import { OpsAlertService } from '../ops/alerts/ops-alert.service';
+import { PilotGuardService } from '../pilot/pilot-guard.service';
 import { captureNotAppliedAlert, confirmationFailedAlert } from '../ops/alerts/ops-alert-messages';
 
 /** Payment statuses that mean a capture has been applied to its booking. */
@@ -89,6 +90,8 @@ export class PaymentsService {
     @Optional() private readonly finance?: FinanceReconciliationService,
     // Tells a person when money and records disagree. Never awaited, never changes a result.
     @Optional() private readonly alerts?: OpsAlertService,
+    // The controlled India pilot's limits, asked once more at payment start. Absent or off: no-op.
+    @Optional() private readonly pilot?: PilotGuardService,
   ) {}
 
   private readonly logger = new Logger(PaymentsService.name);
@@ -180,7 +183,14 @@ export class PaymentsService {
         payment: true,
         // organizationId → connected account; country feeds payment routing.
         event: {
-          select: { organizationId: true, isFree: true, venue: { select: { country: true } } },
+          select: {
+            organizationId: true,
+            isFree: true,
+            venue: { select: { country: true } },
+            // Read by the pilot guard only: whether the event is still on sale, and is a film.
+            status: true,
+            experienceType: true,
+          },
         },
         eventSession: { select: { status: true, startsAt: true } },
       },
@@ -263,6 +273,23 @@ export class PaymentsService {
         'This show has already started, so this booking can no longer be paid for.',
         HttpStatus.CONFLICT,
       );
+    }
+
+    /*
+      The pilot's limits, before any gateway order exists. Refused here, nothing has been sent
+      to a provider and the hold simply runs out. See PilotGuardService.assertPaymentStart.
+    */
+    if (this.pilot?.active() && booking.event) {
+      this.pilot.assertPaymentStart({
+        organizationId: booking.event.organizationId,
+        eventStatus: booking.event.status,
+        seatBased: booking.seatBased,
+        cinema: booking.event.experienceType === 'MOVIE',
+        currency: booking.currency,
+        totalMinor: booking.totalMinor,
+        paymentMethod: booking.paymentMethod === 'CASH' ? 'CASH' : 'ONLINE',
+        buyerEmails: [booking.buyerEmail, ...(user ? [user.email] : [])],
+      });
     }
 
     // Marketplace split (integer minor units) from the booking's snapshot. The customer
