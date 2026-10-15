@@ -7,7 +7,6 @@ import {
   Card,
   MetricCard,
   DataTable,
-  StatusBadge,
   Badge,
   Skeleton,
   ErrorState,
@@ -16,6 +15,7 @@ import {
   type Column,
   type RiskSignal,
 } from '@eticketsgo/web-kit';
+import { StatusBadge } from '@/components/status-badge';
 
 const SEV_TONE: Record<string, 'error' | 'warning' | 'neutral'> = {
   high: 'error',

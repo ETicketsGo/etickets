@@ -1,5 +1,5 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
-import { Role, unambiguousZoneFor } from '@eticketsgo/shared-types';
+import { Role, effectiveSpaceKind, unambiguousZoneFor, venueZone } from '@eticketsgo/shared-types';
 import type { CreateScreenInput, CreateVenueInput, UpdateVenueInput } from '@eticketsgo/validation';
 import { PrismaService } from '../prisma/prisma.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
@@ -126,6 +126,7 @@ export class VenuesService {
         capacity: true,
         status: true,
         screenType: true,
+        kind: true,
         cinemaId: true,
         cinema: { select: { id: true, name: true } },
         seatMaps: {
@@ -146,6 +147,7 @@ export class VenuesService {
         capacity: s.capacity,
         status: s.status,
         screenType: s.screenType,
+        kind: effectiveSpaceKind(s),
         /* Named so the console can say "Screen 4" belongs to a cinema and "Main Hall" does not. */
         cinemaId: s.cinemaId,
         cinemaName: s.cinema?.name ?? null,
@@ -176,6 +178,7 @@ export class VenuesService {
         capacity: true,
         status: true,
         screenType: true,
+        kind: true,
         venueId: true,
         cinemaId: true,
         cinema: { select: { id: true, name: true } },
@@ -211,6 +214,7 @@ export class VenuesService {
       capacity: s.capacity,
       status: s.status,
       screenType: s.screenType,
+      kind: effectiveSpaceKind(s),
       cinemaId: s.cinemaId,
       cinemaName: s.cinema?.name ?? null,
       layouts: currentLayouts(s.seatMaps),
@@ -220,20 +224,118 @@ export class VenuesService {
   }
 
   /**
-   * Add a space to a venue, with no cinema involved.
+   * One space, with everything its own page needs: the venue it is in (whose location and
+   * currency it inherits), the cinema it belongs to if it is a screen, its current layouts and
+   * how many sessions use it.
+   *
+   * The session counts are what make "rename, take out of use or delete" safe to offer: the
+   * page can say BEFORE anybody presses Delete that a space with sessions cannot be deleted.
+   */
+  async getSpace(user: RequestUser, spaceId: string) {
+    const space = await this.prisma.screen.findUnique({
+      where: { id: spaceId },
+      select: {
+        id: true,
+        name: true,
+        capacity: true,
+        status: true,
+        screenType: true,
+        kind: true,
+        cinemaId: true,
+        cinema: { select: { id: true, name: true, organizationId: true } },
+        venue: {
+          select: {
+            id: true,
+            organizationId: true,
+            name: true,
+            city: true,
+            address: true,
+            country: true,
+            region: true,
+            timezone: true,
+          },
+        },
+        seatMaps: {
+          where: { status: 'PUBLISHED' },
+          orderBy: [{ name: 'asc' }, { version: 'desc' }],
+          select: { id: true, name: true, layoutKind: true, version: true },
+        },
+      },
+    });
+    // The venue owns a space; the cinema only for a row an older instance wrote.
+    const organizationId = space?.venue?.organizationId ?? space?.cinema?.organizationId;
+    if (!space || !organizationId)
+      throw new AppException(ErrorCodes.NOT_FOUND, 'Space not found.', HttpStatus.NOT_FOUND);
+    await this.access.assertMember(user, organizationId);
+
+    const now = new Date();
+    const [sessions, upcomingSessions] = await Promise.all([
+      this.prisma.eventSession.count({ where: { screenId: spaceId } }),
+      this.prisma.eventSession.count({
+        where: { screenId: spaceId, startsAt: { gt: now }, status: { not: 'CANCELLED' } },
+      }),
+    ]);
+
+    const byName = new Map<string, (typeof space.seatMaps)[number]>();
+    for (const m of space.seatMaps) if (!byName.has(m.name)) byName.set(m.name, m);
+
+    return {
+      id: space.id,
+      organizationId,
+      name: space.name,
+      capacity: space.capacity,
+      status: space.status,
+      screenType: space.screenType,
+      kind: effectiveSpaceKind(space),
+      venue: space.venue
+        ? {
+            id: space.venue.id,
+            name: space.venue.name,
+            city: space.venue.city,
+            address: space.venue.address,
+            country: space.venue.country,
+            region: space.venue.region,
+            timezone: space.venue.timezone,
+          }
+        : null,
+      cinemaId: space.cinemaId,
+      cinemaName: space.cinema?.name ?? null,
+      layouts: [...byName.values()],
+      sessions,
+      upcomingSessions,
+    };
+  }
+
+  /**
+   * Add a space to a venue.
    *
    * THE POINT OF THE WHOLE MIGRATION. Before it, this call was impossible: `Screen.cinemaId`
    * was NOT NULL, so creating a bookable area meant creating a cinema to hang it from, and an
    * arena, an auditorium or a concert hall had to pretend to be one.
    *
-   * A cinema screen is still created through `CinemasService.addScreen`, which sets both the
-   * cinema and the venue. The two paths write the same columns; this one simply leaves
-   * `cinemaId` null, which is now allowed to mean what it says.
+   * -- A CINEMA SCREEN STILL JOINS A CINEMA ------------------------------------------------
+   * The console's "New space" used to create a CINEMA and land on it, so "Screen 2" became a
+   * cinema with an empty list of screens inside it - a space inside a space. A cinema is the
+   * film business AT a venue (its brand, its schedule, its regulatory class), not a space, and
+   * a screen needs one to show films. So a cinema screen is filed under the venue's cinema,
+   * and when the venue has none yet one is made from the venue's own details - named after
+   * the venue, never after the screen. The person adding "Screen 2" only sees the screen.
+   *
+   * Any other kind of space leaves `cinemaId` null, which is now allowed to mean what it says.
    */
   async addSpace(user: RequestUser, venueId: string, input: CreateScreenInput) {
     const venue = await this.prisma.venue.findUnique({
       where: { id: venueId },
-      select: { id: true, organizationId: true },
+      select: {
+        id: true,
+        organizationId: true,
+        name: true,
+        city: true,
+        address: true,
+        country: true,
+        region: true,
+        timezone: true,
+      },
     });
     if (!venue)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Venue not found.', HttpStatus.NOT_FOUND);
@@ -242,16 +344,62 @@ export class VenuesService {
       Role.ORGANIZER_MANAGER,
     ]);
 
-    return this.prisma.screen.create({
-      data: {
-        venueId,
-        // Deliberately absent. This space is not a cinema screen, and saying so is the
-        // difference between the model this migration created and the one it replaced.
-        cinemaId: null,
-        name: input.name,
-        screenType: input.screenType,
-        capacity: input.capacity,
-      },
+    if (input.kind !== 'CINEMA_SCREEN') {
+      return this.prisma.screen.create({
+        data: {
+          venueId,
+          // Deliberately absent. This space is not a cinema screen, and saying so is the
+          // difference between the model this migration created and the one it replaced.
+          cinemaId: null,
+          name: input.name,
+          screenType: input.screenType,
+          capacity: input.capacity,
+          kind: input.kind,
+        },
+      });
+    }
+
+    const zone = venueZone(venue.timezone, venue.country);
+    return this.prisma.$transaction(async (tx) => {
+      // Serialised per venue, so two screens added at once cannot each create a cinema.
+      await tx.$queryRaw`SELECT id FROM "Venue" WHERE id = ${venueId} FOR UPDATE`;
+      const existing = await tx.cinema.findFirst({
+        where: { venueId, organizationId: venue.organizationId },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true },
+      });
+      const cinemaId =
+        existing?.id ??
+        (
+          await tx.cinema.create({
+            data: {
+              organizationId: venue.organizationId,
+              venueId,
+              /*
+                The venue's details, copied once so the cinema agrees with where it is. The
+                clock is the venue's zone, else its country's only zone; the column default is
+                the last resort, exactly as for a cinema created any other way.
+              */
+              name: venue.name,
+              city: venue.city,
+              address: venue.address,
+              country: venue.country,
+              region: venue.region,
+              ...(zone ? { timezone: zone } : {}),
+            },
+            select: { id: true },
+          })
+        ).id;
+      return tx.screen.create({
+        data: {
+          venueId,
+          cinemaId,
+          name: input.name,
+          screenType: input.screenType,
+          capacity: input.capacity,
+          kind: 'CINEMA_SCREEN',
+        },
+      });
     });
   }
 }

@@ -54,7 +54,8 @@ const LEGAL_FIELDS: {
   {
     key: 'legalName',
     label: 'Registered legal name',
-    placeholder: 'Aurora Live Entertainment Pvt Ltd',
+    // Not an example company: a made-up name in the box read as a value already on file.
+    placeholder: 'As on your registration certificate',
     hint: 'The entity name as registered. Printed on every invoice.',
     wide: true,
   },
@@ -189,6 +190,7 @@ export default function SettingsPage() {
     onSuccess: () => {
       toast.push('Organizer profile updated.', 'success');
       qc.invalidateQueries({ queryKey: ['organizations', 'mine'] });
+      qc.invalidateQueries({ queryKey: ['organizer', 'actions', activeOrg.id] });
     },
     onError: (e) => toast.push(errorMessage(e), 'error'),
   });
@@ -198,6 +200,20 @@ export default function SettingsPage() {
     queryKey: ['organizations', activeOrg.id, 'legal-identity'],
     queryFn: () => api.organizations.legalIdentity(activeOrg.id),
   });
+  /*
+    What is still missing from this box, from the same list Overview's "Needs you" reads (one
+    query key, so they cannot disagree). The box said "Complete." whenever tax invoices could be
+    issued, while Overview warned about the legal form and the complaints contact on the same
+    organization.
+  */
+  const actionsQ = useQuery({
+    queryKey: ['organizer', 'actions', activeOrg.id],
+    queryFn: () => api.organizations.actions(activeOrg.id),
+    staleTime: 30_000,
+  });
+  const legalGaps = (actionsQ.data?.actions ?? []).filter(
+    (a) => !a.done && a.category === 'BUSINESS' && a.fixPath.endsWith('#legal'),
+  );
   const [legal, setLegal] = useState<OrganizationLegalIdentityInput>({});
   const [legalTouched, setLegalTouched] = useState(false);
   useEffect(() => {
@@ -234,6 +250,7 @@ export default function SettingsPage() {
       setLegalTouched(false);
       toast.push('Legal and tax details saved.', 'success');
       qc.invalidateQueries({ queryKey: ['organizations', activeOrg.id, 'legal-identity'] });
+      qc.invalidateQueries({ queryKey: ['organizer', 'actions', activeOrg.id] });
       qc.invalidateQueries({ queryKey: ['organizations', 'mine'] });
     },
     onError: (e) => toast.push(errorMessage(e), 'error'),
@@ -399,89 +416,110 @@ export default function SettingsPage() {
         </div>
       </Card>
 
-      <Card title="Public organizer profile">
-        <p className="-mt-2 mb-4 text-caption text-text-secondary">
-          Shown on your organizer page and event listings. Leave a field blank to hide it.
-        </p>
-        <div className="space-y-4">
-          {/*
+      {/*
+        Ids for the "Fix this" links (`#public-profile`, `#legal`): this page is about 3,400px
+        long and the legal box is near the bottom, so landing on its top meant scrolling past
+        four unrelated cards to find the field you were sent for.
+      */}
+      <div id="public-profile" className="scroll-mt-24">
+        <Card title="Public organizer profile">
+          <p className="-mt-2 mb-4 text-caption text-text-secondary">
+            Shown on your organizer page and event listings. Leave a field blank to hide it.
+          </p>
+          <div className="space-y-4">
+            {/*
             The picture is uploaded, not linked. It sits above the text because it is the
             first thing a customer sees of an organizer, and because the field it replaced -
             "Logo URL" - was the one nobody could fill in.
           */}
-          <ProfilePicture
-            orgId={activeOrg.id}
-            name={activeOrg.name}
-            logoUrl={activeOrg.logoUrl}
-            coverImageUrl={activeOrg.coverImageUrl}
-          />
-          <Textarea
-            id="org-description"
-            label="About"
-            rows={4}
-            maxLength={2000}
-            placeholder="Tell attendees who you are and what you host."
-            value={form.description ?? ''}
-            onChange={(e) => setField('description', e.target.value)}
-          />
+            <ProfilePicture
+              orgId={activeOrg.id}
+              name={activeOrg.name}
+              logoUrl={activeOrg.logoUrl}
+              coverImageUrl={activeOrg.coverImageUrl}
+            />
+            <Textarea
+              id="org-description"
+              label="About"
+              rows={4}
+              maxLength={2000}
+              placeholder="Tell attendees who you are and what you host."
+              value={form.description ?? ''}
+              onChange={(e) => setField('description', e.target.value)}
+            />
+            <div className="grid gap-4 sm:grid-cols-2">
+              {PROFILE_FIELDS.map((f) => (
+                <Input
+                  key={f.key}
+                  id={`org-${f.key}`}
+                  label={f.label}
+                  placeholder={f.placeholder}
+                  value={(form[f.key] as string) ?? ''}
+                  onChange={(e) => setField(f.key, e.target.value)}
+                />
+              ))}
+            </div>
+            <Button loading={saveOrg.isPending} onClick={() => saveOrg.mutate()}>
+              Save organizer profile
+            </Button>
+          </div>
+        </Card>
+      </div>
+
+      <div id="legal" className="scroll-mt-24">
+        <Card title="Legal and tax details">
+          <p className="-mt-2 mb-4 text-caption text-text-secondary">
+            These appear on the receipts and invoices your customers receive, and on the records
+            your payouts are reported against. They are never shown on your public page.
+          </p>
+
+          {legalQuery.data ? (
+            <div
+              className={`mb-4 rounded-md border px-3 py-2 text-caption ${
+                legalQuery.data.canIssueTaxInvoice
+                  ? 'border-status-success/40 bg-status-success/10 text-text-primary'
+                  : 'border-status-warning/40 bg-status-warning/10 text-text-primary'
+              }`}
+            >
+              {legalQuery.data.canIssueTaxInvoice ? (
+                <>
+                  Sales are documented as <strong>tax invoices</strong> naming{' '}
+                  {legalQuery.data.taxRegistrationKind ?? 'your registration'}{' '}
+                  {legalQuery.data.taxRegistrationNumber}.
+                </>
+              ) : (
+                <>
+                  Incomplete. Customers still get a <strong>receipt</strong> for every sale, but it
+                  cannot be called a tax invoice until you add
+                  {legalQuery.data.taxRegistrationNumber ? '' : ' a tax registration number'}
+                  {legalQuery.data.missing.length > 0 && (
+                    <>
+                      {legalQuery.data.taxRegistrationNumber ? ' ' : ', plus '}
+                      {legalQuery.data.missing.join(', ').toLowerCase()}
+                    </>
+                  )}
+                  .
+                </>
+              )}
+            </div>
+          ) : null}
+
+          {legalGaps.length > 0 && (
+            <div className="mb-4 rounded-md border border-status-warning/40 bg-status-warning/10 px-3 py-2 text-caption text-text-primary">
+              <p className="font-semibold">Still missing here</p>
+              <ul className="mt-1 list-disc space-y-0.5 pl-5">
+                {legalGaps.map((g) => (
+                  <li key={g.key}>
+                    {g.title}. <span className="text-text-secondary">{g.consequence}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           <div className="grid gap-4 sm:grid-cols-2">
-            {PROFILE_FIELDS.map((f) => (
-              <Input
-                key={f.key}
-                id={`org-${f.key}`}
-                label={f.label}
-                placeholder={f.placeholder}
-                value={(form[f.key] as string) ?? ''}
-                onChange={(e) => setField(f.key, e.target.value)}
-              />
-            ))}
-          </div>
-          <Button loading={saveOrg.isPending} onClick={() => saveOrg.mutate()}>
-            Save organizer profile
-          </Button>
-        </div>
-      </Card>
-
-      <Card title="Legal and tax details">
-        <p className="-mt-2 mb-4 text-caption text-text-secondary">
-          These appear on the receipts and invoices your customers receive, and on the records your
-          payouts are reported against. They are never shown on your public page.
-        </p>
-
-        {legalQuery.data ? (
-          <div
-            className={`mb-4 rounded-md border px-3 py-2 text-caption ${
-              legalQuery.data.canIssueTaxInvoice
-                ? 'border-status-success/40 bg-status-success/10 text-text-primary'
-                : 'border-status-warning/40 bg-status-warning/10 text-text-primary'
-            }`}
-          >
-            {legalQuery.data.canIssueTaxInvoice ? (
-              <>
-                Complete. Sales are documented as <strong>tax invoices</strong> naming{' '}
-                {legalQuery.data.taxRegistrationKind ?? 'your registration'}{' '}
-                {legalQuery.data.taxRegistrationNumber}.
-              </>
-            ) : (
-              <>
-                Incomplete. Customers still get a <strong>receipt</strong> for every sale, but it
-                cannot be called a tax invoice until you add
-                {legalQuery.data.taxRegistrationNumber ? '' : ' a tax registration number'}
-                {legalQuery.data.missing.length > 0 && (
-                  <>
-                    {legalQuery.data.taxRegistrationNumber ? ' ' : ', plus '}
-                    {legalQuery.data.missing.join(', ').toLowerCase()}
-                  </>
-                )}
-                .
-              </>
-            )}
-          </div>
-        ) : null}
-
-        <div className="grid gap-4 sm:grid-cols-2">
-          {LEGAL_FIELDS.map((f) => {
-            /*
+            {LEGAL_FIELDS.map((f) => {
+              /*
               ── THE TWO THAT DECIDE SOMETHING ARE PICKED, NOT TYPED ──────────────────
               `registeredCountry` and `registeredRegion` are not description: the country
               decides which tax rules can apply to this seller at all, and the region is what
@@ -492,121 +530,124 @@ export default function SettingsPage() {
               The rest stay free text on purpose. A registration number's format is its
               authority's business, and an address is an address.
             */
-            if (f.key === 'registeredCountry') {
-              return (
-                <div key={f.key}>
-                  <Select
-                    id={`legal-${f.key}`}
-                    label={f.label}
-                    hint="Decides which tax rules can apply to your sales."
-                    value={(legal[f.key] as string) ?? ''}
-                    onChange={(e) => {
-                      setLegalField(f.key, e.target.value);
-                      // A region belongs to a country; keeping the old one would leave a
-                      // Telangana registration on a Canadian entity. So does a legal form:
-                      // "Pvt Ltd" is not something you can be in Canada.
-                      setLegalField('registeredRegion', '');
-                      setLegalField('legalEntityType', '');
-                    }}
-                  >
-                    <option value="">Select a country…</option>
-                    {MARKETS.map((m) => (
-                      <option key={m.code} value={m.name}>
-                        {m.name}
-                      </option>
-                    ))}
-                  </Select>
-                </div>
-              );
-            }
-            if (f.key === 'legalEntityType') {
-              const forms = marketFor((legal.registeredCountry as string) ?? '')?.legalEntityTypes;
-              return (
-                <div key={f.key}>
-                  <Select
-                    id={`legal-${f.key}`}
-                    label={f.label}
-                    hint={f.hint}
-                    disabled={!forms || forms.length === 0}
-                    value={(legal[f.key] as string) ?? ''}
-                    onChange={(e) => setLegalField(f.key, e.target.value)}
-                  >
-                    <option value="">{forms ? 'Select…' : 'Pick a country first'}</option>
-                    {(forms ?? []).map((form) => (
-                      <option key={form} value={form}>
-                        {form}
-                      </option>
-                    ))}
-                  </Select>
-                </div>
-              );
-            }
-            if (f.key === 'registeredRegion') {
+              if (f.key === 'registeredCountry') {
+                return (
+                  <div key={f.key}>
+                    <Select
+                      id={`legal-${f.key}`}
+                      label={f.label}
+                      hint="Decides which tax rules can apply to your sales."
+                      value={(legal[f.key] as string) ?? ''}
+                      onChange={(e) => {
+                        setLegalField(f.key, e.target.value);
+                        // A region belongs to a country; keeping the old one would leave a
+                        // Telangana registration on a Canadian entity. So does a legal form:
+                        // "Pvt Ltd" is not something you can be in Canada.
+                        setLegalField('registeredRegion', '');
+                        setLegalField('legalEntityType', '');
+                      }}
+                    >
+                      <option value="">Select a country…</option>
+                      {MARKETS.map((m) => (
+                        <option key={m.code} value={m.name}>
+                          {m.name}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+                );
+              }
+              if (f.key === 'legalEntityType') {
+                const forms = marketFor(
+                  (legal.registeredCountry as string) ?? '',
+                )?.legalEntityTypes;
+                return (
+                  <div key={f.key}>
+                    <Select
+                      id={`legal-${f.key}`}
+                      label={f.label}
+                      hint={f.hint}
+                      disabled={!forms || forms.length === 0}
+                      value={(legal[f.key] as string) ?? ''}
+                      onChange={(e) => setLegalField(f.key, e.target.value)}
+                    >
+                      <option value="">{forms ? 'Select…' : 'Pick a country first'}</option>
+                      {(forms ?? []).map((form) => (
+                        <option key={form} value={form}>
+                          {form}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+                );
+              }
+              if (f.key === 'registeredRegion') {
+                const market = marketFor((legal.registeredCountry as string) ?? '');
+                return (
+                  <div key={f.key}>
+                    <Select
+                      id={`legal-${f.key}`}
+                      label={market?.regionLabel ?? f.label}
+                      disabled={!market || market.regions.length === 0}
+                      hint={f.hint}
+                      value={(legal[f.key] as string) ?? ''}
+                      onChange={(e) => setLegalField(f.key, e.target.value)}
+                    >
+                      <option value="">{market ? 'Select…' : 'Pick a country first'}</option>
+                      {(market?.regions ?? []).map((r) => (
+                        <option key={r.name} value={r.name}>
+                          {r.name}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+                );
+              }
               const market = marketFor((legal.registeredCountry as string) ?? '');
+              // "Tax registration number" is what the platform calls it; "GSTIN" is what the
+              // organizer calls it, and they are looking for the one on their own certificate.
+              const label =
+                f.key === 'taxRegistrationNumber' && market
+                  ? `${market.taxRegistrationLabel} (if you have one)`
+                  : f.label;
               return (
-                <div key={f.key}>
-                  <Select
+                <div key={f.key} className={f.wide ? 'sm:col-span-2' : undefined}>
+                  <Input
                     id={`legal-${f.key}`}
-                    label={market?.regionLabel ?? f.label}
-                    disabled={!market || market.regions.length === 0}
-                    hint={f.hint}
+                    label={label}
+                    placeholder={f.placeholder}
                     value={(legal[f.key] as string) ?? ''}
                     onChange={(e) => setLegalField(f.key, e.target.value)}
-                  >
-                    <option value="">{market ? 'Select…' : 'Pick a country first'}</option>
-                    {(market?.regions ?? []).map((r) => (
-                      <option key={r.name} value={r.name}>
-                        {r.name}
-                      </option>
-                    ))}
-                  </Select>
+                  />
+                  {f.hint ? <p className="mt-1 text-caption text-text-muted">{f.hint}</p> : null}
                 </div>
               );
-            }
-            const market = marketFor((legal.registeredCountry as string) ?? '');
-            // "Tax registration number" is what the platform calls it; "GSTIN" is what the
-            // organizer calls it, and they are looking for the one on their own certificate.
-            const label =
-              f.key === 'taxRegistrationNumber' && market
-                ? `${market.taxRegistrationLabel} (if you have one)`
-                : f.label;
-            return (
-              <div key={f.key} className={f.wide ? 'sm:col-span-2' : undefined}>
-                <Input
-                  id={`legal-${f.key}`}
-                  label={label}
-                  placeholder={f.placeholder}
-                  value={(legal[f.key] as string) ?? ''}
-                  onChange={(e) => setLegalField(f.key, e.target.value)}
-                />
-                {f.hint ? <p className="mt-1 text-caption text-text-muted">{f.hint}</p> : null}
-              </div>
-            );
-          })}
-        </div>
-        <p className="mt-4 text-caption text-text-muted">
-          We record your registration number exactly as you enter it and print it unchanged. We do
-          not validate its format — that varies by country and is set by your tax authority, not by
-          us. Documents already issued keep the details they were issued with.
-        </p>
-        <Button
-          className="mt-4"
-          loading={saveLegal.isPending}
-          disabled={!can.ownerActions}
-          onClick={() => saveLegal.mutate()}
-        >
-          Save legal and tax details
-        </Button>
-        {!can.ownerActions && (
-          /*
+            })}
+          </div>
+          <p className="mt-4 text-caption text-text-muted">
+            We record your registration number exactly as you enter it and print it unchanged. We do
+            not validate its format — that varies by country and is set by your tax authority, not
+            by us. Documents already issued keep the details they were issued with.
+          </p>
+          <Button
+            className="mt-4"
+            loading={saveLegal.isPending}
+            disabled={!can.ownerActions}
+            onClick={() => saveLegal.mutate()}
+          >
+            Save legal and tax details
+          </Button>
+          {!can.ownerActions && (
+            /*
             Owner only at the API: these details are printed on tax invoices, and changing a
             registration number is a different act from editing a bio.
           */
-          <p className="mt-2 text-caption text-text-muted">
-            Only the owner can change legal and tax details.
-          </p>
-        )}
-      </Card>
+            <p className="mt-2 text-caption text-text-muted">
+              Only the owner can change legal and tax details.
+            </p>
+          )}
+        </Card>
+      </div>
     </div>
   );
 }

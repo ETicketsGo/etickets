@@ -6,8 +6,9 @@ import {
   LAYOUT_GALLERY,
   VENUE_TEMPLATES,
   type LayoutGalleryOption,
+  type VenueTemplateKey,
 } from '@eticketsgo/shared-types';
-import { templateBookable } from '@/lib/layout-gallery';
+import { templateSizeNote } from '@/lib/layout-gallery';
 import { LayoutThumbnail } from './layout-thumbnail';
 
 /**
@@ -44,36 +45,57 @@ const MORE: LayoutGalleryOption[] = VENUE_TEMPLATES.filter(
 export interface LayoutTemplateGalleryProps {
   selectedId?: string | null;
   onChoose: (option: LayoutGalleryOption, outline: LayoutTemplateOutline | null) => void;
-  /** Hidden where a GA choice has nothing to do, e.g. rebuilding an existing seated draft. */
-  includeGeneralAdmission?: boolean;
+  /**
+   * The templates that fit this space's kind (`templatesForSpaceKind`). Null when the kind was
+   * never said, which offers every template as before.
+   *
+   * A cinema screen used to be offered a 7,628-seat basketball arena and an 11,712-seat
+   * concert arena beside its own two grids. Only shapes the space can be are shown now, all in
+   * one grid, since a filtered list is short enough not to need a "More" fold.
+   */
+  templates?: readonly VenueTemplateKey[] | null;
+  /**
+   * The space's planned seats. Each template is then sized to it, and its card says how close
+   * it gets. Without it a template is shown at its own size.
+   */
+  targetSeats?: number | null;
 }
+
+/*
+  No "General admission" card. It sat in a list of LAYOUTS and its whole message was "this needs
+  no layout" - a choice that, once chosen, could only be undone. Standing is now a kind of SPACE,
+  said once when the space is created, so a layout picker never has to offer "no layout".
+*/
+const SEATED = LAYOUT_GALLERY.filter((g) => g.style !== 'GA');
 
 export function LayoutTemplateGallery({
   selectedId,
   onChoose,
-  includeGeneralAdmission = true,
+  templates,
+  targetSeats,
 }: LayoutTemplateGalleryProps) {
+  const seats = targetSeats && targetSeats > 0 ? targetSeats : undefined;
   const outlinesQ = useQuery({
-    queryKey: ['layout-templates'],
-    queryFn: () => api.theaterOps.layoutTemplates(),
+    queryKey: ['layout-templates', seats ?? null],
+    queryFn: () => api.theaterOps.layoutTemplates(seats),
     // The templates are the same for everybody and change only with a deploy.
     staleTime: Infinity,
   });
   const outlineFor = (option: LayoutGalleryOption) =>
     option.template ? (outlinesQ.data?.find((o) => o.key === option.template) ?? null) : null;
 
-  const featured = LAYOUT_GALLERY.filter((g) => includeGeneralAdmission || g.style !== 'GA');
+  const fits = (option: LayoutGalleryOption) =>
+    !templates || (!!option.template && templates.includes(option.template));
+  const featured = templates ? [...SEATED, ...MORE].filter(fits) : SEATED;
+  const more = templates ? [] : MORE;
 
   const card = (option: LayoutGalleryOption) => {
     // Grey words on the primary tint are 4.3:1, under AA, so a chosen card uses the primary text colour.
     const outline = outlineFor(option);
     const on = selectedId === option.id;
+    const size = outline ? templateSizeNote(outline) : null;
     const capacity =
-      option.style === 'GA'
-        ? 'You set how many tickets to sell'
-        : outline
-          ? `${templateBookable(outline).toLocaleString()} seats`
-          : null;
+      option.style === 'GA' ? 'You set how many tickets to sell' : (size?.capacity ?? null);
     return (
       <button
         key={option.id}
@@ -110,6 +132,11 @@ export function LayoutTemplateGallery({
         >
           {option.sentence}
         </span>
+        {size?.warning ? (
+          <span className="text-caption font-medium leading-snug text-text-primary">
+            {size.warning}
+          </span>
+        ) : null}
         <span
           className={`mt-auto text-caption font-medium ${on ? 'text-text-primary' : 'text-text-secondary'}`}
         >
@@ -134,13 +161,13 @@ export function LayoutTemplateGallery({
       >
         {featured.map((option) => card(option))}
       </div>
-      {MORE.length > 0 ? (
+      {more.length > 0 ? (
         <details className="rounded-lg border border-border">
           <summary className="cursor-pointer select-none px-3 py-2 text-caption font-medium text-text-secondary">
-            More venue shapes ({MORE.length})
+            More venue shapes ({more.length})
           </summary>
           <div className="grid grid-cols-1 gap-3 border-t border-border p-3 sm:grid-cols-2">
-            {MORE.map((option) => card(option))}
+            {more.map((option) => card(option))}
           </div>
         </details>
       ) : null}

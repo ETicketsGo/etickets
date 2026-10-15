@@ -94,6 +94,20 @@ describe('suspending an organizer', () => {
     });
   });
 
+  it('refuses to suspend an organizer still waiting for review, so reinstating cannot approve them', async () => {
+    const { service, prisma } = makeService({
+      organization: {
+        findUnique: jest.fn().mockResolvedValue({ id: 'org-1', name: 'A', status: 'PENDING' }),
+        update: jest.fn(),
+      },
+    });
+
+    await expect(service.setSuspended(admin, 'org-1', true, 'Looks suspicious')).rejects.toThrow(
+      /nothing to suspend/,
+    );
+    expect(prisma.organization.update).not.toHaveBeenCalled();
+  });
+
   it('refuses to reinstate an organizer who is not suspended', async () => {
     const { service } = makeService();
 
@@ -168,7 +182,7 @@ describe('what an organizer still owes us', () => {
     const items = organizationReadiness({ ...full, grievanceOfficerEmail: '' });
 
     const item = items.find((i) => i.key === 'grievance-officer');
-    expect(item).toMatchObject({ severity: 'IMPORTANT', fixPath: '/organizer/settings' });
+    expect(item).toMatchObject({ severity: 'IMPORTANT', fixPath: '/organizer/settings#legal' });
     // Says what the gap costs, never "this is required".
     expect(item?.consequence).toMatch(/we cannot pass them on/);
   });

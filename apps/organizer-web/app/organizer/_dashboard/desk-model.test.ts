@@ -11,6 +11,7 @@ import {
   pickNextStep,
   soldShare,
   venueWhen,
+  standingNote,
 } from './desk-model';
 import type { MoneyPanel } from './overview-model';
 
@@ -239,5 +240,30 @@ describe('pickNextStep', () => {
     expect(pickNextStep({ needs, events: [], rows: [], canCreate: false })!.itemKey).toBe(
       'setup:bank',
     );
+  });
+});
+
+describe('standingNote', () => {
+  it('says what waiting for approval means, and where to act', () => {
+    // QA: a bare "Waiting for approval" pill; nothing said what was blocked or what was needed.
+    const note = standingNote('PENDING', 'Walk Org', true)!;
+    expect(note.text).toMatch(/checking Walk Org/);
+    expect(note.text).toMatch(/send them for review/);
+    expect(note.text).toMatch(/legal name, legal form and country/);
+    expect(note.href).toBe('/organizer/settings#legal');
+    expect(note.text).not.toMatch(/[^ -~]/);
+    // Once those are given it does not keep asking for them.
+    const given = standingNote('PENDING', 'Walk Org', false)!;
+    expect(given.text).not.toMatch(/we need your/);
+    expect(given.text).toMatch(/what approval needs/);
+  });
+
+  it('says nothing for an approved organizer', () => {
+    expect(standingNote('APPROVED', 'Walk Org')).toBeNull();
+  });
+
+  it('points a rejected or suspended organizer at support', () => {
+    expect(standingNote('REJECTED', 'X')?.href).toBe('/organizer/help');
+    expect(standingNote('SUSPENDED', 'X')?.href).toBe('/organizer/help');
   });
 });

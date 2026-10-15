@@ -16,6 +16,7 @@ import type {
   CopyScheduleInput,
   GenerateSeatMapInput,
   RescheduleShowInput,
+  RetimeSessionInput,
   ScheduleShowInput,
   UpdateShowPricingInput,
 } from '@eticketsgo/validation';
@@ -2332,6 +2333,71 @@ export class ShowsService {
       from: { startsAt: session.startsAt, endsAt: session.endsAt },
       to: { startsAt, endsAt },
       notified: moved,
+    });
+    return { sessionId, startsAt: updated.startsAt, endsAt: updated.endsAt };
+  }
+
+  /**
+   * Move one date of an event that is not a film: a concert, a play, a match.
+   *
+   * `rescheduleShow` is the film path and derives the end from the runtime, so an event date
+   * could not be moved at all - an organizer who typed the wrong evening had to leave it or
+   * add a second date beside it. This takes both ends from the organizer, under the SAME
+   * policy as a film (EDIT_TIME): never once somebody has paid for this date or is paying for
+   * it now. Those buyers chose a time; it is cancelled and re-added, so they are told.
+   *
+   * A seated date keeps its room, so the room's other dates are checked for overlap exactly
+   * as a film's are. General admission has no room to collide in.
+   */
+  async retimeEventSession(user: RequestUser, sessionId: string, input: RetimeSessionInput) {
+    const { session } = await this.authorizeOperation(user, sessionId, 'EDIT_TIME');
+    if (session.event.movieId) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        "This is a film show. Move it from the cinema's schedule, where its end follows the film's length.",
+        HttpStatus.CONFLICT,
+        { reason: 'FILM_SHOW' },
+      );
+    }
+    const { startsAt, endsAt } = input;
+    if (startsAt.getTime() <= Date.now()) {
+      throw new AppException(
+        ErrorCodes.VALIDATION_FAILED,
+        'Choose a start time that is still to come.',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    const moved =
+      startsAt.getTime() !== session.startsAt.getTime() ||
+      endsAt.getTime() !== session.endsAt.getTime();
+    const screenId = session.screenId;
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      if (screenId) {
+        await tx.$queryRaw`SELECT id FROM "Screen" WHERE id = ${screenId} FOR UPDATE`;
+        const conflict = await this.findConflict(tx, screenId, { startsAt, endsAt }, sessionId);
+        if (conflict) {
+          throw new AppException(
+            ErrorCodes.CONFLICT,
+            'Another date already uses this space at that time. Choose a different time.',
+            HttpStatus.CONFLICT,
+            { reason: 'OVERLAPS_EXISTING_SHOW', conflictsWith: conflict.id },
+          );
+        }
+      }
+      const row = await tx.eventSession.update({
+        where: { id: sessionId },
+        data: { startsAt, endsAt },
+      });
+      // EDIT_TIME refuses a date with paid bookings, so this normally reaches nobody. Kept so
+      // the rule and the telling cannot drift apart if that policy ever loosens.
+      if (moved) await this.notifyTicketHolders(tx, sessionId, startsAt);
+      return row;
+    });
+
+    await this.recordShowAudit(user, session, 'SESSION_RETIMED', {
+      from: { startsAt: session.startsAt, endsAt: session.endsAt },
+      to: { startsAt, endsAt },
     });
     return { sessionId, startsAt: updated.startsAt, endsAt: updated.endsAt };
   }

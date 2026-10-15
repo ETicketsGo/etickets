@@ -110,7 +110,7 @@ export default function FeaturesPage() {
         eyebrow="Features"
         title="What the platform does"
         lead="The tools you use to sell tickets, run the door, and read the numbers afterwards."
-        primary={{ href: '/register', label: 'Get started free' }}
+        primary={{ href: '/register?intent=organizer', label: 'Get started free' }}
         secondary={{ href: '/pricing', label: 'See pricing' }}
       />
       <Section>

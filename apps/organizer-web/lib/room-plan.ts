@@ -1,3 +1,5 @@
+import type { SpaceKind } from '@eticketsgo/shared-types';
+
 /**
  * Turning "about a hundred seats, it's a normal screen" into rows and columns.
  *
@@ -219,4 +221,21 @@ export function planRoom(capacity: number, shape: RoomShape): RoomPlan {
  */
 export function suggestedAisle(seatsPerRow: number): number | null {
   return seatsPerRow >= 10 ? Math.ceil(seatsPerRow / 2) : null;
+}
+
+/**
+ * The room shapes that fit a kind of space.
+ *
+ * The space's kind was asked when it was created, so the designer does not ask "What kind of
+ * space is this?" again: a cinema screen is offered screen sizes, a hall is offered halls. A
+ * space whose kind was never said is offered every shape, as before.
+ */
+const SHAPES_BY_KIND: Partial<Record<SpaceKind, readonly string[]>> = {
+  CINEMA_SCREEN: ['SCREENING_ROOM', 'STANDARD_SCREEN', 'LARGE_SCREEN'],
+  SEATED_HALL: ['AUDITORIUM', 'FLAT_HALL'],
+};
+
+export function roomShapesFor(kind: SpaceKind | null | undefined): RoomShape[] {
+  const keys = kind ? SHAPES_BY_KIND[kind] : undefined;
+  return keys ? ROOM_SHAPES.filter((s) => keys.includes(s.key)) : ROOM_SHAPES;
 }

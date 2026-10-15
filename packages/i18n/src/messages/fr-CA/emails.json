@@ -81,7 +81,7 @@
   },
   "ORGANIZATION_APPROVED": {
     "subject": "{organization} est approuvé",
-    "body": "{organization} a été approuvé et peut maintenant vendre des billets. Configurez votre lieu, vos salles et vos horaires dans la console organisateur."
+    "body": "{organization} a été approuvé et peut maintenant vendre des billets. Ouvrez la console organisateur pour ajouter vos lieux et vos événements."
   },
   "ORGANIZATION_REJECTED": {
     "subject": "{organization} n'a pas été approuvé",

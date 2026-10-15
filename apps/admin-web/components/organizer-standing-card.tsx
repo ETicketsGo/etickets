@@ -35,6 +35,18 @@ const SEVERITY_TONE = {
   SUGGESTED: 'neutral',
 } as const;
 
+/*
+  The organizer's own checklist, read by an admin. The badge said the raw severity in lower case
+  ("blocking", "important") - a code, and "blocking" without saying what it blocks. The items
+  themselves are written to the organizer ("Add your registered address"); they are shown as
+  they read it, under a line that says so, because that is what support will quote back.
+*/
+const SEVERITY_WORDS = {
+  BLOCKING: 'Stops sales or payouts',
+  IMPORTANT: 'Important',
+  SUGGESTED: 'Suggested',
+} as const;
+
 export function OrganizerStandingCard({
   organizationId,
   name,
@@ -49,6 +61,7 @@ export function OrganizerStandingCard({
   const [suspending, setSuspending] = useState(false);
   const [reason, setReason] = useState('');
   const [deleting, setDeleting] = useState(false);
+  const [reinstating, setReinstating] = useState(false);
 
   const readiness = useQuery({
     queryKey: ['admin', 'organizer-readiness', organizationId],
@@ -82,12 +95,20 @@ export function OrganizerStandingCard({
         suspended
           ? 'Suspended. Their checkout is refused from now on.'
           : 'Reinstated. They can sell again.',
+        'success',
       );
       setSuspending(false);
+      setReinstating(false);
       setReason('');
       void qc.invalidateQueries({ queryKey: ['admin'] });
+      /*
+        The organizer itself too. Only the ['admin'] queries were refreshed, and the page's own
+        record lives under ['org', id] - so after "Suspended." the page still said Approved and
+        still offered Suspend, with no Reinstate until a reload (walked on QA, 2026-10-15).
+      */
+      void qc.invalidateQueries({ queryKey: ['org', organizationId] });
     },
-    onError: (e) => toast.push(errorMessage(e)),
+    onError: (e) => toast.push(errorMessage(e), 'error'),
   });
 
   const remove = useMutation({
@@ -135,40 +156,44 @@ export function OrganizerStandingCard({
           Nothing outstanding. This organizer has given us everything we ask for.
         </p>
       ) : (
-        <ul className="mb-4 space-y-2">
-          {items.map((item) => (
-            <li key={item.key} className="flex flex-wrap items-start gap-2">
-              <Badge tone={SEVERITY_TONE[item.severity]}>{item.severity.toLowerCase()}</Badge>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-text-primary">{item.title}</p>
-                <p className="text-caption text-text-muted">{item.consequence}</p>
-              </div>
-            </li>
-          ))}
-        </ul>
+        <>
+          <p className="mb-2 text-caption text-text-muted">
+            What they still have to add, as their own checklist says it to them:
+          </p>
+          <ul className="mb-4 space-y-2">
+            {items.map((item) => (
+              <li key={item.key} className="flex flex-wrap items-start gap-2">
+                <Badge tone={SEVERITY_TONE[item.severity]}>{SEVERITY_WORDS[item.severity]}</Badge>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-text-primary">{item.title}</p>
+                  <p className="text-caption text-text-muted">{item.consequence}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </>
       )}
 
       <div className="flex flex-wrap items-center gap-2 border-t border-border pt-4">
         {suspended ? (
-          <Button
-            variant="secondary"
-            loading={suspend.isPending}
-            onClick={() => suspend.mutate(false)}
-          >
+          <Button variant="secondary" onClick={() => setReinstating(true)}>
             Reinstate
           </Button>
-        ) : (
+        ) : status === 'APPROVED' ? (
           <Button variant="outline" onClick={() => setSuspending(true)}>
             Suspend
           </Button>
-        )}
+        ) : null}
         <Button variant="ghost" onClick={() => setDeleting(true)}>
           Delete
         </Button>
         <p className="text-caption text-text-muted">
           {suspended
             ? 'Suspended: their checkout is refused. Reinstating takes effect immediately.'
-            : 'Suspending stops their sales at once and can be undone.'}
+            : status === 'APPROVED'
+              ? 'Suspending stops their sales at once and can be undone.'
+              : // Reinstating returns an organizer to approved, so one never approved cannot be suspended.
+                'Only an approved organizer can be suspended. Until then they cannot sell.'}
         </p>
       </div>
 
@@ -206,6 +231,27 @@ export function OrganizerStandingCard({
             onChange={(e) => setReason(e.target.value)}
           />
         </div>
+      </Dialog>
+
+      <Dialog
+        open={reinstating}
+        onClose={() => setReinstating(false)}
+        title={`Reinstate ${name}?`}
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setReinstating(false)}>
+              Cancel
+            </Button>
+            <Button loading={suspend.isPending} onClick={() => suspend.mutate(false)}>
+              Reinstate them
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-text-secondary">
+          Their checkout works again from the moment you confirm. Events that were on sale go back
+          on sale; nothing else about them changes.
+        </p>
       </Dialog>
 
       <Dialog

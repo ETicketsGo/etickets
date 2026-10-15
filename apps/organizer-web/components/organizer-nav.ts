@@ -150,7 +150,7 @@ export function navFor({
     { label: 'Notifications', href: '/organizer/notifications', icon: Bell },
     {
       label: 'Marketing',
-      keywords: ['promotions', 'coupons', 'promote'],
+      keywords: ['promotions', 'coupons', 'promote', 'discount codes', 'promo codes'],
       href: '/organizer/promotions',
       icon: Megaphone,
     },
@@ -168,18 +168,53 @@ export function navFor({
       href: '/organizer/finance',
       icon: Wallet,
       children: [
-        { label: 'Payouts', href: '/organizer/payouts', icon: Banknote },
-        { label: 'Receipts and invoices', href: '/organizer/receipts', icon: ReceiptText },
+        /*
+          The words people type in Find a page. On QA "bank", "invite", "discount", "legal",
+          "tax" and "theme" found nothing, though each is one of these pages' main job.
+        */
+        {
+          label: 'Payouts',
+          href: '/organizer/payouts',
+          icon: Banknote,
+          keywords: ['bank account', 'settlements', 'get paid', 'payout account'],
+        },
+        {
+          label: 'Receipts and invoices',
+          href: '/organizer/receipts',
+          icon: ReceiptText,
+          keywords: ['tax invoices', 'credit notes'],
+        },
         { label: 'Refunds', href: '/organizer/refunds', icon: Undo2 },
       ],
     },
-    { label: 'Team', href: '/organizer/team', icon: Users },
+    {
+      label: 'Team',
+      href: '/organizer/team',
+      icon: Users,
+      keywords: ['invite', 'members', 'roles', 'staff'],
+    },
     {
       label: 'Settings',
       href: '/organizer/settings',
       icon: Settings,
+      keywords: [
+        'legal details',
+        'tax registration',
+        'gst',
+        'address',
+        'profile',
+        'workspace colour',
+        'theme',
+        'dark mode',
+        'logo',
+      ],
       children: [{ label: 'Premium & enterprise', href: '/organizer/premium', icon: Sparkles }],
     },
-    { label: 'Help & support', href: '/organizer/help', icon: LifeBuoy },
+    {
+      label: 'Help & support',
+      href: '/organizer/help',
+      icon: LifeBuoy,
+      keywords: ['contact', 'support', 'faq', 'question'],
+    },
   ];
 }

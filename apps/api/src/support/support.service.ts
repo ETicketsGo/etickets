@@ -85,6 +85,29 @@ export class SupportService {
       }
     }
 
+    /*
+      An organizer writing about their own organization. The console's "Contact support" form
+      names the organization it is sent from, so the admin inbox can file it under that
+      organizer (the Organizer filter, the organizer's page). Same rule as above: the claim is
+      CHECKED, never taken - it counts only when the signed-in sender is an active member of
+      that organization. And only for a plain contact message: complaint counts stay derived
+      from bookings alone.
+    */
+    const claimedOrg = input.metadata?.organizationId;
+    if (
+      !organizationId &&
+      user &&
+      input.kind === FeedbackKind.CONTACT &&
+      typeof claimedOrg === 'string' &&
+      claimedOrg.length > 0
+    ) {
+      const seat = await this.prisma.organizationMember.findUnique({
+        where: { organizationId_userId: { organizationId: claimedOrg, userId: user.id } },
+        select: { status: true },
+      });
+      if (seat?.status === 'ACTIVE') organizationId = claimedOrg;
+    }
+
     const created = await this.prisma.feedback.create({
       data: {
         kind: input.kind,

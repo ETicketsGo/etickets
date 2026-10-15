@@ -7,6 +7,10 @@
 # ─────────────────────────────────────────────────────────────
 
 ARG NEXT_PUBLIC_API_URL=http://localhost:4000/api
+# Optional. Where the sign-in page sends "Forgot your password?" and "Create an organizer
+# account". Empty means "derive it from this console's host" (organizer-qa.x -> qa.x), which is
+# right for every deployment named the usual way (apps/organizer-web/lib/storefront-url.ts).
+ARG NEXT_PUBLIC_STOREFRONT_URL=
 
 # ---------- Stage 1: deps ----------
 FROM node:20-alpine AS deps
@@ -32,6 +36,8 @@ RUN npm ci
 FROM deps AS build
 ARG NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+ARG NEXT_PUBLIC_STOREFRONT_URL
+ENV NEXT_PUBLIC_STOREFRONT_URL=${NEXT_PUBLIC_STOREFRONT_URL}
 ENV NEXT_TELEMETRY_DISABLED=1
 WORKDIR /app
 COPY . .

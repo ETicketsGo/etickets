@@ -1,4 +1,5 @@
 import type { Venue, VenueSpace } from '@eticketsgo/web-kit';
+import { currencyForCountry, effectiveSpaceKind, spaceKindOption } from '@eticketsgo/shared-types';
 
 /**
  * The canonical hierarchy, assembled for the console:
@@ -72,27 +73,29 @@ export function groupSpacesByVenue(
 /**
  * What to call a space's kind, for somebody scanning a list.
  *
- * A cinema screen says so, because "Screen 4" in a multiplex means something specific to the
- * person running it. Everything else is just a space - the platform does not need to know
- * whether a hall is an auditorium or an arena in order to sell seats in it.
+ * The kind the organizer chose when they made the space - "Hall or theatre", "Arena or
+ * stadium" - and, for a cinema screen, which cinema it shows films for, because "Screen 4" in
+ * a multiplex means something specific to the person running it. A space made before the kind
+ * was asked is still just a space.
  */
-export function spaceKindLabel(space: VenueSpace): string {
+export function spaceKindLabel(
+  space: Pick<VenueSpace, 'kind' | 'cinemaId' | 'cinemaName'>,
+): string {
   if (space.cinemaName) return `Cinema screen · ${space.cinemaName}`;
-  return 'Space';
+  return spaceKindOption(effectiveSpaceKind(space))?.label ?? 'Space';
 }
 
 /**
- * Where a space's own page is: its seating layouts.
+ * Where a space's own page is.
  *
- * The venues page linked every space to `/organizer/cinemas/<space id>`. That route takes a
- * CINEMA id, so every link - an arena, a concert hall, and every cinema screen too - opened
- * "We couldn't load this." A cinema screen keeps its address under its cinema; any other space
- * has no cinema, so it has its own.
+ * ONE address for every space, cinema screen or not. The venues page linked every space to
+ * `/organizer/cinemas/<space id>`, a route that takes a CINEMA id, so every link opened "We
+ * couldn't load this"; after that a cinema screen lived under its cinema and every other space
+ * under `/spaces`, so the same kind of thing had two kinds of page. The space page now shows
+ * the cinema a screen belongs to, so nothing needs the cinema in the address.
  */
-export function spaceHref(space: Pick<VenueSpace, 'id' | 'cinemaId'>): string {
-  return space.cinemaId
-    ? `/organizer/cinemas/${space.cinemaId}/screens/${space.id}/layouts`
-    : `/organizer/spaces/${space.id}/layouts`;
+export function spaceHref(space: Pick<VenueSpace, 'id'>): string {
+  return `/organizer/spaces/${space.id}`;
 }
 
 /** The configurations a space can be set up as, current version of each. */
@@ -110,10 +113,45 @@ export function spaceLayouts(space: VenueSpace) {
  */
 export function spaceCapabilityLabel(space: VenueSpace): string {
   const layouts = spaceLayouts(space);
-  if (layouts.length === 0) return 'No seating plan yet — sells general admission only';
+  if (layouts.length === 0 && space.kind === 'STANDING')
+    return `General admission · holds ${space.capacity.toLocaleString()}`;
+  if (layouts.length === 0) return 'No seat layout yet';
   if (layouts.length === 1) {
     const kind = layouts[0].layoutKind === 'SECTIONED' ? 'blocks' : 'a grid';
     return `Reserved seating · ${layouts[0].name ?? 'Layout'} (${kind})`;
   }
   return `${layouts.length} layouts`;
+}
+
+/**
+ * The currency a space prices in, which is its VENUE's - with the symbol for a field label.
+ *
+ * Null when the venue has no country. Guessing would be the worse answer: a price box
+ * labelled in rupees for a venue nobody placed is how a Warangal hall came to be priced in
+ * dollars. Checkout refuses an unplaced venue anyway, so the page says what to fix instead.
+ */
+export function venueCurrency(
+  country: string | null | undefined,
+): { code: string; symbol: string } | null {
+  const code = currencyForCountry(country);
+  if (!code) return null;
+  const symbol =
+    new Intl.NumberFormat('en', { style: 'currency', currency: code })
+      .formatToParts(0)
+      .find((p) => p.type === 'currency')?.value ?? code;
+  return { code, symbol };
+}
+
+/**
+ * A typed price, in minor units - or what is wrong with it.
+ *
+ * The layout dialog's button used to stay DISABLED until a price box further down was filled,
+ * with nothing saying why. Now the button always works and an empty or bad price is named.
+ */
+export function priceToMinor(text: string): { minor: number } | { problem: string } {
+  const trimmed = text.trim();
+  if (!trimmed) return { problem: 'Enter the price of the cheapest seat.' };
+  const n = Number(trimmed);
+  if (!Number.isFinite(n) || n < 0) return { problem: 'The price must be a number, 0 or more.' };
+  return { minor: Math.round(n * 100) };
 }

@@ -506,7 +506,8 @@ export class OrganizationsService {
       operation: 'organization.members.read',
     });
     return this.prisma.organizationMember.findMany({
-      where: { organizationId: orgId },
+      // Removed members are history (the audit log keeps them), not the team.
+      where: { organizationId: orgId, status: { not: 'REMOVED' } },
       include: { user: { select: { id: true, email: true, fullName: true } } },
       orderBy: { createdAt: 'asc' },
     });
@@ -584,7 +585,7 @@ export class OrganizationsService {
     const existing = await this.prisma.organizationMember.findUnique({
       where: { organizationId_userId: { organizationId: orgId, userId: invitee.id } },
     });
-    if (existing) {
+    if (existing && existing.status !== 'REMOVED') {
       throw new AppException(
         ErrorCodes.CONFLICT,
         'This person is already a team member.',
@@ -592,10 +593,21 @@ export class OrganizationsService {
       );
     }
 
-    const member = await this.prisma.organizationMember.create({
-      data: { organizationId: orgId, userId: invitee.id, role: input.role, status: 'INVITED' },
-      include: { user: { select: { id: true, email: true, fullName: true } } },
-    });
+    /*
+      Somebody removed earlier can be invited again. Their membership row is reused (one per
+      person per organization), back to INVITED with the new role, so they must accept a fresh
+      link before they have any access - exactly like a first invitation.
+    */
+    const member = existing
+      ? await this.prisma.organizationMember.update({
+          where: { id: existing.id },
+          data: { role: input.role, status: 'INVITED' },
+          include: { user: { select: { id: true, email: true, fullName: true } } },
+        })
+      : await this.prisma.organizationMember.create({
+          data: { organizationId: orgId, userId: invitee.id, role: input.role, status: 'INVITED' },
+          include: { user: { select: { id: true, email: true, fullName: true } } },
+        });
     await this.audit.record({
       actorUserId: user.id,
       organizationId: orgId,
@@ -870,6 +882,112 @@ export class OrganizationsService {
       entityId: memberId,
     });
     return { inviteUrl, email: member.user.email };
+  }
+
+  /**
+   * Take somebody off the team.
+   *
+   * ── WHY THIS EXISTS ────────────────────────────────────────────────────────────────
+   * There was no way to do it. An owner could invite a door worker for one night and never take
+   * the access back: no control in the console and no route here. Removal is a status, not a
+   * delete, for the same reason a complaint outlives its subject: the audit log and every
+   * "who scanned this ticket" answer still point at the membership row.
+   *
+   * Setting REMOVED is enough to end their access at once. `assertMember` refuses anything that
+   * is not ACTIVE and the JWT strategy reads team seats per request, so the removed person's
+   * very next call is refused - no token needs to expire. A pending invitation is withdrawn by
+   * the same status (`loadInvitation` refuses a REMOVED member's link).
+   *
+   * The last active owner cannot be removed, by anybody including themselves: an organization
+   * with no owner has nobody who can invite, change payout details or close it, and only
+   * platform staff could recover it.
+   */
+  async removeMember(user: RequestUser, orgId: string, memberId: string) {
+    await this.access.assertMember(user, orgId, [Role.ORGANIZER_OWNER]);
+    const member = await this.memberOf(orgId, memberId);
+    if (member.status === 'REMOVED') return member;
+    if (member.role === Role.ORGANIZER_OWNER && member.status === 'ACTIVE') {
+      await this.assertAnotherOwner(orgId, member.id);
+    }
+    const updated = await this.prisma.organizationMember.update({
+      where: { id: member.id },
+      data: { status: 'REMOVED' },
+      include: { user: { select: { id: true, email: true, fullName: true } } },
+    });
+    await this.audit.record({
+      actorUserId: user.id,
+      organizationId: orgId,
+      action: 'MEMBER_REMOVED',
+      entityType: 'OrganizationMember',
+      entityId: member.id,
+      metadata: { role: member.role, previousStatus: member.status },
+    });
+    return updated;
+  }
+
+  /**
+   * Change what a team member may do.
+   *
+   * Owner only, like inviting. Demoting the last active owner is refused for the reason
+   * removing them is. Takes effect on the member's next request (seats are read per request).
+   */
+  async changeMemberRole(user: RequestUser, orgId: string, memberId: string, role: Role) {
+    await this.access.assertMember(user, orgId, [Role.ORGANIZER_OWNER]);
+    const member = await this.memberOf(orgId, memberId);
+    if (member.status === 'REMOVED') {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'This person is no longer on the team. Invite them again instead.',
+        HttpStatus.CONFLICT,
+      );
+    }
+    if (member.role === role) return member;
+    if (member.role === Role.ORGANIZER_OWNER && member.status === 'ACTIVE') {
+      await this.assertAnotherOwner(orgId, member.id);
+    }
+    const updated = await this.prisma.organizationMember.update({
+      where: { id: member.id },
+      data: { role },
+      include: { user: { select: { id: true, email: true, fullName: true } } },
+    });
+    await this.audit.record({
+      actorUserId: user.id,
+      organizationId: orgId,
+      action: 'MEMBER_ROLE_CHANGED',
+      entityType: 'OrganizationMember',
+      entityId: member.id,
+      metadata: { from: member.role, to: role },
+    });
+    return updated;
+  }
+
+  private async memberOf(orgId: string, memberId: string) {
+    const member = await this.prisma.organizationMember.findUnique({
+      where: { id: memberId },
+      include: { user: { select: { id: true, email: true, fullName: true } } },
+    });
+    if (!member || member.organizationId !== orgId) {
+      throw new AppException(ErrorCodes.NOT_FOUND, 'Team member not found.', HttpStatus.NOT_FOUND);
+    }
+    return member;
+  }
+
+  private async assertAnotherOwner(orgId: string, exceptMemberId: string) {
+    const others = await this.prisma.organizationMember.count({
+      where: {
+        organizationId: orgId,
+        role: Role.ORGANIZER_OWNER,
+        status: 'ACTIVE',
+        id: { not: exceptMemberId },
+      },
+    });
+    if (others === 0) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'Every organization needs an owner. Make somebody else an owner first.',
+        HttpStatus.CONFLICT,
+      );
+    }
   }
 
   /**

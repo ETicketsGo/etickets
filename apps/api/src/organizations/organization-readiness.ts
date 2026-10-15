@@ -54,6 +54,15 @@ export interface ReadinessInput {
 
 const blank = (value?: string | null) => !value || !value.trim();
 
+/*
+  Settings is one long page: the person's own profile, cash, appearance, the public profile and
+  then the legal box, about 2,000px down. "Fix this" used to land on its top, so somebody asked
+  for a registered address scrolled past four unrelated cards looking for it. The anchors name
+  the card that holds the field; the page gives each card that id.
+*/
+const SETTINGS_LEGAL = '/organizer/settings#legal';
+const SETTINGS_PROFILE = '/organizer/settings#public-profile';
+
 export function organizationReadiness(org: ReadinessInput): ReadinessItem[] {
   const items: ReadinessItem[] = [];
 
@@ -67,7 +76,7 @@ export function organizationReadiness(org: ReadinessInput): ReadinessItem[] {
       severity: 'BLOCKING',
       title: 'Add the bank account your money is sent to',
       consequence: 'Your settlements cannot be paid until we know where to send them.',
-      fixPath: '/organizer/payouts',
+      fixPath: '/organizer/payouts#bank-account',
     });
   }
 
@@ -80,7 +89,7 @@ export function organizationReadiness(org: ReadinessInput): ReadinessItem[] {
         org.status === 'APPROVED'
           ? 'Your registered name and legal form appear on every document your buyers receive.'
           : 'The platform cannot approve you until it knows your registered name, legal form and country.',
-      fixPath: '/organizer/settings',
+      fixPath: SETTINGS_LEGAL,
     });
   }
 
@@ -94,7 +103,7 @@ export function organizationReadiness(org: ReadinessInput): ReadinessItem[] {
       title: 'Add your registered address',
       consequence:
         'An invoice has to carry the seller address. Without it, documents stay receipts.',
-      fixPath: '/organizer/settings',
+      fixPath: SETTINGS_LEGAL,
     });
   }
 
@@ -104,7 +113,7 @@ export function organizationReadiness(org: ReadinessInput): ReadinessItem[] {
       severity: 'IMPORTANT',
       title: 'Add a finance contact',
       consequence: 'Whoever we write to about a payout, a refund or a tax question.',
-      fixPath: '/organizer/settings',
+      fixPath: SETTINGS_LEGAL,
     });
   }
 
@@ -123,7 +132,7 @@ export function organizationReadiness(org: ReadinessInput): ReadinessItem[] {
       title: 'Name who answers a customer complaint',
       consequence:
         'A marketplace has to be able to say who handles a complaint about you and how to reach them. Without it, complaints come to us and we cannot pass them on.',
-      fixPath: '/organizer/settings',
+      fixPath: SETTINGS_LEGAL,
     });
   }
 
@@ -134,7 +143,7 @@ export function organizationReadiness(org: ReadinessInput): ReadinessItem[] {
       title: 'Add a support email for your customers',
       consequence:
         'Ticket holders are shown this address when they need to reach you about an event.',
-      fixPath: '/organizer/settings',
+      fixPath: SETTINGS_PROFILE,
     });
   }
 
@@ -145,7 +154,7 @@ export function organizationReadiness(org: ReadinessInput): ReadinessItem[] {
       title: 'Your bank account has not been checked yet',
       consequence:
         'We verify it before the first transfer. Nothing is needed from you unless we ask.',
-      fixPath: '/organizer/payouts',
+      fixPath: '/organizer/payouts#bank-account',
     });
   }
 
@@ -160,7 +169,7 @@ export function organizationReadiness(org: ReadinessInput): ReadinessItem[] {
       title: 'Add your tax registration, if you have one',
       consequence:
         'With one on file your buyers get tax invoices. Without it they get valid receipts, which is fine if you are not registered.',
-      fixPath: '/organizer/settings',
+      fixPath: SETTINGS_LEGAL,
     });
   }
 
@@ -170,7 +179,7 @@ export function organizationReadiness(org: ReadinessInput): ReadinessItem[] {
       severity: 'SUGGESTED',
       title: 'Add your profile picture',
       consequence: 'It appears on your event pages and on your public profile.',
-      fixPath: '/organizer/settings',
+      fixPath: SETTINGS_PROFILE,
     });
   }
 
@@ -180,7 +189,7 @@ export function organizationReadiness(org: ReadinessInput): ReadinessItem[] {
       severity: 'SUGGESTED',
       title: 'Write a line about who you are',
       consequence: 'Shown on your organizer page, where somebody decides whether to trust you.',
-      fixPath: '/organizer/settings',
+      fixPath: SETTINGS_PROFILE,
     });
   }
 

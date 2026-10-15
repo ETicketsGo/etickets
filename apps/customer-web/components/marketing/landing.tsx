@@ -375,8 +375,8 @@ export function MarketingLanding() {
       <Section>
         <CtaBand
           title="Put your next event on ETicketsGo"
-          lead="Create an account and publish your first event."
-          primaryHref="/register"
+          lead="Create an organizer account and publish your first event."
+          primaryHref="/register?intent=organizer"
           primaryLabel="Get started free"
           secondaryHref="/contact"
           secondaryLabel="Talk to us"

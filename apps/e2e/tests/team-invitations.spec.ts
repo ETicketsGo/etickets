@@ -95,7 +95,10 @@ test.describe('adding a staff member', () => {
     await page.getByLabel('Choose a password').fill(NEW_ACCOUNT_PASSWORD);
     await page.getByRole('button', { name: 'Create account and join' }).click();
 
-    await expect(page).toHaveURL(/\/login/, { timeout: 30_000 });
+    // Signed in with the password they just chose, straight into the console - not sent to a
+    // blank sign-in form to type it again.
+    await expect(page).toHaveURL(/\/organizer/, { timeout: 30_000 });
+    await expect(page).not.toHaveURL(/\/login/);
   });
 
   test('4: and now they can sign in and reach the organization', async ({ request }) => {

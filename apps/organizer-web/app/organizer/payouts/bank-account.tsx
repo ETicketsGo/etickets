@@ -147,6 +147,8 @@ export function BankAccount({ orgId }: { orgId: string }) {
       void qc.invalidateQueries({ queryKey: ['organizer', 'payout-account-history', orgId] });
       // The state card above reads the same account, so it must not keep saying "verified".
       void qc.invalidateQueries({ queryKey: ['organizer', 'payout-account-state', orgId] });
+      // And the setup list (sidebar "Finish setup", Get started, Overview): the bank step is done.
+      void qc.invalidateQueries({ queryKey: ['organizer', 'actions', orgId] });
     },
     onError: (e) => toast.push(errorMessage(e), 'error'),
   });

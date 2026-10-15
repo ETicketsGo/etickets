@@ -63,9 +63,21 @@ export class TheaterOperationsController {
   }
 
   @Get('seat-layout-templates')
-  @ApiOperation({ summary: 'Every layout template, as outlines for the gallery (no seats).' })
-  layoutTemplates() {
-    return this.layouts.templates();
+  @ApiOperation({
+    summary:
+      'Every layout template, as outlines for the gallery (no seats). With `seats`, each is sized to that many seats.',
+  })
+  layoutTemplates(
+    @Query(
+      new ZodValidationPipe(
+        z.object({ seats: z.coerce.number().int().min(1).max(250_000).optional() }),
+      ),
+    )
+    q: {
+      seats?: number;
+    },
+  ) {
+    return this.layouts.templates(q.seats);
   }
 
   @Get('seat-layouts/:layoutId/preview')

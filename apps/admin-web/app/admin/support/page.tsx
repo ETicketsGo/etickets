@@ -6,7 +6,6 @@ import { useEffect, useState } from 'react';
 import {
   api,
   DataTable,
-  StatusBadge,
   Badge,
   Button,
   Dialog,
@@ -23,6 +22,7 @@ import {
   type FeedbackRow,
   type FeedbackStatusValue,
 } from '@eticketsgo/web-kit';
+import { StatusBadge } from '@/components/status-badge';
 import { accountContactText } from '../../../components/account-contact';
 import {
   FilterBar,
@@ -62,7 +62,16 @@ const KIND_TONE: Record<string, 'info' | 'error' | 'warning' | 'success' | 'neut
   ORGANIZER_CSAT: 'success',
 };
 
+// "Csat" was the code shortened, not a word anybody filtering by it would recognise.
+const KIND_WORDS: Record<string, string> = {
+  CSAT: 'Buyer satisfaction survey',
+  ORGANIZER_CSAT: 'Organizer satisfaction survey',
+  FEATURE: 'Feature request',
+  BUG: 'Bug report',
+};
+
 function kindLabel(kind: string) {
+  if (KIND_WORDS[kind]) return KIND_WORDS[kind];
   return kind
     .split('_')
     .map((w) => w.charAt(0) + w.slice(1).toLowerCase())

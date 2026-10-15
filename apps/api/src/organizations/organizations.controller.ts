@@ -18,6 +18,7 @@ import { z } from 'zod';
 import { AdminPermission, OrganizationStatus, Role } from '@eticketsgo/shared-types';
 import {
   acceptInvitationSchema,
+  changeMemberRoleSchema,
   createOrganizationSchema,
   inviteMemberSchema,
   paginationSchema,
@@ -25,6 +26,7 @@ import {
   updateOrganizationLegalIdentitySchema,
   updateOrganizationProfileSchema,
   type AcceptInvitationInput,
+  type ChangeMemberRoleInput,
   type CreateOrganizationInput,
   type InviteMemberInput,
   type ReviewDecisionInput,
@@ -221,6 +223,27 @@ export class OrganizationsController {
     @Body(new ZodValidationPipe(inviteMemberSchema)) body: InviteMemberInput,
   ) {
     return this.orgs.inviteMember(user, id, body);
+  }
+
+  @Delete(':id/members/:memberId')
+  @ApiOperation({ summary: 'Remove a team member. Owner only; their access ends at once.' })
+  removeMember(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @Param('memberId') memberId: string,
+  ) {
+    return this.orgs.removeMember(user, id, memberId);
+  }
+
+  @Patch(':id/members/:memberId')
+  @ApiOperation({ summary: 'Change the role of a team member. Owner only.' })
+  changeMemberRole(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @Param('memberId') memberId: string,
+    @Body(new ZodValidationPipe(changeMemberRoleSchema)) body: ChangeMemberRoleInput,
+  ) {
+    return this.orgs.changeMemberRole(user, id, memberId, body.role);
   }
 
   @Post(':id/members/:memberId/resend-invite')

@@ -117,6 +117,36 @@ describe('summary agrees with every panel', () => {
     expect(buildProviderEntries(input)).toEqual(buildProviderEntries({ ...input }));
   });
 
+  it('never says nothing is needed while no bank account is saved', () => {
+    // QA: "Nothing is blocked on your side" and "No action is needed from you" sat directly
+    // above "No bank account saved yet", while Overview called the bank account blocking.
+    const providers = buildProviderEntries({
+      markets: SCENARIOS['India only'],
+      stripe: STRIPE_STATES.none,
+      razorpay: RZP_STATES.routeOff,
+      bankAccounts: [],
+    });
+    const summary = summarizeProviderEntries(providers);
+    const view = providerSummaryView({ providers, providerSummary: summary });
+    const text = JSON.stringify(view);
+    expect(text).not.toMatch(/nothing is blocked|no action is needed/i);
+    expect(view.heading).toBe('Add a bank account to get paid');
+    expect(view.lines[0].payouts).toMatch(/add a bank account/i);
+
+    // Once one is saved, the waiting words come back.
+    const saved = buildProviderEntries({
+      markets: SCENARIOS['India only'],
+      stripe: STRIPE_STATES.none,
+      razorpay: RZP_STATES.routeOff,
+      bankAccounts: [{ currency: 'INR', verifiedAt: null, rejectedAt: null }],
+    });
+    const later = providerSummaryView({
+      providers: saved,
+      providerSummary: summarizeProviderEntries(saved),
+    });
+    expect(later.heading).not.toBe('Add a bank account to get paid');
+  });
+
   it('uses plain ASCII words', () => {
     const providers = buildProviderEntries({
       markets: SCENARIOS.both,

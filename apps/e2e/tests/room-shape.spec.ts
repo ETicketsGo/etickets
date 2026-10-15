@@ -52,7 +52,9 @@ test.describe('describing a room', () => {
 
   test('1: a capacity and a room type is all it takes', async ({ page }) => {
     await open(page);
-    await expect(page.getByText('What kind of space is this?')).toBeVisible();
+    // The KIND was asked when the space was made; only the shape of this screen is asked here.
+    await expect(page.getByText('Which is closest to the room?')).toBeVisible();
+    await expect(page.getByText('What kind of space is this?')).toHaveCount(0);
     await page.getByLabel('About how many seats?').fill('100');
     await expect(page.getByText(/\d+ rows of \d+ — \d+ seats to sell/)).toBeVisible();
     // The row letters are worked out, not typed.
@@ -61,19 +63,20 @@ test.describe('describing a room', () => {
 
   test('2: the same capacity gives a different room for a different shape', async ({ page }) => {
     /*
-      The reason the shape is asked for at all. A hundred seats in a hall is nearly square;
-      on a screen it is long rows. If both produced the same grid the question would be
-      pointless.
+      The reason the shape is asked for at all. A hundred seats on a standard screen and on a
+      wide flagship screen are different rooms. If both produced the same grid the question
+      would be pointless. A cinema screen is offered screen shapes only - never a hall.
     */
     await open(page);
     await page.getByLabel('About how many seats?').fill('100');
-    // Scoped to the shape question: the layout gallery above also has a "Flat hall" card.
-    const shapes = page.getByRole('group', { name: 'What kind of space is this?' });
+    // Scoped to the shape question: the layout gallery above has cards with similar names.
+    const shapes = page.getByRole('group', { name: 'Which is closest to the room?' });
+    await expect(shapes.getByRole('button', { name: /Flat hall/ })).toHaveCount(0);
     await shapes.getByRole('button', { name: /Standard screen/ }).click();
-    const screen = await page.getByText(/\d+ rows of \d+ —/).innerText();
-    await shapes.getByRole('button', { name: /Flat hall/ }).click();
-    const hall = await page.getByText(/\d+ rows of \d+ —/).innerText();
-    expect(hall).not.toBe(screen);
+    const standard = await page.getByText(/\d+ rows of \d+ —/).innerText();
+    await shapes.getByRole('button', { name: /Large screen/ }).click();
+    const large = await page.getByText(/\d+ rows of \d+ —/).innerText();
+    expect(large).not.toBe(standard);
   });
 
   test('3: the headline number is the number you can sell', async ({ page }) => {

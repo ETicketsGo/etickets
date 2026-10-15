@@ -10,12 +10,12 @@ import {
   MetricCard,
   PageHeader,
   Skeleton,
-  StatusBadge,
   money,
   dateTime,
   type Column,
   type DisputeRow,
 } from '@eticketsgo/web-kit';
+import { StatusBadge } from '@/components/status-badge';
 
 /**
  * Open chargebacks.

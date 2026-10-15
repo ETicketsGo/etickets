@@ -36,6 +36,7 @@ export * from './risk-signals';
 export * from './search-intent';
 export * from './admin-permissions';
 export * from './venue-templates';
+export * from './space-kind';
 export * from './seat-reconciliation';
 export * from './password-policy';
 export * from './account-identity';

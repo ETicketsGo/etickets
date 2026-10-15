@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { ianaTimeZoneSchema } from './common';
-import { MovieStatus, VENUE_TEMPLATE_KEYS } from '@eticketsgo/shared-types';
+import { MovieStatus, SPACE_KIND_VALUES, VENUE_TEMPLATE_KEYS } from '@eticketsgo/shared-types';
 
 export const createMovieSchema = z.object({
   title: z.string().trim().min(1).max(200),
@@ -86,6 +86,12 @@ export const createScreenSchema = z.object({
    * It is a stated figure, not inventory: what is actually sellable comes from the layout.
    */
   capacity: z.number().int().min(1).max(250_000),
+  /**
+   * What kind of place it is - a cinema screen, a hall, an arena, a standing floor. Asked once,
+   * here, and then used to offer only the layout templates that fit. Optional so every caller
+   * written before it existed keeps working.
+   */
+  kind: z.enum(SPACE_KIND_VALUES).optional(),
 });
 export type CreateScreenInput = z.infer<typeof createScreenSchema>;
 
@@ -263,6 +269,24 @@ export const rescheduleShowSchema = z.object({
 export type RescheduleShowInput = z.infer<typeof rescheduleShowSchema>;
 
 /**
+ * Move one date of an EVENT (a concert, a play - anything that is not a film).
+ *
+ * Both ends are given. A film's end is derived from its runtime; an event has no runtime, so
+ * the organizer's own end time is the only honest source. The same rule as a film otherwise:
+ * only before anyone has paid for that date (see `evaluateOperation`'s EDIT_TIME).
+ */
+export const retimeSessionSchema = z
+  .object({
+    startsAt: z.coerce.date(),
+    endsAt: z.coerce.date(),
+  })
+  .refine((v) => v.endsAt > v.startsAt, {
+    message: 'End must be after start.',
+    path: ['endsAt'],
+  });
+export type RetimeSessionInput = z.infer<typeof retimeSessionSchema>;
+
+/**
  * Copy one screen's schedule for a day onto another date and/or another screen.
  *
  * Deliberately expressed as source day → target day rather than as a list of times: the
@@ -372,6 +396,11 @@ export const applyVenueTemplateSchema = z.object({
   template: z.enum(VENUE_TEMPLATE_KEYS),
   rows: z.number().int().min(1).max(60).optional(),
   seatsPerRow: z.number().int().min(1).max(100).optional(),
+  /**
+   * Build it at about this many seats - the space's planned size - instead of the template's
+   * own. Ignored when `rows` or `seatsPerRow` is given.
+   */
+  targetSeats: z.number().int().min(1).max(250_000).optional(),
   /**
    * What the cheapest band costs. Every other band is derived from it by the template's
    * relative weights, and the organizer edits the numbers afterwards.

@@ -281,6 +281,59 @@ export function orgStanding(status: string): {
   }
 }
 
+/**
+ * What the standing pill MEANS, for the standings where something is held back.
+ *
+ * "Waiting for approval" was a pill and nothing else: no screen said what was blocked, what to
+ * do meanwhile, or what approval needs. A new organizer's first question is exactly that, so
+ * the answer sits under the pill. Approved organizers get nothing - there is nothing to explain.
+ */
+export interface StandingNote {
+  text: string;
+  href: string;
+  linkLabel: string;
+}
+
+export function standingNote(
+  status: string,
+  orgName: string,
+  /** Whether the legal identity approval needs is still missing (the `legal-identity` action). */
+  legalIdentityMissing = false,
+): StandingNote | null {
+  switch (status) {
+    case 'PENDING':
+    case 'PENDING_REVIEW':
+    case 'UNDER_REVIEW': {
+      const meanwhile = `ETicketsGo is checking ${orgName} before it can sell. Meanwhile you can add venues, build events and send them for review; they go on sale once we approve you and the event.`;
+      return legalIdentityMissing
+        ? {
+            text: `${meanwhile} To approve you we need your registered legal name, legal form and country.`,
+            href: '/organizer/settings#legal',
+            linkLabel: 'Add your legal details',
+          }
+        : {
+            text: `${meanwhile} You have given us what approval needs, and we will tell you here when it is done.`,
+            href: '/organizer/settings#legal',
+            linkLabel: 'Check your legal details',
+          };
+    }
+    case 'REJECTED':
+      return {
+        text: `ETicketsGo did not approve ${orgName}, so its events cannot go on sale. Check your legal details, or ask us why.`,
+        href: '/organizer/help',
+        linkLabel: 'Contact support',
+      };
+    case 'SUSPENDED':
+      return {
+        text: `Sales are stopped for ${orgName}. Contact ETicketsGo support to find out what is needed.`,
+        href: '/organizer/help',
+        linkLabel: 'Contact support',
+      };
+    default:
+      return null;
+  }
+}
+
 export interface ChosenStep {
   step: NextStep;
   /** The "Needs you" item this step IS, so the list does not show it twice; null otherwise. */

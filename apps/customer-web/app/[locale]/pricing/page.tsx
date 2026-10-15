@@ -23,7 +23,7 @@ const PLANS = [
       'Basic reports',
       'Email support',
     ],
-    cta: { href: '/register', label: 'Start free' },
+    cta: { href: '/register?intent=organizer', label: 'Start free' },
   },
   {
     name: 'Professional',
@@ -38,7 +38,7 @@ const PLANS = [
       'Full analytics + CSV export',
       'Priority support',
     ],
-    cta: { href: '/register', label: 'Choose Professional' },
+    cta: { href: '/register?intent=organizer', label: 'Choose Professional' },
     featured: true,
   },
   {

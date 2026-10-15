@@ -585,7 +585,7 @@ test.describe('seat layout versions', () => {
     // grows more versions as the suite runs.
     const v1 = page.getByTestId('layout-1');
     await expect(v1.getByText('PUBLISHED')).toBeVisible();
-    await expect(v1.getByText('Active today')).toBeVisible();
+    await expect(v1.getByText('In use today')).toBeVisible();
 
     await page.getByRole('button', { name: /Clone version 1/ }).click();
     const v2 = page.getByTestId('layout-2');
@@ -622,7 +622,7 @@ test.describe('seat layout versions', () => {
     const dlg = page.getByRole('dialog', { name: `Publish v${draft.version}` });
     // The dialog has to say what a future date does, or an operator will assume it moves
     // tonight's shows.
-    await expect(dlg.getByText(/shows already on the schedule keep the layout/i)).toBeVisible();
+    await expect(dlg.getByText(/Sessions already scheduled keep the layout/i)).toBeVisible();
 
     const future = new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 16);
     await dlg.getByLabel(/Takes effect from/).fill(future);
@@ -632,10 +632,10 @@ test.describe('seat layout versions', () => {
     const draftRow = page.getByTestId(`layout-${draft.version}`);
     await expect(draftRow.getByText(/^Starts /)).toBeVisible({ timeout: 20_000 });
     await expect(draftRow.getByText('PUBLISHED')).toBeVisible();
-    await expect(draftRow.getByText('Active today')).toHaveCount(0);
+    await expect(draftRow.getByText('In use today')).toHaveCount(0);
 
     // v1 is still what today uses — the future version has not displaced it.
-    await expect(page.getByTestId('layout-1').getByText('Active today')).toBeVisible();
+    await expect(page.getByTestId('layout-1').getByText('In use today')).toBeVisible();
   });
 
   test('28: a show scheduled before the change keeps its original layout', async ({ request }) => {

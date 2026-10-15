@@ -87,6 +87,9 @@ describe('organizerActions', () => {
     expect(money).toHaveLength(1);
     expect(money[0].key).toBe('payout-account');
     expect(summary.actions.filter((a) => /payout/i.test(a.key))).toHaveLength(1);
+    // And once saved, still one: the same step, done.
+    const saved = organizerActions('org1', COMPLETE, NOTHING);
+    expect(saved.actions.filter((a) => a.category === 'MONEY')).toHaveLength(1);
   });
 
   it('reports operational work as done or not from the facts it is given', () => {
@@ -97,8 +100,52 @@ describe('organizerActions', () => {
         .filter((a) => a.done)
         .map((a) => a.key)
         .sort();
-    expect(doneKeys(nothing)).toEqual([]);
-    expect(doneKeys(built)).toEqual(['experience', 'seating', 'team', 'venue']);
+    // COMPLETE has a bank account on file, so the money step is done in both.
+    expect(doneKeys(nothing)).toEqual(['payout-account']);
+    expect(doneKeys(built)).toEqual(['experience', 'payout-account', 'seating', 'team', 'venue']);
+  });
+
+  it('shows the bank step as done once an account is saved, instead of dropping it', () => {
+    // Readiness lists only gaps, so the row used to vanish and the checklist shrank from
+    // "0 of 4" to "0 of 3" - the step just completed was nowhere to be seen.
+    const before = organizerActions('org1', { ...COMPLETE, hasPayoutAccount: false }, NOTHING);
+    const after = organizerActions(
+      'org1',
+      { ...COMPLETE, hasPayoutAccount: true, payoutAccountVerified: false },
+      NOTHING,
+    );
+    const step = (s: typeof after) => s.actions.find((a) => a.key === 'payout-account');
+    expect(step(before)).toMatchObject({ category: 'MONEY', done: false });
+    expect(step(after)).toMatchObject({ category: 'MONEY', done: true });
+    // The setup checklist (money + operations) keeps its length and gains a tick.
+    const checklist = (s: typeof after) =>
+      s.actions.filter((a) => a.category !== 'BUSINESS' && !a.optional);
+    expect(checklist(after)).toHaveLength(checklist(before).length);
+    expect(checklist(after).filter((a) => a.done)).toHaveLength(
+      checklist(before).filter((a) => a.done).length + 1,
+    );
+  });
+
+  it('does not ask a one-person business to invite somebody before setup is complete', () => {
+    const solo = organizerActions('org1', COMPLETE, { ...BUILT, teamMemberCount: 0 });
+    expect(solo.actions.find((a) => a.key === 'team')).toMatchObject({
+      optional: true,
+      done: false,
+    });
+    expect(solo.progress.done).toBe(solo.progress.total);
+  });
+
+  it('does not tell the organizer an unchecked bank account needs them', () => {
+    const summary = organizerActions('org1', { ...COMPLETE, payoutAccountVerified: false }, BUILT);
+    const unchecked = summary.actions.find((a) => a.key === 'payout-account-unverified')!;
+    expect(unchecked.severity).toBe('SUGGESTED');
+    expect(unchecked.actionLabel).toBe('View bank account');
+    // The admin's list is unchanged: readiness still chases it.
+    expect(
+      organizationReadiness({ ...COMPLETE, payoutAccountVerified: false }).find(
+        (i) => i.key === 'payout-account-unverified',
+      )?.severity,
+    ).toBe('IMPORTANT');
   });
 
   it('counts progress without the optional step', () => {
