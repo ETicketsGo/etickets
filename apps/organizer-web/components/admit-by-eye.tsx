@@ -1,7 +1,7 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Eye, Search } from 'lucide-react';
 import {
   api,
@@ -37,16 +37,27 @@ import {
  */
 export function AdmitByEye({
   sessionId,
+  query,
   onAdmitted,
 }: {
   sessionId: string;
+  /**
+   * A search handed in from outside: a ticket number typed into the scan box, which is a
+   * number to look up here, not a QR code to verify.
+   */
+  query?: string;
   /** Told of every answer the server gives, so the page can keep its counter and log current. */
   onAdmitted?: (outcome: CheckInOutcome) => void;
 }) {
   const toast = useToast();
   const qc = useQueryClient();
-  const [q, setQ] = useState('');
-  const [applied, setApplied] = useState('');
+  const [q, setQ] = useState(query ?? '');
+  const [applied, setApplied] = useState(query ?? '');
+  useEffect(() => {
+    if (query === undefined) return;
+    setQ(query);
+    setApplied(query);
+  }, [query]);
 
   const roster = useQuery({
     queryKey: ['checkin-roster', sessionId, applied],

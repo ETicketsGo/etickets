@@ -616,9 +616,18 @@ export class AdminEventsController {
   setStatus(
     @CurrentUser() admin: RequestUser,
     @Param('id') id: string,
-    @Body(new ZodValidationPipe(z.object({ status: z.nativeEnum(EventStatus) })))
-    body: { status: EventStatus },
+    @Body(
+      new ZodValidationPipe(
+        z.object({
+          status: z.nativeEnum(EventStatus),
+          // Why, in the admin's words. Optional so an older console still works; recorded in the
+          // audit log beside the change, where support looks when the organizer asks.
+          reason: z.string().trim().max(500).optional(),
+        }),
+      ),
+    )
+    body: { status: EventStatus; reason?: string },
   ) {
-    return this.events.adminSetStatus(admin, id, body.status);
+    return this.events.adminSetStatus(admin, id, body.status, body.reason);
   }
 }

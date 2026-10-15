@@ -6,6 +6,8 @@ import {
   cancelShowSchema,
   copyScheduleSchema,
   rescheduleShowSchema,
+  retimeSessionSchema,
+  type RetimeSessionInput,
   showSalesActionSchema,
   generateSeatMapSchema,
   scheduleShowSchema,
@@ -153,6 +155,18 @@ export class ShowsController {
     @Body(new ZodValidationPipe(rescheduleShowSchema)) body: RescheduleShowInput,
   ) {
     return this.shows.rescheduleShow(user, sessionId, body);
+  }
+
+  @Post('shows/:sessionId/retime')
+  @ApiOperation({
+    summary: 'Move a future event date (not a film) to a new start and end, before any sale.',
+  })
+  retimeEventSession(
+    @CurrentUser() user: RequestUser,
+    @Param('sessionId') sessionId: string,
+    @Body(new ZodValidationPipe(retimeSessionSchema)) body: RetimeSessionInput,
+  ) {
+    return this.shows.retimeEventSession(user, sessionId, body);
   }
 
   /**

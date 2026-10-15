@@ -830,6 +830,97 @@ export function seatCount(venue: GeneratedVenue): number {
   );
 }
 
+/** The bounds the API accepts for a template's `rows` and `seatsPerRow`. */
+export const TEMPLATE_ROWS = { min: 2, max: 60 } as const;
+export const TEMPLATE_SEATS_PER_ROW = { min: 4, max: 100 } as const;
+
+/** Each template's own proportions: the defaults its generator starts from. */
+const DEFAULT_SIZE: Record<VenueTemplateKey, { rows: number; seatsPerRow: number }> = {
+  CINEMA: { rows: 12, seatsPerRow: 15 },
+  PREMIUM_CINEMA: { rows: 6, seatsPerRow: 12 },
+  AUDITORIUM: { rows: 14, seatsPerRow: 24 },
+  FLAT_HALL: { rows: 10, seatsPerRow: 12 },
+  PROSCENIUM: { rows: 14, seatsPerRow: 20 },
+  AMPHITHEATRE: { rows: 18, seatsPerRow: 16 },
+  ARENA: { rows: 20, seatsPerRow: 18 },
+  BASKETBALL: { rows: 12, seatsPerRow: 16 },
+  STADIUM: { rows: 30, seatsPerRow: 26 },
+  IN_THE_ROUND: { rows: 12, seatsPerRow: 18 },
+};
+
+/**
+ * How a template was sized to a space.
+ *
+ * `MATCH` - the smallest room of this shape that seats at least the target, within a few
+ * seats of it. `TOO_SMALL` - even the largest room this template can draw seats fewer than the
+ * target. `TOO_BIG` - even the smallest seats noticeably more. The last two are said plainly
+ * on the card, never silently built.
+ */
+export interface TemplateFit {
+  rows: number;
+  seatsPerRow: number;
+  seats: number;
+  target: number;
+  verdict: 'MATCH' | 'TOO_SMALL' | 'TOO_BIG';
+}
+
+/**
+ * Size a template to the number of seats the organizer said the space has.
+ *
+ * -- WHY ----------------------------------------------------------------------------------
+ * Templates were built at one fixed size: a screen planned at 150 seats got the Cinema
+ * template's 180, and the space page then said "planned 150" above "180 bookable". The
+ * organizer had just told us the size; a starting point that ignores it is not one.
+ *
+ * Every generator scales from `rows` and `seatsPerRow`, and its seat count only grows as
+ * either grows. So for a few row counts around the template's own proportions, the smallest
+ * row width that reaches the target is found by binary search, and the candidate with the
+ * fewest seats at or above the target wins (closest proportions on a tie). About fifty
+ * generations, whatever the template.
+ */
+export function fitTemplate(key: VenueTemplateKey, target: number): TemplateFit {
+  const base = DEFAULT_SIZE[key];
+  const at = (rows: number, seatsPerRow: number) =>
+    seatCount(generateVenue(key, { rows, seatsPerRow }));
+  const baseSeats = at(base.rows, base.seatsPerRow);
+  const scale = Math.sqrt(Math.max(1, target) / Math.max(1, baseSeats));
+  const centre = Math.round(base.rows * scale);
+  const clampRows = (r: number) => Math.min(TEMPLATE_ROWS.max, Math.max(TEMPLATE_ROWS.min, r));
+  const rowsToTry = [...new Set([-3, -2, -1, 0, 1, 2, 3].map((d) => clampRows(centre + d)))];
+  const aspect = base.seatsPerRow / base.rows;
+
+  let best: { rows: number; seatsPerRow: number; seats: number } | null = null;
+  const better = (a: { rows: number; seatsPerRow: number; seats: number }) =>
+    !best ||
+    a.seats < best.seats ||
+    (a.seats === best.seats &&
+      Math.abs(a.seatsPerRow / a.rows - aspect) < Math.abs(best.seatsPerRow / best.rows - aspect));
+
+  for (const rows of rowsToTry) {
+    let lo: number = TEMPLATE_SEATS_PER_ROW.min;
+    let hi: number = TEMPLATE_SEATS_PER_ROW.max;
+    if (at(rows, hi) < target) continue;
+    while (lo < hi) {
+      const mid = Math.floor((lo + hi) / 2);
+      if (at(rows, mid) >= target) hi = mid;
+      else lo = mid + 1;
+    }
+    const candidate = { rows, seatsPerRow: lo, seats: at(rows, lo) };
+    if (better(candidate)) best = candidate;
+  }
+
+  if (!best) {
+    // Not even the largest room of this shape reaches it.
+    const rows = TEMPLATE_ROWS.max;
+    const seatsPerRow = TEMPLATE_SEATS_PER_ROW.max;
+    return { rows, seatsPerRow, seats: at(rows, seatsPerRow), target, verdict: 'TOO_SMALL' };
+  }
+  const found = best as { rows: number; seatsPerRow: number; seats: number };
+  // A few seats over is how whole rows land; a lot over means the shape cannot go that small.
+  const slack = Math.max(10, Math.ceil(target * 0.1));
+  return { ...found, target, verdict: found.seats - target > slack ? 'TOO_BIG' : 'MATCH' };
+}
+
 /** A non-ordinary seat run in one row, 1-based - the generator's own `seatKinds` shape. */
 export interface TemplateSeatKinds {
   rowLabel: string;
@@ -872,9 +963,12 @@ export interface TemplateOutline {
   kindCounts: { kind: string; count: number }[];
 }
 
-export function templateOutline(key: VenueTemplateKey): TemplateOutline {
+export function templateOutline(
+  key: VenueTemplateKey,
+  params: TemplateParams = {},
+): TemplateOutline {
   const option = VENUE_TEMPLATES.find((t) => t.key === key);
-  const venue = generateVenue(key);
+  const venue = generateVenue(key, params);
   const counts = new Map<string, number>();
   return {
     key,

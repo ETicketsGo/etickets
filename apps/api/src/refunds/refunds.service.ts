@@ -790,7 +790,23 @@ export class RefundsService {
   async adminGet(refundId: string) {
     const refund = await this.prisma.refund.findUnique({
       where: { id: refundId },
-      include: { booking: { select: { buyerEmail: true, eventId: true, currency: true } } },
+      include: {
+        booking: {
+          select: {
+            buyerEmail: true,
+            eventId: true,
+            currency: true,
+            /*
+              What somebody chasing this refund needs to find it anywhere else: the reference
+              the buyer quotes, the event, and the payment it goes back to - the provider and
+              its reference are what the provider's own dashboard is searched by.
+            */
+            reference: true,
+            event: { select: { title: true } },
+            payment: { select: { id: true, provider: true, providerRef: true, status: true } },
+          },
+        },
+      },
     });
     if (!refund) {
       throw new AppException(ErrorCodes.NOT_FOUND, 'Refund not found.', HttpStatus.NOT_FOUND);
@@ -812,7 +828,7 @@ export class RefundsService {
   async listForOrganization(
     user: RequestUser,
     organizationId: string,
-    opts: { status?: RefundStatus; page?: number; pageSize?: number } = {},
+    opts: { status?: RefundStatus; page?: number; pageSize?: number; eventId?: string } = {},
   ) {
     await this.access.assertMember(user, organizationId, [
       Role.ORGANIZER_OWNER,
@@ -820,7 +836,12 @@ export class RefundsService {
     ]);
     const page = Math.max(1, opts.page ?? 1);
     const pageSize = Math.min(100, Math.max(1, opts.pageSize ?? 20));
-    const where = { organizationId, ...(opts.status ? { status: opts.status } : {}) };
+    // The tenant filter stays first and unconditional; the event only narrows inside it.
+    const where = {
+      organizationId,
+      ...(opts.status ? { status: opts.status } : {}),
+      ...(opts.eventId ? { booking: { eventId: opts.eventId } } : {}),
+    };
     const [total, data] = await this.prisma.$transaction([
       this.prisma.refund.count({ where }),
       this.prisma.refund.findMany({
@@ -837,7 +858,7 @@ export class RefundsService {
               buyerEmail: true,
               currency: true,
               totalMinor: true,
-              event: { select: { title: true } },
+              event: { select: { id: true, title: true } },
             },
           },
           creditNote: { select: { id: true, number: true } },

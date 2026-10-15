@@ -256,9 +256,9 @@ test.describe('venues', () => {
       return names.includes('Basketball') && names.includes('Concert - End Stage');
     });
     expect(arena, 'the demo arena (db:demo-venues) is missing').toBeTruthy();
-    await page.locator(`[data-testid="space-row"] a[href$="/${arena!.id}/layouts"]`).click();
-    await expect(page).toHaveURL(/\/organizer\/spaces\/[^/]+\/layouts$/);
-    await expect(page.getByRole('heading', { name: 'Seat layout versions' })).toBeVisible();
+    await page.locator(`[data-testid="space-row"] a[href$="/spaces/${arena!.id}"]`).click();
+    await expect(page).toHaveURL(/\/organizer\/spaces\/[^/]+$/);
+    await expect(page.getByRole('heading', { name: 'Seat layouts' })).toBeVisible();
     await expect(page.getByText('Basketball', { exact: true })).toBeVisible();
     await expect(page.getByText('Concert - End Stage', { exact: true })).toBeVisible();
     await expect(page.getByText(/couldn.t load this/i)).toHaveCount(0);
@@ -269,8 +269,10 @@ test.describe('venues', () => {
       .filter({ hasText: /Cinema screen/ })
       .first();
     await screenRow.getByRole('link').first().click();
-    await expect(page).toHaveURL(/\/organizer\/cinemas\/[^/]+\/screens\/[^/]+\/layouts$/);
-    await expect(page.getByRole('heading', { name: 'Seat layout versions' })).toBeVisible();
+    // One page for every space: a cinema screen's names the cinema it shows films for.
+    await expect(page).toHaveURL(/\/organizer\/spaces\/[^/]+$/);
+    await expect(page.getByRole('heading', { name: 'Seat layouts' })).toBeVisible();
+    await expect(page.getByText('Shows films for')).toBeVisible();
     await expect(page.getByText(/couldn.t load this/i)).toHaveCount(0);
   });
 });

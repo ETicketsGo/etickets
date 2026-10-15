@@ -1,4 +1,5 @@
 import type {
+  SpaceKind,
   EventSaleState,
   SaleReason,
   SaleStateKind,
@@ -940,7 +941,7 @@ export const api = {
       }),
     receipts: (id: string, params: PageParams & { from?: string; to?: string } = {}) =>
       request<ReceiptListPage>(`/organizations/${id}/receipts${qs(params)}`),
-    refunds: (id: string, params: PageParams & { status?: string } = {}) =>
+    refunds: (id: string, params: PageParams & { status?: string; eventId?: string } = {}) =>
       request<Paged<OrganizationRefundRow>>(`/organizations/${id}/refunds${qs(params)}`),
     /** Turn cash-at-the-venue on or off for an organization. Owner only. */
     setCashPayments: (id: string, enabled: boolean) =>
@@ -1119,12 +1120,21 @@ export const api = {
     allSpaces: (organizationId: string) =>
       request<VenueSpace[]>(`/venues/spaces${qs({ organizationId })}`),
 
-    /** Add a space to a venue. No cinema involved. */
-    addSpace: (venueId: string, body: { name: string; screenType?: string; capacity: number }) =>
+    /**
+     * Add a space to a venue. A cinema screen is filed under the venue's cinema (made from the
+     * venue the first time); every other kind of space needs no cinema.
+     */
+    addSpace: (
+      venueId: string,
+      body: { name: string; screenType?: string; capacity: number; kind?: SpaceKind },
+    ) =>
       request<VenueSpace>(`/venues/${venueId}/spaces`, {
         method: 'POST',
         body: JSON.stringify(body),
       }),
+
+    /** One space, for its own page: venue, cinema, layouts and how many sessions use it. */
+    space: (spaceId: string) => request<SpaceDetail>(`/venues/spaces/${spaceId}`),
   },
 
   movies: {
@@ -1287,6 +1297,12 @@ export const api = {
         `/shows/${sessionId}/reschedule`,
         { method: 'POST', body: JSON.stringify({ startsAt, padMinutes }) },
       ),
+    /** Move one date of an event that is not a film; both ends come from the organizer. */
+    retime: (sessionId: string, startsAt: string, endsAt: string) =>
+      request<{ sessionId: string; startsAt: string; endsAt: string }>(
+        `/shows/${sessionId}/retime`,
+        { method: 'POST', body: JSON.stringify({ startsAt, endsAt }) },
+      ),
     schedule: (movieId: string, body: ScheduleShowBody) =>
       request<{ eventId: string; sessionId: string }>(`/movies/${movieId}/shows`, {
         method: 'POST',
@@ -1348,6 +1364,8 @@ export const api = {
         template: VenueTemplateKey;
         rows?: number;
         seatsPerRow?: number;
+        /** Build at about this many seats, the space's planned size. */
+        targetSeats?: number;
         basePriceMinor: number;
       },
     ) =>
@@ -1373,6 +1391,8 @@ export const api = {
         name?: string;
         rows?: number;
         seatsPerRow?: number;
+        /** Build at about this many seats, the space's planned size. */
+        targetSeats?: number;
       },
     ) =>
       request<{
@@ -1388,7 +1408,9 @@ export const api = {
         body: JSON.stringify(body),
       }),
     /** Every template as outlines (no seats), for the layout gallery's pictures and counts. */
-    layoutTemplates: () => request<LayoutTemplateOutline[]>('/seat-layout-templates'),
+    /** With `seats`, every template is sized to about that many seats (`fit` says how well). */
+    layoutTemplates: (seats?: number) =>
+      request<LayoutTemplateOutline[]>(`/seat-layout-templates${qs({ seats })}`),
     /**
      * A layout as a buyer would see it - the same shape as the public seat read, so the same
      * buyer components draw it. Nothing in it can be booked.
@@ -2004,11 +2026,27 @@ export const api = {
     organizers: (
       params: PageParams & { status?: string; q?: string; country?: string } & AdminGroupFilter,
     ) => request<Paged<Organization>>(`/admin/organizers${qs(params)}`),
-    reviewOrganizer: (id: string, decision: 'APPROVE' | 'REJECT', note?: string) =>
+    /**
+     * `overrideReason` approves despite a missing legal identity, on the record (the API needs
+     * at least ten characters of it). Omitted, the identity gate holds.
+     */
+    reviewOrganizer: (
+      id: string,
+      decision: 'APPROVE' | 'REJECT',
+      note?: string,
+      overrideReason?: string,
+    ) =>
       request<Organization>(`/admin/organizers/${id}/review`, {
         method: 'POST',
-        body: JSON.stringify({ decision, note }),
+        body: JSON.stringify({
+          decision,
+          note,
+          ...(overrideReason ? { overrideIdentityCheck: { reason: overrideReason } } : {}),
+        }),
       }),
+    /** What a reviewer needs before deciding: declared identity, the owner, look-alike names. */
+    organizerReviewSignals: (id: string) =>
+      request<OrganizerReviewSignals>(`/admin/organizers/${id}/review-signals`),
     /**
      * Let a trusted organizer publish events without review, or stop them.
      *
@@ -2085,10 +2123,11 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ decision, note }),
       }),
-    setEventStatus: (id: string, status: string) =>
+    /** `reason` is recorded in the audit log beside the change. */
+    setEventStatus: (id: string, status: string, reason?: string) =>
       request<OrgEventDetail>(`/admin/events/${id}/status`, {
         method: 'POST',
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ status, ...(reason ? { reason } : {}) }),
       }),
     /** Organizer, event and a UTC day window on when the booking was made, like the money queues. */
     bookings: (
@@ -3516,6 +3555,11 @@ export interface VenueSpace {
   cinemaId: string | null;
   cinemaName: string | null;
   /**
+   * What kind of place it is, as the API reads it: a cinema's screen is a cinema screen even
+   * when it was created before the kind was stored. Null when nobody has said yet.
+   */
+  kind?: SpaceKind | null;
+  /**
    * EVERY published configuration of this space, current version of each.
    *
    * A space has named layouts - an arena's basketball bowl and its end-stage concert are both
@@ -3524,6 +3568,33 @@ export interface VenueSpace {
   layouts?: { id: string; name: string; layoutKind: string; version: number }[];
   /** The first of them. Kept for callers that only ever wanted one. */
   layout: { id: string; name: string | null; layoutKind: string; version: number } | null;
+}
+
+/** A space on its own page: where it is, what it is, what it sells and what uses it. */
+export interface SpaceDetail {
+  id: string;
+  organizationId: string;
+  name: string;
+  capacity: number;
+  status: string;
+  screenType: string;
+  kind: SpaceKind | null;
+  venue: {
+    id: string;
+    name: string;
+    city: string;
+    address: string | null;
+    country: string | null;
+    region: string | null;
+    timezone: string | null;
+  } | null;
+  cinemaId: string | null;
+  cinemaName: string | null;
+  layouts: { id: string; name: string; layoutKind: string; version: number }[];
+  /** Every session ever scheduled in it. A space with any cannot be deleted. */
+  sessions: number;
+  /** Sessions still to come that are not cancelled. */
+  upcomingSessions: number;
 }
 
 export interface Venue {
@@ -3617,6 +3688,7 @@ export interface ScreenBody {
   name: string;
   screenType: string;
   capacity: number;
+  kind?: SpaceKind;
   status?: string;
   /** Recorded on the audit entry when the operational state changes. */
   statusReason?: string;
@@ -4303,6 +4375,9 @@ export interface OrgEventDetail extends EventDetails {
   /** What the event is for tax (one of TAX_CATEGORIES). Null: not classified. */
   taxCategory?: string | null;
   refundPolicy: string | null;
+  /** The organizer's refund terms: false means no refunds; otherwise until this many hours before. */
+  refundsEnabled?: boolean;
+  refundCutoffHours?: number;
   publishedAt: string | null;
   reviewNote: string | null;
   venue: Venue;
@@ -4769,7 +4844,14 @@ export interface RefundRow {
     currency: string;
     reference?: string | null;
     event?: { title: string };
+    /** The payment it goes back to. Read by the admin refund page; absent on an older API. */
+    payment?: { id: string; provider: string; providerRef: string | null; status: string } | null;
   };
+  /** Who decided it. Absent on lists. */
+  processedByUserId?: string | null;
+  /** The provider's id for the refund, once one was asked for. */
+  providerRef?: string | null;
+  updatedAt?: string;
 }
 
 /** The seller's legal + tax identity, plus what is still missing to issue a tax invoice. */
@@ -4932,7 +5014,7 @@ export interface OrganizationRefundRow extends Omit<RefundRow, 'booking'> {
     buyerEmail: string;
     currency: string;
     totalMinor: number;
-    event?: { title: string } | null;
+    event?: { id?: string; title: string } | null;
   };
   creditNote?: { id: string; number: string } | null;
 }
@@ -6015,6 +6097,30 @@ export interface AdminPaymentRow {
   bookingReference: string | null;
   eventTitle: string;
 }
+/** `GET /admin/organizers/:id/review-signals`. Every field is derived when asked, never stored. */
+export interface OrganizerReviewSignals {
+  organizationId: string;
+  name: string;
+  status: string;
+  registeredAt: string;
+  /** `missing` names fields in a reviewer's words ("legal name"), never a schema path. */
+  identity: { complete: boolean; missing: string[] };
+  /** Null when the organization has no owner. `emailDomain` is null for a phone-only owner. */
+  owner: {
+    userId: string;
+    emailDomain: string | null;
+    accountCreatedAt: string;
+    accountAgeDays: number;
+  } | null;
+  otherOrganizationsByOwner: {
+    organizationId: string;
+    name: string;
+    status: string;
+    registeredAt: string;
+  }[];
+  nameCollisions: { organizationId: string; name: string; status: string; exact: boolean }[];
+}
+
 export interface AuditRow {
   id: string;
   action: string;
@@ -6026,6 +6132,8 @@ export interface AuditRow {
   correlationId: string | null;
   createdAt: string;
   actor: { email: string; fullName: string } | null;
+  /** What the action recorded alongside it (a reason, an amount, a provider reference). */
+  metadata?: Record<string, unknown> | null;
 }
 
 /* A type alias, not an interface: `qs` takes a `Record<string, unknown>`, and an interface is
@@ -6038,6 +6146,8 @@ export type AuditFilters = {
   country?: string;
   /** Entries about one event: the event itself, or an action that names it. */
   eventId?: string;
+  /** One record's history: `Type:id` pairs, comma-separated, at most twenty. */
+  subjects?: string;
   /** `YYYY-MM-DD`, UTC, inclusive. */
   from?: string;
   to?: string;
@@ -6986,6 +7096,18 @@ export interface LayoutTemplateOutline {
     seatKinds: { rowLabel: string; seats: number[]; kind: 'WHEELCHAIR' | 'COMPANION' | 'GAP' }[];
   }[];
   kindCounts: { kind: string; count: number }[];
+  /**
+   * Present when the outlines were asked for at a seat count: how this template was sized.
+   * MATCH lands at or just over the target; TOO_BIG cannot get that small; TOO_SMALL cannot
+   * get that big.
+   */
+  fit?: {
+    rows: number;
+    seatsPerRow: number;
+    seats: number;
+    target: number;
+    verdict: 'MATCH' | 'TOO_BIG' | 'TOO_SMALL';
+  };
 }
 
 /** What a layout preview adds to the buyer's shape: which layout it is, and its kind counts. */

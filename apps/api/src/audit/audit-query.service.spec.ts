@@ -133,6 +133,37 @@ describe('audit query: filters', () => {
       entityType: 'Payout',
     });
   });
+
+  it("reads one record's history as exact type and id pairs", async () => {
+    const count = jest.fn().mockResolvedValue(0);
+    const { service } = makeService({
+      auditLog: { count, groupBy: jest.fn().mockResolvedValue([]), findMany: jest.fn() },
+    });
+
+    await service.summary({ subjects: 'Booking:b-1, Refund:r-2' });
+
+    expect(count.mock.calls[0][0].where.AND).toEqual([
+      {
+        OR: [
+          { entityType: 'Booking', entityId: 'b-1' },
+          { entityType: 'Refund', entityId: 'r-2' },
+        ],
+      },
+      // Somebody opening the booking is not something that happened to it.
+      { NOT: { action: { startsWith: 'PLATFORM_ORGANIZER_ACCESS_' } } },
+    ]);
+  });
+
+  it('adds no clause when no subject is named', async () => {
+    const count = jest.fn().mockResolvedValue(0);
+    const { service } = makeService({
+      auditLog: { count, groupBy: jest.fn().mockResolvedValue([]), findMany: jest.fn() },
+    });
+
+    await service.summary({ subjects: '' });
+
+    expect(count.mock.calls[0][0].where.AND).toBeUndefined();
+  });
 });
 
 describe('audit query: list', () => {

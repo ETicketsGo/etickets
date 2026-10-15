@@ -76,16 +76,18 @@ test.describe('finding reserved seating from a standing start', () => {
     await expect(page.getByRole('link', { name: 'Rooms & seat maps' })).toHaveCount(0);
   });
 
-  test('2: the empty state says what a room unlocks, for any kind of event', async ({ page }) => {
+  test('2: the cinema list says what it is, and sends everybody else to a hall or arena', async ({
+    page,
+  }) => {
     await page.goto(`${ORGANIZER}/organizer/cinemas`, { waitUntil: 'networkidle' });
 
     /*
-      The old hint read "Add a cinema and its screens to start scheduling screenings", which
-      tells a promoter running gigs that they are in the wrong place — while standing in the
-      only place a seat map can be made.
+      This list was titled "Spaces" while every row was a CINEMA, and its "New space" button
+      created a cinema named after the space. It is called what it is now, and somebody
+      running gigs is pointed at the hall or arena they actually want.
     */
-    await expect(page.getByText(/No spaces yet/)).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText(/not only a film/)).toBeVisible();
+    await expect(page.getByText(/No cinemas yet/)).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText(/add a hall or an arena/i)).toBeVisible();
     await expect(page.getByText(/scheduling screenings/)).toHaveCount(0);
   });
 
@@ -116,41 +118,32 @@ test.describe('finding reserved seating from a standing start', () => {
       somewhere — that a seat map drawn in the console satisfies the exact rule the picker
       filters on (this organization, published layout).
     */
-    await page.goto(`${ORGANIZER}/organizer/cinemas/new`, { waitUntil: 'networkidle' });
     /*
-      Addressed by id rather than by label. Both this page and the one after it carry a field
-      labelled "Name", and a label match plus `.first()`/`.last()` is a coin toss that happens
-      to land right until somebody reorders the form.
+      One form: where it is (this organization has no venue yet, so it is asked once), what the
+      space is called and what kind of place it is. It used to create a CINEMA here and land on
+      it, so a hall had to be added as a "screen" inside a cinema named after the hall.
     */
-    await page.locator('#name').fill(locationName);
-    await page.locator('#city').fill('Hyderabad');
+    await page.goto(`${ORGANIZER}/organizer/spaces/new`, { waitUntil: 'networkidle' });
+    await page.locator('#venue-name').fill(locationName);
+    await page.locator('#venue-city').fill('Hyderabad');
+    await page.getByTestId('kind-SEATED_HALL').click();
+    await page.locator('#space-name').fill(roomName);
+    await page.locator('#space-capacity').fill('18');
     await page.getByRole('button', { name: 'Create space' }).click();
-    await expect(page).toHaveURL(/\/organizer\/cinemas\/(?!new$)[^/]+/, { timeout: 30_000 });
+    await expect(page).toHaveURL(/\/organizer\/spaces\/(?!new$)[^/]+$/, { timeout: 30_000 });
+    // It lands on the space it made, not on a page with a list of spaces inside it.
+    await expect(page.getByRole('heading', { level: 1, name: roomName })).toBeVisible();
 
-    const cinemaId = page.url().split('/').filter(Boolean).pop()!;
-
-    await page.getByRole('button', { name: 'Add screen' }).click();
-    await page.locator('#screenName').fill(roomName);
-    /*
-      Capacity is required, and leaving it blank is exactly how the first version of this test
-      failed: the dialog validated, returned early, and the room was never created — so the
-      assertion below waited thirty seconds for something nobody had asked the server to make.
-    */
-    await page.locator('#screenCapacity').fill('18');
-    await page.getByRole('dialog').getByRole('button', { name: 'Add screen' }).click();
-    await expect(page.getByText(roomName).first()).toBeVisible({ timeout: 30_000 });
-
-    // The seat map itself, generated from the console rather than seeded through the API.
+    const spaceId = page.url().split('/').filter(Boolean).pop()!;
     const auth = { Authorization: `Bearer ${tokens.accessToken}` };
-    const cinema = await (
-      await request.get(`${API}/cinemas/${cinemaId}`, { headers: auth })
+    const space = await (
+      await request.get(`${API}/venues/spaces/${spaceId}`, { headers: auth })
     ).json();
-    const screen = (cinema.screens ?? []).find((s: { name: string }) => s.name === roomName);
-    expect(screen, `the room should exist: ${JSON.stringify(cinema.screens)}`).toBeTruthy();
+    expect(space.kind).toBe('SEATED_HALL');
+    expect(space.cinemaId, 'a hall is not a cinema').toBeNull();
 
-    await page.goto(`${ORGANIZER}/organizer/cinemas/${cinemaId}/screens/${screen.id}/seatmap`, {
-      waitUntil: 'networkidle',
-    });
+    await page.getByRole('link', { name: 'Draw the rows yourself' }).first().click();
+    await expect(page).toHaveURL(/\/seatmap$/, { timeout: 30_000 });
     await page.locator('#sec-0-name').fill('Stalls');
     await page.locator('#sec-0-cat').fill('Stalls');
     await page.locator('#sec-0-price').fill('500');

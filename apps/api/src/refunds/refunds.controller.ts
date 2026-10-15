@@ -78,10 +78,14 @@ export class OrganizationRefundsController {
     @Param('organizationId') organizationId: string,
     @Query(
       new ZodValidationPipe(
-        paginationSchema.extend({ status: z.nativeEnum(RefundStatus).optional() }),
+        paginationSchema.extend({
+          status: z.nativeEnum(RefundStatus).optional(),
+          // One event's refunds, for that event's own Bookings page.
+          eventId: z.string().min(1).max(64).optional(),
+        }),
       ),
     )
-    q: { page: number; pageSize: number; status?: RefundStatus },
+    q: { page: number; pageSize: number; status?: RefundStatus; eventId?: string },
   ) {
     return this.refunds.listForOrganization(user, organizationId, q);
   }

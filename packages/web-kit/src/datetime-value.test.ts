@@ -1,5 +1,13 @@
 import { describe as vitestDescribe, expect, it } from 'vitest';
-import { addDays, addHours, describe as describeValue, join, split } from './datetime-value';
+import {
+  addDays,
+  addHours,
+  describe as describeValue,
+  endDateFor,
+  isComplete,
+  join,
+  split,
+} from './datetime-value';
 
 /**
  * The arithmetic behind the date/time picker.
@@ -24,6 +32,24 @@ vitestDescribe('datetime value arithmetic', () => {
       expect(split('')).toEqual({ date: '', time: '' });
       expect(split('2026-08-30')).toEqual({ date: '2026-08-30', time: '' });
       expect(join('', '')).toBe('');
+    });
+  });
+
+  vitestDescribe('an end time picked with no end date', () => {
+    it('is not a complete value, however non-empty it looks', () => {
+      // What the end field used to send: the time alone. `!value` let it through.
+      expect(isComplete('T22:00')).toBe(false);
+      expect(isComplete('2026-11-20')).toBe(false);
+      expect(isComplete('')).toBe(false);
+      expect(isComplete('2026-11-20T22:00')).toBe(true);
+    });
+
+    it("takes the start's date until one of its own is chosen", () => {
+      expect(endDateFor('', '2026-11-20T19:00')).toBe('2026-11-20');
+      expect(endDateFor('T22:00', '2026-11-20T19:00')).toBe('2026-11-20');
+      // A chosen end date is never overwritten: a show can run past midnight.
+      expect(endDateFor('2026-11-21T01:00', '2026-11-20T19:00')).toBe('2026-11-21');
+      expect(endDateFor('', undefined)).toBe('');
     });
   });
 

@@ -2,14 +2,11 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'next/navigation';
-import { useState } from 'react';
 import {
   api,
   Button,
   Card,
-  Textarea,
   DataTable,
-  StatusBadge,
   Skeleton,
   PageHeader,
   ErrorState,
@@ -19,36 +16,22 @@ import {
   type Column,
   type OrgMember,
 } from '@eticketsgo/web-kit';
+import { StatusBadge } from '@/components/status-badge';
 import { AccountContact, accountContactText } from '../../../../components/account-contact';
 import { LegalIdentityCard } from '@/components/legal-identity-card';
 import { OrganizerStandingCard } from '@/components/organizer-standing-card';
+import { OrganizerReviewCard } from '@/components/organizer-review-card';
+import { roleWords } from '@/lib/words';
 
 export default function OrganizerDetail() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
   const toast = useToast();
-  const [note, setNote] = useState('');
 
   const orgQ = useQuery({ queryKey: ['org', id], queryFn: () => api.organizations.get(id) });
   const membersQ = useQuery({
     queryKey: ['org', id, 'members'],
     queryFn: () => api.organizations.members(id),
-  });
-
-  const review = useMutation({
-    mutationFn: (decision: 'APPROVE' | 'REJECT') =>
-      api.admin.reviewOrganizer(id, decision, note || undefined),
-    onSuccess: (_res, decision) => {
-      toast.push(`Organizer ${decision === 'APPROVE' ? 'approved' : 'rejected'}.`, 'success');
-      qc.invalidateQueries({ queryKey: ['org', id] });
-      /*
-        The organizers list and the dashboard's counts show this status too. Refreshing only
-        this page left the organizer listed as pending on the screen the reviewer goes back to.
-      */
-      qc.invalidateQueries({ queryKey: ['admin', 'organizers'] });
-      qc.invalidateQueries({ queryKey: ['admin', 'dashboard'] });
-    },
-    onError: (e) => toast.push(errorMessage(e), 'error'),
   });
 
   /*
@@ -79,7 +62,7 @@ export default function OrganizerDetail() {
     { key: 'name', header: 'Name', render: (m) => m.user.fullName },
     // A member who signs in by phone has a placeholder here, never shown as an address.
     { key: 'email', header: 'Email', render: (m) => <AccountContact email={m.user.email} /> },
-    { key: 'role', header: 'Role', render: (m) => m.role.replaceAll('_', ' ') },
+    { key: 'role', header: 'Role', render: (m) => roleWords(m.role) },
     { key: 'status', header: 'Status', render: (m) => <StatusBadge status={m.status} /> },
   ];
 
@@ -117,38 +100,7 @@ export default function OrganizerDetail() {
           </dl>
         </Card>
 
-        <Card title="Review">
-          {org.status === 'PENDING' ? (
-            <div className="space-y-3">
-              <Textarea
-                id="note"
-                label="Note (optional)"
-                rows={3}
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-              />
-              <div className="flex gap-2">
-                <Button
-                  loading={review.isPending && review.variables === 'APPROVE'}
-                  disabled={review.isPending}
-                  onClick={() => review.mutate('APPROVE')}
-                >
-                  Approve
-                </Button>
-                <Button
-                  variant="danger"
-                  loading={review.isPending && review.variables === 'REJECT'}
-                  disabled={review.isPending}
-                  onClick={() => review.mutate('REJECT')}
-                >
-                  Reject
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <p className="text-sm text-text-muted">This organizer is {org.status.toLowerCase()}.</p>
-          )}
-        </Card>
+        <OrganizerReviewCard org={org} />
 
         <Card title="Publishing">
           <div className="space-y-3">

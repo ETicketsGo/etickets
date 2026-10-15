@@ -117,6 +117,17 @@ describe('event moderation queue', () => {
     ]);
   });
 
+  it('puts the longest-waiting event first in the review queue, and the newest first elsewhere', async () => {
+    const findMany = jest.fn().mockResolvedValue([]);
+    const prisma = prismaMock({ event: { count: jest.fn(), findMany } });
+
+    await service(prisma).adminList('UNDER_REVIEW' as never, 1, 15);
+    await service(prisma).adminList(undefined, 1, 15);
+
+    expect(findMany.mock.calls[0][0].orderBy).toEqual({ updatedAt: 'asc' });
+    expect(findMany.mock.calls[1][0].orderBy).toEqual({ updatedAt: 'desc' });
+  });
+
   it('says when the event happens, not only when the row was edited', async () => {
     const rows = [{ id: 'ev-1', title: 'Run' }];
     const prisma = prismaMock({

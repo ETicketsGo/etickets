@@ -15,7 +15,6 @@ import {
   SearchInput,
   Select,
   Skeleton,
-  StatusBadge,
   adminContact,
   dateOnly,
   marketFor,
@@ -23,6 +22,8 @@ import {
   type Column,
   type UserDirectoryFilters,
 } from '@eticketsgo/web-kit';
+import { StatusBadge } from '@/components/status-badge';
+import { roleWords } from '@/lib/words';
 import { AccountContact } from '../../../components/account-contact';
 import {
   CountryFilter,
@@ -142,7 +143,7 @@ export default function AdminUsers() {
         <div className="flex flex-wrap gap-1">
           {u.roles.map((r) => (
             <Badge key={r} tone="neutral">
-              {r.replaceAll('_', ' ')}
+              {roleWords(r)}
             </Badge>
           ))}
         </div>
@@ -265,7 +266,7 @@ export default function AdminUsers() {
             <option value="">Every role</option>
             {ROLES.map((r) => (
               <option key={r} value={r}>
-                {r.replaceAll('_', ' ')}
+                {roleWords(r)}
               </option>
             ))}
           </Select>

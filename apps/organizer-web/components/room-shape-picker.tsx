@@ -30,12 +30,22 @@ export interface RoomShapePickerProps {
   shapeKey: string;
   capacity: string;
   onChange: (next: { shapeKey: string; capacity: string; plan: RoomPlan }) => void;
+  /**
+   * The shapes that fit this space, when its kind is known. A cinema screen is offered screen
+   * sizes, a hall is offered halls; the kind itself was asked once, when the space was made.
+   */
+  shapes?: readonly RoomShape[];
 }
 
-export function RoomShapePicker({ shapeKey, capacity, onChange }: RoomShapePickerProps) {
+export function RoomShapePicker({
+  shapeKey,
+  capacity,
+  onChange,
+  shapes = ROOM_SHAPES,
+}: RoomShapePickerProps) {
   const shape: RoomShape = useMemo(
-    () => ROOM_SHAPES.find((s) => s.key === shapeKey) ?? ROOM_SHAPES[1],
-    [shapeKey],
+    () => shapes.find((s) => s.key === shapeKey) ?? shapes[0] ?? ROOM_SHAPES[1],
+    [shapeKey, shapes],
   );
   const headingId = useId();
   const wanted = Number(capacity);
@@ -57,7 +67,7 @@ export function RoomShapePicker({ shapeKey, capacity, onChange }: RoomShapePicke
     <div className="space-y-4">
       <div>
         <p id={headingId} className="mb-2 text-sm font-medium">
-          What kind of space is this?
+          Which is closest to the room?
         </p>
         {/*
           A named group, because the layout gallery above offers cards with some of the same
@@ -68,7 +78,7 @@ export function RoomShapePicker({ shapeKey, capacity, onChange }: RoomShapePicke
           aria-labelledby={headingId}
           className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3"
         >
-          {ROOM_SHAPES.map((s) => {
+          {shapes.map((s) => {
             const on = s.key === shape.key;
             return (
               <button

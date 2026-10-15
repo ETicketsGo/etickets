@@ -320,6 +320,17 @@ describe('RefundsService.adminGet', () => {
     );
   });
 
+  it('names the booking reference, the event and the payment the refund goes back to', async () => {
+    const { service, prisma } = setupProcess();
+    await service.adminGet('rf-1');
+    const booking = (prisma.refund.findUnique as jest.Mock).mock.calls[0][0].include.booking.select;
+    expect(booking).toMatchObject({
+      reference: true,
+      event: { select: { title: true } },
+      payment: { select: { provider: true, providerRef: true, status: true } },
+    });
+  });
+
   it('is NOT_FOUND for an id that does not exist', async () => {
     const { service, prisma } = setupProcess();
     (prisma.refund.findUnique as jest.Mock).mockResolvedValue(null);

@@ -17,7 +17,7 @@
  * already made before it was split into these steps, moved, not invented.
  */
 
-import type { EventArtist, LocationValue } from '@eticketsgo/web-kit';
+import { isComplete, type EventArtist, type LocationValue } from '@eticketsgo/web-kit';
 import { TAX_CATEGORIES } from '@eticketsgo/shared-types';
 
 export type WizardStepId = 'basics' | 'where' | 'tickets' | 'details' | 'review';
@@ -367,9 +367,15 @@ export function validateStep(stepId: WizardStepId, a: WizardAnswers): FieldError
     }
     if (a.sessions.length === 0) e.form = 'Add at least one session.';
     a.sessions.forEach((s, i) => {
-      if (!s.startsAt) e[`s${i}Start`] = 'Start time is required.';
-      if (!s.endsAt) e[`s${i}End`] = 'End time is required.';
-      if (s.startsAt && s.endsAt && new Date(s.endsAt) <= new Date(s.startsAt))
+      /*
+        A date AND a time each, not just something typed: "T22:00" (an end time with no end
+        date) is not empty, passed here, and threw when the event was being created - after
+        the event existed, so it was left with no dates and no tickets.
+      */
+      if (!isComplete(s.startsAt)) e[`s${i}Start`] = 'Choose a start date and time.';
+      if (!isComplete(s.endsAt)) e[`s${i}End`] = 'Choose an end date and time.';
+      // Same-format wall-clock strings compare correctly as text, with no Date parsing.
+      else if (isComplete(s.startsAt) && s.endsAt <= s.startsAt)
         e[`s${i}End`] = 'End must be after start.';
     });
   }
