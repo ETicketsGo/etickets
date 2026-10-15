@@ -6,6 +6,7 @@ import {
   api,
   Button,
   Card,
+  Dialog,
   Input,
   Select,
   DataTable,
@@ -14,6 +15,7 @@ import {
   dateOnly,
   useToast,
   errorMessage,
+  useAuthUser,
   type Column,
   type OrgMember,
 } from '@eticketsgo/web-kit';
@@ -106,6 +108,19 @@ export default function TeamPage() {
   const [link, setLink] = useState<{ email: string; url: string } | null>(null);
 
   /*
+    The member being managed: their role, or taking them off the team. There was no way to do
+    either - a door worker invited for one night kept their access for ever.
+  */
+  const { user } = useAuthUser();
+  const [managing, setManaging] = useState<MemberRow | null>(null);
+  const [newRole, setNewRole] = useState('');
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const closeManage = () => {
+    setManaging(null);
+    setConfirmRemove(false);
+  };
+
+  /*
     The member list is owners and managers only at the API. Check-in staff were sent the
     request and shown "We couldn't load this. Please try again." - a retry that can never
     succeed (found by QA). It is not requested for them, and the table says why instead.
@@ -133,6 +148,26 @@ export default function TeamPage() {
     onSuccess: (r) => {
       toast.push('New link created. The previous one no longer works.', 'success');
       setLink({ email: r.email, url: r.inviteUrl });
+    },
+    onError: (e) => toast.push(errorMessage(e), 'error'),
+  });
+
+  const changeRole = useMutation({
+    mutationFn: (m: MemberRow) => api.organizations.changeMemberRole(activeOrg.id, m.id, newRole),
+    onSuccess: (m) => {
+      toast.push(`${m.user.fullName} is now ${roleName(m.role).toLowerCase()}.`, 'success');
+      qc.invalidateQueries({ queryKey: ['members', activeOrg.id] });
+      closeManage();
+    },
+    onError: (e) => toast.push(errorMessage(e), 'error'),
+  });
+
+  const remove = useMutation({
+    mutationFn: (m: MemberRow) => api.organizations.removeMember(activeOrg.id, m.id),
+    onSuccess: (m) => {
+      toast.push(`${m.user.fullName} has been removed. Their access has ended.`, 'success');
+      qc.invalidateQueries({ queryKey: ['members', activeOrg.id] });
+      closeManage();
     },
     onError: (e) => toast.push(errorMessage(e), 'error'),
   });
@@ -209,6 +244,30 @@ export default function TeamPage() {
         </span>
       ),
     },
+    // Owner only at the API, so the control is only offered to owners.
+    ...(can.ownerActions
+      ? [
+          {
+            key: 'manage',
+            header: <span className="sr-only">Manage</span>,
+            render: (m: MemberRow) => (
+              <Button
+                variant="outline"
+                size="sm"
+                // The email too: two people can share a name, and this opens the remove control.
+                aria-label={`Manage ${m.user.fullName}, ${m.user.email}`}
+                onClick={() => {
+                  setManaging(m);
+                  setNewRole(m.role);
+                  setConfirmRemove(false);
+                }}
+              >
+                Manage
+              </Button>
+            ),
+          } satisfies Column<MemberRow>,
+        ]
+      : []),
   ];
 
   const members = data as MemberRow[] | undefined;
@@ -301,6 +360,104 @@ export default function TeamPage() {
             />
           </section>
         </div>
+
+        <Dialog
+          open={managing !== null}
+          onClose={closeManage}
+          title={managing ? `Manage ${managing.user.fullName}` : 'Manage'}
+          footer={
+            confirmRemove ? (
+              <>
+                <Button variant="outline" onClick={() => setConfirmRemove(false)}>
+                  Keep them
+                </Button>
+                <Button
+                  variant="danger"
+                  loading={remove.isPending}
+                  onClick={() => managing && remove.mutate(managing)}
+                >
+                  Remove from team
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button variant="outline" onClick={closeManage}>
+                  Cancel
+                </Button>
+                <Button
+                  loading={changeRole.isPending}
+                  disabled={!managing || newRole === managing.role}
+                  onClick={() => managing && changeRole.mutate(managing)}
+                >
+                  Save role
+                </Button>
+              </>
+            )
+          }
+        >
+          {managing && confirmRemove ? (
+            <div className="space-y-2 text-[0.9375rem] text-text-secondary">
+              <p>
+                {managing.user.fullName} ({managing.user.email}) will lose access to{' '}
+                {activeOrg.name} straight away.
+                {managing.status === 'INVITED' ? ' Their invitation link stops working.' : ''}
+              </p>
+              <p>What they did stays in your records. You can invite them again later.</p>
+            </div>
+          ) : managing ? (
+            <div className="space-y-4">
+              <fieldset>
+                <legend className="mb-2 text-brand-meta font-semibold text-brand-ink-2">
+                  Role
+                </legend>
+                <div className="space-y-2">
+                  {ROLES.map((r) => (
+                    <label
+                      key={r}
+                      className={`flex cursor-pointer items-start gap-3 rounded-brand-control border px-3 py-2 ${
+                        newRole === r
+                          ? 'border-brand-line-strong bg-brand-sunken'
+                          : 'border-brand-line'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="member-role"
+                        value={r}
+                        checked={newRole === r}
+                        onChange={() => setNewRole(r)}
+                        className="mt-1"
+                      />
+                      <span>
+                        <span className="block text-brand-ui font-semibold text-brand-ink">
+                          {roleName(r)}
+                        </span>
+                        <span className="block text-brand-meta text-brand-ink-2">
+                          {ROLE_HELP[r]}
+                        </span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+              <div className="border-t border-brand-line pt-4">
+                <p className="text-brand-meta text-brand-ink-2">
+                  {managing.user.id === user?.id
+                    ? 'This is you. An organization always keeps at least one owner.'
+                    : 'Their access ends as soon as you remove them.'}
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-2"
+                  onClick={() => setConfirmRemove(true)}
+                >
+                  Remove from team
+                </Button>
+              </div>
+            </div>
+          ) : null}
+        </Dialog>
 
         <Card title="Invite someone">
           <div className="space-y-4">

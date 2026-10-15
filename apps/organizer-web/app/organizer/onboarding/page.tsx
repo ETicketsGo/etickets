@@ -21,6 +21,7 @@ import {
   type OnboardingStep,
 } from '@/lib/onboarding';
 import { EXPERIENCE_TEMPLATES } from '@/lib/templates';
+import { standingNote } from '../_dashboard/desk-model';
 
 /*
   ── GET STARTED (organizer recovery) ──────────────────────────────────────────────
@@ -197,6 +198,12 @@ export default function OnboardingPage() {
   });
 
   const required = progress.steps.filter((s) => !s.optional);
+  // What approval is waiting on, said where somebody setting up looks first.
+  const approval = standingNote(
+    activeOrg.status,
+    activeOrg.name,
+    progress.business.some((s) => s.key === 'legal-identity'),
+  );
   const optional = progress.steps.filter((s) => s.optional);
   const pct = progress.total === 0 ? 0 : Math.round((progress.completed / progress.total) * 100);
   const link = `text-brand-meta font-semibold text-brand-ink underline-offset-4 hover:underline ${RING}`;
@@ -219,6 +226,17 @@ export default function OnboardingPage() {
 
       <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_22rem] xl:gap-8">
         <div className="flex min-w-0 flex-col gap-6">
+          {approval && (
+            <p
+              data-testid="standing-note"
+              className="rounded-brand-card border border-brand-line bg-brand-surface px-4 py-3 text-brand-ui text-brand-ink-2 md:px-6"
+            >
+              {approval.text}{' '}
+              <Link href={approval.href} className={link}>
+                {approval.linkLabel}
+              </Link>
+            </p>
+          )}
           {progress.isError ? (
             <ErrorState
               message="We couldn't load your progress. Please try again."
@@ -278,6 +296,23 @@ export default function OnboardingPage() {
                 >
                   <ul>
                     {optional.map((s) => (
+                      <StepRow key={s.key} step={s} />
+                    ))}
+                  </ul>
+                </Panel>
+              )}
+
+              {progress.business.length > 0 && (
+                <Panel
+                  title="About your business"
+                  aside={
+                    <p className="text-brand-meta text-brand-ink-2">
+                      What buyers, invoices and approval need
+                    </p>
+                  }
+                >
+                  <ul>
+                    {progress.business.map((s) => (
                       <StepRow key={s.key} step={s} />
                     ))}
                   </ul>

@@ -77,7 +77,7 @@ export default function SolutionsPage() {
         eyebrow="Solutions"
         title="Event types we support"
         lead="The same tools work for one comedy night, a three-day festival, or a cinema chain."
-        primary={{ href: '/register', label: 'Get started' }}
+        primary={{ href: '/register?intent=organizer', label: 'Get started' }}
         secondary={{ href: '/features', label: 'Explore features' }}
       />
       <Section>
@@ -109,7 +109,7 @@ export default function SolutionsPage() {
           lead="Tell us what you run and we will look at it."
           primaryHref="/contact"
           primaryLabel="Talk to us"
-          secondaryHref="/register"
+          secondaryHref="/register?intent=organizer"
           secondaryLabel="Get started"
         />
       </Section>

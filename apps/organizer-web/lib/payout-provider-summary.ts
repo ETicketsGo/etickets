@@ -51,6 +51,15 @@ const PAYOUTS: Record<PayoutProviderEntry['payouts'], string> = {
   UNAVAILABLE: 'Payouts cannot start until you finish setup.',
 };
 
+/*
+  "No action is needed from you" is true of the provider account (we set that up), and false when
+  no bank account is saved: Get started and Overview both list "Add the bank account your money is
+  sent to" as blocking, because a settlement cannot be paid without one. The card said "Nothing is
+  blocked on your side" and "No action is needed from you" directly above "No bank account saved
+  yet". Without a bank account the payout line says what is missing instead.
+*/
+const PAYOUTS_NO_BANK = 'Payouts cannot be paid until you add a bank account below.';
+
 const BANK: Record<NonNullable<PayoutProviderEntry['bank']>, string> = {
   NONE: 'No bank account saved yet.',
   UNDER_REVIEW: 'Bank account saved. We are checking it.',
@@ -66,7 +75,7 @@ export function providerSummaryView(
     title: TITLE[e.provider],
     payments: PAYMENTS[e.accepting],
     paymentsBlocked: e.accepting === 'BLOCKED',
-    payouts: PAYOUTS[e.payouts],
+    payouts: e.payouts === 'PENDING' && e.bank === 'NONE' ? PAYOUTS_NO_BANK : PAYOUTS[e.payouts],
     payoutsTone: e.payouts === 'AVAILABLE' ? 'good' : e.payouts === 'PENDING' ? 'waiting' : 'bad',
     bank: e.bank ? BANK[e.bank] : null,
     organizerActionRequired: e.organizerActionRequired,
@@ -89,6 +98,15 @@ export function providerSummaryView(
         lines,
       };
     case 'WAITING':
+      if (lines.length > 0 && state.providers.some((e) => e.bank === 'NONE')) {
+        return {
+          heading: 'Add a bank account to get paid',
+          tone: 'attention',
+          detail:
+            'Your ticket sales are not affected. We cannot pay your settlements until we know where to send them.',
+          lines,
+        };
+      }
       return {
         heading: 'Payouts are not active yet',
         tone: 'waiting',

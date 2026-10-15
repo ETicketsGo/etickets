@@ -104,11 +104,30 @@ function categoryOf(item: ReadinessItem): OrganizerActionCategory {
  * in that list is the same statement as it not being done. Inventing completed readiness rows
  * here would mean re-deriving the checks it already made.
  */
+/*
+  What the control says, for the gaps whose fix is not "fix this". The bank account under review
+  says "nothing is needed from you"; a button reading "Fix this" beside that sentence asks the
+  organizer to do something the sentence says they need not.
+*/
+const ACTION_LABELS: Record<string, string> = {
+  'payout-account': 'Add bank account',
+  'payout-account-unverified': 'View bank account',
+};
+
+/*
+  Readiness rows whose weight is different on the organizer's own list. The unchecked bank account
+  is something the ADMIN must chase (readiness keeps it IMPORTANT for them), but for the organizer
+  it says "nothing is needed from you" - so it is not something that "needs you" on Overview.
+*/
+const ORGANIZER_SEVERITY: Record<string, OrganizerActionSeverity> = {
+  'payout-account-unverified': 'SUGGESTED',
+};
+
 function fromReadiness(organizationId: string, item: ReadinessItem): OrganizerAction {
   return {
     key: item.key,
     category: categoryOf(item),
-    severity: item.severity,
+    severity: ORGANIZER_SEVERITY[item.key] ?? item.severity,
     scope: 'ORGANIZATION',
     organizationId,
     // Nothing readiness reports stops a sale. It stops payment, approval or a document.
@@ -116,9 +135,41 @@ function fromReadiness(organizationId: string, item: ReadinessItem): OrganizerAc
     title: item.title,
     consequence: item.consequence,
     fixPath: item.fixPath,
-    actionLabel: 'Fix this',
+    actionLabel: ACTION_LABELS[item.key] ?? 'Fix this',
     done: false,
   };
+}
+
+/**
+ * The bank-account step, present whether or not it is done.
+ *
+ * Readiness lists only what is MISSING, so once the account was saved its row simply vanished:
+ * Get started went from "0 of 4" to "0 of 3" and the step the organizer had just completed was
+ * nowhere to be seen, ticked or otherwise. A checklist has to show the tick. While the account is
+ * missing this is readiness's own row, unchanged; once one is on file it is the same step, done.
+ */
+function payoutStep(
+  organizationId: string,
+  readiness: ReadinessItem[],
+  hasPayoutAccount: boolean,
+): OrganizerAction[] {
+  const missing = readiness.find((i) => i.key === 'payout-account');
+  if (missing || !hasPayoutAccount) return [];
+  return [
+    {
+      key: 'payout-account',
+      category: 'MONEY',
+      severity: 'BLOCKING',
+      scope: 'ORGANIZATION',
+      organizationId,
+      blocking: false,
+      title: 'Add the bank account your money is sent to',
+      consequence: 'Saved. Your settlements are sent to this account.',
+      fixPath: '/organizer/payouts#bank-account',
+      actionLabel: 'View bank account',
+      done: true,
+    },
+  ];
 }
 
 /**
@@ -175,6 +226,12 @@ function operational(organizationId: string, facts: OperationalFacts): Organizer
       fixPath: '/organizer/team',
       actionLabel: facts.teamMemberCount > 0 ? 'Manage team' : 'Invite',
       done: facts.teamMemberCount > 0,
+      /*
+        Optional, like the seat map. It was counted, so a one-person business could never
+        finish setup: "Required to start selling, 3 of 4" for ever, unless they invited
+        somebody they do not have. Nobody needs a team to sell a ticket.
+      */
+      optional: true,
     },
     {
       key: 'experience',
@@ -212,8 +269,10 @@ export function organizerActions(
   readinessInput: ReadinessInput,
   facts: OperationalFacts,
 ): OrganizerActionSummary {
+  const readiness = organizationReadiness(readinessInput);
   const actions = [
-    ...organizationReadiness(readinessInput).map((item) => fromReadiness(organizationId, item)),
+    ...readiness.map((item) => fromReadiness(organizationId, item)),
+    ...payoutStep(organizationId, readiness, Boolean(readinessInput.hasPayoutAccount)),
     ...operational(organizationId, facts),
   ];
   const counted = actions.filter((a) => !a.optional);

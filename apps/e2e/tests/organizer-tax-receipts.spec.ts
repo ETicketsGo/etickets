@@ -102,7 +102,8 @@ test.describe('organizer: tax identity, receipts and refunds', () => {
     await page.getByRole('button', { name: 'Save legal and tax details' }).click();
 
     await expect(page.getByText('Legal and tax details saved.')).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByText(/Complete\./)).toBeVisible({ timeout: 15_000 });
+    // Says what is on (tax invoices), not "Complete." - other legal gaps are listed separately.
+    await expect(page.getByText(/Sales are documented as/)).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText('29AABCU9603R1ZM')).toBeVisible();
 
     // The value survives a reload — it was persisted, not just held in form state.

@@ -1,6 +1,6 @@
 'use client';
 
-import { ChevronRight, PlayCircle, Mail, Rocket, BookOpen } from 'lucide-react';
+import { ChevronRight, PlayCircle, Mail, Rocket } from 'lucide-react';
 import {
   BUSINESS_DETAILS,
   ButtonLink,
@@ -9,6 +9,7 @@ import {
   publishedDetail,
 } from '@eticketsgo/web-kit';
 import { OrganizerFeedback } from '@/components/organizer-feedback';
+import { OrganizerSupportForm } from '@/components/organizer-support';
 
 /*
   Read from the one place the business details live. This was a hardcoded
@@ -21,14 +22,14 @@ const SUPPORT_EMAIL = publishedDetail(BUSINESS_DETAILS.organizerEmail);
 const GETTING_STARTED = [
   {
     title: 'Set up your organization',
-    body: 'Confirm your organization details in Settings. Your organization must be approved before events can go live.',
-    href: '/organizer/settings',
+    body: 'Add your legal and tax details in Settings. ETicketsGo approves your organization before your events can go on sale.',
+    href: '/organizer/settings#legal',
     cta: 'Open settings',
   },
   {
     title: 'Add a venue',
     body: 'Add the place your experiences happen — you can also create one inline while building an event.',
-    href: '/organizer/onboarding',
+    href: '/organizer/venues?new=1',
     cta: 'Add a venue',
   },
   {
@@ -58,7 +59,7 @@ const FAQS: { q: string; a: string }[] = [
   },
   {
     q: 'When and how do I get paid out?',
-    a: 'Settlements are generated per organization (and optionally per event) from the Payouts page. A payout summarizes gross sales, booking and payment fees, and refunds to show your net revenue. Paid payouts show a Paid status.',
+    a: 'Add the bank account your money is sent to on the Payouts page; we check it before the first transfer. An event becomes payable once it has finished and its holding period has passed. What you are paid (net) is your ticket sales less discounts, your platform fee and refunds. Booking and payment fees are paid by the buyer on top of the ticket price and are not taken from you. Finance & payouts shows where each amount is: held, ready to pay out, in a payout, or paid.',
   },
   {
     q: 'How are refunds handled?',
@@ -144,32 +145,23 @@ export default function HelpPage() {
         </div>
       </Card>
 
-      {/* Support */}
-      <Card>
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-tint-primary text-action-primary">
-              <BookOpen className="h-5 w-5" />
-            </span>
-            <div>
-              <p className="font-semibold text-text-primary">Still need help?</p>
-              <p className="mt-1 text-[0.9375rem] text-text-muted">
-                {SUPPORT_EMAIL
-                  ? 'Our organizer support team is happy to help with anything not covered above.'
-                  : 'Our organizer support address is not published yet. Until it is, use Send feedback below - it reaches us.'}
-              </p>
-            </div>
-          </div>
-          {SUPPORT_EMAIL && (
-            <ButtonLink href={`mailto:${SUPPORT_EMAIL}`} variant="outline">
-              <Mail className="h-4 w-4" />
-              Contact support
-            </ButtonLink>
-          )}
-        </div>
-      </Card>
+      {/*
+        Support. This used to say "use Send feedback below - it reaches us", and Send feedback is a
+        satisfaction survey that will not send without a star rating. A question now goes to the
+        admin support inbox as a message, filed under this organization.
+      */}
+      <OrganizerSupportForm />
+      {SUPPORT_EMAIL && (
+        <p className="flex flex-wrap items-center gap-2 text-caption text-text-muted">
+          Prefer email?
+          <ButtonLink href={`mailto:${SUPPORT_EMAIL}`} variant="outline" size="sm">
+            <Mail className="h-4 w-4" />
+            {SUPPORT_EMAIL}
+          </ButtonLink>
+        </p>
+      )}
 
-      {/* Organizer satisfaction survey + send feedback */}
+      {/* Organizer satisfaction survey: a rating, not a way to ask for help. */}
       <OrganizerFeedback />
     </div>
   );

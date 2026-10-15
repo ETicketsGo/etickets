@@ -22,13 +22,19 @@ import {
 const FEED_ROWS = 200;
 
 /**
- * How many events have their sellability checked live per read.
+ * How many events have their sellability checked live per read, and how many at once.
  *
  * Each check prices every show of the event against its policy, which is real work on a long
- * season. The newest few are what the organizer is looking at; anything past them is shown as
- * still a problem rather than guessed fixed.
+ * season. Anything past the cap is shown as still a problem rather than guessed fixed.
+ *
+ * The cap was 5, which was not "the newest few" in practice: one sweep after a tax-rule change
+ * raised a card for every published event at once, and on QA the organizer's Overview said
+ * "26 items block sales" beside a Coming up list showing the same events as Selling - 21 of
+ * those cards were simply never checked. 40 covers a season's worth of events; the checks run
+ * a few at a time so one read does not take every database connection.
  */
-const LIVE_CHECKS = 5;
+const LIVE_CHECKS = 40;
+const LIVE_CHECK_CONCURRENCY = 5;
 
 export interface NotificationFeed {
   sections: FeedSection[];
@@ -124,36 +130,37 @@ export class NotificationFeedService {
     }
     const out = new Map<string, EventResolution>();
     const now = new Date();
-    await Promise.all(
-      eventIds.map(async (eventId) => {
-        try {
-          const event = await this.prisma.event.findUnique({
-            where: { id: eventId },
-            select: {
-              status: true,
-              sessions: { where: { startsAt: { gt: now } }, select: { id: true }, take: 1 },
-            },
-          });
-          if (!event || event.status !== 'PUBLISHED' || event.sessions.length === 0) {
-            out.set(eventId, { clear: true, causes: new Set(), codes: new Set() });
-            return;
-          }
-          const report = await this.sellability.check(eventId, now);
-          out.set(eventId, {
-            clear: report.sellable,
-            causes: new Set(report.blockers.map(causeIdentity)),
-            codes: new Set(report.blockers.map((b) => b.code)),
-          });
-        } catch (err) {
-          /*
-            Unknown, not fixed. A failed check leaves the card where it was, saying the problem
-            is still there - telling somebody a fault is gone when we could not look is the
-            worse of the two mistakes.
-          */
-          this.logger.warn(`could not check event ${eventId}: ${err}`);
+    const checkOne = async (eventId: string) => {
+      try {
+        const event = await this.prisma.event.findUnique({
+          where: { id: eventId },
+          select: {
+            status: true,
+            sessions: { where: { startsAt: { gt: now } }, select: { id: true }, take: 1 },
+          },
+        });
+        if (!event || event.status !== 'PUBLISHED' || event.sessions.length === 0) {
+          out.set(eventId, { clear: true, causes: new Set(), codes: new Set() });
+          return;
         }
-      }),
-    );
+        const report = await this.sellability.check(eventId, now);
+        out.set(eventId, {
+          clear: report.sellable,
+          causes: new Set(report.blockers.map(causeIdentity)),
+          codes: new Set(report.blockers.map((b) => b.code)),
+        });
+      } catch (err) {
+        /*
+          Unknown, not fixed. A failed check leaves the card where it was, saying the problem
+          is still there - telling somebody a fault is gone when we could not look is the
+          worse of the two mistakes.
+        */
+        this.logger.warn(`could not check event ${eventId}: ${err}`);
+      }
+    };
+    for (let i = 0; i < eventIds.length; i += LIVE_CHECK_CONCURRENCY) {
+      await Promise.all(eventIds.slice(i, i + LIVE_CHECK_CONCURRENCY).map(checkOne));
+    }
     return out;
   }
 }

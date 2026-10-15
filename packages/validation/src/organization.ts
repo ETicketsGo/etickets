@@ -136,6 +136,12 @@ export const inviteMemberSchema = z.object({
 });
 export type InviteMemberInput = z.infer<typeof inviteMemberSchema>;
 
+/** Changing a team member's role: the same roles an invitation can grant. */
+export const changeMemberRoleSchema = z.object({
+  role: z.enum([Role.ORGANIZER_MANAGER, Role.CHECKIN_STAFF, Role.ORGANIZER_OWNER]),
+});
+export type ChangeMemberRoleInput = z.infer<typeof changeMemberRoleSchema>;
+
 /**
  * Accepting a team invitation.
  *
