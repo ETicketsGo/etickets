@@ -11,6 +11,9 @@ import { nextFromSearch } from './safe-next';
 /** Pages of a console that are a dead end straight after signing in (see `finish`). */
 const CONSOLE_SIGN_IN_PAGES = ['/login'] as const;
 
+/** The platform's own staff roles (see `backOfficePath`). */
+const BACK_OFFICE_ROLES: readonly string[] = ['ADMIN', 'SUPER_ADMIN'];
+
 /**
  * Reusable email/password sign-in card. Reads an optional `?next=` redirect
  * from the URL at submit time (no Suspense boundary required).
@@ -23,6 +26,7 @@ export function LoginForm({
   roleMismatchRedirect,
   subtitle,
   mfaEnrollPath,
+  backOfficePath,
   footer,
 }: {
   title?: string;
@@ -49,6 +53,16 @@ export function LoginForm({
    * answers with a second-factor step at all.
    */
   mfaEnrollPath?: string;
+  /**
+   * Where an account holding a back-office role (ADMIN / SUPER_ADMIN) is sent after signing in,
+   * with the destination it would otherwise have had as `?next=`.
+   *
+   * The organizer console admits those accounts, so an administrator who signed in there landed
+   * in whichever organization they happened to belong to - "the other view", in the owner's
+   * words, when they meant to reach the admin dashboard. The page this names lets them choose.
+   * Only where to go changes; the session and its checks are the same as for anyone else.
+   */
+  backOfficePath?: string;
   /**
    * Shown under the card: the ways out of a sign-in page a console needs (create an account,
    * forgot your password). The organizer console had none, so a new organizer who arrived there
@@ -92,8 +106,8 @@ export function LoginForm({
           return;
         }
       }
-      if (allowedRoles) {
-        const me = await api.auth.me();
+      const me = allowedRoles || backOfficePath ? await api.auth.me() : null;
+      if (allowedRoles && me) {
         if (!me.roles.some((r) => allowedRoles.includes(r))) {
           if (roleMismatchRedirect) {
             // Signed in fine, just not set up for this console yet. Keep the session —
@@ -118,6 +132,10 @@ export function LoginForm({
         defaultRedirect,
         CONSOLE_SIGN_IN_PAGES,
       );
+      if (backOfficePath && me?.roles.some((r) => BACK_OFFICE_ROLES.includes(r))) {
+        router.push(`${backOfficePath}?next=${encodeURIComponent(next)}`);
+        return;
+      }
       router.push(next);
     }
   };
