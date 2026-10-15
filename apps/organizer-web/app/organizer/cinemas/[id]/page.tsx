@@ -1,6 +1,7 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import {
@@ -248,7 +249,19 @@ export default function CinemaDetailPage() {
   });
 
   const screenColumns: Column<Screen>[] = [
-    { key: 'name', header: 'Name', render: (s) => s.name },
+    {
+      key: 'name',
+      header: 'Name',
+      // The screen's own page: its layouts, its kind and where it is.
+      render: (s) => (
+        <Link
+          href={`/organizer/spaces/${s.id}`}
+          className="font-medium text-action-primary underline-offset-2 hover:underline"
+        >
+          {s.name}
+        </Link>
+      ),
+    },
     { key: 'type', header: 'Type', render: (s) => s.screenType },
     {
       key: 'capacity',
@@ -299,11 +312,7 @@ export default function CinemaDetailPage() {
             Seat map
           </ButtonLink>
           {/* The designer draws a room; this manages the versions the screen has had. */}
-          <ButtonLink
-            variant="ghost"
-            size="sm"
-            href={`/organizer/cinemas/${id}/screens/${s.id}/layouts`}
-          >
+          <ButtonLink variant="ghost" size="sm" href={`/organizer/spaces/${s.id}`}>
             Layouts
           </ButtonLink>
           <Button variant="ghost" size="sm" onClick={() => openEdit(s)}>

@@ -66,6 +66,23 @@ enum ExperienceType {
   TOUR
 }
 
+/// What kind of place a space is, said once when it is created.
+///
+/// It decides which layout templates fit (a cinema screen is never offered an 11,000-seat
+/// arena) and whether the space needs a seat map at all (a standing floor does not). Before it
+/// existed the console asked "What kind of space is this?" again on every layout page and still
+/// offered every template to every space.
+enum SpaceKind {
+  /// A screen in a cinema. Always belongs to a Cinema as well as to a venue.
+  CINEMA_SCREEN
+  /// Rows of seats facing a stage: an auditorium, theatre, hall or classroom.
+  SEATED_HALL
+  /// Blocks of seats around a court, pitch or stage: an arena or stadium.
+  ARENA
+  /// No seats. People stand or sit anywhere; sold by number of places.
+  STANDING
+}
+
 enum ScreenStatus {
   ACTIVE
   MAINTENANCE
@@ -1125,6 +1142,10 @@ model Screen {
   capacity   Int
   /// Operational state. Existing rows default ACTIVE, so this is purely additive.
   status     ScreenStatus @default(ACTIVE)
+  /// What kind of space this is. Nullable and never backfilled: a row written before the
+  /// column existed has not been asked, and a guess here would offer it the wrong templates.
+  /// Readers fall back to CINEMA_SCREEN when the space belongs to a cinema, else "not said".
+  kind       SpaceKind?
   createdAt  DateTime     @default(now())
   updatedAt  DateTime     @updatedAt
 

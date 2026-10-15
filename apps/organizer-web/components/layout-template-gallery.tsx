@@ -6,6 +6,7 @@ import {
   LAYOUT_GALLERY,
   VENUE_TEMPLATES,
   type LayoutGalleryOption,
+  type VenueTemplateKey,
 } from '@eticketsgo/shared-types';
 import { templateBookable } from '@/lib/layout-gallery';
 import { LayoutThumbnail } from './layout-thumbnail';
@@ -44,14 +45,28 @@ const MORE: LayoutGalleryOption[] = VENUE_TEMPLATES.filter(
 export interface LayoutTemplateGalleryProps {
   selectedId?: string | null;
   onChoose: (option: LayoutGalleryOption, outline: LayoutTemplateOutline | null) => void;
-  /** Hidden where a GA choice has nothing to do, e.g. rebuilding an existing seated draft. */
-  includeGeneralAdmission?: boolean;
+  /**
+   * The templates that fit this space's kind (`templatesForSpaceKind`). Null when the kind was
+   * never said, which offers every template as before.
+   *
+   * A cinema screen used to be offered a 7,628-seat basketball arena and an 11,712-seat
+   * concert arena beside its own two grids. Only shapes the space can be are shown now, all in
+   * one grid, since a filtered list is short enough not to need a "More" fold.
+   */
+  templates?: readonly VenueTemplateKey[] | null;
 }
+
+/*
+  No "General admission" card. It sat in a list of LAYOUTS and its whole message was "this needs
+  no layout" - a choice that, once chosen, could only be undone. Standing is now a kind of SPACE,
+  said once when the space is created, so a layout picker never has to offer "no layout".
+*/
+const SEATED = LAYOUT_GALLERY.filter((g) => g.style !== 'GA');
 
 export function LayoutTemplateGallery({
   selectedId,
   onChoose,
-  includeGeneralAdmission = true,
+  templates,
 }: LayoutTemplateGalleryProps) {
   const outlinesQ = useQuery({
     queryKey: ['layout-templates'],
@@ -62,7 +77,10 @@ export function LayoutTemplateGallery({
   const outlineFor = (option: LayoutGalleryOption) =>
     option.template ? (outlinesQ.data?.find((o) => o.key === option.template) ?? null) : null;
 
-  const featured = LAYOUT_GALLERY.filter((g) => includeGeneralAdmission || g.style !== 'GA');
+  const fits = (option: LayoutGalleryOption) =>
+    !templates || (!!option.template && templates.includes(option.template));
+  const featured = templates ? [...SEATED, ...MORE].filter(fits) : SEATED;
+  const more = templates ? [] : MORE;
 
   const card = (option: LayoutGalleryOption) => {
     // Grey words on the primary tint are 4.3:1, under AA, so a chosen card uses the primary text colour.
@@ -134,13 +152,13 @@ export function LayoutTemplateGallery({
       >
         {featured.map((option) => card(option))}
       </div>
-      {MORE.length > 0 ? (
+      {more.length > 0 ? (
         <details className="rounded-lg border border-border">
           <summary className="cursor-pointer select-none px-3 py-2 text-caption font-medium text-text-secondary">
-            More venue shapes ({MORE.length})
+            More venue shapes ({more.length})
           </summary>
           <div className="grid grid-cols-1 gap-3 border-t border-border p-3 sm:grid-cols-2">
-            {MORE.map((option) => card(option))}
+            {more.map((option) => card(option))}
           </div>
         </details>
       ) : null}

@@ -4,6 +4,8 @@ import {
   spaceCapabilityLabel,
   spaceHref,
   spaceKindLabel,
+  priceToMinor,
+  venueCurrency,
 } from './venue-spaces';
 import type { Venue, VenueSpace } from '@eticketsgo/web-kit';
 
@@ -89,13 +91,18 @@ describe('describing a space in a list', () => {
     );
   });
 
-  it('calls everything else simply a space', () => {
-    // An arena, an auditorium and a concert hall need no separate words to sell seats.
+  it('calls a space by the kind chosen when it was made, and an older one simply a space', () => {
+    expect(spaceKindLabel(space('s', 'v1', { kind: 'ARENA' }))).toBe('Arena or stadium');
+    expect(spaceKindLabel(space('s', 'v1', { kind: 'STANDING' }))).toBe('Standing or open floor');
     expect(spaceKindLabel(space('s', 'v1'))).toBe('Space');
   });
 
   it('says what a space can sell today rather than showing a status code', () => {
-    expect(spaceCapabilityLabel(space('s', 'v1'))).toMatch(/general admission only/i);
+    // No layout is not "general admission" unless the space is a standing one.
+    expect(spaceCapabilityLabel(space('s', 'v1'))).toBe('No seat layout yet');
+    expect(spaceCapabilityLabel(space('s', 'v1', { kind: 'STANDING', capacity: 800 }))).toMatch(
+      /General admission/,
+    );
     // Asserted in parts rather than as one regex: a single pattern spanning the whole string
     // fails on punctuation that has nothing to do with what is being checked.
     const label = spaceCapabilityLabel(space('s', 'v1', { layout: LAYOUT }));
@@ -108,15 +115,29 @@ describe('describing a space in a list', () => {
 describe('where a space links to', () => {
   /*
     Every space on the venues page linked to /organizer/cinemas/<space id>. That route takes a
-    CINEMA id, so every link opened an error - the arena's, and every cinema screen's too.
+    CINEMA id, so every link opened an error. Then a cinema screen and a hall had two different
+    kinds of page. Now every space has one page, at one address.
   */
-  it('sends a space that is not a cinema screen to its own layouts page', () => {
-    expect(spaceHref({ id: 'space-1', cinemaId: null })).toBe('/organizer/spaces/space-1/layouts');
+  it('sends every space to its own page, cinema screen or not', () => {
+    expect(spaceHref({ id: 'space-1' })).toBe('/organizer/spaces/space-1');
+    const href = spaceHref({ id: 'screen-1' });
+    expect(href).toBe('/organizer/spaces/screen-1');
+    expect(href).not.toBe('/organizer/cinemas/screen-1');
+  });
+});
+
+describe('pricing a space', () => {
+  it("labels the price in the VENUE's currency, and refuses to guess for an unplaced venue", () => {
+    expect(venueCurrency('India')).toEqual({ code: 'INR', symbol: '₹' });
+    expect(venueCurrency('United States')?.code).toBe('USD');
+    expect(venueCurrency(null)).toBeNull();
   });
 
-  it("keeps a cinema screen under its cinema, addressed by the CINEMA's id", () => {
-    const href = spaceHref({ id: 'screen-1', cinemaId: 'cinema-1' });
-    expect(href).toBe('/organizer/cinemas/cinema-1/screens/screen-1/layouts');
-    expect(href).not.toBe('/organizer/cinemas/screen-1');
+  it('names an empty or bad price instead of disabling the button', () => {
+    expect(priceToMinor('')).toEqual({ problem: expect.stringMatching(/cheapest seat/) });
+    expect(priceToMinor('-5')).toHaveProperty('problem');
+    expect(priceToMinor('abc')).toHaveProperty('problem');
+    expect(priceToMinor('250')).toEqual({ minor: 25_000 });
+    expect(priceToMinor('0')).toEqual({ minor: 0 });
   });
 });

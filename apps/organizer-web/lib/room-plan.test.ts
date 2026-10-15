@@ -5,6 +5,7 @@ import {
   MAX_SECTION_SEATS,
   ROOM_SHAPES,
   planRoom,
+  roomShapesFor,
   rowLabel,
   suggestedAisle,
 } from './room-plan';
@@ -181,5 +182,20 @@ describe('suggestedAisle', () => {
     // A gap in an eight-seat row costs a seat and saves nobody a walk.
     expect(suggestedAisle(8)).toBeNull();
     expect(suggestedAisle(6)).toBeNull();
+  });
+});
+
+describe('roomShapesFor', () => {
+  it('offers a cinema screen screen sizes only, and a hall halls only', () => {
+    expect(roomShapesFor('CINEMA_SCREEN').map((s) => s.key)).toEqual([
+      'SCREENING_ROOM',
+      'STANDARD_SCREEN',
+      'LARGE_SCREEN',
+    ]);
+    expect(roomShapesFor('SEATED_HALL').map((s) => s.key)).toEqual(['AUDITORIUM', 'FLAT_HALL']);
+  });
+
+  it('offers every shape when the kind was never said', () => {
+    expect(roomShapesFor(null)).toEqual(ROOM_SHAPES);
   });
 });
