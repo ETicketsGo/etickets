@@ -5,7 +5,6 @@ import { useState } from 'react';
 import {
   api,
   DataTable,
-  StatusBadge,
   Select,
   SearchInput,
   Pagination,
@@ -15,6 +14,7 @@ import {
   type Column,
   type AdminMovieRow,
 } from '@eticketsgo/web-kit';
+import { StatusBadge } from '@/components/status-badge';
 
 const STATUSES = ['DRAFT', 'PUBLISHED', 'ARCHIVED'];
 

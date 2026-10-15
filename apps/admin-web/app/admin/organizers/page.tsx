@@ -9,7 +9,6 @@ import {
   Badge,
   Card,
   DataTable,
-  StatusBadge,
   Select,
   SearchInput,
   Pagination,
@@ -18,10 +17,11 @@ import {
   type GroupSelection,
   EmptyState,
   dateOnly,
-  titleCase,
   type Column,
   type Organization,
 } from '@eticketsgo/web-kit';
+import { StatusBadge } from '@/components/status-badge';
+import { statusWords } from '@/lib/words';
 import { CountryFilter, CountryLabel, useCountryParam } from '../../../components/country-filter';
 
 /**
@@ -188,7 +188,7 @@ export default function OrganizersPage() {
             <option value="">Every status</option>
             {STATUSES.map((s) => (
               <option key={s} value={s}>
-                {titleCase(s)}
+                {statusWords(s)}
               </option>
             ))}
           </Select>
@@ -197,7 +197,7 @@ export default function OrganizersPage() {
       </Card>
 
       <Card
-        title={status ? `${titleCase(status)} organizers` : 'All organizers'}
+        title={status ? `${statusWords(status)} organizers` : 'All organizers'}
         action={data ? <Badge tone="neutral">{data.meta.total} matching</Badge> : undefined}
       >
         <GroupedSummary
