@@ -1,5 +1,5 @@
 import { HttpStatus, Injectable, Optional } from '@nestjs/common';
-import { Role, SessionStatus, marketFor, venueZone } from '@eticketsgo/shared-types';
+import { Role, SessionStatus, marketFor, regionZone, venueZone } from '@eticketsgo/shared-types';
 import { DEFAULT_CINEMA_TIMEZONE } from '@eticketsgo/validation';
 import type {
   CreateCinemaInput,
@@ -54,7 +54,11 @@ export class CinemasService {
 
   async create(user: RequestUser, organizationId: string, input: CreateCinemaInput) {
     await this.access.assertMember(user, organizationId, ORGANIZER_ROLES);
-    let parentVenue: { timezone: string | null; country: string | null } | null = null;
+    let parentVenue: {
+      timezone: string | null;
+      country: string | null;
+      region: string | null;
+    } | null = null;
     if (input.venueId) {
       const venue = await this.prisma.venue.findUnique({ where: { id: input.venueId } });
       parentVenue = venue;
@@ -91,13 +95,22 @@ export class CinemasService {
 
       The schema used to default every space to Asia/Kolkata when no zone was sent, so a Boise
       or Sydney space created without one ran on Indian time (and the organizer console never
-      sent one). Now: the zone given; else the venue's own zone, or its country's only zone;
-      else, for a country with several zones, a clear refusal - guessing between Eastern and
+      sent one). Now: the zone given; else the venue's own zone, or its country's only zone, or
+      the zone its state keeps; else, for a country with several zones and no state to settle
+      it, a clear refusal - guessing between Eastern and
       Pacific is how a 19:00 show sells as 16:00. A space with no country at all keeps the old
       default; it cannot be priced anyway (currency fails closed until a country is set).
     */
-    const where = parentVenue ?? { timezone: null, country: input.country ?? null };
-    const timezone = input.timezone ?? venueZone(where.timezone, where.country);
+    const where = parentVenue ?? {
+      timezone: null,
+      country: input.country ?? null,
+      region: input.region ?? null,
+    };
+    // The state settles it where the country does not: Idaho keeps Boise time, Ontario Toronto's.
+    const timezone =
+      input.timezone ??
+      venueZone(where.timezone, where.country) ??
+      regionZone(where.country, where.region);
     if (!timezone && marketFor(where.country)) {
       throw new AppException(
         ErrorCodes.VALIDATION_FAILED,

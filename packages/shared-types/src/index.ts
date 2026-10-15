@@ -16,6 +16,7 @@ export * from './country';
 export * from './legal';
 export * from './india-states';
 export * from './markets';
+export * from './region-timezones';
 export * from './viewer-today';
 export * from './notification-routing';
 export * from './notification-delivery';

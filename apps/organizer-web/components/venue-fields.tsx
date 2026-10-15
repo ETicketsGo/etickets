@@ -1,6 +1,7 @@
 'use client';
 
 import { Input, Select, LocationFields, venueAddressLine, type Venue } from '@eticketsgo/web-kit';
+import { zoneInWords } from '@eticketsgo/shared-types';
 import { type VenueDraft } from './venue-draft';
 
 /*
@@ -101,8 +102,8 @@ export function InheritedVenueLocation({ venue }: { venue: Venue }) {
       <p className="mt-1 font-medium text-text-primary">{venue.name}</p>
       <p className="text-[0.9375rem] text-text-secondary">{line}</p>
       <p className="mt-1 text-caption text-text-muted">
-        {venue.timezone ? <>{venue.timezone} &middot; </> : null}Inherited from the venue. Not asked
-        again.
+        {venue.timezone ? <>{zoneInWords(venue.timezone)} &middot; </> : null}Inherited from the
+        venue. Not asked again.
       </p>
     </div>
   );

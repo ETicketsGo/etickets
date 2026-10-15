@@ -1,5 +1,5 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
-import { Role, effectiveSpaceKind, unambiguousZoneFor, venueZone } from '@eticketsgo/shared-types';
+import { Role, effectiveSpaceKind, venueZone, zoneForPlace } from '@eticketsgo/shared-types';
 import type { CreateScreenInput, CreateVenueInput, UpdateVenueInput } from '@eticketsgo/validation';
 import { PrismaService } from '../prisma/prisma.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
@@ -34,11 +34,18 @@ export class VenuesService {
         region: input.region,
         /*
           A country is not a timezone in general - several launch markets span more than one -
-          so it is inferred only where the country has exactly ONE (India, the UK, the UAE,
-          Singapore). There it is not a guess, and leaving it empty rendered every show time in
-          the buyer's browser zone instead of the venue's.
+          so without a zone from the caller it comes from the STATE where the state settles it
+          (Idaho keeps Boise time, Texas Chicago's), else from a country with exactly ONE zone
+          (India, the UK, the UAE, Singapore). Neither is a guess, and leaving it empty
+          rendered every show time in the buyer's browser zone instead of the venue's.
+
+          A zone the caller DID send is kept, even when it disagrees with the state. A venue in
+          El Paso is on Mountain time though Texas is Central; overriding an explicit answer
+          with a table would be the same silent wrong answer this replaces, pointed the other
+          way. The organizer form now sets the zone from the state and says so in words, which
+          is where a contradiction can be seen and fixed by a person.
         */
-        timezone: input.timezone ?? unambiguousZoneFor(input.country) ?? undefined,
+        timezone: input.timezone ?? zoneForPlace(input.country, input.region) ?? undefined,
         address: input.address,
         capacity: input.capacity,
       },
@@ -58,7 +65,7 @@ export class VenuesService {
   async update(user: RequestUser, id: string, input: UpdateVenueInput) {
     const venue = await this.prisma.venue.findUnique({
       where: { id },
-      select: { id: true, organizationId: true },
+      select: { id: true, organizationId: true, country: true, region: true, timezone: true },
     });
     if (!venue) {
       throw new AppException(ErrorCodes.NOT_FOUND, 'Venue not found.', HttpStatus.NOT_FOUND);
@@ -67,6 +74,15 @@ export class VenuesService {
       Role.ORGANIZER_OWNER,
       Role.ORGANIZER_MANAGER,
     ]);
+    /*
+      A venue that has NO zone yet takes the one its place settles, the same rule as create.
+      A stored zone is never moved by a state change alone: it may already time sold shows,
+      and changing it is a decision the organizer makes by sending a zone.
+    */
+    const filledZone =
+      input.timezone === undefined && !venue.timezone
+        ? zoneForPlace(input.country ?? venue.country, input.region ?? venue.region)
+        : null;
 
     return this.prisma.venue.update({
       where: { id },
@@ -76,6 +92,7 @@ export class VenuesService {
         ...(input.country !== undefined ? { country: input.country } : {}),
         ...(input.region !== undefined ? { region: input.region } : {}),
         ...(input.timezone !== undefined ? { timezone: input.timezone } : {}),
+        ...(filledZone ? { timezone: filledZone } : {}),
         ...(input.address !== undefined ? { address: input.address } : {}),
         ...(input.capacity !== undefined ? { capacity: input.capacity } : {}),
       },

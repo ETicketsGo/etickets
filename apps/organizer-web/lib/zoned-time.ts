@@ -1,4 +1,4 @@
-import { venueZone } from '@eticketsgo/shared-types';
+import { venueZone, zoneInWords } from '@eticketsgo/shared-types';
 
 /**
  * Show times are wall-clock times AT THE VENUE.
@@ -57,8 +57,17 @@ export function venueInputZone(
   return { zone: Intl.DateTimeFormat().resolvedOptions().timeZone, known: false };
 }
 
-/** "Asia/Kolkata (IST)" - what the field label says the times are in. */
+/**
+ * "Mountain time (Boise)" - what the field label says the times are in.
+ *
+ * In words a person reads, the same words the venue form uses, so "Venue time" next to a show
+ * time and "Time zone" on the venue visibly agree. It used to be the database key plus TODAY's
+ * abbreviation, so a November show at a New York venue was labelled "EDT" in October. A zone
+ * the shared table has no words for keeps the old "Zone/Name (ABBR)" form.
+ */
 export function zoneLabel(timeZone: string, at: Date = new Date()): string {
+  const words = zoneInWords(timeZone);
+  if (words.includes('(')) return words;
   const abbrev =
     new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'short' })
       .formatToParts(at)

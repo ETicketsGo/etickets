@@ -32,6 +32,30 @@ describe('VenuesService.create time zone', () => {
     expect(create.mock.calls[0][0].data.timezone).toBeUndefined();
   });
 
+  it('takes the zone the state keeps when no zone was sent', async () => {
+    const { service, create } = make();
+    await service.create(user, 'org1', {
+      ...base,
+      city: 'Meridian',
+      country: 'United States',
+      region: 'Idaho',
+    } as never);
+    expect(create.mock.calls[0][0].data.timezone).toBe('America/Boise');
+  });
+
+  it('keeps a zone that was sent even when the state usually keeps another', async () => {
+    // El Paso, Texas is on Mountain time. A sent zone is an answer, never overridden by a table.
+    const { service, create } = make();
+    await service.create(user, 'org1', {
+      ...base,
+      city: 'El Paso',
+      country: 'United States',
+      region: 'Texas',
+      timezone: 'America/Denver',
+    } as never);
+    expect(create.mock.calls[0][0].data.timezone).toBe('America/Denver');
+  });
+
   it('keeps the zone the organizer chose', async () => {
     const { service, create } = make();
     await service.create(user, 'org1', {
@@ -40,5 +64,52 @@ describe('VenuesService.create time zone', () => {
       timezone: 'Asia/Dubai',
     } as never);
     expect(create.mock.calls[0][0].data.timezone).toBe('Asia/Dubai');
+  });
+});
+
+describe('VenuesService.update time zone', () => {
+  const user = { id: 'u1' } as never;
+  const make = (stored: {
+    country: string | null;
+    region: string | null;
+    timezone: string | null;
+  }) => {
+    const update = jest.fn(async ({ data }: { data: Record<string, unknown> }) => data);
+    const service = new VenuesService(
+      {
+        venue: {
+          findUnique: jest.fn(async () => ({ id: 'v1', organizationId: 'org1', ...stored })),
+          update,
+        },
+      } as never,
+      { assertMember: jest.fn(async () => undefined) } as never,
+    );
+    return { service, update };
+  };
+
+  it('fills a venue that has no zone from its state', async () => {
+    const { service, update } = make({ country: 'United States', region: null, timezone: null });
+    await service.update(user, 'v1', { region: 'Arizona' } as never);
+    expect(update.mock.calls[0][0].data.timezone).toBe('America/Phoenix');
+  });
+
+  it('never moves a stored zone because the state changed', async () => {
+    const { service, update } = make({
+      country: 'United States',
+      region: 'Idaho',
+      timezone: 'America/New_York',
+    });
+    await service.update(user, 'v1', { region: 'Texas' } as never);
+    expect(update.mock.calls[0][0].data.timezone).toBeUndefined();
+  });
+
+  it('writes the zone the organizer sent', async () => {
+    const { service, update } = make({
+      country: 'United States',
+      region: 'Idaho',
+      timezone: 'America/New_York',
+    });
+    await service.update(user, 'v1', { timezone: 'America/Boise' } as never);
+    expect(update.mock.calls[0][0].data.timezone).toBe('America/Boise');
   });
 });

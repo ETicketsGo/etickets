@@ -150,6 +150,32 @@ describe('CinemasService.create - the space clock comes from where it is', () =>
     expect(cinemaCreate).not.toHaveBeenCalled();
   });
 
+  it('gives a new venue the zone its state keeps when none was sent', async () => {
+    const { svc, venueCreate, cinemaCreate } = make(null);
+    await svc.create(OPERATOR, 'org-a', {
+      name: 'Screen',
+      city: 'Phoenix',
+      country: 'US',
+      region: 'Arizona',
+    } as never);
+    expect(venueCreate.mock.calls[0][0].data.timezone).toBe('America/Phoenix');
+    expect(cinemaCreate.mock.calls[0][0].data.timezone).toBe('America/Phoenix');
+  });
+
+  it('takes an existing zone-less venue state zone', async () => {
+    const { svc, cinemaCreate } = make({
+      timezone: null,
+      country: 'Canada',
+      region: 'Ontario',
+    } as never);
+    await svc.create(OPERATOR, 'org-a', {
+      venueId: 'v1',
+      name: 'Screen',
+      city: 'Toronto',
+    } as never);
+    expect(cinemaCreate.mock.calls[0][0].data.timezone).toBe('America/Toronto');
+  });
+
   it('gives a new US venue the zone it was told, and refuses one without', async () => {
     const told = make(null);
     await told.svc.create(OPERATOR, 'org-a', {
