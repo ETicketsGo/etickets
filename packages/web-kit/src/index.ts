@@ -44,6 +44,7 @@ export {
 export * from './datetime-field';
 export * from './datetime-value';
 export * from './venue-map';
+export * from './colour-contrast';
 export * from './buyer-seat-map';
 export * from './buyer-seat-legend';
 export * from './price-breakdown';

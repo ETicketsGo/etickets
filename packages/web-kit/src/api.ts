@@ -3931,6 +3931,12 @@ export interface VenueSectionSummary {
   totalCount: number;
   priceMinorFrom: number | null;
   priceMinorTo: number | null;
+  /**
+   * The colour and name of the ticket category most of the block's seats are in, so the map can
+   * show WHERE each price is. Absent from an older API, which the map draws in a neutral colour.
+   */
+  colorHex?: string | null;
+  categoryName?: string | null;
 }
 
 /**

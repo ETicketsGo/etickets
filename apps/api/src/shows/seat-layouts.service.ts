@@ -8,6 +8,7 @@ import type {
   UpdateSeatLayoutInput,
 } from '@eticketsgo/validation';
 import { toLayoutDocument, writeLayoutDocument } from './seat-layout-document';
+import { dominantCategoryId } from './shows.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
 import { AppException, ErrorCodes } from '../common/errors';
@@ -1046,12 +1047,20 @@ export class SeatLayoutsService {
           ...sections.map((sec) => {
             const mine = counts.filter((c) => c.sectionId === sec.id);
             const total = mine.reduce((n, c) => n + Number(c.count), 0);
+            // The same colour rule as the buyer's map: the category most of its seats are in.
+            const main = layout.categories.find(
+              (c) =>
+                c.id ===
+                dominantCategoryId(new Map(mine.map((m) => [m.seatCategoryId, Number(m.count)]))),
+            );
             const prices = mine
               .map((c) => priceOf.get(c.seatCategoryId))
               .filter((p): p is number => typeof p === 'number');
             return {
               id: sec.id,
               kind: 'SECTION' as const,
+              colorHex: main?.colorHex ?? null,
+              categoryName: main?.name ?? null,
               name: sec.name,
               shape: sec.shape ?? null,
               labelX: sec.labelX,
@@ -1066,9 +1075,12 @@ export class SeatLayoutsService {
           }),
           ...layout.zones.map((zone) => {
             const price = zone.categoryId ? (priceOf.get(zone.categoryId) ?? null) : null;
+            const zoneCategory = layout.categories.find((c) => c.id === zone.categoryId);
             return {
               id: zone.id,
               kind: 'ZONE' as const,
+              colorHex: zoneCategory?.colorHex ?? null,
+              categoryName: zoneCategory?.name ?? null,
               name: zone.name,
               shape: zone.shape ?? null,
               labelX: zone.labelX,
