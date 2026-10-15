@@ -20,6 +20,7 @@ import {
 } from '@eticketsgo/web-kit';
 import { OverrideSummary, SeatMap } from './seat-map';
 import { SeatOverrideDialog } from './seat-override-dialog';
+import { localDayBounds } from '@/lib/zoned-time';
 import {
   formatLocalTime,
   formatMoney,
@@ -79,13 +80,13 @@ export default function LiveOperationsPage() {
   // The whole day in ONE request. A busy multiplex has fifty shows, and per-show calls would
   // make this the slowest page in the product.
   const boardQ = useQuery({
-    queryKey: ['cinema', cinemaId, 'occupancy', date],
-    queryFn: () =>
-      api.theaterOps.cinemaOccupancy(
-        cinemaId,
-        new Date(`${date}T00:00:00Z`).toISOString(),
-        new Date(`${date}T23:59:59Z`).toISOString(),
-      ),
+    queryKey: ['cinema', cinemaId, 'occupancy', date, timezone],
+    // The cinema's own day, midnight to midnight where it is - never the UTC day.
+    queryFn: () => {
+      const day = localDayBounds(date, timezone as string);
+      return api.theaterOps.cinemaOccupancy(cinemaId, day.from, day.to);
+    },
+    enabled: !!date && !!timezone,
     refetchInterval: POLL_MS,
   });
 
@@ -131,8 +132,15 @@ export default function LiveOperationsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title={cinemaQ.data ? `${cinemaQ.data.name} — live operations` : 'Live operations'}
+        title={cinemaQ.data ? `${cinemaQ.data.name} - live operations` : 'Live operations'}
         description="Occupancy, seat states and overrides for shows in progress."
+        breadcrumbs={[
+          { label: 'Venues & seating', href: '/organizer/venues' },
+          ...(cinemaQ.data
+            ? [{ label: cinemaQ.data.name, href: `/organizer/cinemas/${cinemaId}` }]
+            : []),
+          { label: 'Live operations' },
+        ]}
       />
 
       <Card>

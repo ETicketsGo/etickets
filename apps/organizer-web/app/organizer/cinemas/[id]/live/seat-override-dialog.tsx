@@ -23,8 +23,10 @@ import {
   OVERRIDE_KINDS,
   OVERRIDE_LABEL,
   OVERRIDE_TONE,
+  SEAT_STATUS_LABEL,
   seatActions,
 } from './seat-presentation';
+import { wallClockToInstant } from '@/lib/zoned-time';
 
 /**
  * Inspect one seat and change its state.
@@ -93,7 +95,9 @@ export function SeatOverrideDialog({
         seatIds: [seat.seatId],
         kind,
         reason: reason.trim(),
-        expiresAt: expiresAt ? new Date(expiresAt).toISOString() : undefined,
+        // Cinema time, like every other time on this page: `new Date(value)` read the
+        // typed "18:00" in the browser's zone, so an operator elsewhere set the wrong hour.
+        expiresAt: expiresAt ? wallClockToInstant(expiresAt, timezone).toISOString() : undefined,
         housePurpose: kind === 'HOUSE' ? (housePurpose as never) : undefined,
       }),
     onSuccess: handleResult,
@@ -120,7 +124,9 @@ export function SeatOverrideDialog({
           <dt className="text-text-muted">Status</dt>
           <dd>
             <Badge tone={seat.overrideKind ? OVERRIDE_TONE[seat.overrideKind] : 'neutral'}>
-              {seat.overrideKind ? OVERRIDE_LABEL[seat.overrideKind] : seat.status}
+              {seat.overrideKind
+                ? OVERRIDE_LABEL[seat.overrideKind]
+                : (SEAT_STATUS_LABEL[seat.status] ?? seat.status)}
             </Badge>
           </dd>
           {seat.kind !== 'SEAT' ? (
@@ -206,7 +212,7 @@ export function SeatOverrideDialog({
             {!isBlocked && kind === 'MAINTENANCE' ? (
               <div>
                 <label htmlFor="ov-expiry" className="mb-1 block text-sm font-medium">
-                  Return to sale at (optional)
+                  Return to sale at (optional, cinema time)
                 </label>
                 <Input
                   id="ov-expiry"

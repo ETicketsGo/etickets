@@ -17,6 +17,7 @@ import {
 } from '@eticketsgo/web-kit';
 import { api } from '@/lib/api';
 import { EventCard } from '@/components/event-card';
+import { MovieCard } from '@/components/movie-card';
 import { EmptyPlace, PlaceSections } from '@/components/place-sections';
 import { usePlaceGroups } from '@/lib/use-place-groups';
 import { Button, EmptyState, ErrorState, Input, Select } from '@/components/ui';
@@ -223,6 +224,29 @@ export default function EventsPage() {
     queryKey: ['events', request, page],
     queryFn: () => api.listEvents({ pageSize: String(PAGE_SIZE), page: String(page), ...request }),
   });
+
+  /*
+    Films that match the words typed, in the same place.
+
+    Walking QA (2026-10-15): the header search says "Search events, films, venues and artists",
+    but typing a film's title here answered "No events match your search" - films are sold
+    through their own listing, which this page never asked. Only on a text search, and only
+    films with a show that can be bought (the film list's own rule).
+  */
+  const filmSearch = applied.q?.trim();
+  const filmsQ = useQuery({
+    queryKey: ['movies-search', filmSearch, request.city, request.country],
+    queryFn: () =>
+      api.listMovies({
+        q: filmSearch,
+        ...(request.city ? { city: request.city as string } : {}),
+        ...(!request.city && request.country ? { country: request.country as string } : {}),
+      }),
+    enabled: Boolean(filmSearch),
+    staleTime: 60_000,
+  });
+  const films = filmSearch ? (filmsQ.data ?? []) : [];
+  const ts = useTranslations('showtimes.search');
 
   /*
     The same search with no place on it, for the groups UNDER the results.
@@ -532,6 +556,22 @@ export default function EventsPage() {
         </p>
       )}
 
+      {films.length > 0 ? (
+        <section aria-labelledby="film-results" className="space-y-3">
+          <div>
+            <h2 id="film-results" className="text-title font-semibold text-text-primary">
+              {ts('filmsHeading')}
+            </h2>
+            <p className="text-caption text-text-muted">{ts('filmsHint')}</p>
+          </div>
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+            {films.map((m) => (
+              <MovieCard key={m.id} movie={m} />
+            ))}
+          </div>
+        </section>
+      ) : null}
+
       {isError ? (
         <ErrorState
           message="We couldn't load events. Please try again."
@@ -583,7 +623,7 @@ export default function EventsPage() {
         */
       placeOnly ? (
         <EmptyPlace place={placeOnly} />
-      ) : (
+      ) : films.length > 0 ? null : (
         <EmptyState
           title="No events match your search"
           hint={

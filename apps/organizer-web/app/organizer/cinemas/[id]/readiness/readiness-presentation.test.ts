@@ -63,7 +63,12 @@ describe('summarise', () => {
         },
       ],
     });
-    expect(summarise(r)).toEqual({ ready: 1, warnings: 1, blockers: 1, overall: 'BLOCKED' });
+    expect(summarise(r)).toMatchObject({
+      ready: 1,
+      warnings: 1,
+      blockers: 1,
+      overall: 'BLOCKED',
+    });
   });
 
   it('uses the SERVER verdict, not a recomputed one', () => {
@@ -159,6 +164,40 @@ describe('headline', () => {
     expect(headline({ ready: 12, warnings: 0, blockers: 0, overall: 'READY' })).toMatch(
       /ready to open/i,
     );
+  });
+  // Walking QA: Telangana read as a to-do for the exhibitor, about a rule only we can add.
+  it('says who can fix a blocker the exhibitor cannot', () => {
+    const only = headline({
+      ready: 13,
+      warnings: 1,
+      blockers: 1,
+      overall: 'BLOCKED',
+      platformBlockers: 1,
+    });
+    expect(only).toBe(
+      '1 thing must be fixed before this cinema can open. Only ETicketsGo can fix it: contact support.',
+    );
+    const some = headline({
+      ready: 9,
+      warnings: 0,
+      blockers: 3,
+      overall: 'BLOCKED',
+      platformBlockers: 1,
+    });
+    expect(some).toMatch(/1 of them only ETicketsGo can fix\.$/);
+  });
+  it('counts a blocker with no fix path as one only the platform can clear', () => {
+    const r = report({
+      overall: 'BLOCKED',
+      sections: [
+        {
+          section: 'SALES',
+          level: 'BLOCKED',
+          checks: [check('TG', 'BLOCKED', 'SALES', null), check('MAP', 'BLOCKED', 'SALES')],
+        },
+      ],
+    });
+    expect(summarise(r).platformBlockers).toBe(1);
   });
 });
 

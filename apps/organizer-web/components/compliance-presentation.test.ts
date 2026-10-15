@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  aboveClassLimit,
   bookingFeeWording,
   classHasNoRate,
+  classOptionLabel,
+  classRateLines,
+  classificationMatters,
+  groupPrices,
+  orderReference,
   classificationSummary,
   complianceHeadline,
   missingRateWarning,
@@ -152,5 +158,146 @@ describe('classificationSummary (F3)', () => {
     );
     expect(h.text).toContain('seat class');
     expect(h.tone).toBe('error');
+  });
+});
+
+describe('limits by seat class (walk 2026-10-15)', () => {
+  const inr = (m: number) => `Rs ${m / 100}`;
+  const rate = (
+    regulatoryClass: 'REGULAR' | 'RECLINER' | 'PREMIUM' | 'NON_PREMIUM',
+    maxMinor: number | null,
+    sellable = true,
+  ) => ({
+    regulatoryClass,
+    regulated: true,
+    sellable,
+    maxMinor,
+    minMinor: null,
+    regulatoryReference: sellable ? 'G.O.Ms.No.13' : null,
+    status: 'REQUIRES_APPROVAL',
+  });
+  const AP = [
+    rate('REGULAR', 15000),
+    rate('RECLINER', 25000),
+    rate('PREMIUM', null, false),
+    rate('NON_PREMIUM', null, false),
+  ];
+
+  it('names the order from the classes when the room has several', () => {
+    expect(
+      orderReference({
+        regulatoryReference: null,
+        status: 'INVALID_CINEMA_CLASSIFICATION',
+        classRates: AP,
+      }),
+    ).toBe('G.O.Ms.No.13');
+    expect(
+      orderReference({ regulatoryReference: null, status: 'NOT_REGULATED', classRates: [] }),
+    ).toBe('None applies');
+  });
+
+  it('says Telangana has no rules yet, rather than "None applies"', () => {
+    expect(
+      orderReference({
+        regulatoryReference: null,
+        status: 'POLICY_NOT_FOUND',
+        jurisdiction: {
+          country: 'India',
+          region: 'Telangana',
+          district: null,
+          city: 'Hyderabad',
+          localBodyType: null,
+        },
+      }),
+    ).toMatch(/No pricing rules on record for Telangana yet/);
+  });
+
+  it('lists every class with its limit', () => {
+    expect(classRateLines(AP, inr).map((l) => `${l.label}: ${l.text}`)).toEqual([
+      'Regular: Up to Rs 150',
+      'Recliner: Up to Rs 250',
+      'Premium: No rate here, so it cannot be sold online',
+      'Non-premium: No rate here, so it cannot be sold online',
+    ]);
+    expect(classRateLines([], inr)).toEqual([]);
+  });
+
+  it('asks for the cinema type only where an order prices by it', () => {
+    const unclassified = AP.map((r) => ({
+      ...r,
+      sellable: false,
+      maxMinor: null,
+      status: 'INVALID_CINEMA_CLASSIFICATION',
+    }));
+    expect(
+      classificationMatters({ status: 'INVALID_CINEMA_CLASSIFICATION', classRates: unclassified }),
+    ).toBe(true);
+    // Classified and priced: nothing to ask.
+    expect(classificationMatters({ status: 'INVALID_CINEMA_CLASSIFICATION', classRates: AP })).toBe(
+      false,
+    );
+    // Telangana: no rules, so the type would change nothing - even with an unmapped seat.
+    const telangana = AP.map((r) => ({ ...r, sellable: false, status: 'POLICY_NOT_FOUND' }));
+    expect(
+      classificationMatters({ status: 'INVALID_CINEMA_CLASSIFICATION', classRates: telangana }),
+    ).toBe(false);
+    expect(classificationMatters({ status: 'NOT_REGULATED', classRates: [] })).toBe(false);
+  });
+
+  it('says Telangana has no rules even when an unmapped seat hides it', () => {
+    const telangana = AP.map((r) => ({
+      ...r,
+      sellable: false,
+      regulatoryReference: null,
+      status: 'POLICY_NOT_FOUND',
+    }));
+    expect(
+      orderReference({
+        regulatoryReference: null,
+        status: 'INVALID_CINEMA_CLASSIFICATION',
+        classRates: telangana,
+        jurisdiction: {
+          country: 'India',
+          region: 'Telangana',
+          district: null,
+          city: 'Hyderabad',
+          localBodyType: null,
+        },
+      }),
+    ).toMatch(/No pricing rules on record for Telangana yet/);
+  });
+
+  it('groups the same price across shows into one line with a count', () => {
+    const p = (name: string, priceMinor: number, ok = true) => ({
+      name,
+      priceMinor,
+      ok,
+      reason: ok ? null : 'over',
+    });
+    const groups = groupPrices([
+      p('Regular', 15000),
+      p('Regular', 15000),
+      p('Recliner', 30000, false),
+      p('Regular', 15000),
+    ]);
+    expect(groups.map((g) => [g.name, g.priceMinor, g.shows])).toEqual([
+      ['Recliner', 30000, 1],
+      ['Regular', 15000, 3],
+    ]);
+  });
+
+  it('puts the limit on each class option', () => {
+    expect(classOptionLabel('REGULAR', AP, inr)).toBe('Regular - up to Rs 150');
+    expect(classOptionLabel('PREMIUM', AP, inr)).toBe('Premium - no rate here, will not sell');
+    expect(classOptionLabel('REGULAR', [], inr)).toBe('Regular');
+  });
+
+  it('warns when a category is priced above the class it is mapped to', () => {
+    const plat = { name: 'Platinum Executive', basePriceMinor: 20000, classRates: AP };
+    expect(aboveClassLimit({ ...plat, regulatoryClass: 'REGULAR' }, inr)).toMatch(
+      /Platinum Executive is priced at Rs 200, above the Rs 150 limit for a Regular seat/,
+    );
+    expect(aboveClassLimit({ ...plat, regulatoryClass: 'RECLINER' }, inr)).toBeNull();
+    expect(aboveClassLimit({ ...plat, regulatoryClass: null }, inr)).toBeNull();
   });
 });

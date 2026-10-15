@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { instantToWallClock, venueInputZone, wallClockToInstant } from './zoned-time';
+import {
+  instantToWallClock,
+  localDayBounds,
+  venueInputZone,
+  wallClockToInstant,
+} from './zoned-time';
 
 describe('show times are typed in the venue zone', () => {
   it('reads 19:00 at a Hyderabad venue as 19:00 IST, whatever zone the browser is in', () => {
@@ -45,5 +50,28 @@ describe('show times are typed in the venue zone', () => {
       known: true,
     });
     expect(venueInputZone({ timezone: null, country: 'US' }).known).toBe(false);
+  });
+});
+
+describe('localDayBounds: one day at the venue, not in UTC', () => {
+  it('holds a 19:00 Boise show on its own Friday', () => {
+    // Walking QA: Fri 30 Oct 19:00 MDT is 01:00Z on the 31st, and the board missed it.
+    const { from, to } = localDayBounds('2026-10-30', 'America/Denver');
+    expect(from).toBe('2026-10-30T06:00:00.000Z');
+    expect(to).toBe('2026-10-31T05:59:59.999Z');
+    const show = new Date('2026-10-31T01:00:00Z').getTime();
+    expect(show >= Date.parse(from) && show <= Date.parse(to)).toBe(true);
+  });
+
+  it('is the IST day in India', () => {
+    expect(localDayBounds('2026-11-20', 'Asia/Kolkata')).toEqual({
+      from: '2026-11-19T18:30:00.000Z',
+      to: '2026-11-20T18:29:59.999Z',
+    });
+  });
+
+  it('is 25 hours long on the night the clocks go back', () => {
+    const { from, to } = localDayBounds('2026-11-01', 'America/Denver');
+    expect((Date.parse(to) + 1 - Date.parse(from)) / 3_600_000).toBe(25);
   });
 });

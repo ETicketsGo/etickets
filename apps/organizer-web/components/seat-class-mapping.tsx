@@ -1,7 +1,12 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { classHasNoRate, missingRateWarning } from './compliance-presentation';
+import {
+  aboveClassLimit,
+  classHasNoRate,
+  classOptionLabel,
+  missingRateWarning,
+} from './compliance-presentation';
 import { api, Card, Select, Skeleton, errorMessage, money, useToast } from '@eticketsgo/web-kit';
 
 /**
@@ -60,16 +65,31 @@ export function SeatClassMapping({ cinemaId }: { cinemaId: string }) {
   if (q.isError || !q.data || q.data.length === 0) return null;
 
   const unmapped = q.data.filter((c) => !c.mapped).length;
+  // The same limits for every category of this cinema; read once for the option labels.
+  const rates = q.data[0]?.classRates;
+  const regulated = (rates ?? []).some((r) => r.regulated);
+  // A state with no rules at all (Telangana): no class sells, so one sentence, not one per seat.
+  const noRules = regulated && (rates ?? []).every((r) => r.status === 'POLICY_NOT_FOUND');
 
   return (
     // `id` so a readiness blocker can link straight here ("Set it under Seat classes").
     <div id="seat-classes" className="scroll-mt-24">
       <Card title="Seat classes">
         <p className="mb-4 text-[0.9375rem] text-text-secondary">
-          Rate orders set a maximum price per class of seat. Tell us which class each of your seat
-          categories belongs to — we don’t guess it from the name, because a “Lounger” and a
-          “Recliner” are the same seat to a regulator and different strings to a computer.
+          {regulated
+            ? 'The state sets the most a ticket may cost for each class of seat. Choose the class each of your seat categories is sold as. We do not guess it from the name: a "Lounger" and a "Recliner" are the same seat to the state. Each choice shows its limit here.'
+            : 'Rate orders set a maximum price per class of seat. Choose the class each of your seat categories belongs to. We do not guess it from the name.'}
         </p>
+
+        {noRules ? (
+          <p
+            role="status"
+            className="mb-4 rounded-md bg-tint-warning px-3 py-2 text-[0.9375rem] text-status-warning"
+          >
+            This state has no cinema pricing rules on record yet, so no seat here can be sold online
+            until ETicketsGo adds them. Map your seat categories now and they will be ready.
+          </p>
+        ) : null}
 
         {unmapped > 0 && (
           <p
@@ -108,13 +128,28 @@ export function SeatClassMapping({ cinemaId }: { cinemaId: string }) {
               >
                 {CLASSES.map((o) => (
                   <option key={o.value} value={o.value}>
-                    {o.label}
-                    {classHasNoRate(c.classHasRate, o.value) ? ' (no rate for this cinema)' : ''}
+                    {/*
+                      The limit on the option itself: "Regular - up to Rs 150" next to a Rs 200
+                      category says which class it cannot be before anyone picks it.
+                    */}
+                    {o.value === ''
+                      ? o.label
+                      : regulated
+                        ? classOptionLabel(o.value, rates, (m) => money(m, c.currency ?? 'INR'))
+                        : `${o.label}${classHasNoRate(c.classHasRate, o.value) ? ' (no rate for this cinema)' : ''}`}
                   </option>
                 ))}
               </Select>
               {/* Read-only: the server's own answer on whether this cinema's order prices the class. */}
-              {missingRateWarning(c) && (
+              {aboveClassLimit(c, (m) => money(m, c.currency ?? 'INR')) && (
+                <p
+                  role="status"
+                  className="w-full rounded-md bg-tint-warning px-3 py-2 text-caption text-status-warning"
+                >
+                  {aboveClassLimit(c, (m) => money(m, c.currency ?? 'INR'))}
+                </p>
+              )}
+              {!noRules && missingRateWarning(c) && (
                 <p
                   role="status"
                   className="w-full rounded-md bg-tint-warning px-3 py-2 text-caption text-status-warning"

@@ -138,5 +138,9 @@
       "failed": "We couldn't save your rating. Please try again.",
       "checkError": "We couldn't check whether you can rate this film."
     }
+  },
+  "search": {
+    "filmsHeading": "Films",
+    "filmsHint": "Films with showtimes that match your search."
   }
 }

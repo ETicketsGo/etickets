@@ -77,6 +77,7 @@ export function eventImageSource(
 export function portableImageUrl(url: string | null | undefined): string | null {
   if (!url) return null;
   if (!/^https?:\/\//i.test(url)) return url;
-  const at = url.indexOf('/api/public/events/');
+  // A film poster uploaded through the console is served from the same kind of route.
+  const at = url.search(/\/api\/public\/(events|movies)\//);
   return at >= 0 ? apiAssetUrl(url.slice(at + '/api'.length)) : url;
 }

@@ -2,7 +2,15 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { api, Card, Skeleton, money, type PilotReadinessCheck } from '@eticketsgo/web-kit';
-import { bookingFeeWording, complianceHeadline, splitPrices } from './compliance-presentation';
+import {
+  bookingFeeWording,
+  classRateLines,
+  classificationMatters,
+  complianceHeadline,
+  groupPrices,
+  orderReference,
+  splitPrices,
+} from './compliance-presentation';
 
 /**
  * What an exhibitor is told about the order their cinema is priced under.
@@ -44,6 +52,12 @@ export function PricingCompliancePanel({
   const c = q.data;
   const headline = complianceHeadline(c, checks);
   const { current: currentPrices, history: pastPrices } = splitPrices(c.prices);
+  const inr = (m: number) => money(m, 'INR');
+  const classLines = classRateLines(c.classRates, inr);
+  const classified = Boolean(
+    c.jurisdiction.localBodyType && c.classification.cinemaFormat && c.classification.climateType,
+  );
+  const askClassification = !classified && classificationMatters(c);
 
   return (
     <Card title="Regulatory pricing">
@@ -87,23 +101,42 @@ export function PricingCompliancePanel({
               .map((v) => v!.replace(/_/g, ' ').toLowerCase())
               .join(', ') || 'Not classified'
           }
-          // Named as the fix rather than the fault: an unclassified cinema is something the
-          // organizer can correct in a minute, if they are told which field.
+          // Only where it changes the rate, and saying who sets it. The hint used to tell the
+          // exhibitor to "set the format and climate type", which no organizer screen offers
+          // (ETicketsGo records it, as the readiness blocker says), and it showed for places
+          // with no order at all - a US cinema, Telangana.
           hint={
-            c.classification.cinemaFormat && c.classification.climateType
-              ? undefined
-              : 'Set the format and climate type so the correct rate applies.'
+            askClassification
+              ? 'ETicketsGo records the cinema type (local body, format and cooling). Contact support to set it.'
+              : undefined
           }
         />
-        <Row label="Order" value={c.regulatoryReference ?? 'None applies'} />
-        <Row
-          label="Maximum permitted price"
-          value={
-            c.maxTicketPriceMinor != null
-              ? money(c.maxTicketPriceMinor, 'INR')
-              : 'Not recorded for this classification'
-          }
-        />
+        <Row label="Order" value={orderReference(c)} />
+        {classLines.length > 0 && c.maxTicketPriceMinor == null ? (
+          <div>
+            <dt className="text-caption uppercase tracking-wide text-text-muted">
+              Maximum price by seat class
+            </dt>
+            <dd className="text-text-primary">
+              <ul className="space-y-0.5">
+                {classLines.map((l) => (
+                  <li key={l.cls} className={l.sellable ? '' : 'text-text-secondary'}>
+                    <span className="font-medium">{l.label}:</span> {l.text}
+                  </li>
+                ))}
+              </ul>
+            </dd>
+          </div>
+        ) : (
+          <Row
+            label="Maximum permitted price"
+            value={
+              c.maxTicketPriceMinor != null
+                ? money(c.maxTicketPriceMinor, 'INR')
+                : 'Not recorded for this classification'
+            }
+          />
+        )}
         {c.maintenance && (
           <Row
             label="Maintenance charge"
@@ -120,19 +153,22 @@ export function PricingCompliancePanel({
       {currentPrices.length > 0 && (
         <div className="mt-5">
           <h3 className="text-caption font-semibold uppercase tracking-wide text-text-secondary">
-            Your ticket prices
+            Your ticket prices on upcoming shows
           </h3>
           <ul className="mt-2 space-y-1">
-            {currentPrices.map((p) => (
+            {groupPrices(currentPrices).map((p) => (
               <li
-                key={p.ticketTypeId}
+                key={`${p.name}-${p.priceMinor}-${p.ok}`}
                 className={`flex items-baseline justify-between gap-4 text-[0.9375rem] ${
                   p.ok ? 'text-text-secondary' : 'text-status-error'
                 }`}
               >
                 <span>
                   {p.name}
-                  {/* The reason, inline, next to the price it refers to — not in a banner
+                  <span className="ml-2 text-caption text-text-muted">
+                    {p.shows} {p.shows === 1 ? 'show' : 'shows'}
+                  </span>
+                  {/* The reason, inline, next to the price it refers to - not in a banner
                       the organizer has to hold in their head while scrolling. */}
                   {!p.ok && p.reason && <span className="ml-2 text-caption">{p.reason}</span>}
                 </span>
@@ -150,12 +186,17 @@ export function PricingCompliancePanel({
             Earlier shows ({pastPrices.length})
           </summary>
           <ul className="mt-2 space-y-1">
-            {pastPrices.map((p) => (
+            {groupPrices(pastPrices).map((p) => (
               <li
-                key={p.ticketTypeId}
+                key={`${p.name}-${p.priceMinor}-${p.ok}`}
                 className="flex items-baseline justify-between gap-4 text-[0.9375rem] text-text-muted"
               >
-                <span>{p.name}</span>
+                <span>
+                  {p.name}
+                  <span className="ml-2 text-caption">
+                    {p.shows} {p.shows === 1 ? 'show' : 'shows'}
+                  </span>
+                </span>
                 <span className="tabular-nums">{money(p.priceMinor, 'INR')}</span>
               </li>
             ))}

@@ -36,7 +36,7 @@ import {
   shiftDate,
   todayLabel,
 } from './show-status';
-import { BulkScheduler } from './bulk-scheduler';
+import { ScheduleRunDialog } from '@/components/schedule-run-dialog';
 import { CopyScheduleDialog } from './copy-schedule';
 import { EditShowDialog } from './edit-show';
 import { ShowPricingDialog } from './show-pricing';
@@ -131,6 +131,15 @@ export default function CinemaSchedulePage() {
   */
   const { activeOrg } = useOrg();
   const zoneOfShow = useCallback(() => timezone ?? undefined, [timezone]);
+  /*
+    Films for "Create shows". Ended films are left out: nobody books a run of last year's film,
+    and a library of tens of titles is long enough already.
+  */
+  const filmsQ = useQuery({
+    queryKey: ['movies', activeOrg.id],
+    queryFn: () => api.movies.list(activeOrg.id),
+    enabled: bulkOpen,
+  });
   const verdictOf = useShowVerdicts(activeOrg.id, rows, zoneOfShow);
 
   // Screens with nothing on them still get a row: an empty screen is the single most
@@ -375,16 +384,26 @@ export default function CinemaSchedulePage() {
         </div>
       )}
 
+      {/*
+        The same dialog the film page uses to schedule a run - film, screen, days, times and
+        prices, previewed before anything is written - with this cinema fixed. The schedule had
+        its own older form (times typed into a text box, no prices), so a run was planned two
+        different ways depending on where the operator started.
+      */}
       {bulkOpen ? (
-        <BulkScheduler
-          screens={allScreens}
-          defaultDate={date}
-          timezone={timezone}
+        <ScheduleRunDialog
+          open
+          title="Create shows"
+          movieId={null}
+          films={(filmsQ.data ?? [])
+            .filter((m) => m.status !== 'ARCHIVED')
+            .map((m) => ({ id: m.id, title: m.title, status: m.status }))}
+          cinemas={cinema ? [{ id: cinema.id, name: cinema.name }] : []}
+          lockedCinemaId={cinemaId}
+          defaultScreenId={screenFilter || undefined}
+          defaultFrom={date}
           onClose={() => setBulkOpen(false)}
-          onPublished={() => {
-            setBulkOpen(false);
-            void refresh();
-          }}
+          onScheduled={() => void refresh()}
         />
       ) : null}
 
@@ -393,6 +412,7 @@ export default function CinemaSchedulePage() {
           screens={allScreens}
           sourceDate={date}
           timezone={timezone}
+          cinemaId={cinemaId}
           onClose={() => setCopyOpen(false)}
           onCopied={() => {
             setCopyOpen(false);

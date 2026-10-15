@@ -70,6 +70,11 @@ export interface ReadinessSummary {
   warnings: number;
   blockers: number;
   overall: PilotReadinessLevel;
+  /**
+   * Blockers the server gives no fix path for: only ETicketsGo can clear them (Telangana's
+   * missing state rules, payment routing). Optional so a hand-built summary still reads.
+   */
+  platformBlockers?: number;
 }
 
 /**
@@ -86,6 +91,7 @@ export function summarise(report: PilotReadinessReport): ReadinessSummary {
     warnings: checks.filter((c) => c.level === 'WARNING').length,
     blockers: checks.filter((c) => c.level === 'BLOCKED').length,
     overall: report.overall ?? aggregate(checks.map((c) => c.level)),
+    platformBlockers: checks.filter((c) => c.level === 'BLOCKED' && !c.fixPath).length,
   };
 }
 
@@ -125,7 +131,18 @@ export function outstanding(report: PilotReadinessReport): PilotReadinessCheck[]
  */
 export function headline(summary: ReadinessSummary): string {
   if (summary.overall === 'BLOCKED') {
-    return `${summary.blockers} thing${summary.blockers === 1 ? '' : 's'} must be fixed before this cinema can open.`;
+    const n = summary.blockers;
+    const platform = summary.platformBlockers ?? 0;
+    const base = `${n} thing${n === 1 ? '' : 's'} must be fixed before this cinema can open.`;
+    /*
+      Who can fix it. Walking QA, the Telangana cinema said "1 thing must be fixed" about a
+      state rule only ETicketsGo can add, which reads as a to-do for the exhibitor.
+    */
+    if (platform === 0) return base;
+    if (platform >= n) {
+      return `${base} Only ETicketsGo can fix ${n === 1 ? 'it' : 'them'}: contact support.`;
+    }
+    return `${base} ${platform} of them only ETicketsGo can fix.`;
   }
   if (summary.overall === 'WARNING') {
     return `Ready to open, with ${summary.warnings} thing${

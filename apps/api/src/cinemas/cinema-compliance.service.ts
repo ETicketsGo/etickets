@@ -6,6 +6,11 @@ import { AuditService } from '../audit/audit.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import { CinemaPricingPolicyService } from '../pricing/cinema-policy/cinema-pricing-policy.service';
 import { applyPolicy, checkTicketPrice } from '../pricing/cinema-policy/apply-policy';
+import {
+  REGULATORY_CLASSES,
+  ceilingFrom,
+  type ClassCeiling,
+} from '../pricing/cinema-policy/class-ceilings';
 
 /**
  * What an organizer is told about the rules their cinema is priced under.
@@ -89,6 +94,17 @@ export interface ComplianceView {
   }[];
   /** Whether the server would currently refuse to sell. Reported, not enforced here. */
   blocksPublishing: boolean;
+  /**
+   * The limit for each regulatory seat class at this cinema, one class at a time - the way
+   * checkout prices a ticket. Empty when no pricing order applies here at all.
+   *
+   * The whole-room answer above can only name an order when the room has ONE class: a
+   * multiplex with regular seats and recliners resolves at the level of the state and states
+   * no ceiling, so the panel read "Order: None applies" for a cinema the Andhra Pradesh order
+   * plainly covers. These rows are what the exhibitor actually needs: Regular up to Rs 150,
+   * Recliner up to Rs 250, Premium not sold here.
+   */
+  classRates: ClassCeiling[];
 }
 
 @Injectable()
@@ -170,6 +186,7 @@ export class CinemaComplianceService {
       unmappedSeatCategories,
     );
     const policy = resolution.policy;
+    const classRates = await this.classRatesFor(cinema, at);
 
     /*
       Priced per ticket type against ITS OWN seat class, not against the cart's. A recliner
@@ -227,7 +244,13 @@ export class CinemaComplianceService {
       summary: this.summarise(resolution.status, resolution.explanation, livePrices, {
         reasonCode,
         unmappedSeatCategories,
-        classified,
+        /*
+          Only where the state's order actually prices by it: a Telangana cinema (no rules at
+          all) was told it "also needs its local body, format and climate type", which would
+          change nothing there.
+        */
+        classified:
+          classified || !classRates.some((r) => r.status === 'INVALID_CINEMA_CLASSIFICATION'),
       }),
       regulatoryReference: policy?.regulatoryReference ?? null,
       effectiveFrom: policy?.effectiveFrom?.toISOString() ?? null,
@@ -245,7 +268,23 @@ export class CinemaComplianceService {
       // in the booking and publishing paths, where a client cannot skip it.
       blocksPublishing: BLOCKING.includes(resolution.status) || prices.some((p) => !p.ok),
       prices,
+      classRates,
     };
+  }
+
+  /**
+   * Each class's limit here. Read only: the resolver checkout uses, asked once per class.
+   * Empty when every class answers NOT_REGULATED, so an unregulated cinema shows no table.
+   */
+  private async classRatesFor(
+    cinema: Parameters<CinemaPricingPolicyService['resolveForCinema']>[0],
+    at: Date,
+  ): Promise<ClassCeiling[]> {
+    const rows: ClassCeiling[] = [];
+    for (const cls of REGULATORY_CLASSES) {
+      rows.push(ceilingFrom(cls, await this.policies.resolveForCinema(cinema, 'INR', [cls], at)));
+    }
+    return rows.some((r) => r.regulated) ? rows : [];
   }
 
   /**
@@ -284,18 +323,26 @@ export class CinemaComplianceService {
       the same resolver as above, asked once per class, changing nothing.
     */
     const coverage: Record<string, boolean> = {};
+    /*
+      And what each class allows, so the choice is made knowing the answer: "Regular, up to
+      Rs 150" next to a Rs 200 category says which class it cannot be, before anyone picks it.
+    */
+    let classRates: ClassCeiling[] = [];
     if (categories.length > 0) {
       const now = new Date();
-      for (const cls of ['REGULAR', 'RECLINER', 'PREMIUM', 'NON_PREMIUM']) {
+      for (const cls of REGULATORY_CLASSES) {
         const r = await this.policies.resolveForCinema(cinema, 'INR', [cls], now);
         coverage[cls] = r.status === 'NOT_REGULATED' || r.policy != null;
+        classRates.push(ceilingFrom(cls, r));
       }
+      if (!classRates.some((r) => r.regulated)) classRates = [];
     }
     return categories.map((c) => ({
       ...c,
       currency,
       mapped: c.regulatoryClass != null,
       classHasRate: coverage,
+      classRates,
     }));
   }
 
@@ -402,7 +449,7 @@ export class CinemaComplianceService {
     if (over) {
       // The most actionable message this service produces, so it leads with the number and
       // names the ticket type rather than describing the concept.
-      return `Cannot publish — ${over.name} is priced at ₹${(over.priceMinor / 100).toFixed(0)}. ${over.reason}`;
+      return `${over.name} tickets cannot be sold at ₹${(over.priceMinor / 100).toFixed(0)}. ${over.reason}`;
     }
     switch (status) {
       case 'NOT_REGULATED':
@@ -418,18 +465,18 @@ export class CinemaComplianceService {
           // Named, because the fix is one field on one seat category. Mentions the
           // classification too when that is ALSO missing, so the next wall is not a surprise.
           return (
-            `Cannot publish: seat ${one ? 'category' : 'categories'} ${names} ${one ? 'has' : 'have'} no regulatory seat class. ` +
+            `Seats in ${names} cannot be sold yet: ${one ? 'this seat category has' : 'these seat categories have'} no regulatory seat class. ` +
             'This location sets a price limit for each seat class. Set it under Seat classes.' +
             (why.classified
               ? ''
-              : ' This cinema also needs its local body, format and climate type set.')
+              : ' This cinema also needs its local body, format and climate type on record: contact ETicketsGo support to record them.')
           );
         }
-        return 'Cannot publish — this jurisdiction prices by cinema classification and this cinema has not been classified. Set its local body, format and climate type.';
+        return 'Tickets cannot be sold yet: this location sets prices by type of cinema, and this cinema has no type recorded. Contact ETicketsGo support to record its local body, format and climate type.';
       case 'POLICY_NOT_FOUND':
-        return `Cannot publish — no pricing order is configured for this location. ${explanation}`;
+        return `Tickets cannot be sold yet: no pricing order is configured for this location. ${explanation}`;
       case 'POLICY_CONFIGURATION_ERROR':
-        return 'Cannot publish — the pricing configuration for this location needs attention from ETicketsGo.';
+        return 'Tickets cannot be sold yet: the pricing configuration for this location needs attention from ETicketsGo.';
       default:
         return explanation;
     }

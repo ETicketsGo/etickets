@@ -83,6 +83,28 @@ export function parseDraft(
       });
       continue;
     }
+    /*
+      The legal band, said before Save. The server refuses a price outside it on its own (and
+      checkout would refuse to sell it); this only spares the operator the round trip. Only a
+      price that MOVED is judged, exactly as the server judges it.
+    */
+    const limit = cat.priceLimit;
+    if (limit?.sellable && minor !== cat.priceMinor) {
+      if (limit.maxMinor != null && minor > limit.maxMinor) {
+        problems.push({
+          ticketTypeId: cat.ticketTypeId,
+          message: `${cat.name}: ${limit.place} allows at most ${formatMinor(limit.maxMinor, cat.currency)} for this seat class.`,
+        });
+        continue;
+      }
+      if (limit.minMinor != null && minor < limit.minMinor) {
+        problems.push({
+          ticketTypeId: cat.ticketTypeId,
+          message: `${cat.name}: ${limit.place} requires at least ${formatMinor(limit.minMinor, cat.currency)} for this seat class.`,
+        });
+        continue;
+      }
+    }
     prices.push({ ticketTypeId: cat.ticketTypeId, priceMinor: minor });
   }
 
@@ -119,6 +141,33 @@ export function showLockReason(pricing: ShowPricing, now: Date): string | null {
   if (pricing.status === 'CANCELLED') return 'This show is cancelled and cannot be repriced.';
   if (new Date(pricing.startsAt) <= now) {
     return 'This show has already started. Only future shows can be repriced.';
+  }
+  return null;
+}
+
+const CLASS_NAME: Record<string, string> = {
+  REGULAR: 'Regular',
+  RECLINER: 'Recliner',
+  PREMIUM: 'Premium',
+  NON_PREMIUM: 'Non-premium',
+};
+
+/**
+ * The legal limit for a category, in one line, or null where nothing limits it.
+ *
+ * Shown under the field so "up to Rs 250" is read before Rs 300 is typed. Walking QA, a
+ * Recliner show was set to Rs 300 under a Rs 250 limit, saved without a word, and then could
+ * not sell a single Recliner seat.
+ */
+export function limitLine(cat: ShowPricing['categories'][number]): string | null {
+  const limit = cat.priceLimit;
+  if (!limit) return null;
+  const cls = cat.regulatoryClass ? (CLASS_NAME[cat.regulatoryClass] ?? cat.regulatoryClass) : null;
+  if (!limit.sellable) {
+    return `${limit.place} has no rate for a ${cls ?? 'seat of this'} class here, so these seats cannot be sold online.`;
+  }
+  if (limit.maxMinor != null) {
+    return `${limit.place} limit for a ${cls} seat: up to ${formatMinor(limit.maxMinor, cat.currency)}.`;
   }
   return null;
 }

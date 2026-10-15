@@ -138,5 +138,9 @@
       "failed": "Impossible d'enregistrer votre note. Veuillez réessayer.",
       "checkError": "Impossible de vérifier si vous pouvez noter ce film."
     }
+  },
+  "search": {
+    "filmsHeading": "Films",
+    "filmsHint": "Films à l'affiche qui correspondent à votre recherche."
   }
 }

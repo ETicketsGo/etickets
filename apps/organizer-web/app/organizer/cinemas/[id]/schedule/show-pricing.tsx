@@ -16,12 +16,17 @@ import {
   changedRows,
   differsFromHouse,
   formatMinor,
+  limitLine,
   lockReason,
   minorToInput,
   parseDraft,
   showLockReason,
   type PriceDraft,
 } from './pricing-presentation';
+import { currencySign } from '@/components/cinema/run-pricing';
+
+/** What the field is counted in, said in words for a screen reader. */
+const UNIT_WORD: Record<string, string> = { INR: 'rupees', USD: 'dollars', CAD: 'dollars' };
 
 /**
  * Set what one show charges.
@@ -157,9 +162,10 @@ export function ShowPricingDialog({
                     </span>
                   </label>
                   <div className="flex items-center gap-2">
-                    {/* The unit is stated, not implied by a placeholder that vanishes on focus. */}
+                    {/* The unit is stated, not implied by a placeholder that vanishes on focus,
+                        and it is the show's own currency: a Boise show is in dollars. */}
                     <span aria-hidden className="text-sm text-text-muted">
-                      ₹
+                      {currencySign(cat.currency ?? 'INR')}
                     </span>
                     <Input
                       id={fieldId}
@@ -167,7 +173,7 @@ export function ShowPricingDialog({
                       // Not type=number: it silently accepts `1e5` and browsers disagree
                       // about what a scroll wheel over a focused field should do to money.
                       type="text"
-                      aria-label={`${cat.name} price in rupees`}
+                      aria-label={`${cat.name} price in ${UNIT_WORD[cat.currency ?? 'INR'] ?? cat.currency}`}
                       aria-describedby={
                         problem ? `${fieldId}-problem` : locked ? `${fieldId}-locked` : undefined
                       }
@@ -192,6 +198,9 @@ export function ShowPricingDialog({
                     <p id={`${fieldId}-locked`} className="mt-1 text-caption text-text-muted">
                       {locked}
                     </p>
+                  ) : null}
+                  {!problem && limitLine(cat) ? (
+                    <p className="mt-1 text-caption text-text-secondary">{limitLine(cat)}</p>
                   ) : null}
                   {!locked && house ? (
                     <p className="mt-1 text-caption text-text-muted">

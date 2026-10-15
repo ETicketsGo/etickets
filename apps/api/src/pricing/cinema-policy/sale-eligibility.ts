@@ -350,7 +350,7 @@ export async function resolveCinemaPolicy(
  * pure "which rule matches" function its own tests describe, and every sale and readiness
  * check reaches this through `saleBlockersFromPolicy`.
  */
-function hasNoCeilingFallback(resolution: PolicyResolution): boolean {
+export function hasNoCeilingFallback(resolution: PolicyResolution): boolean {
   const p = resolution.policy;
   return (
     resolution.status !== 'NOT_REGULATED' &&

@@ -1149,6 +1149,15 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ status }),
       }),
+    /**
+     * Upload the film's poster from a file (JPG, PNG or WebP, at most 2 MB). The API cuts it to
+     * one 2:3 WebP and points the film's `posterUrl` at it.
+     */
+    uploadPoster: (id: string, image: Blob, filename = 'poster.jpg') => {
+      const form = new FormData();
+      form.append('file', image, filename);
+      return request<Movie>(`/movies/${id}/poster`, { method: 'POST', body: form });
+    },
   },
 
   cinemas: {
@@ -3224,6 +3233,21 @@ export interface SeatClassMapping {
   mapped: boolean;
   /** Per class: does this cinema's pricing order have a rate row for it. Absent on an older API. */
   classHasRate?: Record<string, boolean>;
+  /** What each class allows at this cinema. Empty when no order applies; absent on an older API. */
+  classRates?: RegulatoryClassRate[];
+}
+
+/** The legal price band for one regulatory seat class at one cinema. */
+export interface RegulatoryClassRate {
+  regulatoryClass: 'REGULAR' | 'RECLINER' | 'PREMIUM' | 'NON_PREMIUM';
+  /** False when no pricing order applies here: any price is the organizer's own. */
+  regulated: boolean;
+  /** False when the order has no rate for this class here: it cannot be sold online at all. */
+  sellable: boolean;
+  maxMinor: number | null;
+  minMinor: number | null;
+  regulatoryReference: string | null;
+  status: string;
 }
 
 export interface CinemaComplianceView {
@@ -3260,6 +3284,8 @@ export interface CinemaComplianceView {
     upcoming?: boolean;
   }[];
   blocksPublishing: boolean;
+  /** The band for every class here, one class at a time. Empty when unregulated; absent on older APIs. */
+  classRates?: RegulatoryClassRate[];
 }
 
 export interface OrganizationLegalIdentityFields {
@@ -3682,6 +3708,8 @@ export interface Movie extends MovieBody {
   slug: string;
   status: MovieStatusValue;
   createdAt: string;
+  /** Viewers' rating, as the storefront shows it. Null when nobody has rated; absent on older APIs. */
+  rating?: MovieRating | null;
 }
 
 export interface ScreenBody {
@@ -4022,6 +4050,19 @@ export interface ShowPricing {
     heldCount: number;
     /** A sold seat fixes this category's price for this show. Nothing else does. */
     locked: boolean;
+    /** The regulatory class this category is mapped to; null when unmapped. Absent on older APIs. */
+    regulatoryClass?: string | null;
+    /**
+     * The legal price band for that class at this cinema, when a pricing order applies there.
+     * `sellable: false` means the class has no rate here and cannot be sold at any price. The
+     * server refuses a price outside the band; this is only so the operator sees it first.
+     */
+    priceLimit?: {
+      maxMinor: number | null;
+      minMinor: number | null;
+      sellable: boolean;
+      place: string;
+    } | null;
   }[];
 }
 

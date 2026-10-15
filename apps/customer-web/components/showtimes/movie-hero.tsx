@@ -3,7 +3,12 @@
 import { Clock, Film, Play, Star } from 'lucide-react';
 import { useId, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { BRAND_FOCUS, hasRating, type PublicMovieShows } from '@eticketsgo/web-kit';
+import {
+  BRAND_FOCUS,
+  hasRating,
+  portableImageUrl,
+  type PublicMovieShows,
+} from '@eticketsgo/web-kit';
 import { ContentLabelBadge } from '@/components/content-label-badge';
 import { useRatingText } from '@/components/reviews/use-rating-text';
 
@@ -69,7 +74,7 @@ export function MovieHero({ movie }: { movie: PublicMovieShows['movie'] }) {
             {movie.posterUrl && !posterFailed ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={movie.posterUrl}
+                src={portableImageUrl(movie.posterUrl) ?? undefined}
                 alt={t('poster', { title: movie.title })}
                 onError={() => setPosterFailed(true)}
                 className="h-full w-full object-cover"

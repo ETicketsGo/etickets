@@ -12,6 +12,13 @@ describe('portableImageUrl', () => {
     );
   });
 
+  it('re-bases an uploaded film poster the same way', () => {
+    const poster = '/public/movies/mov1/poster/' + 'a'.repeat(32) + '.webp';
+    expect(portableImageUrl(`https://api-qa-f23c.up.railway.app/api${poster}`)).toBe(
+      `${API_URL}${poster}`,
+    );
+  });
+
   it('leaves any other address alone', () => {
     const cdn = 'https://cdn.example.com/posters/film.jpg';
     expect(portableImageUrl(cdn)).toBe(cdn);

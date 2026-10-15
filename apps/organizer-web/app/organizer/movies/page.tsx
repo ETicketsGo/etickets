@@ -146,6 +146,9 @@ export default function OrganizerMovies() {
       toast.push(`${m.title} is now ${said}.`, 'success');
       qc.invalidateQueries({ queryKey: ['movies', activeOrg.id] });
       qc.invalidateQueries({ queryKey: ['movie', m.id] });
+      // A film's status decides whether its shows sell; the cached answers are now wrong.
+      qc.invalidateQueries({ queryKey: ['organizer-event-sale-states'] });
+      qc.invalidateQueries({ queryKey: ['organizer-sale-eligibility'] });
     },
     onError: (e) => toast.push(errorMessage(e), 'error'),
   });

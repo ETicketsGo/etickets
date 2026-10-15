@@ -126,3 +126,151 @@ export function missingRateWarning(
   if (!cls || !classHasNoRate(category.classHasRate, cls)) return null;
   return `The pricing order for this cinema has no ${CLASS_LABEL[cls] ?? cls} rate. ${category.name} has no price ceiling to be checked against and may be refused at checkout. Pick the class that matches the seat, or ask ETicketsGo to add the rate.`;
 }
+
+// ── Limits by seat class (walk 2026-10-15) ──────────────────────────────────────────
+
+type ClassRate = NonNullable<CinemaComplianceView['classRates']>[number];
+
+/** The class names an exhibitor reads; the API's keys stay keys. */
+export function className(cls: string): string {
+  return CLASS_LABEL[cls] ?? cls;
+}
+
+/**
+ * Each class's limit in words: "up to Rs 150", "no rate here, cannot be sold".
+ *
+ * Walking QA, the panel read "Order: None applies / Maximum: Not recorded" for a Vijayawada
+ * multiplex the Andhra Pradesh order covers, because a room with two classes resolves at state
+ * level and states no single ceiling. Per class is how checkout prices a ticket, so it is how
+ * the panel says it.
+ */
+export function classRateLines(
+  rates: readonly ClassRate[] | undefined,
+  formatMoney: (minor: number) => string,
+): { cls: string; label: string; text: string; sellable: boolean }[] {
+  return (rates ?? [])
+    .filter((r) => r.regulated)
+    .map((r) => ({
+      cls: r.regulatoryClass,
+      label: className(r.regulatoryClass),
+      sellable: r.sellable,
+      text: !r.sellable
+        ? 'No rate here, so it cannot be sold online'
+        : r.maxMinor != null
+          ? `Up to ${formatMoney(r.maxMinor)}`
+          : 'No maximum price set',
+    }));
+}
+
+/** The order(s) a cinema is priced under, from the whole-room answer or else from the classes. */
+export function orderReference(
+  view: Pick<CinemaComplianceView, 'regulatoryReference' | 'status'> &
+    Partial<Pick<CinemaComplianceView, 'classRates' | 'jurisdiction'>>,
+): string {
+  if (view.regulatoryReference) return view.regulatoryReference;
+  const refs = [
+    ...new Set(
+      (view.classRates ?? [])
+        .filter((r) => r.sellable && r.regulatoryReference)
+        .map((r) => r.regulatoryReference as string),
+    ),
+  ];
+  if (refs.length > 0) return refs.join(', ');
+  // No rules for the state at all. Asked per class too, because an unmapped seat category makes
+  // the whole-room answer a classification refusal before the region is even looked at.
+  const rates = view.classRates ?? [];
+  const noRules =
+    view.status === 'POLICY_NOT_FOUND' ||
+    (rates.length > 0 && rates.every((r) => r.status === 'POLICY_NOT_FOUND'));
+  if (noRules) {
+    const where = view.jurisdiction?.region || view.jurisdiction?.city || 'this area';
+    return `No pricing rules on record for ${where} yet. Online sales stay closed until ETicketsGo adds them.`;
+  }
+  return 'None applies';
+}
+
+/**
+ * Whether the cinema's type (local body, format, climate) matters here: only where an order
+ * is on record that prices by it. Telangana has no rules at all, and a US cinema has no
+ * order, so asking either to "set the format and climate type" sent people looking for a
+ * field that would change nothing.
+ */
+export function classificationMatters(
+  view: Pick<CinemaComplianceView, 'status'> &
+    Partial<Pick<CinemaComplianceView, 'classRates' | 'reasonCode'>>,
+): boolean {
+  if (view.status === 'NOT_REGULATED' || view.status === 'POLICY_NOT_FOUND') return false;
+  const rates = view.classRates ?? [];
+  // Per class, the resolver says so directly: a class refused for want of a classification.
+  if (rates.length > 0) return rates.some((r) => r.status === 'INVALID_CINEMA_CLASSIFICATION');
+  return (
+    view.status === 'INVALID_CINEMA_CLASSIFICATION' && view.reasonCode === 'CINEMA_NOT_CLASSIFIED'
+  );
+}
+
+export interface PriceGroup {
+  name: string;
+  priceMinor: number;
+  ok: boolean;
+  reason: string | null;
+  /** How many upcoming shows carry this price. */
+  shows: number;
+}
+
+/**
+ * One line per distinct price, with how many shows carry it.
+ *
+ * The panel listed every ticket type of every show: 93 lines for a cinema with three seat
+ * categories and 31 shows, making the readiness page 7,900px tall on a phone. What an
+ * exhibitor checks is "which prices am I charging, and is any of them over the limit".
+ */
+export function groupPrices(
+  prices: readonly { name: string; priceMinor: number; ok: boolean; reason: string | null }[],
+): PriceGroup[] {
+  const groups = new Map<string, PriceGroup>();
+  for (const p of prices) {
+    const key = `${p.name}\u0000${p.priceMinor}\u0000${p.ok}\u0000${p.reason ?? ''}`;
+    const g = groups.get(key);
+    if (g) g.shows += 1;
+    else groups.set(key, { ...p, shows: 1 });
+  }
+  // Problems first, then by name and price.
+  return [...groups.values()].sort(
+    (a, b) =>
+      Number(a.ok) - Number(b.ok) || a.name.localeCompare(b.name) || a.priceMinor - b.priceMinor,
+  );
+}
+
+/** "Regular - up to Rs 150", for a seat class option. Plain where no order applies. */
+export function classOptionLabel(
+  cls: string,
+  rates: readonly ClassRate[] | undefined,
+  formatMoney: (minor: number) => string,
+): string {
+  const rate = (rates ?? []).find((r) => r.regulatoryClass === cls);
+  if (!rate || !rate.regulated) return className(cls);
+  if (!rate.sellable) return `${className(cls)} - no rate here, will not sell`;
+  if (rate.maxMinor != null) return `${className(cls)} - up to ${formatMoney(rate.maxMinor)}`;
+  return className(cls);
+}
+
+/**
+ * A seat category whose own price is above the limit of the class it is mapped to.
+ *
+ * Mapping "Platinum Executive" (Rs 200) to Regular (up to Rs 150) is accepted - the mapping is
+ * the operator's to make - but its seats would then never sell at their price. Said at the
+ * moment of choosing, not at checkout.
+ */
+export function aboveClassLimit(
+  category: Pick<SeatClassMapping, 'name' | 'regulatoryClass' | 'basePriceMinor'> & {
+    classRates?: readonly ClassRate[];
+  },
+  formatMoney: (minor: number) => string,
+): string | null {
+  const cls = category.regulatoryClass;
+  if (!cls) return null;
+  const rate = (category.classRates ?? []).find((r) => r.regulatoryClass === cls);
+  if (!rate?.sellable || rate.maxMinor == null) return null;
+  if (category.basePriceMinor <= rate.maxMinor) return null;
+  return `${category.name} is priced at ${formatMoney(category.basePriceMinor)}, above the ${formatMoney(rate.maxMinor)} limit for a ${className(cls)} seat. Its tickets will not sell at that price. Choose the class that matches the seat, or lower its price to ${formatMoney(rate.maxMinor)} or less.`;
+}
