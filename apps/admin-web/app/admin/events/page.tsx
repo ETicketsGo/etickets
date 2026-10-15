@@ -10,18 +10,20 @@ import {
   ButtonLink,
   Card,
   DataTable,
-  StatusBadge,
   Select,
   SearchInput,
   Pagination,
   PageHeader,
   GroupedSummary,
   type GroupSelection,
+  Button,
   EmptyState,
   dateOnly,
   type Column,
   type AdminEventRow,
 } from '@eticketsgo/web-kit';
+import { StatusBadge } from '@/components/status-badge';
+import { statusWords } from '@/lib/words';
 import { CalendarRange } from 'lucide-react';
 import { CountryFilter, CountryLabel, useCountryParam } from '../../../components/country-filter';
 import { alreadyHappened } from '@/lib/event-timing';
@@ -279,14 +281,40 @@ export default function AdminEventsPage() {
           error={isError ? "We couldn't load this. Please try again." : undefined}
           onRetry={() => refetch()}
           empty={
-            <EmptyState
-              title={status === 'UNDER_REVIEW' ? 'Nothing waiting for review' : 'No event matches'}
-              hint={
-                status === 'UNDER_REVIEW'
-                  ? 'Every event submitted has been decided. Change the status filter to see the rest.'
-                  : 'Try clearing the status filter, or search by organizer.'
-              }
-            />
+            /*
+              A search that finds nothing in one status is not an empty queue. Searching for an
+              event the reviewer had just approved said "Nothing waiting for review. Every event
+              submitted has been decided" - true of the search, false of the queue, which still
+              held eighteen. So a search names itself and offers every status in one click.
+            */
+            applied && status ? (
+              <EmptyState
+                title={`No ${statusWords(status).toLowerCase()} event matches "${applied}"`}
+                hint="It may have another status. Search every status to find it."
+                action={
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setStatus('');
+                      setPage(1);
+                    }}
+                  >
+                    Search every status
+                  </Button>
+                }
+              />
+            ) : (
+              <EmptyState
+                title={
+                  status === 'UNDER_REVIEW' ? 'Nothing waiting for review' : 'No event matches'
+                }
+                hint={
+                  status === 'UNDER_REVIEW'
+                    ? 'Every event submitted has been decided. Change the status filter to see the rest.'
+                    : 'Try clearing the status filter, or search by organizer.'
+                }
+              />
+            )
           }
           rowKey={(e) => e.id}
           onRowClick={(e) => router.push(`/admin/events/${e.id}`)}

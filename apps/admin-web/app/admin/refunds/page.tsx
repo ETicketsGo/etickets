@@ -198,7 +198,13 @@ export default function AdminRefunds() {
                   : 'No refund matches'
               }
               hint={
-                described ? `Nothing matches ${described}.` : 'A booking reference works here too.'
+                // The empty queue needs no restating ("Nothing matches status Requested" named
+                // the code under a title that had already said it in words).
+                status === 'REQUESTED' && described === 'status Requested'
+                  ? 'Every refund asked for has been decided.'
+                  : described
+                    ? `Nothing matches ${described}.`
+                    : 'A booking reference works here too.'
               }
               action={
                 filters.active ? (

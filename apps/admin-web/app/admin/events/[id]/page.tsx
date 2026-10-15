@@ -1,6 +1,7 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useState } from 'react';
 import {
@@ -10,18 +11,18 @@ import {
   Card,
   Textarea,
   Skeleton,
-  StatusBadge,
   PageHeader,
   Dialog,
   ErrorState,
   useToast,
   errorMessage,
-  titleCase,
   dateTime,
   zoneShortName,
   money,
   termsList,
 } from '@eticketsgo/web-kit';
+import { StatusBadge } from '@/components/status-badge';
+import { feeModeWords, statusWords } from '@/lib/words';
 import { taxCategoryLabel, venueZone } from '@eticketsgo/shared-types';
 
 export default function AdminEventDetail() {
@@ -31,6 +32,14 @@ export default function AdminEventDetail() {
   const [note, setNote] = useState('');
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  /*
+    Rejecting and pausing each ask why first. A rejection's note is what the organizer is sent as
+    the reason, and an empty one told them "no" and nothing to fix. A pause stopped a live event
+    selling with one click, no confirmation and no record of why (walked on QA, 2026-10-15).
+  */
+  const [rejecting, setRejecting] = useState(false);
+  const [pausing, setPausing] = useState(false);
+  const [pauseReason, setPauseReason] = useState('');
 
   const remove = useMutation({
     mutationFn: () => api.events.remove(id),
@@ -71,21 +80,46 @@ export default function AdminEventDetail() {
       api.admin.reviewEvent(id, decision, note || undefined),
     onSuccess: (_r, decision) => {
       toast.push(
-        `Event ${decision === 'APPROVE' ? 'approved & published' : 'rejected'}.`,
+        decision === 'APPROVE'
+          ? 'Approved. It is on sale now, and the organizer has been told.'
+          : 'Rejected. It is back with the organizer as a draft, with your reason.',
         'success',
       );
+      setRejecting(false);
       invalidate();
     },
     onError: onErr,
   });
   const setStatus = useMutation({
-    mutationFn: (status: string) => api.admin.setEventStatus(id, status),
-    onSuccess: () => {
-      toast.push('Event status updated.', 'success');
+    mutationFn: ({ status, reason }: { status: string; reason?: string }) =>
+      api.admin.setEventStatus(id, status, reason),
+    onSuccess: (_r, { status }) => {
+      // Say what changed for buyers, not that "a status" did.
+      toast.push(
+        status === 'PAUSED'
+          ? 'Paused. Tickets stop selling now. Only an admin can put it back on sale.'
+          : status === 'PUBLISHED'
+            ? 'Back on sale. Buyers can book again.'
+            : status === 'CANCELLED'
+              ? 'Cancelled. Nothing more can be sold. Existing bookings were not refunded.'
+              : `Now ${statusWords(status).toLowerCase()}.`,
+        'success',
+      );
       setConfirmCancel(false);
+      setPausing(false);
+      setPauseReason('');
       invalidate();
     },
     onError: onErr,
+  });
+  /*
+    Who is selling it. The page named the venue and never the organizer, so a reviewer could not
+    see who they were approving, or get from the event to the seller to check them.
+  */
+  const orgQ = useQuery({
+    queryKey: ['org', event?.organizationId],
+    queryFn: () => api.organizations.get(event!.organizationId),
+    enabled: Boolean(event?.organizationId),
   });
 
   if (isError)
@@ -143,6 +177,24 @@ export default function AdminEventDetail() {
             </dd>
             <dt className="text-text-muted">Category</dt>
             <dd className="text-text-primary">{event.category}</dd>
+            <dt className="text-text-muted">Organizer</dt>
+            <dd className="text-text-primary">
+              {orgQ.data ? (
+                <Link
+                  href={`/admin/organizers/${event.organizationId}`}
+                  className="text-action-primary underline-offset-4 hover:underline"
+                >
+                  {orgQ.data.name}
+                </Link>
+              ) : (
+                '...'
+              )}
+              {orgQ.data && orgQ.data.status !== 'APPROVED' && (
+                <span className="ml-2 text-caption text-status-warning">
+                  {statusWords(orgQ.data.status)}
+                </span>
+              )}
+            </dd>
             <dt className="text-text-muted">Venue</dt>
             <dd className="text-text-primary">
               {event.venue.name}, {event.venue.city}
@@ -154,7 +206,17 @@ export default function AdminEventDetail() {
             <dt className="text-text-muted">Tax classification</dt>
             <dd className="text-text-primary">{taxCategoryLabel(event.taxCategory)}</dd>
             <dt className="text-text-muted">Fee handling</dt>
-            <dd className="text-text-primary">{titleCase(event.feeMode)}</dd>
+            <dd className="text-text-primary">
+              {event.isFree ? 'Free event, no fees' : feeModeWords(event.feeMode)}
+            </dd>
+            <dt className="text-text-muted">Refunds</dt>
+            <dd className="text-text-primary">
+              {event.refundsEnabled === false
+                ? 'No refunds'
+                : event.refundCutoffHours !== undefined
+                  ? `Until ${event.refundCutoffHours} hours before the show`
+                  : 'Allowed'}
+            </dd>
             <dt className="text-text-muted">Age limit</dt>
             <dd className="text-text-primary">
               {event.ageLimit ? `${event.ageLimit}+` : 'No age limit'}
@@ -220,52 +282,82 @@ export default function AdminEventDetail() {
             <div className="space-y-3">
               <Textarea
                 id="note"
-                label="Reviewer note (optional)"
+                label={rejecting ? 'Why are you rejecting it?' : 'Note to the organizer (optional)'}
+                hint={
+                  rejecting
+                    ? 'Sent to the organizer. Say what they need to change before they submit again.'
+                    : 'Sent to the organizer with the decision.'
+                }
                 rows={3}
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
               />
-              <div className="flex gap-2">
-                <Button
-                  loading={review.isPending && review.variables === 'APPROVE'}
-                  disabled={review.isPending}
-                  onClick={() => review.mutate('APPROVE')}
-                >
-                  Approve
-                </Button>
-                <Button
-                  variant="danger"
-                  loading={review.isPending && review.variables === 'REJECT'}
-                  disabled={review.isPending}
-                  onClick={() => review.mutate('REJECT')}
-                >
-                  Reject
-                </Button>
-              </div>
+              {rejecting ? (
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="danger"
+                    loading={review.isPending}
+                    disabled={review.isPending || note.trim().length === 0}
+                    onClick={() => review.mutate('REJECT')}
+                  >
+                    Reject and send reason
+                  </Button>
+                  <Button variant="outline" onClick={() => setRejecting(false)}>
+                    Back
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    loading={review.isPending && review.variables === 'APPROVE'}
+                    disabled={review.isPending}
+                    onClick={() => review.mutate('APPROVE')}
+                  >
+                    Approve
+                  </Button>
+                  <Button
+                    variant="danger"
+                    disabled={review.isPending}
+                    onClick={() => setRejecting(true)}
+                  >
+                    Reject
+                  </Button>
+                </div>
+              )}
+              <p className="text-caption text-text-muted">Approving puts it on sale at once.</p>
             </div>
           )}
           <div className="mt-4 space-y-2">
             {event.status === 'PUBLISHED' && (
-              <Button
-                variant="outline"
-                className="w-full"
-                loading={setStatus.isPending && setStatus.variables === 'PAUSED'}
-                disabled={setStatus.isPending}
-                onClick={() => setStatus.mutate('PAUSED')}
-              >
-                Pause event
-              </Button>
+              <>
+                <p className="text-sm text-text-secondary">On sale.</p>
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  disabled={setStatus.isPending}
+                  onClick={() => setPausing(true)}
+                >
+                  Pause sales
+                </Button>
+              </>
             )}
             {event.status === 'PAUSED' && (
-              <Button
-                variant="outline"
-                className="w-full"
-                loading={setStatus.isPending && setStatus.variables === 'PUBLISHED'}
-                disabled={setStatus.isPending}
-                onClick={() => setStatus.mutate('PUBLISHED')}
-              >
-                Republish event
-              </Button>
+              <>
+                <p className="text-sm text-text-secondary">
+                  {event.pausedByAdmin
+                    ? 'Paused by the platform team. The organizer cannot resume it.'
+                    : 'Paused by the organizer.'}
+                </p>
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  loading={setStatus.isPending && setStatus.variables?.status === 'PUBLISHED'}
+                  disabled={setStatus.isPending}
+                  onClick={() => setStatus.mutate({ status: 'PUBLISHED' })}
+                >
+                  Put back on sale
+                </Button>
+              </>
             )}
           </div>
         </Card>
@@ -312,14 +404,52 @@ export default function AdminEventDetail() {
             <Button
               variant="danger"
               loading={setStatus.isPending}
-              onClick={() => setStatus.mutate('CANCELLED')}
+              onClick={() => setStatus.mutate({ status: 'CANCELLED' })}
             >
               Cancel event
             </Button>
           </>
         }
       >
-        This will set the event to CANCELLED. Existing bookings are not automatically refunded.
+        <p className="text-sm text-text-secondary">
+          Nothing more can be sold and the event cannot be put back on sale. Bookings already made
+          are not refunded by this: refund them from Refunds, or ask the organizer to.
+        </p>
+      </Dialog>
+
+      <Dialog
+        open={pausing}
+        onClose={() => setPausing(false)}
+        title={`Pause sales for ${event.title}?`}
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setPausing(false)}>
+              Keep selling
+            </Button>
+            <Button
+              loading={setStatus.isPending}
+              disabled={!pauseReason.trim()}
+              onClick={() => setStatus.mutate({ status: 'PAUSED', reason: pauseReason.trim() })}
+            >
+              Pause sales
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <p className="text-sm text-text-secondary">
+            Tickets stop selling the moment you confirm. Tickets already sold stay valid. The
+            organizer sees that the platform team paused it and cannot resume it themselves.
+          </p>
+          <Textarea
+            label="Why are you pausing it?"
+            rows={3}
+            maxLength={500}
+            value={pauseReason}
+            hint="Recorded in the audit log with your name. Support reads it when the organizer asks."
+            onChange={(e) => setPauseReason(e.target.value)}
+          />
+        </div>
       </Dialog>
 
       <Dialog

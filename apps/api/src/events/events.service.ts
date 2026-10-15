@@ -1764,7 +1764,12 @@ export class EventsService {
         where,
         skip: (page - 1) * pageSize,
         take: pageSize,
-        orderBy: { updatedAt: 'desc' },
+        /*
+          The review queue is first come, first served: the event that has waited longest is on
+          top. Newest-first put the oldest submission at the bottom of the last page, where a
+          reviewer working down the list reaches it last. Every other view is newest first.
+        */
+        orderBy: { updatedAt: status === EventStatus.UNDER_REVIEW ? 'asc' : 'desc' },
         include: {
           organization: { select: { name: true } },
           venue: { select: { name: true, city: true, country: true } },
@@ -1864,7 +1869,7 @@ export class EventsService {
     return updated;
   }
 
-  async adminSetStatus(admin: RequestUser, id: string, status: EventStatus) {
+  async adminSetStatus(admin: RequestUser, id: string, status: EventStatus, reason?: string) {
     const event = await this.prisma.event.findUnique({ where: { id } });
     if (!event)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Event not found.', HttpStatus.NOT_FOUND);
@@ -1886,7 +1891,9 @@ export class EventsService {
       action: 'EVENT_STATUS_CHANGED',
       entityType: 'Event',
       entityId: id,
-      metadata: { status },
+      // The status it left as well as the one it took, and the admin's reason when given: an
+      // entry that says only "PAUSED" cannot answer "why did my event stop selling".
+      metadata: { status, from: event.status, ...(reason ? { reason } : {}) },
     });
     return updated;
   }

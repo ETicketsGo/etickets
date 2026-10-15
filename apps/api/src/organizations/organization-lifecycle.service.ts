@@ -56,6 +56,20 @@ export class OrganizationLifecycleService {
       );
     }
     if (suspended && org.status === OrganizationStatus.SUSPENDED) return org;
+    /*
+      Only an approved organizer can be suspended. Reinstating returns them to APPROVED (below),
+      so suspending one still PENDING review and then reinstating it approved it - past the
+      review and the legal identity check, with no decision recorded as an approval. The console
+      offered Suspend on a pending organizer, which is how it was found (QA walk, 2026-10-15).
+      A pending or rejected organizer cannot sell anyway; there is nothing to suspend.
+    */
+    if (suspended && org.status !== OrganizationStatus.APPROVED) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        `This organizer is ${org.status.toLowerCase()}, so they cannot sell and there is nothing to suspend. Approve or reject them instead.`,
+        HttpStatus.CONFLICT,
+      );
+    }
     if (!suspended && org.status !== OrganizationStatus.SUSPENDED) {
       throw new AppException(
         ErrorCodes.CONFLICT,

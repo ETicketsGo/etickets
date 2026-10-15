@@ -790,7 +790,23 @@ export class RefundsService {
   async adminGet(refundId: string) {
     const refund = await this.prisma.refund.findUnique({
       where: { id: refundId },
-      include: { booking: { select: { buyerEmail: true, eventId: true, currency: true } } },
+      include: {
+        booking: {
+          select: {
+            buyerEmail: true,
+            eventId: true,
+            currency: true,
+            /*
+              What somebody chasing this refund needs to find it anywhere else: the reference
+              the buyer quotes, the event, and the payment it goes back to - the provider and
+              its reference are what the provider's own dashboard is searched by.
+            */
+            reference: true,
+            event: { select: { title: true } },
+            payment: { select: { id: true, provider: true, providerRef: true, status: true } },
+          },
+        },
+      },
     });
     if (!refund) {
       throw new AppException(ErrorCodes.NOT_FOUND, 'Refund not found.', HttpStatus.NOT_FOUND);
