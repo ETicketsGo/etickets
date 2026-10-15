@@ -1,11 +1,13 @@
 import { HttpStatus, Injectable, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { Role } from '@eticketsgo/shared-types';
+import { Role, countLayoutDocument } from '@eticketsgo/shared-types';
 import type {
   CloneSeatLayoutInput,
   PublishSeatLayoutInput,
+  SaveLayoutDocumentInput,
   UpdateSeatLayoutInput,
 } from '@eticketsgo/validation';
+import { toLayoutDocument, writeLayoutDocument } from './seat-layout-document';
 import { PrismaService } from '../prisma/prisma.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
 import { AppException, ErrorCodes } from '../common/errors';
@@ -23,14 +25,19 @@ import {
 import {
   DEFAULT_FOCAL_LABEL,
   VENUE_TEMPLATES,
+  TemplateSizeError,
   fitTemplate,
   generateVenue,
+  generateVenueForTarget,
+  templateSizeOptions,
   seatCount as templateSeatCount,
   templateOutline,
   type GeneratedVenue,
   type TemplateFit,
   type TemplateOutline,
+  type TemplateFitMode,
   type TemplateSection,
+  type TemplateSizeOption,
   type VenueTemplateKey,
 } from './venue-templates';
 import { requireSpaceOrganizationId } from '../spaces/space-owner';
@@ -93,6 +100,9 @@ async function fillFromTemplate(
       // costs is the organizer's decision; all the template knows is that it is worth
       // more than the back.
       basePriceMinor: Math.round(basePriceMinor * c.priceWeight),
+      // Only the band the organizer priced is their price. The others were worked out from it,
+      // so they are marked as suggestions until somebody changes or accepts them.
+      priceSuggested: c.priceWeight !== 1,
     })),
   });
   const categoryByName = new Map(categories.map((c) => [c.name, c.id]));
@@ -150,24 +160,52 @@ const ORGANIZER_ROLES = [Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER];
 /** The gallery outlines, built on first request. Pure, so one copy serves every caller. */
 let templateOutlines: TemplateOutline[] | null = null;
 /** Outlines sized to a seat count, by that count. Small and pure, so a bounded map is enough. */
-const fittedOutlines = new Map<number, (TemplateOutline & { fit: TemplateFit })[]>();
+const fittedOutlines = new Map<number, (TemplateOutline & { fit: SizedFit })[]>();
+
+/** A template's fit to a space, with every size the gallery can offer for it. */
+type SizedFit = TemplateFit & {
+  options: {
+    exact: TemplateSizeOption | null;
+    below: TemplateSizeOption | null;
+    above: TemplateSizeOption | null;
+  };
+};
 
 /**
- * The size to build a template at. Explicit rows and seats win; otherwise a target seat count
- * (the space's planned size) is fitted; otherwise the template's own default size.
+ * Build the venue a request asks for.
+ *
+ * Explicit rows and seats win. Otherwise a target seat count (the space's planned size) is met
+ * the way the organizer chose - exactly, at most, or at least - and with no choice given, at
+ * least, which is what every caller asked for before the choice existed. Otherwise the
+ * template's own default size.
  */
-function templateSize(input: {
+function buildTemplate(input: {
   template: VenueTemplateKey;
   rows?: number;
   seatsPerRow?: number;
   targetSeats?: number;
-}): { rows?: number; seatsPerRow?: number } {
-  if (input.rows || input.seatsPerRow) return { rows: input.rows, seatsPerRow: input.seatsPerRow };
+  fit?: TemplateFitMode;
+}): GeneratedVenue {
+  if (input.rows || input.seatsPerRow) {
+    return generateVenue(input.template, { rows: input.rows, seatsPerRow: input.seatsPerRow });
+  }
+  if (input.targetSeats && input.fit) {
+    try {
+      return generateVenueForTarget(input.template, input.targetSeats, input.fit);
+    } catch (e) {
+      if (e instanceof TemplateSizeError) {
+        throw new AppException(ErrorCodes.VALIDATION_FAILED, e.message, HttpStatus.BAD_REQUEST, {
+          reason: 'TEMPLATE_SIZE_UNAVAILABLE',
+        });
+      }
+      throw e;
+    }
+  }
   if (input.targetSeats) {
     const fit = fitTemplate(input.template, input.targetSeats);
-    return { rows: fit.rows, seatsPerRow: fit.seatsPerRow };
+    return generateVenue(input.template, { rows: fit.rows, seatsPerRow: fit.seatsPerRow });
   }
-  return {};
+  return generateVenue(input.template, {});
 }
 
 /**
@@ -197,6 +235,11 @@ export interface LayoutSummary {
    * layout appears (positions, aisles, accessible, bookable) from one shared function.
    */
   kindCounts: { kind: string; count: number }[];
+  /**
+   * Ticket categories whose price a template worked out and nobody has changed or accepted. The
+   * publish dialog lists them, because publishing is what accepts them.
+   */
+  suggestedPrices: { name: string; priceMinor: number }[];
   /** Shows pinned to this version that have not played yet. */
   futureShows: number;
   /** Shows pinned to it that have already played. History; never blocks anything. */
@@ -355,7 +398,7 @@ export class SeatLayoutsService {
 
     // Two grouped queries rather than a count per version: a screen re-seated monthly for a
     // decade would otherwise issue a hundred round trips to render one page.
-    const [byKind, shows] = await Promise.all([
+    const [byKind, shows, suggested] = await Promise.all([
       this.prisma.seat.groupBy({
         by: ['seatMapId', 'kind'],
         where: { seatMapId: { in: ids } },
@@ -366,6 +409,11 @@ export class SeatLayoutsService {
         where: { seatMapId: { in: ids } },
         _count: { _all: true },
         _min: { startsAt: true },
+      }),
+      this.prisma.seatCategory.findMany({
+        where: { seatMapId: { in: ids }, priceSuggested: true },
+        orderBy: { sortOrder: 'asc' },
+        select: { seatMapId: true, name: true, basePriceMinor: true },
       }),
     ]);
     const kindsBy = new Map<string, { kind: string; count: number }[]>();
@@ -401,6 +449,9 @@ export class SeatLayoutsService {
       seatCount: l._count.seats,
       capacity: capacityOf(l.id),
       kindCounts: kindsBy.get(l.id) ?? [],
+      suggestedPrices: suggested
+        .filter((c) => c.seatMapId === l.id)
+        .map((c) => ({ name: c.name, priceMinor: c.basePriceMinor })),
       futureShows: futureBy.get(l.id) ?? 0,
       historicalShows: (totalBy.get(l.id) ?? 0) - (futureBy.get(l.id) ?? 0),
       createdAt: l.createdAt,
@@ -521,6 +572,8 @@ export class SeatLayoutsService {
               name: c.name,
               colorHex: c.colorHex,
               basePriceMinor: c.basePriceMinor,
+              // A suggestion nobody accepted is still a suggestion in the copy.
+              priceSuggested: c.priceSuggested,
               sortOrder: c.sortOrder,
               // A rate-capped market refuses a category with no regulatory class, so a clone
               // that dropped it would publish a layout nobody could schedule.
@@ -662,6 +715,89 @@ export class SeatLayoutsService {
   }
 
   /**
+   * A layout as the editor's document: every category, section, row and seat kind.
+   *
+   * Readable by any member, like the layout list, so a manager can look at a published version.
+   * Only a DRAFT can be saved back - `editable` says which this is, so the page opens a
+   * published layout read-only instead of offering edits the save would refuse.
+   */
+  async document(user: RequestUser, layoutId: string) {
+    const layout = await this.prisma.seatMap.findUnique({
+      where: { id: layoutId },
+      include: {
+        screen: { include: { cinema: true, venue: true } },
+        categories: { orderBy: { sortOrder: 'asc' } },
+        zones: { orderBy: { sortOrder: 'asc' } },
+        sections: {
+          orderBy: { sortOrder: 'asc' },
+          include: {
+            rows: {
+              orderBy: { sortOrder: 'asc' },
+              include: {
+                seats: {
+                  orderBy: { colIndex: 'asc' },
+                  select: { label: true, colIndex: true, kind: true, seatCategoryId: true },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+    if (!layout) {
+      throw new AppException(ErrorCodes.NOT_FOUND, 'Seat layout not found.', HttpStatus.NOT_FOUND);
+    }
+    await this.access.assertMember(user, requireSpaceOrganizationId(layout.screen));
+
+    return {
+      id: layout.id,
+      screenId: layout.screenId,
+      version: layout.version,
+      status: layout.status as LayoutStatus,
+      editable: layout.status === 'DRAFT',
+      layoutKind: layout.layoutKind,
+      country: layout.screen.venue?.country ?? null,
+      focal: {
+        kind: layout.focalPoint,
+        label: layout.focalLabel ?? DEFAULT_FOCAL_LABEL[layout.focalPoint] ?? 'STAGE',
+        shape: layout.focalShape ?? null,
+      },
+      document: toLayoutDocument(layout),
+    };
+  }
+
+  /**
+   * Save the editor's document into a DRAFT, replacing what it held.
+   *
+   * The same gate as every other edit: a published version can never change underneath a show
+   * that was sold from it. Unlike `updateDraft` it keeps what a room IS - block outlines,
+   * rotation, standing zones, every position's kind - so an arena survives being edited.
+   */
+  async saveDocument(user: RequestUser, layoutId: string, input: SaveLayoutDocumentInput) {
+    const layout = await this.loadOwnedLayout(user, layoutId);
+    await this.authorize(layout, 'EDIT');
+
+    await this.prisma.$transaction(
+      async (tx) => {
+        await clearLayoutContents(tx, layoutId);
+        await writeLayoutDocument(tx, layoutId, input);
+      },
+      // A stadium is thousands of seats; the default five seconds would abort it half-written.
+      { timeout: 120_000, maxWait: 10_000 },
+    );
+
+    const counts = countLayoutDocument(input);
+    await this.record(user, layout, 'SEAT_LAYOUT_EDITED', {
+      sections: input.sections.length,
+      categories: input.categories.length,
+      bookable: counts.bookable,
+      accessible: counts.accessible,
+      house: counts.house,
+    });
+    return { id: layoutId, status: 'DRAFT' as const, counts };
+  }
+
+  /**
    * Fill a draft layout from a venue template.
    *
    * ── WHY THIS IS NOT `updateDraft` ──────────────────────────────────────────────
@@ -686,6 +822,7 @@ export class SeatLayoutsService {
       rows?: number;
       seatsPerRow?: number;
       targetSeats?: number;
+      fit?: TemplateFitMode;
       basePriceMinor: number;
     },
   ) {
@@ -694,9 +831,7 @@ export class SeatLayoutsService {
     // that has already been sold from it.
     await this.authorize(layout, 'EDIT');
 
-    const venue = generateVenue(input.template, {
-      ...templateSize(input),
-    });
+    const venue = buildTemplate(input);
 
     await this.prisma.$transaction(
       async (tx) => {
@@ -739,14 +874,13 @@ export class SeatLayoutsService {
       rows?: number;
       seatsPerRow?: number;
       targetSeats?: number;
+      fit?: TemplateFitMode;
       basePriceMinor: number;
       name?: string;
     },
   ) {
     const screen = await this.loadOwnedScreen(user, screenId);
-    const venue = generateVenue(input.template, {
-      ...templateSize(input),
-    });
+    const venue = buildTemplate(input);
     const label = VENUE_TEMPLATES.find((t) => t.key === input.template)?.label ?? input.template;
 
     const created = await this.prisma.$transaction(
@@ -800,7 +934,7 @@ export class SeatLayoutsService {
    *
    * Pure and the same for everybody, so it is computed once per process.
    */
-  templates(seats?: number): (TemplateOutline & { fit?: TemplateFit })[] {
+  templates(seats?: number): (TemplateOutline & { fit?: SizedFit })[] {
     if (!seats) {
       templateOutlines ??= VENUE_TEMPLATES.map((t) => templateOutline(t.key));
       return templateOutlines;
@@ -813,7 +947,8 @@ export class SeatLayoutsService {
     const cached = fittedOutlines.get(seats);
     if (cached) return cached;
     const fitted = VENUE_TEMPLATES.map((t) => {
-      const fit = fitTemplate(t.key, seats);
+      // Drawn at the at-least size; the card offers every size the shape can be built at.
+      const fit = { ...fitTemplate(t.key, seats), options: templateSizeOptions(t.key, seats) };
       return { ...templateOutline(t.key, fit), fit };
     });
     if (fittedOutlines.size >= 64) fittedOutlines.delete(fittedOutlines.keys().next().value!);
@@ -862,6 +997,8 @@ export class SeatLayoutsService {
       name: c.name,
       colorHex: c.colorHex,
       priceMinor: c.basePriceMinor,
+      // The preview says which prices the organizer has not set yet, beside the price.
+      priceSuggested: c.priceSuggested,
     }));
     const base = {
       sessionId: 'preview',
@@ -1031,14 +1168,33 @@ export class SeatLayoutsService {
 
     const now = new Date();
     const effectiveFrom = input.effectiveFrom ?? now;
-    const updated = await this.prisma.seatMap.update({
-      where: { id: layoutId },
-      data: { status: 'PUBLISHED', publishedAt: now, effectiveFrom },
+    const accepted = await this.prisma.seatCategory.findMany({
+      where: { seatMapId: layoutId, priceSuggested: true },
+      select: { name: true, basePriceMinor: true },
     });
+    const [updated] = await this.prisma.$transaction([
+      this.prisma.seatMap.update({
+        where: { id: layoutId },
+        data: { status: 'PUBLISHED', publishedAt: now, effectiveFrom },
+      }),
+      /*
+        Publishing accepts the prices on the draft. The console lists every suggested price in
+        the publish dialog and says that publishing confirms them, so after this they are the
+        organizer's prices - and a clone of this version must not call them suggestions again.
+      */
+      this.prisma.seatCategory.updateMany({
+        where: { seatMapId: layoutId, priceSuggested: true },
+        data: { priceSuggested: false },
+      }),
+    ]);
 
     await this.record(user, layout, 'SEAT_LAYOUT_PUBLISHED', {
       effectiveFrom,
       seatCount,
+      acceptedSuggestedPrices: accepted.map((c) => ({
+        name: c.name,
+        priceMinor: c.basePriceMinor,
+      })),
       // Dating forward is the "activate a future version" path and is worth distinguishing
       // in the audit trail from an immediate publish.
       scheduled: effectiveFrom.getTime() > now.getTime(),

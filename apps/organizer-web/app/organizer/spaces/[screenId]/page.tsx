@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Eye, Footprints, MapPin, Pencil } from 'lucide-react';
+import { Eye, Footprints, MapPin, Pencil, PencilRuler } from 'lucide-react';
 import { useState } from 'react';
 import {
   api,
@@ -21,6 +21,9 @@ import {
   StatusPill,
   dateTime,
   errorMessage,
+  money,
+  type LayoutTemplateFitMode,
+  type LayoutTemplateOutline,
   useToast,
   venueAddressLine,
   type BadgeTone,
@@ -40,6 +43,7 @@ import {
 } from '@eticketsgo/shared-types';
 import { LayoutTemplateGallery } from '@/components/layout-template-gallery';
 import { SeatCountSummary } from '@/components/seat-count-summary';
+import { LayoutSizeChoice, defaultSizeMode } from '@/components/layout-size-choice';
 import { priceToMinor, venueCurrency } from '../../venue-spaces';
 
 /**
@@ -72,7 +76,7 @@ const STATUS_WORD: Record<SeatLayoutStatus, string> = {
 };
 
 const STATUS_HINT: Record<SeatLayoutStatus, string> = {
-  DRAFT: 'You can still change it. Sessions cannot use it until you publish it.',
+  DRAFT: 'Change it with Edit. Sessions cannot use it until you publish it.',
   PUBLISHED: 'Frozen. Sessions can use it.',
   ARCHIVED: 'Retired. Sessions that already use it keep working.',
 };
@@ -123,12 +127,17 @@ export default function SpacePage() {
   /** The "start a draft from a shape" dialog, for a draft that already exists. */
   const [templating, setTemplating] = useState<SeatLayoutSummary | null>(null);
   const [template, setTemplate] = useState<VenueTemplateKey | null>(null);
+  const [templateOutline, setTemplateOutline] = useState<LayoutTemplateOutline | null>(null);
+  const [templateSize, setTemplateSize] = useState<LayoutTemplateFitMode | null>(null);
   const [basePrice, setBasePrice] = useState('');
   const [priceProblem, setPriceProblem] = useState<string | null>(null);
   /** The "new layout" dialog: open, which card, and what to call it. */
   const [creating, setCreating] = useState(false);
   const [newOption, setNewOption] = useState<LayoutGalleryOption | null>(null);
   const [newName, setNewName] = useState('');
+  const [newOutline, setNewOutline] = useState<LayoutTemplateOutline | null>(null);
+  /** How many seats to build: exactly the planned number, or the nearest full rows. */
+  const [newSize, setNewSize] = useState<LayoutTemplateFitMode | null>(null);
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -136,6 +145,8 @@ export default function SpacePage() {
     setError(null);
     setPriceProblem(null);
     setNewOption(null);
+    setNewOutline(null);
+    setNewSize(null);
     setNewName('');
     setCreating(true);
   };
@@ -165,15 +176,17 @@ export default function SpacePage() {
         template: newOption.template,
         name: newName.trim() || newOption.label,
         basePriceMinor,
-        // Built at the size the space was given, not the template's own.
+        // Built at the size the space was given, the way the person chose to meet it.
         targetSeats: space?.capacity,
+        fit: newSize ?? defaultSizeMode(newOutline) ?? undefined,
       });
     },
     onSuccess: (created) => {
       refresh();
       setCreating(false);
       setError(null);
-      router.push(`${base}/layouts/${created.id}/preview`);
+      // Straight to the editor: prices, sections and seats are shaped there before publishing.
+      router.push(`${base}/layouts/${created.id}/edit`);
     },
     onError: (e) => setError(errorMessage(e)),
   });
@@ -207,6 +220,7 @@ export default function SpacePage() {
         template,
         basePriceMinor: price.minor,
         targetSeats: space?.capacity,
+        fit: templateSize ?? defaultSizeMode(templateOutline) ?? undefined,
       }),
     );
   };
@@ -393,7 +407,7 @@ export default function SpacePage() {
             </h2>
             <p className="text-caption text-text-muted">
               A published layout is frozen, because sold seats point at it. To change it, clone it,
-              edit the draft, then publish.
+              edit the new draft, then publish.
             </p>
           </div>
 
@@ -442,7 +456,12 @@ export default function SpacePage() {
                       ) : null}
 
                       <span className="text-sm text-text-muted">
-                        {l.capacity.toLocaleString()} bookable seats
+                        {/* The shared rule: house seats drawn in the layout are not bookable. */}
+                        {(l.kindCounts
+                          ? reconcileSeats(l.kindCounts).bookable
+                          : l.capacity
+                        ).toLocaleString()}{' '}
+                        bookable seats
                         {l.futureShows > 0
                           ? ` · ${l.futureShows} upcoming session${l.futureShows === 1 ? '' : 's'}`
                           : ''}
@@ -450,6 +469,14 @@ export default function SpacePage() {
                       </span>
 
                       <span className="flex flex-wrap gap-2">
+                        {l.status === 'DRAFT' ? (
+                          <ButtonLink href={`${base}/layouts/${l.id}/edit`}>
+                            <PencilRuler className="mr-1.5 h-4 w-4" aria-hidden />
+                            Edit
+                            {/* ButtonLink takes no aria-label, so the version is in the name here. */}
+                            <span className="sr-only"> version {l.version}</span>
+                          </ButtonLink>
+                        ) : null}
                         <ButtonLink
                           variant="outline"
                           href={`${base}/layouts/${l.id}/preview`}
@@ -460,6 +487,7 @@ export default function SpacePage() {
                         </ButtonLink>
                         {l.status === 'DRAFT' ? (
                           <Button
+                            variant="outline"
                             disabled={run.isPending}
                             aria-label={`Publish version ${l.version}`}
                             onClick={() => {
@@ -630,6 +658,30 @@ export default function SpacePage() {
             <p className="text-sm">
               Publishing freezes this version. To change it afterwards, clone it.
             </p>
+            {publishing.suggestedPrices && publishing.suggestedPrices.length > 0 ? (
+              <div role="note" className="space-y-2 rounded-md bg-status-warning/10 p-3 text-sm">
+                <p>
+                  These prices were worked out by the template, not typed by you. Publishing
+                  confirms them:
+                </p>
+                <ul className="list-disc pl-5">
+                  {publishing.suggestedPrices.map((c) => (
+                    <li key={c.name}>
+                      {c.name}:{' '}
+                      <span className="tabular-nums">
+                        {money(c.priceMinor, currency?.code ?? 'INR')}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <Link
+                  href={`${base}/layouts/${publishing.id}/edit`}
+                  className="font-medium text-action-primary underline-offset-2 hover:underline"
+                >
+                  Change the prices first
+                </Link>
+              </div>
+            ) : null}
             <Input
               id="eff-from"
               label="Takes effect from (optional)"
@@ -682,10 +734,18 @@ export default function SpacePage() {
               templates={fits}
               targetSeats={space.capacity}
               selectedId={template ? galleryIdFor(template) : null}
-              onChoose={(option) => {
+              onChoose={(option, outline) => {
                 if (option.template) setTemplate(option.template);
+                setTemplateOutline(outline);
+                setTemplateSize(null);
                 setError(null);
               }}
+            />
+            <LayoutSizeChoice
+              outline={templateOutline}
+              value={templateSize}
+              onChange={setTemplateSize}
+              planned={space.capacity}
             />
             {error ? (
               <p role="alert" className="rounded-md bg-status-error/10 p-3 text-sm">
@@ -707,7 +767,7 @@ export default function SpacePage() {
                 Cancel
               </Button>
               <Button loading={create.isPending} onClick={submitCreate}>
-                Build draft and preview
+                Build draft
               </Button>
             </>
           }
@@ -718,7 +778,8 @@ export default function SpacePage() {
               cards, and the button stayed disabled until it was found and filled.
             */}
             <p className="text-sm">
-              This builds a draft. Nothing changes for buyers until you publish it.
+              This builds a draft you can then change seat by seat. Nothing changes for buyers until
+              you publish it.
               {kindOption
                 ? ` Showing the layouts that fit a ${kindOption.label.toLowerCase()}.`
                 : ''}
@@ -750,13 +811,21 @@ export default function SpacePage() {
               templates={fits}
               targetSeats={space.capacity}
               selectedId={newOption?.id ?? null}
-              onChoose={(option) => {
+              onChoose={(option, outline) => {
                 setNewOption(option);
+                setNewOutline(outline);
+                setNewSize(null);
                 setError(null);
                 if (!newName.trim() || LAYOUT_GALLERY.some((g) => g.label === newName.trim())) {
                   setNewName(option.label);
                 }
               }}
+            />
+            <LayoutSizeChoice
+              outline={newOutline}
+              value={newSize}
+              onChange={setNewSize}
+              planned={space.capacity}
             />
             {canDraw ? (
               <p className="text-caption text-text-secondary">

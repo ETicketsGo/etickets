@@ -402,6 +402,12 @@ export const applyVenueTemplateSchema = z.object({
    */
   targetSeats: z.number().int().min(1).max(250_000).optional(),
   /**
+   * How to meet `targetSeats`: EXACTLY that many (the longest rows lose a seat each until it
+   * fits), AT_MOST (the biggest even room that fits under it) or AT_LEAST (the smallest even
+   * room that reaches it). Left out, AT_LEAST, which is what every caller asked for before.
+   */
+  fit: z.enum(['EXACT', 'AT_MOST', 'AT_LEAST']).optional(),
+  /**
    * What the cheapest band costs. Every other band is derived from it by the template's
    * relative weights, and the organizer edits the numbers afterwards.
    */

@@ -1250,6 +1250,11 @@ model SeatCategory {
   basePriceMinor Int
   sortOrder      Int     @default(0)
 
+  /// True while the price is one a layout template WORKED OUT from the price the organizer typed
+  /// ("Front: 1.7 x the cheapest seat"), not one they typed or accepted. The editor shows it as
+  /// "suggested" until it is changed; publishing the draft accepts it and clears the flag.
+  priceSuggested Boolean @default(false)
+
   /// Which class of seat a regulator considers this, as opposed to what it is CALLED.
   ///
   /// `name` is a marketing label an operator chooses freely — Gold, Platinum, Executive,

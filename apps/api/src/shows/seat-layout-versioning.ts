@@ -272,7 +272,16 @@ export function compareLayouts(
 // ── Seat kinds ────────────────────────────────────────────────────────────────────
 
 /** Seat kinds a layout may contain. */
-export const SEAT_KINDS = ['SEAT', 'GAP', 'WHEELCHAIR', 'COMPANION'] as const;
+export const SEAT_KINDS = [
+  'SEAT',
+  'GAP',
+  'WHEELCHAIR',
+  'COMPANION',
+  // Sold with a warning to the buyer.
+  'RESTRICTED_VIEW',
+  // A real seat held back at every session (BLOCKED as a house override) until released there.
+  'HOUSE',
+] as const;
 export type SeatKind = (typeof SEAT_KINDS)[number];
 
 /**

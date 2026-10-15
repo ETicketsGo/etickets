@@ -960,7 +960,8 @@ export class EventsService {
             id: true,
             name: true,
             layoutKind: true,
-            _count: { select: { seats: { where: { kind: { not: 'GAP' } } } } },
+            // Bookable at a new session: not an aisle, and not a house seat (held back at every session).
+            _count: { select: { seats: { where: { kind: { notIn: ['GAP', 'HOUSE'] } } } } },
           },
         },
       },

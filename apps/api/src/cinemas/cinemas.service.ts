@@ -314,7 +314,8 @@ export class CinemasService {
       orderBy: { createdAt: 'desc' },
       select: {
         screenId: true,
-        _count: { select: { seats: { where: { kind: { not: 'GAP' } } } } },
+        // Bookable at a new session: not an aisle, and not a house seat (held back at every session).
+        _count: { select: { seats: { where: { kind: { notIn: ['GAP', 'HOUSE'] } } } } },
       },
     });
     const bookable = new Map<string, number>();

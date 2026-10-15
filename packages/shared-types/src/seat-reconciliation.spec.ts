@@ -53,3 +53,22 @@ describe('countSeatKinds', () => {
     });
   });
 });
+
+describe('house and restricted-view seats drawn in a layout (E1)', () => {
+  it('a layout counts its house seats as held back; a session passes its own blocked count', () => {
+    const counts = [
+      { kind: 'SEAT', count: 95 },
+      { kind: 'HOUSE', count: 2 },
+      { kind: 'RESTRICTED_VIEW', count: 1 },
+      { kind: 'GAP', count: 4 },
+    ];
+    expect(reconcileSeats(counts)).toMatchObject({
+      house: 2,
+      restricted: 1,
+      blocked: 2,
+      bookable: 96,
+    });
+    // A session's BLOCKED count already includes the house seats; they are not taken off twice.
+    expect(reconcileSeats(counts, { blocked: 3 })).toMatchObject({ blocked: 3, bookable: 95 });
+  });
+});

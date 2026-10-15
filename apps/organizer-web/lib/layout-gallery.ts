@@ -1,5 +1,5 @@
 import { reconcileSeats, type SeatReconciliation } from '@eticketsgo/shared-types';
-import type { LayoutTemplateOutline } from '@eticketsgo/web-kit';
+import type { LayoutTemplateFitMode, LayoutTemplateOutline } from '@eticketsgo/web-kit';
 import type { SectionDraft } from './seat-layout';
 
 /**
@@ -108,5 +108,62 @@ export function templateSizeNote(outline: LayoutTemplateOutline): {
       capacity: `${seats} seats`,
       warning: `This shape cannot hold ${target}. The largest is ${seats} seats.`,
     };
+  // The exact number it will build, when it can be built at exactly the planned size.
+  if (fit.options?.exact) {
+    return { capacity: `${fit.options.exact.seats.toLocaleString()} seats`, warning: null };
+  }
   return { capacity: `About ${seats} seats`, warning: null };
+}
+
+/** One size the person can choose for a template, worded for a radio button. */
+export interface TemplateSizeChoice {
+  mode: LayoutTemplateFitMode;
+  seats: number;
+  label: string;
+  detail: string;
+}
+
+/**
+ * The sizes a template can be built at for the space, as choices.
+ *
+ * -- WHY ----------------------------------------------------------------------------------
+ * The owner planned 100 seats and was built 110 with no say: the card said "About 110" and the
+ * button built it. Now the exact size comes first when the shape can reach it (by taking a seat
+ * off the ends of the longest rows), and the nearest full-row rooms below and above are offered
+ * beside it, so "fewer" is a choice and never a surprise.
+ */
+export function templateSizeChoices(outline: LayoutTemplateOutline): TemplateSizeChoice[] {
+  const options = outline.fit?.options;
+  if (!options) return [];
+  const out: TemplateSizeChoice[] = [];
+  const { exact, below, above } = options;
+  if (exact) {
+    out.push({
+      mode: 'EXACT',
+      seats: exact.seats,
+      label: `Exactly ${exact.seats.toLocaleString()} seats`,
+      detail:
+        exact.trimmed > 0
+          ? `Made exact by taking ${exact.trimmed} seat${exact.trimmed === 1 ? '' : 's'} off the ends of the longest rows.`
+          : 'Every row full.',
+    });
+  }
+  if (below && below.seats !== exact?.seats) {
+    out.push({
+      mode: 'AT_MOST',
+      seats: below.seats,
+      label: `${below.seats.toLocaleString()} seats (fewer)`,
+      detail: 'Every row full.',
+    });
+  }
+  if (above && above.seats !== exact?.seats) {
+    out.push({
+      mode: 'AT_LEAST',
+      seats: above.seats,
+      label: `${above.seats.toLocaleString()} seats (more)`,
+      detail:
+        outline.fit?.verdict === 'TOO_BIG' ? 'The smallest this shape can be.' : 'Every row full.',
+    });
+  }
+  return out;
 }

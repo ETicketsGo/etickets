@@ -53,6 +53,8 @@ const asOverview = (p: SeatLayoutPreview | undefined): VenueOverview | null =>
 const KIND_LABEL: Record<string, string> = {
   WHEELCHAIR: 'Wheelchair space',
   COMPANION: 'Companion seat',
+  // Named to the buyer, as the storefront names it.
+  RESTRICTED_VIEW: 'Restricted view',
 };
 
 export default function LayoutPreviewPage() {
@@ -82,7 +84,9 @@ export default function LayoutPreviewPage() {
   const overview = asOverview(data);
   const seatsView = asSeats(data) ?? asSeats(blockQ.data);
   const hasAccessible = !!seatsView?.sections.some((s) =>
-    s.rows.some((r) => r.seats.some((seat) => seat.kind in KIND_LABEL)),
+    s.rows.some((r) =>
+      r.seats.some((seat) => seat.kind === 'WHEELCHAIR' || seat.kind === 'COMPANION'),
+    ),
   );
   const activeBlock = overview?.sections.find((s) => s.id === sectionId);
 
@@ -99,9 +103,16 @@ export default function LayoutPreviewPage() {
           { label: 'Preview as buyer' },
         ]}
         action={
-          <ButtonLink variant="outline" href={layoutsHref}>
-            Back to the space
-          </ButtonLink>
+          <div className="flex flex-wrap gap-2">
+            <ButtonLink variant="outline" href={layoutsHref}>
+              Back to the space
+            </ButtonLink>
+            {data?.preview.status === 'DRAFT' ? (
+              <ButtonLink href={`${layoutsHref}/layouts/${layoutId}/edit`}>
+                Edit this draft
+              </ButtonLink>
+            ) : null}
+          </div>
         }
       />
 
@@ -141,6 +152,9 @@ export default function LayoutPreviewPage() {
                     style={c.colorHex ? { backgroundColor: c.colorHex } : undefined}
                   />
                   {c.name}: <span className="tabular-nums">{formatMinor(c.priceMinor)}</span>
+                  {c.priceSuggested ? (
+                    <Badge tone="warning">Suggested, not set by you</Badge>
+                  ) : null}
                 </li>
               ))}
             </ul>

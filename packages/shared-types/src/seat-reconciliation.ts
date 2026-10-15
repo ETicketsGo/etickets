@@ -14,8 +14,10 @@
  * ── THE RULE IT ENCODES ────────────────────────────────────────────────────────────
  * It is the API's rule, written down once for the client: a GAP is an aisle and is never
  * sold; every other position is a seat somebody can buy, accessible places included. A
- * BLOCKED seat is a property of one session (an operator override on its ShowSeat), never of
- * the layout, so a layout has none and only a session view passes a count.
+ * BLOCKED seat is a property of one session (an operator override on its ShowSeat). The one
+ * exception a layout can carry is a HOUSE seat: drawn in the layout, written as BLOCKED at
+ * every session, and released per session. So a layout counts its house seats as blocked, and
+ * a session view passes its own count instead.
  */
 
 /** How many seats of one `Seat.kind` a layout holds. */
@@ -39,6 +41,10 @@ export interface SeatReconciliation {
   accessible: number;
   /** Seats a buyer can actually choose: positions - aisles - blocked. */
   bookable: number;
+  /** House seats drawn in the layout: held back at every session until released there. */
+  house: number;
+  /** Restricted-view seats. Bookable, and named to the buyer. */
+  restricted: number;
 }
 
 /** Count seats by kind. Unknown kinds are kept as they are; `reconcileSeats` treats them as seats. */
@@ -66,16 +72,27 @@ export function reconcileSeats(
   let aisles = 0;
   let wheelchair = 0;
   let companion = 0;
+  let house = 0;
+  let restricted = 0;
   for (const { kind, count } of counts) {
     if (!Number.isFinite(count) || count <= 0) continue;
     positions += count;
     if (kind === 'GAP') aisles += count;
     else if (kind === 'WHEELCHAIR') wheelchair += count;
     else if (kind === 'COMPANION') companion += count;
+    else if (kind === 'HOUSE') house += count;
+    else if (kind === 'RESTRICTED_VIEW') restricted += count;
   }
   const seats = positions - aisles;
-  const blocked = Math.min(seats, Math.max(0, Math.floor(options.blocked ?? 0)));
+  /*
+    A house seat drawn in the layout is written as a BLOCKED seat at every session. So a layout
+    on its own counts its house seats as blocked, and a session view - which passes its own
+    count of BLOCKED seats, house seats among them - must not subtract them a second time.
+  */
+  const blocked = Math.min(seats, Math.max(0, Math.floor(options.blocked ?? house)));
   return {
+    house,
+    restricted,
     positions,
     aisles,
     blocked,
