@@ -1214,7 +1214,7 @@ export class EventsService {
   private async assertRoomIsUsable(
     screenId: string,
     organizationId: string,
-    eventVenueId: string | null,
+    eventVenueId?: string | null,
   ): Promise<void> {
     const screen = await this.prisma.screen.findUnique({
       where: { id: screenId },

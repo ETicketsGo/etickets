@@ -5,9 +5,20 @@ import { useParams } from 'next/navigation';
 import { useState } from 'react';
 import { Copy, Check, Download, QrCode, Share2, Mail, ExternalLink } from 'lucide-react';
 import { api, Card, Button, Skeleton, ErrorState, EmptyState, useToast } from '@eticketsgo/web-kit';
+import { timeAtVenue } from '@/components/events/event-list-model';
 
-/** Build the promotional poster (title + QR + link) as a PNG data URL, client-side. */
-async function buildPoster(title: string, url: string, qrDataUrl: string): Promise<string> {
+/**
+ * Build the promotional poster (title, when and where, QR + link) as a PNG data URL, client-side.
+ *
+ * `facts` are the date and the venue. A poster on a wall with only a title and a QR code made
+ * every reader scan it to learn whether they were free that evening.
+ */
+async function buildPoster(
+  title: string,
+  url: string,
+  qrDataUrl: string,
+  facts: string[] = [],
+): Promise<string> {
   const W = 1080;
   const H = 1350;
   const canvas = document.createElement('canvas');
@@ -43,6 +54,16 @@ async function buildPoster(title: string, url: string, qrDataUrl: string): Promi
     }
   }
   if (line) ctx.fillText(line, 90, y);
+
+  // When and where, under the title - only while it clears the QR panel below.
+  ctx.fillStyle = '#e0e7ff';
+  ctx.font = '500 38px system-ui, sans-serif';
+  let factY = y + 80;
+  for (const fact of facts) {
+    if (factY > 640) break;
+    ctx.fillText(fact, 90, factY, W - 180);
+    factY += 52;
+  }
 
   // QR panel.
   const qr = new Image();
@@ -87,6 +108,8 @@ export default function PromoteTab() {
     queryKey: ['event-promotion', id],
     queryFn: () => api.events.promotion(id),
   });
+  // The same event the page header shows (cached), for the poster's date and venue.
+  const eventQ = useQuery({ queryKey: ['event', id], queryFn: () => api.events.get(id) });
 
   if (isError)
     return (
@@ -136,7 +159,15 @@ Hope to see you there!`;
   const downloadPoster = async () => {
     setPosterBusy(true);
     try {
-      const poster = await buildPoster(title, publicUrl, qrDataUrl);
+      const ev = eventQ.data;
+      const next = ev?.sessions
+        .filter((s) => s.status !== 'CANCELLED' && new Date(s.endsAt).getTime() > Date.now())
+        .sort((a, b) => a.startsAt.localeCompare(b.startsAt))[0];
+      const facts = [
+        next && ev ? timeAtVenue(next.startsAt, ev.venue) : null,
+        ev?.venue ? [ev.venue.name, ev.venue.city].filter(Boolean).join(', ') : null,
+      ].filter((f): f is string => Boolean(f));
+      const poster = await buildPoster(title, publicUrl, qrDataUrl, facts);
       downloadDataUrl(poster, `${data.slug}-poster.png`);
     } catch {
       toast.push('Could not generate the poster. Please try again.', 'error');

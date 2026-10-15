@@ -36,6 +36,28 @@ export function join(date: string, time: string): string {
 }
 
 /**
+ * True only for a value with BOTH a date and a time.
+ *
+ * `join` keeps half-filled values on purpose (a date picked before its time), so a non-empty
+ * string is not a finished answer. An end time picked with no end date was "T22:00": every
+ * `!value` check passed it, and the event wizard created the event and then threw on it,
+ * leaving an event with no dates and no tickets. Check with this, not with truthiness.
+ */
+export function isComplete(value: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value);
+}
+
+/**
+ * The date an "ends at" field shows before one is chosen: the start's.
+ *
+ * Almost every show ends on the day it starts, and an organizer who picks "10:00 PM" for the
+ * end means that day. Showing an empty date beside the time made that answer half-written.
+ */
+export function endDateFor(endValue: string, startValue: string | undefined): string {
+  return split(endValue).date || (startValue ? split(startValue).date : '');
+}
+
+/**
  * "Sat 30 Aug 2026, 7:00 PM" — the sentence a human would say.
  *
  * Built from the parts rather than by parsing, so it cannot disagree with the value shown

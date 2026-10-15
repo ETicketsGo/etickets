@@ -941,7 +941,7 @@ export const api = {
       }),
     receipts: (id: string, params: PageParams & { from?: string; to?: string } = {}) =>
       request<ReceiptListPage>(`/organizations/${id}/receipts${qs(params)}`),
-    refunds: (id: string, params: PageParams & { status?: string } = {}) =>
+    refunds: (id: string, params: PageParams & { status?: string; eventId?: string } = {}) =>
       request<Paged<OrganizationRefundRow>>(`/organizations/${id}/refunds${qs(params)}`),
     /** Turn cash-at-the-venue on or off for an organization. Owner only. */
     setCashPayments: (id: string, enabled: boolean) =>
@@ -1287,6 +1287,12 @@ export const api = {
       request<{ sessionId: string; startsAt: string; endsAt: string }>(
         `/shows/${sessionId}/reschedule`,
         { method: 'POST', body: JSON.stringify({ startsAt, padMinutes }) },
+      ),
+    /** Move one date of an event that is not a film; both ends come from the organizer. */
+    retime: (sessionId: string, startsAt: string, endsAt: string) =>
+      request<{ sessionId: string; startsAt: string; endsAt: string }>(
+        `/shows/${sessionId}/retime`,
+        { method: 'POST', body: JSON.stringify({ startsAt, endsAt }) },
       ),
     schedule: (movieId: string, body: ScheduleShowBody) =>
       request<{ eventId: string; sessionId: string }>(`/movies/${movieId}/shows`, {
@@ -4966,7 +4972,7 @@ export interface OrganizationRefundRow extends Omit<RefundRow, 'booking'> {
     buyerEmail: string;
     currency: string;
     totalMinor: number;
-    event?: { title: string } | null;
+    event?: { id?: string; title: string } | null;
   };
   creditNote?: { id: string; number: string } | null;
 }

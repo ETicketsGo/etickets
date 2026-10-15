@@ -6,6 +6,7 @@ import {
   addDays,
   addHours,
   describe,
+  endDateFor,
   join,
   split,
   todayLocal,
@@ -67,7 +68,12 @@ export function DateTimeField({
   timeZoneLabel?: string;
   disabled?: boolean;
 }) {
-  const { date, time } = split(value);
+  const { time } = split(value);
+  /*
+    An end field with no date of its own uses the start's, shown AND joined: picking only an
+    end time then means "the same day", as the organizer reads it. See `endDateFor`.
+  */
+  const date = endDateFor(value, relativeTo);
   /*
     Ids derived from the field's own id, not from `useId()`.
 

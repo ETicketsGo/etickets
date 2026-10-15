@@ -24,6 +24,7 @@ import {
 } from '@eticketsgo/web-kit';
 import { OfflineCheckin } from '@/components/offline-checkin';
 import { timeAtVenue } from '@/components/events/event-list-model';
+import { looksLikeTicketNumber } from '@/lib/ticket-number';
 
 interface DetectedBarcode {
   rawValue: string;
@@ -68,7 +69,44 @@ export default function CheckinTab() {
     offlineReadiness.data?.checks.find((c) => c.key === 'flag')?.passed ?? false;
 
   const [sessionId, setSessionId] = useState('');
+  /*
+    Opens on the date being run: the one on now, or the next to come (the last one once all
+    are past). "Any session" hid Admit by eye behind "Choose a session above" even for an event
+    with one date, so the door's manual path looked missing.
+  */
+  const chosenOnce = useRef(false);
+  useEffect(() => {
+    if (chosenOnce.current || !event) return;
+    const live = event.sessions.filter((s) => s.status !== 'CANCELLED');
+    if (live.length === 0) return;
+    const now = Date.now();
+    const current =
+      live
+        .filter((s) => new Date(s.endsAt).getTime() > now)
+        .sort((a, b) => a.startsAt.localeCompare(b.startsAt))[0] ??
+      [...live].sort((a, b) => b.startsAt.localeCompare(a.startsAt))[0];
+    chosenOnce.current = true;
+    setSessionId(current.id);
+  }, [event]);
   const [token, setToken] = useState('');
+  /*
+    A ticket number (TKT-...) or booking reference (ETG-...) typed into the scan box. Those are
+    printed on the ticket, so the door types them - and the server, rightly, cannot verify one
+    as a signed QR code, so it answered "Invalid". They go to Admit by eye instead.
+  */
+  const [lookup, setLookup] = useState<string | undefined>(undefined);
+  const [typedNumber, setTypedNumber] = useState(false);
+  const submitToken = () => {
+    const t = token.trim();
+    if (looksLikeTicketNumber(t)) {
+      setOutcome(null);
+      setTypedNumber(true);
+      setLookup(t.toUpperCase());
+      return;
+    }
+    setTypedNumber(false);
+    scan.mutate(t);
+  };
   const [outcome, setOutcome] = useState<CheckInOutcome | null>(null);
   const [history, setHistory] = useState<{ at: string; outcome: CheckInOutcome }[]>([]);
   const [scanning, setScanning] = useState(false);
@@ -251,20 +289,27 @@ export default function CheckinTab() {
 
               <Textarea
                 id="token"
-                label="Or paste QR token"
+                label="Or paste the QR code, or type the ticket number"
                 rows={3}
                 value={token}
                 onChange={(e) => setToken(e.target.value)}
-                placeholder="Paste the scanned QR value…"
+                placeholder="A scanner's reading, or a number such as TKT-1A2B3C"
               />
               <Button
                 className="w-full"
                 loading={scan.isPending}
                 disabled={!token.trim()}
-                onClick={() => scan.mutate(token.trim())}
+                onClick={submitToken}
               >
                 Check in
               </Button>
+              {typedNumber ? (
+                <p role="status" className="text-sm text-text-secondary">
+                  {sessionId
+                    ? 'That is a ticket number, not a QR code. It is shown under Admit by eye: check the ticket, then press Admit.'
+                    : 'That is a ticket number, not a QR code. Choose the session above, then find it under Admit by eye.'}
+                </p>
+              ) : null}
             </div>
           </Card>
 
@@ -329,7 +374,7 @@ export default function CheckinTab() {
             is the better evidence; where it is not — which is most Indian cinemas — this is
             what the door actually does, and it is now recorded instead of invisible.
           */}
-          <AdmitByEye sessionId={sessionId} onAdmitted={recordAdmission} />
+          <AdmitByEye sessionId={sessionId} query={lookup} onAdmitted={recordAdmission} />
           <AttendeeLookup
             eventId={id}
             onReversed={() => {
@@ -390,6 +435,11 @@ function AttendeeLookup({ eventId, onReversed }: { eventId: string; onReversed: 
 
   return (
     <Card title="Find attendee">
+      {/* Said, because this list only finds: letting someone in is Admit by eye's button. */}
+      <p className="mb-3 text-sm text-text-muted">
+        Look up any ticket of this event, and undo a check-in made by mistake. To let someone in,
+        use Admit by eye.
+      </p>
       <form
         className="flex gap-2"
         onSubmit={(e) => {
