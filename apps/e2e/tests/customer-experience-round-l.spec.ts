@@ -186,7 +186,8 @@ test.describe('on a phone', () => {
         .map((x) => `${x.name} ${Math.round(x.r.width)}x${Math.round(x.r.height)}`);
       return {
         logo: box('a[aria-label="ETicketsGo home"]'),
-        signIn: box('header a[href$="/login"]'),
+        // On an event page the link carries ?next= back to the event.
+        signIn: box('header a[href*="/login"]'),
         // The language select moved from the header to the footer in the storefront redesign.
         language: box('footer select'),
         quantity: box('[data-quantity-stepper]'),

@@ -11,6 +11,9 @@ ARG NEXT_PUBLIC_API_URL=http://localhost:4000/api
 # account". Empty means "derive it from this console's host" (organizer-qa.x -> qa.x), which is
 # right for every deployment named the usual way (apps/organizer-web/lib/storefront-url.ts).
 ARG NEXT_PUBLIC_STOREFRONT_URL=
+# Optional: the admin console's address, offered to an administrator who signs in here.
+# Empty = derived from this console's host (organizer-qa. -> admin-qa.).
+ARG NEXT_PUBLIC_ADMIN_URL=
 
 # ---------- Stage 1: deps ----------
 FROM node:20-alpine AS deps
@@ -38,6 +41,8 @@ ARG NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 ARG NEXT_PUBLIC_STOREFRONT_URL
 ENV NEXT_PUBLIC_STOREFRONT_URL=${NEXT_PUBLIC_STOREFRONT_URL}
+ARG NEXT_PUBLIC_ADMIN_URL
+ENV NEXT_PUBLIC_ADMIN_URL=${NEXT_PUBLIC_ADMIN_URL}
 ENV NEXT_TELEMETRY_DISABLED=1
 WORKDIR /app
 COPY . .

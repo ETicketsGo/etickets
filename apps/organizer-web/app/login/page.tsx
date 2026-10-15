@@ -23,6 +23,8 @@ export default function OrganizerLogin() {
       // Credentials were right; the account just has no organization yet. Previously this
       // refused them and cleared the session, which left no way to ever get in.
       roleMismatchRedirect="/start"
+      // An administrator is offered the admin console first, not dropped into an organization.
+      backOfficePath="/back-office"
       allowedRoles={[
         'ORGANIZER_OWNER',
         'ORGANIZER_MANAGER',

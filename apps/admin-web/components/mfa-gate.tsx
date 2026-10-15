@@ -1,6 +1,6 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, type ReactNode } from 'react';
 import { Spinner, tokenStore, useAuthUser } from '@eticketsgo/web-kit';
 
@@ -16,6 +16,7 @@ import { Spinner, tokenStore, useAuthUser } from '@eticketsgo/web-kit';
  */
 export function MfaGate({ children }: { children: ReactNode }) {
   const router = useRouter();
+  const pathname = usePathname();
   const { user, isLoading } = useAuthUser();
   const blocked = Boolean(user?.mfa?.required && !user.mfa.verified);
 
@@ -25,9 +26,10 @@ export function MfaGate({ children }: { children: ReactNode }) {
       router.replace('/enroll-mfa');
     } else {
       tokenStore.clear();
-      router.replace('/login');
+      // Back to the page they were on once they have signed in again, not the console's home.
+      router.replace(`/login?next=${encodeURIComponent(pathname)}`);
     }
-  }, [blocked, user, router]);
+  }, [blocked, user, router, pathname]);
 
   if (isLoading || blocked) {
     return (

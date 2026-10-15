@@ -472,6 +472,8 @@
     "createOne": "Create one",
     "haveAccount": "Already have an account?",
     "loginFailed": "Login failed.",
+    "backOfficeSignIn": "This is a back-office account. It signs in at the admin console, with its authenticator code.",
+    "backOfficeOpenConsole": "Go to the admin console",
     "createAccount": "Create account",
     "allCities": "All cities",
     "createOrganizerAccount": "Create organizer account",

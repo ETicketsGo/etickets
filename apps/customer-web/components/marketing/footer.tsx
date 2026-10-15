@@ -1,6 +1,10 @@
 import { Link } from '@/i18n/navigation';
 import { useTranslations } from 'next-intl';
 import { Logo, needsPlaceholderNotice } from '@eticketsgo/web-kit';
+import { FooterSignInLink } from '@/components/marketing/footer-sign-in-link';
+
+const FOOTER_LINK =
+  'inline-flex min-h-11 items-center text-[0.9375rem] text-text-secondary transition-colors hover:text-text-primary lg:min-h-0';
 
 const COLUMNS: { title: string; links: { href: string; label: string; external?: boolean }[] }[] = [
   {
@@ -78,12 +82,15 @@ export function MarketingFooter({ buildId = null }: { buildId?: string | null })
               <ul className="mt-4 lg:space-y-2.5">
                 {col.links.map((l) => (
                   <li key={l.href + l.label}>
-                    <Link
-                      href={l.href}
-                      className="inline-flex min-h-11 items-center text-[0.9375rem] text-text-secondary transition-colors hover:text-text-primary lg:min-h-0"
-                    >
-                      {f(`links.${l.label}`)}
-                    </Link>
+                    {l.href === '/login' ? (
+                      <FooterSignInLink className={FOOTER_LINK}>
+                        {f(`links.${l.label}`)}
+                      </FooterSignInLink>
+                    ) : (
+                      <Link href={l.href} className={FOOTER_LINK}>
+                        {f(`links.${l.label}`)}
+                      </Link>
+                    )}
                   </li>
                 ))}
               </ul>

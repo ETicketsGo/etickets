@@ -472,6 +472,8 @@
     "createOne": "En créer un",
     "haveAccount": "Vous avez déjà un compte?",
     "loginFailed": "La connexion a échoué.",
+    "backOfficeSignIn": "Ce compte est un compte d'administration. Il se connecte à la console d'administration, avec son code d'authentification.",
+    "backOfficeOpenConsole": "Aller à la console d'administration",
     "createAccount": "Créer un compte",
     "allCities": "Toutes les villes",
     "createOrganizerAccount": "Créer un compte organisateur",

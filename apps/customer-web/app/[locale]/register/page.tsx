@@ -5,12 +5,8 @@ import { useRouter } from '@/i18n/navigation';
 import { Suspense, useEffect, useId, useState } from 'react';
 import { api, tokenStore, ApiRequestError } from '@/lib/api';
 import { Button, Card, Input, Select } from '@/components/ui';
-import {
-  PasswordField,
-  passwordAcceptable,
-  safeNextPath,
-  visitorCountry,
-} from '@eticketsgo/web-kit';
+import { PasswordField, passwordAcceptable, visitorCountry } from '@eticketsgo/web-kit';
+import { afterSignIn } from '@/lib/sign-in-return';
 import { MARKETS } from '@eticketsgo/shared-types';
 import { usePasswordCopy } from '@/lib/use-password-copy';
 
@@ -40,7 +36,7 @@ function RegisterForm() {
     again. Validated exactly as sign-in validates it: only a path on this site.
   */
   const hasNext = Boolean(params.get('next'));
-  const next = safeNextPath(params.get('next'), '/account/tickets');
+  const next = afterSignIn(params.get('next'));
 
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');

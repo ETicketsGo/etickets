@@ -18,6 +18,9 @@ ARG NEXT_PUBLIC_SITE_URL=https://eticketsgo.com
 # Empty by default: absent means production, where the test-environment notice must not
 # appear. QA and UAT pass their own value.
 ARG NEXT_PUBLIC_APP_ENV=
+# Optional: the admin console's address, for the link a back-office account is shown on the
+# storefront's sign-in page. Empty = derived from this site's host (qa. -> admin-qa.).
+ARG NEXT_PUBLIC_ADMIN_URL=
 
 # ---------- Stage 1: deps ----------
 FROM node:20-alpine AS deps
@@ -45,10 +48,12 @@ ARG NEXT_PUBLIC_API_URL
 ARG NEXT_PUBLIC_ORGANIZER_URL
 ARG NEXT_PUBLIC_SITE_URL
 ARG NEXT_PUBLIC_APP_ENV
+ARG NEXT_PUBLIC_ADMIN_URL
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 ENV NEXT_PUBLIC_ORGANIZER_URL=${NEXT_PUBLIC_ORGANIZER_URL}
 ENV NEXT_PUBLIC_SITE_URL=${NEXT_PUBLIC_SITE_URL}
 ENV NEXT_PUBLIC_APP_ENV=${NEXT_PUBLIC_APP_ENV}
+ENV NEXT_PUBLIC_ADMIN_URL=${NEXT_PUBLIC_ADMIN_URL}
 ENV NEXT_TELEMETRY_DISABLED=1
 WORKDIR /app
 COPY . .

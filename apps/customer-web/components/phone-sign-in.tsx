@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react';
 import { useRouter } from '@/i18n/navigation';
 import { api, tokenStore, ApiRequestError } from '@/lib/api';
 import { Button, Input, Select } from '@/components/ui';
-import { safeNextPath, visitorCountry } from '@eticketsgo/web-kit';
+import { visitorCountry } from '@eticketsgo/web-kit';
+import { afterSignIn } from '@/lib/sign-in-return';
 import { MARKETS } from '@eticketsgo/shared-types';
 import { useTranslations } from 'next-intl';
 
@@ -98,11 +99,11 @@ export function PhoneSignIn({ next }: { next: string }) {
       tokenStore.set(tokens);
       /*
         A brand-new account has no name yet — the person gave a number and nothing else. They
-        are sent to their account rather than interrogated at the door; the name is asked for
-        at checkout, where it is actually needed and where they are already typing.
+        go on where they were going rather than being interrogated at the door; the name is
+        asked for at checkout, where it is actually needed and where they are already typing.
       */
       // Checked again here, so the component is safe whoever renders it.
-      router.push(safeNextPath(next, '/account/tickets'));
+      router.push(afterSignIn(next));
     } catch (err) {
       setError(err instanceof ApiRequestError ? err.message : a('codeFailed'));
     } finally {

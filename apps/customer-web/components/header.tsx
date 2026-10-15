@@ -18,6 +18,7 @@ import { purgeUser } from '@/lib/offline/wallet-store';
 import { Link } from '@/i18n/navigation';
 import { useTranslations } from 'next-intl';
 import { Wordmark } from '@/components/wordmark';
+import { useSignInHref } from '@/lib/use-sign-in-href';
 
 /*
   ── THE STOREFRONT TOP BAR (docs/design/DESIGN-SYSTEM.md, section 5) ───────────────────
@@ -74,6 +75,8 @@ export function Header({
 }) {
   const router = useRouter();
   const pathname = usePathname();
+  // Back to this page after signing in, not to "My tickets" (lib/sign-in-return).
+  const signInHref = useSignInHref();
   // Subscribed, not read-once: Next keeps this layout mounted across client navigation.
   const live = useIsAuthenticated();
   /*
@@ -236,7 +239,7 @@ export function Header({
               bottom bar's Account tab leads to the same sign-in at that width.
             */
             <Link
-              href="/login"
+              href={signInHref}
               className={`${brandButtonClasses('secondary', 'md')} max-[359px]:hidden`}
             >
               {a('signIn')}
