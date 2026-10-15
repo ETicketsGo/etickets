@@ -23,10 +23,12 @@ import {
 import {
   DEFAULT_FOCAL_LABEL,
   VENUE_TEMPLATES,
+  fitTemplate,
   generateVenue,
   seatCount as templateSeatCount,
   templateOutline,
   type GeneratedVenue,
+  type TemplateFit,
   type TemplateOutline,
   type TemplateSection,
   type VenueTemplateKey,
@@ -147,6 +149,26 @@ const ORGANIZER_ROLES = [Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER];
 
 /** The gallery outlines, built on first request. Pure, so one copy serves every caller. */
 let templateOutlines: TemplateOutline[] | null = null;
+/** Outlines sized to a seat count, by that count. Small and pure, so a bounded map is enough. */
+const fittedOutlines = new Map<number, (TemplateOutline & { fit: TemplateFit })[]>();
+
+/**
+ * The size to build a template at. Explicit rows and seats win; otherwise a target seat count
+ * (the space's planned size) is fitted; otherwise the template's own default size.
+ */
+function templateSize(input: {
+  template: VenueTemplateKey;
+  rows?: number;
+  seatsPerRow?: number;
+  targetSeats?: number;
+}): { rows?: number; seatsPerRow?: number } {
+  if (input.rows || input.seatsPerRow) return { rows: input.rows, seatsPerRow: input.seatsPerRow };
+  if (input.targetSeats) {
+    const fit = fitTemplate(input.template, input.targetSeats);
+    return { rows: fit.rows, seatsPerRow: fit.seatsPerRow };
+  }
+  return {};
+}
 
 /**
  * Seats per INSERT when filling a template.
@@ -663,6 +685,7 @@ export class SeatLayoutsService {
       template: VenueTemplateKey;
       rows?: number;
       seatsPerRow?: number;
+      targetSeats?: number;
       basePriceMinor: number;
     },
   ) {
@@ -672,8 +695,7 @@ export class SeatLayoutsService {
     await this.authorize(layout, 'EDIT');
 
     const venue = generateVenue(input.template, {
-      rows: input.rows,
-      seatsPerRow: input.seatsPerRow,
+      ...templateSize(input),
     });
 
     await this.prisma.$transaction(
@@ -716,14 +738,14 @@ export class SeatLayoutsService {
       template: VenueTemplateKey;
       rows?: number;
       seatsPerRow?: number;
+      targetSeats?: number;
       basePriceMinor: number;
       name?: string;
     },
   ) {
     const screen = await this.loadOwnedScreen(user, screenId);
     const venue = generateVenue(input.template, {
-      rows: input.rows,
-      seatsPerRow: input.seatsPerRow,
+      ...templateSize(input),
     });
     const label = VENUE_TEMPLATES.find((t) => t.key === input.template)?.label ?? input.template;
 
@@ -778,9 +800,25 @@ export class SeatLayoutsService {
    *
    * Pure and the same for everybody, so it is computed once per process.
    */
-  templates(): TemplateOutline[] {
-    templateOutlines ??= VENUE_TEMPLATES.map((t) => templateOutline(t.key));
-    return templateOutlines;
+  templates(seats?: number): (TemplateOutline & { fit?: TemplateFit })[] {
+    if (!seats) {
+      templateOutlines ??= VENUE_TEMPLATES.map((t) => templateOutline(t.key));
+      return templateOutlines;
+    }
+    /*
+      Sized to the space. The card then states what will really be built - "150 seats", or
+      plainly that this shape cannot get that small or that big - instead of the template's
+      own size, which a 150-seat screen used to be given as 180.
+    */
+    const cached = fittedOutlines.get(seats);
+    if (cached) return cached;
+    const fitted = VENUE_TEMPLATES.map((t) => {
+      const fit = fitTemplate(t.key, seats);
+      return { ...templateOutline(t.key, fit), fit };
+    });
+    if (fittedOutlines.size >= 64) fittedOutlines.delete(fittedOutlines.keys().next().value!);
+    fittedOutlines.set(seats, fitted);
+    return fitted;
   }
 
   /**

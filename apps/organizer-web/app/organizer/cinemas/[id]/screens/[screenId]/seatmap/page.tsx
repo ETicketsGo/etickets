@@ -184,6 +184,7 @@ export default function ScreenSeatMapPage() {
         template,
         name: chosen.option.label,
         basePriceMinor,
+        targetSeats: space?.capacity,
       });
     },
     onSuccess: (created) => {
@@ -518,6 +519,7 @@ export default function ScreenSeatMapPage() {
             <p className="text-sm font-medium text-text-primary">Start from a template</p>
             <LayoutTemplateGallery
               templates={templatesForSpaceKind(kind)}
+              targetSeats={space?.capacity}
               selectedId={chosen?.option.id ?? null}
               onChoose={chooseTemplate}
             />

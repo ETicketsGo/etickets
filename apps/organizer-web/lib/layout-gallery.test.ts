@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { LayoutTemplateOutline } from '@eticketsgo/web-kit';
-import { draftsFromOutline, templateBookable } from './layout-gallery';
+import { draftsFromOutline, templateBookable, templateSizeNote } from './layout-gallery';
 import { capacitySummary, seatKindsFor } from './seat-layout';
 
 /*
@@ -75,5 +75,40 @@ describe('draftsFromOutline', () => {
     expect(stalls.basePrice).toBe('700');
     expect(balcony.basePrice).toBe('500');
     expect(stalls.colorHex).toBe('#DC2626');
+  });
+});
+
+describe('templateSizeNote', () => {
+  const outline = (seats: number, fit?: LayoutTemplateOutline['fit']): LayoutTemplateOutline =>
+    ({ kindCounts: [{ kind: 'SEAT', count: seats }], fit }) as unknown as LayoutTemplateOutline;
+
+  it('says "about" the planned size when the template was sized to it', () => {
+    const note = templateSizeNote(
+      outline(150, { rows: 10, seatsPerRow: 15, seats: 150, target: 150, verdict: 'MATCH' }),
+    );
+    expect(note).toEqual({ capacity: 'About 150 seats', warning: null });
+  });
+
+  it('says plainly when a shape cannot get that small or that big', () => {
+    expect(
+      templateSizeNote(
+        outline(704, { rows: 2, seatsPerRow: 4, seats: 704, target: 150, verdict: 'TOO_BIG' }),
+      ).warning,
+    ).toMatch(/cannot be made as small as 150/);
+    expect(
+      templateSizeNote(
+        outline(6000, {
+          rows: 60,
+          seatsPerRow: 100,
+          seats: 6000,
+          target: 30000,
+          verdict: 'TOO_SMALL',
+        }),
+      ).warning,
+    ).toMatch(/cannot hold 30,000/);
+  });
+
+  it('keeps the template size when nothing was asked', () => {
+    expect(templateSizeNote(outline(180))).toEqual({ capacity: '180 seats', warning: null });
   });
 });

@@ -1349,6 +1349,8 @@ export const api = {
         template: VenueTemplateKey;
         rows?: number;
         seatsPerRow?: number;
+        /** Build at about this many seats, the space's planned size. */
+        targetSeats?: number;
         basePriceMinor: number;
       },
     ) =>
@@ -1374,6 +1376,8 @@ export const api = {
         name?: string;
         rows?: number;
         seatsPerRow?: number;
+        /** Build at about this many seats, the space's planned size. */
+        targetSeats?: number;
       },
     ) =>
       request<{
@@ -1389,7 +1393,9 @@ export const api = {
         body: JSON.stringify(body),
       }),
     /** Every template as outlines (no seats), for the layout gallery's pictures and counts. */
-    layoutTemplates: () => request<LayoutTemplateOutline[]>('/seat-layout-templates'),
+    /** With `seats`, every template is sized to about that many seats (`fit` says how well). */
+    layoutTemplates: (seats?: number) =>
+      request<LayoutTemplateOutline[]>(`/seat-layout-templates${qs({ seats })}`),
     /**
      * A layout as a buyer would see it - the same shape as the public seat read, so the same
      * buyer components draw it. Nothing in it can be booked.
@@ -7020,6 +7026,18 @@ export interface LayoutTemplateOutline {
     seatKinds: { rowLabel: string; seats: number[]; kind: 'WHEELCHAIR' | 'COMPANION' | 'GAP' }[];
   }[];
   kindCounts: { kind: string; count: number }[];
+  /**
+   * Present when the outlines were asked for at a seat count: how this template was sized.
+   * MATCH lands at or just over the target; TOO_BIG cannot get that small; TOO_SMALL cannot
+   * get that big.
+   */
+  fit?: {
+    rows: number;
+    seatsPerRow: number;
+    seats: number;
+    target: number;
+    verdict: 'MATCH' | 'TOO_BIG' | 'TOO_SMALL';
+  };
 }
 
 /** What a layout preview adds to the buyer's shape: which layout it is, and its kind counts. */

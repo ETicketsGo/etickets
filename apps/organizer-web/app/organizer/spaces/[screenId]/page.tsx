@@ -165,6 +165,8 @@ export default function SpacePage() {
         template: newOption.template,
         name: newName.trim() || newOption.label,
         basePriceMinor,
+        // Built at the size the space was given, not the template's own.
+        targetSeats: space?.capacity,
       });
     },
     onSuccess: (created) => {
@@ -201,7 +203,11 @@ export default function SpacePage() {
     }
     const id = templating.id;
     run.mutate(() =>
-      api.theaterOps.applyVenueTemplate(id, { template, basePriceMinor: price.minor }),
+      api.theaterOps.applyVenueTemplate(id, {
+        template,
+        basePriceMinor: price.minor,
+        targetSeats: space?.capacity,
+      }),
     );
   };
 
@@ -674,6 +680,7 @@ export default function SpacePage() {
             />
             <LayoutTemplateGallery
               templates={fits}
+              targetSeats={space.capacity}
               selectedId={template ? galleryIdFor(template) : null}
               onChoose={(option) => {
                 if (option.template) setTemplate(option.template);
@@ -741,6 +748,7 @@ export default function SpacePage() {
             </div>
             <LayoutTemplateGallery
               templates={fits}
+              targetSeats={space.capacity}
               selectedId={newOption?.id ?? null}
               onChoose={(option) => {
                 setNewOption(option);

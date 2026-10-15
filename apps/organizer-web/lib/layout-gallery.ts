@@ -81,3 +81,32 @@ export function draftsFromOutline(
     };
   });
 }
+
+/**
+ * What a template's card says about its size, once it has been sized to the space.
+ *
+ * A template used to be offered at its own fixed size - a 150-seat screen was shown and built
+ * "Cinema, 180 seats". Sized to the space, the card says "About 150 seats"; and where the shape
+ * cannot get that small or that big it says so in words, instead of quietly building the
+ * nearest thing.
+ */
+export function templateSizeNote(outline: LayoutTemplateOutline): {
+  capacity: string;
+  warning: string | null;
+} {
+  const seats = templateBookable(outline).toLocaleString();
+  const fit = outline.fit;
+  if (!fit) return { capacity: `${seats} seats`, warning: null };
+  const target = fit.target.toLocaleString();
+  if (fit.verdict === 'TOO_BIG')
+    return {
+      capacity: `${seats} seats`,
+      warning: `This shape cannot be made as small as ${target}. The smallest is ${seats} seats.`,
+    };
+  if (fit.verdict === 'TOO_SMALL')
+    return {
+      capacity: `${seats} seats`,
+      warning: `This shape cannot hold ${target}. The largest is ${seats} seats.`,
+    };
+  return { capacity: `About ${seats} seats`, warning: null };
+}
