@@ -58,6 +58,13 @@ export class VenuesController {
     return this.venues.allSpaces(user, q.organizationId);
   }
 
+  /* Also before `:id`, for the same reason. */
+  @Get('spaces/:spaceId')
+  @ApiOperation({ summary: 'One space: its venue, cinema, layouts and how many sessions use it.' })
+  space(@CurrentUser() user: RequestUser, @Param('spaceId') spaceId: string) {
+    return this.venues.getSpace(user, spaceId);
+  }
+
   @Patch(':id')
   @ApiOperation({ summary: 'Edit a venue.' })
   update(
@@ -81,7 +88,10 @@ export class VenuesController {
   }
 
   @Post(':id/spaces')
-  @ApiOperation({ summary: 'Add a space to a venue. No cinema required.' })
+  @ApiOperation({
+    summary:
+      'Add a space to a venue. A cinema screen joins the venue cinema; nothing else needs one.',
+  })
   addSpace(
     @CurrentUser() user: RequestUser,
     @Param('id') id: string,

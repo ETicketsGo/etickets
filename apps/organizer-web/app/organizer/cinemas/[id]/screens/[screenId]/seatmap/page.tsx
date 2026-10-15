@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams, useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Accessibility, Eye, Trash2 } from 'lucide-react';
 import {
   api,
@@ -16,11 +16,15 @@ import {
   errorMessage,
   money,
   type GenerateSeatMapBody,
-  currencyForCountry,
   ButtonLink,
   type LayoutTemplateOutline,
 } from '@eticketsgo/web-kit';
-import { countSeatKinds, reconcileSeats, type LayoutGalleryOption } from '@eticketsgo/shared-types';
+import {
+  countSeatKinds,
+  reconcileSeats,
+  templatesForSpaceKind,
+  type LayoutGalleryOption,
+} from '@eticketsgo/shared-types';
 import {
   capacitySummary,
   expandRowLabels,
@@ -31,11 +35,11 @@ import {
   type SectionDraft,
 } from '@/lib/seat-layout';
 import { RoomShapePicker } from '@/components/room-shape-picker';
-import { ROOM_SHAPES, planRoom } from '@/lib/room-plan';
+import { ROOM_SHAPES, planRoom, roomShapesFor } from '@/lib/room-plan';
 import { draftsFromOutline } from '@/lib/layout-gallery';
 import { LayoutTemplateGallery } from '@/components/layout-template-gallery';
 import { SeatCountSummary } from '@/components/seat-count-summary';
-import { SeatingExplainer } from '@/components/seating-explainer';
+import { priceToMinor, venueCurrency } from '../../../../../venue-spaces';
 
 /**
  * A section starts as a STANDARD SCREEN of its typical size, already planned.
@@ -71,37 +75,36 @@ const KIND_STYLE: Record<SeatKind, string> = {
 };
 
 export default function ScreenSeatMapPage() {
-  const { id, screenId } = useParams<{ id: string; screenId: string }>();
+  // Reached as /organizer/spaces/<id>/seatmap or, for older links, under a cinema. Only the
+  // space's id is read: everything else comes from the space.
+  const { screenId } = useParams<{ id?: string; screenId: string }>();
   const qc = useQueryClient();
   const toast = useToast();
   const router = useRouter();
+  const spacePath = `/organizer/spaces/${screenId}`;
 
   const seatMapQ = useQuery({
     queryKey: ['seatmap', screenId],
     queryFn: () => api.shows.getSeatMap(screenId),
   });
-  const screensQ = useQuery({
-    queryKey: ['cinema', id, 'screens'],
-    queryFn: () => api.cinemas.screens(id),
-  });
-  const screen = screensQ.data?.find((s) => s.id === screenId);
-
   /*
-    The currency this room prices in, which is its VENUE's.
+    The space itself: its name, its kind and its venue.
 
-    The base-price box said "Base price (₹)" for every room in the world. Nothing converted
-    the number — only the label was wrong — which is the version of that bug an organizer
-    cannot notice, because everything downstream stays consistent with whatever they typed.
+    The kind was asked when the space was made, so this page no longer asks "What kind of space
+    is this?" again or offers a cinema screen an arena. And the currency is the VENUE's: the
+    base-price box said "Base price (₹)" for every room in the world - nothing converted the
+    number, only the label was wrong, which is the version of that bug nobody notices.
   */
-  const cinemaQ = useQuery({
-    queryKey: ['cinema', id],
-    queryFn: () => api.cinemas.get(id),
+  const spaceQ = useQuery({
+    queryKey: ['space', screenId],
+    queryFn: () => api.venues.space(screenId),
   });
-  const roomCurrency = currencyForCountry(cinemaQ.data?.venue?.country) ?? 'INR';
-  const currencySymbol =
-    new Intl.NumberFormat(undefined, { style: 'currency', currency: roomCurrency })
-      .formatToParts(0)
-      .find((part) => part.type === 'currency')?.value ?? roomCurrency;
+  const space = spaceQ.data;
+  const kind = space?.kind ?? null;
+  const shapes = roomShapesFor(kind);
+  const currency = venueCurrency(space?.venue?.country);
+  const roomCurrency = currency?.code ?? 'INR';
+  const currencySymbol = currency?.symbol ?? roomCurrency;
 
   const [name, setName] = useState('');
   const [sections, setSections] = useState<SectionDraft[]>([{ ...emptySection }]);
@@ -172,24 +175,59 @@ export default function ScreenSeatMapPage() {
     setConfirmedBookable(null);
   };
 
+  const [venuePriceProblem, setVenuePriceProblem] = useState<string | null>(null);
   const buildVenue = useMutation({
-    mutationFn: () => {
+    mutationFn: (basePriceMinor: number) => {
       const template = chosen?.option.template;
       if (!template) throw new Error('Choose a template first.');
       return api.theaterOps.createLayoutFromTemplate(screenId, {
         template,
         name: chosen.option.label,
-        basePriceMinor: Math.round(Number(venueBasePrice) * 100),
+        basePriceMinor,
       });
     },
     onSuccess: (created) => {
       qc.invalidateQueries({ queryKey: ['seatmap', screenId] });
       qc.invalidateQueries({ queryKey: ['screen', screenId, 'layouts'] });
       toast.push('Draft layout built. Check it as a buyer, then publish it.', 'success');
-      router.push(`/organizer/cinemas/${id}/screens/${screenId}/layouts/${created.id}/preview`);
+      router.push(`${spacePath}/layouts/${created.id}/preview`);
     },
     onError: (e) => toast.push(errorMessage(e), 'error'),
   });
+
+  /*
+    The opening room is planned from the SPACE: the shape that fits its kind, at the size given
+    when it was created. It used to open as a 150-seat standard screen whatever the space was,
+    so a 120-seat hall started as a 512-seat auditorium. Only an untouched first section is
+    re-planned; anything the organizer has typed is left alone.
+  */
+  const plannedFrom = space ? `${space.id}:${kind}:${space.capacity}` : null;
+  useEffect(() => {
+    if (!space) return;
+    const fitting = shapes.some((s) => s.key === DEFAULT_SHAPE.key) ? DEFAULT_SHAPE : shapes[0];
+    if (!fitting) return;
+    if (sections.length !== 1 || sections[0].name || plans[0]?.shapeKey !== DEFAULT_SHAPE.key)
+      return;
+    const seats = space.capacity >= 1 ? space.capacity : fitting.typicalSeats;
+    const plan = planRoom(seats, fitting);
+    setPlans([
+      {
+        shapeKey: fitting.key,
+        capacity: String(seats),
+        suggestedAisle: plan.aisle === null ? '' : String(plan.aisle),
+      },
+    ]);
+    setSections([
+      {
+        ...sections[0],
+        rowLabels: plan.rowLabels.join(', '),
+        seatsPerRow: String(plan.seatsPerRow),
+        gapSeats: plan.aisle === null ? '' : String(plan.aisle),
+      },
+    ]);
+    // Runs once the space is known, not on every edit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plannedFrom]);
 
   const setSection = (idx: number, patch: Partial<SectionDraft>) => {
     /*
@@ -333,15 +371,18 @@ export default function ScreenSeatMapPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title={screen ? `${screen.name} · Seat map` : 'Seat map'}
+        title={space ? `${space.name} · Seat map` : 'Seat map'}
         breadcrumbs={[
           { label: 'Venues & seating', href: '/organizer/venues' },
-          { label: 'Cinema', href: `/organizer/cinemas/${id}` },
-          { label: 'Layout' },
+          { label: space?.name ?? 'Space', href: spacePath },
+          { label: 'Seat map' },
         ]}
+        action={
+          <ButtonLink variant="outline" href={spacePath}>
+            Back to the space
+          </ButtonLink>
+        }
       />
-
-      <SeatingExplainer current="layout" />
 
       {seatMapQ.isError ? (
         <ErrorState
@@ -358,16 +399,12 @@ export default function ScreenSeatMapPage() {
               <ButtonLink
                 size="sm"
                 variant="secondary"
-                href={`/organizer/cinemas/${id}/screens/${screenId}/layouts/${seatMap.id}/preview`}
+                href={`${spacePath}/layouts/${seatMap.id}/preview`}
               >
                 <Eye className="mr-1.5 h-4 w-4" aria-hidden />
                 Preview as buyer
               </ButtonLink>
-              <ButtonLink
-                size="sm"
-                variant="outline"
-                href={`/organizer/cinemas/${id}/screens/${screenId}/layouts`}
-              >
+              <ButtonLink size="sm" variant="outline" href={spacePath}>
                 Layout versions
               </ButtonLink>
             </span>
@@ -474,12 +511,13 @@ export default function ScreenSeatMapPage() {
       ) : (
         <Card title="Generate seat map">
           <p className="mb-4 text-[0.9375rem] text-text-muted">
-            This screen has no seat map yet. Start from a template, or describe the room yourself
-            below. Each section gets a ticket category with its own price.
+            This space has no seat map yet. Start from a layout that fits it, or describe the room
+            yourself below. Each section gets a ticket category with its own price.
           </p>
           <div className="mb-6 space-y-3">
             <p className="text-sm font-medium text-text-primary">Start from a template</p>
             <LayoutTemplateGallery
+              templates={templatesForSpaceKind(kind)}
               selectedId={chosen?.option.id ?? null}
               onChoose={chooseTemplate}
             />
@@ -491,22 +529,6 @@ export default function ScreenSeatMapPage() {
                 {chosen.option.label} is filled in below. Set a base price for each section, change
                 anything you need, then generate it.
               </p>
-            ) : chosen?.option.style === 'GA' ? (
-              <div role="status" className="rounded-md border border-border p-3 text-sm">
-                <p className="font-medium text-text-primary">General admission needs no seat map</p>
-                <p className="mt-1 text-text-muted">
-                  Buyers do not choose a seat. When you create the event, give its ticket a number
-                  of places, and that number is what you sell.
-                </p>
-                <ButtonLink
-                  className="mt-3"
-                  size="sm"
-                  variant="secondary"
-                  href="/organizer/events/new"
-                >
-                  Create an event
-                </ButtonLink>
-              </div>
             ) : chosen && chosen.option.template ? (
               <div className="space-y-3 rounded-md border border-border p-3">
                 <p className="text-sm text-text-primary">
@@ -521,16 +543,23 @@ export default function ScreenSeatMapPage() {
                   min={0}
                   hint="The other ticket categories are priced up from this. Change any of them later."
                   value={venueBasePrice}
-                  onChange={(e) => setVenueBasePrice(e.target.value)}
+                  onChange={(e) => {
+                    setVenueBasePrice(e.target.value);
+                    setVenuePriceProblem(null);
+                  }}
+                  error={venuePriceProblem ?? undefined}
                 />
+                {/*
+                  Always pressable. It was disabled until the price was filled, with nothing
+                  saying so; now an empty or bad price is named under the box instead.
+                */}
                 <Button
                   loading={buildVenue.isPending}
-                  disabled={
-                    venueBasePrice.trim() === '' ||
-                    !Number.isFinite(Number(venueBasePrice)) ||
-                    Number(venueBasePrice) < 0
-                  }
-                  onClick={() => buildVenue.mutate()}
+                  onClick={() => {
+                    const price = priceToMinor(venueBasePrice);
+                    if ('problem' in price) setVenuePriceProblem(price.problem);
+                    else buildVenue.mutate(price.minor);
+                  }}
                 >
                   Build draft and preview
                 </Button>
@@ -681,6 +710,7 @@ export default function ScreenSeatMapPage() {
                     </div>
                   ) : (
                     <RoomShapePicker
+                      shapes={shapes}
                       shapeKey={plans[i]?.shapeKey ?? DEFAULT_SHAPE.key}
                       capacity={plans[i]?.capacity ?? ''}
                       onChange={(next) => applyPlan(i, next)}
@@ -830,7 +860,7 @@ export default function ScreenSeatMapPage() {
                 className="rounded-md border border-border bg-background-subtle/40 p-3"
               >
                 <p className="text-[0.9375rem] text-text-primary">
-                  This screen will sell{' '}
+                  This space will sell{' '}
                   <strong data-testid="bookable-count">{capacity.bookable}</strong> seat
                   {capacity.bookable === 1 ? '' : 's'} across {sections.length} section
                   {sections.length === 1 ? '' : 's'}.

@@ -42,7 +42,16 @@ const ADD_ON_TYPES: AddOnType[] = [
   'DIGITAL',
 ];
 const BUNDLE_TYPES: BundleType[] = ['VIP', 'FAMILY', 'COMBO', 'EARLY_BIRD'];
+/* The kinds in words. Stored names with the underscores taken out read "Food beverage". */
+const WORDS: Record<string, string> = {
+  FOOD_BEVERAGE: 'Food and drink',
+  VIP_UPGRADE: 'VIP upgrade',
+  MEET_GREET: 'Meet and greet',
+  EARLY_BIRD: 'Early bird',
+  VIP: 'VIP',
+};
 const label = (s: string) =>
+  WORDS[s] ??
   s
     .replace(/_/g, ' ')
     .toLowerCase()

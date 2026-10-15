@@ -255,6 +255,51 @@ describe('integration-real-postgres: a seated event', () => {
   );
 
   maybe(
+    "a space at another of the organizer's venues is refused",
+    async () => {
+      /*
+        The Sessions page offered every space of every venue in the organization, and this
+        accepted them: a Montréal event's date could be seated in a room in another city, its
+        seats priced there and sold in the event's currency. A space at the event's venue
+        (and an old one never linked to a venue) is still accepted - see the cases above.
+      */
+      const elsewhere = await db!.venue.create({
+        data: { organizationId: orgId, name: `Elsewhere ${suffix}`, city: 'Boise', country: 'US' },
+      });
+      const hall = await db!.cinema.create({
+        data: {
+          organizationId: orgId,
+          venueId: elsewhere.id,
+          name: `Far ${suffix}`,
+          city: 'Boise',
+        },
+      });
+      const farRoom = await db!.screen.create({
+        data: {
+          cinemaId: hall.id,
+          venueId: elsewhere.id,
+          name: `Far room ${suffix}`,
+          screenType: '2D',
+          capacity: 12,
+        },
+      });
+      try {
+        await expect(
+          events.addSession(ORGANIZER, eventId, {
+            startsAt: new Date(Date.now() + 33 * 86_400_000),
+            endsAt: new Date(Date.now() + 33 * 86_400_000 + 3 * 3_600_000),
+            screenId: farRoom.id,
+          } as never),
+        ).rejects.toMatchObject({ details: { reason: 'SPACE_IN_OTHER_VENUE' } });
+      } finally {
+        await db!.screen.delete({ where: { id: farRoom.id } });
+        await db!.cinema.delete({ where: { id: hall.id } });
+      }
+    },
+    120_000,
+  );
+
+  maybe(
     'a room belonging to somebody else is refused',
     async () => {
       /*

@@ -1,6 +1,14 @@
+import { redirect } from 'next/navigation';
+
 /**
- * A space's layouts, for a space that is not a cinema screen - an arena, a hall, an auditorium.
- * The same page cinema screens use; it reads only `screenId`, and hides the one action that
- * needs a cinema.
+ * A space's layouts are on the space's own page now, beside what the space is and where it is.
+ * This address is kept so links and bookmarks to it still arrive somewhere useful.
  */
-export { default } from '../../../cinemas/[id]/screens/[screenId]/layouts/page';
+export default async function SpaceLayoutsRedirect({
+  params,
+}: {
+  params: Promise<{ screenId: string }>;
+}) {
+  const { screenId } = await params;
+  redirect(`/organizer/spaces/${encodeURIComponent(screenId)}`);
+}

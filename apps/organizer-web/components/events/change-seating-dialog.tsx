@@ -17,8 +17,11 @@ import {
 /** The value of a room select meaning "no room". Empty string, so it is also falsy. */
 export const GENERAL_ADMISSION = '';
 
-/** Where an organizer goes to create a space and publish a seat map. */
-export const ROOMS_HREF = '/organizer/cinemas';
+/**
+ * Where an organizer goes to create a space and publish a seat map: Venues & seating, where a
+ * space is added to its venue. It pointed at the cinema list, which only lists cinemas.
+ */
+export const ROOMS_HREF = '/organizer/venues';
 
 /** "Demo Arena - Main Arena - Basketball (420 seats)": one option per LAYOUT, not per space. */
 export function roomOptionLabel(r: SeatingRoom): string {

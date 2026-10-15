@@ -78,8 +78,9 @@ export default function EventOverview() {
 
   const owningOrg = orgSentenceName(event?.organizationId);
 
-  const onSuccess = (label: string) => () => {
-    toast.push(`${label} succeeded.`, 'success');
+  // What changed, in a sentence: "Resume succeeded." told nobody whether tickets were on sale.
+  const onSuccess = (sentence: string) => () => {
+    toast.push(sentence, 'success');
     qc.invalidateQueries({ queryKey: ['event', id] });
     qc.invalidateQueries({ queryKey: ['event-sellability', id] });
     qc.invalidateQueries({ queryKey: ['organizer-event-sale-states'] });
@@ -88,12 +89,18 @@ export default function EventOverview() {
 
   const submit = useMutation({
     mutationFn: () => api.events.submit(id),
-    onSuccess: onSuccess('Submit for review'),
+    // An organization trusted to publish without review goes straight on sale.
+    onSuccess: (ev) =>
+      onSuccess(
+        ev?.status === 'PUBLISHED'
+          ? 'Published. Tickets are on sale.'
+          : 'Sent for review. Tickets go on sale once it is approved.',
+      )(),
     onError,
   });
   const pause = useMutation({
     mutationFn: () => api.events.pause(id),
-    onSuccess: onSuccess('Pause'),
+    onSuccess: onSuccess('Sales paused. Nobody can buy until you resume.'),
     onError,
   });
   const resume = useMutation({
@@ -104,7 +111,7 @@ export default function EventOverview() {
         toast.push('Sent for review because it was edited while paused.', 'info');
         qc.invalidateQueries({ queryKey: ['event', id] });
       } else {
-        onSuccess('Resume')();
+        onSuccess('Sales resumed. Tickets are on sale again.')();
       }
     },
     onError,

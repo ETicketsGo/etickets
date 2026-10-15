@@ -1,8 +1,10 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
+import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useState } from 'react';
+import { Printer, Ticket, Undo2 } from 'lucide-react';
 import {
   api,
   DataTable,
@@ -12,23 +14,26 @@ import {
   Pagination,
   Drawer,
   money,
-  dateTime,
   currencyForCountry,
   type Column,
   type OrderRow,
 } from '@eticketsgo/web-kit';
+import { useOrg } from '@/components/org-context';
+import { timeAtVenue } from '@/components/events/event-list-model';
 
-const STATUSES = [
-  'PENDING_PAYMENT',
-  'CONFIRMED',
-  'PARTIALLY_REFUNDED',
-  'REFUNDED',
-  'CANCELLED',
-  'EXPIRED',
+/* The filter in the words the table's own status pills use, not the stored names. */
+const STATUSES: { value: string; label: string }[] = [
+  { value: 'PENDING_PAYMENT', label: 'Waiting for payment' },
+  { value: 'CONFIRMED', label: 'Confirmed' },
+  { value: 'PARTIALLY_REFUNDED', label: 'Partly refunded' },
+  { value: 'REFUNDED', label: 'Refunded' },
+  { value: 'CANCELLED', label: 'Cancelled' },
+  { value: 'EXPIRED', label: 'Expired' },
 ];
 
 export default function OrdersTab() {
   const { id } = useParams<{ id: string }>();
+  const { activeOrg, can } = useOrg();
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState('');
   const [q, setQ] = useState('');
@@ -53,6 +58,29 @@ export default function OrdersTab() {
   const eventQ = useQuery({ queryKey: ['event', id], queryFn: () => api.events.get(id) });
   const venueCurrency = currencyForCountry(eventQ.data?.venue?.country) ?? 'INR';
   const currencyOf = (o: OrderRow) => o.currency ?? venueCurrency;
+  /*
+    When a booking was made, at the VENUE: the attendee list and its CSV already say it that
+    way, and this tab said "2:54 am" for the same 14:24 IST booking to anyone outside India.
+  */
+  const placedAt = (iso: string) => timeAtVenue(iso, eventQ.data?.venue ?? {});
+
+  /*
+    Refund requests waiting on THIS event. They were only on Finance > Refunds, so an organizer
+    looking at the event's bookings never learned a buyer had asked. Owners and managers only:
+    the API refuses the list to check-in staff.
+  */
+  const waitingRefunds = useQuery({
+    queryKey: ['org-refunds', activeOrg.id, 'REQUESTED', 1, id],
+    queryFn: () =>
+      api.organizations.refunds(activeOrg.id, {
+        status: 'REQUESTED',
+        page: 1,
+        pageSize: 1,
+        eventId: id,
+      }),
+    enabled: can.financials,
+  });
+  const refundsWaiting = waitingRefunds.data?.meta.total ?? 0;
 
   const columns: Column<OrderRow>[] = [
     {
@@ -97,12 +125,31 @@ export default function OrdersTab() {
       header: 'Date',
       sortable: true,
       sortValue: (o) => o.createdAt,
-      render: (o) => dateTime(o.createdAt),
+      render: (o) => placedAt(o.createdAt),
     },
   ];
 
   return (
     <div className="space-y-4">
+      {refundsWaiting > 0 ? (
+        <div
+          role="status"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-status-warning/30 bg-tint-warning px-4 py-3"
+        >
+          <p className="flex items-center gap-2 text-sm text-text-primary">
+            <Undo2 className="h-4 w-4 shrink-0 text-status-warning" aria-hidden />
+            {refundsWaiting === 1
+              ? '1 refund request is waiting for your decision.'
+              : `${refundsWaiting} refund requests are waiting for your decision.`}
+          </p>
+          <Link
+            href={`/organizer/refunds?event=${id}`}
+            className="text-sm font-medium text-action-primary underline underline-offset-2"
+          >
+            Review {refundsWaiting === 1 ? 'it' : 'them'}
+          </Link>
+        </div>
+      ) : null}
       <div className="grid gap-3 sm:grid-cols-[1fr_200px]">
         <SearchInput
           value={q}
@@ -123,8 +170,8 @@ export default function OrdersTab() {
         >
           <option value="">All statuses</option>
           {STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {s.replaceAll('_', ' ')}
+            <option key={s.value} value={s.value}>
+              {s.label}
             </option>
           ))}
         </Select>
@@ -143,28 +190,66 @@ export default function OrdersTab() {
         <Pagination page={data.meta.page} totalPages={data.meta.totalPages} onChange={setPage} />
       )}
 
-      <Drawer open={!!selected} onClose={() => setSelected(null)} title="Order details">
+      <Drawer
+        open={!!selected}
+        onClose={() => setSelected(null)}
+        title={selected?.reference ? `Booking ${selected.reference}` : 'Booking'}
+      >
         {selected && (
-          <dl className="space-y-2 text-sm">
-            <Field label="Order ID" value={selected.id} mono />
-            <Field label="Buyer" value={selected.buyerName} />
-            <Field label="Email" value={selected.buyerEmail} />
-            <Field label="Tickets" value={String(selected.ticketCount)} />
-            <Field label="Total" value={money(selected.totalMinor, currencyOf(selected))} />
-            <div className="flex justify-between">
-              <dt className="text-text-muted">Status</dt>
-              <dd>
-                <StatusBadge status={selected.status} />
-              </dd>
+          <div className="space-y-5">
+            {/*
+              The booking reference leads, because it is what the buyer quotes and what is
+              printed on the ticket. The database id that stood here meant nothing to anyone.
+            */}
+            <dl className="space-y-2 text-sm">
+              <Field label="Reference" value={selected.reference ?? '-'} mono />
+              <Field label="Buyer" value={selected.buyerName} />
+              <Field label="Email" value={selected.buyerEmail} />
+              <Field label="Tickets" value={String(selected.ticketCount)} />
+              <Field label="Total" value={money(selected.totalMinor, currencyOf(selected))} />
+              <div className="flex justify-between">
+                <dt className="text-text-muted">Status</dt>
+                <dd>
+                  <StatusBadge status={selected.status} />
+                </dd>
+              </div>
+              <div className="flex justify-between">
+                <dt className="text-text-muted">Payment</dt>
+                <dd>
+                  {selected.paymentStatus ? <StatusBadge status={selected.paymentStatus} /> : '-'}
+                </dd>
+              </div>
+              <Field label="Booked" value={placedAt(selected.createdAt)} />
+            </dl>
+            {/* Where to act on it: who holds which ticket, a reprint, and a waiting refund. */}
+            <div className="flex flex-col gap-2 border-t border-border pt-4 text-sm">
+              {selected.reference ? (
+                <Link
+                  href={`/organizer/events/${id}/attendees?q=${encodeURIComponent(selected.reference)}`}
+                  className="inline-flex items-center gap-2 font-medium text-action-primary underline underline-offset-2"
+                >
+                  <Ticket className="h-4 w-4" aria-hidden /> See its tickets and check-in
+                </Link>
+              ) : null}
+              {/* Only once tickets exist: an unpaid booking has none to print. */}
+              {selected.ticketCount > 0 ? (
+                <Link
+                  href={`/organizer/bookings/${selected.id}/print`}
+                  className="inline-flex items-center gap-2 font-medium text-action-primary underline underline-offset-2"
+                >
+                  <Printer className="h-4 w-4" aria-hidden /> Print its tickets
+                </Link>
+              ) : null}
+              {refundsWaiting > 0 ? (
+                <Link
+                  href={`/organizer/refunds?event=${id}`}
+                  className="inline-flex items-center gap-2 font-medium text-action-primary underline underline-offset-2"
+                >
+                  <Undo2 className="h-4 w-4" aria-hidden /> Refund requests for this event
+                </Link>
+              ) : null}
             </div>
-            <div className="flex justify-between">
-              <dt className="text-text-muted">Payment</dt>
-              <dd>
-                {selected.paymentStatus ? <StatusBadge status={selected.paymentStatus} /> : '—'}
-              </dd>
-            </div>
-            <Field label="Placed" value={dateTime(selected.createdAt)} />
-          </dl>
+          </div>
         )}
       </Drawer>
     </div>

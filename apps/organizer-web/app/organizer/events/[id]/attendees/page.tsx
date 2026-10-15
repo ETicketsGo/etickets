@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { useParams } from 'next/navigation';
+import { useParams, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import {
   api,
@@ -63,7 +63,9 @@ function CheckInCell({ row }: { row: AttendeeRow }) {
     return <span className="whitespace-nowrap text-caption text-text-muted">No ticket yet</span>;
   if (row.checkedIn) {
     return (
-      <Badge tone="info">Checked in{row.checkedInAt ? ` ${dateTime(row.checkedInAt)}` : ''}</Badge>
+      <Badge tone="info">
+        Checked in{row.checkedInAt ? ` ${dateTime(row.checkedInAt, undefined, row.timeZone)}` : ''}
+      </Badge>
     );
   }
   return <span className="whitespace-nowrap text-caption text-text-muted">Not checked in</span>;
@@ -82,8 +84,13 @@ export default function AttendeesTab() {
   const [sessionId, setSessionId] = useState('');
   const [ticketTypeId, setTicketTypeId] = useState('');
   const [checkIn, setCheckIn] = useState<NonNullable<AttendeeFilter['checkIn']> | ''>('');
-  const [q, setQ] = useState('');
-  const [applied, setApplied] = useState('');
+  /*
+    A search handed over in the address, so "See its tickets" on a booking opens here already
+    narrowed to that booking rather than to every attendee of the event.
+  */
+  const initialQ = useSearchParams().get('q') ?? '';
+  const [q, setQ] = useState(initialQ);
+  const [applied, setApplied] = useState(initialQ);
   const [exporting, setExporting] = useState(false);
 
   // ONE filter object, sent to the list and to the export alike.
@@ -162,7 +169,10 @@ export default function AttendeesTab() {
           <p className="whitespace-nowrap font-mono text-xs text-text-primary">
             {r.reference ?? 'No reference yet'}
           </p>
-          <p className="text-caption text-text-muted">Booked {dateTime(r.bookedAt)}</p>
+          {/* At the venue, as the session beside it and the CSV say it - not the browser's zone. */}
+          <p className="text-caption text-text-muted">
+            Booked {dateTime(r.bookedAt, undefined, r.timeZone)}
+          </p>
         </div>
       ),
     },

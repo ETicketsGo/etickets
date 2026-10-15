@@ -132,15 +132,21 @@ export interface Setup {
   complete: boolean;
   /** "Setup complete", "1 thing to set up", "3 things to set up". */
   label: string;
+  /** What is still needed. Counted in the label. */
   items: SetupItem[];
+  /** What would make the page better but nothing needs: a description, a picture. Not counted. */
+  suggestions: SetupItem[];
 }
 
 /**
  * What is still the organizer's to set up.
  *
  * The server's blockers and warnings that are THEIRS (a platform-owned fault is not a task for
- * them, and counting it made a checklist that could never be finished), plus the two things a
- * buyer notices that no sale rule checks: a description and a picture.
+ * them, and counting it made a checklist that could never be finished). Those are counted.
+ *
+ * A description and a picture are SUGGESTIONS, listed but not counted. The create wizard calls
+ * both optional and ends on "Setup complete"; counting them here made the very next page say
+ * "2 things to set up" about the same event, beside "Fix 1 thing before you submit".
  */
 export function setupOf(input: {
   eventId: string;
@@ -158,13 +164,15 @@ export function setupOf(input: {
     items.push({ label: stripStop(issue.message), href: issue.fixPath });
   }
   const edit = `/organizer/events/${input.eventId}/edit`;
-  if (!input.description?.trim()) items.push({ label: 'Add a description', href: edit });
-  if (!input.hasImage) items.push({ label: 'Add a cover picture', href: edit });
+  const suggestions: SetupItem[] = [];
+  if (!input.description?.trim()) suggestions.push({ label: 'Add a description', href: edit });
+  if (!input.hasImage) suggestions.push({ label: 'Add a cover picture', href: edit });
   const n = items.length;
   return {
     complete: n === 0,
     label: n === 0 ? 'Setup complete' : `${n} thing${n === 1 ? '' : 's'} to set up`,
     items,
+    suggestions,
   };
 }
 

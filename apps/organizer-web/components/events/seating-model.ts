@@ -1,4 +1,4 @@
-import type { EventSession, VenueSpace } from '@eticketsgo/web-kit';
+import type { EventSession, SeatingRoom, VenueSpace } from '@eticketsgo/web-kit';
 
 /**
  * One session's seating, as data: what kind it is, where, which layout VERSION, what it has
@@ -251,4 +251,20 @@ export function seatingMix(sessions: Pick<EventSession, 'screenId' | 'status'>[]
   if (reserved) parts.push(`${reserved} reserved seating`);
   if (ga) parts.push(`${ga} general admission`);
   return parts.join(', ');
+}
+
+/**
+ * The rooms an event's sessions may be seated in: the spaces of the EVENT'S venue.
+ *
+ * Every space in the organization used to be offered, so a session of an event at one venue
+ * could be seated in a hall at another - the listing said one address and the seat map was a
+ * different building. The API now refuses that too; this keeps the choice from being offered.
+ * A space with no venue (an old row) is still offered, because the API cannot tell either.
+ */
+export function roomsAtVenue(
+  rooms: SeatingRoom[] | undefined,
+  venueId: string | null | undefined,
+): SeatingRoom[] | undefined {
+  if (!rooms || !venueId) return rooms;
+  return rooms.filter((r) => !r.venueId || r.venueId === venueId);
 }

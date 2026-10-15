@@ -341,6 +341,18 @@ export default function EditEvent() {
     onError: (e) => setFocusError(errorMessage(e)),
     onSettled: refreshEvent,
   });
+  /*
+    The lock note said "Pause it first" and offered no way to: the organizer had to go back to
+    the overview and find Pause in a menu. The button is here, where the need is.
+  */
+  const pauseToEdit = useMutation({
+    mutationFn: () => api.events.pause(id),
+    onSuccess: () => {
+      toast.push('Sales paused. You can edit the details now.', 'success');
+      refreshEvent();
+    },
+    onError: (e) => toast.push(errorMessage(e), 'error'),
+  });
 
   if (isError)
     return (
@@ -399,9 +411,23 @@ export default function EditEvent() {
               role="note"
               className="rounded-md border border-status-warning/40 bg-tint-warning p-3 text-sm text-text-primary"
             >
-              This event is {statusWords}, so its details cannot be changed. Pause it first to make
-              changes.
+              This event is {statusWords}, so its details cannot be changed.
+              {event.status === 'PUBLISHED'
+                ? ' Pause sales to change them. When you resume, it may go back to our team for review before it sells again.'
+                : ''}
               {imagesLocked ? '' : ' Its images can still change.'}
+              {event.status === 'PUBLISHED' ? (
+                <span className="mt-2 block">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    loading={pauseToEdit.isPending}
+                    onClick={() => pauseToEdit.mutate()}
+                  >
+                    Pause sales and edit
+                  </Button>
+                </span>
+              ) : null}
             </p>
           )}
 

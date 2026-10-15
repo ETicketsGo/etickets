@@ -91,8 +91,10 @@ export function EventDetailsFields({
     <fieldset className="space-y-4 rounded-md border border-border p-4" disabled={disabled}>
       <legend className="px-1 text-sm font-semibold">What buyers should know</legend>
 
+      {/* Disabled by name as well as by the fieldset: a locked page left this one select live. */}
       <Select
         label="Age limit"
+        disabled={disabled}
         value={value.ageLimit}
         hint="Shown on the event page before anyone buys."
         onChange={(e) => onChange({ ...value, ageLimit: e.target.value })}
