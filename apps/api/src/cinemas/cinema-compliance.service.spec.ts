@@ -291,9 +291,10 @@ describe('CinemaComplianceService.forCinema - INVALID_CINEMA_CLASSIFICATION name
     expect(v.blocksPublishing).toBe(true);
     expect(v.reasonCode).toBe('SEAT_CLASS_UNMAPPED');
     expect(v.unmappedSeatCategories).toEqual(['Platinum Executive']);
-    expect(v.summary).toMatch(/"Platinum Executive" has no regulatory seat class/);
+    expect(v.summary).toMatch(/Seats in "Platinum Executive" cannot be sold yet/);
+    expect(v.summary).toMatch(/no regulatory seat class/);
     expect(v.summary).toMatch(/Seat classes/);
-    expect(v.summary).not.toMatch(/has not been classified/);
+    expect(v.summary).not.toMatch(/no type recorded/);
     expect(v.summary).not.toMatch(/local body/);
   });
 
@@ -304,7 +305,7 @@ describe('CinemaComplianceService.forCinema - INVALID_CINEMA_CLASSIFICATION name
     expect(v.blocksPublishing).toBe(true);
     expect(v.reasonCode).toBe('CINEMA_NOT_CLASSIFIED');
     expect(v.unmappedSeatCategories).toEqual([]);
-    expect(v.summary).toMatch(/has not been classified/);
+    expect(v.summary).toMatch(/no type recorded/);
   });
 
   it('names the seat class first and the missing classification after, when both are wrong', async () => {
@@ -322,5 +323,28 @@ describe('CinemaComplianceService.forCinema - INVALID_CINEMA_CLASSIFICATION name
     expect(v.status).toBe('COMPLIANT');
     expect(v.blocksPublishing).toBe(false);
     expect(v.reasonCode).toBeNull();
+  });
+
+  /*
+    Walking QA: a room with two classes resolved at state level, so the panel read "Order: None
+    applies" for a cinema the order covers. The per-class rows are what the exhibitor needs.
+  */
+  it('lists the limit of every class, even when the room has several', async () => {
+    const svc = build(CLASSIFIED, [tt('Gold', GOLD), tt('Platinum', PLATINUM)]);
+    const v = await svc.forCinema(MEMBER, 'cin-1', NOW);
+    const by = Object.fromEntries(v.classRates.map((r) => [r.regulatoryClass, r]));
+    expect(by.REGULAR).toMatchObject({
+      sellable: true,
+      maxMinor: 15000,
+      regulatoryReference: 'FIXTURE-ORDER-1',
+    });
+    // The fixture has no recliner rate: regulated, and not sellable at any price.
+    expect(by.RECLINER).toMatchObject({ regulated: true, sellable: false, maxMinor: null });
+  });
+
+  it('says it in terms of selling, never "Cannot publish"', async () => {
+    const svc = build(CLASSIFIED, [tt('Gold', GOLD), tt('Platinum', PLATINUM)]);
+    const v = await svc.forCinema(MEMBER, 'cin-1', NOW);
+    expect(v.summary).not.toMatch(/publish/i);
   });
 });

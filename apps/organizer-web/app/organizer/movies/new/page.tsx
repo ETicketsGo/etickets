@@ -16,8 +16,8 @@ import {
   type MovieBody,
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
-
-const CERTIFICATES = ['U', 'U/A', 'A', 'S'];
+import { PosterPicker } from '@/components/cinema/poster-picker';
+import { CERTIFICATES } from '@/components/cinema/certificates';
 const LANGUAGES = ['Hindi', 'English', 'Tamil', 'Telugu', 'Kannada', 'Malayalam', 'Bengali'];
 
 const splitList = (v: string): string[] =>
@@ -47,6 +47,11 @@ export default function NewMoviePage() {
   });
 
   const set = (key: keyof typeof form, value: string) => setForm((f) => ({ ...f, [key]: value }));
+  /*
+    The picked poster waits here until the film exists: the upload needs the film's id. A
+    picked file wins over a pasted link, which is the second way.
+  */
+  const [poster, setPoster] = useState<{ image: Blob; preview: string } | null>(null);
 
   const validate = (): Record<string, string> => {
     const e: Record<string, string> = {};
@@ -69,15 +74,32 @@ export default function NewMoviePage() {
         language: form.language.trim(),
         genres: splitList(form.genres),
         releaseDate: form.releaseDate || undefined,
-        posterUrl: form.posterUrl.trim() || undefined,
+        posterUrl: poster ? undefined : form.posterUrl.trim() || undefined,
         trailerUrl: form.trailerUrl.trim() || undefined,
         cast: splitList(form.cast),
         director: form.director.trim() || undefined,
       };
       return api.movies.create({ organizationId: activeOrg.id, ...body });
     },
-    onSuccess: (movie) => {
-      toast.push('Movie created.', 'success');
+    onSuccess: async (movie) => {
+      if (poster) {
+        try {
+          await api.movies.uploadPoster(movie.id, poster.image);
+        } catch (e) {
+          // The film is saved either way; say so, and where the poster can be added again.
+          toast.push(
+            `Movie created, but the poster did not upload: ${errorMessage(e)} Add it again from the film's Details tab.`,
+            'error',
+          );
+          router.push(`/organizer/movies/${movie.id}?tab=details`);
+          return;
+        }
+      }
+      // It starts as a draft: say so, so "Publish" is not a surprise later.
+      toast.push(
+        'Movie created as a draft. Publish it when its shows are ready to sell.',
+        'success',
+      );
       router.push(`/organizer/movies/${movie.id}`);
     },
     onError: (e) => toast.push(errorMessage(e), 'error'),
@@ -178,11 +200,23 @@ export default function NewMoviePage() {
             value={form.director}
             onChange={(e) => set('director', e.target.value)}
           />
-          <Input
-            id="posterUrl"
-            label="Poster URL"
-            value={form.posterUrl}
-            onChange={(e) => set('posterUrl', e.target.value)}
+          <PosterPicker
+            src={poster?.preview ?? (form.posterUrl.trim() || null)}
+            title={form.title}
+            busy={create.isPending && !!poster}
+            onPick={(image, preview) => setPoster({ image, preview })}
+            linkField={
+              <Input
+                id="posterUrl"
+                label="Poster link"
+                hint="The full address of an image, starting with https://"
+                value={form.posterUrl}
+                onChange={(e) => {
+                  set('posterUrl', e.target.value);
+                  setPoster(null);
+                }}
+              />
+            }
           />
           <Input
             id="trailerUrl"

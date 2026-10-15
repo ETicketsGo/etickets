@@ -13,6 +13,7 @@ import {
   FilePen,
   Pencil,
   Send,
+  Star,
   Ticket,
   type LucideIcon,
 } from 'lucide-react';
@@ -47,7 +48,13 @@ import {
   type ShowRow,
   type ScheduleShowBody,
   DateTimeField,
+  formatRatingAverage,
+  formatVoteCount,
+  hasRating,
+  portableImageUrl,
 } from '@eticketsgo/web-kit';
+import { PosterPicker } from '@/components/cinema/poster-picker';
+import { certificateOptions } from '@/components/cinema/certificates';
 import { useOrg } from '@/components/org-context';
 import { SalePill } from '@/components/cinema/sale-pill';
 import { WherePlays } from '@/components/cinema/film-context';
@@ -65,7 +72,6 @@ import {
   type SaleVerdict,
 } from '@/components/cinema/cinema-model';
 
-const CERTIFICATES = ['U', 'U/A', 'A', 'S'];
 const LANGUAGES = ['Hindi', 'English', 'Tamil', 'Telugu', 'Kannada', 'Malayalam', 'Bengali'];
 
 const splitList = (v: string): string[] =>
@@ -80,6 +86,7 @@ export default function EditMoviePage() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
   const toast = useToast();
+  const activeOrgId = useOrg().activeOrg.id;
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   const {
@@ -165,8 +172,33 @@ export default function EditMoviePage() {
     onSuccess: (updated) => {
       toast.push(`Movie ${updated.status.toLowerCase()}.`, 'success');
       qc.invalidateQueries({ queryKey: ['movie', id] });
+      /*
+        The sale state of every show changes with the film's status. Walking QA, a film just
+        published read "Published" beside "Not selling: film not published" on every show until
+        the page was reloaded: those answers were cached for a minute and nobody asked again.
+      */
+      qc.invalidateQueries({ queryKey: ['organizer-event-sale-states'] });
+      qc.invalidateQueries({ queryKey: ['organizer-sale-eligibility'] });
+      qc.invalidateQueries({ queryKey: ['movies', activeOrgId] });
     },
     onError: (e) => toast.push(errorMessage(e), 'error'),
+  });
+
+  /*
+    A poster picked on the Details tab goes up at once - the film already exists - and the
+    page shows the stored one when it lands. The preview stays only while it travels.
+  */
+  const [posterPreview, setPosterPreview] = useState<string | null>(null);
+  const uploadPoster = useMutation({
+    mutationFn: (image: Blob) => api.movies.uploadPoster(id, image),
+    onSuccess: (updated) => {
+      toast.push('Poster saved.', 'success');
+      setForm((f) => ({ ...f, posterUrl: updated.posterUrl ?? '' }));
+      setPosterPreview(null);
+      qc.invalidateQueries({ queryKey: ['movie', id] });
+      qc.invalidateQueries({ queryKey: ['movies', activeOrgId] });
+    },
+    onError: () => setPosterPreview(null),
   });
 
   const submit = () => {
@@ -413,7 +445,7 @@ export default function EditMoviePage() {
       <header className="grid grid-cols-[5rem_minmax(0,1fr)] gap-x-4 gap-y-4 rounded-lg border border-border bg-background-surface p-4 shadow-xs sm:grid-cols-[8.5rem_minmax(0,1fr)] sm:gap-x-6 sm:p-6">
         <div className="sm:row-span-2">
           <ImageFrame
-            src={movie.posterUrl}
+            src={portableImageUrl(movie.posterUrl)}
             alt={`Poster for ${movie.title}`}
             ratio="2:3"
             category="movie"
@@ -421,6 +453,15 @@ export default function EditMoviePage() {
             placeholderLabel="No poster"
             priority
           />
+          {movie.posterUrl ? null : (
+            <button
+              type="button"
+              onClick={() => setTab('details')}
+              className="mt-2 w-full rounded-sm text-center text-caption font-medium text-action-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              Add poster
+            </button>
+          )}
         </div>
         <div className="min-w-0 space-y-3">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -466,6 +507,30 @@ export default function EditMoviePage() {
           <div className="flex flex-wrap items-center gap-1.5">
             <FilmLifecycle status={movie.status} />
             <SalePill verdict={sale} />
+            {/*
+              What viewers think of it, the same figure the storefront shows (stars out of 5,
+              one vote per viewer). Viewers can rate only after their show has started, so a new
+              film says that rather than showing an empty score.
+            */}
+            <span className="inline-flex items-center gap-1 pl-1 text-caption text-text-secondary">
+              <Star
+                className={`h-3.5 w-3.5 ${hasRating(movie.rating) ? 'fill-current text-status-warning' : 'text-text-muted'}`}
+                aria-hidden
+              />
+              {hasRating(movie.rating) ? (
+                <>
+                  <span className="font-semibold tabular-nums text-text-primary">
+                    {formatRatingAverage(movie.rating.average)}/5
+                  </span>
+                  <span>
+                    from {formatVoteCount(movie.rating.count)}{' '}
+                    {movie.rating.count === 1 ? 'viewer' : 'viewers'}
+                  </span>
+                </>
+              ) : (
+                <span>No ratings yet. Viewers can rate it once their show has started.</span>
+              )}
+            </span>
           </div>
           {sale.partial && sale.exceptions.length > 0 ? (
             <ul className="space-y-0.5 text-caption text-status-warning">
@@ -635,7 +700,7 @@ export default function EditMoviePage() {
                   onChange={(e) => set('certificate', e.target.value)}
                 >
                   <option value="">Not set</option>
-                  {CERTIFICATES.map((c) => (
+                  {certificateOptions(movie.certificate).map((c) => (
                     <option key={c} value={c}>
                       {c}
                     </option>
@@ -663,11 +728,24 @@ export default function EditMoviePage() {
                 value={form.director}
                 onChange={(e) => set('director', e.target.value)}
               />
-              <Input
-                id="posterUrl"
-                label="Poster URL"
-                value={form.posterUrl}
-                onChange={(e) => set('posterUrl', e.target.value)}
+              <PosterPicker
+                src={posterPreview ?? (form.posterUrl.trim() || null)}
+                title={form.title}
+                busy={uploadPoster.isPending}
+                error={uploadPoster.isError ? errorMessage(uploadPoster.error) : null}
+                onPick={(image, preview) => {
+                  setPosterPreview(preview);
+                  uploadPoster.mutate(image);
+                }}
+                linkField={
+                  <Input
+                    id="posterUrl"
+                    label="Poster link"
+                    hint="The full address of an image, starting with https://. Saved with the other details."
+                    value={form.posterUrl}
+                    onChange={(e) => set('posterUrl', e.target.value)}
+                  />
+                }
               />
               <Input
                 id="trailerUrl"
@@ -692,7 +770,7 @@ export default function EditMoviePage() {
               <div className="flex gap-4">
                 <div className="w-28 shrink-0">
                   <ImageFrame
-                    src={form.posterUrl || null}
+                    src={posterPreview ?? portableImageUrl(form.posterUrl || null)}
                     alt=""
                     ratio="2:3"
                     category="movie"

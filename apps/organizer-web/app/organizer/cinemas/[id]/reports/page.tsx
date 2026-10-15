@@ -18,6 +18,7 @@ import {
   errorMessage,
 } from '@eticketsgo/web-kit';
 import { OVERRIDE_LABEL, OVERRIDE_TONE } from '../live/seat-presentation';
+import { localDayBounds } from '@/lib/zoned-time';
 
 /**
  * Seat override history for a cinema — who withheld what, and why.
@@ -57,13 +58,15 @@ export default function OverrideReportPage() {
   const [actorFilter, setActorFilter] = useState('');
 
   const reportQ = useQuery({
-    queryKey: ['cinema', cinemaId, 'override-report', from, to],
-    enabled: !!from && !!to,
+    queryKey: ['cinema', cinemaId, 'override-report', from, to, timezone],
+    enabled: !!from && !!to && !!timezone,
+    // From the first local midnight to the end of the last local day at the cinema. This asked
+    // for UTC days, which cut a US cinema's evening off one day and onto the next.
     queryFn: () =>
       api.theaterOps.overrideReport(
         cinemaId,
-        new Date(`${from}T00:00:00Z`).toISOString(),
-        new Date(`${to}T23:59:59Z`).toISOString(),
+        localDayBounds(from, timezone as string).from,
+        localDayBounds(to, timezone as string).to,
       ),
   });
 
@@ -83,6 +86,13 @@ export default function OverrideReportPage() {
       <PageHeader
         title="Seat override history"
         description="Every manual seat action at this cinema, with who made it and why."
+        breadcrumbs={[
+          { label: 'Venues & seating', href: '/organizer/venues' },
+          ...(cinemaQ.data
+            ? [{ label: cinemaQ.data.name, href: `/organizer/cinemas/${cinemaId}` }]
+            : []),
+          { label: 'Override history' },
+        ]}
       />
 
       <Card>
@@ -231,7 +241,10 @@ export default function OverrideReportPage() {
                   <tbody>
                     {rows.map((r, i) => (
                       <tr key={`${r.at}-${i}`} className="border-b border-border/50">
-                        <td className="py-2 pr-4 whitespace-nowrap">{dateTime(r.at)}</td>
+                        <td className="py-2 pr-4 whitespace-nowrap">
+                          {/* At the cinema, like the date range above - not the reader's clock. */}
+                          {dateTime(r.at, undefined, timezone ?? undefined)}
+                        </td>
                         <td className="py-2 pr-4">{r.actor}</td>
                         <td className="py-2 pr-4">
                           {r.kind ? (

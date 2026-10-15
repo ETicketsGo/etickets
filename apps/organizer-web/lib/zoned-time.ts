@@ -93,3 +93,21 @@ function zoneOffsetMs(at: Date, timeZone: string): number {
   const asUtc = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
   return asUtc - Math.floor(at.getTime() / 1000) * 1000;
 }
+
+/**
+ * One LOCAL day at the venue, as the instants it starts and ends: `from` is its midnight and
+ * `to` the last millisecond before the next one.
+ *
+ * Walking QA (2026-10-15), live operations and the override report asked for
+ * `${date}T00:00:00Z` to `${date}T23:59:59Z` - the UTC day. For Boise (UTC-6) a 19:00 Friday
+ * show is 01:00 UTC on Saturday, so Friday's board said "No shows on this date" while the
+ * schedule showed the show. India hid only shows before 05:30, which is why nobody noticed.
+ */
+export function localDayBounds(date: string, timeZone: string): { from: string; to: string } {
+  const start = wallClockToInstant(`${date}T00:00`, timeZone);
+  const [y, m, d] = date.split('-').map(Number);
+  const next = new Date(Date.UTC(y, m - 1, d + 1));
+  const nextLabel = next.toISOString().slice(0, 10);
+  const end = wallClockToInstant(`${nextLabel}T00:00`, timeZone);
+  return { from: start.toISOString(), to: new Date(end.getTime() - 1).toISOString() };
+}

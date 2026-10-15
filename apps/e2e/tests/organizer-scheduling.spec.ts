@@ -282,6 +282,31 @@ const showRow = (page: Page) => page.getByRole('listitem');
 
 /** The Create-shows dialog, scoped so its fields cannot collide with the page filters. */
 const bulkDialog = (page: Page) => page.getByRole('dialog', { name: 'Create shows' });
+/**
+ * Set the run's daily times to exactly these: switch off the offered times that are on, and
+ * add each wanted one (a chip if offered, else typed into "Another time").
+ */
+async function pickTimes(d: ReturnType<Page['getByRole']>, wanted: string[]) {
+  const chips = d.locator('button[aria-pressed]');
+  for (let guard = 0; guard < 20; guard++) {
+    const on = (await chips.evaluateAll((bs) =>
+      bs.filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.textContent?.trim()),
+    )) as string[];
+    const extra = on.find((t) => /^\d\d:\d\d$/.test(t) && !wanted.includes(t));
+    if (!extra) break;
+    await d.getByRole('button', { name: extra, exact: true }).click();
+  }
+  for (const t of wanted) {
+    const chip = d.getByRole('button', { name: t, exact: true });
+    if (await chip.count()) {
+      if ((await chip.getAttribute('aria-pressed')) !== 'true') await chip.click();
+    } else {
+      await d.getByLabel('Another time').fill(t);
+      await d.getByRole('button', { name: 'Add' }).click();
+    }
+  }
+}
+
 /** The Copy-schedule dialog, scoped for the same reason. */
 const copyDialog = (page: Page) => page.getByRole('dialog', { name: 'Copy schedule' });
 
@@ -330,16 +355,17 @@ test.describe('organizer cinema scheduling', () => {
 
     await page.getByRole('button', { name: 'Create shows' }).click();
     const d = bulkDialog(page);
+    await d.getByLabel('Film').selectOption(fixture.movieId);
     await d.getByLabel('Screen').selectOption({ label: 'Screen A' });
-    await d.getByLabel('Movie').selectOption(fixture.movieId);
-    await d.getByLabel('Date', { exact: true }).fill(date);
-    await d.getByLabel(/Showtimes/).fill('10:00');
+    await d.getByLabel('First day').fill(date);
+    await d.getByLabel('Last day').fill(date);
+    await pickTimes(d, ['10:00']);
+    // The run is priced before it is created, starting at the layout's house price.
+    await expect(d.getByLabel(/^Normal/)).toHaveValue('200');
 
-    await d.getByRole('button', { name: 'Preview' }).click();
-    await expect(bulkDialog(page).getByText('1 slot proposed')).toBeVisible({ timeout: 20_000 });
-    await bulkDialog(page)
-      .getByRole('button', { name: /Publish 1 show/ })
-      .click();
+    await d.getByRole('button', { name: 'Preview 1 show' }).click();
+    await expect(bulkDialog(page).getByText('1 will be created')).toBeVisible({ timeout: 20_000 });
+    await bulkDialog(page).getByRole('button', { name: 'Create 1 show' }).click();
 
     await expect(page.getByRole('heading', { name: 'Screen A' })).toBeVisible({ timeout: 20_000 });
     await expect(page.getByTestId('screen-show-count').filter({ hasText: '1 show' })).toBeVisible();
@@ -357,17 +383,18 @@ test.describe('organizer cinema scheduling', () => {
     await gotoSchedule(page, fixture.cinemaId, date);
     await page.getByRole('button', { name: 'Create shows' }).click();
     const d = bulkDialog(page);
+    await d.getByLabel('Film').selectOption(fixture.movieId);
     await d.getByLabel('Screen').selectOption({ label: 'Screen A' });
-    await d.getByLabel('Movie').selectOption(fixture.movieId);
-    await d.getByLabel('Date', { exact: true }).fill(date);
-    await d.getByLabel(/Showtimes/).fill('11:45');
-    await d.getByRole('button', { name: 'Preview' }).click();
+    await d.getByLabel('First day').fill(date);
+    await d.getByLabel('Last day').fill(date);
+    await pickTimes(d, ['11:45']);
+    await d.getByLabel('Trailers & turnaround (min)').fill('0');
+    await d.getByRole('button', { name: 'Preview 1 show' }).click();
 
-    await expect(page.getByText('1 will be skipped')).toBeVisible({ timeout: 20_000 });
-    // The human sentence, naming the turnaround as the cause.
-    await expect(page.getByText(/min between shows to empty and clean/)).toBeVisible();
-    // The raw code stays available for diagnostics without being the message.
-    await expect(page.getByText('OVERLAPS_EXISTING_SHOW')).toBeVisible();
+    await expect(d.getByText('0 will be created, 1 cannot')).toBeVisible({ timeout: 20_000 });
+    // The human sentence, naming the turnaround as the cause - and no machine code.
+    await expect(d.getByText(/min between shows to empty and clean/)).toBeVisible();
+    await expect(d.getByText('OVERLAPS_EXISTING_SHOW')).toHaveCount(0);
   });
 
   test('6-8: preview is required before publish', async ({ page }) => {
@@ -375,11 +402,11 @@ test.describe('organizer cinema scheduling', () => {
     await gotoSchedule(page, fixture.cinemaId, date);
     await page.getByRole('button', { name: 'Create shows' }).click();
 
-    // Step 1 is Configure and there is no Publish control at all until a preview is run:
-    // a mis-click must never be able to create a week of shows.
+    // There is no Create control at all until a preview is run: a mis-click must never be
+    // able to create a week of shows.
     const d = bulkDialog(page);
-    await expect(d.getByRole('button', { name: /^Publish/ })).toHaveCount(0);
-    await expect(d.getByRole('button', { name: 'Preview' })).toBeVisible();
+    await expect(d.getByRole('button', { name: /^Create \d/ })).toHaveCount(0);
+    await expect(d.getByRole('button', { name: /^Preview/ })).toBeVisible();
   });
 
   test('9-11: a recurring range previews per-slot conflicts individually', async ({
@@ -394,17 +421,14 @@ test.describe('organizer cinema scheduling', () => {
     await gotoSchedule(page, fixture.cinemaId, from);
     await page.getByRole('button', { name: 'Create shows' }).click();
     const d = bulkDialog(page);
+    await d.getByLabel('Film').selectOption(fixture.movieId);
     await d.getByLabel('Screen').selectOption({ label: 'Screen B' });
-    await d.getByLabel('Movie').selectOption(fixture.movieId);
-    await d.getByLabel('Date mode').selectOption('range');
-    await d.getByLabel('From').fill(from);
-    await d.getByLabel('To', { exact: true }).fill(to);
-    await d.getByLabel(/Showtimes/).fill('18:00');
-    await d.getByRole('button', { name: 'Preview' }).click();
+    await d.getByLabel('First day').fill(from);
+    await d.getByLabel('Last day').fill(to);
+    await pickTimes(d, ['18:00']);
+    await d.getByRole('button', { name: 'Preview 3 shows' }).click();
 
-    await expect(page.getByText('3 slots proposed')).toBeVisible({ timeout: 20_000 });
-    await expect(page.getByText('2 will be created')).toBeVisible();
-    await expect(page.getByText('1 will be skipped')).toBeVisible();
+    await expect(d.getByText('2 will be created, 1 cannot')).toBeVisible({ timeout: 20_000 });
   });
 
   test('12-14: pause then reopen, with state visible throughout', async ({ page, request }) => {
@@ -462,7 +486,6 @@ test.describe('organizer cinema scheduling', () => {
     await page.getByRole('button', { name: 'Copy schedule' }).click();
     const d = copyDialog(page);
     await d.getByLabel('From screen').selectOption({ label: 'Screen A' });
-    await d.getByLabel('Movie').selectOption(fixture.movieId);
     await d.getByLabel('To date').fill(target);
     await d.getByRole('button', { name: 'Preview' }).click();
 
@@ -490,7 +513,6 @@ test.describe('organizer cinema scheduling', () => {
     const d = copyDialog(page);
     await d.getByLabel('From screen').selectOption({ label: 'Screen A' });
     await d.getByLabel('To screen').selectOption({ label: 'Screen B' });
-    await d.getByLabel('Movie').selectOption(fixture.movieId);
     await d.getByLabel('To date').fill(date);
     await d.getByRole('button', { name: 'Preview' }).click();
     await d.getByRole('button', { name: /^Copy 1 show/ }).click();
@@ -620,12 +642,13 @@ test.describe('organizer cinema scheduling', () => {
     await page.getByRole('button', { name: 'Create shows' }).click();
     const bulk2 = bulkDialog(page);
     await expect(bulk2.locator(`option[value="${fixture.screenBId}"]`)).toBeEnabled();
+    await bulk2.getByLabel('Film').selectOption(fixture.movieId);
     await bulk2.getByLabel('Screen').selectOption(fixture.screenBId);
-    await bulk2.getByLabel('Movie').selectOption(fixture.movieId);
-    await bulk2.getByLabel('Date', { exact: true }).fill(dateLabel(46));
-    await bulk2.getByLabel(/Showtimes/).fill('10:00');
-    await bulk2.getByRole('button', { name: 'Preview' }).click();
-    await expect(bulk2.getByText('1 slot proposed')).toBeVisible({ timeout: 20_000 });
+    await bulk2.getByLabel('First day').fill(dateLabel(46));
+    await bulk2.getByLabel('Last day').fill(dateLabel(46));
+    await pickTimes(bulk2, ['10:00']);
+    await bulk2.getByRole('button', { name: 'Preview 1 show' }).click();
+    await expect(bulk2.getByText('1 will be created')).toBeVisible({ timeout: 20_000 });
   });
 
   test('27: another tenant cannot change this screen’s status', async ({ request }) => {

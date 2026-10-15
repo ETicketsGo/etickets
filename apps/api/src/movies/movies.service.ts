@@ -182,16 +182,28 @@ export class MoviesService {
     return this.prisma.movie.update({ where: { id }, data: { status } });
   }
 
+  /*
+    With each film's viewer rating, the same figure the storefront shows. Found walking QA: the
+    organizer could not see how their own films were rated anywhere in the console, only on the
+    public page. One query for the whole library, as on the storefront.
+  */
   async listForOrg(user: RequestUser, organizationId: string) {
     await this.access.assertMember(user, organizationId);
-    return this.prisma.movie.findMany({
+    const movies = await this.prisma.movie.findMany({
       where: { organizationId },
       orderBy: { createdAt: 'desc' },
     });
+    const ratings = await movieRatingsFor(
+      this.prisma,
+      movies.map((m) => m.id),
+    );
+    return movies.map((m) => ({ ...m, rating: ratings.get(m.id) ?? null }));
   }
 
   async getForOrg(user: RequestUser, id: string) {
-    return this.loadOwnedMovie(user, id, undefined);
+    const movie = await this.loadOwnedMovie(user, id, undefined);
+    const rating = (await movieRatingsFor(this.prisma, [movie.id])).get(movie.id) ?? null;
+    return { ...movie, rating };
   }
 
   // ─── Admin (across all organizations) ───

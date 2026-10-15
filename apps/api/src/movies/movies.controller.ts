@@ -1,5 +1,21 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+  Res,
+  UploadedFile,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { SkipThrottle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import type { Request, Response } from 'express';
 import { z } from 'zod';
 import {
   createMovieSchema,
@@ -9,6 +25,9 @@ import {
   type UpdateMovieInput,
 } from '@eticketsgo/validation';
 import { MoviesService, PublicMoviesService } from './movies.service';
+import { MOVIE_POSTER_MAX_BYTES, MoviePosterService } from './movie-poster.service';
+import { sendEventImage } from '../events/events.controller';
+import type { UploadedImageFile } from '../events/event-image.service';
 import { CurrentUser, Public, type RequestUser } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 
@@ -18,7 +37,10 @@ const createMovieBody = createMovieSchema.extend({ organizationId: z.string().cu
 @ApiBearerAuth()
 @Controller('movies')
 export class MoviesController {
-  constructor(private readonly movies: MoviesService) {}
+  constructor(
+    private readonly movies: MoviesService,
+    private readonly posters: MoviePosterService,
+  ) {}
 
   @Post()
   @ApiOperation({ summary: 'Create a movie (catalogue entry).' })
@@ -56,6 +78,29 @@ export class MoviesController {
     return this.movies.update(user, id, body);
   }
 
+  /*
+    The film's poster, from the organizer's computer. One file, multipart; the cap is enforced
+    where multer reads the stream, so an oversized upload is refused before it is buffered.
+  */
+  @Post(':id/poster')
+  @ApiOperation({ summary: 'Upload the film’s poster (JPG, PNG or WebP, max 2 MB).' })
+  @UseInterceptors(
+    FileInterceptor('file', { limits: { fileSize: MOVIE_POSTER_MAX_BYTES, files: 1 } }),
+  )
+  uploadPoster(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @Req() req: Request,
+    @UploadedFile() file?: UploadedImageFile,
+  ) {
+    // Behind Railway's proxy the scheme the browser used is in X-Forwarded-Proto.
+    const proto =
+      String(req.headers['x-forwarded-proto'] ?? '')
+        .split(',')[0]
+        .trim() || req.protocol;
+    return this.posters.upload(user, id, file, `${proto}://${req.get('host')}`);
+  }
+
   @Post(':id/status')
   @ApiOperation({ summary: 'Set a movie’s catalogue status.' })
   setStatus(
@@ -87,7 +132,26 @@ const showsQuerySchema = z.object({
 @ApiTags('public')
 @Controller('public/movies')
 export class PublicMoviesController {
-  constructor(private readonly publicMovies: PublicMoviesService) {}
+  constructor(
+    private readonly publicMovies: PublicMoviesService,
+    private readonly posters: MoviePosterService,
+  ) {}
+
+  /** A film's uploaded poster. Not throttled: a browse page asks for every card at once. */
+  @Public()
+  @SkipThrottle()
+  @Get(':id/poster/:file')
+  @ApiOperation({ summary: 'A film’s uploaded poster.' })
+  async poster(
+    @Param('id') id: string,
+    @Param('file') file: string,
+    @Headers('if-none-match') ifNoneMatch: string | undefined,
+    @Res() res: Response,
+  ): Promise<void> {
+    const image = await this.posters.read(id, file);
+    // The file name carries the hash, so a found poster is always the current version.
+    sendEventImage(res, image, image?.version, ifNoneMatch);
+  }
 
   @Public()
   @Get()

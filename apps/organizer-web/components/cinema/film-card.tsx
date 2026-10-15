@@ -8,7 +8,11 @@ import {
   LifecyclePill,
   Menu,
   ProgressMeter,
+  formatRatingAverage,
+  formatVoteCount,
+  hasRating,
   lifecycleOf,
+  portableImageUrl,
   type MenuItem,
   type Movie,
 } from '@eticketsgo/web-kit';
@@ -33,6 +37,17 @@ type FilmStatus = 'PUBLISHED' | 'ARCHIVED' | 'DRAFT';
 /** "Telugu · UA · 2h 18m": what a cinema prints under a title. */
 export function filmFacts(m: Movie): string {
   return [m.language, m.certificate, formatRuntime(m.runtimeMinutes)].filter(Boolean).join(' · ');
+}
+
+/**
+ * "4.3/5 from 12 viewers", or null when nobody has rated it. The storefront's figure: stars out
+ * of five, one vote per viewer. An unrated film shows nothing rather than a zero.
+ */
+export function filmRating(m: Movie): string | null {
+  if (!hasRating(m.rating)) return null;
+  return `${formatRatingAverage(m.rating.average)}/5 from ${formatVoteCount(m.rating.count)} ${
+    m.rating.count === 1 ? 'viewer' : 'viewers'
+  }`;
 }
 
 /** "3 cinemas" or the one cinema's name. */
@@ -164,7 +179,7 @@ export function FilmCard({
           className="w-[4.5rem] shrink-0 self-start min-[400px]:w-[5.5rem] sm:w-24"
         >
           <ImageFrame
-            src={m.posterUrl}
+            src={portableImageUrl(m.posterUrl)}
             alt=""
             ratio="2:3"
             category="movie"
@@ -186,6 +201,12 @@ export function FilmCard({
               </Link>
             </h2>
             <p className="mt-0.5 truncate text-caption text-text-muted">{filmFacts(m)}</p>
+            {filmRating(m) ? (
+              <p className="mt-0.5 text-caption text-text-secondary">
+                <span aria-hidden>&#9733; </span>
+                {filmRating(m)}
+              </p>
+            ) : null}
           </div>
           <div className="flex min-w-0 flex-wrap items-center gap-1.5">
             <FilmLifecycle status={m.status} size="sm" />
@@ -234,7 +255,13 @@ export function FilmRow({
   return (
     <li className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 transition-colors hover:bg-background-subtle/60 lg:flex-nowrap">
       <div className="w-10 shrink-0">
-        <ImageFrame src={m.posterUrl} alt="" ratio="2:3" category="movie" rounded="md" />
+        <ImageFrame
+          src={portableImageUrl(m.posterUrl)}
+          alt=""
+          ratio="2:3"
+          category="movie"
+          rounded="md"
+        />
       </div>
       <div className="min-w-0 flex-1 basis-40">
         <p className="break-words font-semibold text-text-primary">
@@ -245,7 +272,9 @@ export function FilmRow({
             {m.title}
           </Link>
         </p>
-        <p className="text-caption text-text-muted">{filmFacts(m)}</p>
+        <p className="text-caption text-text-muted">
+          {[filmFacts(m), filmRating(m)].filter(Boolean).join(' · ')}
+        </p>
       </div>
       <div className="flex min-w-0 flex-wrap items-center gap-1.5 lg:w-72">
         <FilmLifecycle status={m.status} size="sm" />

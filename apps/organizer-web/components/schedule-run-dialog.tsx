@@ -3,7 +3,15 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { CalendarRange, Check, X, Plus } from 'lucide-react';
-import { api, Button, Dialog, Input, Select, errorMessage } from '@eticketsgo/web-kit';
+import { api, Button, Dialog, Input, Select, errorMessage, useToast } from '@eticketsgo/web-kit';
+import {
+  currencySign,
+  limitHint,
+  minorToField,
+  parseRunPrices,
+  runPriceRows,
+  type RunPriceDraft,
+} from '@/components/cinema/run-pricing';
 
 /**
  * Scheduling a run — a week of a film in one pass instead of twenty-eight forms.
@@ -88,14 +96,19 @@ interface Rejected {
  * correct — but rendering it literally produced "only -116 min between them", a sentence
  * that means nothing to somebody trying to fix a schedule.
  */
-function explain(r: Rejected): string {
+export function explain(r: Rejected, turnaroundMinutes?: number): string {
   const gap = r.gapMinutes;
+  // Why "too close" is a refusal: the room has to empty and be cleaned between shows.
+  const why =
+    turnaroundMinutes !== undefined
+      ? `, and the screen needs ${turnaroundMinutes} min between shows to empty and clean`
+      : '';
   const clash =
     gap === undefined
       ? 'Clashes with a show already on this screen'
       : gap < 0
         ? `Overlaps a show already on this screen by ${Math.abs(gap)} min`
-        : `Too close to a show already on this screen — ${gap} min between them`;
+        : `Too close to a show already on this screen: ${gap} min between them${why}`;
   switch (r.reason) {
     case 'OVERLAPS_EXISTING_SHOW':
       return clash;
@@ -115,19 +128,45 @@ function explain(r: Rejected): string {
 export interface ScheduleRunDialogProps {
   open: boolean;
   onClose: () => void;
-  movieId: string;
+  /**
+   * The film being scheduled, from its own page. Null on the cinema schedule, where the
+   * operator picks the film here from `films`.
+   */
+  movieId: string | null;
+  /** Films to choose from when `movieId` is null. */
+  films?: { id: string; title: string; status?: string }[];
   cinemas: { id: string; name: string }[];
+  /**
+   * On a cinema's own schedule the cinema is not a question: it is fixed and named. The same
+   * dialog serves both places, so a run is planned the same way wherever it starts - the
+   * cinema schedule used to have its own, different form (times typed into a text box).
+   */
+  lockedCinemaId?: string;
+  /** The screen to start on, e.g. the one the schedule is filtered to. */
+  defaultScreenId?: string;
+  /** The first day to offer, as YYYY-MM-DD (the cinema's local date). Tomorrow by default. */
+  defaultFrom?: string;
   /** Refresh the shows table once something has actually been written. */
   onScheduled: () => void;
+  /** What the button that opened it said. "Schedule a run" by default. */
+  title?: string;
 }
 
 export function ScheduleRunDialog({
   open,
   onClose,
   movieId,
+  films,
   cinemas,
+  lockedCinemaId,
+  defaultScreenId,
+  defaultFrom,
   onScheduled,
+  title = 'Schedule a run',
 }: ScheduleRunDialogProps) {
+  const toast = useToast();
+  const [chosenFilm, setChosenFilm] = useState('');
+  const filmId = movieId ?? chosenFilm;
   /*
     Its own cinema and screen, rather than borrowing the single-show dialog's.
 
@@ -137,7 +176,7 @@ export function ScheduleRunDialog({
     explainable.
   */
   const [chosenCinema, setChosenCinema] = useState('');
-  const [screenId, setScreenId] = useState('');
+  const [chosenScreen, setChosenScreen] = useState<string | null>(null);
 
   /*
     Defaulted by falling back, not by initialising state.
@@ -147,7 +186,7 @@ export function ScheduleRunDialog({
     The screen dropdown then said "this cinema has no screens" about a cinema with six,
     because no cinema had been chosen at all.
   */
-  const cinemaId = chosenCinema || cinemas[0]?.id || '';
+  const cinemaId = lockedCinemaId ?? (chosenCinema || cinemas[0]?.id || '');
 
   const screensQ = useQuery({
     queryKey: ['cinema', cinemaId, 'screens'],
@@ -155,8 +194,13 @@ export function ScheduleRunDialog({
     enabled: open && !!cinemaId,
   });
   const screens = screensQ.data ?? [];
-  const [from, setFrom] = useState(() => todayLocal(1));
-  const [to, setTo] = useState(() => todayLocal(7));
+  // The schedule's screen filter, until the operator picks one here.
+  const screenId =
+    chosenScreen ??
+    (defaultScreenId && screens.some((sc) => sc.id === defaultScreenId) ? defaultScreenId : '');
+  const setScreenId = (v: string) => setChosenScreen(v);
+  const [from, setFrom] = useState(() => defaultFrom ?? todayLocal(1));
+  const [to, setTo] = useState(() => defaultFrom ?? todayLocal(7));
   const [weekdays, setWeekdays] = useState<Set<number>>(new Set([0, 1, 2, 3, 4, 5, 6]));
   const [times, setTimes] = useState<string[]>(['14:30', '18:00', '21:30']);
   const [custom, setCustom] = useState('');
@@ -167,6 +211,30 @@ export function ScheduleRunDialog({
   const planned = dates.length * times.length;
 
   /*
+    The screen's seat categories and, where a pricing order applies, each one's legal limit.
+    Prices start at the layout's house prices, so a run nobody re-prices is what it always was.
+  */
+  const mapQ = useQuery({
+    queryKey: ['seatmap', screenId],
+    queryFn: () => api.shows.getSeatMap(screenId),
+    enabled: open && !!screenId,
+  });
+  const classesQ = useQuery({
+    queryKey: ['cinema-seat-classes', cinemaId],
+    queryFn: () => api.cinemas.seatClasses(cinemaId),
+    enabled: open && !!cinemaId,
+    retry: false,
+  });
+  const priceRows = useMemo(
+    () => runPriceRows(mapQ.data, classesQ.data),
+    [mapQ.data, classesQ.data],
+  );
+  const [prices, setPrices] = useState<RunPriceDraft>({});
+  const parsedPrices = parseRunPrices(priceRows, prices);
+  const priceProblem = (id: string) =>
+    parsedPrices.problems.find((p) => p.seatCategoryId === id)?.message;
+
+  /*
     The preview and the commit are the SAME call, differing only in `dryRun`.
 
     Any other arrangement lets the two drift — a preview computed by the client would be a
@@ -175,11 +243,13 @@ export function ScheduleRunDialog({
   */
   const run = useMutation({
     mutationFn: (dryRun: boolean) =>
-      api.shows.bulkSchedule(movieId, {
+      api.shows.bulkSchedule(filmId, {
         screenId,
         dates,
         times,
         padMinutes: Number(padMinutes) || 0,
+        // Every category's price, as shown: the run is created at exactly what was previewed.
+        pricing: parsedPrices.pricing,
         dryRun,
       }),
     onError: (e) => setError(errorMessage(e)),
@@ -207,7 +277,7 @@ export function ScheduleRunDialog({
     <Dialog
       open={open}
       onClose={onClose}
-      title="Schedule a run"
+      title={title}
       size="lg"
       footer={
         <>
@@ -217,7 +287,7 @@ export function ScheduleRunDialog({
           {!preview || previewIsStale ? (
             <Button
               loading={run.isPending}
-              disabled={planned === 0 || !screenId}
+              disabled={planned === 0 || !screenId || !filmId || parsedPrices.problems.length > 0}
               onClick={() => {
                 setError(null);
                 run.mutate(true);
@@ -231,7 +301,11 @@ export function ScheduleRunDialog({
               disabled={preview.creatable.length === 0}
               onClick={() =>
                 run.mutate(false, {
-                  onSuccess: () => {
+                  onSuccess: (r) => {
+                    toast.push(
+                      `Created ${r.created.length} show${r.created.length === 1 ? '' : 's'}.`,
+                      'success',
+                    );
                     onScheduled();
                     onClose();
                   },
@@ -295,7 +369,10 @@ export function ScheduleRunDialog({
                           timeZone: preview.timezone,
                         })}
                       </span>
-                      <span className="text-text-muted"> — {explain(r)}</span>
+                      <span className="text-text-muted">
+                        {' '}
+                        - {explain(r, preview.turnaroundMinutes)}
+                      </span>
                     </span>
                   </li>
                 ))}
@@ -309,27 +386,54 @@ export function ScheduleRunDialog({
           </div>
         ) : null}
 
-        <div className="grid gap-3 sm:grid-cols-2">
+        {movieId === null ? (
           <div>
-            <label htmlFor="run-cinema" className="mb-1 block text-sm font-medium">
-              Cinema
+            <label htmlFor="run-film" className="mb-1 block text-sm font-medium">
+              Film
             </label>
             <Select
-              id="run-cinema"
-              value={cinemaId}
+              id="run-film"
+              value={chosenFilm}
               onChange={(e) => {
-                setChosenCinema(e.target.value);
-                setScreenId('');
+                setChosenFilm(e.target.value);
                 reset();
               }}
             >
-              {cinemas.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
+              <option value="">Choose a film</option>
+              {(films ?? []).map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.title}
+                  {m.status === 'DRAFT' ? ' (draft - publish it to sell)' : ''}
                 </option>
               ))}
             </Select>
           </div>
+        ) : null}
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          {lockedCinemaId ? null : (
+            <div>
+              <label htmlFor="run-cinema" className="mb-1 block text-sm font-medium">
+                Cinema
+              </label>
+              <Select
+                id="run-cinema"
+                value={cinemaId}
+                onChange={(e) => {
+                  setChosenCinema(e.target.value);
+                  setScreenId('');
+                  setPrices({});
+                  reset();
+                }}
+              >
+                {cinemas.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          )}
           <div>
             <label htmlFor="run-screen" className="mb-1 block text-sm font-medium">
               Screen
@@ -340,6 +444,7 @@ export function ScheduleRunDialog({
               disabled={screensQ.isLoading || screens.length === 0}
               onChange={(e) => {
                 setScreenId(e.target.value);
+                setPrices({});
                 reset();
               }}
             >
@@ -350,9 +455,22 @@ export function ScheduleRunDialog({
                     ? 'This cinema has no screens'
                     : 'Pick a screen'}
               </option>
+              {/*
+                A screen out of service is offered but not selectable, and says why - better
+                than hiding it, which leaves an operator wondering where Screen 2 went.
+              */}
               {screens.map((s) => (
-                <option key={s.id} value={s.id}>
+                <option
+                  key={s.id}
+                  value={s.id}
+                  disabled={Boolean(s.status && s.status !== 'ACTIVE')}
+                >
                   {s.name}
+                  {s.status && s.status !== 'ACTIVE'
+                    ? ` - ${s.status === 'MAINTENANCE' ? 'maintenance' : 'out of use'}`
+                    : s.hasSeatMap === false
+                      ? ' - no seat layout yet'
+                      : ''}
                 </option>
               ))}
             </Select>
@@ -517,6 +635,36 @@ export function ScheduleRunDialog({
             </p>
           ) : null}
         </div>
+
+        {screenId && priceRows.length > 0 ? (
+          <fieldset className="space-y-3 rounded-md border border-border p-3">
+            <legend className="px-1 text-sm font-medium">Prices for every show in this run</legend>
+            {priceRows.map((row) => {
+              const fieldId = `run-price-${row.seatCategoryId}`;
+              const problem = priceProblem(row.seatCategoryId);
+              const hint = limitHint(row);
+              return (
+                <div key={row.seatCategoryId}>
+                  <Input
+                    id={fieldId}
+                    label={`${row.name} (${currencySign(row.currency)})`}
+                    inputMode="decimal"
+                    value={prices[row.seatCategoryId] ?? minorToField(row.houseMinor)}
+                    onChange={(e) => {
+                      setPrices((p) => ({ ...p, [row.seatCategoryId]: e.target.value }));
+                      reset();
+                    }}
+                    error={problem}
+                    hint={hint ?? undefined}
+                  />
+                </div>
+              );
+            })}
+            <p className="text-caption text-text-muted">
+              Starts at the layout&apos;s house prices. Change any of them for this run only.
+            </p>
+          </fieldset>
+        ) : null}
 
         {error ? (
           <p role="alert" className="rounded-md bg-status-error/10 p-3 text-sm">

@@ -4,6 +4,7 @@ import {
   changedRows,
   differsFromHouse,
   formatMinor,
+  limitLine,
   lockReason,
   minorToInput,
   parseDraft,
@@ -181,5 +182,46 @@ describe('formatting', () => {
     // An operator types into a bare number input; "250.00" tells them the field takes paise.
     // Display and input are allowed to differ, and here they should.
     expect(minorToInput(250_00)).toBe('250.00');
+  });
+});
+
+describe('the legal limit, before Save (walk 2026-10-15)', () => {
+  const recliner = cat({
+    name: 'Lounge',
+    priceMinor: 25000,
+    basePriceMinor: 25000,
+    regulatoryClass: 'RECLINER',
+    priceLimit: { maxMinor: 25000, minMinor: null, sellable: true, place: 'Andhra Pradesh' },
+  });
+
+  it('says the limit under the field', () => {
+    expect(limitLine(recliner)).toBe('Andhra Pradesh limit for a Recliner seat: up to ₹250.');
+    expect(limitLine(cat())).toBeNull();
+  });
+
+  it('refuses a price over the limit, in the words the server uses', () => {
+    const r = parseDraft(pricing([recliner]), { tt1: '300' });
+    expect(r.prices).toEqual([]);
+    expect(r.problems).toEqual([
+      {
+        ticketTypeId: 'tt1',
+        message: 'Lounge: Andhra Pradesh allows at most ₹250 for this seat class.',
+      },
+    ]);
+  });
+
+  it('accepts exactly the limit, and does not judge a price nobody changed', () => {
+    expect(parseDraft(pricing([recliner]), { tt1: '250' }).problems).toEqual([]);
+    // Already above the limit (set before limits were shown): untouched, so not this save's.
+    const old = { ...recliner, priceMinor: 30000 };
+    expect(parseDraft(pricing([old]), {}).problems).toEqual([]);
+  });
+
+  it('a class with no rate here says it will not sell', () => {
+    const unrated = cat({
+      regulatoryClass: 'PREMIUM',
+      priceLimit: { maxMinor: null, minMinor: null, sellable: false, place: 'Andhra Pradesh' },
+    });
+    expect(limitLine(unrated)).toMatch(/cannot be sold online/);
   });
 });

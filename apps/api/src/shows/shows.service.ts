@@ -8,6 +8,7 @@ import {
   NotificationType,
   Role,
   SessionStatus,
+  currencyForCountry,
   venueZone,
 } from '@eticketsgo/shared-types';
 import type {
@@ -21,6 +22,12 @@ import type {
 import { PrismaService } from '../prisma/prisma.service';
 import { SaleEligibilityService } from '../pricing/cinema-policy/sale-eligibility.service';
 import { BUYER_SALE_NOT_OPEN } from '../pricing/cinema-policy/sale-eligibility';
+import { CinemaPricingPolicyService } from '../pricing/cinema-policy/cinema-pricing-policy.service';
+import {
+  ceilingFrom,
+  priceOutsideBand,
+  type RegulatoryClass,
+} from '../pricing/cinema-policy/class-ceilings';
 import { OrgAccessService } from '../tenancy/org-access.service';
 import { NotificationService } from '../notifications/notification.service';
 import { TransactionalEventPublisher } from '../common/domain-events/transactional-event-publisher';
@@ -408,6 +415,12 @@ export class ShowsService {
       nothing about it and the storefront behaves as it did before.
     */
     @Optional() private readonly saleEligibility?: SaleEligibilityService,
+    /*
+      The regulated price limit per seat class, so a price that checkout would refuse is refused
+      when it is SET, with the limit named. Optional and last, like the rest: absent, prices are
+      stored as before and checkout still refuses an out-of-band sale on its own.
+    */
+    @Optional() private readonly cinemaPolicies?: CinemaPricingPolicyService,
   ) {}
 
   /** Minimum gap between two shows on one screen. See SHOW_TURNAROUND_MINUTES. */
@@ -999,6 +1012,11 @@ export class ShowsService {
     this.assertScreenUsable(screen);
     // Resolved for THIS show's start time, not "the screen's map" — see resolveLayoutForShow.
     const seatMap = await this.resolveLayoutForShow(screen.id, input.startsAt);
+    await this.assertPricesWithinBands(
+      screen.cinemaId,
+      new Date(),
+      this.explicitPriceLines(screen, seatMap.categories, input.pricing ?? []),
+    );
 
     return this.prisma.$transaction(async (tx) => {
       // Serialise scheduling for this screen. Two managers filling the same screen at the
@@ -1237,6 +1255,13 @@ export class ShowsService {
       still the only field carrying ids.
     */
     const creatable = decision.creatable.map((c) => ({ startsAt: c.startsAt, endsAt: c.endsAt }));
+    // Before the dry run returns: a preview that passes a price the save will refuse is a
+    // preview of a different batch.
+    await this.assertPricesWithinBands(
+      screen.cinemaId,
+      new Date(),
+      this.explicitPriceLines(screen, seatMap.categories, input.pricing ?? []),
+    );
     if (input.dryRun) {
       return {
         dryRun: true,
@@ -1668,6 +1693,123 @@ export class ShowsService {
    * `soldCount` is reported per category because it is what makes a price immovable, and a
    * disabled field with no reason next to it is just a broken form.
    */
+  /**
+   * The regulated price band of each seat class at one cinema, asked of the resolver checkout
+   * uses. Null when there is nothing to ask (no cinema, or no policy service wired).
+   *
+   * Memoised per class for the one request: a show has a handful of categories, and a run of
+   * fifty shows asks the same four questions.
+   */
+  private async priceBands(cinemaId: string | null | undefined, currency: string, at: Date) {
+    if (!this.cinemaPolicies || !cinemaId) return null;
+    const cinema = await this.prisma.cinema.findUnique({
+      where: { id: cinemaId },
+      include: { venue: { select: { country: true, region: true, city: true } } },
+    });
+    if (!cinema) return null;
+    const policies = this.cinemaPolicies;
+    const memo = new Map<string, ReturnType<typeof policies.resolveForCinema>>();
+    const resolve = (cls: string) => {
+      if (!memo.has(cls)) memo.set(cls, policies.resolveForCinema(cinema, currency, [cls], at));
+      return memo.get(cls)!;
+    };
+    // "Andhra Pradesh allows at most...": the state is who sets the limit.
+    const place =
+      cinema.region ?? cinema.venue?.region ?? cinema.city ?? cinema.venue?.city ?? 'This area';
+    return { place, resolve };
+  }
+
+  /**
+   * The prices a scheduling request names explicitly, as lines for `assertPricesWithinBands`.
+   *
+   * Only explicit prices: a category left to its house price is the layout's decision, and
+   * refusing a whole run over it would block an operator who never typed a number.
+   */
+  private explicitPriceLines(
+    screen: {
+      cinema?: { country: string | null } | null;
+      venue?: { country: string | null } | null;
+    },
+    categories: { id: string; name: string; regulatoryClass?: string | null }[],
+    pricing: { seatCategoryId: string; priceMinor: number }[],
+  ) {
+    const currency =
+      currencyForCountry(screen.venue?.country ?? screen.cinema?.country ?? null) ?? 'INR';
+    const byId = new Map(categories.map((c) => [c.id, c]));
+    return pricing
+      .filter((p) => byId.has(p.seatCategoryId))
+      .map((p) => {
+        const c = byId.get(p.seatCategoryId)!;
+        return {
+          regulatoryClass: c.regulatoryClass,
+          seatCategoryName: c.name,
+          priceMinor: p.priceMinor,
+          currency,
+          seatCategoryId: c.id,
+        };
+      });
+  }
+
+  /**
+   * Refuse prices that checkout would refuse, when they are SET.
+   *
+   * Found walking QA: a Recliner show in Vijayawada was repriced to Rs 300 under a Rs 250 limit
+   * and the screen said "Prices updated". Checkout then refused every Recliner seat, the show's
+   * pill still blamed an unrelated seat class, and the operator had no way to learn why from
+   * any screen. The band and its test are checkout's own (`priceOutsideBand` calls
+   * `checkTicketPrice`); this only moves the refusal to the moment someone can act on it.
+   *
+   * Only a price outside a STATED band is refused here. An unmapped class, or a class with no
+   * rate, is the seat-class mapping's problem, reported on readiness and refused by checkout.
+   */
+  private async assertPricesWithinBands(
+    cinemaId: string | null | undefined,
+    at: Date,
+    lines: {
+      regulatoryClass: string | null | undefined;
+      seatCategoryName: string;
+      priceMinor: number;
+      currency: string;
+      ticketTypeId?: string;
+      seatCategoryId?: string | null;
+    }[],
+  ): Promise<void> {
+    const regulated = lines.filter((l) => l.regulatoryClass);
+    if (regulated.length === 0) return;
+    const byCurrency = new Map<string, Awaited<ReturnType<ShowsService['priceBands']>>>();
+    const problems: { message: string; ticketTypeId?: string; seatCategoryId?: string | null }[] =
+      [];
+    for (const line of regulated) {
+      if (!byCurrency.has(line.currency)) {
+        byCurrency.set(line.currency, await this.priceBands(cinemaId, line.currency, at));
+      }
+      const bands = byCurrency.get(line.currency);
+      if (!bands) continue;
+      const message = priceOutsideBand(await bands.resolve(line.regulatoryClass as string), {
+        regulatoryClass: line.regulatoryClass as string,
+        seatCategoryName: line.seatCategoryName,
+        priceMinor: line.priceMinor,
+        currency: line.currency,
+        place: bands.place,
+      });
+      if (message) {
+        problems.push({
+          message,
+          ticketTypeId: line.ticketTypeId,
+          seatCategoryId: line.seatCategoryId,
+        });
+      }
+    }
+    if (problems.length > 0) {
+      throw new AppException(
+        ErrorCodes.VALIDATION_FAILED,
+        problems.map((p) => p.message).join(' '),
+        HttpStatus.BAD_REQUEST,
+        { reason: 'PRICE_OUTSIDE_REGULATED_BAND', problems },
+      );
+    }
+  }
+
   async getShowPricing(user: RequestUser, sessionId: string) {
     const session = await this.loadOwnedSession(user, sessionId);
     const ticketTypes = await this.prisma.ticketType.findMany({
@@ -1681,6 +1823,29 @@ export class ShowsService {
           select: { title: true },
         })
       : null;
+
+    /*
+      The regulated limit beside each category, so the operator sees "up to Rs 250" BEFORE
+      typing Rs 300 rather than learning it from a refusal. Read from the same resolver the
+      save path and checkout use; null where nothing limits the price.
+    */
+    const currency = ticketTypes[0]?.currency ?? 'INR';
+    const bands = await this.priceBands(session.screen?.cinemaId, currency, new Date());
+    const limitOf = async (cls: string | null | undefined) => {
+      if (!bands || !cls) return null;
+      const ceiling = ceilingFrom(cls as RegulatoryClass, await bands.resolve(cls));
+      return ceiling.regulated
+        ? {
+            maxMinor: ceiling.maxMinor,
+            minMinor: ceiling.minMinor,
+            sellable: ceiling.sellable,
+            place: bands.place,
+          }
+        : null;
+    };
+    const limits = await Promise.all(
+      ticketTypes.map((t) => limitOf(t.seatCategory?.regulatoryClass)),
+    );
 
     return {
       sessionId,
@@ -1699,7 +1864,7 @@ export class ShowsService {
           )?.timezone ?? null)
         : null,
       movieTitle: movie?.title ?? null,
-      categories: ticketTypes.map((t) => ({
+      categories: ticketTypes.map((t, i) => ({
         ticketTypeId: t.id,
         seatCategoryId: t.seatCategoryId,
         name: t.name,
@@ -1713,6 +1878,13 @@ export class ShowsService {
         heldCount: t.inventory?.quantityHeld ?? 0,
         /** A sold seat freezes this category's price. Nothing else does. */
         locked: (t.inventory?.quantitySold ?? 0) > 0,
+        /** The regulatory class the operator mapped this category to; null when unmapped. */
+        regulatoryClass: t.seatCategory?.regulatoryClass ?? null,
+        /**
+         * The legal band for that class here, when a pricing order applies. `sellable: false`
+         * means the class has no rate here and cannot be sold online at any price.
+         */
+        priceLimit: limits[i],
       })),
     };
   }
@@ -1750,7 +1922,7 @@ export class ShowsService {
 
     const existing = await this.prisma.ticketType.findMany({
       where: { eventSessionId: sessionId },
-      include: { inventory: true },
+      include: { inventory: true, seatCategory: { select: { regulatoryClass: true } } },
     });
     const byId = new Map(existing.map((t) => [t.id, t]));
 
@@ -1777,6 +1949,22 @@ export class ShowsService {
 
     const changed = input.prices.filter(
       (p) => byId.get(p.ticketTypeId)!.priceMinor !== p.priceMinor,
+    );
+    // Only what moved: an untouched price is not this request's decision to defend.
+    await this.assertPricesWithinBands(
+      session.screen?.cinemaId,
+      new Date(),
+      changed.map((p) => {
+        const tt = byId.get(p.ticketTypeId)!;
+        return {
+          regulatoryClass: tt.seatCategory?.regulatoryClass,
+          seatCategoryName: tt.name,
+          priceMinor: p.priceMinor,
+          currency: tt.currency,
+          ticketTypeId: tt.id,
+          seatCategoryId: tt.seatCategoryId,
+        };
+      }),
     );
     if (changed.length > 0) {
       await this.prisma.$transaction(

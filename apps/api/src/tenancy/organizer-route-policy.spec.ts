@@ -181,6 +181,7 @@ export const ORGANIZER_ROUTE_POLICY: Record<string, StaffPolicy> = {
   'GET /movies/:id': 'NONE',
   'PATCH /movies/:id': 'NONE',
   'POST /movies/:id/status': 'NONE',
+  'POST /movies/:id/poster': 'NONE',
   // ── Notifications and preferences (the caller's own) ──
   'GET /notifications/feed': 'SELF',
   'POST /notifications/read-many': 'SELF',

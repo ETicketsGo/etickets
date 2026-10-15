@@ -39,6 +39,14 @@ export const OVERRIDE_TONE: Record<SeatOverrideKind, Tone> = {
 };
 
 /** Every kind an operator may apply, in the order the dialog offers them. */
+/** A seat's state in words. The API's names (AVAILABLE, HELD) are not sentences. */
+export const SEAT_STATUS_LABEL: Record<string, string> = {
+  AVAILABLE: 'Available',
+  HELD: 'Held in a checkout',
+  SOLD: 'Sold',
+  BLOCKED: 'Withdrawn',
+};
+
 export const OVERRIDE_KINDS: SeatOverrideKind[] = [
   'MANUAL_BLOCK',
   'MAINTENANCE',
