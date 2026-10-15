@@ -25,6 +25,9 @@ import {
 } from './pricing-presentation';
 import { currencySign } from '@/components/cinema/run-pricing';
 
+/** What the field is counted in, said in words for a screen reader. */
+const UNIT_WORD: Record<string, string> = { INR: 'rupees', USD: 'dollars', CAD: 'dollars' };
+
 /**
  * Set what one show charges.
  *
@@ -170,7 +173,7 @@ export function ShowPricingDialog({
                       // Not type=number: it silently accepts `1e5` and browsers disagree
                       // about what a scroll wheel over a focused field should do to money.
                       type="text"
-                      aria-label={`${cat.name} price`}
+                      aria-label={`${cat.name} price in ${UNIT_WORD[cat.currency ?? 'INR'] ?? cat.currency}`}
                       aria-describedby={
                         problem ? `${fieldId}-problem` : locked ? `${fieldId}-locked` : undefined
                       }
