@@ -98,7 +98,7 @@ test.describe('organizer calendar', () => {
       const drawer = page.getByRole('dialog', { name: title });
       await expect(drawer).toBeVisible();
       await expect(drawer).toContainText('Wed, 12 Mar 2031, 19:00 - 22:00');
-      await expect(drawer).toContainText('Asia/Kolkata');
+      await expect(drawer).toContainText('India time (Kolkata)');
       await expect(drawer).toContainText('Event: Draft');
       await expect(drawer.getByRole('link', { name: 'Open event' })).toHaveAttribute(
         'href',
