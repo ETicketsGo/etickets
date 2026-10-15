@@ -66,9 +66,11 @@ const SHOW_LEVEL_ERROR_CODES = ['VALIDATION_FAILED'];
  * accessible label, because a symbol alone is invisible to a screen reader and a label alone
  * is invisible to everyone else.
  */
-const SEAT_KIND_KEY: Record<string, 'wheelchair' | 'companion'> = {
+const SEAT_KIND_KEY: Record<string, 'wheelchair' | 'companion' | 'restrictedView'> = {
   WHEELCHAIR: 'wheelchair',
   COMPANION: 'companion',
+  // Sold, but the buyer is told before choosing it, in the seat's name and its tooltip.
+  RESTRICTED_VIEW: 'restrictedView',
 };
 
 const isAccessible = (kind: string) => kind === 'WHEELCHAIR' || kind === 'COMPANION';

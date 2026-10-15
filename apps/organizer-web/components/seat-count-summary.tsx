@@ -22,7 +22,8 @@ export function SeatCountSummary({
     { label: 'Seat positions', value: counts.positions, testid: 'positions' },
     { label: 'Aisle spaces (not sold)', value: counts.aisles, testid: 'aisles' },
     {
-      label: layoutOnly ? 'Blocked (set per session)' : 'Blocked',
+      // A layout's only blocked seats are the house seats drawn in it, held back at every session.
+      label: layoutOnly ? 'House seats (held back)' : 'Blocked',
       value: counts.blocked,
       testid: 'blocked',
     },

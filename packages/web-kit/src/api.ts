@@ -26,6 +26,8 @@ import type {
   VenueTemplateKey as SharedVenueTemplateKey,
   PayoutProviderEntry,
   PayoutProviderSummary,
+  LayoutDocument,
+  LayoutDocumentCounts,
 } from '@eticketsgo/shared-types';
 
 /*
@@ -1356,6 +1358,15 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(name ? { name } : {}),
       }),
+    /** A layout as the editor's document. Any member may read it; only a draft can be saved. */
+    layoutDocument: (layoutId: string) =>
+      request<LayoutEditorResponse>(`/seat-layouts/${layoutId}/editor`),
+    /** Save the editor's document into a draft, replacing what it held. */
+    saveLayoutDocument: (layoutId: string, document: LayoutDocument) =>
+      request<{ id: string; status: 'DRAFT'; counts: LayoutDocumentCounts }>(
+        `/seat-layouts/${layoutId}/editor`,
+        { method: 'POST', body: JSON.stringify(document) },
+      ),
     updateDraft: (layoutId: string, body: UpdateSeatLayoutBody) =>
       request<{ id: string; status: string }>(`/seat-layouts/${layoutId}/draft`, {
         method: 'POST',
@@ -1375,6 +1386,8 @@ export const api = {
         seatsPerRow?: number;
         /** Build at about this many seats, the space's planned size. */
         targetSeats?: number;
+        /** How to meet targetSeats. Left out, at least that many. */
+        fit?: LayoutTemplateFitMode;
         basePriceMinor: number;
       },
     ) =>
@@ -1402,6 +1415,8 @@ export const api = {
         seatsPerRow?: number;
         /** Build at about this many seats, the space's planned size. */
         targetSeats?: number;
+        /** How to meet targetSeats. Left out, at least that many. */
+        fit?: LayoutTemplateFitMode;
       },
     ) =>
       request<{
@@ -3894,6 +3909,8 @@ interface SeatLayoutBase {
     name: string;
     colorHex: string | null;
     priceMinor: number;
+    /** Layout preview only: a price a template worked out that nobody has set yet. */
+    priceSuggested?: boolean;
   }[];
   focal: VenueFocalPoint;
   layoutKind: 'GRID' | 'SECTIONED';
@@ -7112,9 +7129,40 @@ export interface SeatLayoutSummary {
   capacity: number;
   /** Positions by seat kind, for the shared reconciliation (`reconcileSeats`). */
   kindCounts?: { kind: string; count: number }[];
+  /**
+   * Ticket categories whose price a template worked out and nobody changed or accepted yet.
+   * Publishing accepts them, so the publish dialog lists them first.
+   */
+  suggestedPrices?: { name: string; priceMinor: number }[];
   futureShows: number;
   historicalShows: number;
   createdAt: string;
+}
+
+/** One way to size a template to a space: its rows, and the seats it builds. */
+export interface LayoutTemplateSizeOption {
+  rows: number;
+  seatsPerRow: number;
+  seats: number;
+  /** Seats taken off the ends of the longest rows to land exactly. 0 for even rows. */
+  trimmed: number;
+}
+
+/** How a template is to meet the space's planned size. */
+export type LayoutTemplateFitMode = 'EXACT' | 'AT_MOST' | 'AT_LEAST';
+
+/** A layout as the editor's document, with what the editor needs to know about it. */
+export interface LayoutEditorResponse {
+  id: string;
+  screenId: string;
+  version: number;
+  status: SeatLayoutStatus;
+  /** Only a draft can be saved. A published layout opens read-only. */
+  editable: boolean;
+  layoutKind: 'GRID' | 'SECTIONED';
+  country: string | null;
+  focal: VenueFocalPoint;
+  document: LayoutDocument;
 }
 
 /** One template, described without its seats: what the layout gallery draws and counts. */
@@ -7148,6 +7196,12 @@ export interface LayoutTemplateOutline {
     seats: number;
     target: number;
     verdict: 'MATCH' | 'TOO_BIG' | 'TOO_SMALL';
+    /** Every size it can be built at for this target. Absent from an older API. */
+    options?: {
+      exact: LayoutTemplateSizeOption | null;
+      below: LayoutTemplateSizeOption | null;
+      above: LayoutTemplateSizeOption | null;
+    };
   };
 }
 

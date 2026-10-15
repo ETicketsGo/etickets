@@ -921,6 +921,160 @@ export function fitTemplate(key: VenueTemplateKey, target: number): TemplateFit 
   return { ...found, target, verdict: found.seats - target > slack ? 'TOO_BIG' : 'MATCH' };
 }
 
+/**
+ * The biggest room of this shape that seats AT MOST the target, or null when even the smallest
+ * seats more. The mirror of `fitTemplate`, for the organizer who would rather have fewer seats
+ * than more.
+ */
+export function fitTemplateBelow(
+  key: VenueTemplateKey,
+  target: number,
+): { rows: number; seatsPerRow: number; seats: number } | null {
+  const base = DEFAULT_SIZE[key];
+  const at = (rows: number, seatsPerRow: number) =>
+    seatCount(generateVenue(key, { rows, seatsPerRow }));
+  const baseSeats = at(base.rows, base.seatsPerRow);
+  const scale = Math.sqrt(Math.max(1, target) / Math.max(1, baseSeats));
+  const centre = Math.round(base.rows * scale);
+  const clampRows = (r: number) => Math.min(TEMPLATE_ROWS.max, Math.max(TEMPLATE_ROWS.min, r));
+  const rowsToTry = [...new Set([-3, -2, -1, 0, 1, 2, 3].map((d) => clampRows(centre + d)))];
+
+  let best: { rows: number; seatsPerRow: number; seats: number } | null = null;
+  for (const rows of rowsToTry) {
+    if (at(rows, TEMPLATE_SEATS_PER_ROW.min) > target) continue;
+    // Largest width that stays at or under the target.
+    let lo: number = TEMPLATE_SEATS_PER_ROW.min;
+    let hi: number = TEMPLATE_SEATS_PER_ROW.max;
+    while (lo < hi) {
+      const mid = Math.ceil((lo + hi) / 2);
+      if (at(rows, mid) <= target) lo = mid;
+      else hi = mid - 1;
+    }
+    const seats = at(rows, lo);
+    if (!best || seats > best.seats) best = { rows, seatsPerRow: lo, seats };
+  }
+  return best;
+}
+
+/**
+ * Take `count` seats off a generated venue, from the ends of its longest rows.
+ *
+ * -- WHY ----------------------------------------------------------------------------------
+ * Whole rows rarely land on the number an organizer has: a 100-seat arena came out at 110,
+ * because the amphitheatre's smallest even size above 100 was 110. Trimming the widest rows by
+ * one seat each, repeatedly, gets to the exact number while keeping the room's shape - every
+ * row changes by at most a seat or so, and no block loses its back rows.
+ *
+ * Accessible places are never taken (they sit at the START of a row, and a row is never
+ * shortened below three positions), and a row is never left ending in an aisle.
+ */
+export function trimVenue(venue: GeneratedVenue, count: number): GeneratedVenue {
+  let left = Math.max(0, Math.floor(count));
+  const rows = venue.sections.flatMap((s) => s.rows);
+  const seatsIn = (row: TemplateRow) => row.seats.filter((s) => s.kind !== 'GAP').length;
+  while (left > 0) {
+    // The longest row that can still give a seat; later rows first on a tie, so the back of
+    // the house shrinks before the front.
+    let pick: TemplateRow | null = null;
+    for (const row of rows) {
+      const last = row.seats[row.seats.length - 1];
+      if (!last || last.kind !== 'SEAT' || row.seats.length <= 3) continue;
+      if (!pick || seatsIn(row) >= seatsIn(pick)) pick = row;
+    }
+    if (!pick) break;
+    pick.seats.pop();
+    while (pick.seats.length > 0 && pick.seats[pick.seats.length - 1].kind === 'GAP') {
+      pick.seats.pop();
+    }
+    left -= 1;
+  }
+  return venue;
+}
+
+/** One way to size a template to a space, as the gallery offers it. */
+export interface TemplateSizeOption {
+  rows: number;
+  seatsPerRow: number;
+  /** Bookable seats this option builds. */
+  seats: number;
+  /** Seats taken off the ends of the longest rows to reach `seats` exactly. 0 for even rows. */
+  trimmed: number;
+}
+
+/**
+ * Every honest way to size a template to a target: exactly, at most, at least.
+ *
+ * `exact` exists only when the shape can come within a few seats of the target, so trimming
+ * changes rows by a seat or two; asking a 700-seat concert arena to be 100 is not a trim, it
+ * is a different room, and the card says so instead.
+ */
+export function templateSizeOptions(
+  key: VenueTemplateKey,
+  target: number,
+): {
+  exact: TemplateSizeOption | null;
+  below: TemplateSizeOption | null;
+  above: TemplateSizeOption | null;
+} {
+  const fit = fitTemplate(key, target);
+  const below = fitTemplateBelow(key, target);
+  const above =
+    fit.verdict === 'TOO_SMALL'
+      ? null
+      : { rows: fit.rows, seatsPerRow: fit.seatsPerRow, seats: fit.seats, trimmed: 0 };
+  let exact: TemplateSizeOption | null = null;
+  if (below && below.seats === target) exact = { ...below, trimmed: 0 };
+  else if (above && above.seats === target) exact = { ...above };
+  else if (above && fit.verdict === 'MATCH') {
+    const built = trimVenue(
+      generateVenue(key, { rows: above.rows, seatsPerRow: above.seatsPerRow }),
+      above.seats - target,
+    );
+    if (seatCount(built) === target) {
+      exact = { ...above, seats: target, trimmed: above.seats - target };
+    }
+  }
+  return {
+    exact,
+    below: below ? { ...below, trimmed: 0 } : null,
+    above,
+  };
+}
+
+/** How a target is to be met when a template is built: see `templateSizeOptions`. */
+export type TemplateFitMode = 'EXACT' | 'AT_MOST' | 'AT_LEAST';
+
+/**
+ * Build a template at a target size, the way the organizer chose.
+ *
+ * Refuses rather than quietly building something else: a request for exactly 100 from a shape
+ * that cannot be 100 is an error the person must see, not a 140-seat room they discover later.
+ */
+export function generateVenueForTarget(
+  key: VenueTemplateKey,
+  target: number,
+  mode: TemplateFitMode,
+): GeneratedVenue {
+  const options = templateSizeOptions(key, target);
+  const option =
+    mode === 'EXACT' ? options.exact : mode === 'AT_MOST' ? options.below : options.above;
+  if (!option) {
+    const label = VENUE_TEMPLATES.find((t) => t.key === key)?.label ?? key;
+    const reason =
+      mode === 'EXACT'
+        ? `${label} cannot be built with exactly ${target} seats.`
+        : mode === 'AT_MOST'
+          ? `${label} cannot be built with ${target} seats or fewer.`
+          : `${label} cannot be built with ${target} seats or more.`;
+    throw new TemplateSizeError(reason);
+  }
+  const venue = generateVenue(key, { rows: option.rows, seatsPerRow: option.seatsPerRow });
+  return option.trimmed > 0 ? trimVenue(venue, option.trimmed) : venue;
+}
+
+/** A size the template cannot be built at. The service turns it into a 400 with this sentence. */
+export class TemplateSizeError extends Error {}
+
 /** A non-ordinary seat run in one row, 1-based - the generator's own `seatKinds` shape. */
 export interface TemplateSeatKinds {
   rowLabel: string;

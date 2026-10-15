@@ -294,6 +294,8 @@ export const ORGANIZER_ROUTE_POLICY: Record<string, StaffPolicy> = {
   'GET /seat-layouts/:layoutId/preview': 'NONE',
   'POST /seat-layouts/:layoutId/clone': 'NONE',
   'POST /seat-layouts/:layoutId/draft': 'NONE',
+  'GET /seat-layouts/:layoutId/editor': 'NONE',
+  'POST /seat-layouts/:layoutId/editor': 'NONE',
   'POST /seat-layouts/:layoutId/from-template': 'NONE',
   'POST /seat-layouts/:layoutId/publish': 'NONE',
   'POST /seat-layouts/:layoutId/archive': 'NONE',

@@ -58,6 +58,11 @@ export interface VenueMapProps {
    * to tap must still be reachable; off where the same blocks are already a list elsewhere.
    */
   listWhenNarrow?: boolean;
+  /**
+   * Whether to show the availability key (available / almost full / sold out). Off in the layout
+   * editor, where nothing is on sale and "sold out" would only confuse.
+   */
+  availabilityLegend?: boolean;
 }
 
 /** Where a block stands on the "any left?" scale. Three states, because three is readable. */
@@ -84,6 +89,7 @@ export function VenueMap({
   pendingSectionId,
   activeSectionId,
   listWhenNarrow = true,
+  availabilityLegend = true,
 }: VenueMapProps) {
   /*
     Sections with no outline still have to be reachable.
@@ -217,11 +223,13 @@ export function VenueMap({
         })}
       </svg>
 
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-caption text-text-secondary">
-        <LegendSwatch className="bg-action-primary/70" label="Seats available" />
-        <LegendSwatch className="bg-status-warning/60" label="Almost full" />
-        <LegendSwatch className="bg-text-muted/20" label="Sold out" />
-      </div>
+      {availabilityLegend ? (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-caption text-text-secondary">
+          <LegendSwatch className="bg-action-primary/70" label="Seats available" />
+          <LegendSwatch className="bg-status-warning/60" label="Almost full" />
+          <LegendSwatch className="bg-text-muted/20" label="Sold out" />
+        </div>
+      ) : null}
 
       {listWhenNarrow && narrow && drawable.length > 0 ? (
         <div data-testid="venue-map-list" className="space-y-2">

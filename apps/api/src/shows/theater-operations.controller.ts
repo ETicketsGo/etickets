@@ -8,6 +8,8 @@ import {
   updateSeatLayoutSchema,
   applyVenueTemplateSchema,
   createLayoutFromTemplateSchema,
+  saveLayoutDocumentSchema,
+  type SaveLayoutDocumentInput,
   type BlockSeatsInput,
   type CloneSeatLayoutInput,
   type PublishSeatLayoutInput,
@@ -112,6 +114,24 @@ export class TheaterOperationsController {
     @Body(new ZodValidationPipe(updateSeatLayoutSchema)) body: UpdateSeatLayoutInput,
   ) {
     return this.layouts.updateDraft(user, layoutId, body);
+  }
+
+  @Get('seat-layouts/:layoutId/editor')
+  @ApiOperation({
+    summary: 'A layout as the editor document: categories, sections, rows and seat kinds.',
+  })
+  layoutDocument(@CurrentUser() user: RequestUser, @Param('layoutId') layoutId: string) {
+    return this.layouts.document(user, layoutId);
+  }
+
+  @Post('seat-layouts/:layoutId/editor')
+  @ApiOperation({ summary: 'Save the editor document into a draft layout, replacing it.' })
+  saveLayoutDocument(
+    @CurrentUser() user: RequestUser,
+    @Param('layoutId') layoutId: string,
+    @Body(new ZodValidationPipe(saveLayoutDocumentSchema)) body: SaveLayoutDocumentInput,
+  ) {
+    return this.layouts.saveDocument(user, layoutId, body);
   }
 
   @Post('seat-layouts/:layoutId/from-template')

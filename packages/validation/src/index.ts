@@ -3,6 +3,7 @@ export * from './auth';
 export * from './organization';
 export * from './event';
 export * from './movie';
+export * from './seat-layout-document';
 export * from './booking';
 export * from './review';
 export * from './feedback';

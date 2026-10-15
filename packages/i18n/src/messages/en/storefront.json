@@ -143,6 +143,7 @@
     "taken": "Taken",
     "wheelchair": "Wheelchair space",
     "companion": "Companion seat",
+    "restrictedView": "Restricted view",
     "seatTaken": "Some seats were just taken. Please pick again.",
     "selectSeat": "Please select a seat for each ticket.",
     "loadError": "We couldn't load the seat map. Please try again.",

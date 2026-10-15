@@ -143,6 +143,7 @@
     "taken": "Occupé",
     "wheelchair": "Place pour fauteuil roulant",
     "companion": "Siège d'accompagnement",
+    "restrictedView": "Vue restreinte",
     "seatTaken": "Certains sièges viennent d'être pris. Veuillez choisir de nouveau.",
     "selectSeat": "Veuillez choisir un siège pour chaque billet.",
     "loadError": "Nous n'avons pas pu charger le plan de salle. Veuillez réessayer.",

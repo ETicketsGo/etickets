@@ -362,6 +362,29 @@ function sellableSeats<T extends { kind: string }>(seats: T[]): T[] {
 }
 
 /**
+ * A session's copy of one layout seat, as it goes on sale.
+ *
+ * A HOUSE seat is drawn in the layout by the organizer (the box the venue keeps, the seats the
+ * desk holds back) and starts every session BLOCKED as a house override - exactly the state an
+ * operator would put it in by hand straight after scheduling. Booking holds only AVAILABLE
+ * seats, so it needs no change to respect this, and the seat is released per session through
+ * the same override path as any other house seat.
+ */
+function initialShowSeat(sessionId: string, seat: { id: string; kind: string }) {
+  if (seat.kind === 'HOUSE') {
+    return {
+      eventSessionId: sessionId,
+      seatId: seat.id,
+      status: 'BLOCKED',
+      overrideKind: 'HOUSE' as const,
+      overrideReason: 'House seat in the seat layout.',
+      overrideAt: new Date(),
+    };
+  }
+  return { eventSessionId: sessionId, seatId: seat.id, status: 'AVAILABLE' };
+}
+
+/**
  * The configuration a layout belongs to: the root of its `clonedFromId` chain within one space.
  * Bounded by the map count, and cycle-safe: lineage is a tree, but a corrupt row must not hang
  * a request.
@@ -978,11 +1001,7 @@ export class ShowsService {
 
     await tx.showSeat.createMany({
       // Gaps are not inventory: an aisle with a ShowSeat row is an aisle somebody can buy.
-      data: sellableSeats(seatMap.seats).map((seat) => ({
-        eventSessionId: sessionId,
-        seatId: seat.id,
-        status: 'AVAILABLE',
-      })),
+      data: sellableSeats(seatMap.seats).map((seat) => initialShowSeat(sessionId, seat)),
     });
   }
 
@@ -1340,11 +1359,7 @@ export class ShowsService {
         }
         await tx.showSeat.createMany({
           // Gaps are not inventory — see `sellableSeats`.
-          data: sellableSeats(seatMap.seats).map((seat) => ({
-            eventSessionId: session.id,
-            seatId: seat.id,
-            status: 'AVAILABLE',
-          })),
+          data: sellableSeats(seatMap.seats).map((seat) => initialShowSeat(session.id, seat)),
         });
         out.push({ sessionId: session.id, startsAt: show.startsAt, endsAt: show.endsAt });
       }

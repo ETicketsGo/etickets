@@ -38,6 +38,7 @@ export * from './admin-permissions';
 export * from './venue-templates';
 export * from './space-kind';
 export * from './seat-reconciliation';
+export * from './seat-layout-document';
 export * from './password-policy';
 export * from './account-identity';
 export * from './payment-failure';
