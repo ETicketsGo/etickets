@@ -295,6 +295,9 @@ export const MARKETS: readonly Market[] = [
       'America/New_York',
       'America/Chicago',
       'America/Denver',
+      // Idaho's populous south. Same clock as Denver today, but it is what Boise is called, and a
+      // person checking "is my Meridian venue right?" should see their own city named.
+      'America/Boise',
       'America/Phoenix',
       'America/Los_Angeles',
       'America/Anchorage',
@@ -325,6 +328,9 @@ export const MARKETS: readonly Market[] = [
       'America/Halifax',
       'America/Regina',
       'America/St_Johns',
+      // Yukon left Pacific time in 2020 and keeps Mountain standard time all year. Without it a
+      // Whitehorse venue could only be put on Vancouver's clock, an hour wrong every winter.
+      'America/Whitehorse',
     ],
   },
   {

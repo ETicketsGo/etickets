@@ -215,26 +215,62 @@ test.describe('venues', () => {
   }) => {
     await page.goto(`${ORGANIZER}/organizer/venues?new=1`, { waitUntil: 'networkidle' });
     await expect(page.locator('#venue-country')).toBeVisible({ timeout: 30_000 });
+    const zone = page.getByTestId('venue-timezone-summary');
 
-    // India has one zone, so there is nothing to ask.
+    // India has one zone, so there is nothing to choose - but the form still says which.
     await page.locator('#venue-country').selectOption('India');
     await expect(page.locator('#venue-timezone')).toHaveCount(0);
+    await expect(zone).toContainText('India time (Kolkata)');
 
     /*
-      The United States has seven, and the country cannot decide between them — which is
-      exactly why leaving the venue on Asia/Kolkata was wrong rather than merely imprecise.
+      The United States has several, and the country cannot decide between them. The STATE
+      can: a Meridian, Idaho venue was saved on New York time because choosing Idaho did not
+      move the zone. It is a placeholder until then, and the form says so.
     */
     await page.locator('#venue-country').selectOption('United States');
-    await expect(page.locator('#venue-timezone')).toBeVisible();
-    await expect(page.locator('#venue-timezone')).toHaveValue('America/New_York');
-    await expect(page.locator('#venue-region')).toBeVisible();
+    await expect(zone).toContainText('for now. Choose the state');
+    await page.locator('#venue-region').selectOption('Idaho');
+    await expect(zone).toContainText('Mountain time (Boise), from Idaho.');
     // And it asks for a state, not a "province" or an "emirate".
     await expect(page.getByText('State', { exact: true })).toBeVisible();
+
+    // A zone the person picks is theirs: a later state change does not move it.
+    await page.getByRole('button', { name: 'Change' }).click();
+    await expect(page.locator('#venue-timezone')).toHaveValue('America/Boise');
+    await page.locator('#venue-timezone').selectOption('America/Denver');
+    await page.locator('#venue-region').selectOption('Texas');
+    await expect(page.locator('#venue-timezone')).toHaveValue('America/Denver');
+    await expect(zone).toContainText('chosen by you. Texas usually keeps Central time (Chicago).');
 
     // Singapore has no subdivision in an address, so the field is absent rather than empty.
     await page.locator('#venue-country').selectOption('Singapore');
     await expect(page.locator('#venue-region')).toHaveCount(0);
   });
+
+  test('7b: a venue in Idaho is stored on Boise time, not New York', async ({ page, request }) => {
+    const name = `Meridian Zone ${stamp}`;
+    await page.goto(`${ORGANIZER}/organizer/venues?new=1`, { waitUntil: 'networkidle' });
+    await expect(page.locator('#venueName')).toBeVisible({ timeout: 30_000 });
+    await page.locator('#venueName').fill(name);
+    await page.locator('#venueCity').fill('Meridian');
+    await page.locator('#venue-country').selectOption('United States');
+    await page.locator('#venue-region').selectOption('Idaho');
+    await page.getByRole('button', { name: 'Add venue' }).click();
+    await expect(page.getByText('Venue added.')).toBeVisible({ timeout: 30_000 });
+
+    const venues = await (
+      await request.get(`${API}/venues?organizationId=${organizationId}`, {
+        headers: { Authorization: `Bearer ${owner.accessToken}` },
+      })
+    ).json();
+    const saved = (Array.isArray(venues) ? venues : venues.data).find(
+      (v: { name: string }) => v.name === name,
+    );
+    expect(saved).toBeTruthy();
+    expect(saved.region).toBe('Idaho');
+    expect(saved.timezone).toBe('America/Boise');
+  });
+
   test('8: every space on the page opens its layouts - the arena and a cinema screen', async ({
     page,
   }) => {

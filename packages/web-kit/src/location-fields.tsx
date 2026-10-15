@@ -1,7 +1,16 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
-import { MARKETS, marketFor, marketFromHint, type Market } from '@eticketsgo/shared-types';
+import { useEffect, useRef, useState } from 'react';
+import {
+  MARKETS,
+  marketFor,
+  marketFromHint,
+  regionZone,
+  sameClock,
+  zoneForPlace,
+  zoneInWords,
+  type Market,
+} from '@eticketsgo/shared-types';
 import { Select } from './components';
 import { visitorCountry } from './locale';
 
@@ -24,12 +33,23 @@ import { visitorCountry } from './locale';
  * Telangana region on a Canadian venue would be nonsense that validates, and keeping
  * Asia/Kolkata on it is the original bug. Both are corrected in the same keystroke, visibly,
  * before anything is saved.
+ *
+ * ── WHAT CHANGING THE STATE DOES ───────────────────────────────────────────────────
+ * Moves the zone to the one that state keeps (`REGION_TIMEZONES`), unless the person picked a
+ * zone themselves. The country's first zone is only a placeholder until then: it put a venue
+ * in Meridian, Idaho on New York time, two hours wrong for every show.
  */
 
 export interface LocationValue {
   country: string;
   region: string;
   timezone: string;
+  /**
+   * True once the person picked the zone themselves. Then a later change of state leaves it
+   * alone: somebody who chose Mountain time for a venue in El Paso meant it. Absent or false,
+   * the zone follows the state, because nobody chose it - it was a default.
+   */
+  timezoneChosen?: boolean;
 }
 
 /**
@@ -57,8 +77,76 @@ export function locationFrom(venue: {
     // somebody's data, and a market we have not added yet is not the same as a mistake.
     country: market?.name ?? (venue.country ?? '').trim(),
     region: venue.region ?? '',
-    timezone: venue.timezone || market?.timezones[0] || '',
+    timezone:
+      venue.timezone || zoneForPlace(venue.country, venue.region) || market?.timezones[0] || '',
+    /*
+      Not marked as chosen. A stored zone may be the old country default nobody looked at
+      (every United States venue was saved on Eastern time), so changing the state while
+      editing moves it - visibly - and a stored zone that contradicts the state is pointed out
+      on the form. It is never rewritten just by opening the venue.
+    */
   };
+}
+
+/**
+ * The next value when the country changes: no region, and the new country's first zone until
+ * a state says better.
+ */
+export function withCountry(value: LocationValue, name: string): LocationValue {
+  const next = MARKETS.find((m) => m.name === name);
+  if (!next) return { ...value, country: name };
+  return { country: next.name, region: '', timezone: next.timezones[0] };
+}
+
+/**
+ * The next value when the state or province changes. The zone follows it unless the person
+ * picked a zone themselves - this is the step that used to leave an Idaho venue on New York
+ * time, because nothing here looked at the state.
+ */
+export function withRegion(value: LocationValue, region: string): LocationValue {
+  const zone = zoneForPlace(value.country, region);
+  if (value.timezoneChosen || !zone) return { ...value, region };
+  return { ...value, region, timezone: zone };
+}
+
+/** The next value when the person picks a zone. Theirs from now on, whatever the state. */
+export function withChosenZone(value: LocationValue, timezone: string): LocationValue {
+  return { ...value, timezone, timezoneChosen: true };
+}
+
+/** What the form says about the zone, as data, so the sentence and the tests agree. */
+export interface ZoneStatus {
+  /** The zone the state keeps, when the table knows. */
+  expected: string | null;
+  /** The zone is not the one the state keeps. */
+  conflict: boolean;
+  sentence: string;
+}
+
+export function zoneStatus(value: LocationValue): ZoneStatus {
+  const market = marketFor(value.country);
+  const zone = value.timezone;
+  const expected = regionZone(value.country, value.region);
+  // Only a DIFFERENT clock is a conflict: an Idaho venue on America/Denver sells every show at
+  // the right time, and a warning about it would teach people to ignore the warning.
+  const conflict = !!(zone && expected && !sameClock(zone, expected));
+  const needsRegion = !!market && market.timezones.length > 1 && !value.region;
+  const ask = `Choose the ${(market?.regionLabel ?? 'region').toLowerCase()} and it is set from there.`;
+  let sentence: string;
+  if (!zone) {
+    sentence = needsRegion ? `Not set yet. ${ask}` : 'Not set.';
+  } else if (conflict) {
+    sentence = value.timezoneChosen
+      ? `${zoneInWords(zone)}, chosen by you. ${value.region} usually keeps ${zoneInWords(expected!)}.`
+      : `${zoneInWords(zone)}. ${value.region} usually keeps ${zoneInWords(expected!)}. Check which one is right.`;
+  } else if (expected) {
+    sentence = `${zoneInWords(zone)}, from ${value.region}.`;
+  } else if (needsRegion && !value.timezoneChosen) {
+    sentence = `${zoneInWords(zone)} for now. ${ask}`;
+  } else {
+    sentence = `${zoneInWords(zone)}.`;
+  }
+  return { expected, conflict, sentence };
 }
 
 export function LocationFields({
@@ -86,22 +174,13 @@ export function LocationFields({
   */
   const unknownCountry = value.country && !market ? value.country : null;
 
-  const selectCountry = (name: string): void => {
-    const next = MARKETS.find((m) => m.name === name);
-    if (!next) {
-      onChange({ ...value, country: name });
-      return;
-    }
-    onChange({ country: next.name, region: '', timezone: next.timezones[0] });
-  };
-
   return (
     <div className="grid gap-4 sm:grid-cols-2">
       <Select
         id={`${idPrefix}-country`}
         label="Country"
         value={value.country}
-        onChange={(e) => selectCountry(e.target.value)}
+        onChange={(e) => onChange(withCountry(value, e.target.value))}
         disabled={disabled}
         hint={countryHint}
       >
@@ -116,15 +195,15 @@ export function LocationFields({
       <RegionField
         market={market}
         value={value.region}
-        onChange={(region) => onChange({ ...value, region })}
+        onChange={(region) => onChange(withRegion(value, region))}
         id={`${idPrefix}-region`}
         disabled={disabled}
       />
 
       <TimezoneField
         market={market}
-        value={value.timezone}
-        onChange={(timezone) => onChange({ ...value, timezone })}
+        value={value}
+        onChange={onChange}
         id={`${idPrefix}-timezone`}
         disabled={disabled}
       />
@@ -168,7 +247,9 @@ function RegionField({
       hint={
         market.code === 'IN'
           ? 'Where the event is held decides the place of supply on every invoice.'
-          : undefined
+          : market.timezones.length > 1
+            ? 'Sets the time zone your show times are in.'
+            : undefined
       }
     >
       <option value="">Not specified</option>
@@ -183,12 +264,16 @@ function RegionField({
 }
 
 /**
- * The clock the venue keeps, asked only where there is a choice.
+ * The clock the venue keeps, said in plain words and changeable.
  *
- * India, the UK, the UAE and Singapore each have one zone, so asking would be asking somebody
- * to confirm the only possible answer. The United States has seven and the default cannot be
- * guessed from the country — which is the entire reason the previous behaviour, silently
- * keeping Asia/Kolkata, was wrong rather than merely imprecise.
+ * It was a dropdown labelled "Timezone" that opened on the country's first zone -
+ * America/New_York for every United States venue - and nothing moved it when the state was
+ * chosen. An Idaho venue was saved on New York time by a person who never looked at the field,
+ * because nothing gave them a reason to. Now the zone is a sentence the person reads
+ * ("Mountain time (Boise), from Idaho."), it follows the state, and "Change" opens the list.
+ *
+ * India, the UK, the UAE and Singapore have one zone, so there is nothing to choose; the
+ * sentence still says which, so nobody has to wonder.
  */
 function TimezoneField({
   market,
@@ -198,43 +283,98 @@ function TimezoneField({
   disabled,
 }: {
   market: Market | null;
-  value: string;
-  onChange: (value: string) => void;
+  value: LocationValue;
+  onChange: (value: LocationValue) => void;
   id: string;
   disabled?: boolean;
 }) {
+  const [open, setOpen] = useState(false);
   /*
-    Keep the field's value in step with the country when the country has only one zone.
+    Keep the value in step with the country when the country has only one zone.
 
     Without this, editing a venue whose stored timezone predates this component — every venue
     created before it, all Asia/Kolkata — would leave a US venue showing "Asia/Kolkata" with
-    no control to correct it, because a one-zone country renders nothing.
+    no control to correct it, because a one-zone country renders no list.
   */
   const applied = useRef<string | null>(null);
   useEffect(() => {
     if (!market || market.timezones.length !== 1) return;
     const only = market.timezones[0];
-    if (value === only || applied.current === only) return;
+    if (value.timezone === only || applied.current === only) return;
     applied.current = only;
-    onChange(only);
+    onChange({ ...value, timezone: only });
   }, [market, value, onChange]);
 
-  if (!market || market.timezones.length < 2) return null;
+  if (!market) return null;
+  const status = zoneStatus(value);
+  const choosable = market.timezones.length > 1;
+  // A stored zone the list does not name (America/Indiana/Indianapolis, say) stays visible.
+  const zones =
+    value.timezone && !market.timezones.includes(value.timezone)
+      ? [value.timezone, ...market.timezones]
+      : market.timezones;
+  const linkClass =
+    'font-medium text-action-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-action-primary disabled:cursor-not-allowed disabled:opacity-60';
 
   return (
-    <Select
-      id={id}
-      label="Timezone"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      disabled={disabled}
-      hint="Show times are stored and displayed in the venue’s own clock, never the reader’s."
-    >
-      {market.timezones.map((tz) => (
-        <option key={tz} value={tz}>
-          {tz.replace(/_/g, ' ')}
-        </option>
-      ))}
-    </Select>
+    <div className="space-y-3 rounded-lg border border-border bg-background-subtle/50 p-3 sm:col-span-2">
+      <p
+        data-testid={`${id}-summary`}
+        aria-live="polite"
+        className="text-[0.9375rem] text-text-primary"
+      >
+        <span className="font-semibold">Time zone: </span>
+        {status.sentence}
+        {status.conflict && status.expected ? (
+          <>
+            {' '}
+            <button
+              type="button"
+              className={linkClass}
+              disabled={disabled}
+              onClick={() =>
+                onChange({ ...value, timezone: status.expected!, timezoneChosen: false })
+              }
+            >
+              Use {zoneInWords(status.expected)}
+            </button>
+          </>
+        ) : null}
+        {choosable && !open ? (
+          <>
+            {' '}
+            <button
+              type="button"
+              className={linkClass}
+              disabled={disabled}
+              aria-expanded={false}
+              onClick={() => setOpen(true)}
+            >
+              Change
+            </button>
+          </>
+        ) : null}
+      </p>
+      {choosable && open ? (
+        <Select
+          id={id}
+          label="Time zone"
+          value={value.timezone}
+          onChange={(e) => onChange(withChosenZone(value, e.target.value))}
+          disabled={disabled}
+          hint="Show times are entered and shown in the venue's own clock, wherever the reader is."
+        >
+          {zones.map((tz) => (
+            <option key={tz} value={tz}>
+              {zoneInWords(tz)}
+            </option>
+          ))}
+        </Select>
+      ) : (
+        <p className="text-caption text-text-muted">
+          Show times are entered and shown in this clock, wherever the reader is.
+        </p>
+      )}
+    </div>
   );
 }
