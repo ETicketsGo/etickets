@@ -289,7 +289,8 @@ export default function LayoutEditorPage() {
   const venueSections: VenueSectionSummary[] = sectioned
     ? doc.sections.map((s, i) => {
         const n = countLayoutRows(s.rows).bookable;
-        const price = doc.categories.find((c) => c.key === s.categoryKey)?.priceMinor ?? null;
+        const category = doc.categories.find((c) => c.key === s.categoryKey);
+        const price = category?.priceMinor ?? null;
         return {
           id: String(i),
           kind: 'SECTION',
@@ -304,6 +305,9 @@ export default function LayoutEditorPage() {
           totalCount: Math.max(1, n),
           priceMinorFrom: price,
           priceMinorTo: price,
+          // Painted in its category colour, live: change a block's category and it changes colour.
+          colorHex: category?.colorHex ?? null,
+          categoryName: category?.name ?? null,
         };
       })
     : [];
