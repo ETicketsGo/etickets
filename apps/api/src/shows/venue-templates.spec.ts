@@ -1,6 +1,7 @@
 import {
   VENUE_TEMPLATES,
   centroid,
+  fitTemplate,
   generateVenue,
   rowLabel,
   seatCount,
@@ -403,5 +404,45 @@ describe('venue templates', () => {
     // An empty venue would be saved as a layout with no seats, and only discovered when a
     // show scheduled against it had nothing to sell.
     expect(() => generateVenue('WAREHOUSE' as VenueTemplateKey)).toThrow(/unknown venue template/i);
+  });
+});
+
+describe('sizing a template to the space', () => {
+  /*
+    The defect: a screen planned at 150 seats was given the Cinema template's fixed 180, and
+    its page said "planned 150" above "180 bookable". A template is now built at the size the
+    organizer gave, or says plainly that its shape cannot get there.
+  */
+  it('builds a 150-seat cinema screen at 150 seats, not 180', () => {
+    const fit = fitTemplate('CINEMA', 150);
+    expect(fit.verdict).toBe('MATCH');
+    expect(fit.seats).toBeGreaterThanOrEqual(150);
+    expect(fit.seats).toBeLessThanOrEqual(165);
+    // And what is written is what was promised.
+    expect(seatCount(generateVenue('CINEMA', fit))).toBe(fit.seats);
+  });
+
+  it.each(ALL.map((key) => [key]))('%s lands at or just over the target when it can', (key) => {
+    for (const target of [150, 500, 5000]) {
+      const fit = fitTemplate(key, target);
+      expect(seatCount(generateVenue(key, fit))).toBe(fit.seats);
+      if (fit.verdict === 'MATCH') {
+        expect(fit.seats).toBeGreaterThanOrEqual(target);
+        expect(fit.seats - target).toBeLessThanOrEqual(Math.max(10, Math.ceil(target * 0.1)));
+      }
+      if (fit.verdict === 'TOO_BIG') expect(fit.seats).toBeGreaterThan(target);
+      if (fit.verdict === 'TOO_SMALL') expect(fit.seats).toBeLessThan(target);
+    }
+  });
+
+  it('says so when a shape cannot get that small or that big', () => {
+    expect(fitTemplate('ARENA', 150).verdict).toBe('TOO_BIG');
+    expect(fitTemplate('CINEMA', 30_000).verdict).toBe('TOO_SMALL');
+  });
+
+  it('keeps the template proportions instead of one very long row', () => {
+    const fit = fitTemplate('PREMIUM_CINEMA', 150);
+    expect(fit.rows).toBeGreaterThanOrEqual(5);
+    expect(fit.seatsPerRow).toBeLessThanOrEqual(40);
   });
 });

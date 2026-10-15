@@ -397,6 +397,11 @@ export const applyVenueTemplateSchema = z.object({
   rows: z.number().int().min(1).max(60).optional(),
   seatsPerRow: z.number().int().min(1).max(100).optional(),
   /**
+   * Build it at about this many seats - the space's planned size - instead of the template's
+   * own. Ignored when `rows` or `seatsPerRow` is given.
+   */
+  targetSeats: z.number().int().min(1).max(250_000).optional(),
+  /**
    * What the cheapest band costs. Every other band is derived from it by the template's
    * relative weights, and the organizer edits the numbers afterwards.
    */

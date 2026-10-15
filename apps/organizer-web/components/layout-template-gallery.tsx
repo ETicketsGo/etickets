@@ -8,7 +8,7 @@ import {
   type LayoutGalleryOption,
   type VenueTemplateKey,
 } from '@eticketsgo/shared-types';
-import { templateBookable } from '@/lib/layout-gallery';
+import { templateSizeNote } from '@/lib/layout-gallery';
 import { LayoutThumbnail } from './layout-thumbnail';
 
 /**
@@ -54,6 +54,11 @@ export interface LayoutTemplateGalleryProps {
    * one grid, since a filtered list is short enough not to need a "More" fold.
    */
   templates?: readonly VenueTemplateKey[] | null;
+  /**
+   * The space's planned seats. Each template is then sized to it, and its card says how close
+   * it gets. Without it a template is shown at its own size.
+   */
+  targetSeats?: number | null;
 }
 
 /*
@@ -67,10 +72,12 @@ export function LayoutTemplateGallery({
   selectedId,
   onChoose,
   templates,
+  targetSeats,
 }: LayoutTemplateGalleryProps) {
+  const seats = targetSeats && targetSeats > 0 ? targetSeats : undefined;
   const outlinesQ = useQuery({
-    queryKey: ['layout-templates'],
-    queryFn: () => api.theaterOps.layoutTemplates(),
+    queryKey: ['layout-templates', seats ?? null],
+    queryFn: () => api.theaterOps.layoutTemplates(seats),
     // The templates are the same for everybody and change only with a deploy.
     staleTime: Infinity,
   });
@@ -86,12 +93,9 @@ export function LayoutTemplateGallery({
     // Grey words on the primary tint are 4.3:1, under AA, so a chosen card uses the primary text colour.
     const outline = outlineFor(option);
     const on = selectedId === option.id;
+    const size = outline ? templateSizeNote(outline) : null;
     const capacity =
-      option.style === 'GA'
-        ? 'You set how many tickets to sell'
-        : outline
-          ? `${templateBookable(outline).toLocaleString()} seats`
-          : null;
+      option.style === 'GA' ? 'You set how many tickets to sell' : (size?.capacity ?? null);
     return (
       <button
         key={option.id}
@@ -128,6 +132,11 @@ export function LayoutTemplateGallery({
         >
           {option.sentence}
         </span>
+        {size?.warning ? (
+          <span className="text-caption font-medium leading-snug text-text-primary">
+            {size.warning}
+          </span>
+        ) : null}
         <span
           className={`mt-auto text-caption font-medium ${on ? 'text-text-primary' : 'text-text-secondary'}`}
         >
