@@ -168,7 +168,7 @@ describe('what an organizer still owes us', () => {
     const items = organizationReadiness({ ...full, grievanceOfficerEmail: '' });
 
     const item = items.find((i) => i.key === 'grievance-officer');
-    expect(item).toMatchObject({ severity: 'IMPORTANT', fixPath: '/organizer/settings' });
+    expect(item).toMatchObject({ severity: 'IMPORTANT', fixPath: '/organizer/settings#legal' });
     // Says what the gap costs, never "this is required".
     expect(item?.consequence).toMatch(/we cannot pass them on/);
   });

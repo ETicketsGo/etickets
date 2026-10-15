@@ -98,8 +98,14 @@ export function MarketingNav() {
               >
                 {a('signIn')}
               </Link>
+              {/*
+                Organizer intent: this is the nav of the pages that pitch selling tickets
+                (features, pricing, for organizers). Its "Get started" opened the CUSTOMER form,
+                which says "This is a customer account for buying tickets" to somebody who came
+                to sell them. The organizer form still lets them buy tickets with the account.
+              */}
               <Link
-                href="/register"
+                href="/register?intent=organizer"
                 className="inline-flex items-center rounded-xl bg-action-primary px-4 py-2 text-[0.9375rem] font-semibold text-action-primary-foreground shadow-sm transition-all hover:bg-action-primary-hover hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
               >
                 {m('getStarted')}
@@ -168,7 +174,7 @@ export function MarketingNav() {
                     {a('signIn')}
                   </Link>
                   <Link
-                    href="/register"
+                    href="/register?intent=organizer"
                     className="rounded-xl bg-action-primary px-4 py-2.5 text-center text-[0.9375rem] font-semibold text-action-primary-foreground"
                   >
                     {m('getStarted')}

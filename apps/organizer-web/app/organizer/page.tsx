@@ -24,6 +24,7 @@ import {
   needsContext,
   orgStanding,
   pickNextStep,
+  standingNote,
 } from './_dashboard/desk-model';
 import {
   BestSellers,
@@ -173,8 +174,14 @@ export default function OrganizerDashboard() {
               .replace(',', '')
           : ''
       }
-      welcome={firstName ? `Welcome back, ${firstName}.` : undefined}
+      // Not "Welcome back": it was the first thing a brand-new organizer read on their first visit.
+      welcome={firstName ? `Welcome, ${firstName}.` : undefined}
       status={orgStanding(activeOrg.status)}
+      note={standingNote(
+        activeOrg.status,
+        activeOrg.name,
+        (actionsQ.data?.actions ?? []).some((a) => a.key === 'legal-identity' && !a.done),
+      )}
     />
   );
 

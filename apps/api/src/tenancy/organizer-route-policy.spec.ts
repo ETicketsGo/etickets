@@ -219,6 +219,8 @@ export const ORGANIZER_ROUTE_POLICY: Record<string, StaffPolicy> = {
   'GET /organizations/:id/cash-bookings': 'NONE',
   'POST /organizations/:id/members': 'NONE',
   'POST /organizations/:id/members/:memberId/resend-invite': 'NONE',
+  'DELETE /organizations/:id/members/:memberId': 'NONE',
+  'PATCH /organizations/:id/members/:memberId': 'NONE',
   // ── Where an organizer is paid ──
   'POST /organizers/:organizerId/payments/stripe/account': 'ORGANIZER_ONLY',
   'POST /organizers/:organizerId/payments/stripe/onboarding-link': 'ORGANIZER_ONLY',

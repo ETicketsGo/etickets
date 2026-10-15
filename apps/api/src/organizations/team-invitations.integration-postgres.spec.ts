@@ -401,4 +401,105 @@ describe('integration-real-postgres: team invitations', () => {
     },
     120_000,
   );
+
+  maybe(
+    'an owner can change a role and remove a member, and the removed person loses access at once',
+    async () => {
+      /*
+        There was no way to do either: a door worker invited for one night kept their access for
+        ever. Proven on a real database because what matters is the row's status, which is what
+        `assertMember` reads on every request.
+      */
+      const email = `leaver-${suffix}@test.invalid`;
+      const invited = await orgs.inviteMember(owner as never, orgId, {
+        email,
+        role: 'CHECKIN_STAFF',
+      } as never);
+      await orgs.acceptInvitation(tokenFrom(invited.inviteUrl), {
+        fullName: 'Lee Ver',
+        password: 'Copper-Kettle-Morning-81',
+      } as never);
+      const asMember = { id: invited.user.id, email, fullName: 'Lee Ver', roles: ['CUSTOMER'] };
+      await expect(
+        access.assertMember(asMember as never, orgId, ['ORGANIZER_MANAGER'] as never),
+      ).rejects.toThrow(/role does not permit/i);
+
+      const promoted = await orgs.changeMemberRole(
+        owner as never,
+        orgId,
+        invited.id,
+        'ORGANIZER_MANAGER' as never,
+      );
+      expect(promoted.role).toBe('ORGANIZER_MANAGER');
+      await expect(
+        access.assertMember(asMember as never, orgId, ['ORGANIZER_MANAGER'] as never),
+      ).resolves.toBeUndefined();
+
+      // Only an owner may do either.
+      await expect(orgs.removeMember(asMember as never, orgId, invited.id)).rejects.toThrow(
+        /role does not permit/i,
+      );
+
+      await orgs.removeMember(owner as never, orgId, invited.id);
+      await expect(access.assertMember(asMember as never, orgId)).rejects.toThrow(/not a member/i);
+      const listed = await orgs.listMembers(owner as never, orgId);
+      expect(listed.some((m: { id: string }) => m.id === invited.id)).toBe(false);
+
+      // Invited again: back to INVITED, no access until they accept a fresh link.
+      const again = await orgs.inviteMember(owner as never, orgId, {
+        email,
+        role: 'CHECKIN_STAFF',
+      } as never);
+      expect(again.id).toBe(invited.id);
+      expect(again.status).toBe('INVITED');
+      await expect(access.assertMember(asMember as never, orgId)).rejects.toThrow(/not a member/i);
+    },
+    120_000,
+  );
+
+  maybe(
+    'the last owner can be neither removed nor demoted',
+    async () => {
+      const mine = await db!.organizationMember.findFirst({
+        where: { organizationId: orgId, userId: ownerId },
+      });
+      await expect(orgs.removeMember(owner as never, orgId, mine.id)).rejects.toThrow(
+        /needs an owner/i,
+      );
+      await expect(
+        orgs.changeMemberRole(owner as never, orgId, mine.id, 'ORGANIZER_MANAGER' as never),
+      ).rejects.toThrow(/needs an owner/i);
+      const still = await db!.organizationMember.findUnique({ where: { id: mine.id } });
+      expect(still).toMatchObject({ role: 'ORGANIZER_OWNER', status: 'ACTIVE' });
+    },
+    120_000,
+  );
+
+  maybe(
+    'a member of another organization cannot be touched through this one',
+    async () => {
+      const other = await db!.organization.create({
+        data: { name: `Other ${suffix}`, slug: `other-${suffix}`, status: 'APPROVED' },
+      });
+      try {
+        const stranger = await db!.organizationMember.create({
+          data: {
+            organizationId: other.id,
+            userId: ownerId,
+            role: 'CHECKIN_STAFF',
+            status: 'ACTIVE',
+          },
+        });
+        await expect(orgs.removeMember(owner as never, orgId, stranger.id)).rejects.toThrow(
+          /not found/i,
+        );
+        const after = await db!.organizationMember.findUnique({ where: { id: stranger.id } });
+        expect(after.status).toBe('ACTIVE');
+      } finally {
+        await db!.organizationMember.deleteMany({ where: { organizationId: other.id } });
+        await db!.organization.delete({ where: { id: other.id } });
+      }
+    },
+    120_000,
+  );
 });

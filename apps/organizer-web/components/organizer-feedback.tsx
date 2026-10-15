@@ -75,7 +75,7 @@ export function OrganizerFeedback() {
           </div>
         </div>
         <Button variant="outline" onClick={() => setOpen(true)}>
-          Send feedback
+          Rate ETicketsGo
         </Button>
       </div>
 

@@ -81,7 +81,7 @@
   },
   "ORGANIZATION_APPROVED": {
     "subject": "{organization} is approved",
-    "body": "{organization} has been approved and can now sell tickets. Set up your venue, screens and showtimes in the organizer console."
+    "body": "{organization} has been approved and can now sell tickets. Open the organizer console to add your venues and events."
   },
   "ORGANIZATION_REJECTED": {
     "subject": "{organization} was not approved",

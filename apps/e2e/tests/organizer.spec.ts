@@ -5,7 +5,7 @@ test('organizer logs in and creates + submits an event via the wizard', async ({
   await login(page, ORGANIZER, 'owner@eticketsgo.test');
   await expect(page).toHaveURL(/\/organizer/, { timeout: 20_000 });
   // The Overview's heading is the organization's name; the welcome is the line under it.
-  await expect(page.getByText(/^Welcome back/)).toBeVisible();
+  await expect(page.getByText(/^Welcome, /)).toBeVisible();
 
   const title = `E2E Event ${Date.now()}`;
   await page.goto(`${ORGANIZER}/organizer/events/new`);

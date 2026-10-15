@@ -49,6 +49,12 @@ export interface OnboardingStep {
 
 export interface OnboardingProgress {
   steps: OnboardingStep[];
+  /**
+   * The open facts about the business (legal identity, address, contacts), never counted in the
+   * progress. Listed on Get started so the "optional setup steps in Get started" link on
+   * Overview, which counts them, lands on a page that shows them.
+   */
+  business: OnboardingStep[];
   completed: number;
   total: number;
   allComplete: boolean;
@@ -100,6 +106,18 @@ export function useOnboardingProgress(orgId: string, enabled = true): Onboarding
       optional: a.optional,
     }));
 
+  const business: OnboardingStep[] = (data?.actions ?? [])
+    .filter((a) => a.category === 'BUSINESS' && !a.done)
+    .map((a) => ({
+      key: a.key,
+      title: a.title,
+      description: a.consequence,
+      done: false,
+      href: a.fixPath,
+      cta: a.actionLabel,
+      optional: true,
+    }));
+
   // Optional steps are shown and never counted, so a promoter who never draws a seat map is not
   // told they are 3-of-4 done.
   const counted = steps.filter((s) => !s.optional);
@@ -107,6 +125,7 @@ export function useOnboardingProgress(orgId: string, enabled = true): Onboarding
 
   return {
     steps,
+    business,
     completed,
     total: counted.length,
     allComplete: counted.length > 0 && completed === counted.length,

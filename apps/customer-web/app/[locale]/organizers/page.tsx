@@ -176,7 +176,7 @@ export default function OrganizersPage() {
         <CtaBand
           title="Ready to sell your next event?"
           lead="Create an organizer account and publish your first event."
-          primaryHref="/register"
+          primaryHref="/register?intent=organizer"
           primaryLabel="Get started free"
           secondaryHref="/contact"
           secondaryLabel="Book a demo"

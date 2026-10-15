@@ -83,10 +83,13 @@ export function OverviewHeader({
   dateLine,
   welcome,
   status,
+  note,
 }: {
   dateLine: string;
   welcome?: string;
   status?: { label: string; tone: BrandStatus } | null;
+  /** What the standing means, when something is held back (`standingNote`). */
+  note?: { text: string; href: string; linkLabel: string } | null;
 }) {
   return (
     <header className="flex flex-col gap-1">
@@ -96,6 +99,20 @@ export function OverviewHeader({
         {status && <BrandStatusPill status={status.tone}>{status.label}</BrandStatusPill>}
       </div>
       {welcome && <p className="text-brand-ui text-brand-ink-2">{welcome}</p>}
+      {note && (
+        <p
+          data-testid="standing-note"
+          className="mt-2 max-w-3xl rounded-brand-control border border-brand-line bg-brand-surface px-4 py-3 text-brand-ui text-brand-ink-2"
+        >
+          {note.text}{' '}
+          <Link
+            href={note.href}
+            className="font-semibold text-brand-ink underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-focus"
+          >
+            {note.linkLabel}
+          </Link>
+        </p>
+      )}
     </header>
   );
 }
@@ -385,7 +402,10 @@ export function ComingUp({
                           </span>
                         ))
                       ) : (
-                        <span className="text-brand-meta text-brand-ink-3">None yet</span>
+                        // A free event has no gross to wait for; "None yet" read as unsold.
+                        <span className="text-brand-meta text-brand-ink-3">
+                          {row.event.isFree ? 'Free' : 'None yet'}
+                        </span>
                       )}
                     </td>
                   )}

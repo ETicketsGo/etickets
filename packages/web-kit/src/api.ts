@@ -965,6 +965,15 @@ export const api = {
         `/organizations/${id}/members/${memberId}/resend-invite`,
         { method: 'POST' },
       ),
+    /** Take somebody off the team. Owner only; their access ends on their next request. */
+    removeMember: (id: string, memberId: string) =>
+      request<OrgMember>(`/organizations/${id}/members/${memberId}`, { method: 'DELETE' }),
+    /** Change what a team member may do. Owner only; the last owner cannot be demoted. */
+    changeMemberRole: (id: string, memberId: string, role: string) =>
+      request<OrgMember>(`/organizations/${id}/members/${memberId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ role }),
+      }),
   },
 
   /**

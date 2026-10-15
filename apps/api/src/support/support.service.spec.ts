@@ -17,6 +17,9 @@ function setup() {
         .fn()
         .mockImplementation(({ data }) => Promise.resolve({ id: 'fb-1', status: data.status })),
     },
+    organizationMember: {
+      findUnique: jest.fn().mockResolvedValue(null),
+    },
     $transaction: jest.fn().mockImplementation((ops: Promise<unknown>[]) => Promise.all(ops)),
   };
   const service = new SupportService(prisma as never);
@@ -54,6 +57,52 @@ describe('SupportService.submit', () => {
       expect.objectContaining({
         data: expect.objectContaining({ userId: 'u1', email: 'me@eticketsgo.test' }),
       }),
+    );
+  });
+
+  it("files an organizer's own contact message under their organization, once checked", async () => {
+    // The organizer console names the organization; the claim counts only for an active member.
+    const { service, prisma } = setup();
+    prisma.organizationMember.findUnique.mockResolvedValueOnce({ status: 'ACTIVE' });
+    await service.submit(user, {
+      kind: FeedbackKind.CONTACT,
+      subject: 'Payouts',
+      message: 'When is my first payout?',
+      metadata: { organizationId: 'org-1', source: 'organizer-help' },
+    });
+    expect(prisma.organizationMember.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { organizationId_userId: { organizationId: 'org-1', userId: 'u1' } },
+      }),
+    );
+    expect(prisma.feedback.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ organizationId: 'org-1' }) }),
+    );
+  });
+
+  it('ignores an organization the sender is not an active member of', async () => {
+    const { service, prisma } = setup();
+    prisma.organizationMember.findUnique.mockResolvedValueOnce({ status: 'REMOVED' });
+    await service.submit(user, {
+      kind: FeedbackKind.CONTACT,
+      message: 'Hello',
+      metadata: { organizationId: 'org-2' },
+    });
+    expect(prisma.feedback.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ organizationId: null }) }),
+    );
+  });
+
+  it('never attributes a complaint from the claimed organization', async () => {
+    const { service, prisma } = setup();
+    await service.submit(user, {
+      kind: FeedbackKind.COMPLAINT,
+      message: 'Bad show',
+      metadata: { organizationId: 'org-1' },
+    });
+    expect(prisma.organizationMember.findUnique).not.toHaveBeenCalled();
+    expect(prisma.feedback.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ organizationId: null }) }),
     );
   });
 

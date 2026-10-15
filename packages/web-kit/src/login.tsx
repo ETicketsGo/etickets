@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { KeyRound, Lock, Mail, Ticket } from 'lucide-react';
 import type { AuthTokens } from '@eticketsgo/shared-types';
 import { api, errorMessage, tokenStore } from './api';
@@ -19,6 +19,7 @@ export function LoginForm({
   roleMismatchRedirect,
   subtitle,
   mfaEnrollPath,
+  footer,
 }: {
   title?: string;
   defaultEmail?: string;
@@ -44,6 +45,12 @@ export function LoginForm({
    * answers with a second-factor step at all.
    */
   mfaEnrollPath?: string;
+  /**
+   * Shown under the card: the ways out of a sign-in page a console needs (create an account,
+   * forgot your password). The organizer console had none, so a new organizer who arrived there
+   * first, or an owner who forgot a password, had nowhere to go.
+   */
+  footer?: ReactNode;
 }) {
   const router = useRouter();
   const [email, setEmail] = useState(defaultEmail ?? '');
@@ -55,6 +62,18 @@ export function LoginForm({
   const [challenge, setChallenge] = useState<string | null>(null);
   const [useRecovery, setUseRecovery] = useState(false);
   const [mfaCode, setMfaCode] = useState('');
+
+  /*
+    `?email=` fills the address. The storefront hands a newly made organizer here with it, and an
+    accepted team invitation does the same; ignoring it made them type the address they had just
+    given us. Read after mount (not in the initial state) so the server render and the first
+    client render agree.
+  */
+  useEffect(() => {
+    if (defaultEmail) return;
+    const fromLink = new URLSearchParams(window.location.search).get('email');
+    if (fromLink) setEmail((current) => current || fromLink);
+  }, [defaultEmail]);
 
   /** Everything after tokens exist: role check, enrollment redirect, then on to the console. */
   const finish = async (tokens: AuthTokens) => {
@@ -224,6 +243,7 @@ export function LoginForm({
             </form>
           )}
         </Card>
+        {footer ? <div className="mt-5 space-y-2 text-center text-caption">{footer}</div> : null}
       </div>
     </div>
   );

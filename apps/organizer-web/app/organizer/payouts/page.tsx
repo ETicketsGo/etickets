@@ -109,9 +109,16 @@ function PayoutsInner() {
     { key: 'created', header: 'Created', render: (p) => dateOnly(p.createdAt) },
     { key: 'currency', header: 'Currency', render: (p) => p.currency },
     { key: 'gross', header: 'Gross', render: (p) => money(p.grossMinor, p.currency) },
+    /*
+      Booking and payment fees are paid by the BUYER on top of the ticket and are reported, not
+      deducted (currency-settlement.calculator: net = gross - discount - organizer fee - refund).
+      Headed plain "Fees" between Gross and Net, the row "Gross 1,598 / Fees 52.36 / Net 1,598"
+      read as arithmetic that did not add up. The header says whose fees they are, and the
+      sentence above the table says what Net is.
+    */
     {
       key: 'fees',
-      header: 'Fees',
+      header: 'Buyer fees',
       render: (p) => money(p.bookingFeeMinor + p.paymentFeeMinor, p.currency),
     },
     { key: 'refunds', header: 'Refunds', render: (p) => money(p.refundMinor, p.currency) },
@@ -138,7 +145,10 @@ function PayoutsInner() {
       */}
       <PayoutStatus orgId={activeOrg.id} />
 
-      <BankAccount orgId={activeOrg.id} />
+      {/* The target of every "Add bank account" link (`#bank-account`). */}
+      <div id="bank-account" className="scroll-mt-24">
+        <BankAccount orgId={activeOrg.id} />
+      </div>
 
       {/*
         ── ONE PROVIDER, THE ONE THEY CAN ACTUALLY USE ────────────────────────────────
@@ -181,6 +191,11 @@ function PayoutsInner() {
           An event&rsquo;s revenue can be settled once the event has finished and its holding period
           has passed. Refunds from that event come off the settlement that covers it.
         </p>
+        <p className="text-caption text-text-muted">
+          Net is what you are paid: gross ticket sales less discounts, your platform fee and
+          refunds. Buyer fees are the booking and payment fees your buyers paid on top of the ticket
+          price; they are shown for reference and are not taken from you.
+        </p>
         <DataTable
           columns={columns}
           rows={data}
@@ -190,7 +205,8 @@ function PayoutsInner() {
           onRetry={() => refetch()}
           empty={
             <div className="p-8 text-center text-text-muted">
-              No payouts yet. Generate a settlement to preview your net revenue.
+              No settlements yet. Once an event has finished and its holding period has passed,
+              generate a settlement to see what you will be paid for it.
             </div>
           }
         />

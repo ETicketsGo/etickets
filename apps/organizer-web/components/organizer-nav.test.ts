@@ -110,6 +110,21 @@ describe('the organizer sidebar', () => {
     }
   });
 
+  it('finds the page for the everyday words people type', () => {
+    // On QA each of these found nothing in Find a page.
+    const top = (q: string) => filterQuickNav(quickNavEntries(owner), q)[0]?.href;
+    expect(top('bank')).toBe('/organizer/payouts');
+    expect(top('invite')).toBe('/organizer/team');
+    expect(top('discount')).toBe('/organizer/promotions');
+    expect(top('legal')).toBe('/organizer/settings');
+    // Tax invoices (Receipts) and the tax registration (Settings) are both right answers.
+    expect(filterQuickNav(quickNavEntries(owner), 'tax').map((e) => e.href)).toEqual(
+      expect.arrayContaining(['/organizer/settings', '/organizer/receipts']),
+    );
+    expect(top('theme')).toBe('/organizer/settings');
+    expect(top('contact')).toBe('/organizer/help');
+  });
+
   it('links the calendar', () => {
     expect(flatten(owner).map((i) => i.href)).toContain('/organizer/calendar');
   });

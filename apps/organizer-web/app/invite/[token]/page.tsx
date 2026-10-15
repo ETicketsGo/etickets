@@ -15,7 +15,14 @@ import {
   PasswordField,
   passwordAcceptable,
   DEFAULT_PASSWORD_FIELD_COPY,
+  tokenStore,
 } from '@eticketsgo/web-kit';
+
+const ROLE_WORDS: Record<string, string> = {
+  ORGANIZER_OWNER: 'an owner',
+  ORGANIZER_MANAGER: 'a manager',
+  CHECKIN_STAFF: 'check-in staff',
+};
 
 /**
  * Where an invited team member joins.
@@ -48,21 +55,38 @@ export default function AcceptInvitePage() {
   const [password, setPassword] = useState('');
 
   const accept = useMutation({
-    mutationFn: () =>
-      api.invitations.accept(token, {
-        ...(summary.data?.needsPassword ? { fullName, password } : {}),
-      }),
-    onSuccess: (result) => {
-      toast.push(`You have joined ${result.organizationName}.`, 'success');
+    mutationFn: async () => {
+      const needsPassword = Boolean(summary.data?.needsPassword);
+      const result = await api.invitations.accept(token, {
+        ...(needsPassword ? { fullName, password } : {}),
+      });
       /*
-        Sent to sign in rather than signed in automatically.
-
+        ── SIGNED IN WITH THE PASSWORD THEY JUST CHOSE, NEVER WITH THE LINK ─────────────
         Accepting proves they hold the link, which is not the same as proving they are the
-        person — and for an invitee who already had an account we never asked for a password
-        at all. Signing somebody in on the strength of a forwarded URL is exactly the hole
-        the token was meant to close.
+        person, so the link alone never signs anybody in. But somebody who has just CHOSEN a
+        password has typed the credential a sign-in asks for, and sending them to a sign-in
+        page to type it again (with the address blank) was the first thing their new console
+        asked of them. That is an ordinary sign-in with what they typed. An invitee who
+        already had an account gave no password here and still signs in themselves.
       */
-      router.push('/login');
+      if (needsPassword && result.email) {
+        try {
+          const signed = await api.auth.signIn({ email: result.email, password });
+          if (!('mfaRequired' in signed)) {
+            tokenStore.set(signed);
+            return { result, signedIn: true };
+          }
+        } catch {
+          // Fall through to the sign-in page; accepting already worked.
+        }
+      }
+      return { result, signedIn: false };
+    },
+    onSuccess: ({ result, signedIn }) => {
+      toast.push(`You have joined ${result.organizationName}.`, 'success');
+      router.push(
+        signedIn ? '/organizer' : `/login?email=${encodeURIComponent(result.email ?? '')}`,
+      );
     },
     onError: (e) => toast.push(errorMessage(e), 'error'),
   });
@@ -97,7 +121,7 @@ export default function AcceptInvitePage() {
   }
 
   const invite = summary.data!;
-  const roleLabel = invite.role.replaceAll('_', ' ').toLowerCase();
+  const roleLabel = ROLE_WORDS[invite.role] ?? invite.role.replaceAll('_', ' ').toLowerCase();
   const canSubmit =
     !invite.needsPassword ||
     (fullName.trim().length > 0 &&
