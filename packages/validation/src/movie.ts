@@ -263,6 +263,24 @@ export const rescheduleShowSchema = z.object({
 export type RescheduleShowInput = z.infer<typeof rescheduleShowSchema>;
 
 /**
+ * Move one date of an EVENT (a concert, a play - anything that is not a film).
+ *
+ * Both ends are given. A film's end is derived from its runtime; an event has no runtime, so
+ * the organizer's own end time is the only honest source. The same rule as a film otherwise:
+ * only before anyone has paid for that date (see `evaluateOperation`'s EDIT_TIME).
+ */
+export const retimeSessionSchema = z
+  .object({
+    startsAt: z.coerce.date(),
+    endsAt: z.coerce.date(),
+  })
+  .refine((v) => v.endsAt > v.startsAt, {
+    message: 'End must be after start.',
+    path: ['endsAt'],
+  });
+export type RetimeSessionInput = z.infer<typeof retimeSessionSchema>;
+
+/**
  * Copy one screen's schedule for a day onto another date and/or another screen.
  *
  * Deliberately expressed as source day → target day rather than as a list of times: the

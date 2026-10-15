@@ -100,9 +100,29 @@ export function OverviewLead({
         <dt className="text-text-muted">Setup</dt>
         <dd>
           {setup.complete ? (
-            <StatusPill tone="success" size="sm">
-              {setup.label}
-            </StatusPill>
+            <span className="inline-flex flex-wrap items-center gap-2">
+              <StatusPill tone="success" size="sm">
+                {setup.label}
+              </StatusPill>
+              {/* Not a task: what would make the event page better, offered once, quietly. */}
+              {setup.suggestions.length > 0 ? (
+                <button
+                  type="button"
+                  aria-expanded={setupOpen}
+                  aria-controls="setup-items"
+                  onClick={() => setSetupOpen((o) => !o)}
+                  className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-micro font-medium text-text-secondary underline underline-offset-2 hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
+                  {setup.suggestions.length === 1
+                    ? '1 suggestion'
+                    : `${setup.suggestions.length} suggestions`}
+                  <ChevronDown
+                    aria-hidden
+                    className={`h-3.5 w-3.5 transition-transform motion-reduce:transition-none ${setupOpen ? 'rotate-180' : ''}`}
+                  />
+                </button>
+              ) : null}
+            </span>
           ) : (
             <button
               type="button"
@@ -126,7 +146,7 @@ export function OverviewLead({
           {sale.detail}
         </p>
       ) : null}
-      {setupOpen && !setup.complete ? (
+      {setupOpen && (setup.items.length > 0 || setup.suggestions.length > 0) ? (
         <ul
           id="setup-items"
           className="mt-3 space-y-1.5 rounded-md bg-background-canvas p-3 text-sm"
@@ -140,6 +160,21 @@ export function OverviewLead({
                   className="text-caption font-medium text-action-primary underline underline-offset-2"
                 >
                   Fix this
+                </Link>
+              ) : null}
+            </li>
+          ))}
+          {setup.suggestions.map((item) => (
+            <li key={item.label} className="flex flex-wrap items-baseline justify-between gap-2">
+              <span className="min-w-0 break-words text-text-secondary">
+                {item.label} <span className="text-caption text-text-muted">(optional)</span>
+              </span>
+              {item.href ? (
+                <Link
+                  href={item.href}
+                  className="text-caption font-medium text-action-primary underline underline-offset-2"
+                >
+                  Add it
                 </Link>
               ) : null}
             </li>

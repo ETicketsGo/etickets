@@ -1010,7 +1010,7 @@ export class EventsService {
     // Same two rules `updateSessionSeating` applies, from one implementation — a room that
     // is acceptable when a session is created must stay acceptable when it is changed.
     if (input.screenId) {
-      await this.assertRoomIsUsable(input.screenId, event.organizationId);
+      await this.assertRoomIsUsable(input.screenId, event.organizationId, event.venueId);
     }
 
     if (!input.screenId) {
@@ -1098,7 +1098,7 @@ export class EventsService {
   ) {
     const session = await this.prisma.eventSession.findUnique({
       where: { id: sessionId },
-      include: { event: { select: { id: true, organizationId: true } } },
+      include: { event: { select: { id: true, organizationId: true, venueId: true } } },
     });
     if (!session) {
       throw new AppException(ErrorCodes.NOT_FOUND, 'Session not found.', HttpStatus.NOT_FOUND);
@@ -1116,7 +1116,7 @@ export class EventsService {
       );
     }
     if (screenId) {
-      await this.assertRoomIsUsable(screenId, session.event.organizationId);
+      await this.assertRoomIsUsable(screenId, session.event.organizationId, session.event.venueId);
     }
 
     /*
@@ -1208,12 +1208,25 @@ export class EventsService {
     }
   }
 
-  /** The room belongs to this organization and has a published layout. Shared with addSession. */
-  private async assertRoomIsUsable(screenId: string, organizationId: string): Promise<void> {
+  /**
+   * The room belongs to this organization, is at the event's venue, and has a published
+   * layout. Shared with addSession.
+   *
+   * The venue rule: an event happens at ONE venue, and its currency, tax and time zone follow
+   * that venue. A space at another venue (the console offered every space of every venue) put
+   * a Bengaluru event's date in a Boise room - seats priced from one place, sold in another's
+   * money. A space not yet linked to any venue (an old cinema screen) is let through as before.
+   */
+  private async assertRoomIsUsable(
+    screenId: string,
+    organizationId: string,
+    eventVenueId?: string | null,
+  ): Promise<void> {
     const screen = await this.prisma.screen.findUnique({
       where: { id: screenId },
       select: {
         id: true,
+        venueId: true,
         venue: { select: { organizationId: true } },
         cinema: { select: { organizationId: true } },
         seatMaps: { where: { status: 'PUBLISHED' }, select: { id: true }, take: 1 },
@@ -1224,6 +1237,14 @@ export class EventsService {
         ErrorCodes.NOT_FOUND,
         'Space not found for this organization.',
         HttpStatus.NOT_FOUND,
+      );
+    }
+    if (eventVenueId && screen.venueId && screen.venueId !== eventVenueId) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        "That space is at a different venue from this event. Choose a space at the event's venue.",
+        HttpStatus.CONFLICT,
+        { screenId, reason: 'SPACE_AT_OTHER_VENUE' },
       );
     }
     if (screen.seatMaps.length === 0) {

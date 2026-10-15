@@ -101,7 +101,7 @@ describe('saleStateOf: the server answer, in words', () => {
 });
 
 describe('setupOf', () => {
-  it('counts the organizer issues once each, plus the description and picture', () => {
+  it('counts the organizer issues once each; a description and picture are suggestions', () => {
     const setup = setupOf({
       eventId: 'e1',
       description: '',
@@ -112,12 +112,21 @@ describe('setupOf', () => {
         { message: 'State rules missing.', owner: 'PLATFORM', fixPath: null },
       ],
     });
-    expect(setup.label).toBe('3 things to set up');
-    expect(setup.items.map((i) => i.label)).toEqual([
-      'No ticket types',
+    expect(setup.label).toBe('1 thing to set up');
+    expect(setup.items.map((i) => i.label)).toEqual(['No ticket types']);
+    expect(setup.suggestions.map((i) => i.label)).toEqual([
       'Add a description',
       'Add a cover picture',
     ]);
+  });
+
+  it('agrees with the create wizard: no picture and no description is still Setup complete', () => {
+    // The wizard calls both optional and ends on "Setup complete"; the event page said
+    // "2 things to set up" about the same event a second later.
+    const setup = setupOf({ eventId: 'e1', description: '', hasImage: false, issues: [] });
+    expect(setup.complete).toBe(true);
+    expect(setup.label).toBe('Setup complete');
+    expect(setup.suggestions).toHaveLength(2);
   });
 
   it('says Setup complete when nothing is left', () => {

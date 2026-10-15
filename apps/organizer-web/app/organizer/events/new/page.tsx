@@ -56,6 +56,7 @@ import {
   DateTimeField,
   LocationFields,
   defaultLocation,
+  locationFrom,
   termsList,
   dateTime,
   join,
@@ -316,7 +317,19 @@ function NewEventWizard() {
   const [venueId, setVenueId] = useState(initial.venueId);
   const [newVenue, setNewVenue] = useState(initial.newVenue);
   // Same three interdependent answers as the venues page, from the same component.
-  const [newVenueWhere, setNewVenueWhere] = useState<LocationValue>(defaultLocation);
+  const [newVenueWhere, setNewVenueWhere] = useState<LocationValue>(() =>
+    homeLocation(activeOrg.registeredCountry, []),
+  );
+  /*
+    Until the organizer touches the country, follow what we learn about where they work: their
+    venues arrive after the first render, and the browser's language (en-US on most laptops,
+    in Bengaluru too) is only a last resort.
+  */
+  const whereTouched = useRef(false);
+  useEffect(() => {
+    if (whereTouched.current || activeOrg.registeredCountry || !venuesQ.data) return;
+    setNewVenueWhere(homeLocation(null, venuesQ.data));
+  }, [venuesQ.data, activeOrg.registeredCountry]);
   const [feeMode, setFeeMode] = useState(initial.feeMode);
   const [taxCategory, setTaxCategory] = useState(initial.taxCategory);
 
@@ -509,7 +522,10 @@ function NewEventWizard() {
     setVenueMode(d.venueMode);
     setVenueId(d.venueId);
     setNewVenue(d.newVenue);
-    setNewVenueWhere(d.newVenueWhere ?? defaultLocation);
+    if (d.newVenueWhere) whereTouched.current = true;
+    setNewVenueWhere(
+      d.newVenueWhere ?? homeLocation(activeOrg.registeredCountry, venuesQ.data ?? []),
+    );
     setFeeMode(d.feeMode);
     setTaxCategory(d.taxCategory);
     setSessions(d.sessions);
@@ -1412,7 +1428,10 @@ function NewEventWizard() {
                       <LocationFields
                         idPrefix="newvenue"
                         value={newVenueWhere}
-                        onChange={setNewVenueWhere}
+                        onChange={(next) => {
+                          whereTouched.current = true;
+                          setNewVenueWhere(next);
+                        }}
                         countryHint="Sets the currency you sell in and the tax rules that apply."
                       />
                       <div className="grid gap-3 sm:grid-cols-2">
@@ -2767,4 +2786,26 @@ export default function NewEventPage() {
       <NewEventWizard />
     </Suspense>
   );
+}
+
+/**
+ * Where a new venue starts: the organization's own country, else the one most of its venues
+ * are in, else a guess from the browser.
+ *
+ * The browser guess alone opened "New venue" on United States / New York for a Bengaluru
+ * organizer, and the country decides the currency and the tax rules. It stays a default: the
+ * field is a dropdown and nothing is decided until the organizer creates the event.
+ */
+function homeLocation(
+  registeredCountry: string | null | undefined,
+  venues: { country?: string | null }[],
+): LocationValue {
+  if (registeredCountry?.trim()) return locationFrom({ country: registeredCountry });
+  const counts = new Map<string, number>();
+  for (const v of venues) {
+    const c = v.country?.trim();
+    if (c) counts.set(c, (counts.get(c) ?? 0) + 1);
+  }
+  const top = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+  return top ? { ...locationFrom({ country: top }), region: '' } : defaultLocation();
 }

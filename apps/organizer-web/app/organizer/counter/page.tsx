@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
+import Link from 'next/link';
 import {
   api,
   Button,
@@ -35,6 +36,12 @@ export default function CounterPage() {
   const qc = useQueryClient();
   const toast = useToast();
   const [showCollected, setShowCollected] = useState(false);
+  /*
+    Nothing can arrive here while the organization does not take cash: buyers are never offered
+    "pay at the venue". The page used to say "Cash reservations appear here as soon as somebody
+    makes one" regardless - a promise that could not come true, and a dead end.
+  */
+  const cashOn = activeOrg.cashPaymentsEnabled ?? false;
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['cash-bookings', activeOrg.id, showCollected],
@@ -151,7 +158,25 @@ export default function CounterPage() {
         onRetry={() => refetch()}
         empty={
           <div className="p-8 text-center text-text-muted">
-            Nothing waiting. Cash reservations appear here as soon as somebody makes one.
+            {cashOn ? (
+              'Nothing waiting. Cash reservations appear here as soon as somebody makes one.'
+            ) : (
+              <>
+                <p>
+                  Cash at the venue is turned off, so buyers cannot reserve and pay here. Nothing
+                  will appear on this list until it is on.
+                </p>
+                <p className="mt-2">
+                  <Link
+                    href="/organizer/settings"
+                    className="font-medium text-action-primary underline underline-offset-2"
+                  >
+                    Turn it on in Settings
+                  </Link>{' '}
+                  (Cash at the venue). Online sales are not affected either way.
+                </p>
+              </>
+            )}
           </div>
         }
       />

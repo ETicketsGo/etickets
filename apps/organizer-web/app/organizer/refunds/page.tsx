@@ -1,7 +1,9 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
+import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { CheckCircle2, ExternalLink, Undo2, XCircle } from 'lucide-react';
 import {
   api,
@@ -25,8 +27,22 @@ import { isForbidden } from '@/lib/org-permissions';
 
 const FILTERS = ['REQUESTED', 'PROCESSING', 'COMPLETED', 'REJECTED', 'FAILED'] as const;
 
+// useSearchParams() requires a Suspense boundary during static generation.
 export default function RefundsPage() {
+  return (
+    <Suspense fallback={<Skeleton className="h-40 w-full" />}>
+      <Refunds />
+    </Suspense>
+  );
+}
+
+function Refunds() {
   const { activeOrg, can } = useOrg();
+  /*
+    One event's refunds, when arriving from that event's Bookings page ("1 refund request is
+    waiting"). Without it the organizer landed on every event's requests and had to find theirs.
+  */
+  const eventId = useSearchParams().get('event') ?? undefined;
   const qc = useQueryClient();
   const toast = useToast();
   const [status, setStatus] = useState<string>('REQUESTED');
@@ -44,8 +60,8 @@ export default function RefundsPage() {
     requested for them, and the page says why.
   */
   const { data, isLoading, isError, error, refetch } = useQuery({
-    queryKey: ['org-refunds', activeOrg.id, status, page],
-    queryFn: () => api.organizations.refunds(activeOrg.id, { status, page, pageSize: 20 }),
+    queryKey: ['org-refunds', activeOrg.id, status, page, eventId],
+    queryFn: () => api.organizations.refunds(activeOrg.id, { status, page, pageSize: 20, eventId }),
     enabled: can.financials,
   });
   const refusedForRole = !can.financials || isForbidden(error);
@@ -169,6 +185,19 @@ export default function RefundsPage() {
         title="Refunds"
         description="Requests from your customers. Approving one sends the money back through the original payment method."
       />
+
+      {eventId ? (
+        <p className="flex flex-wrap items-center gap-2 text-sm text-text-secondary">
+          Showing one event&apos;s refunds
+          {data?.data[0]?.booking?.event?.title ? `: ${data.data[0].booking.event.title}` : ''}.
+          <Link
+            href="/organizer/refunds"
+            className="font-medium text-action-primary underline underline-offset-2"
+          >
+            Show all events
+          </Link>
+        </p>
+      ) : null}
 
       <div className="flex flex-wrap gap-2">
         {FILTERS.map((f) => (

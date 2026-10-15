@@ -281,6 +281,7 @@ export const ORGANIZER_ROUTE_POLICY: Record<string, StaffPolicy> = {
   'GET /shows/:sessionId/pricing': 'NONE',
   'PATCH /shows/:sessionId/pricing': 'NONE',
   'POST /shows/:sessionId/reschedule': 'NONE',
+  'POST /shows/:sessionId/retime': 'NONE',
   'GET /cinemas/:cinemaId/schedule': 'NONE',
   'GET /movies/:movieId/shows': 'NONE',
   'GET /screens/:screenId/seat-layouts': 'NONE',
