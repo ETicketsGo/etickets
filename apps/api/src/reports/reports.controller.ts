@@ -74,6 +74,15 @@ const auditFilterFields = {
   entityType: z.string().trim().max(100).optional(),
   country: countryFilterField,
   eventId: idField,
+  // Up to twenty `Type:id` pairs - one record's history, never a way to page the whole log.
+  subjects: z
+    .string()
+    .trim()
+    .regex(
+      /^[A-Za-z]{1,40}:[A-Za-z0-9_-]{1,64}(,[A-Za-z]{1,40}:[A-Za-z0-9_-]{1,64}){0,19}$/,
+      'Name each record as Type:id, comma-separated, at most twenty.',
+    )
+    .optional(),
   from: dayField,
   to: dayField,
 };

@@ -18,6 +18,7 @@ import {
   type Column,
   type EventSession,
   DateTimeField,
+  isComplete,
 } from '@eticketsgo/web-kit';
 import {
   ChangeSeatingDialog,
@@ -25,8 +26,12 @@ import {
   SeatingHelp,
   roomOptionLabel,
 } from '@/components/events/change-seating-dialog';
-import { roomsAtVenue } from '@/components/events/seating-model';
-import { sessionSeating } from '@/components/events/seating-model';
+import { roomsAtVenue, sessionSeating } from '@/components/events/seating-model';
+import {
+  CancelSessionDialog,
+  EditSessionTimeDialog,
+  sessionEditable,
+} from '@/components/events/session-dialogs';
 
 export default function SessionsTab() {
   const { id } = useParams<{ id: string }>();
@@ -100,6 +105,9 @@ export default function SessionsTab() {
 
   // ── Changing an existing session's seating ──────────────────────────────────────
   const [editing, setEditing] = useState<EventSession | null>(null);
+  // ── Changing a date's time, or cancelling it ────────────────────────────────────
+  const [retiming, setRetiming] = useState<EventSession | null>(null);
+  const [cancelling, setCancelling] = useState<EventSession | null>(null);
   // The same rule the Seating view states in full, said in two words here.
   const lockReason = (s: EventSession): string | null => {
     const seating = sessionSeating({ session: s, space: null, layout: null, now: Date.now() });
@@ -163,11 +171,48 @@ export default function SessionsTab() {
     },
     { key: 'status', header: 'Status', render: (s) => <StatusBadge status={s.status} /> },
     { key: 'tickets', header: 'Ticket types', render: (s) => s.ticketTypes?.length ?? 0 },
+    {
+      key: 'actions',
+      header: '',
+      /*
+        Offered where the server allows it: a date still to come that nobody has bought for
+        or is buying for. Past that, the seating column already says why it is locked.
+      */
+      render: (s) =>
+        sessionEditable(s, Date.now()) && !lockReason(s) ? (
+          <div className="flex flex-col items-start gap-1">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setRetiming(s);
+              }}
+              className="whitespace-nowrap rounded text-caption text-action-primary underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            >
+              Change time
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setCancelling(s);
+              }}
+              className="whitespace-nowrap rounded text-caption text-status-error underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            >
+              Cancel date
+            </button>
+          </div>
+        ) : null,
+    },
   ];
 
-  const endBeforeStart =
-    !!form.startsAt && !!form.endsAt && new Date(form.endsAt) <= new Date(form.startsAt);
-  const valid = !!form.startsAt && !!form.endsAt && !endBeforeStart;
+  /*
+    Complete values only: "T22:00" (an end time with no date) is not empty, used to pass here,
+    and the button then failed with "Invalid time value". Same-format strings compare as text.
+  */
+  const complete = isComplete(form.startsAt) && isComplete(form.endsAt);
+  const endBeforeStart = complete && form.endsAt <= form.startsAt;
+  const valid = complete && !endBeforeStart;
 
   return (
     // `min-w-0` on the grid and its items: without it a grid item is as wide as its widest
@@ -244,6 +289,19 @@ export default function SessionsTab() {
         roomsLoading={rooms.isLoading}
         whenLabel={editing ? dateTime(editing.startsAt, undefined, venueTz) : ''}
         onClose={() => setEditing(null)}
+      />
+      <EditSessionTimeDialog
+        eventId={id}
+        session={retiming}
+        zone={inputZone.zone}
+        zoneNote={timeZoneNote}
+        onClose={() => setRetiming(null)}
+      />
+      <CancelSessionDialog
+        eventId={id}
+        session={cancelling}
+        whenLabel={cancelling ? dateTime(cancelling.startsAt, undefined, venueTz) : ''}
+        onClose={() => setCancelling(null)}
       />
     </div>
   );

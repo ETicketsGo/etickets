@@ -33,6 +33,14 @@ export interface AuditFilters {
   country?: string;
   /** Entries about one event: the event itself, or an action that names it. */
   eventId?: string;
+  /**
+   * Entries about these records exactly: `Type:id` pairs, comma-separated (`Booking:abc,Refund:def`).
+   *
+   * For a detail page's "what happened to this" history. A booking's story is spread over the
+   * booking, its payment and each refund, and those are different entity types; the page names
+   * the ones it holds rather than the log guessing which rows are related.
+   */
+  subjects?: string;
   /** ISO date or date-time. Inclusive. */
   from?: string;
   to?: string;
@@ -63,6 +71,16 @@ export interface AuditSummary {
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** `Booking:abc,Refund:def` as pairs. Shape is validated by the controller; blanks are dropped. */
+export function parseAuditSubjects(value?: string): { entityType: string; entityId: string }[] {
+  if (!value) return [];
+  return value
+    .split(',')
+    .map((part) => part.trim().split(':'))
+    .filter((pair): pair is [string, string] => pair.length === 2 && !!pair[0] && !!pair[1])
+    .map(([entityType, entityId]) => ({ entityType, entityId }));
+}
 
 @Injectable()
 export class AuditQueryService {
@@ -106,6 +124,21 @@ export class AuditQueryService {
           { metadata: { path: ['eventId'], equals: f.eventId } },
         ],
       });
+    }
+    /*
+      Pairs, not bare ids, so each one is read through the (entityType, entityId) index - an id
+      alone has no index of its own on this table.
+    */
+    const subjects = parseAuditSubjects(f.subjects);
+    if (subjects.length > 0) {
+      and.push({ OR: subjects.map((s) => ({ entityType: s.entityType, entityId: s.entityId })) });
+      /*
+        Without the access checks. Every admin who opens a booking records that they read it
+        (PLATFORM_ORGANIZER_ACCESS_*), against the booking's own id - so a record's history filled
+        with one "access allowed" per look and pushed what actually happened off the page.
+        Who read what stays in the full log, unfiltered.
+      */
+      and.push({ NOT: { action: { startsWith: 'PLATFORM_ORGANIZER_ACCESS_' } } });
     }
     if (and.length > 0) where.AND = and;
     return where;

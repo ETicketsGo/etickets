@@ -941,7 +941,7 @@ export const api = {
       }),
     receipts: (id: string, params: PageParams & { from?: string; to?: string } = {}) =>
       request<ReceiptListPage>(`/organizations/${id}/receipts${qs(params)}`),
-    refunds: (id: string, params: PageParams & { status?: string } = {}) =>
+    refunds: (id: string, params: PageParams & { status?: string; eventId?: string } = {}) =>
       request<Paged<OrganizationRefundRow>>(`/organizations/${id}/refunds${qs(params)}`),
     /** Turn cash-at-the-venue on or off for an organization. Owner only. */
     setCashPayments: (id: string, enabled: boolean) =>
@@ -1287,6 +1287,12 @@ export const api = {
       request<{ sessionId: string; startsAt: string; endsAt: string }>(
         `/shows/${sessionId}/reschedule`,
         { method: 'POST', body: JSON.stringify({ startsAt, padMinutes }) },
+      ),
+    /** Move one date of an event that is not a film; both ends come from the organizer. */
+    retime: (sessionId: string, startsAt: string, endsAt: string) =>
+      request<{ sessionId: string; startsAt: string; endsAt: string }>(
+        `/shows/${sessionId}/retime`,
+        { method: 'POST', body: JSON.stringify({ startsAt, endsAt }) },
       ),
     schedule: (movieId: string, body: ScheduleShowBody) =>
       request<{ eventId: string; sessionId: string }>(`/movies/${movieId}/shows`, {
@@ -2011,11 +2017,27 @@ export const api = {
     organizers: (
       params: PageParams & { status?: string; q?: string; country?: string } & AdminGroupFilter,
     ) => request<Paged<Organization>>(`/admin/organizers${qs(params)}`),
-    reviewOrganizer: (id: string, decision: 'APPROVE' | 'REJECT', note?: string) =>
+    /**
+     * `overrideReason` approves despite a missing legal identity, on the record (the API needs
+     * at least ten characters of it). Omitted, the identity gate holds.
+     */
+    reviewOrganizer: (
+      id: string,
+      decision: 'APPROVE' | 'REJECT',
+      note?: string,
+      overrideReason?: string,
+    ) =>
       request<Organization>(`/admin/organizers/${id}/review`, {
         method: 'POST',
-        body: JSON.stringify({ decision, note }),
+        body: JSON.stringify({
+          decision,
+          note,
+          ...(overrideReason ? { overrideIdentityCheck: { reason: overrideReason } } : {}),
+        }),
       }),
+    /** What a reviewer needs before deciding: declared identity, the owner, look-alike names. */
+    organizerReviewSignals: (id: string) =>
+      request<OrganizerReviewSignals>(`/admin/organizers/${id}/review-signals`),
     /**
      * Let a trusted organizer publish events without review, or stop them.
      *
@@ -2092,10 +2114,11 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ decision, note }),
       }),
-    setEventStatus: (id: string, status: string) =>
+    /** `reason` is recorded in the audit log beside the change. */
+    setEventStatus: (id: string, status: string, reason?: string) =>
       request<OrgEventDetail>(`/admin/events/${id}/status`, {
         method: 'POST',
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ status, ...(reason ? { reason } : {}) }),
       }),
     /** Organizer, event and a UTC day window on when the booking was made, like the money queues. */
     bookings: (
@@ -4343,6 +4366,9 @@ export interface OrgEventDetail extends EventDetails {
   /** What the event is for tax (one of TAX_CATEGORIES). Null: not classified. */
   taxCategory?: string | null;
   refundPolicy: string | null;
+  /** The organizer's refund terms: false means no refunds; otherwise until this many hours before. */
+  refundsEnabled?: boolean;
+  refundCutoffHours?: number;
   publishedAt: string | null;
   reviewNote: string | null;
   venue: Venue;
@@ -4809,7 +4835,14 @@ export interface RefundRow {
     currency: string;
     reference?: string | null;
     event?: { title: string };
+    /** The payment it goes back to. Read by the admin refund page; absent on an older API. */
+    payment?: { id: string; provider: string; providerRef: string | null; status: string } | null;
   };
+  /** Who decided it. Absent on lists. */
+  processedByUserId?: string | null;
+  /** The provider's id for the refund, once one was asked for. */
+  providerRef?: string | null;
+  updatedAt?: string;
 }
 
 /** The seller's legal + tax identity, plus what is still missing to issue a tax invoice. */
@@ -4972,7 +5005,7 @@ export interface OrganizationRefundRow extends Omit<RefundRow, 'booking'> {
     buyerEmail: string;
     currency: string;
     totalMinor: number;
-    event?: { title: string } | null;
+    event?: { id?: string; title: string } | null;
   };
   creditNote?: { id: string; number: string } | null;
 }
@@ -6055,6 +6088,30 @@ export interface AdminPaymentRow {
   bookingReference: string | null;
   eventTitle: string;
 }
+/** `GET /admin/organizers/:id/review-signals`. Every field is derived when asked, never stored. */
+export interface OrganizerReviewSignals {
+  organizationId: string;
+  name: string;
+  status: string;
+  registeredAt: string;
+  /** `missing` names fields in a reviewer's words ("legal name"), never a schema path. */
+  identity: { complete: boolean; missing: string[] };
+  /** Null when the organization has no owner. `emailDomain` is null for a phone-only owner. */
+  owner: {
+    userId: string;
+    emailDomain: string | null;
+    accountCreatedAt: string;
+    accountAgeDays: number;
+  } | null;
+  otherOrganizationsByOwner: {
+    organizationId: string;
+    name: string;
+    status: string;
+    registeredAt: string;
+  }[];
+  nameCollisions: { organizationId: string; name: string; status: string; exact: boolean }[];
+}
+
 export interface AuditRow {
   id: string;
   action: string;
@@ -6066,6 +6123,8 @@ export interface AuditRow {
   correlationId: string | null;
   createdAt: string;
   actor: { email: string; fullName: string } | null;
+  /** What the action recorded alongside it (a reason, an amount, a provider reference). */
+  metadata?: Record<string, unknown> | null;
 }
 
 /* A type alias, not an interface: `qs` takes a `Record<string, unknown>`, and an interface is
@@ -6078,6 +6137,8 @@ export type AuditFilters = {
   country?: string;
   /** Entries about one event: the event itself, or an action that names it. */
   eventId?: string;
+  /** One record's history: `Type:id` pairs, comma-separated, at most twenty. */
+  subjects?: string;
   /** `YYYY-MM-DD`, UTC, inclusive. */
   from?: string;
   to?: string;

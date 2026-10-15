@@ -1,6 +1,7 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useState } from 'react';
 import {
@@ -8,7 +9,6 @@ import {
   Card,
   Button,
   Skeleton,
-  StatusBadge,
   PageHeader,
   Dialog,
   ErrorState,
@@ -18,9 +18,14 @@ import {
   errorMessage,
   priceBreakdown,
   moneyFractionDigits,
+  zoneShortName,
+  type BookingDetail,
   type FeeTaxPart,
   type RefundRow,
 } from '@eticketsgo/web-kit';
+import { StatusBadge } from '@/components/status-badge';
+import { MoneyStatusPill } from '@/components/money-status';
+import { RecordHistory } from '@/components/record-history';
 import { accountContactText } from '../../../../components/account-contact';
 
 /** GST components named in full, as the buyer's checkout and receipt name them. */
@@ -37,11 +42,43 @@ function feeTaxLabel(tax: FeeTaxPart): string {
   return `${GST_NAMES[tax.label.trim().toUpperCase()] ?? tax.label} @ ${rate}`;
 }
 
+/**
+ * The booking as the staff read returns it: the buyer's view plus the row's own dates and the
+ * payment row, which `BookingDetail` does not declare because the buyer's screens never read them.
+ */
+type StaffBooking = BookingDetail & {
+  createdAt?: string;
+  confirmedAt?: string | null;
+  cancelledAt?: string | null;
+  payment:
+    | (BookingDetail['payment'] & {
+        id?: string;
+        provider?: string;
+        providerRef?: string | null;
+        paidAt?: string | null;
+        failureMessage?: string | null;
+        refundedMinor?: number;
+      })
+    | null;
+};
+
+function providerName(provider?: string): string {
+  if (!provider) return 'Unknown';
+  return provider === 'razorpay'
+    ? 'Razorpay'
+    : provider === 'stripe'
+      ? 'Stripe'
+      : provider === 'mock'
+        ? 'Test payment (no real money)'
+        : provider;
+}
+
 export default function AdminBookingDetail() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
   const toast = useToast();
   const [confirmApprove, setConfirmApprove] = useState<RefundRow | null>(null);
+  const [confirmReject, setConfirmReject] = useState<RefundRow | null>(null);
 
   const bookingQ = useQuery({
     queryKey: ['booking', id],
@@ -55,15 +92,22 @@ export default function AdminBookingDetail() {
   const process = useMutation({
     mutationFn: ({ refundId, decision }: { refundId: string; decision: 'APPROVE' | 'REJECT' }) =>
       api.refunds.process(refundId, decision),
-    onSuccess: () => {
-      toast.push('Refund processed.', 'success');
+    onSuccess: (_r, { decision }) => {
+      toast.push(
+        decision === 'APPROVE'
+          ? 'Refund approved and sent to the payment provider.'
+          : 'Refund turned down. The buyer keeps their tickets.',
+        'success',
+      );
       setConfirmApprove(null);
+      setConfirmReject(null);
       qc.invalidateQueries({ queryKey: ['booking', id] });
+      qc.invalidateQueries({ queryKey: ['admin', 'audit'] });
     },
     onError: (e) => toast.push(errorMessage(e), 'error'),
   });
 
-  const b = bookingQ.data;
+  const b = bookingQ.data as StaffBooking | undefined;
   if (bookingQ.isError)
     return (
       <ErrorState
@@ -73,33 +117,73 @@ export default function AdminBookingDetail() {
     );
   if (bookingQ.isLoading || !b) return <Skeleton className="h-64 w-full" />;
 
+  /*
+    What has actually gone back: the refunds paid out, or the payment's own running total if that
+    says more (it is not kept by every provider path, so it can read 0 beside a paid refund).
+  */
+  const refundedMinor = Math.max(
+    b.payment?.refundedMinor ?? 0,
+    (refundsQ.data ?? [])
+      .filter((r) => r.status === 'COMPLETED')
+      .reduce((sum, r) => sum + r.amountMinor, 0),
+  );
+
   return (
     <div className="space-y-6">
+      {/*
+        Named by the reference the customer quotes. The page was titled "Booking" and led with a
+        database id, so the one thing a buyer reads out on the phone was nowhere on it.
+      */}
       <PageHeader
-        title="Booking"
-        breadcrumbs={[{ label: 'Bookings', href: '/admin/bookings' }, { label: b.event.title }]}
+        title={b.reference ?? 'Booking with no reference'}
+        description={b.event.title}
+        breadcrumbs={[
+          { label: 'Bookings', href: '/admin/bookings' },
+          { label: b.reference ?? b.event.title },
+        ]}
       />
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card title="Summary">
           <dl className="space-y-2 text-sm">
-            <Row label="Booking ID" value={b.id} mono />
             <Row label="Event" value={b.event.title} />
-            <Row label="Session" value={dateTime(b.eventSession.startsAt)} />
+            {/*
+              The show time at the venue, with its zone, like the ticket - it was printed in the
+              reader's own clock with no zone, so it disagreed with what the buyer was holding.
+            */}
+            <Row label="Show" value={showTime(b.eventSession.startsAt, b.timeZone)} />
+            {b.place && (
+              <Row label="Where" value={[b.place.name, b.place.city].filter(Boolean).join(', ')} />
+            )}
             <Row
               label="Buyer"
               value={[b.buyerName, accountContactText(b.buyerEmail)].filter(Boolean).join(' · ')}
             />
             <div className="flex justify-between">
-              <dt className="text-text-muted">Status</dt>
+              <dt className="text-text-muted">Booking</dt>
               <dd>
-                <StatusBadge status={b.status} />
+                <MoneyStatusPill entity="booking" status={b.status} />
               </dd>
             </div>
             <div className="flex justify-between">
               <dt className="text-text-muted">Payment</dt>
-              <dd>{b.payment ? <StatusBadge status={b.payment.status} /> : '—'}</dd>
+              <dd>
+                {b.payment ? (
+                  <MoneyStatusPill entity="payment" status={b.payment.status} />
+                ) : (
+                  'No payment'
+                )}
+              </dd>
             </div>
+            {b.payment?.provider && (
+              <Row
+                label="Provider"
+                value={[providerName(b.payment.provider), b.payment.providerRef]
+                  .filter(Boolean)
+                  .join(' - ')}
+              />
+            )}
+            <Row label="Booking ID" value={b.id} mono />
           </dl>
         </Card>
 
@@ -215,12 +299,44 @@ export default function AdminBookingDetail() {
         </Card>
       </div>
 
+      {/*
+        Why the booking and the payment can read differently. On QA a booking said "Refunded"
+        beside a payment that said "Partly refunded", with nothing to explain it: the tickets were
+        refunded and the fees were not. Said here from the refunds themselves.
+      */}
+      {refundedMinor > 0 && (
+        <Card title="Money back">
+          <dl className="space-y-2 text-sm">
+            <Row label="Paid" value={money(b.totalMinor, b.currency)} />
+            <Row label="Refunded so far" value={money(refundedMinor, b.currency)} />
+            <Row
+              label="Not refunded"
+              value={money(Math.max(0, b.totalMinor - refundedMinor), b.currency)}
+            />
+          </dl>
+          {refundedMinor < b.totalMinor && (
+            <p className="mt-2 text-caption text-text-muted">
+              Not everything paid has been refunded. A refund returns the tickets it names and the
+              tax on them; the booking and payment fees are kept unless the whole booking is
+              cancelled.
+            </p>
+          )}
+        </Card>
+      )}
+
       <Card title={`Tickets (${b.tickets.length})`}>
         {b.tickets.length > 0 ? (
           <ul className="divide-y divide-border text-sm">
             {b.tickets.map((t) => (
-              <li key={t.id} className="flex items-center justify-between py-2">
-                <span className="font-mono text-xs text-text-muted">{t.id}</span>
+              <li key={t.id} className="flex items-center justify-between gap-3 py-2">
+                <div className="min-w-0">
+                  <p className="text-text-primary">
+                    {[t.ticketTypeName ?? 'Ticket', t.seatLabel ? `seat ${t.seatLabel}` : null]
+                      .filter(Boolean)
+                      .join(', ')}
+                  </p>
+                  <p className="truncate font-mono text-xs text-text-muted">{t.id}</p>
+                </div>
                 <StatusBadge status={t.status} />
               </li>
             ))}
@@ -236,13 +352,20 @@ export default function AdminBookingDetail() {
         ) : refundsQ.data && refundsQ.data.length > 0 ? (
           <ul className="divide-y divide-border text-sm">
             {refundsQ.data.map((r) => (
-              <li key={r.id} className="flex items-center justify-between py-2">
+              <li key={r.id} className="flex items-center justify-between gap-3 py-2">
                 <div>
-                  <p className="text-text-primary">{money(r.amountMinor, b.currency)}</p>
-                  <p className="text-xs text-text-muted">{r.reason}</p>
+                  <Link
+                    href={`/admin/refunds/${r.id}`}
+                    className="text-action-primary underline-offset-4 hover:underline"
+                  >
+                    {money(r.amountMinor, b.currency)}
+                  </Link>
+                  <p className="text-xs text-text-muted">
+                    {r.reason} - asked {dateTime(r.createdAt)}
+                  </p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <StatusBadge status={r.status} />
+                  <MoneyStatusPill entity="refund" status={r.status} />
                   {r.status === 'REQUESTED' && (
                     <>
                       <Button
@@ -264,7 +387,7 @@ export default function AdminBookingDetail() {
                           process.variables?.decision === 'REJECT'
                         }
                         disabled={process.isPending}
-                        onClick={() => process.mutate({ refundId: r.id, decision: 'REJECT' })}
+                        onClick={() => setConfirmReject(r)}
                       >
                         Reject
                       </Button>
@@ -278,6 +401,39 @@ export default function AdminBookingDetail() {
           <p className="text-sm text-text-muted">No refunds for this booking.</p>
         )}
       </Card>
+
+      <RecordHistory
+        subjects={[
+          `Booking:${b.id}`,
+          ...(refundsQ.data ?? []).slice(0, 19).map((r) => `Refund:${r.id}`),
+        ]}
+      />
+
+      <Dialog
+        open={!!confirmReject}
+        onClose={() => setConfirmReject(null)}
+        title="Turn this refund down?"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setConfirmReject(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              loading={process.isPending && process.variables?.decision === 'REJECT'}
+              onClick={() =>
+                confirmReject && process.mutate({ refundId: confirmReject.id, decision: 'REJECT' })
+              }
+            >
+              Turn it down
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-text-secondary">
+          The buyer keeps their tickets and is not paid anything back.
+        </p>
+      </Dialog>
 
       <Dialog
         open={!!confirmApprove}
@@ -309,6 +465,14 @@ export default function AdminBookingDetail() {
       </Dialog>
     </div>
   );
+}
+
+/** A show time at the venue's clock, with the zone named. Unknown zone: the reader's, said so. */
+function showTime(iso: string, zone?: string | null): string {
+  if (!zone) return `${dateTime(iso)} (your time)`;
+  const when = dateTime(iso, 'en-IN', zone);
+  const abbrev = zoneShortName(iso, zone);
+  return abbrev ? `${when} ${abbrev}` : when;
 }
 
 function Row({ label, value, mono }: { label: string; value: string; mono?: boolean }) {

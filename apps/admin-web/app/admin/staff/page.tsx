@@ -17,6 +17,7 @@ import {
   type AdminStaffMember,
 } from '@eticketsgo/web-kit';
 import { AccountContact, accountContactText } from '../../../components/account-contact';
+import { dutyLabel, dutyWhat } from '@/lib/duty-words';
 
 /**
  * Who works in the back office, and what each of them may do.
@@ -53,10 +54,6 @@ const RISKY = new Set([
  * who clicks through without reading. Whoever adds the person picks the duties on purpose.
  */
 const ADD_DEFAULT: string[] = [];
-
-/** Turns REFUND_APPROVE into "Refund approve" — readable without a translation table. */
-const humanise = (permission: string) =>
-  permission.charAt(0) + permission.slice(1).toLowerCase().replace(/_/g, ' ');
 
 export default function StaffPage() {
   const qc = useQueryClient();
@@ -254,13 +251,14 @@ export default function StaffPage() {
                   person.permissions.map((p) => (
                     <span
                       key={p}
+                      title={dutyWhat(p) ?? undefined}
                       className={`rounded-full px-2 py-0.5 text-caption ${
                         RISKY.has(p)
                           ? 'bg-status-warning/10 text-text-primary'
                           : 'bg-background-subtle text-text-secondary'
                       }`}
                     >
-                      {humanise(p)}
+                      {dutyLabel(p)}
                     </span>
                   ))
                 )}
@@ -581,17 +579,19 @@ function DutyChecklist({
               className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-action-primary"
             />
             <span className="min-w-0">
-              <span className="text-[0.9375rem] text-text-primary">{humanise(permission)}</span>
-              {permission === 'ADMIN_MANAGE' ? (
-                <span className="block text-caption text-status-warning">
-                  Grants everything in practice — this person could then give themselves any other
-                  duty.
+              <span className="text-[0.9375rem] text-text-primary">{dutyLabel(permission)}</span>
+              {/* Every duty says what it hands over; the two that are dangerous say it in amber. */}
+              {dutyWhat(permission) && (
+                <span
+                  className={`block text-caption ${
+                    permission === 'ADMIN_MANAGE' || permission === 'REFUND_APPROVE'
+                      ? 'text-status-warning'
+                      : 'text-text-muted'
+                  }`}
+                >
+                  {dutyWhat(permission)}
                 </span>
-              ) : permission === 'REFUND_APPROVE' ? (
-                <span className="block text-caption text-text-muted">
-                  Moves money, and it does not come back. Reviewing a refund is a separate duty.
-                </span>
-              ) : null}
+              )}
             </span>
           </label>
         ))}

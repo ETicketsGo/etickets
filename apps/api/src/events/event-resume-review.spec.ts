@@ -289,6 +289,22 @@ describe('an event paused by the platform team', () => {
     expect(organizer.eventUpdate.mock.calls[0][0].data).toEqual({ status: EventStatus.PAUSED });
   });
 
+  it("records the admin's reason and the status it left, so the organizer can be told why", async () => {
+    const { service, record } = setup({ status: EventStatus.PUBLISHED });
+    await service.adminSetStatus(ADMIN, 'ev-1', EventStatus.PAUSED, 'Venue licence query');
+
+    expect(record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'EVENT_STATUS_CHANGED',
+        metadata: {
+          status: EventStatus.PAUSED,
+          from: EventStatus.PUBLISHED,
+          reason: 'Venue licence query',
+        },
+      }),
+    );
+  });
+
   it('is cleared when an admin resumes it, with any pending review settled by that decision', async () => {
     const { service, eventUpdate } = setup({ pausedByAdminAt, needsReviewOnResume: true });
     await service.adminSetStatus(ADMIN, 'ev-1', EventStatus.PUBLISHED);

@@ -1,0 +1,83 @@
+import { describe, expect, it } from 'vitest';
+import { failedRefundAdvice, historyLine, historyLines, type HistoryEntry } from './history';
+
+const entry = (
+  action: string,
+  createdAt: string,
+  metadata?: Record<string, unknown>,
+): HistoryEntry => ({
+  action,
+  createdAt,
+  actor: { email: 'a@example.test', fullName: 'Asha' },
+  metadata,
+});
+
+describe('a record history', () => {
+  it('reads oldest first, in sentences, with who did it', () => {
+    const lines = historyLines([
+      entry('REFUND_PROCESSING', '2026-10-15T09:05:00Z', { providerRef: 'rfnd_1' }),
+      entry('REFUND_REQUESTED', '2026-10-15T09:04:00Z', { via: 'ACCOUNT', amountMinor: 1 }),
+    ]);
+    expect(lines.map((l) => l.text)).toEqual([
+      'Refund asked for',
+      'Refund approved and sent to the payment provider',
+    ]);
+    expect(lines[0].detail).toBe('Asked from their account');
+    expect(lines[1].detail).toBe('Provider reference rfnd_1');
+    expect(lines[0].who).toBe('Asha');
+  });
+
+  it('carries a recorded reason, and calls an action with no person the system', () => {
+    const line = historyLine({
+      action: 'EVENT_STATUS_CHANGED',
+      createdAt: '2026-10-15T09:00:00Z',
+      actor: null,
+      metadata: { reason: 'Venue licence query' },
+    });
+    expect(line.text).toBe('Event status changed');
+    expect(line.detail).toBe('Reason: Venue licence query');
+    expect(line.who).toBe('System');
+  });
+
+  it('leaves out the record of an admin opening the page, which is not something that happened to it', () => {
+    const lines = historyLines([
+      entry('PLATFORM_ORGANIZER_ACCESS_ALLOWED', '2026-10-15T09:00:00Z', {
+        reason: 'CAPABILITY_HELD',
+      }),
+      entry('BOOKING_CONFIRMED', '2026-10-15T08:00:00Z'),
+    ]);
+    expect(lines.map((l) => l.text)).toEqual(['Paid and confirmed. Tickets issued']);
+  });
+
+  it('marks what went wrong', () => {
+    expect(historyLine(entry('REFUND_FAILED', '2026-10-15T09:00:00Z')).problem).toBe(true);
+    expect(historyLine(entry('REFUND_COMPLETED', '2026-10-15T09:00:00Z')).problem).toBe(false);
+  });
+});
+
+describe('what to do about a refund that did not go through', () => {
+  it('says the customer has neither tickets nor money when the provider failed it later', () => {
+    const advice = failedRefundAdvice([
+      entry('REFUND_PROCESSING', '2026-10-15T09:00:00Z'),
+      entry('REFUND_FAILED_AT_PROVIDER', '2026-10-15T10:00:00Z'),
+    ]);
+    expect(advice.cause).toMatch(/neither their tickets nor their money/);
+    expect(advice.steps.join(' ')).toMatch(/by hand/);
+  });
+
+  it('says nothing is owed twice when the tickets had already gone back', () => {
+    expect(
+      failedRefundAdvice([entry('REFUND_TICKETS_NOT_LIVE', '2026-10-15T09:00:00Z')]).cause,
+    ).toMatch(/not owed this amount twice/);
+  });
+
+  it('says the customer still holds their tickets when the provider refused it outright', () => {
+    expect(failedRefundAdvice([entry('REFUND_FAILED', '2026-10-15T09:00:00Z')]).cause).toMatch(
+      /still holds their tickets/,
+    );
+  });
+
+  it('does not invent a reason when none was recorded', () => {
+    expect(failedRefundAdvice([]).cause).toMatch(/no reason was recorded/);
+  });
+});

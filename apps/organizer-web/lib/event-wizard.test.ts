@@ -138,10 +138,21 @@ describe('where and when', () => {
       }),
     );
     expect(e).toEqual({
-      s0Start: 'Start time is required.',
-      s0End: 'End time is required.',
-      s1End: 'End time is required.',
+      s0Start: 'Choose a start date and time.',
+      s0End: 'Choose an end date and time.',
+      s1End: 'Choose an end date and time.',
     });
+  });
+
+  it('refuses an end TIME with no end date, which used to pass and then lose the dates', () => {
+    // What the end field sent before it took the start's date: the time on its own.
+    const e = validateStep(
+      'where',
+      valid({
+        sessions: [{ startsAt: '2027-03-14T19:00', endsAt: 'T22:00', screenId: '', seatMapId: '' }],
+      }),
+    );
+    expect(e).toEqual({ s0End: 'Choose an end date and time.' });
   });
 
   it('refuses an end at or before the start', () => {
