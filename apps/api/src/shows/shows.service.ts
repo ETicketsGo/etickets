@@ -362,6 +362,22 @@ function sellableSeats<T extends { kind: string }>(seats: T[]): T[] {
 }
 
 /**
+ * The category most of a block's seats are in - the colour the venue map paints the block.
+ * Ties go to the category seen first, so the answer is stable between reads.
+ */
+export function dominantCategoryId(counts: Map<string, number> | undefined): string | null {
+  let best: string | null = null;
+  let most = 0;
+  for (const [id, n] of counts ?? []) {
+    if (n > most) {
+      best = id;
+      most = n;
+    }
+  }
+  return best;
+}
+
+/**
  * A session's copy of one layout seat, as it goes on sale.
  *
  * A HOUSE seat is drawn in the layout by the organizer (the box the venue keeps, the seats the
@@ -3052,9 +3068,16 @@ export class ShowsService {
               return category ? priceFor(category.id, category.basePriceMinor) : null;
             });
             const known = prices.filter((p): p is number => p !== null);
+            const main = seatMap.categories.find(
+              (c) => c.id === dominantCategoryId(summary?.seatsByCategory),
+            );
             return {
               id: sec.id,
               kind: 'SECTION' as const,
+              // The map paints each block in its category's colour, so a buyer can see where each
+              // price is. A mixed block shows the category most of its seats are in.
+              colorHex: main?.colorHex ?? null,
+              categoryName: main?.name ?? null,
               name: sec.name,
               shape: sec.shape ?? null,
               labelX: sec.labelX,
@@ -3073,9 +3096,12 @@ export class ShowsService {
             const available = inventory
               ? Math.max(0, inventory.capacity - inventory.sold - inventory.held)
               : 0;
+            const zoneCategory = seatMap.categories.find((c) => c.id === zone.categoryId);
             return {
               id: zone.id,
               kind: 'ZONE' as const,
+              colorHex: zoneCategory?.colorHex ?? null,
+              categoryName: zoneCategory?.name ?? null,
               name: zone.name,
               shape: zone.shape ?? null,
               labelX: zone.labelX,
@@ -3185,16 +3211,26 @@ export class ShowsService {
 
     const bySection = new Map<
       string,
-      { available: number; total: number; categoryIds: string[] }
+      {
+        available: number;
+        total: number;
+        categoryIds: string[];
+        seatsByCategory: Map<string, number>;
+      }
     >();
     for (const row of rows) {
       const entry = bySection.get(row.sectionId) ?? {
         available: 0,
         total: 0,
         categoryIds: [] as string[],
+        seatsByCategory: new Map<string, number>(),
       };
       const n = Number(row.count);
       entry.total += n;
+      entry.seatsByCategory.set(
+        row.seatCategoryId,
+        (entry.seatsByCategory.get(row.seatCategoryId) ?? 0) + n,
+      );
       // Only AVAILABLE counts as available. HELD is somebody mid-checkout and BLOCKED is an
       // operator decision; showing either as free is how two people reach for one seat.
       if (row.status === 'AVAILABLE') entry.available += n;

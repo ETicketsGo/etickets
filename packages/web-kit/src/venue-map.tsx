@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { VenueFocalPoint, VenuePoint, VenueSectionSummary } from './api';
+import { isDarkFill, readableTextOn } from './colour-contrast';
 
 /**
  * The venue seen from above: blocks around a stage, a pitch or a screen.
@@ -19,10 +20,16 @@ import type { VenueFocalPoint, VenuePoint, VenueSectionSummary } from './api';
  * phone in a way three thousand four-pixel dots never are. Building a zoomable canvas here
  * would be a lot of work to arrive somewhere worse.
  *
- * ── COLOUR MEANS ONE THING ─────────────────────────────────────────────────────────
- * Availability, not price. A map that encodes price in colour and availability in opacity
- * asks the customer to hold two scales at once, and the question they are answering first
- * is "can I even sit there". Price is written on the block, in words.
+ * ── COLOUR IS THE TICKET CATEGORY ──────────────────────────────────────────────────
+ * Each block is filled with the colour of its ticket category (the one most of its seats are
+ * in), the same colour the category has everywhere else. It used to be one colour for every
+ * block - and once the redesign made the primary near-black, a dark grey slab - so Premium,
+ * Standard and VIP areas looked identical and the names on them were dark on dark.
+ *
+ * Availability is the SECOND cue and never hides the first: an almost-full block keeps its
+ * colour under diagonal stripes and says "Almost full"; a sold-out block, which cannot be
+ * chosen, goes grey and says "Sold out". Words carry both, so neither depends on colour.
+ * Text on a block is black or white, whichever reads better on that colour (always AA).
  */
 
 const VIEWBOX = 1000;
@@ -74,12 +81,22 @@ function fillFor(section: VenueSectionSummary): Fill {
   return section.availableCount / Math.max(1, section.totalCount) < 0.1 ? 'few' : 'plenty';
 }
 
-const FILL_CLASS: Record<Fill, string> = {
-  plenty: 'fill-action-primary/70 stroke-action-primary hover:fill-action-primary',
-  few: 'fill-status-warning/60 stroke-status-warning hover:fill-status-warning/80',
-  // Not merely dimmed: a sold-out block is not clickable, and must not invite a tap.
-  none: 'fill-text-muted/20 stroke-text-muted/40',
-};
+/** A block whose API sent no category colour (an older API). Neutral, readable in both themes. */
+const NEUTRAL_FILL = '#CBD5E1';
+/** A sold-out block: it cannot be chosen, so it is not shown in its category colour either. */
+const SOLD_OUT_FILL = '#E2E8F0';
+const HEX = /^#[0-9a-f]{6}$/i;
+
+/** The colour a block is drawn in, and the text colour that reads on it. */
+function paintFor(section: VenueSectionSummary, fill: Fill): { fill: string; text: string } {
+  const base =
+    fill === 'none'
+      ? SOLD_OUT_FILL
+      : section.colorHex && HEX.test(section.colorHex)
+        ? section.colorHex
+        : NEUTRAL_FILL;
+  return { fill: base, text: readableTextOn(base) };
+}
 
 export function VenueMap({
   focal,
@@ -108,6 +125,18 @@ export function VenueMap({
   );
 
   const svgRef = useRef<SVGSVGElement>(null);
+  // Pattern ids must be unique per map: one page can show two maps.
+  const uid = useId().replace(/:/g, '');
+  /** The categories on the map, once each, for the key under it. */
+  const categoryKey = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const sec of sections) {
+      if (sec.categoryName && sec.colorHex && !seen.has(sec.categoryName)) {
+        seen.set(sec.categoryName, sec.colorHex);
+      }
+    }
+    return [...seen.entries()];
+  }, [sections]);
   const [narrow, setNarrow] = useState(false);
   useEffect(() => {
     const el = svgRef.current;
@@ -146,88 +175,177 @@ export function VenueMap({
           </g>
         ) : null}
 
-        {drawable.map((section) => {
-          const fill = fillFor(section);
-          const soldOut = fill === 'none';
-          const standingZone = section.kind === 'ZONE';
-          const [cx, cy] =
-            section.labelX !== null && section.labelY !== null
-              ? [section.labelX, section.labelY]
-              : centroidOf(section.shape as VenuePoint[]);
-          return (
-            <g key={section.id}>
-              <polygon
-                points={toPoints(section.shape as VenuePoint[])}
-                strokeWidth={
-                  pendingSectionId === section.id || activeSectionId === section.id ? 6 : 2
-                }
-                className={`${FILL_CLASS[fill]} transition-all ${
-                  soldOut ? 'cursor-not-allowed' : 'cursor-pointer'
-                } ${activeSectionId === section.id ? 'stroke-text-primary' : ''}`}
-                aria-pressed={
-                  soldOut || standingZone || activeSectionId === undefined
-                    ? undefined
-                    : activeSectionId === section.id
-                }
-                onClick={soldOut || standingZone ? undefined : () => onSelect(section.id)}
-                /*
-                  Keyboard reachability on an SVG shape needs all of this: a role, a
-                  tabindex, and a key handler. Without it the entire venue is mouse-only,
-                  which for a page whose only job is choosing a seat means the page has no
-                  keyboard path at all.
-                */
-                role={soldOut || standingZone ? undefined : 'button'}
-                tabIndex={soldOut || standingZone ? undefined : 0}
-                aria-label={describe(section, formatPrice)}
-                onKeyDown={
-                  soldOut || standingZone
-                    ? undefined
-                    : (e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault();
-                          onSelect(section.id);
-                        }
-                      }
-                }
+        <defs>
+          {/* Stripes for "almost full": light on a dark block, dark on a light one. */}
+          {(['light', 'dark'] as const).map((tone) => (
+            <pattern
+              key={tone}
+              id={`${uid}-few-${tone}`}
+              width={18}
+              height={18}
+              patternUnits="userSpaceOnUse"
+              patternTransform="rotate(45)"
+            >
+              <rect
+                width={7}
+                height={18}
+                fill={tone === 'light' ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.35)'}
               />
-              <text
-                x={cx}
-                y={cy}
-                textAnchor="middle"
-                className="pointer-events-none fill-text-primary text-[20px] font-semibold"
-              >
-                {section.name}
-              </text>
-              {standingZone ? (
+            </pattern>
+          ))}
+          <pattern
+            id={`${uid}-none`}
+            width={14}
+            height={14}
+            patternUnits="userSpaceOnUse"
+            patternTransform="rotate(45)"
+          >
+            <rect width={3} height={14} fill="rgba(71,85,105,0.45)" />
+          </pattern>
+        </defs>
+
+        {/* The chosen block last, so its outline is drawn over its neighbours'. */}
+        {[...drawable]
+          .sort((a, b) => Number(a.id === activeSectionId) - Number(b.id === activeSectionId))
+          .map((section) => {
+            const fill = fillFor(section);
+            const soldOut = fill === 'none';
+            const standingZone = section.kind === 'ZONE';
+            const paint = paintFor(section, fill);
+            const chosen = activeSectionId === section.id || pendingSectionId === section.id;
+            // With a block chosen, the others step back so the choice is unmistakable.
+            const dimmed = !!activeSectionId && !chosen;
+            const points = toPoints(section.shape as VenuePoint[]);
+            const [cx, cy] =
+              section.labelX !== null && section.labelY !== null
+                ? [section.labelX, section.labelY]
+                : centroidOf(section.shape as VenuePoint[]);
+            const note = soldOut ? 'Sold out' : fill === 'few' ? 'Almost full' : null;
+            const second = note
+              ? note
+              : standingZone
+                ? 'STANDING'
+                : section.priceMinorFrom !== null
+                  ? formatPrice(section.priceMinorFrom)
+                  : null;
+            return (
+              <g key={section.id} data-block={section.name} data-dimmed={dimmed || undefined}>
+                <polygon
+                  points={points}
+                  fill={paint.fill}
+                  /*
+                    Only the FILL steps back. Dimming the whole block also faded its name below AA;
+                    the label keeps full contrast on a halo of the block's full colour.
+                  */
+                  fillOpacity={dimmed ? 0.4 : 1}
+                  strokeWidth={chosen ? 8 : 3}
+                  strokeLinejoin="round"
+                  className={`transition-all ${
+                    chosen ? 'stroke-text-primary' : 'stroke-background-surface'
+                  } ${soldOut ? 'cursor-not-allowed' : 'cursor-pointer hover:brightness-110'}`}
+                  aria-pressed={
+                    soldOut || standingZone || activeSectionId === undefined
+                      ? undefined
+                      : activeSectionId === section.id
+                  }
+                  onClick={soldOut || standingZone ? undefined : () => onSelect(section.id)}
+                  /*
+                    Keyboard reachability on an SVG shape needs all of this: a role, a
+                    tabindex, and a key handler. Without it the entire venue is mouse-only,
+                    which for a page whose only job is choosing a seat means the page has no
+                    keyboard path at all.
+                  */
+                  role={soldOut || standingZone ? undefined : 'button'}
+                  tabIndex={soldOut || standingZone ? undefined : 0}
+                  aria-label={describe(section, formatPrice)}
+                  onKeyDown={
+                    soldOut || standingZone
+                      ? undefined
+                      : (e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            onSelect(section.id);
+                          }
+                        }
+                  }
+                />
+                {fill !== 'plenty' ? (
+                  <polygon
+                    points={points}
+                    aria-hidden
+                    className="pointer-events-none"
+                    opacity={dimmed ? 0.4 : 1}
+                    fill={
+                      soldOut
+                        ? `url(#${uid}-none)`
+                        : `url(#${uid}-few-${isDarkFill(paint.fill) ? 'light' : 'dark'})`
+                    }
+                  />
+                ) : null}
                 <text
                   x={cx}
-                  y={cy + 22}
+                  y={cy}
                   textAnchor="middle"
-                  className="pointer-events-none fill-text-primary/80 text-[15px] font-medium uppercase"
+                  fill={paint.text}
+                  // A halo in the block's own colour, so stripes never run through the letters.
+                  stroke={paint.fill}
+                  strokeWidth={6}
+                  paintOrder="stroke"
+                  className="pointer-events-none text-[22px] font-bold"
                 >
-                  Standing
+                  {section.name}
                 </text>
-              ) : null}
-              {section.priceMinorFrom !== null && !soldOut && !standingZone ? (
-                <text
-                  x={cx}
-                  y={cy + 22}
-                  textAnchor="middle"
-                  className="pointer-events-none fill-text-primary/80 text-[16px]"
-                >
-                  {formatPrice(section.priceMinorFrom)}
-                </text>
-              ) : null}
-            </g>
-          );
-        })}
+                {second ? (
+                  <text
+                    x={cx}
+                    y={cy + 24}
+                    textAnchor="middle"
+                    fill={paint.text}
+                    // A halo in the block's own colour, so stripes never run through the letters.
+                    stroke={paint.fill}
+                    strokeWidth={6}
+                    paintOrder="stroke"
+                    className="pointer-events-none text-[18px] font-semibold"
+                  >
+                    {second}
+                  </text>
+                ) : null}
+              </g>
+            );
+          })}
       </svg>
 
-      {availabilityLegend ? (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-caption text-text-secondary">
-          <LegendSwatch className="bg-action-primary/70" label="Seats available" />
-          <LegendSwatch className="bg-status-warning/60" label="Almost full" />
-          <LegendSwatch className="bg-text-muted/20" label="Sold out" />
+      {categoryKey.length > 0 || availabilityLegend ? (
+        <div
+          className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-caption text-text-secondary"
+          data-testid="venue-map-key"
+        >
+          {categoryKey.map(([name, hex]) => (
+            <span key={name} className="flex items-center gap-1.5">
+              <span
+                className="inline-block h-3 w-3 rounded-sm border border-border"
+                style={{ backgroundColor: hex }}
+                aria-hidden="true"
+              />
+              {name}
+            </span>
+          ))}
+          {availabilityLegend ? (
+            <>
+              <span className="flex items-center gap-1.5">
+                <span
+                  className="inline-block h-3 w-3 rounded-sm border border-border"
+                  style={{
+                    backgroundImage:
+                      'repeating-linear-gradient(45deg, rgba(0,0,0,0.45) 0 2px, transparent 2px 5px)',
+                  }}
+                  aria-hidden="true"
+                />
+                Striped: almost full
+              </span>
+              <LegendSwatch className="border border-border bg-[#E2E8F0]" label="Grey: sold out" />
+            </>
+          ) : null}
         </div>
       ) : null}
 

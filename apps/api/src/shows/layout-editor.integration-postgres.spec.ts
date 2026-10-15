@@ -218,6 +218,14 @@ describe('integration-real-postgres: the seat layout editor', () => {
       ['Front', 7500],
       ['Rear', 4999],
     ]);
+    // Each block on the map carries its category colour, so a buyer can tell the areas apart.
+    if (preview.view !== 'overview') throw new Error('expected a venue overview');
+    const colourOf = new Map(preview.categories.map((c) => [c.name, c.colorHex]));
+    const front1 = preview.sections.find((s) => s.name === 'Front 1');
+    const rear1 = preview.sections.find((s) => s.name === 'Rear 1');
+    expect(front1).toMatchObject({ categoryName: 'Front', colorHex: colourOf.get('Front') });
+    expect(rear1).toMatchObject({ categoryName: 'Rear', colorHex: colourOf.get('Rear') });
+    expect(colourOf.get('Front')).not.toBe(colourOf.get('Rear'));
   });
 
   describe('a room of rows, shaped seat by seat', () => {
