@@ -102,7 +102,11 @@ export default function FindBookingPage() {
 
       <p className="text-caption text-text-muted">
         {g('findHaveAccount')}{' '}
-        <Link href="/login" className="text-action-primary underline">
+        {/* Somebody looking for a booking who has an account wants their tickets. */}
+        <Link
+          href={`/login?next=${encodeURIComponent('/account/tickets')}`}
+          className="text-action-primary underline"
+        >
           {a('signIn')}
         </Link>
       </p>

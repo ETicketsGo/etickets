@@ -6,6 +6,10 @@ import { KeyRound, Lock, Mail, Ticket } from 'lucide-react';
 import type { AuthTokens } from '@eticketsgo/shared-types';
 import { api, errorMessage, tokenStore } from './api';
 import { Button, Card, Input } from './components';
+import { nextFromSearch } from './safe-next';
+
+/** Pages of a console that are a dead end straight after signing in (see `finish`). */
+const CONSOLE_SIGN_IN_PAGES = ['/login'] as const;
 
 /**
  * Reusable email/password sign-in card. Reads an optional `?next=` redirect
@@ -103,10 +107,17 @@ export function LoginForm({
           return;
         }
       }
-      const next =
-        (typeof window !== 'undefined' &&
-          new URLSearchParams(window.location.search).get('next')) ||
-        defaultRedirect;
+      /*
+        Only a path on this console. The raw `?next=` was pushed as it came, so a link to
+        `/login?next=https://elsewhere` sent somebody who had just typed a password AND an
+        authenticator code to any site the link's author chose. `/login` itself falls back too:
+        it left the person on the form they had just filled, as if signing in had failed.
+      */
+      const next = nextFromSearch(
+        typeof window !== 'undefined' ? window.location.search : '',
+        defaultRedirect,
+        CONSOLE_SIGN_IN_PAGES,
+      );
       router.push(next);
     }
   };

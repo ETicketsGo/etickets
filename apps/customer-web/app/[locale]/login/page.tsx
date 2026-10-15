@@ -9,7 +9,7 @@ import { Button, Card, Input } from '@/components/ui';
 import { Link } from '@/i18n/navigation';
 import { useTranslations } from 'next-intl';
 import { PhoneSignIn } from '@/components/phone-sign-in';
-import { safeNextPath } from '@eticketsgo/web-kit';
+import { adminConsoleOrigin, afterSignIn } from '@/lib/sign-in-return';
 
 function LoginForm() {
   const a = useTranslations('storefront.auth');
@@ -17,8 +17,9 @@ function LoginForm() {
   const g = useTranslations('storefront.guest');
   const router = useRouter();
   const params = useSearchParams();
-  // Only a path on this site: an unchecked `next` made sign-in a redirect to any host.
-  const next = safeNextPath(params.get('next'), '/account/tickets');
+  // Only a path on this site: an unchecked `next` made sign-in a redirect to any host. With no
+  // usable `next`, the home page - not "My tickets" (see lib/sign-in-return).
+  const next = afterSignIn(params.get('next'));
   // Carried to sign-up, so creating an account on the way to a purchase ends at the purchase.
   const registerHref = params.get('next')
     ? `/register?next=${encodeURIComponent(next)}`
@@ -56,17 +57,27 @@ function LoginForm() {
   const [email, setEmail] = useState(() => params.get('email') ?? '');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
+  // Set when the account is a back-office one, which signs in at the admin console instead.
+  const [backOffice, setBackOffice] = useState(false);
+  const [adminOrigin, setAdminOrigin] = useState<string | null>(null);
+  useEffect(() => setAdminOrigin(adminConsoleOrigin(window.location)), []);
   const [loading, setLoading] = useState(false);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setBackOffice(false);
     setLoading(true);
     try {
       const tokens = await api.login({ email, password });
       tokenStore.set(tokens);
       router.push(next);
     } catch (err) {
+      if (err instanceof ApiRequestError && err.code === 'MFA_REQUIRED') {
+        // The password was right; this account works in the admin console, not here.
+        setBackOffice(true);
+        return;
+      }
       setError(err instanceof ApiRequestError ? err.message : a('loginFailed'));
     } finally {
       setLoading(false);
@@ -139,6 +150,19 @@ function LoginForm() {
               <p role="alert" className="text-caption text-status-error">
                 {error}
               </p>
+            )}
+            {backOffice && (
+              <div role="alert" className="space-y-2 text-caption text-text-secondary">
+                <p>{a('backOfficeSignIn')}</p>
+                {adminOrigin && (
+                  <a
+                    href={`${adminOrigin}/login?email=${encodeURIComponent(email)}`}
+                    className="font-medium text-action-primary underline"
+                  >
+                    {a('backOfficeOpenConsole')}
+                  </a>
+                )}
+              </div>
             )}
             <Button type="submit" className="w-full" loading={loading}>
               {a('signIn')}
