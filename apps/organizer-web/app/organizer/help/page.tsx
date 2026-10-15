@@ -1,6 +1,6 @@
 'use client';
 
-import { ChevronRight, PlayCircle, Mail, Rocket } from 'lucide-react';
+import { ChevronRight, Mail, Rocket } from 'lucide-react';
 import {
   BUSINESS_DETAILS,
   ButtonLink,
@@ -28,15 +28,15 @@ const GETTING_STARTED = [
   },
   {
     title: 'Add a venue',
-    body: 'Add the place your experiences happen — you can also create one inline while building an event.',
+    body: 'Add the place your events happen. You can also add one while creating an event.',
     href: '/organizer/venues?new=1',
     cta: 'Add a venue',
   },
   {
-    title: 'Create your first experience',
+    title: 'Create your first event',
     body: 'Use the guided wizard to add sessions and ticket types, then submit for review to publish.',
     href: '/organizer/events/new',
-    cta: 'Create experience',
+    cta: 'Create event',
   },
 ];
 
@@ -112,39 +112,6 @@ export default function HelpPage() {
         </div>
       </Card>
 
-      {/* Product walkthrough (video placeholder) */}
-      <Card title="Product walkthrough">
-        <div
-          className="flex aspect-video w-full flex-col items-center justify-center rounded-lg border border-dashed border-border bg-background-subtle/50 text-center"
-          role="img"
-          aria-label="Product walkthrough video — coming soon"
-        >
-          <span className="flex h-14 w-14 items-center justify-center rounded-full bg-tint-primary text-action-primary">
-            <PlayCircle className="h-7 w-7" />
-          </span>
-          <p className="mt-4 font-semibold text-text-primary">Product walkthrough — coming soon</p>
-          <p className="mt-1 max-w-sm text-caption text-text-muted">
-            A guided video tour of creating events, selling tickets, and checking in attendees is on
-            the way.
-          </p>
-        </div>
-      </Card>
-
-      {/* FAQ */}
-      <Card title="Frequently asked questions">
-        <div className="divide-y divide-border">
-          {FAQS.map((f) => (
-            <details key={f.q} className="group py-3">
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 font-medium text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50">
-                {f.q}
-                <ChevronRight className="h-4 w-4 shrink-0 text-text-muted transition-transform group-open:rotate-90" />
-              </summary>
-              <p className="mt-2 text-[0.9375rem] text-text-secondary">{f.a}</p>
-            </details>
-          ))}
-        </div>
-      </Card>
-
       {/*
         Support. This used to say "use Send feedback below - it reaches us", and Send feedback is a
         satisfaction survey that will not send without a star rating. A question now goes to the
@@ -160,6 +127,21 @@ export default function HelpPage() {
           </ButtonLink>
         </p>
       )}
+
+      {/* FAQ */}
+      <Card title="Frequently asked questions">
+        <div className="divide-y divide-border">
+          {FAQS.map((f) => (
+            <details key={f.q} className="group py-3">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 font-medium text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50">
+                {f.q}
+                <ChevronRight className="h-4 w-4 shrink-0 text-text-muted transition-transform group-open:rotate-90" />
+              </summary>
+              <p className="mt-2 text-[0.9375rem] text-text-secondary">{f.a}</p>
+            </details>
+          ))}
+        </div>
+      </Card>
 
       {/* Organizer satisfaction survey: a rating, not a way to ask for help. */}
       <OrganizerFeedback />
