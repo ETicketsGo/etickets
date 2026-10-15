@@ -33,7 +33,8 @@ test.describe('QA: buying a seat off a venue map', () => {
     await page.getByLabel('Email').fill(uniqueEmail());
     await page.getByLabel(/Password/).fill(PW);
     await page.getByRole('button', { name: 'Create account' }).click();
-    await expect(page).toHaveURL(/\/account\/tickets/, { timeout: 40_000 });
+    // Sign-up with nowhere to return to ends on the storefront home, not My tickets.
+    await expect(page).toHaveURL(/^https?:\/\/[^/]+\/?$/, { timeout: 40_000 });
 
     await page.goto(`${CUSTOMER}/shows/${SESSION_ID}`, { waitUntil: 'networkidle' });
 

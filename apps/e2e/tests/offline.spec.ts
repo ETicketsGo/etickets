@@ -10,7 +10,8 @@ async function registerAndBook(page: Page, name: string, email: string, qty: str
   await page.getByLabel('Email').fill(email);
   await page.getByLabel(/Password/).fill(NEW_ACCOUNT_PASSWORD);
   await page.getByRole('button', { name: 'Create account' }).click();
-  await expect(page).toHaveURL(/\/account\/tickets/, { timeout: 20_000 });
+  // Sign-up with nowhere to return to ends on the storefront home, not My tickets.
+  await expect(page).toHaveURL(/^https?:\/\/[^/]+\/?$/, { timeout: 20_000 });
 
   await page.goto(`${CUSTOMER}/events`);
   await openPaidEvent(page);
@@ -92,8 +93,9 @@ test('offline privacy: logout clears cache and a second user cannot see it', asy
   await page.getByRole('menuitem', { name: 'Sign out' }).click();
   await expect(page).toHaveURL(`${CUSTOMER}/`);
 
-  // A second user registers and opens the wallet — must not see A's ticket
-  await page.goto(`${CUSTOMER}/register`);
+  // A second user registers and opens the wallet — must not see A's ticket. Sign-up ends on
+  // the home page unless it was given somewhere to return to, so it is given the wallet.
+  await page.goto(`${CUSTOMER}/register?next=${encodeURIComponent('/account/tickets')}`);
   await page.getByLabel('Full name').fill('User B');
   await page.getByLabel('Email').fill(uniqueEmail('userB'));
   await page.getByLabel(/Password/).fill(NEW_ACCOUNT_PASSWORD);

@@ -30,7 +30,8 @@ test('customer registers, books a ticket, pays, and sees a QR ticket', async ({ 
   await page.getByLabel('Email').fill(uniqueEmail('cust'));
   await page.getByLabel(/Password/).fill(NEW_ACCOUNT_PASSWORD);
   await page.getByRole('button', { name: 'Create account' }).click();
-  await expect(page).toHaveURL(/\/account\/tickets/, { timeout: 20_000 });
+  // Sign-up with nowhere to return to ends on the storefront home, not My tickets.
+  await expect(page).toHaveURL(/^https?:\/\/[^/]+\/?$/, { timeout: 20_000 });
 
   // Browse and open an event that charges for a ticket — this test goes on to pay.
   await page.goto(`${CUSTOMER}/events`);
@@ -130,7 +131,8 @@ test('attendee identity: owner invites, recipient claims, ticket moves to their 
   await page.getByLabel('Email').fill(uniqueEmail('owner'));
   await page.getByLabel(/Password/).fill(NEW_ACCOUNT_PASSWORD);
   await page.getByRole('button', { name: 'Create account' }).click();
-  await expect(page).toHaveURL(/\/account\/tickets/, { timeout: 20_000 });
+  // Sign-up with nowhere to return to ends on the storefront home, not My tickets.
+  await expect(page).toHaveURL(/^https?:\/\/[^/]+\/?$/, { timeout: 20_000 });
 
   await page.goto(`${CUSTOMER}/events`);
   await openPaidEvent(page);
@@ -160,7 +162,8 @@ test('attendee identity: owner invites, recipient claims, ticket moves to their 
   await page.getByLabel('Email').fill(attendeeEmail);
   await page.getByLabel(/Password/).fill(NEW_ACCOUNT_PASSWORD);
   await page.getByRole('button', { name: 'Create account' }).click();
-  await expect(page).toHaveURL(/\/account\/tickets/, { timeout: 20_000 });
+  // Sign-up with nowhere to return to ends on the storefront home, not My tickets.
+  await expect(page).toHaveURL(/^https?:\/\/[^/]+\/?$/, { timeout: 20_000 });
 
   await page.goto(inviteLink);
   await page.getByRole('button', { name: 'Accept ticket' }).click();
@@ -181,7 +184,8 @@ test('secure sharing: owner creates a guest link, recipient opens it, then it is
   await page.getByLabel('Email').fill(uniqueEmail('sharer'));
   await page.getByLabel(/Password/).fill(NEW_ACCOUNT_PASSWORD);
   await page.getByRole('button', { name: 'Create account' }).click();
-  await expect(page).toHaveURL(/\/account\/tickets/, { timeout: 20_000 });
+  // Sign-up with nowhere to return to ends on the storefront home, not My tickets.
+  await expect(page).toHaveURL(/^https?:\/\/[^/]+\/?$/, { timeout: 20_000 });
 
   await page.goto(`${CUSTOMER}/events`);
   await openPaidEvent(page);
@@ -235,7 +239,8 @@ test('experience wallet: placeholder items appear behind a feature flag and filt
   await page.getByLabel('Email').fill(uniqueEmail('wallet'));
   await page.getByLabel(/Password/).fill(NEW_ACCOUNT_PASSWORD);
   await page.getByRole('button', { name: 'Create account' }).click();
-  await expect(page).toHaveURL(/\/account\/tickets/, { timeout: 20_000 });
+  // Sign-up with nowhere to return to ends on the storefront home, not My tickets.
+  await expect(page).toHaveURL(/^https?:\/\/[^/]+\/?$/, { timeout: 20_000 });
 
   await page.goto(`${CUSTOMER}/events`);
   await openPaidEvent(page);

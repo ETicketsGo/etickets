@@ -406,7 +406,12 @@ export function GuestBookingNotHere({ bookingId }: { bookingId?: string }) {
         <ButtonLink href="/booking/find" className="w-full sm:flex-1">
           {g('findTitle')}
         </ButtonLink>
-        <ButtonLink href="/login" variant="outline" className="w-full sm:flex-1">
+        {/* Signing in here is to see the tickets: sign-in alone now ends on the home page. */}
+        <ButtonLink
+          href={`/login?next=${encodeURIComponent('/account/tickets')}`}
+          variant="outline"
+          className="w-full sm:flex-1"
+        >
           {g('signIn')}
         </ButtonLink>
       </div>

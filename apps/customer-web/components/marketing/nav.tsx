@@ -4,6 +4,7 @@ import { usePathname } from '@/i18n/navigation';
 import { useEffect, useState } from 'react';
 import { Menu, X } from 'lucide-react';
 import { isSignedIn } from '@/lib/auth-flag';
+import { useSignInHref } from '@/lib/use-sign-in-href';
 import { Link } from '@/i18n/navigation';
 import { LanguageSwitcher } from '@/components/language-switcher';
 import { useTranslations } from 'next-intl';
@@ -30,6 +31,8 @@ export function MarketingNav() {
   const m = useTranslations('common.marketing');
   const a = useTranslations('storefront.auth');
   const pathname = usePathname();
+  // Back to this page after signing in, not to "My tickets".
+  const signInHref = useSignInHref();
   const [open, setOpen] = useState(false);
   // The logo always goes to the home page (/). Only the right-hand actions adapt to
   // auth so a signed-in visitor sees a way into the app instead of "Sign in".
@@ -93,7 +96,7 @@ export function MarketingNav() {
           ) : (
             <>
               <Link
-                href="/login"
+                href={signInHref}
                 className="rounded-lg px-3 py-2 text-[0.9375rem] font-medium text-text-secondary transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
               >
                 {a('signIn')}
@@ -168,7 +171,7 @@ export function MarketingNav() {
               ) : (
                 <>
                   <Link
-                    href="/login"
+                    href={signInHref}
                     className="rounded-xl border border-border bg-background-surface px-4 py-2.5 text-center text-[0.9375rem] font-semibold text-text-primary"
                   >
                     {a('signIn')}

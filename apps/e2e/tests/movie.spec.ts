@@ -8,7 +8,8 @@ test('customer books a movie seat and pays', async ({ page }) => {
   await page.getByLabel('Email').fill(uniqueEmail('movie'));
   await page.getByLabel(/Password/).fill(NEW_ACCOUNT_PASSWORD);
   await page.getByRole('button', { name: 'Create account' }).click();
-  await expect(page).toHaveURL(/\/account\/tickets/, { timeout: 20_000 });
+  // Sign-up with nowhere to return to ends on the storefront home, not My tickets.
+  await expect(page).toHaveURL(/^https?:\/\/[^/]+\/?$/, { timeout: 20_000 });
 
   // Movie discovery renders
   await page.goto(`${CUSTOMER}/movies`);
