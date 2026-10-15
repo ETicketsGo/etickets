@@ -21,6 +21,7 @@ import {
   filterSessions,
   layoutLabel,
   resolveLayout,
+  roomsAtVenue,
   seatingMix,
   sessionSeating,
   spaceFor,
@@ -270,7 +271,7 @@ export default function SeatingPage() {
       <ChangeSeatingDialog
         eventId={id}
         session={changing}
-        rooms={rooms.data}
+        rooms={roomsAtVenue(rooms.data, event.venue?.id)}
         roomsFailed={rooms.isError}
         roomsLoading={rooms.isLoading}
         whenLabel={changing ? timeAtVenue(changing.startsAt, event.venue) : ''}

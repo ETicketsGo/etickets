@@ -933,6 +933,8 @@ export class EventsService {
         */
         OR: [{ venue: { organizationId } }, { cinema: { organizationId } }],
         seatMaps: { some: { status: 'PUBLISHED' } },
+        // A space taken out of use is not offered for new sessions; `assertRoomIsUsable` agrees.
+        status: { not: 'INACTIVE' },
       },
       select: {
         id: true,
@@ -1208,15 +1210,7 @@ export class EventsService {
     }
   }
 
-  /**
-   * The room belongs to this organization, is at the event's venue, and has a published
-   * layout. Shared with addSession.
-   *
-   * The venue rule: an event happens at ONE venue, and its currency, tax and time zone follow
-   * that venue. A space at another venue (the console offered every space of every venue) put
-   * a Bengaluru event's date in a Boise room - seats priced from one place, sold in another's
-   * money. A space not yet linked to any venue (an old cinema screen) is let through as before.
-   */
+  /** The room belongs to this organization and has a published layout. Shared with addSession. */
   private async assertRoomIsUsable(
     screenId: string,
     organizationId: string,
@@ -1226,9 +1220,10 @@ export class EventsService {
       where: { id: screenId },
       select: {
         id: true,
+        status: true,
         venueId: true,
         venue: { select: { organizationId: true } },
-        cinema: { select: { organizationId: true } },
+        cinema: { select: { organizationId: true, venueId: true } },
         seatMaps: { where: { status: 'PUBLISHED' }, select: { id: true }, take: 1 },
       },
     });
@@ -1239,12 +1234,30 @@ export class EventsService {
         HttpStatus.NOT_FOUND,
       );
     }
-    if (eventVenueId && screen.venueId && screen.venueId !== eventVenueId) {
+    /*
+      The space must be IN the event's venue.
+
+      Only the organization was checked, so a session of an event at one venue could be seated
+      in a space at another: the listing said one address, the ticket's seat map was in a
+      different building. Known on both sides or not checked - an event whose venue is not set
+      yet has nothing to disagree with.
+    */
+    const spaceVenueId = screen.venueId ?? screen.cinema?.venueId ?? null;
+    if (eventVenueId && spaceVenueId && spaceVenueId !== eventVenueId) {
       throw new AppException(
         ErrorCodes.CONFLICT,
-        "That space is at a different venue from this event. Choose a space at the event's venue.",
+        "That space is in a different venue from this event. Choose a space in the event's venue.",
         HttpStatus.CONFLICT,
-        { screenId, reason: 'SPACE_AT_OTHER_VENUE' },
+        { screenId, reason: 'SPACE_IN_OTHER_VENUE' },
+      );
+    }
+    // Taken out of use: nothing new is scheduled in it. Sessions already there are untouched.
+    if (screen.status === 'INACTIVE') {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'That space is out of use. Put it back in use, or choose another space.',
+        HttpStatus.CONFLICT,
+        { screenId, reason: 'SPACE_OUT_OF_USE' },
       );
     }
     if (screen.seatMaps.length === 0) {

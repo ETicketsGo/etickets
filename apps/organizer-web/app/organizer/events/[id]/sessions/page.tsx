@@ -26,7 +26,7 @@ import {
   SeatingHelp,
   roomOptionLabel,
 } from '@/components/events/change-seating-dialog';
-import { sessionSeating } from '@/components/events/seating-model';
+import { roomsAtVenue, sessionSeating } from '@/components/events/seating-model';
 import {
   CancelSessionDialog,
   EditSessionTimeDialog,
@@ -65,16 +65,9 @@ export default function SessionsTab() {
     two options had the same value and either one sent only the space, leaving the server to
     guess which configuration was meant. Keying by `layoutId` makes the choice the organizer's.
   */
-  /*
-    Only the spaces at THIS event's venue. The list used to offer every space of every venue in
-    the organization - a Bengaluru event was offered Boise and Hyderabad rooms, and the server
-    took them. It now refuses a space at another venue; this keeps the choice to the ones it
-    accepts. A space not yet linked to a venue (an old cinema screen) is still offered.
-  */
-  const venueRooms = (rooms.data ?? []).filter(
-    (r) => !r.venueId || !event?.venue?.id || r.venueId === event.venue.id,
-  );
-  const roomByLayout = (layoutId: string) => venueRooms.find((r) => r.layoutId === layoutId);
+  // Only the spaces of this event's venue. See `roomsAtVenue`.
+  const venueRooms = roomsAtVenue(rooms.data, event?.venue?.id);
+  const roomByLayout = (layoutId: string) => venueRooms?.find((r) => r.layoutId === layoutId);
   const seatingFor = (layoutId: string) => {
     const room = roomByLayout(layoutId);
     return room ? { screenId: room.id, seatMapId: room.layoutId } : null;
@@ -264,14 +257,14 @@ export default function SessionsTab() {
               onChange={(e) => setForm({ ...form, layoutId: e.target.value })}
             >
               <option value={GENERAL_ADMISSION}>General admission — no seat map</option>
-              {venueRooms.map((r) => (
+              {(venueRooms ?? []).map((r) => (
                 <option key={r.layoutId} value={r.layoutId}>
                   {roomOptionLabel(r)}
                 </option>
               ))}
             </Select>
             <SeatingHelp
-              rooms={rooms.data ? venueRooms : undefined}
+              rooms={venueRooms}
               chosen={roomByLayout(form.layoutId)}
               failed={rooms.isError}
             />
@@ -291,7 +284,7 @@ export default function SessionsTab() {
       <ChangeSeatingDialog
         eventId={id}
         session={editing}
-        rooms={rooms.data ? venueRooms : undefined}
+        rooms={venueRooms}
         roomsFailed={rooms.isError}
         roomsLoading={rooms.isLoading}
         whenLabel={editing ? dateTime(editing.startsAt, undefined, venueTz) : ''}

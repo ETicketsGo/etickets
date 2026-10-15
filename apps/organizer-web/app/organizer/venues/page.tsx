@@ -23,6 +23,7 @@ import {
   locationFrom,
   useToast,
   errorMessage,
+  venueAddressLine,
   type VenueSpace,
   type LocationValue,
   type Venue,
@@ -86,6 +87,7 @@ function SpaceRow({ space }: { space: VenueSpace }) {
           </Link>
           <p className="break-words text-caption text-text-muted [overflow-wrap:anywhere]">
             {spaceKindLabel(space)}
+            {space.status === 'INACTIVE' ? ' · Out of use' : ''}
           </p>
         </div>
       </div>
@@ -240,7 +242,7 @@ export default function VenuesPage() {
         description="Where your events happen, and the spaces inside them. A seating plan belongs to a space."
         action={
           <div className="flex gap-2">
-            <ButtonLink href="/organizer/cinemas/new" variant="outline">
+            <ButtonLink href="/organizer/spaces/new" variant="outline">
               New space
             </ButtonLink>
             <Button onClick={openCreate}>New venue</Button>
@@ -351,11 +353,7 @@ export default function VenuesPage() {
                     </div>
                     <p className="mt-0.5 flex min-w-0 items-start gap-1.5 text-caption text-text-secondary">
                       <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-text-muted" aria-hidden />
-                      <span className="min-w-0 break-words">
-                        {[venue.address, venue.city, venue.region, venue.country]
-                          .filter(Boolean)
-                          .join(', ')}
-                      </span>
+                      <span className="min-w-0 break-words">{venueAddressLine(venue)}</span>
                     </p>
                     {/*
                       Said on the venue, because "3 spaces" and "3 spaces, 1 of which can sell a
@@ -395,7 +393,7 @@ export default function VenuesPage() {
                       and lets the organizer decide, instead of reading as something undone.
                     */
                     <p className="text-caption text-text-secondary">
-                      No spaces here. Add one if you want buyers to pick their own seat.
+                      No spaces here yet. Add a cinema screen, a hall, an arena or a standing floor.
                     </p>
                   )}
                   {/*
@@ -403,7 +401,7 @@ export default function VenuesPage() {
                     second venue with the same name.
                   */}
                   <ButtonLink
-                    href={`/organizer/cinemas/new?venueId=${venue.id}`}
+                    href={`/organizer/spaces/new?venueId=${venue.id}`}
                     variant="tinted"
                     size="sm"
                     icon={Plus}

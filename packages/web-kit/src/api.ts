@@ -1,4 +1,5 @@
 import type {
+  SpaceKind,
   EventSaleState,
   SaleReason,
   SaleStateKind,
@@ -1110,12 +1111,21 @@ export const api = {
     allSpaces: (organizationId: string) =>
       request<VenueSpace[]>(`/venues/spaces${qs({ organizationId })}`),
 
-    /** Add a space to a venue. No cinema involved. */
-    addSpace: (venueId: string, body: { name: string; screenType?: string; capacity: number }) =>
+    /**
+     * Add a space to a venue. A cinema screen is filed under the venue's cinema (made from the
+     * venue the first time); every other kind of space needs no cinema.
+     */
+    addSpace: (
+      venueId: string,
+      body: { name: string; screenType?: string; capacity: number; kind?: SpaceKind },
+    ) =>
       request<VenueSpace>(`/venues/${venueId}/spaces`, {
         method: 'POST',
         body: JSON.stringify(body),
       }),
+
+    /** One space, for its own page: venue, cinema, layouts and how many sessions use it. */
+    space: (spaceId: string) => request<SpaceDetail>(`/venues/spaces/${spaceId}`),
   },
 
   movies: {
@@ -3513,6 +3523,11 @@ export interface VenueSpace {
   cinemaId: string | null;
   cinemaName: string | null;
   /**
+   * What kind of place it is, as the API reads it: a cinema's screen is a cinema screen even
+   * when it was created before the kind was stored. Null when nobody has said yet.
+   */
+  kind?: SpaceKind | null;
+  /**
    * EVERY published configuration of this space, current version of each.
    *
    * A space has named layouts - an arena's basketball bowl and its end-stage concert are both
@@ -3521,6 +3536,33 @@ export interface VenueSpace {
   layouts?: { id: string; name: string; layoutKind: string; version: number }[];
   /** The first of them. Kept for callers that only ever wanted one. */
   layout: { id: string; name: string | null; layoutKind: string; version: number } | null;
+}
+
+/** A space on its own page: where it is, what it is, what it sells and what uses it. */
+export interface SpaceDetail {
+  id: string;
+  organizationId: string;
+  name: string;
+  capacity: number;
+  status: string;
+  screenType: string;
+  kind: SpaceKind | null;
+  venue: {
+    id: string;
+    name: string;
+    city: string;
+    address: string | null;
+    country: string | null;
+    region: string | null;
+    timezone: string | null;
+  } | null;
+  cinemaId: string | null;
+  cinemaName: string | null;
+  layouts: { id: string; name: string; layoutKind: string; version: number }[];
+  /** Every session ever scheduled in it. A space with any cannot be deleted. */
+  sessions: number;
+  /** Sessions still to come that are not cancelled. */
+  upcomingSessions: number;
 }
 
 export interface Venue {
@@ -3614,6 +3656,7 @@ export interface ScreenBody {
   name: string;
   screenType: string;
   capacity: number;
+  kind?: SpaceKind;
   status?: string;
   /** Recorded on the audit entry when the operational state changes. */
   statusReason?: string;

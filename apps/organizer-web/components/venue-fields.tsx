@@ -1,6 +1,6 @@
 'use client';
 
-import { Input, Select, LocationFields, type Venue } from '@eticketsgo/web-kit';
+import { Input, Select, LocationFields, venueAddressLine, type Venue } from '@eticketsgo/web-kit';
 import { type VenueDraft } from './venue-draft';
 
 /*
@@ -91,19 +91,18 @@ export function VenueFields({
  * honest control; asking again is an invitation to disagree with yourself.
  */
 export function InheritedVenueLocation({ venue }: { venue: Venue }) {
-  const line = [venue.city, venue.region, venue.country].filter(Boolean).join(', ');
+  // One line, without the city or state a street box sometimes repeats.
+  const line = venueAddressLine(venue);
   return (
     <div className="rounded-lg border border-border bg-background-subtle/50 p-4">
       <p className="text-caption font-semibold uppercase tracking-wide text-text-secondary">
         Location
       </p>
       <p className="mt-1 font-medium text-text-primary">{venue.name}</p>
-      {venue.address ? (
-        <p className="text-[0.9375rem] text-text-secondary">{venue.address}</p>
-      ) : null}
       <p className="text-[0.9375rem] text-text-secondary">{line}</p>
       <p className="mt-1 text-caption text-text-muted">
-        {venue.timezone} &middot; inherited from the venue
+        {venue.timezone ? <>{venue.timezone} &middot; </> : null}Inherited from the venue. Not asked
+        again.
       </p>
     </div>
   );

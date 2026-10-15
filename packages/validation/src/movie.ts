@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { ianaTimeZoneSchema } from './common';
-import { MovieStatus, VENUE_TEMPLATE_KEYS } from '@eticketsgo/shared-types';
+import { MovieStatus, SPACE_KIND_VALUES, VENUE_TEMPLATE_KEYS } from '@eticketsgo/shared-types';
 
 export const createMovieSchema = z.object({
   title: z.string().trim().min(1).max(200),
@@ -86,6 +86,12 @@ export const createScreenSchema = z.object({
    * It is a stated figure, not inventory: what is actually sellable comes from the layout.
    */
   capacity: z.number().int().min(1).max(250_000),
+  /**
+   * What kind of place it is - a cinema screen, a hall, an arena, a standing floor. Asked once,
+   * here, and then used to offer only the layout templates that fit. Optional so every caller
+   * written before it existed keeps working.
+   */
+  kind: z.enum(SPACE_KIND_VALUES).optional(),
 });
 export type CreateScreenInput = z.infer<typeof createScreenSchema>;
 

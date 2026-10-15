@@ -290,7 +290,7 @@ describe('integration-real-postgres: a seated event', () => {
             endsAt: new Date(Date.now() + 33 * 86_400_000 + 3 * 3_600_000),
             screenId: farRoom.id,
           } as never),
-        ).rejects.toMatchObject({ details: { reason: 'SPACE_AT_OTHER_VENUE' } });
+        ).rejects.toMatchObject({ details: { reason: 'SPACE_IN_OTHER_VENUE' } });
       } finally {
         await db!.screen.delete({ where: { id: farRoom.id } });
         await db!.cinema.delete({ where: { id: hall.id } });
