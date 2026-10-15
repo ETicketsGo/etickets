@@ -19,6 +19,7 @@ import {
   type BackupFreshness,
 } from './backup-freshness';
 import { OpsAlertService, type OpsAlertStatus } from './alerts/ops-alert.service';
+import { PilotGuardService, type PilotStatus } from '../pilot/pilot-guard.service';
 
 type CheckStatus = 'up' | 'down';
 
@@ -71,6 +72,12 @@ export interface OpsHealth {
    * a system that is down.
    */
   opsAlerts: OpsAlertStatus;
+  /**
+   * The controlled India pilot: whether it is on, the limits in force, today's counted sales
+   * against the cap, and the last automatic pause. Informational, like `opsAlerts`. Null when
+   * the pilot guard is not wired (a hand-built service in a test).
+   */
+  pilot: PilotStatus | null;
 }
 
 /** What health reports when the alert service is not wired (a hand-built service in a test). */
@@ -128,6 +135,7 @@ export class OpsService implements OnModuleDestroy {
     // Optional so a service built by hand in a unit test needs no audit double.
     @Optional() private readonly audit?: AuditService,
     @Optional() private readonly alerts?: OpsAlertService,
+    @Optional() private readonly pilot?: PilotGuardService,
   ) {}
 
   async onModuleDestroy(): Promise<void> {
@@ -137,12 +145,13 @@ export class OpsService implements OnModuleDestroy {
   // ─────────────────────────── Health ───────────────────────────
 
   async health(): Promise<OpsHealth> {
-    const [database, redis, queue, backup, opsAlerts] = await Promise.all([
+    const [database, redis, queue, backup, opsAlerts, pilot] = await Promise.all([
       this.checkDatabase(),
       this.checkRedis(),
       this.checkQueue(),
       this.checkBackup(),
       this.alerts ? this.alerts.status().catch(() => ALERTS_ABSENT) : ALERTS_ABSENT,
+      this.pilot ? this.pilot.status().catch(() => null) : null,
     ]);
     const appEnv = this.config.get<string>('APP_ENV') ?? null;
     const backupRequired =
@@ -165,6 +174,7 @@ export class OpsService implements OnModuleDestroy {
       nodeEnv: this.config.get<string>('NODE_ENV', 'development'),
       appEnv: this.config.get<string>('APP_ENV') ?? null,
       opsAlerts,
+      pilot,
     };
   }
 

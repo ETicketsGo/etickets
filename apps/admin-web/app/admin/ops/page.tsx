@@ -26,6 +26,8 @@ import {
   type OpsQueueCheck,
   type OpsFailedJob,
   type OpsAlertsStatus,
+  type OpsPilotStatus,
+  money,
 } from '@eticketsgo/web-kit';
 import { missingDutyNote, useHolds } from '@/lib/capabilities';
 import { backupHealthView } from '@/lib/backup-health';
@@ -124,6 +126,138 @@ function OpsAlertsLine({ alerts }: { alerts?: OpsAlertsStatus }) {
           : 'No alert has been sent yet.'}
       </p>
     </div>
+  );
+}
+
+/**
+ * The controlled India pilot, read-only: whether it is on, the limits in force, today's counted
+ * sales against the cap, and the last automatic pause. Every limit is set with PILOT_*
+ * variables on the API and the worker (docs/go-live/PILOT-GUARD.md), never from here.
+ */
+function PilotCard({ pilot }: { pilot?: OpsPilotStatus | null }) {
+  if (pilot === undefined) return null;
+  const tone: BadgeTone = !pilot
+    ? 'neutral'
+    : pilot.mode === 'off'
+      ? 'neutral'
+      : pilot.valid
+        ? 'success'
+        : 'error';
+  const label = !pilot
+    ? 'Unknown'
+    : pilot.mode === 'off'
+      ? 'Off'
+      : pilot.valid
+        ? 'On'
+        : 'On - misconfigured';
+  const l = pilot?.limits ?? null;
+  const last = pilot?.lastAutoPause ?? null;
+  return (
+    <Card title="Controlled pilot">
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span className="text-sm text-text-muted">Pilot mode</span>
+          <Badge tone={tone}>{label}</Badge>
+          <span className="min-w-0 flex-1 text-sm text-text-secondary [overflow-wrap:anywhere]">
+            {!pilot
+              ? 'The pilot status could not be read.'
+              : pilot.mode === 'off'
+                ? 'Sales follow the normal rules. Set PILOT_MODE=on to apply the pilot limits.'
+                : pilot.valid
+                  ? 'Only sales inside the limits below are accepted.'
+                  : 'Nothing can be sold until the variables below are fixed.'}
+          </span>
+        </div>
+        {pilot && pilot.problems.length > 0 && (
+          <ul className="list-disc space-y-1 pl-5 text-sm text-status-error">
+            {pilot.problems.map((p) => (
+              <li key={p} className="[overflow-wrap:anywhere]">
+                {p}
+              </li>
+            ))}
+          </ul>
+        )}
+        {l && (
+          <dl className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
+            <div className="min-w-0">
+              <dt className="text-text-muted">Organizers allowed</dt>
+              <dd className="font-mono text-caption text-text-primary [overflow-wrap:anywhere]">
+                {l.organizationIds.join(', ')}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-text-muted">Payments</dt>
+              <dd className="text-text-primary">
+                {l.currencies.join(', ')} via {l.providers.join(', ')}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-text-muted">Seating</dt>
+              <dd className="text-text-primary">
+                {l.gaOnly ? 'General admission only. No cinema shows.' : 'Any seating'}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-text-muted">Largest order</dt>
+              <dd className="tabular-nums text-text-primary">
+                {l.currencies.map((c) => money(l.maxOrderMinor, c)).join(' / ')}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-text-muted">Buyers</dt>
+              <dd className="text-text-primary">
+                {l.buyerAllowlistCount > 0
+                  ? `Only ${l.buyerAllowlistCount} listed ${l.buyerAllowlistCount === 1 ? 'address' : 'addresses'}`
+                  : 'Anyone'}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-text-muted">Automatic pause</dt>
+              <dd className="text-text-primary">
+                {l.autoPause
+                  ? `On (webhook rejections: ${l.webhookRejectThreshold} in ${l.webhookWindowMinutes} minutes)`
+                  : 'Off'}
+              </dd>
+            </div>
+          </dl>
+        )}
+        {l && pilot && (
+          <div className="space-y-2">
+            <p className="text-sm text-text-muted">
+              Sales counted today ({pilot.today.day}, India time)
+            </p>
+            {pilot.today.sales.map((s) => {
+              const pct = s.capMinor > 0 ? Math.min(100, (s.countedMinor / s.capMinor) * 100) : 0;
+              return (
+                <div key={s.currency} className="space-y-1">
+                  <p className="text-sm tabular-nums text-text-primary">
+                    {money(s.countedMinor, s.currency)} of {money(s.capMinor, s.currency)}
+                  </p>
+                  <div
+                    className="h-2 w-full overflow-hidden rounded-full bg-background-subtle"
+                    role="img"
+                    aria-label={`${Math.round(pct)} percent of the daily cap`}
+                  >
+                    <div
+                      className={`h-full ${pct >= 100 ? 'bg-status-error' : pct >= 80 ? 'bg-status-warning' : 'bg-status-success'}`}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+            <p className="text-caption text-text-muted">
+              Paid bookings plus unpaid ones still holding tickets.
+            </p>
+          </div>
+        )}
+        <p className="text-sm text-text-secondary [overflow-wrap:anywhere]">
+          {last
+            ? `Last automatic pause: ${dateTime(last.at)}${last.trigger ? ` (${last.trigger})` : ''}, event ${last.eventId ?? 'unknown'}.`
+            : 'No event has been paused automatically.'}
+        </p>
+      </div>
+    </Card>
   );
 }
 
@@ -349,6 +483,8 @@ export default function AdminOps() {
           </div>
         )}
       </Card>
+
+      {h && <PilotCard pilot={h.pilot} />}
 
       {/* Queue health */}
       <Card

@@ -6540,6 +6540,35 @@ export interface OpsHealth {
   backup?: OpsBackupFreshness;
   /** Whether money-critical failures are emailed to operators. Absent on an older API. */
   opsAlerts?: OpsAlertsStatus;
+  /** The controlled India pilot (apps/api/src/pilot). Absent on an older API, null when unwired. */
+  pilot?: OpsPilotStatus | null;
+}
+
+/** The API's PilotStatus. Amounts are integer minor units of each currency. */
+export interface OpsPilotStatus {
+  mode: 'on' | 'off';
+  /** False when pilot mode is on but a variable could not be read: nothing is sellable. */
+  valid: boolean;
+  problems: string[];
+  limits: {
+    organizationIds: string[];
+    currencies: string[];
+    providers: string[];
+    gaOnly: boolean;
+    maxOrderMinor: number;
+    maxDailySalesMinor: number;
+    buyerAllowlistCount: number;
+    autoPause: boolean;
+    webhookRejectThreshold: number;
+    webhookWindowMinutes: number;
+  } | null;
+  today: { day: string; sales: { currency: string; countedMinor: number; capMinor: number }[] };
+  lastAutoPause: {
+    at: string;
+    eventId: string | null;
+    organizationId: string | null;
+    trigger: string | null;
+  } | null;
 }
 
 /** The API's BackupFreshness. 'never' means no evidence row, not proof that no dump exists. */

@@ -218,3 +218,27 @@ function errorFacts(err: unknown): Record<string, string> {
   // Anything else may quote a query or a payload, so only its class is reported.
   return { errorCode: err instanceof Error ? err.name : 'unknown' };
 }
+
+/** The pilot guard paused events on its own. What was paused, and why, so a person can resume. */
+export function pilotAutoPausedAlert(input: {
+  trigger: string;
+  eventIds: string[];
+  bookingId?: string | null;
+  sourceKind: string;
+}): OpsAlert {
+  return {
+    kind: 'PILOT_AUTO_PAUSED',
+    key: input.trigger,
+    summary: `Pilot sales paused: ${input.eventIds.length} event(s) after ${input.trigger}`,
+    facts: {
+      trigger: input.trigger,
+      sourceAlert: input.sourceKind,
+      pausedEventIds: input.eventIds.join(' '),
+      bookingId: input.bookingId,
+    },
+    where:
+      'Admin console > Events: each paused event shows as paused by an admin, and only an ' +
+      'admin can put it back on sale. Audit log action EVENT_AUTO_PAUSED holds the reason. ' +
+      'Find and fix the cause first (see the alert named in sourceAlert).',
+  };
+}
