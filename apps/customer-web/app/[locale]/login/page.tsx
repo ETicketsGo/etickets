@@ -3,7 +3,7 @@
 import { useSearchParams } from 'next/navigation';
 import { useRouter } from '@/i18n/navigation';
 import { Suspense, useEffect, useState } from 'react';
-import { signInModes, type SignInMode } from '@/lib/sign-in-modes';
+import { signInModes, useSmsCapability, type SignInMode } from '@/lib/sign-in-modes';
 import { api, tokenStore, ApiRequestError } from '@/lib/api';
 import { Button, Card, Input } from '@/components/ui';
 import { Link } from '@/i18n/navigation';
@@ -38,21 +38,9 @@ function LoginForm() {
     Until it answers we show a neutral placeholder rather than a tab that may vanish; if the
     call fails we fall back to the usual two tabs.
   */
-  const [phoneSignIn, setPhoneSignIn] = useState<boolean | undefined>(undefined);
-  const [capsLoaded, setCapsLoaded] = useState(false);
+  const { loaded: capsLoaded, phoneSignIn, smsCountries } = useSmsCapability();
   const [chosen, setChosen] = useState<SignInMode | null>(null);
-  useEffect(() => {
-    let live = true;
-    api
-      .capabilities()
-      .then((c) => live && setPhoneSignIn(c.phoneSignIn))
-      .catch(() => undefined)
-      .finally(() => live && setCapsLoaded(true));
-    return () => {
-      live = false;
-    };
-  }, []);
-  const { modes, initial } = signInModes(phoneSignIn, Boolean(params.get('email')));
+  const { modes, initial } = signInModes(phoneSignIn, Boolean(params.get('email')), smsCountries);
   const mode = chosen && modes.includes(chosen) ? chosen : initial;
   const [email, setEmail] = useState(() => params.get('email') ?? '');
   const [password, setPassword] = useState('');
@@ -125,7 +113,14 @@ function LoginForm() {
       {!capsLoaded ? (
         <div className="min-h-60" aria-hidden="true" />
       ) : mode === 'phone' ? (
-        <PhoneSignIn next={next} />
+        <PhoneSignIn
+          next={next}
+          smsCountries={smsCountries}
+          onUseEmail={() => {
+            setChosen('email');
+            setError(null);
+          }}
+        />
       ) : (
         <>
           <form className="space-y-4" onSubmit={submit}>

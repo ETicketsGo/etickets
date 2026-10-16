@@ -17,6 +17,7 @@ const preference = (over: Partial<CityPreference> = {}): CityPreference => ({
   city: null,
   place: null,
   country: null,
+  locatedCountry: null,
   topCities: [],
   suggestion: null,
   chosen: false,

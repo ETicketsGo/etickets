@@ -2,20 +2,15 @@
 
 import { useSearchParams } from 'next/navigation';
 import { useRouter } from '@/i18n/navigation';
-import { Suspense, useEffect, useId, useState } from 'react';
+import { Suspense, useId, useState } from 'react';
 import { api, tokenStore, ApiRequestError } from '@/lib/api';
-import { Button, Card, Input, Select } from '@/components/ui';
-import { PasswordField, passwordAcceptable, visitorCountry } from '@eticketsgo/web-kit';
+import { Button, Card, Input } from '@/components/ui';
+import { PasswordField, passwordAcceptable } from '@eticketsgo/web-kit';
 import { afterSignIn } from '@/lib/sign-in-return';
-import { MARKETS } from '@eticketsgo/shared-types';
+import { useSmsCapability, type SignInMode } from '@/lib/sign-in-modes';
+import { usePhoneCountryGuess } from '@/components/phone-number-field';
+import { PhoneSignIn } from '@/components/phone-sign-in';
 import { usePasswordCopy } from '@/lib/use-password-copy';
-
-/** The countries we sell in, in the order a person scans a list: by name. */
-const COUNTRIES = [...MARKETS].sort((a, b) => a.name.localeCompare(b.name));
-/** Longest calling code first, so a pasted +971 number is not read as +9. */
-const BY_LONGEST_CODE = [...COUNTRIES].sort((a, b) => b.callingCode.length - a.callingCode.length);
-/** The domestic trunk `0` is not part of the number once a country code is in front of it. */
-const withoutTrunkZero = (digits: string) => digits.replace(/^0+/, '');
 import { Link } from '@/i18n/navigation';
 import { useTranslations } from 'next-intl';
 
@@ -44,11 +39,43 @@ function RegisterForm() {
   const [error, setError] = useState<string | null>(null);
   const [emailTaken, setEmailTaken] = useState(false);
   const [passwordError, setPasswordError] = useState<string | null>(null);
-  const [phoneCountry, setPhoneCountry] = useState('');
-  const [phoneNational, setPhoneNational] = useState('');
-  const [smsConsent, setSmsConsent] = useState(false);
-  const [phoneError, setPhoneError] = useState<string | null>(null);
   const passwordCopy = usePasswordCopy();
+  /*
+    THE SAME TWO WAYS IN AS SIGN-IN.
+
+    This page used to be one long form: name, email, password, then an optional mobile number
+    and a text-message box underneath. The owner's words: make creating an account work like
+    signing in, Mobile and Email as separate tabs, "instead of everything at one place". So the
+    Mobile tab is a number and a code (plus a name), and the Email tab is a name, an address
+    and a password - nothing else. The text-message agreement moved to where it applies: the
+    Mobile tab, for a US number.
+
+    An organizer account stays email-only. The organizer console signs in with an email and a
+    password, so a phone-only organizer would have an account the console cannot open.
+  */
+  const { loaded: capsLoaded, phoneSignIn, smsCountries } = useSmsCapability();
+  const [chosen, setChosen] = useState<SignInMode | null>(null);
+  /*
+    UNLIKE SIGN-IN, THE MOBILE TAB STAYS EVEN WHEN NO NUMBER CAN BE TEXTED.
+
+    This page is the A2P campaign's opt-in evidence, and the carrier reviews it before the
+    campaign is approved - when the deployment can text nobody yet. A US visitor therefore still
+    opens on Mobile and reads the full agreement (disabled, with "opens later"), and the Email tab
+    is one press away. Anyone else whose number cannot be texted opens on Email, so nobody lands
+    on a form that can only send them elsewhere.
+  */
+  const guess = usePhoneCountryGuess();
+  const phoneWorksHere =
+    phoneSignIn !== false &&
+    (smsCountries === undefined ||
+      (guess !== null ? smsCountries.includes(guess) : smsCountries.length > 0));
+  const { modes, initial } = organizerIntent
+    ? { modes: ['email'] as SignInMode[], initial: 'email' as SignInMode }
+    : {
+        modes: ['phone', 'email'] as SignInMode[],
+        initial: (phoneWorksHere || guess === 'US' ? 'phone' : 'email') as SignInMode,
+      };
+  const mode = chosen && modes.includes(chosen) ? chosen : initial;
   /*
     ONE ID PER COPY OF THE FORM, NOT ONE PER PAGE.
 
@@ -66,40 +93,6 @@ function RegisterForm() {
     name: `${uid}name`,
     email: `${uid}email`,
     password: `${uid}password`,
-    phoneCountry: `${uid}phone-country`,
-    phone: `${uid}phone`,
-    smsConsent: `${uid}sms-consent`,
-  };
-
-  /*
-    After hydration, never during render: the browser's time zone does not exist on the
-    server and a first render that disagrees with the server's is a hydration error. An
-    unrecognised country leaves the select empty and the person chooses, which is the honest
-    outcome for somebody we cannot place.
-  */
-  useEffect(() => {
-    const guess = visitorCountry();
-    if (guess && COUNTRIES.some((c) => c.code === guess)) setPhoneCountry(guess);
-  }, []);
-
-  const phoneMarket = COUNTRIES.find((c) => c.code === phoneCountry) ?? null;
-  const phoneE164 =
-    phoneMarket && phoneNational ? `+${phoneMarket.callingCode}${phoneNational}` : '';
-
-  /** Accepts a pasted international number by reading the country out of it. */
-  const onPhoneChange = (typed: string) => {
-    if (phoneError) setPhoneError(null);
-    const trimmed = typed.trim();
-    if (trimmed.startsWith('+') || trimmed.startsWith('00')) {
-      const digits = trimmed.replace(/\D/g, '').replace(/^00/, '');
-      const pasted = BY_LONGEST_CODE.find((c) => digits.startsWith(c.callingCode));
-      if (pasted) {
-        setPhoneCountry(pasted.code);
-        setPhoneNational(withoutTrunkZero(digits.slice(pasted.callingCode.length)));
-        return;
-      }
-    }
-    setPhoneNational(withoutTrunkZero(typed.replace(/\D/g, '')));
   };
   const [loading, setLoading] = useState(false);
 
@@ -108,29 +101,11 @@ function RegisterForm() {
     setError(null);
     setEmailTaken(false);
     setPasswordError(null);
-    setPhoneError(null);
-
-    /*
-      Consent needs something to consent ABOUT, and the complaint belongs on the EMPTY FIELD.
-      Pointing at the checkbox would tell somebody to undo the thing they just chose; pointing
-      at the number tells them what to fill in. The same rule is enforced in `registerSchema`,
-      so a client that skips this still cannot create a consent with nothing to send to.
-    */
-    if (smsConsent && !phoneE164) {
-      setPhoneError('Add your mobile number so we can text you, or clear the text message box.');
-      return;
-    }
 
     setLoading(true);
     try {
-      const tokens = await api.register({
-        fullName,
-        email,
-        password,
-        // Omitted entirely when absent, so the payload never implies a decision nobody made.
-        ...(phoneE164 ? { phone: phoneE164 } : {}),
-        ...(smsConsent ? { smsConsent: true, country: phoneCountry || undefined } : {}),
-      });
+      // Name, address, password: the Email tab asks for nothing else (see above).
+      const tokens = await api.register({ fullName, email, password });
       tokenStore.set(tokens);
       if (organizerIntent) {
         /*
@@ -196,153 +171,120 @@ function RegisterForm() {
         </p>
       </div>
 
-      <form className="space-y-4" onSubmit={submit}>
-        <Input
-          id={ids.name}
-          label={a('fullName')}
-          autoFocus
-          value={fullName}
-          onChange={(e) => setFullName(e.target.value)}
-          required
-        />
-        <Input
-          id={ids.email}
-          label={a('email')}
-          type="email"
-          value={email}
-          onChange={(e) => {
-            setEmail(e.target.value);
-            // The warning is about the address they had typed; clear it as they edit.
-            if (emailTaken) setEmailTaken(false);
-          }}
-          required
-        />
-        <PasswordField
-          id={ids.password}
-          value={password}
-          onChange={(nextPassword) => {
-            setPassword(nextPassword);
-            if (passwordError) setPasswordError(null);
-          }}
-          context={{ email, name: fullName }}
-          copy={passwordCopy}
-          serverError={passwordError ?? undefined}
-          required
-        />
-
-        {/*
-          OPTIONAL, AND IT STAYS OPTIONAL.
-
-          A mobile number is how we can also text somebody about their booking; it is not a
-          condition of having an account or of buying a ticket, and the heading says so rather
-          than leaving it to be inferred from a missing asterisk.
-
-          The checkbox is a SEPARATE question from accepting the terms and from any marketing,
-          and it starts off. The disclosure sits with the control rather than in a policy page,
-          because somebody deciding has to be able to read what they are agreeing to without
-          leaving the form.
-        */}
-        <fieldset className="space-y-3 rounded-lg border border-border bg-background-subtle/40 p-4">
-          <legend className="px-1 text-[0.9375rem] font-semibold text-text-primary">
-            Mobile number <span className="font-normal text-text-secondary">(optional)</span>
-          </legend>
-
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-[11rem_minmax(0,1fr)]">
-            <Select
-              id={ids.phoneCountry}
-              label="Country"
-              value={phoneCountry}
-              onChange={(e) => {
-                setPhoneCountry(e.target.value);
-                if (phoneError) setPhoneError(null);
+      {organizerIntent ? (
+        <p className="text-caption text-text-muted" data-testid="organizer-email-only">
+          {a('organizerEmailOnly')}
+        </p>
+      ) : !capsLoaded ? (
+        <div className="h-[3.25rem] rounded-md bg-background-subtle" aria-hidden="true" />
+      ) : (
+        <div className="flex gap-1 rounded-md bg-background-subtle p-1" role="tablist">
+          {modes.map((m) => (
+            <button
+              key={m}
+              type="button"
+              role="tab"
+              aria-selected={mode === m}
+              onClick={() => {
+                setChosen(m);
+                setError(null);
               }}
+              className={`min-h-11 flex-1 rounded px-3 py-1.5 text-[0.9375rem] transition-colors ${
+                mode === m
+                  ? 'bg-background-surface font-medium text-text-primary shadow-sm'
+                  : 'text-text-secondary hover:text-text-primary'
+              }`}
             >
-              <option value="">Select</option>
-              {COUNTRIES.map((c) => (
-                <option key={c.code} value={c.code}>
-                  {c.name} +{c.callingCode}
-                </option>
-              ))}
-            </Select>
-            <Input
-              id={ids.phone}
-              label="Mobile number"
-              type="tel"
-              inputMode="tel"
-              autoComplete="tel-national"
-              value={phoneNational}
-              onChange={(e) => onPhoneChange(e.target.value)}
-              error={phoneError ?? undefined}
-            />
-          </div>
+              {m === 'phone' ? a('phoneTab') : a('emailTab')}
+            </button>
+          ))}
+        </div>
+      )}
 
-          <label className="flex cursor-pointer items-start gap-3">
-            <input
-              type="checkbox"
-              id={ids.smsConsent}
-              checked={smsConsent}
-              onChange={(e) => {
-                setSmsConsent(e.target.checked);
-                if (phoneError) setPhoneError(null);
-              }}
-              className="mt-1 h-4 w-4 shrink-0 rounded border-border-input text-action-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
-            />
-            <span className="text-[0.875rem] leading-relaxed text-text-secondary">
-              Send me transactional text messages from ETicketsGo about my bookings, tickets, event
-              updates, cancellations, refunds, and account or service notifications. Message
-              frequency varies. Message and data rates may apply. Reply{' '}
-              <strong className="font-semibold text-text-primary">STOP</strong> to opt out or{' '}
-              <strong className="font-semibold text-text-primary">HELP</strong> for help. Consent is
-              not a condition of purchase.
-            </span>
-          </label>
+      {/* Room for the form while the options load, as on sign-in (no layout jump). */}
+      {!organizerIntent && !capsLoaded ? (
+        <div className="min-h-60" aria-hidden="true" />
+      ) : mode === 'phone' ? (
+        <PhoneSignIn
+          signUp
+          next={next}
+          smsCountries={smsCountries}
+          onUseEmail={(typedName) => {
+            // The name typed on the Mobile tab is not lost on the way to the Email tab.
+            if (typedName && !fullName) setFullName(typedName);
+            setChosen('email');
+            setError(null);
+          }}
+        />
+      ) : (
+        <form className="space-y-4" onSubmit={submit}>
+          <Input
+            id={ids.name}
+            label={a('fullName')}
+            autoFocus={chosen === null}
+            value={fullName}
+            onChange={(e) => setFullName(e.target.value)}
+            required
+          />
+          <Input
+            id={ids.email}
+            label={a('email')}
+            type="email"
+            value={email}
+            onChange={(e) => {
+              setEmail(e.target.value);
+              // The warning is about the address they had typed; clear it as they edit.
+              if (emailTaken) setEmailTaken(false);
+            }}
+            required
+          />
+          <PasswordField
+            id={ids.password}
+            value={password}
+            onChange={(nextPassword) => {
+              setPassword(nextPassword);
+              if (passwordError) setPasswordError(null);
+            }}
+            context={{ email, name: fullName }}
+            copy={passwordCopy}
+            serverError={passwordError ?? undefined}
+            required
+          />
 
-          <p className="text-[0.875rem] text-text-secondary">
-            See our{' '}
-            <Link href="/terms" className="font-medium text-action-primary hover:underline">
-              Terms &amp; Conditions
-            </Link>{' '}
-            and{' '}
-            <Link href="/privacy" className="font-medium text-action-primary hover:underline">
-              Privacy Policy
-            </Link>
-            .
-          </p>
-        </fieldset>
+          {emailTaken && (
+            <div
+              role="alert"
+              className="space-y-2 rounded-md border border-status-error/30 bg-status-error/5 p-3"
+            >
+              <p className="text-caption font-medium text-text-primary">
+                {a('accountExists', { email })}
+              </p>
+              <p className="text-caption text-text-muted">{a('signInInstead')}</p>
+              <Link
+                href={signInHref}
+                className="inline-block text-caption font-medium text-action-primary"
+              >
+                {a('signInAs', { email })}
+              </Link>
+            </div>
+          )}
 
-        {emailTaken && (
-          <div
-            role="alert"
-            className="space-y-2 rounded-md border border-status-error/30 bg-status-error/5 p-3"
-          >
-            <p className="text-caption font-medium text-text-primary">
-              {a('accountExists', { email })}
+          {error && (
+            <p role="alert" className="text-caption text-status-error">
+              {error}
             </p>
-            <p className="text-caption text-text-muted">{a('signInInstead')}</p>
-            <Link
-              href={signInHref}
-              className="inline-block text-caption font-medium text-action-primary"
-            >
-              {a('signInAs', { email })}
-            </Link>
-          </div>
-        )}
+          )}
 
-        {error && (
-          <p role="alert" className="text-caption text-status-error">
-            {error}
-          </p>
-        )}
-
-        <Button
-          type="submit"
-          className="w-full"
-          loading={loading}
-          disabled={!passwordAcceptable(password, { email, name: fullName })}
-        >
-          {organizerIntent ? a('createOrganizerAccount') : a('createAccount')}
-        </Button>
-      </form>
+          <Button
+            type="submit"
+            className="w-full"
+            loading={loading}
+            disabled={!passwordAcceptable(password, { email, name: fullName })}
+          >
+            {organizerIntent ? a('createOrganizerAccount') : a('createAccount')}
+          </Button>
+        </form>
+      )}
 
       <p className="text-caption text-text-muted">
         {a('haveAccount')}{' '}

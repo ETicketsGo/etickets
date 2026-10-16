@@ -356,6 +356,17 @@ const discovery = Object.assign(
   customer or organizer surface, and storing "undefined" as a session there would be worse than
   a clear refusal.
 */
+/**
+ * GET /capabilities: feature flags, plus what this deployment can reach by text message.
+ *
+ * `phoneSignInCountries` is absent from an API older than it; a caller treats absent as "not
+ * known" and keeps its previous behaviour rather than as "nowhere".
+ */
+export type PlatformCapabilities = Record<string, boolean | string[] | undefined> & {
+  phoneSignIn?: boolean;
+  phoneSignInCountries?: string[];
+};
+
 function refuseChallenge<T extends object>(r: T | MfaChallengeResponse): T {
   if ('mfaRequired' in r && r.mfaRequired) {
     throw new ApiRequestError(
@@ -489,13 +500,22 @@ export const api = {
         body: JSON.stringify({ phone }),
         auth: false,
       }),
-    /** Exchanges a code for a session, creating the account when the number is new. */
-    verifyPhoneCode: (phone: string, code: string) =>
+    /**
+     * Exchanges a code for a session, creating the account when the number is new.
+     *
+     * `signUp` is what the Mobile tab of the sign-up page adds: a name for a new account and,
+     * for a US number, the text-message agreement. Sign-in sends neither.
+     */
+    verifyPhoneCode: (
+      phone: string,
+      code: string,
+      signUp?: { fullName: string; smsConsent?: true; country?: string },
+    ) =>
       request<(AuthTokens & { isNewAccount: boolean }) | MfaChallengeResponse>(
         '/auth/phone/verify',
         {
           method: 'POST',
-          body: JSON.stringify({ phone, code }),
+          body: JSON.stringify({ phone, code, ...signUp }),
           auth: false,
         },
       ).then((r) => refuseChallenge<AuthTokens & { isNewAccount: boolean }>(r)),
@@ -595,7 +615,7 @@ export const api = {
     request<{ category: string; count: number }[]>('/public/categories', { auth: false }),
 
   /** Resolved platform feature flags (drives capability-gated UI). */
-  capabilities: () => request<Record<string, boolean>>('/capabilities', { auth: false }),
+  capabilities: () => request<PlatformCapabilities>('/capabilities', { auth: false }),
 
   reviews: {
     forEvent: (eventId: string) =>

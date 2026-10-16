@@ -195,6 +195,16 @@ export interface CityPreference {
    * country and not every city on earth.
    */
   country: string | null;
+  /**
+   * Where the visitor IS, as an ISO country code, or null when nothing says.
+   *
+   * Not `country` above. That one is a FILTER, and it follows a city the person chose: an
+   * NRI in Chicago browsing Hyderabad is filtered to India, and that is right for the event
+   * list and wrong for their phone number. This is the raw answer from the same resolve the
+   * picker makes - the network edge's country first, then the device's region - so a phone
+   * field can default to where somebody actually is without a second request.
+   */
+  locatedCountry: string | null;
   /** A few cities worth offering immediately. Never the complete list — see `searchCities`. */
   topCities: SellableCity[];
   /** A guess we have not applied, worth offering. Null once accepted or dismissed. */
@@ -274,6 +284,7 @@ export function useCityPreference(): CityPreference {
     setPlace(stored.city !== ALL_CITIES ? stored.place : null);
   }, []);
   const [country, setCountry] = useState<string | null>(null);
+  const [locatedCountry, setLocatedCountry] = useState<string | null>(null);
   const [topCities, setTopCities] = useState<SellableCity[]>([]);
   const [suggestion, setSuggestion] = useState<ResolvedLocation | null>(null);
   const [locating, setLocating] = useState(false);
@@ -297,6 +308,7 @@ export function useCityPreference(): CityPreference {
       .then((result) => {
         if (cancelled) return;
         setTopCities(result.topCities);
+        setLocatedCountry(result.country ? result.country.toUpperCase() : null);
         /*
           The country scope is applied FIRST, and applies even to a stored "all cities".
 
@@ -415,6 +427,8 @@ export function useCityPreference(): CityPreference {
         region: visitorCountry() ?? undefined,
       });
       setTopCities(result.topCities);
+      // A fix the person asked for is the best answer there is to where they are.
+      if (result.country) setLocatedCountry(result.country.toUpperCase());
       // Coordinates come from a button press, so this IS their choice — persisted as one.
       // The city is where they are, whether or not anything is on sale there: an empty city
       // gets an empty page that names it, never a quiet move to a city that has events.
@@ -479,6 +493,7 @@ export function useCityPreference(): CityPreference {
     city: city === ALL_CITIES ? null : city,
     place: city === ALL_CITIES ? null : place,
     country,
+    locatedCountry,
     topCities,
     suggestion,
     chosen,
@@ -522,6 +537,7 @@ export function useCity(): CityPreference {
       city: null,
       place: null,
       country: null,
+      locatedCountry: null,
       topCities: [],
       suggestion: null,
       chosen: false,
