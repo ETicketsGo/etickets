@@ -196,7 +196,7 @@ function causeHeadline(code: string | null, subject: string | null): string | nu
         ? `${subject} seats need a regulatory seat class.`
         : 'Some seats need a regulatory seat class.';
     case 'CINEMA_NOT_CLASSIFIED':
-      return 'The cinema needs its format, climate type and local body set.';
+      return 'The cinema needs its legal type set by ETicketsGo.';
     case 'NO_PRICING_POLICY':
       return 'Ticket price rules for this area are not set up yet.';
     case 'PRICING_POLICY_CONFLICT':
@@ -228,7 +228,8 @@ function causeActionLabel(code: string | null): string {
     case 'SEAT_CLASS_UNMAPPED':
       return 'Map seat classes';
     case 'CINEMA_NOT_CLASSIFIED':
-      return 'Classify the cinema';
+      // The organizer cannot set it (it decides their price limit); they can ask for it.
+      return 'Ask ETicketsGo';
     case 'PRICE_OVER_CEILING':
       return 'Fix ticket prices';
     case 'FREE_EVENT_HAS_PRICES':

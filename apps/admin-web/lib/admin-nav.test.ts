@@ -74,6 +74,7 @@ describe('the admin menu', () => {
       '/admin/payment-config',
       '/admin/tax-rules',
       '/admin/cinema-pricing',
+      '/admin/cinemas',
       '/admin/staff',
     ]) {
       expect(config).toContain(href);

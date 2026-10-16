@@ -16,6 +16,32 @@ import { requireSpaceOrganizationId } from '../spaces/space-owner';
 
 const ORGANIZER_ROLES = [Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER];
 
+/** The three fields that make up a cinema's legal type. Only the platform team sets them. */
+const LEGAL_TYPE_FIELDS = ['localBodyType', 'cinemaFormat', 'climateType'] as const;
+
+/**
+ * Refuse an organizer's attempt to set the cinema's legal type.
+ *
+ * ── WHY ────────────────────────────────────────────────────────────────────────────
+ * Local body, format and cooling pick the row of a state rate order a cinema is priced under:
+ * an Andhra Pradesh multiplex in a Municipal Corporation may charge Rs 150 for a regular seat,
+ * one in a Gram Panchayat less. No organizer screen offered these fields, but this API took them
+ * from any organizer, so an exhibitor could choose its own price limit with one request. They
+ * are now set by the platform team (`PATCH /admin/cinemas/:id/legal-type`, audited) and refused
+ * here, out loud: dropping them in silence would tell the caller it had worked.
+ */
+function refuseLegalType(input: Partial<Record<(typeof LEGAL_TYPE_FIELDS)[number], unknown>>) {
+  const sent = LEGAL_TYPE_FIELDS.filter((f) => input[f] !== undefined);
+  if (sent.length === 0) return;
+  throw new AppException(
+    ErrorCodes.FORBIDDEN,
+    "A cinema's legal type (local body, format and cooling) decides its price limit, so only " +
+      "ETicketsGo can set it. Ask ETicketsGo to change it from the cinema's launch readiness page.",
+    HttpStatus.FORBIDDEN,
+    { reason: 'LEGAL_TYPE_SET_BY_PLATFORM', fields: sent },
+  );
+}
+
 @Injectable()
 export class CinemasService {
   constructor(
@@ -54,6 +80,7 @@ export class CinemasService {
 
   async create(user: RequestUser, organizationId: string, input: CreateCinemaInput) {
     await this.access.assertMember(user, organizationId, ORGANIZER_ROLES);
+    refuseLegalType(input);
     let parentVenue: {
       timezone: string | null;
       country: string | null;
@@ -163,15 +190,12 @@ export class CinemasService {
           India fixture, where the default and the intended value are the same string.
         */
         timezone: resolvedTimezone,
-        // Regulatory classification. Optional everywhere, required in practice wherever a rate
-        // order prices by it — and an unclassified cinema in such a place fails closed rather
-        // than selling at a price nobody checked.
+        // Where the cinema is, for the rate order. Its legal type (local body, format, cooling)
+        // is not taken from an organizer - see `refuseLegalType` - and an unclassified cinema
+        // in a place that prices by it fails closed rather than selling at an unchecked price.
         country: input.country,
         region: input.region,
         district: input.district,
-        localBodyType: input.localBodyType,
-        cinemaFormat: input.cinemaFormat,
-        climateType: input.climateType,
       },
       include: { screens: true },
     });
@@ -179,6 +203,7 @@ export class CinemasService {
 
   async update(user: RequestUser, id: string, patch: UpdateCinemaInput) {
     const cinema = await this.loadOwnedCinema(user, id);
+    refuseLegalType(patch);
 
     /*
       A venue from ANOTHER organization is refused, exactly as `create` refuses one.

@@ -291,11 +291,12 @@ describe('CinemaComplianceService.forCinema - INVALID_CINEMA_CLASSIFICATION name
     expect(v.blocksPublishing).toBe(true);
     expect(v.reasonCode).toBe('SEAT_CLASS_UNMAPPED');
     expect(v.unmappedSeatCategories).toEqual(['Platinum Executive']);
-    expect(v.summary).toMatch(/Seats in "Platinum Executive" cannot be sold yet/);
-    expect(v.summary).toMatch(/no regulatory seat class/);
+    expect(v.summary).toMatch(/^Seat category Platinum Executive has no seat class yet/);
+    expect(v.summary).toMatch(/Andhra Pradesh sets the highest price for each seat class/);
     expect(v.summary).toMatch(/Seat classes/);
-    expect(v.summary).not.toMatch(/no type recorded/);
-    expect(v.summary).not.toMatch(/local body/);
+    // The place has rules and this cinema's legal type is on record: nothing else to blame.
+    expect(v.summary).not.toMatch(/legal type/);
+    expect(v.summary).not.toMatch(/ETicketsGo/);
   });
 
   it('keeps the classification message for a cinema that is genuinely unclassified', async () => {
@@ -305,7 +306,8 @@ describe('CinemaComplianceService.forCinema - INVALID_CINEMA_CLASSIFICATION name
     expect(v.blocksPublishing).toBe(true);
     expect(v.reasonCode).toBe('CINEMA_NOT_CLASSIFIED');
     expect(v.unmappedSeatCategories).toEqual([]);
-    expect(v.summary).toMatch(/no type recorded/);
+    expect(v.summary).toMatch(/legal type \(local body, format and cooling\)/);
+    expect(v.summary).toMatch(/Only ETicketsGo can set it/);
   });
 
   it('names the seat class first and the missing classification after, when both are wrong', async () => {
@@ -313,8 +315,10 @@ describe('CinemaComplianceService.forCinema - INVALID_CINEMA_CLASSIFICATION name
     const v = await svc.forCinema(MEMBER, 'cin-1', NOW);
     expect(v.blocksPublishing).toBe(true);
     expect(v.reasonCode).toBe('SEAT_CLASS_UNMAPPED');
-    expect(v.summary).toMatch(/"Platinum Executive"/);
-    expect(v.summary).toMatch(/also needs its local body, format and climate type/);
+    expect(v.summary).toMatch(/^Seat category Platinum Executive has no seat class yet/);
+    // The second wall, named now: mapping alone would not open sales.
+    expect(v.summary).toMatch(/That alone will not open sales/);
+    expect(v.summary).toMatch(/legal type, which only ETicketsGo can set/);
   });
 
   it('reports no reason code for a cinema that sells', async () => {

@@ -281,6 +281,14 @@ export const ADMIN_NAV: AdminNavGroup[] = [
         keywords: ['ceilings', 'regulated'],
       },
       {
+        // A cinema's legal type picks its price limit, so it is configuration, set only here.
+        label: 'Cinema legal types',
+        href: '/admin/cinemas',
+        icon: Percent,
+        needs: 'PLATFORM_CONFIG_READ',
+        keywords: ['local body', 'multiplex', 'classification', 'cinema type'],
+      },
+      {
         label: 'Payment config',
         href: '/admin/payment-config',
         icon: SlidersHorizontal,

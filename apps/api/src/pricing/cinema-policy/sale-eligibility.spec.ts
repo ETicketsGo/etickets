@@ -125,6 +125,33 @@ const FIXTURES: Fixture[] = [
     expected: ['SEAT_CLASS_UNMAPPED'],
   },
   {
+    /*
+      QA 2026-10-16: readiness told this organizer "Telangana caps the price of each class. Set
+      it under Seat classes." Telangana has no rules at all, so the sentence was false and the
+      real wall (only the platform can lift it) was hidden until after the mapping. Both now.
+    */
+    name: 'an unmapped category in a state with no price rules (Telangana with Standard unmapped)',
+    rows: NORTH_ROWS,
+    cinema: cinema({ region: 'South', city: 'Southtown' }),
+    ticketTypes: [tt('a', 15_000, STANDARD_UNMAPPED)],
+    expected: ['SEAT_CLASS_UNMAPPED', 'NO_PRICING_POLICY'],
+  },
+  {
+    // Rules that all name a class must not read as "no rules here" to a class-less question.
+    name: 'an unmapped category where every rule names a seat class',
+    rows: [row({ id: 'only-regular', seatCategory: 'REGULAR', ticketPriceMaxMinor: 15_000 })],
+    cinema: cinema(),
+    ticketTypes: [tt('a', 15_000, STANDARD_UNMAPPED)],
+    expected: ['SEAT_CLASS_UNMAPPED'],
+  },
+  {
+    name: 'an unmapped category at a cinema with no legal type, where the state prices by it',
+    rows: [row({ localBodyType: 'MUNICIPAL_CORPORATION' })],
+    cinema: cinema(),
+    ticketTypes: [tt('a', 15_000, STANDARD_UNMAPPED)],
+    expected: ['SEAT_CLASS_UNMAPPED', 'CINEMA_NOT_CLASSIFIED'],
+  },
+  {
     name: 'a state that prices by cinema type, for a cinema with no type',
     rows: [row({ localBodyType: 'MUNICIPAL_CORPORATION' })],
     cinema: cinema(),
@@ -320,6 +347,29 @@ describe('saleBlockersFromPolicy - each kind of blocker', () => {
     expect(b.owner).toBe('PLATFORM');
   });
 
+  it('never says a state with no rules caps prices, and names the wall the mapping leaves', async () => {
+    const { blockers } = await sessionSaleEligibility(
+      resolverFor(NORTH_ROWS),
+      cinema({ region: 'South', city: 'Southtown' }),
+      [tt('a', 1, STANDARD_UNMAPPED)],
+      'India',
+      AT,
+    );
+    expect(blockers.map((b) => b.code)).toEqual(['SEAT_CLASS_UNMAPPED', 'NO_PRICING_POLICY']);
+    const [unmapped, closed] = blockers;
+    expect(unmapped.organizerMessage).toBe(
+      'Seat category Standard has no seat class yet. Choose it under Seat classes. That alone ' +
+        "will not open sales: online sales in South stay closed until ETicketsGo adds the state's " +
+        'price rules.',
+    );
+    expect(unmapped.organizerMessage).not.toMatch(/caps|highest price/);
+    expect(unmapped.owner).toBe('ORGANIZER');
+    expect(closed.owner).toBe('PLATFORM');
+    expect(closed.fixPath).toBeNull();
+    // The buyer is told nothing about either: the same sentence as every refusal.
+    for (const b of blockers) expect(b.buyerMessage).toBe(BUYER_SALE_NOT_OPEN);
+  });
+
   it('names the unmapped category and sends the organizer to Seat classes', async () => {
     const [b] = (
       await sessionSaleEligibility(
@@ -330,8 +380,8 @@ describe('saleBlockersFromPolicy - each kind of blocker', () => {
         AT,
       )
     ).blockers;
-    expect(b.organizerMessage).toMatch(/^Seat category Standard needs a regulatory seat class/);
-    expect(b.organizerMessage).toMatch(/Set it under Seat classes\.$/);
+    expect(b.organizerMessage).toMatch(/^Seat category Standard has no seat class yet/);
+    expect(b.organizerMessage).toMatch(/Choose the class under Seat classes\.$/);
     expect(b.fixPath).toBe('/organizer/cinemas/cin-1/readiness#seat-classes');
   });
 
