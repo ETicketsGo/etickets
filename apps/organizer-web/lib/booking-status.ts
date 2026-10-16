@@ -46,3 +46,22 @@ export function narrowingOptions<T>(
     .map(([value, count]) => ({ value, label: label(value), count }))
     .sort((a, b) => a.label.localeCompare(b.label));
 }
+
+/**
+ * How a cash booking was paid, in words, or null for one paid online.
+ *
+ * A cash booking has no payment row, so the payment column read "-" for a counter sale paid in
+ * full. After its show is cancelled, it says whether the cash has gone back yet.
+ */
+export function cashPaymentLabel(b: {
+  paymentMethod?: string;
+  status: string;
+  cashCollected?: boolean;
+  cashReturned?: boolean;
+}): string | null {
+  if (b.paymentMethod !== 'CASH') return null;
+  if (!b.cashCollected)
+    return b.status === 'PENDING_PAYMENT' ? 'Cash, to pay at the counter' : 'Cash, not taken';
+  if (b.status === 'CANCELLED') return b.cashReturned ? 'Cash given back' : 'Cash to give back';
+  return 'Cash at the counter';
+}

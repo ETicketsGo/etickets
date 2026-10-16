@@ -29,6 +29,7 @@ import { requireCommerceCurrency } from '../common/commerce-currency';
 import { EventSellabilityService } from './event-sellability.service';
 import { ShowsService } from '../shows/shows.service';
 import { CancellationRefundsService } from '../refunds/cancellation-refunds.service';
+import { cancelImpact, totalsByCurrency } from './event-cancel-impact';
 import type { RequestUser } from '../common/decorators';
 import { isUniqueViolation } from './request-key';
 import {
@@ -882,6 +883,13 @@ export class EventsService {
         createdAt: b.createdAt,
         ticketCount: b._count.tickets,
         paymentStatus: b.payment?.status ?? null,
+        /*
+          How it was paid. A cash booking has no Payment row, so `paymentStatus` alone read "-"
+          for a sale the counter was paid for in full.
+        */
+        paymentMethod: b.paymentMethod,
+        cashCollected: b.cashCollectedAt !== null,
+        cashReturned: b.cashReturnedAt !== null,
       })),
       meta: paginate(params.page, params.pageSize, total),
     };
@@ -1996,16 +2004,13 @@ export class EventsService {
     }
 
     /*
-      Cash is not refunded by the platform: it never passed through it (refunds refuse cash
-      bookings). Counted so the organizer is told how many to hand back at the counter.
+      What the organizer has to do next, in figures: the refund requests waiting for their
+      approval, and the cash to hand back. Cash is not refunded by the platform (it never passed
+      through it); `openFor` above voided those bookings, and this is the list of whom to pay.
+      Read after the cancellation, from the data, so a retry reports the same truth.
     */
-    const cashToReturn = await this.prisma.booking.count({
-      where: {
-        eventSession: { eventId: id },
-        paymentMethod: 'CASH',
-        status: { in: [BookingStatus.CONFIRMED, BookingStatus.PARTIALLY_REFUNDED] },
-      },
-    });
+    const { refundsAwaiting, cashReturns } = await this.cancelOutcome(id);
+    const cashToReturn = cashReturns.length;
 
     await this.audit.record({
       actorUserId: user.id,
@@ -2028,6 +2033,80 @@ export class EventsService {
       datesCancelled: sessions.length,
       bookingsRequiringRefund,
       cashToReturn,
+      refundsAwaiting,
+      cashReturns,
+      cashTotals: totalsByCurrency(cashReturns),
+    };
+  }
+
+  /**
+   * What cancelling this event will do, before anything is done: the dates it cancels and, per
+   * kind of booking on them, how many and how much (per currency). The same split the
+   * cancellation makes; see `cancelImpact`. Owner only, like the cancellation itself.
+   */
+  async cancelPreview(user: RequestUser, id: string) {
+    await this.loadOwnedEvent(user, id, [Role.ORGANIZER_OWNER]);
+    const sessions = await this.prisma.eventSession.findMany({
+      where: {
+        eventId: id,
+        status: { in: [SessionStatus.SCHEDULED, SessionStatus.PAUSED] },
+        startsAt: { gt: new Date() },
+      },
+      select: { id: true },
+    });
+    const bookings = await this.prisma.booking.findMany({
+      where: {
+        eventSessionId: { in: sessions.map((s) => s.id) },
+        status: { in: [BookingStatus.CONFIRMED, BookingStatus.PARTIALLY_REFUNDED] },
+      },
+      select: {
+        paymentMethod: true,
+        totalMinor: true,
+        currency: true,
+        cashCollectedAt: true,
+        _count: { select: { refunds: true } },
+      },
+    });
+    return cancelImpact(
+      sessions.length,
+      bookings.map((b) => ({ ...b, refundCount: b._count.refunds })),
+    );
+  }
+
+  /** After a cancellation: refunds waiting for approval, and the cash still to hand back. */
+  private async cancelOutcome(eventId: string) {
+    const [refunds, cash] = await Promise.all([
+      this.prisma.refund.findMany({
+        where: { booking: { eventId }, status: 'REQUESTED' },
+        select: { amountMinor: true, booking: { select: { currency: true } } },
+      }),
+      this.prisma.booking.findMany({
+        where: {
+          eventId,
+          paymentMethod: 'CASH',
+          status: BookingStatus.CANCELLED,
+          cashCollectedAt: { not: null },
+          cashReturnedAt: null,
+        },
+        select: { id: true, reference: true, buyerName: true, totalMinor: true, currency: true },
+        orderBy: { createdAt: 'asc' },
+        take: 500,
+      }),
+    ]);
+    return {
+      refundsAwaiting: {
+        count: refunds.length,
+        totals: totalsByCurrency(
+          refunds.map((r) => ({ currency: r.booking.currency, amountMinor: r.amountMinor })),
+        ),
+      },
+      cashReturns: cash.map((b) => ({
+        bookingId: b.id,
+        reference: b.reference,
+        buyerName: b.buyerName,
+        amountMinor: b.totalMinor,
+        currency: b.currency,
+      })),
     };
   }
 

@@ -39,7 +39,8 @@ export default function BoxOfficePrintPage() {
   if (tickets.length === 0) {
     return (
       <p className="mx-auto max-w-2xl p-8 text-sm text-text-muted">
-        This booking has no tickets to print. Tickets are issued once a booking is confirmed.
+        This booking has no tickets to print. Tickets are issued once a booking is confirmed, and a
+        cancelled or refunded booking has none that still work.
       </p>
     );
   }
@@ -61,10 +62,10 @@ export default function BoxOfficePrintPage() {
             }}
             className="text-sm font-medium text-text-secondary hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
           >
-            ← Back
+            Back
           </button>
           <p className="text-sm text-text-muted">
-            {tickets.length} ticket{tickets.length === 1 ? '' : 's'} · printing is recorded against
+            {tickets.length} ticket{tickets.length === 1 ? '' : 's'}. Printing is recorded against
             your account.
           </p>
         </div>
