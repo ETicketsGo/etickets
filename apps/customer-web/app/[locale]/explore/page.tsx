@@ -2,6 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { ChevronRight } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import {
   BrandButton,
   brandButtonClasses,
@@ -9,7 +10,6 @@ import {
   BRAND_FOCUS,
   cityScope,
   countryKey,
-  countryPhrase,
   selectedPlace,
   useCity,
 } from '@eticketsgo/web-kit';
@@ -24,6 +24,7 @@ import type {
 import type { Buyability } from '@/lib/home-feed';
 import { hasPhoto } from '@/lib/home-feed';
 import { useBuyability } from '@/lib/use-buyability';
+import { useCountryWords } from '@/lib/country-words';
 import { useRecentlyViewed } from '@/lib/use-live-events';
 import { usePlaceGroups } from '@/lib/use-place-groups';
 import { EmptyPlace, PlaceSections } from '@/components/place-sections';
@@ -195,59 +196,83 @@ function SpotlightList({
   );
 }
 
-function organizerRows(items: OrganizerSpotlight[]) {
+/** The `storefront.explore` messages, as `useTranslations` hands them to the page. */
+type Explore = (key: string, values?: Record<string, string | number>) => string;
+
+function organizerRows(items: OrganizerSpotlight[], t: Explore) {
   return items.map((o) => ({
     key: o.id,
     href: `/organizers/${o.id}`,
     title: o.name,
-    meta: `${o.eventCount} event${o.eventCount === 1 ? '' : 's'}${o.verified ? ', verified' : ''}`,
+    meta: t(o.verified ? 'organizerMetaVerified' : 'organizerMeta', { count: o.eventCount }),
   }));
 }
 
-function venueRows(items: VenueSpotlight[]) {
+function venueRows(items: VenueSpotlight[], t: Explore) {
   return items.map((v) => ({
     key: v.id,
     href: `/events?city=${encodeURIComponent(v.city)}`,
     title: v.name,
-    meta: `${v.city}, ${v.eventCount} event${v.eventCount === 1 ? '' : 's'}`,
+    meta: t('venueMeta', { city: v.city, count: v.eventCount }),
   }));
+}
+
+/*
+  The API titles its composed sections in English ("Organizer spotlight"). The key is the
+  stable part, so the title a reader sees comes from the catalogue by key; a section this page
+  does not know yet keeps the API's title rather than showing nothing.
+*/
+const SECTION_TITLES: Record<string, string> = {
+  'new-releases': 'sectionNewReleases',
+  'organizer-spotlight': 'sectionOrganizerSpotlight',
+  popular: 'sectionPopular',
+  recommended: 'sectionRecommended',
+  'venue-spotlight': 'sectionVenueSpotlight',
+  trending: 'sectionTrending',
+  weekend: 'sectionWeekend',
+};
+
+function sectionTitle(section: DiscoverySection, t: Explore): string {
+  if (section.key === 'nearby') {
+    // "Near you in <city>": the city is the API's own, read back out of its title.
+    const city = /^Near you in (.+)$/.exec(section.title)?.[1];
+    return city ? t('sectionNearbyIn', { city }) : t('sectionNearby');
+  }
+  const key = SECTION_TITLES[section.key];
+  return key ? t(key) : section.title;
 }
 
 /** One composed strategy section, drawn by kind. */
 function DynamicSection({ section, states }: { section: DiscoverySection; states: States }) {
+  const t = useTranslations('storefront.explore');
   const id = `explore-${section.key}`;
+  const title = sectionTitle(section, t);
   let body: React.ReactNode;
   switch (section.kind) {
     case 'movies':
-      body = <FilmRail items={section.items as PublicMovieCard[]} label={section.title} />;
+      body = <FilmRail items={section.items as PublicMovieCard[]} label={title} />;
       break;
     case 'organizers':
       body = (
         <SpotlightList
-          items={organizerRows(section.items as OrganizerSpotlight[])}
-          label={section.title}
+          items={organizerRows(section.items as OrganizerSpotlight[], t)}
+          label={title}
         />
       );
       break;
     case 'venues':
       body = (
-        <SpotlightList items={venueRows(section.items as VenueSpotlight[])} label={section.title} />
+        <SpotlightList items={venueRows(section.items as VenueSpotlight[], t)} label={title} />
       );
       break;
     case 'events':
     default:
-      body = (
-        <EventRail
-          items={section.items as PublicEventCard[]}
-          label={section.title}
-          states={states}
-        />
-      );
+      body = <EventRail items={section.items as PublicEventCard[]} label={title} states={states} />;
       break;
   }
   return (
     <section aria-labelledby={id} className={`${BRAND_WRAP} pt-12 lg:pt-16`}>
-      <SectionHead id={id} title={section.title} />
+      <SectionHead id={id} title={title} />
       {body}
     </section>
   );
@@ -272,6 +297,10 @@ function CategoryChips({ items, label }: { items: string[]; label: string }) {
 }
 
 export default function ExplorePage() {
+  const t = useTranslations('storefront.explore');
+  const action = useTranslations('common.action');
+  const common = useTranslations('common.state');
+  const words = useCountryWords();
   /*
     Where the visitor is browsing: the chosen city, else their country, else nowhere.
 
@@ -285,7 +314,7 @@ export default function ExplorePage() {
   const scope = cityScope(preference);
   const scopeKey = JSON.stringify(scope);
   // The selected city names the page; with none, the country the page is scoped to.
-  const where = preference.city ?? (preference.country ? countryPhrase(preference.country) : null);
+  const where = preference.city ?? (preference.country ? words(preference.country, true) : null);
   const place = selectedPlace(preference);
 
   const { data, isLoading, isError, refetch } = useQuery({
@@ -356,19 +385,17 @@ export default function ExplorePage() {
       */}
       <section>
         <div className={`${BRAND_WRAP} pt-8 lg:pt-14`}>
-          <p className="text-brand-eyebrow uppercase text-brand-ink-3">Explore what is on</p>
+          <p className="text-brand-eyebrow uppercase text-brand-ink-3">{t('eyebrow')}</p>
           <h1 className="mt-3 max-w-3xl text-balance font-brand-display text-brand-d1 text-brand-ink">
-            Movies, events, and more
+            {t('title')}
           </h1>
-          <p className="mt-4 max-w-prose text-brand-lead text-brand-ink-2">
-            Films playing now, events people are booking, and things to do this weekend.
-          </p>
+          <p className="mt-4 max-w-prose text-brand-lead text-brand-ink-2">{t('lead')}</p>
           <div className="mt-8 flex flex-wrap items-center gap-3">
             <Link href="/movies" className={brandButtonClasses('primary', 'lg')}>
-              Browse movies
+              {t('browseMovies')}
             </Link>
             <Link href="/events" className={brandButtonClasses('secondary', 'lg')}>
-              Browse events
+              {t('browseEvents')}
             </Link>
           </div>
         </div>
@@ -377,22 +404,18 @@ export default function ExplorePage() {
       {/* Recently viewed - client-side, hidden when empty */}
       {recent.length > 0 && (
         <section aria-labelledby="explore-recent" className={`${BRAND_WRAP} pt-12 lg:pt-16`}>
-          <SectionHead
-            id="explore-recent"
-            title="Recently viewed"
-            hint="Pick up where you left off."
-          />
-          <EventRail items={recent} label="Recently viewed" states={states} />
+          <SectionHead id="explore-recent" title={t('recentTitle')} hint={t('recentHint')} />
+          <EventRail items={recent} label={t('recentTitle')} states={states} />
         </section>
       )}
 
       {isError ? (
         <div className={`${BRAND_WRAP} pt-12 lg:pt-16`}>
           <BrandEmpty
-            title="We could not load this page. Please try again."
+            title={t('loadError')}
             action={
               <BrandButton variant="secondary" onClick={() => void refetch()}>
-                Try again
+                {action('retry')}
               </BrandButton>
             }
           />
@@ -400,7 +423,7 @@ export default function ExplorePage() {
       ) : isLoading ? (
         <div className={`${BRAND_WRAP} space-y-12 pt-12 lg:pt-16`} aria-busy="true">
           <span className="sr-only" role="status">
-            Loading
+            {common('loading')}
           </span>
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5 lg:gap-6">
             {Array.from({ length: 5 }).map((_, i) => (
@@ -432,15 +455,15 @@ export default function ExplorePage() {
               <div className={BRAND_WRAP}>
                 <SectionHead
                   id="explore-films"
-                  title="Now showing"
-                  hint="Films playing near you right now."
+                  title={t('nowShowing')}
+                  hint={t('nowShowingHint')}
                   action={
                     <Link href="/movies" className={sectionLinkClasses()}>
-                      See all movies
+                      {t('seeAllMovies')}
                     </Link>
                   }
                 />
-                <Rail cols={5} phone="poster" label="Now showing">
+                <Rail cols={5} phone="poster" label={t('nowShowing')}>
                   {data.nowShowing.map((m) => (
                     <RailItem key={m.id}>
                       <PosterCard movie={m} />
@@ -451,13 +474,13 @@ export default function ExplorePage() {
             </section>
           ) : (
             <section aria-labelledby="explore-films" className={`${BRAND_WRAP} pt-12 lg:pt-16`}>
-              <SectionHead id="explore-films" title="Now showing" />
+              <SectionHead id="explore-films" title={t('nowShowing')} />
               <BrandEmpty
-                title={where ? `No films showing in ${where} yet` : 'No films showing yet'}
-                hint="We list films here as soon as a cinema adds showtimes."
+                title={where ? t('noFilmsIn', { place: where }) : t('noFilms')}
+                hint={t('noFilmsHint')}
                 action={
                   <Link href="/movies" className={brandButtonClasses('secondary', 'md')}>
-                    Browse movies
+                    {t('browseMovies')}
                   </Link>
                 }
               />
@@ -468,12 +491,12 @@ export default function ExplorePage() {
           <section aria-labelledby="explore-trending" className={`${BRAND_WRAP} pt-12 lg:pt-16`}>
             <SectionHead
               id="explore-trending"
-              title="Trending events"
-              hint="Popular events people are booking."
+              title={t('trendingTitle')}
+              hint={t('trendingHint')}
               action={
                 data && data.trendingEvents.length > 0 ? (
                   <Link href="/events" className={sectionLinkClasses()}>
-                    See all
+                    {t('seeAll')}
                   </Link>
                 ) : undefined
               }
@@ -482,11 +505,11 @@ export default function ExplorePage() {
               <LeadList items={data.trendingEvents} states={states} />
             ) : (
               <BrandEmpty
-                title={where ? `No popular events in ${where} yet` : 'No popular events yet'}
-                hint="Events appear here once people start booking them."
+                title={where ? t('noPopularIn', { place: where }) : t('noPopular')}
+                hint={t('noPopularHint')}
                 action={
                   <Link href="/events" className={brandButtonClasses('secondary', 'md')}>
-                    Browse events
+                    {t('browseEvents')}
                   </Link>
                 }
               />
@@ -498,15 +521,15 @@ export default function ExplorePage() {
             <section aria-labelledby="explore-weekend" className={`${BRAND_WRAP} pt-12 lg:pt-16`}>
               <SectionHead
                 id="explore-weekend"
-                title="This weekend"
-                hint="Happening in the next few days."
+                title={t('weekendTitle')}
+                hint={t('weekendHint')}
                 action={
                   <Link href="/events" className={sectionLinkClasses()}>
-                    See all
+                    {t('seeAll')}
                   </Link>
                 }
               />
-              <EventRail items={data.thisWeekend} label="This weekend" states={states} />
+              <EventRail items={data.thisWeekend} label={t('weekendTitle')} states={states} />
             </section>
           )}
 
@@ -523,10 +546,10 @@ export default function ExplorePage() {
             >
               <SectionHead
                 id="explore-categories"
-                title="Browse by category"
-                hint="Jump straight to a category."
+                title={t('categoriesTitle')}
+                hint={t('categoriesHint')}
               />
-              <CategoryChips items={data.categories} label="Browse by category" />
+              <CategoryChips items={data.categories} label={t('categoriesTitle')} />
             </section>
           )}
 
@@ -535,10 +558,10 @@ export default function ExplorePage() {
             <section aria-labelledby="explore-continue" className={`${BRAND_WRAP} pt-12 lg:pt-16`}>
               <SectionHead
                 id="explore-continue"
-                title="Continue exploring"
-                hint="Categories you have been browsing."
+                title={t('continueTitle')}
+                hint={t('continueHint')}
               />
-              <CategoryChips items={recentCategories} label="Continue exploring" />
+              <CategoryChips items={recentCategories} label={t('continueTitle')} />
             </section>
           )}
         </>
@@ -557,7 +580,7 @@ export default function ExplorePage() {
             render={(items) => (
               <EventRail
                 items={items as PublicEventCard[]}
-                label="Events"
+                label={t('eventsLabel')}
                 states={states}
                 showCity
               />
