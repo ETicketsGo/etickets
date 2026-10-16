@@ -168,18 +168,20 @@ export function FilmCard({
  * swallowed the click on some phones. Shape says the state (a filled heart), not colour alone.
  */
 export function SaveEventButton({ event }: { event: PublicEventCard }) {
+  // The ticket page's wishlist words, so the heart says the same thing everywhere.
+  const t = useTranslations('storefront.ticketDetail');
   const toast = useToast();
   const [saved, setSaved] = useState(false);
   useEffect(() => setSaved(isSaved(event.id)), [event.id]);
   return (
     <button
       type="button"
-      aria-label={saved ? 'Remove from wishlist' : 'Save to wishlist'}
+      aria-label={saved ? t('removeFromWishlist') : t('saveToWishlist')}
       aria-pressed={saved}
       onClick={() => {
         const now = toggleSaved(event);
         setSaved(now);
-        toast.push(now ? 'Saved to wishlist' : 'Removed from wishlist', 'success');
+        toast.push(now ? t('savedToWishlist') : t('removedFromWishlist'), 'success');
       }}
       className={`absolute right-2 top-2 z-10 flex h-11 w-11 items-center justify-center rounded-full bg-brand-surface text-brand-ink shadow-brand-overlay transition-colors duration-150 hover:bg-brand-sunken ${BRAND_FOCUS}`}
     >
