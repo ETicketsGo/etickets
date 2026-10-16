@@ -2255,7 +2255,8 @@ export class EventsService {
         orderBy: { updatedAt: status === EventStatus.UNDER_REVIEW ? 'asc' : 'desc' },
         include: {
           organization: { select: { name: true } },
-          venue: { select: { name: true, city: true, country: true } },
+          // The zone, so the console dates a show on the venue's calendar, not the reader's.
+          venue: { select: { name: true, city: true, country: true, timezone: true } },
         },
       }),
     ]);

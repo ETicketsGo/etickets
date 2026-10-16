@@ -18,7 +18,7 @@ import {
   ErrorState,
   Textarea,
   money,
-  dateTime,
+  recordedAt,
   useToast,
   errorMessage,
   type Column,
@@ -106,7 +106,7 @@ export default function AdminSettlements() {
           <p className="text-caption text-text-secondary">
             {s.organization?.name ?? s.organizationId.slice(0, 8)}
           </p>
-          <p className="text-caption text-text-muted">Created {dateTime(s.createdAt)}</p>
+          <p className="text-caption text-text-muted">Created {recordedAt(s.createdAt)}</p>
         </div>
       ),
     },
@@ -455,10 +455,10 @@ function SettlementDetailDialog({ id, onClose }: { id: string; onClose: () => vo
             </dd>
             <dt className="text-text-secondary">Released</dt>
             <dd className="text-right text-text-primary">
-              {detail.releasedAt ? dateTime(detail.releasedAt) : '—'}
+              {detail.releasedAt ? recordedAt(detail.releasedAt) : '—'}
             </dd>
             <dt className="text-text-secondary">Created</dt>
-            <dd className="text-right text-text-primary">{dateTime(detail.createdAt)}</dd>
+            <dd className="text-right text-text-primary">{recordedAt(detail.createdAt)}</dd>
           </dl>
 
           <div>
