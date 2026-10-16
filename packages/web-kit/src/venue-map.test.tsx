@@ -95,8 +95,8 @@ describe('VenueMap on a phone', () => {
     // The one block spans 0..100; the frame is a margin around it (at least a third of the
     // canvas), not 0 0 1000 1000.
     expect(html).not.toContain('viewBox="0 0 1000 1000"');
-    expect(html).toContain('aria-label="Zoom in"');
-    expect(html).toContain('aria-label="Zoom out"');
+    expect(html).toContain('aria-label="Enlarge the map"');
+    expect(html).toContain('aria-label="Make the map smaller"');
     expect(html).toContain('aria-label="Show the whole map"');
   });
 

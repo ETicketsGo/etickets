@@ -146,8 +146,10 @@ export interface VenueMapLabels {
 }
 
 export const VENUE_MAP_LABELS_EN: VenueMapLabels = {
-  zoomIn: 'Zoom in',
-  zoomOut: 'Zoom out',
+  // Not "Zoom in": the seat grid on the same page has those, and two buttons with one name are
+  // two buttons a screen reader cannot tell apart.
+  zoomIn: 'Enlarge the map',
+  zoomOut: 'Make the map smaller',
   zoomReset: 'Show the whole map',
   zoomHint: 'Pinch or use + to zoom. Drag to move around.',
   moveHint: 'Drag a block to move it, or choose it and use the arrow keys.',

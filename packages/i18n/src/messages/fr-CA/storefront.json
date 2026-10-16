@@ -212,6 +212,8 @@
     "venueMapTitle": "Plan de la salle",
     "venueMapLead": "Choisissez une autre zone. Les sièges déjà choisis restent dans votre panier.",
     "changeArea": "Changer de zone ({count} zones)",
+    "venueZoomIn": "Agrandir le plan",
+    "venueZoomOut": "Réduire le plan",
     "venueZoomReset": "Afficher tout le plan",
     "venueZoomHint": "Pincez ou utilisez + pour agrandir. Faites glisser pour vous déplacer.",
     "venueMapAria": "Plan de la salle. Choisissez où vous asseoir, face à : {focal}.",

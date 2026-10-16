@@ -19,8 +19,8 @@ export function StoreVenueMap(props: StoreVenueMapProps) {
       appearance="stage"
       {...props}
       labels={{
-        zoomIn: s('zoomIn'),
-        zoomOut: s('zoomOut'),
+        zoomIn: s('venueZoomIn'),
+        zoomOut: s('venueZoomOut'),
         zoomReset: s('venueZoomReset'),
         zoomHint: s('venueZoomHint'),
         // Buyers never move blocks; the editor's hint is never shown here.

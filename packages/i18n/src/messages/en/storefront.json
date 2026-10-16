@@ -212,6 +212,8 @@
     "venueMapTitle": "Venue map",
     "venueMapLead": "Choose another area. The seats you already chose stay in your basket.",
     "changeArea": "Change area ({count} areas)",
+    "venueZoomIn": "Enlarge the map",
+    "venueZoomOut": "Make the map smaller",
     "venueZoomReset": "Show the whole map",
     "venueZoomHint": "Pinch or use + to zoom. Drag to move around.",
     "venueMapAria": "Venue map. Choose where to sit, facing the {focal}.",
