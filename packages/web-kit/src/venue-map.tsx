@@ -1,8 +1,25 @@
 'use client';
 
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import type { PointerEvent as ReactPointerEvent } from 'react';
+import { Minus, Plus, ScanLine } from 'lucide-react';
 import type { VenueFocalPoint, VenuePoint, VenueSectionSummary } from './api';
+import { SEAT_MAP_LOOK, type BuyerSeatMapAppearance } from './buyer-seat-map';
 import { isDarkFill, readableTextOn } from './colour-contrast';
+import {
+  FULL_CANVAS,
+  MAX_ZOOM,
+  ZOOM_STEP,
+  clampView,
+  frameAround,
+  homeView,
+  panBy,
+  pointAt,
+  viewBoxOf,
+  zoomTo,
+  type MapBox,
+  type MapView,
+} from './venue-map-view';
 
 /**
  * The venue seen from above: blocks around a stage, a pitch or a screen.
@@ -15,10 +32,20 @@ import { isDarkFill, readableTextOn } from './colour-contrast';
  * sit and what that costs — which is a picture.
  *
  * ── WHAT IT DELIBERATELY DOES NOT DO ───────────────────────────────────────────────
- * No pan, no pinch-zoom, no seat-level rendering. The overview's whole job is to get the
- * customer into one block; the seats then render as an ordinary grid, which is legible on a
- * phone in a way three thousand four-pixel dots never are. Building a zoomable canvas here
- * would be a lot of work to arrive somewhere worse.
+ * No seat-level rendering. The overview's whole job is to get the customer into one block; the
+ * seats then render as an ordinary grid, which is legible on a phone in a way three thousand
+ * four-pixel dots never are.
+ *
+ * ── IT DOES ZOOM, BECAUSE A PHONE COULD NOT READ IT ─────────────────────────────────────
+ * Labels are drawn in map units, so they shrink with the map: on a 390px phone a block's name
+ * was 7-9px and its price about 6px. The map now frames the venue rather than the empty canvas
+ * around it, and zooms (buttons, pinch, ctrl + wheel) with one finger to move around; the
+ * labels grow with the zoom. The list under a narrow map stays, for anyone who would rather
+ * not zoom at all. See venue-map-view.ts for the arithmetic.
+ *
+ * ── IN THE LAYOUT EDITOR, BLOCKS MOVE ───────────────────────────────────────────────
+ * Given `onMoveBlock`, a block can be dragged (or moved with the arrow keys once chosen); the
+ * map only reports how far, in map units, and the editor decides what that does to the layout.
  *
  * ── COLOUR IS THE TICKET CATEGORY ──────────────────────────────────────────────────
  * Each block is filled with the colour of its ticket category (the one most of its seats are
@@ -31,8 +58,6 @@ import { isDarkFill, readableTextOn } from './colour-contrast';
  * chosen, goes grey and says "Sold out". Words carry both, so neither depends on colour.
  * Text on a block is black or white, whichever reads better on that colour (always AA).
  */
-
-const VIEWBOX = 1000;
 
 /**
  * Below this rendered width, the map's labels are too small to read.
@@ -70,7 +95,90 @@ export interface VenueMapProps {
    * editor, where nothing is on sale and "sold out" would only confuse.
    */
   availabilityLegend?: boolean;
+  /**
+   * What the map frames: `content` (default) fits the blocks and the stage, so they are drawn as
+   * large as the box allows; `canvas` shows the whole 0-1000 square, for the layout editor, where
+   * a block may be moved into empty space.
+   */
+  frame?: 'content' | 'canvas';
+  /**
+   * Lets the person move blocks: dragging a block, or the arrow keys on a chosen block, reports
+   * how far in map units. Absent (the buyer's map), blocks do not move and a drag pans instead.
+   */
+  onMoveBlock?: (sectionId: string, dx: number, dy: number) => void;
+  /** The words the map uses. The storefront passes its translations; the default is English. */
+  labels?: VenueMapLabels;
+  /** `stage` on the storefront's brand layer, for the zoom buttons; `classic` everywhere else. */
+  appearance?: BuyerSeatMapAppearance;
 }
+
+/**
+ * Every word the map shows or speaks, passed in for the same reason as the seat map's: web-kit
+ * has no translation runtime, and a French buyer must not meet an English map.
+ */
+export interface VenueMapLabels {
+  zoomIn: string;
+  zoomOut: string;
+  zoomReset: string;
+  /** Under the zoom buttons: how to zoom and move around. */
+  zoomHint: string;
+  /** In the editor: how to move a block. */
+  moveHint: string;
+  mapLabel: (focal: string) => string;
+  soldOut: string;
+  almostFull: string;
+  /** Written on a standing zone. */
+  standing: string;
+  keyAlmostFull: string;
+  keySoldOut: string;
+  listLead: string;
+  priceFrom: (price: string) => string;
+  unplacedLead: string;
+  /** What a screen reader hears for a block. `price` is already formatted, or null. */
+  describe: (block: {
+    name: string;
+    soldOut: boolean;
+    available: number;
+    total: number;
+    standing: boolean;
+    price: string | null;
+  }) => string;
+}
+
+export const VENUE_MAP_LABELS_EN: VenueMapLabels = {
+  zoomIn: 'Zoom in',
+  zoomOut: 'Zoom out',
+  zoomReset: 'Show the whole map',
+  zoomHint: 'Pinch or use + to zoom. Drag to move around.',
+  moveHint: 'Drag a block to move it, or choose it and use the arrow keys.',
+  mapLabel: (focal) => `Venue map. Choose where to sit, facing the ${focal.toLowerCase()}.`,
+  soldOut: 'Sold out',
+  almostFull: 'Almost full',
+  standing: 'STANDING',
+  keyAlmostFull: 'Striped: almost full',
+  keySoldOut: 'Grey: sold out',
+  listLead: 'Or choose a block from the list:',
+  priceFrom: (price) => `from ${price}`,
+  unplacedLead: 'Not on the map yet - still bookable:',
+  describe: ({ name, soldOut, available, total, standing, price }) =>
+    soldOut
+      ? `${name}, sold out`
+      : `${name}, ${available} of ${total} ${standing ? 'places' : 'seats'} available${
+          price ? `, from ${price}` : ''
+        }`,
+};
+
+/** How far one arrow key moves a chosen block, in map units (a hundredth of the map). */
+const KEY_STEP = 10;
+/** Movement (px) before a press becomes a drag; less is a tap that chooses the block. */
+const DRAG_PX = 6;
+
+/** What the pointers on the map are doing. */
+type Gesture =
+  | { kind: 'press'; x: number; y: number; blockId: string | null; view: MapView }
+  | { kind: 'drag'; x: number; y: number; blockId: string; unitsPerPx: number }
+  | { kind: 'pan'; x: number; y: number; view: MapView }
+  | { kind: 'pinch'; distance: number; view: MapView; anchor: [number, number] };
 
 /** Where a block stands on the "any left?" scale. Three states, because three is readable. */
 type Fill = 'plenty' | 'few' | 'none';
@@ -107,6 +215,10 @@ export function VenueMap({
   activeSectionId,
   listWhenNarrow = true,
   availabilityLegend = true,
+  frame = 'content',
+  onMoveBlock,
+  labels = VENUE_MAP_LABELS_EN,
+  appearance = 'classic',
 }: VenueMapProps) {
   /*
     Sections with no outline still have to be reachable.
@@ -148,14 +260,233 @@ export function VenueMap({
     return () => observer.disconnect();
   }, []);
 
+  // -- What is on screen ------------------------------------------------------------------
+  const frameBox: MapBox = useMemo(
+    () =>
+      frame === 'canvas'
+        ? FULL_CANVAS
+        : frameAround([
+            ...drawable.map((s) => s.shape as VenuePoint[]),
+            ...(focal.shape && focal.shape.length >= 3 ? [focal.shape] : []),
+          ]),
+    [frame, drawable, focal.shape],
+  );
+  const frameRef = useRef(frameBox);
+  frameRef.current = frameBox;
+  // Null is "the whole venue"; it stays that way as blocks change, rather than a stale zoom.
+  const [view, setView] = useState<MapView | null>(null);
+  const current = view ? clampView(frameBox, view) : homeView(frameBox);
+  const box = viewBoxOf(frameBox, current);
+  const zoomed = current.scale > 1.001;
+
+  const pointers = useRef(new Map<number, { x: number; y: number }>());
+  const gesture = useRef<Gesture | null>(null);
+  // A drag or a pinch ends in a click on whatever is under the finger; that click is not a choice.
+  const suppressClick = useRef(false);
+  const [drag, setDrag] = useState<{ id: string; dx: number; dy: number } | null>(null);
+
+  const blockIdOf = (target: EventTarget | null) =>
+    target instanceof Element
+      ? (target.closest('[data-section-id]')?.getAttribute('data-section-id') ?? null)
+      : null;
+
+  const onPointerDown = (e: ReactPointerEvent<SVGSVGElement>) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.current.size === 1) {
+      // A fresh press: whatever the last gesture left behind no longer applies.
+      suppressClick.current = false;
+      gesture.current = {
+        kind: 'press',
+        x: e.clientX,
+        y: e.clientY,
+        blockId: onMoveBlock ? blockIdOf(e.target) : null,
+        view: current,
+      };
+    } else if (pointers.current.size === 2) {
+      const r = svgRef.current?.getBoundingClientRect();
+      if (!r) return;
+      const [a, b] = [...pointers.current.values()];
+      setDrag(null);
+      suppressClick.current = true;
+      gesture.current = {
+        kind: 'pinch',
+        distance: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)),
+        view: current,
+        anchor: pointAt(
+          frameBox,
+          current,
+          (a.x + b.x) / 2 - r.left,
+          (a.y + b.y) / 2 - r.top,
+          r.width,
+        ),
+      };
+    }
+  };
+
+  const onPointerMove = (e: ReactPointerEvent<SVGSVGElement>) => {
+    if (!pointers.current.has(e.pointerId)) return;
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const r = svgRef.current?.getBoundingClientRect();
+    const g = gesture.current;
+    if (!g || !r) return;
+    if (g.kind === 'press') {
+      if (Math.hypot(e.clientX - g.x, e.clientY - g.y) < DRAG_PX) return;
+      if (g.blockId) {
+        gesture.current = {
+          kind: 'drag',
+          x: g.x,
+          y: g.y,
+          blockId: g.blockId,
+          unitsPerPx: viewBoxOf(frameBox, g.view).w / r.width,
+        };
+      } else if (g.view.scale > 1.001) {
+        gesture.current = { kind: 'pan', x: g.x, y: g.y, view: g.view };
+      } else {
+        // Unzoomed, a drag over the map is the page scrolling, never the map's business.
+        gesture.current = null;
+        return;
+      }
+      // Touch is captured by the browser already; a mouse needs it to keep dragging off the map.
+      if (e.pointerType === 'mouse') svgRef.current?.setPointerCapture?.(e.pointerId);
+      suppressClick.current = true;
+    }
+    const now = gesture.current;
+    if (now?.kind === 'drag') {
+      setDrag({
+        id: now.blockId,
+        dx: (e.clientX - now.x) * now.unitsPerPx,
+        dy: (e.clientY - now.y) * now.unitsPerPx,
+      });
+    } else if (now?.kind === 'pan') {
+      setView(panBy(frameBox, now.view, e.clientX - now.x, e.clientY - now.y, r.width));
+    } else if (now?.kind === 'pinch' && pointers.current.size >= 2) {
+      const [a, b] = [...pointers.current.values()];
+      const at: [number, number] = [
+        ((a.x + b.x) / 2 - r.left) / r.width,
+        ((a.y + b.y) / 2 - r.top) / r.height,
+      ];
+      const scale = (now.view.scale * Math.hypot(a.x - b.x, a.y - b.y)) / now.distance;
+      setView(zoomTo(frameBox, scale, now.anchor, at));
+    }
+  };
+
+  const onPointerEnd = (e: ReactPointerEvent<SVGSVGElement>) => {
+    const g = gesture.current;
+    pointers.current.delete(e.pointerId);
+    if (g?.kind === 'drag') {
+      setDrag(null);
+      if (e.type === 'pointerup' && onMoveBlock) {
+        const dx = Math.round((e.clientX - g.x) * g.unitsPerPx);
+        const dy = Math.round((e.clientY - g.y) * g.unitsPerPx);
+        if (dx !== 0 || dy !== 0) onMoveBlock(g.blockId, dx, dy);
+      }
+    }
+    // After a pinch the finger still down starts nothing until it is lifted, or the map would jump.
+    if (pointers.current.size === 0 || g?.kind === 'pinch') gesture.current = null;
+  };
+
+  // Ctrl + wheel is how a trackpad pinches. A plain wheel stays the page's scroll.
+  useEffect(() => {
+    const el = svgRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      const r = el.getBoundingClientRect();
+      setView((v) => {
+        const f = frameRef.current;
+        const cur = v ? clampView(f, v) : homeView(f);
+        const anchor = pointAt(f, cur, e.clientX - r.left, e.clientY - r.top, r.width);
+        return zoomTo(f, cur.scale * Math.exp(-e.deltaY / 200), anchor, [
+          (e.clientX - r.left) / r.width,
+          (e.clientY - r.top) / r.height,
+        ]);
+      });
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, []);
+
+  /** Zoom by a step. Zooming in goes towards the chosen block, if there is one. */
+  const zoomBy = (factor: number) => {
+    const target =
+      factor > 1 ? drawable.find((sec) => sec.id === (activeSectionId ?? pendingSectionId)) : null;
+    const anchor: [number, number] = target
+      ? target.labelX !== null && target.labelY !== null
+        ? [target.labelX, target.labelY]
+        : centroidOf(target.shape as VenuePoint[])
+      : [current.cx, current.cy];
+    setView(zoomTo(frameBox, current.scale * factor, anchor));
+  };
+
+  const look = SEAT_MAP_LOOK[appearance];
+  const hint = onMoveBlock ? labels.moveHint : narrow || zoomed ? labels.zoomHint : null;
+
   return (
     <div className="space-y-3">
+      <div className="flex items-center justify-between gap-2">
+        <p className="min-w-0 text-caption text-text-muted">{hint}</p>
+        <div className="flex shrink-0 items-center gap-1" data-testid="venue-map-zoom">
+          {(
+            [
+              {
+                label: labels.zoomOut,
+                icon: Minus,
+                disabled: !zoomed,
+                run: () => zoomBy(1 / ZOOM_STEP),
+              },
+              {
+                label: labels.zoomReset,
+                icon: ScanLine,
+                disabled: !zoomed,
+                run: () => setView(null),
+              },
+              {
+                label: labels.zoomIn,
+                icon: Plus,
+                disabled: current.scale >= MAX_ZOOM - 0.001,
+                run: () => zoomBy(ZOOM_STEP),
+              },
+            ] as const
+          ).map(({ label, icon: Icon, disabled, run }) => (
+            <button
+              key={label}
+              type="button"
+              aria-label={label}
+              title={label}
+              disabled={disabled}
+              onClick={run}
+              className={look.zoom}
+            >
+              <Icon className="h-4 w-4" aria-hidden />
+            </button>
+          ))}
+        </div>
+      </div>
       <svg
         ref={svgRef}
-        viewBox={`0 0 ${VIEWBOX} ${VIEWBOX}`}
-        className="w-full rounded-xl border border-border bg-background-subtle"
+        viewBox={`${round1(box.x)} ${round1(box.y)} ${round1(box.w)} ${round1(box.h)}`}
+        className="w-full select-none rounded-xl border border-border bg-background-subtle"
+        // The box keeps the venue's proportions at every zoom: zooming changes what is inside it.
+        style={{
+          aspectRatio: `${frameBox.w} / ${frameBox.h}`,
+          // Zoomed, one finger moves the map; unzoomed it scrolls the page, as it always did.
+          touchAction: zoomed ? 'none' : 'pan-y',
+        }}
+        data-zoom={current.scale.toFixed(2)}
         role="group"
-        aria-label={`Venue map. Choose where to sit, facing the ${focal.label.toLowerCase()}.`}
+        aria-label={labels.mapLabel(focal.label)}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerEnd}
+        onPointerCancel={onPointerEnd}
+        onClickCapture={(e) => {
+          if (!suppressClick.current) return;
+          suppressClick.current = false;
+          e.stopPropagation();
+          e.preventDefault();
+        }}
       >
         {focal.shape && focal.shape.length >= 3 ? (
           <g>
@@ -220,18 +551,30 @@ export function VenueMap({
               section.labelX !== null && section.labelY !== null
                 ? [section.labelX, section.labelY]
                 : centroidOf(section.shape as VenuePoint[]);
-            const note = soldOut ? 'Sold out' : fill === 'few' ? 'Almost full' : null;
+            const note = soldOut ? labels.soldOut : fill === 'few' ? labels.almostFull : null;
             const second = note
               ? note
               : standingZone
-                ? 'STANDING'
+                ? labels.standing
                 : section.priceMinorFrom !== null
                   ? formatPrice(section.priceMinorFrom)
                   : null;
+            const movable = !!onMoveBlock && !standingZone;
+            const moving = drag?.id === section.id ? drag : null;
             return (
-              <g key={section.id} data-block={section.name} data-dimmed={dimmed || undefined}>
+              <g
+                key={section.id}
+                data-block={section.name}
+                data-dimmed={dimmed || undefined}
+                transform={
+                  moving ? `translate(${round1(moving.dx)} ${round1(moving.dy)})` : undefined
+                }
+              >
                 <polygon
                   points={points}
+                  data-section-id={section.id}
+                  // A block that moves takes the finger itself, so dragging it never scrolls the page.
+                  style={movable ? { touchAction: 'none' } : undefined}
                   fill={paint.fill}
                   /*
                     Only the FILL steps back. Dimming the whole block also faded its name below AA;
@@ -240,9 +583,15 @@ export function VenueMap({
                   fillOpacity={dimmed ? 0.4 : 1}
                   strokeWidth={chosen ? 8 : 3}
                   strokeLinejoin="round"
-                  className={`transition-all ${
+                  className={`${moving ? '' : 'transition-all'} ${
                     chosen ? 'stroke-text-primary' : 'stroke-background-surface'
-                  } ${soldOut ? 'cursor-not-allowed' : 'cursor-pointer hover:brightness-110'}`}
+                  } ${
+                    soldOut
+                      ? 'cursor-not-allowed'
+                      : movable
+                        ? 'cursor-move hover:brightness-110'
+                        : 'cursor-pointer hover:brightness-110'
+                  }`}
                   aria-pressed={
                     soldOut || standingZone || activeSectionId === undefined
                       ? undefined
@@ -257,7 +606,7 @@ export function VenueMap({
                   */
                   role={soldOut || standingZone ? undefined : 'button'}
                   tabIndex={soldOut || standingZone ? undefined : 0}
-                  aria-label={describe(section, formatPrice)}
+                  aria-label={describe(section, formatPrice, labels)}
                   onKeyDown={
                     soldOut || standingZone
                       ? undefined
@@ -265,6 +614,13 @@ export function VenueMap({
                           if (e.key === 'Enter' || e.key === ' ') {
                             e.preventDefault();
                             onSelect(section.id);
+                            return;
+                          }
+                          // In the editor the arrow keys move the chosen block, a step at a time.
+                          const step = movable ? ARROW_STEPS[e.key] : undefined;
+                          if (step && onMoveBlock) {
+                            e.preventDefault();
+                            onMoveBlock(section.id, step[0] * KEY_STEP, step[1] * KEY_STEP);
                           }
                         }
                   }
@@ -341,9 +697,12 @@ export function VenueMap({
                   }}
                   aria-hidden="true"
                 />
-                Striped: almost full
+                {labels.keyAlmostFull}
               </span>
-              <LegendSwatch className="border border-border bg-[#E2E8F0]" label="Grey: sold out" />
+              <LegendSwatch
+                className="border border-border bg-[#E2E8F0]"
+                label={labels.keySoldOut}
+              />
             </>
           ) : null}
         </div>
@@ -351,7 +710,7 @@ export function VenueMap({
 
       {listWhenNarrow && narrow && drawable.length > 0 ? (
         <div data-testid="venue-map-list" className="space-y-2">
-          <p className="text-caption text-text-muted">Or choose a block from the list:</p>
+          <p className="text-caption text-text-muted">{labels.listLead}</p>
           <ul className="grid gap-2">
             {drawable.map((section) => {
               const soldOut = fillFor(section) === 'none';
@@ -374,11 +733,11 @@ export function VenueMap({
                     <span className="font-medium">{section.name}</span>
                     <span className="text-text-secondary">
                       {soldOut
-                        ? 'Sold out'
+                        ? labels.soldOut
                         : standingZone
-                          ? 'Standing'
+                          ? labels.standing
                           : section.priceMinorFrom !== null
-                            ? `from ${formatPrice(section.priceMinorFrom)}`
+                            ? labels.priceFrom(formatPrice(section.priceMinorFrom))
                             : ''}
                     </span>
                   </button>
@@ -391,7 +750,7 @@ export function VenueMap({
 
       {unplaced.length > 0 ? (
         <div className="rounded-lg border border-border p-3">
-          <p className="mb-2 text-caption text-text-muted">Not on the map yet — still bookable:</p>
+          <p className="mb-2 text-caption text-text-muted">{labels.unplacedLead}</p>
           <div className="flex flex-wrap gap-2">
             {unplaced.map((section) => (
               <button
@@ -403,7 +762,7 @@ export function VenueMap({
               >
                 {section.name}
                 {section.priceMinorFrom !== null
-                  ? ` · from ${formatPrice(section.priceMinorFrom)}`
+                  ? ` - ${labels.priceFrom(formatPrice(section.priceMinorFrom))}`
                   : ''}
               </button>
             ))}
@@ -424,13 +783,31 @@ function LegendSwatch({ className, label }: { className: string; label: string }
 }
 
 /** What a screen reader hears, which is the same three facts the picture shows. */
-function describe(section: VenueSectionSummary, formatPrice: (minor: number) => string): string {
-  if (section.availableCount === 0) return `${section.name}, sold out`;
-  const price =
-    section.priceMinorFrom !== null ? `, from ${formatPrice(section.priceMinorFrom)}` : '';
-  const unit = section.kind === 'ZONE' ? 'places' : 'seats';
-  return `${section.name}, ${section.availableCount} of ${section.totalCount} ${unit} available${price}`;
+function describe(
+  section: VenueSectionSummary,
+  formatPrice: (minor: number) => string,
+  labels: VenueMapLabels,
+): string {
+  return labels.describe({
+    name: section.name,
+    soldOut: section.availableCount === 0,
+    available: section.availableCount,
+    total: section.totalCount,
+    standing: section.kind === 'ZONE',
+    price: section.priceMinorFrom !== null ? formatPrice(section.priceMinorFrom) : null,
+  });
 }
+
+/** A viewBox number: a tenth of a map unit is finer than any screen shows. */
+const round1 = (n: number) => Math.round(n * 10) / 10;
+
+/** Arrow keys as a direction on the map. */
+const ARROW_STEPS: Record<string, [number, number] | undefined> = {
+  ArrowLeft: [-1, 0],
+  ArrowRight: [1, 0],
+  ArrowUp: [0, -1],
+  ArrowDown: [0, 1],
+};
 
 function centroidOf(points: VenuePoint[]): VenuePoint {
   const sum = points.reduce<[number, number]>((a, [x, y]) => [a[0] + x, a[1] + y], [0, 0]);

@@ -211,7 +211,22 @@
     "otherAreas": "Autres zones",
     "venueMapTitle": "Plan de la salle",
     "venueMapLead": "Choisissez une autre zone. Les sièges déjà choisis restent dans votre panier.",
-    "changeArea": "Changer de zone ({count} zones)"
+    "changeArea": "Changer de zone ({count} zones)",
+    "venueZoomReset": "Afficher tout le plan",
+    "venueZoomHint": "Pincez ou utilisez + pour agrandir. Faites glisser pour vous déplacer.",
+    "venueMapAria": "Plan de la salle. Choisissez où vous asseoir, face à : {focal}.",
+    "venueAlmostFull": "Presque complet",
+    "venueStanding": "DEBOUT",
+    "venueKeyAlmostFull": "Rayé : presque complet",
+    "venueKeySoldOut": "Gris : complet",
+    "venueListLead": "Ou choisissez une section dans la liste :",
+    "venueUnplacedLead": "Pas encore sur le plan - toujours réservable :",
+    "venuePriceFrom": "à partir de {price}",
+    "venueBlockSoldOut": "{name}, complet",
+    "venueBlockAvailable": "{name}, {available} sur {total} sièges disponibles",
+    "venueBlockStanding": "{name}, {available} sur {total} places debout disponibles",
+    "venueBlockAvailableFrom": "{name}, {available} sur {total} sièges disponibles, à partir de {price}",
+    "venueBlockStandingFrom": "{name}, {available} sur {total} places debout disponibles, à partir de {price}"
   },
   "checkout": {
     "heading": "Paiement",
