@@ -204,6 +204,62 @@ export class CinemasService {
     }
 
     /*
+      -- A CINEMA IN A VENUE IS WHERE ITS VENUE IS -----------------------------------------------
+      Its city, street address, country, state and clock come from the venue, and are edited
+      there (the venue edit writes them through to this row). Two forms for one address is how a
+      cinema came to say one city while its venue said another. A value that differs from the
+      venue's is refused with where to change it; one that matches - what an older console still
+      sends back unchanged on every save - is accepted and changes nothing.
+    */
+    const locationKeys = ['city', 'address', 'country', 'region', 'timezone'] as const;
+    if (cinema.venueId && locationKeys.some((k) => patch[k] !== undefined)) {
+      const venue = await this.prisma.venue.findUnique({
+        where: { id: patch.venueId ?? cinema.venueId },
+        select: {
+          name: true,
+          city: true,
+          address: true,
+          country: true,
+          region: true,
+          timezone: true,
+        },
+      });
+      if (venue) {
+        const differs = (
+          [
+            ['city', venue.city],
+            ['address', venue.address],
+            ['country', venue.country],
+            ['region', venue.region],
+            ['timezone', venue.timezone],
+          ] as const
+        ).filter(([key, value]) => {
+          const sent = patch[key];
+          if (sent === undefined) return false;
+          return (sent ?? '').trim() !== (value ?? '').trim() && !(key === 'timezone' && !value);
+        });
+        if (differs.length > 0) {
+          throw new AppException(
+            ErrorCodes.VALIDATION_FAILED,
+            `This cinema's location comes from its venue, ${venue.name}. Change the ${differs
+              .map(([k]) =>
+                k === 'address' ? 'street address' : k === 'timezone' ? 'time zone' : k,
+              )
+              .join(', ')} on the venue under Venues & seating.`,
+            HttpStatus.BAD_REQUEST,
+            { reason: 'LOCATION_FROM_VENUE', fields: differs.map(([k]) => k) },
+          );
+        }
+        // Matching values are not written: the venue owns them. A venue with no clock yet
+        // leaves the cinema's own zone in charge, under the rule below.
+        for (const key of locationKeys) {
+          if (key === 'timezone' && !venue.timezone) continue;
+          delete (patch as Record<string, unknown>)[key];
+        }
+      }
+    }
+
+    /*
       Changing the timezone of a cinema that already has shows is REFUSED.
 
       Show start times are stored as absolute instants, resolved through the venue's zone at
@@ -254,7 +310,7 @@ export class CinemasService {
 
   async getForOrg(user: RequestUser, id: string) {
     await this.loadOwnedCinema(user, id, undefined);
-    return this.prisma.cinema.findUnique({
+    const cinema = await this.prisma.cinema.findUnique({
       where: { id },
       include: {
         screens: true,
@@ -269,6 +325,35 @@ export class CinemasService {
         venue: { select: { country: true, region: true } },
       },
     });
+    if (!cinema) return cinema;
+    /*
+      Where the cinema is, read from its VENUE - the one place it is edited. The page says
+      "Location from <venue>" and links there rather than offering a second address form.
+    */
+    const venue = cinema.venueId
+      ? await this.prisma.venue.findUnique({
+          where: { id: cinema.venueId },
+          select: {
+            id: true,
+            name: true,
+            city: true,
+            address: true,
+            country: true,
+            region: true,
+            timezone: true,
+          },
+        })
+      : null;
+    return {
+      ...cinema,
+      ...(venue
+        ? {
+            city: venue.city,
+            address: venue.address,
+            venue: { ...cinema.venue, ...venue },
+          }
+        : {}),
+    };
   }
 
   // ─── Screens ───
@@ -460,7 +545,10 @@ export class CinemasService {
    */
   async removeScreen(user: RequestUser, id: string) {
     await this.loadOwnedScreen(user, id);
-    const sessions = await this.prisma.eventSession.count({ where: { screenId: id } });
+    // A standing space's sessions name it through `standingSpaceId`; they count the same way.
+    const sessions = await this.prisma.eventSession.count({
+      where: { OR: [{ screenId: id }, { standingSpaceId: id }] },
+    });
     if (sessions > 0) {
       throw new AppException(
         ErrorCodes.CONFLICT,

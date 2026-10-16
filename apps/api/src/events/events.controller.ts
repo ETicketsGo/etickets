@@ -29,12 +29,14 @@ import {
   createSessionSchema,
   createTicketTypeSchema,
   updateSessionSeatingSchema,
+  updateSessionStandingSpaceSchema,
   updateTicketTypeSchema,
   paginationSchema,
   reviewDecisionSchema,
   type CreateSessionInput,
   type CreateTicketTypeInput,
   type UpdateSessionSeatingInput,
+  type UpdateSessionStandingSpaceInput,
   type UpdateTicketTypeInput,
   type ReviewDecisionInput,
 } from '@eticketsgo/validation';
@@ -298,6 +300,20 @@ export class EventsController {
     @Body(new ZodValidationPipe(updateSessionSeatingSchema)) body: UpdateSessionSeatingInput,
   ) {
     return this.events.updateSessionSeating(user, sessionId, body.screenId, body.seatMapId);
+  }
+
+  @Patch('sessions/:sessionId/standing-space')
+  @ApiOperation({
+    summary:
+      'Put a general-admission session in a standing space (its capacity caps the tickets on sale), or take it out.',
+  })
+  updateSessionStandingSpace(
+    @CurrentUser() user: RequestUser,
+    @Param('sessionId') sessionId: string,
+    @Body(new ZodValidationPipe(updateSessionStandingSpaceSchema))
+    body: UpdateSessionStandingSpaceInput,
+  ) {
+    return this.events.setStandingSpace(user, sessionId, body.standingSpaceId);
   }
 
   @Post('ticket-types')

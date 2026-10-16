@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { MapPin, Pencil } from 'lucide-react';
 import {
   api,
   Badge,
@@ -24,6 +25,7 @@ import {
   type ScreenBody,
   type CinemaBody,
   parseCoordinates,
+  venueAddressLine,
 } from '@eticketsgo/web-kit';
 import { SeatingExplainer } from '@/components/seating-explainer';
 
@@ -111,24 +113,39 @@ export default function CinemaDetailPage() {
   const setField = (key: keyof typeof form, value: string) =>
     setForm((f) => ({ ...f, [key]: value }));
 
+  /*
+    -- WHERE THE CINEMA IS COMES FROM ITS VENUE ----------------------------------------------
+    This card used to ask for the cinema's own city, street address and map pin, while the
+    venue it sits in had its own city and address too: two forms for one building, free to
+    disagree, and the cinema's copy was the one nobody else edited. A cinema in a venue now
+    shows the venue's location and links to the venue to change it; the server refuses a
+    different city or address sent here. Only a cinema never linked to a venue (an old row)
+    still edits its own.
+  */
+  const linkedVenue = cinemaQ.data?.venueId ? (cinemaQ.data.venue ?? null) : null;
+  const ownLocation = !cinemaQ.data?.venueId;
+
   const validate = (): Record<string, string> => {
     const e: Record<string, string> = {};
     if (form.name.trim().length < 2) e.name = 'Name must be at least 2 characters.';
-    if (!form.city.trim()) e.city = 'City is required.';
+    if (ownLocation && !form.city.trim()) e.city = 'City is required.';
     return e;
   };
 
   const save = useMutation({
     mutationFn: () => {
-      const body: Partial<CinemaBody> = {
-        name: form.name.trim(),
-        brand: form.brand.trim() || undefined,
-        city: form.city.trim(),
-        timezone: form.timezone.trim() || undefined,
-        address: form.address.trim() || undefined,
-        latitude: form.latitude ? Number(form.latitude) : undefined,
-        longitude: form.longitude ? Number(form.longitude) : undefined,
-      };
+      const body: Partial<CinemaBody> = ownLocation
+        ? {
+            name: form.name.trim(),
+            brand: form.brand.trim() || undefined,
+            city: form.city.trim(),
+            timezone: form.timezone.trim() || undefined,
+            address: form.address.trim() || undefined,
+            latitude: form.latitude ? Number(form.latitude) : undefined,
+            longitude: form.longitude ? Number(form.longitude) : undefined,
+          }
+        : // Only what this card still edits. The location is the venue's.
+          { name: form.name.trim(), brand: form.brand.trim() || undefined };
       return api.cinemas.update(id, body);
     },
     onSuccess: () => {
@@ -412,21 +429,62 @@ export default function CinemaDetailPage() {
               value={form.brand}
               onChange={(e) => setField('brand', e.target.value)}
             />
-            <Input
-              id="city"
-              label="City"
-              value={form.city}
-              onChange={(e) => setField('city', e.target.value)}
-              error={fieldErrors.city}
-            />
+            {ownLocation ? (
+              <Input
+                id="city"
+                label="City"
+                value={form.city}
+                onChange={(e) => setField('city', e.target.value)}
+                error={fieldErrors.city}
+              />
+            ) : null}
           </div>
-          <Input
-            id="address"
-            label="Street address"
-            hint="Just the street and area. The city is set above."
-            value={form.address}
-            onChange={(e) => setField('address', e.target.value)}
-          />
+          {linkedVenue ? (
+            <div
+              data-testid="cinema-location"
+              className="flex flex-wrap items-start justify-between gap-3 rounded-md border border-border bg-background-canvas p-3"
+            >
+              <div className="flex min-w-0 items-start gap-2">
+                <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-text-muted" aria-hidden />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-text-primary">
+                    Location from {linkedVenue.name ?? 'its venue'}
+                  </p>
+                  <p className="break-words text-caption text-text-secondary [overflow-wrap:anywhere]">
+                    {linkedVenue.city
+                      ? venueAddressLine({
+                          city: linkedVenue.city,
+                          address: linkedVenue.address ?? null,
+                          region: linkedVenue.region,
+                          country: linkedVenue.country,
+                        })
+                      : cinema.city}
+                  </p>
+                  <p className="mt-1 text-caption text-text-muted">
+                    The address, city and time zone are the venue&apos;s. Change them on the venue
+                    and this cinema follows.
+                  </p>
+                </div>
+              </div>
+              <ButtonLink
+                href={`/organizer/venues?edit=${cinema.venueId}`}
+                variant="outline"
+                size="sm"
+                icon={Pencil}
+              >
+                Edit venue
+              </ButtonLink>
+            </div>
+          ) : null}
+          {ownLocation ? (
+            <Input
+              id="address"
+              label="Street address"
+              hint="Just the street and area. The city is set above."
+              value={form.address}
+              onChange={(e) => setField('address', e.target.value)}
+            />
+          ) : null}
           {/*
             ── COORDINATES, WITHOUT ASKING ANYONE TO KNOW THEM ─────────────────────────
             Two empty boxes labelled Latitude and Longitude. Nobody has those to hand, and
@@ -447,66 +505,68 @@ export default function CinemaDetailPage() {
             Coordinates stay OPTIONAL. They order search results by distance; nothing about
             selling a ticket depends on them.
           */}
-          <div className="space-y-3 rounded-md border border-border p-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-caption font-medium text-text-secondary">
-                Map location (optional)
-              </p>
-              <a
-                href={`https://www.google.com/maps/search/${encodeURIComponent(
-                  [form.name, form.address, form.city].filter(Boolean).join(', '),
-                )}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-caption font-medium text-action-primary underline underline-offset-2"
-              >
-                Find this venue on a map
-              </a>
-            </div>
-            <Input
-              id="geo-paste"
-              label="Paste a location"
-              placeholder="17.3850, 78.4867 — or paste a Google Maps link"
-              hint="Anything with coordinates in it. We pull the two numbers out."
-              value={geoPaste}
-              onChange={(e) => {
-                const raw = e.target.value;
-                setGeoPaste(raw);
-                const found = parseCoordinates(raw);
-                if (!found) return;
-                setField('latitude', String(found.latitude));
-                setField('longitude', String(found.longitude));
-              }}
-            />
-            <div className="grid gap-4 sm:grid-cols-2">
+          {ownLocation ? (
+            <div className="space-y-3 rounded-md border border-border p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-caption font-medium text-text-secondary">
+                  Map location (optional)
+                </p>
+                <a
+                  href={`https://www.google.com/maps/search/${encodeURIComponent(
+                    [form.name, form.address, form.city].filter(Boolean).join(', '),
+                  )}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-caption font-medium text-action-primary underline underline-offset-2"
+                >
+                  Find this venue on a map
+                </a>
+              </div>
               <Input
-                id="latitude"
-                label="Latitude"
-                inputMode="decimal"
-                value={form.latitude}
-                onChange={(e) => setField('latitude', e.target.value)}
+                id="geo-paste"
+                label="Paste a location"
+                placeholder="17.3850, 78.4867 — or paste a Google Maps link"
+                hint="Anything with coordinates in it. We pull the two numbers out."
+                value={geoPaste}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  setGeoPaste(raw);
+                  const found = parseCoordinates(raw);
+                  if (!found) return;
+                  setField('latitude', String(found.latitude));
+                  setField('longitude', String(found.longitude));
+                }}
               />
-              <Input
-                id="longitude"
-                label="Longitude"
-                inputMode="decimal"
-                value={form.longitude}
-                onChange={(e) => setField('longitude', e.target.value)}
-              />
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Input
+                  id="latitude"
+                  label="Latitude"
+                  inputMode="decimal"
+                  value={form.latitude}
+                  onChange={(e) => setField('latitude', e.target.value)}
+                />
+                <Input
+                  id="longitude"
+                  label="Longitude"
+                  inputMode="decimal"
+                  value={form.longitude}
+                  onChange={(e) => setField('longitude', e.target.value)}
+                />
+              </div>
+              {form.latitude && form.longitude && (
+                <a
+                  href={`https://www.google.com/maps?q=${encodeURIComponent(
+                    `${form.latitude},${form.longitude}`,
+                  )}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-block text-caption font-medium text-action-primary underline underline-offset-2"
+                >
+                  Check this pin on a map
+                </a>
+              )}
             </div>
-            {form.latitude && form.longitude && (
-              <a
-                href={`https://www.google.com/maps?q=${encodeURIComponent(
-                  `${form.latitude},${form.longitude}`,
-                )}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-block text-caption font-medium text-action-primary underline underline-offset-2"
-              >
-                Check this pin on a map
-              </a>
-            )}
-          </div>
+          ) : null}
           <Button loading={save.isPending} onClick={submit}>
             Save changes
           </Button>

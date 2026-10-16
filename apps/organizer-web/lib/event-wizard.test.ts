@@ -654,3 +654,62 @@ describe('ticket starting sets', () => {
     expect(rows.map((t) => t.name)).toEqual(['General']);
   });
 });
+
+/*
+  A standing space holds so many people. Walking QA, 500 tickets went on sale for a lawn that
+  holds 100 and nothing said a word; the tickets step now refuses, as the server does.
+*/
+describe('validateStep - a standing space caps each session', () => {
+  const lawn = { name: 'Main Lawn', capacity: 100 };
+
+  it('refuses more on sale than the space holds, naming the space', () => {
+    const e = validateStep(
+      'tickets',
+      valid({
+        standingSpace: lawn,
+        tickets: [
+          {
+            sessionIndex: 0,
+            name: 'General',
+            priceMajor: '499',
+            quantityTotal: '80',
+            maxPerOrder: '6',
+          },
+          {
+            sessionIndex: 0,
+            name: 'VIP',
+            priceMajor: '999',
+            quantityTotal: '30',
+            maxPerOrder: '6',
+          },
+        ],
+      }),
+    );
+    expect(e.s0Cap).toBe(
+      'Main Lawn holds 100 people. The tickets on sale add up to 110. Lower a quantity.',
+    );
+    expect(describeProblems({ s0Cap: e.s0Cap })[0]).toMatch(/^Session 1: Main Lawn holds 100/);
+  });
+
+  it('accepts exactly what the space holds', () => {
+    expect(validateStep('tickets', valid({ standingSpace: lawn })).s0Cap).toBeUndefined();
+  });
+
+  it('does not judge an event that is not in a standing space', () => {
+    const e = validateStep(
+      'tickets',
+      valid({
+        tickets: [
+          {
+            sessionIndex: 0,
+            name: 'General',
+            priceMajor: '499',
+            quantityTotal: '500',
+            maxPerOrder: '6',
+          },
+        ],
+      }),
+    );
+    expect(e.s0Cap).toBeUndefined();
+  });
+});
