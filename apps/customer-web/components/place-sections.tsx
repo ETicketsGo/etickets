@@ -2,15 +2,16 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { Compass, MapPin } from 'lucide-react';
+import { useLocale, useTranslations } from 'next-intl';
 import {
   api as webKitApi,
   brandChipClasses,
   BrandButton,
-  countryPhrase,
   countryKey,
   useCity,
 } from '@eticketsgo/web-kit';
 import { Button, EmptyState } from '@/components/ui';
+import { useCountryWords } from '@/lib/country-words';
 import { BrandEmpty } from './storefront-brand';
 
 /*
@@ -18,8 +19,9 @@ import { BrandEmpty } from './storefront-brand';
   other country. The pages decide how an item looks (a card, a poster); this decides the titles,
   the order and the currency note, so Explore, Browse and Movies cannot drift apart.
 
-  Plain English and ASCII, like the pages that use it; the home page has its own translated
-  version of the same groups.
+  Every word comes from the `storefront.placeGroups` messages, so a French visitor reads these
+  groups in French on Explore, Browse and Movies alike. The home page has its own version of the
+  same groups under `home.sections`.
 */
 
 /** At most this many in each group: a taste of what is on, with "See all" as the way further. */
@@ -53,6 +55,9 @@ export function PlaceSections<T>({
    */
   variant?: 'legacy' | 'brand';
 }) {
+  const t = useTranslations('storefront.placeGroups');
+  const english = useLocale().startsWith('en');
+  const words = useCountryWords();
   const Heading = (level === 2 ? 'h2' : 'h3') as 'h2';
   const country = buckets.homeCountry;
   const brand = variant === 'brand';
@@ -72,7 +77,7 @@ export function PlaceSections<T>({
           className={sectionClass}
         >
           <Heading id="place-same-country" className={headingClass}>
-            {country ? `More in ${countryPhrase(country)}` : 'More events'}
+            {country ? t('moreIn', { country: words(country, true) }) : t('moreEvents')}
           </Heading>
           {render(buckets.sameCountry.slice(0, limit))}
         </section>
@@ -92,10 +97,14 @@ export function PlaceSections<T>({
           >
             <div>
               <Heading id={id} className={headingClass}>
-                {`Elsewhere: ${group.name}`}
+                {t('elsewhere', {
+                  // English keeps the group's own name; another language names the ISO code.
+                  country:
+                    english || !/^[A-Z]{2}$/.test(group.code) ? group.name : words(group.code),
+                })}
               </Heading>
               {currencies.length === 1 && (
-                <p className={noteClass}>Prices in {currencies[0]}. Times are at the venue.</p>
+                <p className={noteClass}>{t('pricesNote', { currency: currencies[0] ?? '' })}</p>
               )}
             </div>
             {render(group.items.slice(0, limit))}
@@ -121,11 +130,13 @@ export function EmptyPlace({
   variant = 'legacy',
 }: {
   place: string;
-  noun?: string;
+  noun?: 'events' | 'films';
   icon?: typeof Compass;
   /** `brand` draws the same words and choices on the brand layer; see `PlaceSections`. */
   variant?: 'legacy' | 'brand';
 }) {
+  const t = useTranslations('storefront.placeGroups');
+  const words = useCountryWords();
   const preference = useCity();
   const country = preference.place?.country ?? preference.country;
   const key = countryKey(country);
@@ -137,11 +148,13 @@ export function EmptyPlace({
   const suggestions = (nearby.data ?? [])
     .filter((c) => c.eventCount > 0 && c.city.toLowerCase() !== preference.city?.toLowerCase())
     .slice(0, 6);
-  const title = `No ${noun} available in ${place} yet`;
+  const title = t(noun === 'films' ? 'noneFilms' : 'noneEvents', { place });
   const hint =
     suggestions.length > 0
-      ? `These cities in ${key ? countryPhrase(key) : 'your country'} have something on:`
-      : 'Search for a city to see what is on there.';
+      ? key
+        ? t('citiesIn', { country: words(key, true) })
+        : t('citiesInYours')
+      : t('searchHint');
   const choose = (c: (typeof suggestions)[number]) =>
     preference.setCity(c.city, {
       region: c.region ?? null,
@@ -167,7 +180,7 @@ export function EmptyPlace({
               </button>
             ))}
             <BrandButton variant="secondary" onClick={() => preference.requestPicker()}>
-              Search for a city
+              {t('searchCity')}
             </BrandButton>
           </>
         }
@@ -194,7 +207,7 @@ export function EmptyPlace({
             </Button>
           ))}
           <Button variant="secondary" onClick={() => preference.requestPicker()}>
-            Search for a city
+            {t('searchCity')}
           </Button>
         </div>
       }

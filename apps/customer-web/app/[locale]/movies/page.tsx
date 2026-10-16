@@ -3,13 +3,13 @@
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { ChevronDown, Search } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import {
   BrandButton,
   DISCOVERY_COUNTRIES,
   cityScope,
   countryKey,
   countryLabelOf,
-  countryPhrase,
   selectedPlace,
   useCity,
 } from '@eticketsgo/web-kit';
@@ -18,6 +18,7 @@ import { EmptyPlace, PlaceSections } from '@/components/place-sections';
 import { Placeholder, Rail, RailItem } from '@/components/home/parts';
 import { BRAND_FIELD } from '@/components/booking-brand';
 import { BRAND_WRAP, BrandEmpty, BrandPage, FilmCard } from '@/components/storefront-brand';
+import { useCountryWords } from '@/lib/country-words';
 
 /*
   ── MOVIES ON THE BRAND LAYER (docs/design/DESIGN-SYSTEM.md) ─────────────────────────────
@@ -35,6 +36,9 @@ const FILM_GRID =
 const LABEL = 'mb-1.5 block text-brand-ui font-semibold text-brand-ink';
 
 export default function MoviesPage() {
+  const t = useTranslations('storefront.movies');
+  const action = useTranslations('common.action');
+  const words = useCountryWords();
   const [q, setQ] = useState('');
   const [genre, setGenre] = useState('');
   const [applied, setApplied] = useState<{ q?: string; genre?: string }>({});
@@ -63,9 +67,10 @@ export default function MoviesPage() {
    * is this block — name the place, and offer the way out of it.
    *
    * Named, not coded: "No films in the United States just yet" is a sentence, "No films in
-   * US just yet" is a database row.
+   * US just yet" is a database row. French puts the place after a colon, where the bare name
+   * ("Etats-Unis", from `useCountryWords`) is the correct form.
    */
-  const place = city ?? (preference.country ? countryPhrase(preference.country) : null);
+  const place = city ?? (preference.country ? words(preference.country, true) : null);
   const cityOnly = Boolean(place) && !applied.q && !applied.genre;
 
   const { data, isLoading, isError, refetch } = useQuery({
@@ -127,10 +132,10 @@ export default function MoviesPage() {
     <BrandPage>
       <section data-brand-tone="stage" className="bg-brand-canvas">
         <div className={`${BRAND_WRAP} py-10 lg:py-14`}>
-          <h1 className="text-balance font-brand-display text-brand-d1 text-brand-ink">Movies</h1>
-          <p className="mt-3 max-w-prose text-brand-lead text-brand-ink-2">
-            Find a film and book your seats.
-          </p>
+          <h1 className="text-balance font-brand-display text-brand-d1 text-brand-ink">
+            {t('title')}
+          </h1>
+          <p className="mt-3 max-w-prose text-brand-lead text-brand-ink-2">{t('lead')}</p>
           <span aria-hidden className="mt-6 block h-1 w-10 rounded-full bg-brand-marigold" />
         </div>
       </section>
@@ -138,7 +143,7 @@ export default function MoviesPage() {
       <div className={`${BRAND_WRAP} space-y-8 pt-8 lg:pt-10`}>
         <form
           role="search"
-          aria-label="Search movies"
+          aria-label={t('searchForm')}
           className="grid gap-3 rounded-brand-card bg-brand-sunken p-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end"
           onSubmit={(e) => {
             e.preventDefault();
@@ -147,7 +152,7 @@ export default function MoviesPage() {
         >
           <div className="min-w-0">
             <label htmlFor="q" className={LABEL}>
-              Search
+              {t('searchField')}
             </label>
             <div className="relative">
               <Search
@@ -157,7 +162,7 @@ export default function MoviesPage() {
               <input
                 id="q"
                 type="search"
-                placeholder="Title..."
+                placeholder={t('placeholder')}
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 className={`${BRAND_FIELD} w-full pl-9`}
@@ -166,7 +171,7 @@ export default function MoviesPage() {
           </div>
           <div className="min-w-0">
             <label htmlFor="genre" className={LABEL}>
-              Genre
+              {t('genre')}
             </label>
             <div className="relative">
               <select
@@ -175,7 +180,7 @@ export default function MoviesPage() {
                 onChange={(e) => setGenre(e.target.value)}
                 className={`${BRAND_FIELD} w-full appearance-none pr-10`}
               >
-                <option value="">All genres</option>
+                <option value="">{t('allGenres')}</option>
                 {genres.map((g) => (
                   <option key={g} value={g}>
                     {g}
@@ -189,16 +194,16 @@ export default function MoviesPage() {
             </div>
           </div>
           <BrandButton type="submit" className="w-full sm:w-auto">
-            Search
+            {t('searchButton')}
           </BrandButton>
         </form>
 
         {isError ? (
           <BrandEmpty
-            title="We couldn't load movies. Please try again."
+            title={t('loadError')}
             action={
               <BrandButton variant="secondary" onClick={() => void refetch()}>
-                Try again
+                {action('retry')}
               </BrandButton>
             }
           />
@@ -209,9 +214,9 @@ export default function MoviesPage() {
             ))}
           </div>
         ) : data && data.length > 0 ? (
-          <section aria-label="Movies" className="space-y-4">
+          <section aria-label={t('listLabel')} className="space-y-4">
             <p role="status" className="text-brand-meta text-brand-ink-3">
-              {data.length} movie{data.length === 1 ? '' : 's'}
+              {t('count', { count: data.length })}
             </p>
             <ul className={FILM_GRID}>
               {data.map((m, i) => (
@@ -231,7 +236,7 @@ export default function MoviesPage() {
         cityOnly && place ? (
           <EmptyPlace place={place} noun="films" variant="brand" />
         ) : (
-          <BrandEmpty title="No movies match your search" hint="Try clearing filters." />
+          <BrandEmpty title={t('noMatch')} hint={t('noMatchHint')} />
         )}
       </div>
 
@@ -249,7 +254,7 @@ export default function MoviesPage() {
             variant="brand"
             buckets={{ ...buckets, sameCountry: placeInfo.city ? buckets.sameCountry : [] }}
             render={(items) => (
-              <Rail cols={5} phone="poster" label="Movies">
+              <Rail cols={5} phone="poster" label={t('listLabel')}>
                 {items.map((m) => (
                   <RailItem key={m.id}>
                     <FilmCard movie={m} />
