@@ -25,7 +25,10 @@
   },
   "SHOW_CANCELLED": {
     "subject": "Your show has been cancelled",
-    "body": "We are sorry - {event} has been cancelled. Your booking {reference} is no longer valid{when}. A refund will follow."
+    "body": "We are sorry - {event} has been cancelled. Your booking {reference} is no longer valid{when}. A refund will follow.",
+    "bodyCash": "We are sorry - {event} has been cancelled. Your booking {reference} is no longer valid{when}. You paid {amount} in cash at the counter. The box office at the venue will give you back {amount} in cash. Show your booking reference {reference} at the box office.",
+    "subjectOrganizerCash": "Show cancelled: cash to give back",
+    "bodyOrganizerCash": "{event}{when} has been cancelled. Booking {reference} for {buyer} was paid in cash at the counter. The buyer gave no email, so this message comes to you. Give {amount} in cash back to {buyer} at the counter. Then open Counter and select Mark as given back."
   },
   "SHOW_CHANGED": {
     "subject": "Your show has been rescheduled",
@@ -152,6 +155,7 @@
     "yourBooking": "your booking",
     "yourEvent": "your event",
     "theAttendee": "The attendee",
+    "theBuyer": "the buyer",
     "anOrganization": "An organization",
     "yourOrganization": "Your organization",
     "anOrganizer": "An organizer",

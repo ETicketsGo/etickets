@@ -1,4 +1,5 @@
 import { HttpStatus, Injectable, Logger } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import {
   BookingStatus,
   Role,
@@ -10,6 +11,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { InventoryService } from '../inventory/inventory.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
 import { AuditService } from '../audit/audit.service';
+import { ReceiptsService } from '../receipts/receipts.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import type { RequestUser } from '../common/decorators';
 
@@ -78,7 +80,13 @@ export interface CashReturnRow {
   collectedBy: string | null;
   returnedAt: Date | null;
   returnedBy: string | null;
+  /** The credit note that reversed this sale's receipt. Null only for a sale with no receipt. */
+  creditNote: { id: string; number: string } | null;
 }
+
+/** The reason printed on the credit note for a cash sale on a cancelled show. */
+export const CASH_CANCELLATION_REASON =
+  'The show was cancelled. The cash paid at the counter is given back at the venue.';
 
 /**
  * Cash taken at the counter for a show that was then cancelled.
@@ -98,10 +106,18 @@ export interface CashReturnRow {
  * `collectCash` recorded as taken.
  *
  * Handing the cash back is then recorded by a person, offline (`cashReturnedAt`). No `Refund`
- * row, no provider call, no credit note, no settlement line: none of them can describe money
- * that only ever crossed a counter, and inventing one would put an unreconcilable figure into
- * the frozen finance reports. The receipt issued at collection is left as it is; see the PR
- * for the open question of a credit note against it.
+ * row, no provider call, no settlement line: none of them can describe money that only ever
+ * crossed a counter, and inventing one would put an unreconcilable figure into the frozen
+ * finance reports.
+ *
+ * ── THE RECEIPT IS REVERSED (F1) ───────────────────────────────────────────────────
+ * Collection issued a receipt (a tax invoice, in India) for the sale. Leaving it standing
+ * kept a sale that was undone in the organizer's books and in the tax figures read from them.
+ * So, in the same transaction that cancels the booking, a credit note reverses it: the same
+ * document a refund issues, in the same CRN series, keyed to the booking rather than to a
+ * Refund (`Receipt.cancellationForBookingId`, unique, so it is issued once). An audit entry
+ * written in that transaction links the cancellation, the credit note and the receipt it
+ * reverses; the later "given back" entry names the same credit note.
  */
 @Injectable()
 export class CashReturnsService {
@@ -112,6 +128,7 @@ export class CashReturnsService {
     private readonly inventory: InventoryService,
     private readonly access: OrgAccessService,
     private readonly audit: AuditService,
+    private readonly receipts: ReceiptsService,
   ) {}
 
   /**
@@ -136,8 +153,27 @@ export class CashReturnsService {
       orderBy: { createdAt: 'asc' },
     });
 
+    /*
+      Cash bookings this show's cancellation already voided whose receipt still stands: voided
+      before credit notes existed for them, or by a pass that failed part-way. Each is reversed
+      now, under the same lock, and the unique column means a pass that finds one already
+      reversed issues nothing.
+    */
+    const unreversed = await this.prisma.booking.findMany({
+      where: {
+        eventSessionId: sessionId,
+        paymentMethod: 'CASH',
+        status: BookingStatus.CANCELLED,
+        cashCollectedAt: { not: null },
+        Receipt: { some: { saleForBookingId: { not: null } } },
+        NOT: { Receipt: { some: { cancellationForBookingId: { not: null } } } },
+      },
+      select: { id: true },
+      orderBy: { createdAt: 'asc' },
+    });
+
     let cancelled = 0;
-    for (const { id } of bookings) {
+    for (const { id } of [...bookings, ...unreversed]) {
       try {
         if (await this.cancelOne(id)) cancelled += 1;
       } catch (err) {
@@ -170,13 +206,14 @@ export class CashReturnsService {
           tickets: { select: { id: true, status: true, ticketTypeId: true, seatId: true } },
         },
       });
-      if (
-        !booking ||
-        booking.paymentMethod !== 'CASH' ||
-        !(LIVE_BOOKING as string[]).includes(booking.status)
-      ) {
-        return null;
+      if (!booking || booking.paymentMethod !== 'CASH') return null;
+      if (booking.status === BookingStatus.CANCELLED) {
+        // Already voided: only its receipt may still need reversing (see the caller).
+        if (!booking.cashCollectedAt) return null;
+        const creditNote = await this.reverseSale(tx, booking, null);
+        return creditNote?.issued ? { booking, voided: 0, creditNote, alreadyVoided: true } : null;
       }
+      if (!(LIVE_BOOKING as string[]).includes(booking.status)) return null;
       const live = booking.tickets.filter((t) => (LIVE_TICKET as string[]).includes(t.status));
       if (live.length > 0) {
         // Claim first, then move stock, so stock only goes back for tickets this call voided.
@@ -196,9 +233,12 @@ export class CashReturnsService {
         where: { id: booking.id },
         data: { status: BookingStatus.CANCELLED, cancelledAt: new Date() },
       });
-      return { booking, voided: live.length };
+      const creditNote = await this.reverseSale(tx, booking, live.length);
+      return { booking, voided: live.length, creditNote, alreadyVoided: false };
     });
     if (!outcome) return false;
+    // A late reversal of a booking voided earlier: its cancellation was audited then.
+    if (outcome.alreadyVoided) return false;
 
     const { booking } = outcome;
     await this.audit.record({
@@ -214,9 +254,68 @@ export class CashReturnsService {
         // What the counter owes back: nothing if the cash was never taken.
         cashToReturnMinor: booking.cashCollectedAt ? booking.totalMinor : 0,
         currency: booking.currency,
+        creditNoteId: outcome.creditNote?.id ?? null,
+        creditNoteNumber: outcome.creditNote?.number ?? null,
       },
     });
     return true;
+  }
+
+  /**
+   * Reverse the booking's sale receipt with a credit note, inside the cancelling transaction,
+   * and write the audit entry that links the two in the same transaction - so a credit note
+   * never exists without the record of why, and a rollback takes both.
+   *
+   * Touches only `Receipt`, `ReceiptCounter` and `AuditLog`. No Refund, Payment, settlement,
+   * payout or transfer row is read or written, and no provider is called.
+   */
+  private async reverseSale(
+    tx: Prisma.TransactionClient,
+    booking: {
+      id: string;
+      organizationId: string;
+      eventSessionId: string;
+      reference: string | null;
+      totalMinor: number;
+      currency: string;
+    },
+    ticketsVoided: number | null,
+  ): Promise<{ id: string; number: string; issued: boolean } | null> {
+    const before = await tx.receipt.findUnique({
+      where: { cancellationForBookingId: booking.id },
+      select: { id: true },
+    });
+    const note = await this.receipts.issueCancellationCreditNote(
+      tx,
+      booking.id,
+      CASH_CANCELLATION_REASON,
+    );
+    if (!note) return null;
+    if (before) return { id: note.id, number: note.number, issued: false };
+    await tx.auditLog.create({
+      data: {
+        actorUserId: null,
+        organizationId: booking.organizationId,
+        action: 'CASH_SALE_REVERSED',
+        entityType: 'Receipt',
+        entityId: note.id,
+        metadata: {
+          bookingId: booking.id,
+          reference: booking.reference,
+          sessionId: booking.eventSessionId,
+          creditNoteId: note.id,
+          creditNoteNumber: note.number,
+          reversesReceiptId: note.reversesId,
+          reversesReceiptNumber: note.reversesNumber,
+          amountMinor: booking.totalMinor,
+          currency: booking.currency,
+          // Null when the booking had been voided by an earlier pass.
+          ticketsVoided,
+          cashReturn: 'OFFLINE_AT_COUNTER',
+        },
+      },
+    });
+    return { id: note.id, number: note.number, issued: true };
   }
 
   /**
@@ -251,6 +350,11 @@ export class CashReturnsService {
         eventSession: SHOW_ZONE_SELECT.eventSession,
         cashCollectedBy: { select: { fullName: true } },
         cashReturnedBy: { select: { fullName: true } },
+        Receipt: {
+          where: { cancellationForBookingId: { not: null } },
+          select: { id: true, number: true },
+          take: 1,
+        },
       },
       orderBy: [{ eventSession: { startsAt: 'asc' } }, { createdAt: 'asc' }],
       take: 500,
@@ -269,6 +373,7 @@ export class CashReturnsService {
       collectedBy: b.cashCollectedBy?.fullName ?? null,
       returnedAt: b.cashReturnedAt,
       returnedBy: b.cashReturnedBy?.fullName ?? null,
+      creditNote: b.Receipt[0] ?? null,
     }));
   }
 
@@ -290,6 +395,11 @@ export class CashReturnsService {
         totalMinor: true,
         currency: true,
         reference: true,
+        Receipt: {
+          where: { cancellationForBookingId: { not: null } },
+          select: { id: true, number: true },
+          take: 1,
+        },
       },
     });
     // Another organization's booking reads as missing: its existence is not ours to confirm.
@@ -310,15 +420,49 @@ export class CashReturnsService {
         HttpStatus.CONFLICT,
       );
     }
+    // The credit note that reversed this sale: the return is recorded against it.
+    const creditNote = booking.Receipt[0] ?? null;
     if (booking.cashReturnedAt) {
-      return { bookingId, status: 'already_returned' as const, returnedAt: booking.cashReturnedAt };
+      return {
+        bookingId,
+        status: 'already_returned' as const,
+        returnedAt: booking.cashReturnedAt,
+        creditNote,
+      };
     }
 
-    // Conditional, so two people pressing at once record one return, by whoever was first.
+    /*
+      Conditional, so two people pressing at once record one return, by whoever was first. The
+      audit entry is written in the same transaction as the claim, so the record that links the
+      cash return to its credit note exists exactly when the return does.
+    */
     const now = new Date();
-    const claimed = await this.prisma.booking.updateMany({
-      where: { id: bookingId, cashReturnedAt: null, status: BookingStatus.CANCELLED },
-      data: { cashReturnedAt: now, cashReturnedByUserId: user.id },
+    const claimed = await this.prisma.$transaction(async (tx) => {
+      const won = await tx.booking.updateMany({
+        where: { id: bookingId, cashReturnedAt: null, status: BookingStatus.CANCELLED },
+        data: { cashReturnedAt: now, cashReturnedByUserId: user.id },
+      });
+      if (won.count === 1) {
+        await tx.auditLog.create({
+          data: {
+            actorUserId: user.id,
+            organizationId,
+            action: 'CASH_RETURNED',
+            entityType: 'Booking',
+            entityId: bookingId,
+            metadata: {
+              reference: booking.reference,
+              amountMinor: booking.totalMinor,
+              currency: booking.currency,
+              creditNoteId: creditNote?.id ?? null,
+              creditNoteNumber: creditNote?.number ?? null,
+              // Recorded by a person at the counter. No payment provider was involved.
+              cashReturn: 'OFFLINE_AT_COUNTER',
+            },
+          },
+        });
+      }
+      return won;
     });
     if (claimed.count === 0) {
       const current = await this.prisma.booking.findUnique({
@@ -329,21 +473,9 @@ export class CashReturnsService {
         bookingId,
         status: 'already_returned' as const,
         returnedAt: current?.cashReturnedAt ?? now,
+        creditNote,
       };
     }
-
-    await this.audit.record({
-      actorUserId: user.id,
-      organizationId,
-      action: 'CASH_RETURNED',
-      entityType: 'Booking',
-      entityId: bookingId,
-      metadata: {
-        reference: booking.reference,
-        amountMinor: booking.totalMinor,
-        currency: booking.currency,
-      },
-    });
-    return { bookingId, status: 'returned' as const, returnedAt: now };
+    return { bookingId, status: 'returned' as const, returnedAt: now, creditNote };
   }
 }

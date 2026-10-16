@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useState } from 'react';
-import { Printer, Ticket, Undo2 } from 'lucide-react';
+import { ExternalLink, Printer, Ticket, Undo2 } from 'lucide-react';
 import {
   api,
   DataTable,
@@ -14,6 +14,9 @@ import {
   Pagination,
   Drawer,
   money,
+  dateOnly,
+  errorMessage,
+  useToast,
   currencyForCountry,
   type Column,
   type OrderRow,
@@ -232,6 +235,7 @@ export default function OrdersTab() {
               </div>
               <Field label="Booked" value={placedAt(selected.createdAt)} />
             </dl>
+            {can.financials ? <BookingDocuments bookingId={selected.id} /> : null}
             {/* Where to act on it: who holds which ticket, a reprint, and a waiting refund. */}
             <div className="flex flex-col gap-2 border-t border-border pt-4 text-sm">
               {selected.reference ? (
@@ -267,6 +271,55 @@ export default function OrdersTab() {
           </div>
         )}
       </Drawer>
+    </div>
+  );
+}
+
+const DOCUMENT_KIND: Record<string, string> = {
+  TAX_INVOICE: 'Tax invoice',
+  RECEIPT: 'Receipt',
+  CREDIT_NOTE: 'Credit note',
+};
+
+/*
+  The financial documents issued for this booking: the receipt or tax invoice of the sale and,
+  once it was refunded or its show was cancelled, the credit note that reverses it. Owners and
+  managers only, as on Receipts and invoices: a document names a buyer and an amount.
+*/
+function BookingDocuments({ bookingId }: { bookingId: string }) {
+  const toast = useToast();
+  const docs = useQuery({
+    queryKey: ['booking-receipts', bookingId],
+    queryFn: () => api.receipts.forBooking(bookingId),
+  });
+  if (docs.isLoading || docs.isError || !docs.data || docs.data.length === 0) return null;
+  return (
+    <div className="space-y-2 border-t border-border pt-4 text-sm">
+      <p className="font-medium text-text-primary">Receipts and credit notes</p>
+      <ul className="space-y-2">
+        {docs.data.map((d) => (
+          <li key={d.id} className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-text-primary">
+                {DOCUMENT_KIND[d.kind] ?? d.kind}{' '}
+                <span className="font-mono text-xs text-text-muted">{d.number}</span>
+              </p>
+              <p className="text-caption text-text-muted">
+                {dateOnly(d.issuedAt)}, {money(d.totalMinor, d.currency)}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() =>
+                api.receipts.openHtml(d.id).catch((e) => toast.push(errorMessage(e), 'error'))
+              }
+              className="inline-flex items-center gap-1 text-caption text-action-primary hover:underline"
+            >
+              Open <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+            </button>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

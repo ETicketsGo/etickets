@@ -25,7 +25,10 @@
   },
   "SHOW_CANCELLED": {
     "subject": "Votre séance a été annulée",
-    "body": "Nous sommes désolés - {event} a été annulée. Votre réservation {reference} n'est plus valide{when}. Un remboursement suivra."
+    "body": "Nous sommes désolés - {event} a été annulée. Votre réservation {reference} n'est plus valide{when}. Un remboursement suivra.",
+    "bodyCash": "Nous sommes désolés - {event} a été annulée. Votre réservation {reference} n'est plus valide{when}. Vous avez payé {amount} en argent comptant au comptoir. La billetterie du lieu vous remettra {amount} en argent comptant. Présentez votre numéro de réservation {reference} à la billetterie.",
+    "subjectOrganizerCash": "Séance annulée : argent comptant à remettre",
+    "bodyOrganizerCash": "{event}{when} a été annulée. La réservation {reference} de {buyer} a été payée en argent comptant au comptoir. L'acheteur n'a donné aucun courriel, alors ce message vous est envoyé. Remettez {amount} en argent comptant à {buyer} au comptoir. Ouvrez ensuite la page Counter et choisissez « Mark as given back »."
   },
   "SHOW_CHANGED": {
     "subject": "Votre séance a été reportée",
@@ -152,6 +155,7 @@
     "yourBooking": "votre réservation",
     "yourEvent": "votre événement",
     "theAttendee": "Le participant",
+    "theBuyer": "l'acheteur",
     "anOrganization": "Une organisation",
     "yourOrganization": "Votre organisation",
     "anOrganizer": "Un organisateur",

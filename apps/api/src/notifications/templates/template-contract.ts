@@ -62,7 +62,17 @@ export const TEMPLATE_CONTRACTS: Partial<Record<NotificationType, TemplateContra
   */
   [NotificationType.SHOW_CANCELLED]: {
     required: ['reference', 'eventTitle', 'startsAt'],
-    optional: ['venue', 'timezone', 'refundStatus'],
+    // The cash fields are set only for a booking paid in cash at the counter (see the fanout).
+    optional: [
+      'venue',
+      'timezone',
+      'refundStatus',
+      'paidInCash',
+      'amountMinor',
+      'currency',
+      'cashRecipient',
+      'buyerName',
+    ],
   },
 
   /*

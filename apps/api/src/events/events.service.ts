@@ -2088,7 +2088,19 @@ export class EventsService {
           cashCollectedAt: { not: null },
           cashReturnedAt: null,
         },
-        select: { id: true, reference: true, buyerName: true, totalMinor: true, currency: true },
+        select: {
+          id: true,
+          reference: true,
+          buyerName: true,
+          totalMinor: true,
+          currency: true,
+          // The credit note that reversed the sale's receipt, so the summary can name it.
+          Receipt: {
+            where: { cancellationForBookingId: { not: null } },
+            select: { number: true },
+            take: 1,
+          },
+        },
         orderBy: { createdAt: 'asc' },
         take: 500,
       }),
@@ -2106,6 +2118,7 @@ export class EventsService {
         buyerName: b.buyerName,
         amountMinor: b.totalMinor,
         currency: b.currency,
+        creditNoteNumber: b.Receipt[0]?.number ?? null,
       })),
     };
   }

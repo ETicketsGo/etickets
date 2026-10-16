@@ -1033,10 +1033,13 @@ export const api = {
       ),
     /** Record, offline, that the cash was handed back. No payment provider is involved. */
     markCashReturned: (id: string, bookingId: string) =>
-      request<{ bookingId: string; status: 'returned' | 'already_returned'; returnedAt: string }>(
-        `/organizations/${id}/cash-returns/${bookingId}/returned`,
-        { method: 'POST' },
-      ),
+      request<{
+        bookingId: string;
+        status: 'returned' | 'already_returned';
+        returnedAt: string;
+        /** The credit note the return is recorded against. */
+        creditNote?: { id: string; number: string } | null;
+      }>(`/organizations/${id}/cash-returns/${bookingId}/returned`, { method: 'POST' }),
     /**
      * Sell at the counter: tickets for the person in front of the staff member, paid in cash
      * there and issued at once. One `idempotencyKey` per sale, so a double press sells once.
@@ -4671,6 +4674,8 @@ export interface EventCancelResult {
     buyerName: string;
     amountMinor: number;
     currency: string;
+    /** The credit note that reversed the sale's receipt. */
+    creditNoteNumber?: string | null;
   }[];
   /** The cash still to hand back, per currency. */
   cashTotals?: CurrencyTotal[];
@@ -4704,6 +4709,8 @@ export interface CashReturnRow {
   collectedBy: string | null;
   returnedAt: string | null;
   returnedBy: string | null;
+  /** The credit note that reversed this sale's receipt. Null for a sale with no receipt. */
+  creditNote?: { id: string; number: string } | null;
 }
 /** A room an event can be seated in — one that has a published seat map. */
 export interface SeatingRoom {

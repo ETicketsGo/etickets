@@ -34,7 +34,8 @@ const EVENT = {
   currency: 'INR',
 };
 
-const CASES: [NotificationType, Record<string, unknown>][] = [
+/** A case is a type and a payload, with a name when one type has several readers. */
+const CASES: [NotificationType, Record<string, unknown>, string?][] = [
   [NotificationType.BOOKING_CONFIRMED, { ...EVENT, link: 'https://qa.eticketsgo.com/booking/abc' }],
   [NotificationType.EVENT_REMINDER, { ...EVENT }],
   [
@@ -50,6 +51,24 @@ const CASES: [NotificationType, Record<string, unknown>][] = [
   [NotificationType.REFUND_COMPLETED, { ...EVENT, amountMinor: 129_900 }],
   [NotificationType.SHOW_CHANGED, { ...EVENT }],
   [NotificationType.SHOW_CANCELLED, { ...EVENT }],
+  // Paid in cash at the counter: the cash comes back at the venue, not as a refund.
+  [
+    NotificationType.SHOW_CANCELLED,
+    { ...EVENT, paidInCash: true, amountMinor: 129_900 },
+    'SHOW_CANCELLED-cash',
+  ],
+  // A walk-up cash sale with no buyer email: the organization is told whom to repay.
+  [
+    NotificationType.SHOW_CANCELLED,
+    {
+      ...EVENT,
+      paidInCash: true,
+      amountMinor: 129_900,
+      cashRecipient: 'ORGANIZER',
+      buyerName: 'Walk Counter Buyer',
+    },
+    'SHOW_CANCELLED-cash-organizer',
+  ],
   [NotificationType.BOOKING_CANCELLED, { ...EVENT }],
   [NotificationType.TICKET_TRANSFERRED, { ...EVENT, ticketId: 'TKT-9931' }],
   [NotificationType.TICKET_CHECKED_IN, { ...EVENT, serial: 'TKT-9931' }],
@@ -94,7 +113,7 @@ fs.mkdirSync(OUT, { recursive: true });
 const index: string[] = [];
 
 for (const locale of ['en', 'fr-CA'] as const) {
-  for (const [type, payload] of CASES) {
+  for (const [type, payload, label = type] of CASES) {
     const rendered = templates.render(type, locale, payload);
     const html = renderEmailHtml(
       buildEmailView({
@@ -106,10 +125,10 @@ for (const locale of ['en', 'fr-CA'] as const) {
         helpUrl: HELP,
       }),
     );
-    const name = `${locale}-${type}.html`;
+    const name = `${locale}-${label}.html`;
     fs.writeFileSync(path.join(OUT, name), html);
     index.push(
-      `<li><a href="${name}">${locale} &middot; ${type}</a><br /><span style="color:#6b7280">${rendered.subject}</span></li>`,
+      `<li><a href="${name}">${locale} &middot; ${label}</a><br /><span style="color:#6b7280">${rendered.subject}</span></li>`,
     );
   }
 }

@@ -4460,6 +4460,13 @@ model Receipt {
   /// Set on a credit note, and unique, so a retried refund cannot issue a second one.
   refundId         String?   @unique
   refund           Refund?   @relation(fields: [refundId], references: [id])
+  /// Set on a credit note that reverses the WHOLE sale of a booking cancelled with no refund:
+  /// a cash sale at the counter whose show was then cancelled. The cash goes back across the
+  /// counter, not through a provider, so there is no `Refund` row to hang the credit note on;
+  /// this column is its key instead, and unique for the same reason `refundId` is: a retried
+  /// or repeated cancellation cannot issue a second one. Always equal to `bookingId` when set
+  /// (a CHECK constraint holds that), and null on every other document.
+  cancellationForBookingId String?   @unique
   /// The sale document a credit note reverses.
   reversesId       String?
   reverses         Receipt?  @relation("ReceiptReversal", fields: [reversesId], references: [id])
