@@ -52,4 +52,35 @@ describe('MockPaymentProvider refund (dev/test only)', () => {
     expect((await p.getRefund!('mock_rf_x')).status).toBe('COMPLETED');
     expect((await p.getRefund!('mock_rf_x#reffail')).status).toBe('FAILED');
   });
+
+  it('#refundlost makes the refund and then loses the answer; the lookup finds it by key', async () => {
+    const p = provider();
+    await expect(
+      p.refund!({ providerRef: 'pay_1#refundlost', amountMinor: 700, idempotencyKey: 'etg-rf-r1' }),
+    ).rejects.toBeTruthy();
+    expect(await p.findPaymentRefunds!('pay_1#refundlost')).toEqual([
+      expect.objectContaining({
+        amountMinor: 700,
+        status: 'COMPLETED',
+        idempotencyKey: 'etg-rf-r1',
+      }),
+    ]);
+  });
+
+  it('the same key twice is one refund, not two', async () => {
+    const p = provider();
+    const input = { providerRef: 'pay_2', amountMinor: 700, idempotencyKey: 'etg-rf-r2' };
+    const a = await p.refund!(input);
+    const b = await p.refund!(input);
+    expect(a.providerRef).toBe(b.providerRef);
+    expect(await p.findPaymentRefunds!('pay_2')).toHaveLength(1);
+  });
+
+  it('#refundunknown loses the answer and cannot be looked up either', async () => {
+    const p = provider();
+    await expect(
+      p.refund!({ providerRef: 'pay_3#refundunknown', amountMinor: 1 }),
+    ).rejects.toBeTruthy();
+    await expect(p.findPaymentRefunds!('pay_3#refundunknown')).rejects.toBeTruthy();
+  });
 });

@@ -102,6 +102,8 @@ export default function RefundDetail() {
           paymentRef={refund.booking?.payment?.providerRef ?? null}
           provider={refund.booking?.payment?.provider ?? null}
           refundRef={refund.providerRef ?? null}
+          manualReviewReason={refund.manualReviewReason ?? null}
+          manualReviewAt={refund.manualReviewAt ?? null}
         />
       )}
 
@@ -293,19 +295,43 @@ function FailedRefundPanel({
   paymentRef,
   provider,
   refundRef,
+  manualReviewReason,
+  manualReviewAt,
 }: {
   entries: HistoryEntry[];
   loading: boolean;
   paymentRef: string | null;
   provider: string | null;
   refundRef: string | null;
+  manualReviewReason: string | null;
+  manualReviewAt: string | null;
 }) {
   if (loading) return <Skeleton className="h-24 w-full" />;
-  const advice = failedRefundAdvice(entries);
+  const advice = failedRefundAdvice(entries, manualReviewReason);
   return (
-    <Card title="This refund did not go through" className="border-status-error/40">
+    <Card
+      title={
+        manualReviewReason ? 'This refund needs a manual check' : 'This refund did not go through'
+      }
+      className="border-status-error/40"
+    >
       <div className="space-y-3 text-sm">
         <p className="text-text-primary">{advice.cause}</p>
+        {/*
+          The manual-intervention state: set by the API when a provider call lost its answer and
+          the provider could not be asked whether it paid. The reason is the API's own words.
+        */}
+        {manualReviewReason && (
+          <p className="break-words rounded-md border border-status-error/40 bg-status-error/5 p-3 text-text-primary">
+            <span className="font-semibold">Why: </span>
+            {manualReviewReason}
+            {manualReviewAt && (
+              <span className="mt-1 block text-caption text-text-secondary">
+                Held since {recordedAt(manualReviewAt)}
+              </span>
+            )}
+          </p>
+        )}
         <ol className="list-decimal space-y-1 pl-5 text-text-secondary">
           {advice.steps.map((step) => (
             <li key={step}>{step}</li>
@@ -383,6 +409,9 @@ function RetryRefundCard({
   });
   const a = check.data;
   const canTry = !!a && (a.allowed || a.needsConfirmation);
+  // The provider already has it: the button records it and sends nothing.
+  const records = a?.action === 'RECORD_PROVIDER_REFUND';
+  const lookupText = lookupSentence(a?.providerLookup ?? null, provider);
 
   return (
     <Card title="Try the refund again">
@@ -419,10 +448,15 @@ function RetryRefundCard({
             We could not check whether this refund can be tried again. {errorMessage(check.error)}
           </p>
         )}
+        {failed && lookupText && (
+          <p className="text-caption text-text-secondary" data-testid="provider-lookup">
+            {lookupText}
+          </p>
+        )}
         {failed && a && <p className="text-text-primary">{a.message}</p>}
         {failed && canTry && (
           <Button onClick={() => setOpen(true)} disabled={retry.isPending}>
-            Try the refund again
+            {records ? 'Record the refund' : 'Try the refund again'}
           </Button>
         )}
       </div>
@@ -430,7 +464,7 @@ function RetryRefundCard({
       <Dialog
         open={open}
         onClose={() => setOpen(false)}
-        title="Send this refund again?"
+        title={records ? 'Record this refund?' : 'Send this refund again?'}
         footer={
           <>
             <Button variant="outline" onClick={() => setOpen(false)}>
@@ -441,16 +475,24 @@ function RetryRefundCard({
               disabled={!!a?.needsConfirmation && !checked}
               onClick={() => retry.mutate()}
             >
-              Send {amount} again
+              {records ? 'Record it' : `Send ${amount} again`}
             </Button>
           </>
         }
       >
         <div className="space-y-3 text-sm text-text-secondary">
-          <p>
-            This asks {provider || 'the payment provider'} to pay <strong>{amount}</strong> back to{' '}
-            {buyer}. It is sent once; a second click is refused while it is being sent.
-          </p>
+          {records ? (
+            <p>
+              {provider || 'The payment provider'} already has this refund of{' '}
+              <strong>{amount}</strong> to {buyer}. This records it here. No money is sent again.
+            </p>
+          ) : (
+            <p>
+              This asks {provider || 'the payment provider'} to pay <strong>{amount}</strong> back
+              to {buyer}. It is sent once, with the same key as before; a second click is refused
+              while it is being sent.
+            </p>
+          )}
           {a?.stage === 'TICKETS_RETURNED' && (
             <p>The tickets were already cancelled, so only the money is sent.</p>
           )}
@@ -473,4 +515,26 @@ function RetryRefundCard({
       </Dialog>
     </Card>
   );
+}
+
+/** What the provider said when it was asked for this payment's refunds, as one sentence. */
+function lookupSentence(
+  lookup: { kind: string; providerRef?: string; reason?: string } | null,
+  provider: string,
+): string | null {
+  const who = provider || 'The payment provider';
+  switch (lookup?.kind) {
+    case 'FOUND':
+      return `${who} was asked: it has this refund (${lookup.providerRef ?? 'no reference given'}).`;
+    case 'REFUSED':
+      return `${who} was asked: it has this refund, and it refused it.`;
+    case 'NONE':
+      return `${who} was asked: it shows no refund for this payment.`;
+    case 'UNMATCHED':
+      return `${who} was asked: it shows a refund on this payment that cannot be matched to this one.`;
+    case 'UNAVAILABLE':
+      return `${who} could not be asked whether it made this refund.`;
+    default:
+      return null;
+  }
 }

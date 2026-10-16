@@ -167,4 +167,68 @@ describe('PaymentOrchestrator.refund', () => {
     await orch.refund({ providerRef: 'pi', amountMinor: 500 });
     expect(fallback.refund).toHaveBeenCalledTimes(1);
   });
+
+  /*
+    A timed-out refund call used to be sent twice more. The first may have landed with only
+    its answer lost, so each retry could refund the customer again. It is sent once; the
+    caller asks the provider what happened (refunds/refund-provider-call.ts).
+  */
+  it('never retries a refund call that timed out', async () => {
+    const razorpay = provider('razorpay', {
+      refund: jest
+        .fn()
+        .mockRejectedValue(
+          new PaymentProviderError(PaymentErrorCode.PROVIDER_TIMEOUT, 'timed out', 'razorpay'),
+        ),
+    });
+    const { orch } = make({ registry: { razorpay } });
+    await expect(
+      orch.refund(
+        { providerRef: 'pay_1', amountMinor: 500, idempotencyKey: 'etg-rf-r1' },
+        { provider: 'razorpay' },
+      ),
+    ).rejects.toMatchObject({ code: PaymentErrorCode.PROVIDER_TIMEOUT });
+    expect(razorpay.refund).toHaveBeenCalledTimes(1);
+  });
+
+  it('passes the refund key through to the adapter', async () => {
+    const stripe = provider('stripe');
+    const { orch } = make({ registry: { stripe } });
+    await orch.refund(
+      { providerRef: 'pi', amountMinor: 500, idempotencyKey: 'etg-rf-r1' },
+      { provider: 'stripe' },
+    );
+    expect(stripe.refund).toHaveBeenCalledWith(
+      expect.objectContaining({ idempotencyKey: 'etg-rf-r1' }),
+    );
+  });
+});
+
+describe('PaymentOrchestrator.findPaymentRefunds', () => {
+  it("asks the owning provider for the payment's refunds", async () => {
+    const records = [
+      {
+        refundRef: 'rfnd_1',
+        amountMinor: 500,
+        status: 'COMPLETED',
+        idempotencyKey: 'etg-rf-r1',
+        createdAt: null,
+      },
+    ];
+    const razorpay = provider('razorpay', {
+      findPaymentRefunds: jest.fn().mockResolvedValue(records),
+    });
+    const { orch } = make({ registry: { razorpay } });
+    await expect(orch.findPaymentRefunds('pay_1', { provider: 'razorpay' })).resolves.toEqual(
+      records,
+    );
+  });
+
+  it('throws, never answers "none", when the adapter cannot be asked', async () => {
+    const square = provider('square');
+    const { orch } = make({ registry: { square } });
+    await expect(orch.findPaymentRefunds('sq_1', { provider: 'square' })).rejects.toMatchObject({
+      code: PaymentErrorCode.UNSUPPORTED,
+    });
+  });
 });

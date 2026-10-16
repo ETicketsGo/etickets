@@ -4,13 +4,14 @@ import { StripePaymentProvider } from './stripe-payment.provider';
 const mockSessionsCreate = jest.fn();
 const mockConstructEvent = jest.fn();
 const mockRefundsCreate = jest.fn();
+const mockRefundsList = jest.fn();
 
 // Mock the Stripe SDK so no network call is ever made.
 jest.mock('stripe', () =>
   jest.fn().mockImplementation(() => ({
     checkout: { sessions: { create: mockSessionsCreate } },
     webhooks: { constructEvent: mockConstructEvent },
-    refunds: { create: mockRefundsCreate },
+    refunds: { create: mockRefundsCreate, list: mockRefundsList },
   })),
 );
 
@@ -32,6 +33,7 @@ beforeEach(() => {
   mockSessionsCreate.mockReset();
   mockConstructEvent.mockReset();
   mockRefundsCreate.mockReset();
+  mockRefundsList.mockReset();
 });
 
 describe('StripePaymentProvider', () => {
@@ -218,5 +220,54 @@ describe('StripePaymentProvider', () => {
     mockRefundsCreate.mockResolvedValue({ id: 're_2', status: 'failed' });
     const result = await makeProvider().refund({ providerRef: 'pi_1', amountMinor: 1000 });
     expect(result).toEqual({ providerRef: 're_2', status: 'FAILED' });
+  });
+
+  it('refund sends our key as the Idempotency-Key and in metadata', async () => {
+    mockRefundsCreate.mockResolvedValue({ id: 're_3', status: 'succeeded' });
+    await makeProvider().refund({
+      providerRef: 'pi_1',
+      amountMinor: 1000,
+      idempotencyKey: 'etg-rf-r1',
+    });
+    expect(mockRefundsCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payment_intent: 'pi_1',
+        metadata: { etg_refund_key: 'etg-rf-r1' },
+      }),
+      { idempotencyKey: 'etg-rf-r1' },
+    );
+  });
+
+  it("lists a PaymentIntent's refunds with the key read back from metadata", async () => {
+    mockRefundsList.mockResolvedValue({
+      data: [
+        {
+          id: 're_a',
+          amount: 1000,
+          status: 'succeeded',
+          metadata: { etg_refund_key: 'etg-rf-r1' },
+          created: 2,
+        },
+        { id: 're_b', amount: 300, status: 'canceled', metadata: {}, created: 3 },
+      ],
+    });
+    const list = await makeProvider().findPaymentRefunds('pi_1');
+    expect(mockRefundsList).toHaveBeenCalledWith({ payment_intent: 'pi_1', limit: 100 });
+    expect(list).toEqual([
+      {
+        refundRef: 're_a',
+        amountMinor: 1000,
+        status: 'COMPLETED',
+        idempotencyKey: 'etg-rf-r1',
+        createdAt: new Date(2000),
+      },
+      {
+        refundRef: 're_b',
+        amountMinor: 300,
+        status: 'FAILED',
+        idempotencyKey: null,
+        createdAt: new Date(3000),
+      },
+    ]);
   });
 });
