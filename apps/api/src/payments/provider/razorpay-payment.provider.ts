@@ -13,6 +13,7 @@ import type {
   PaymentIntent,
   PaymentProvider,
   PaymentStatusResult,
+  ProviderRefundRecord,
   RefundInput,
   RefundResult,
   TransferInput,
@@ -197,25 +198,46 @@ export class RazorpayPaymentProvider implements PaymentProvider {
   }
 
   async refund(input: RefundInput): Promise<RefundResult> {
+    /*
+      The key goes in `receipt` (Razorpay's "unique identifier provided by you", 40 characters at
+      most; ours are shorter) and in `notes`, so `findPaymentRefunds` can tell our refund from any
+      other on the payment after a lost answer. It is NOT relied on to stop a duplicate: Razorpay
+      is not known to refuse a second refund with the same receipt. The caller asks first.
+    */
+    const key = input.idempotencyKey?.slice(0, 40);
+    const notes: Record<string, string> = {};
+    if (input.reason) notes.reason = input.reason;
+    if (key) notes.etg_refund_key = key;
     const refund = await this.client.payments.refund(input.providerRef, {
       amount: input.amountMinor,
-      notes: input.reason ? { reason: input.reason } : {},
+      notes,
+      ...(key ? { receipt: key } : {}),
     });
-    /*
-      Only `processed` means the money went back. A Razorpay refund is normally `pending` when
-      created and is settled later — reported by `refund.processed` or `refund.failed` — so
-      calling a pending refund COMPLETED told the customer, the credit note and the books that
-      money had moved when Razorpay could still fail it.
-    */
-    return {
-      providerRef: refund.id,
-      status:
-        refund.status === 'processed'
-          ? 'COMPLETED'
-          : refund.status === 'failed'
-            ? 'FAILED'
-            : 'PROCESSING',
-    };
+    return { providerRef: refund.id, status: razorpayRefundStatus(refund.status) };
+  }
+
+  /**
+   * Every refund Razorpay holds against a payment - the read that settles a lost refund answer.
+   *
+   * `payments.fetchMultipleRefund` pages at 100; a ticket payment with more refunds than that is
+   * not one we can make, so one page is the whole answer. Errors are NOT swallowed: "Razorpay
+   * did not answer" must stay distinguishable from "Razorpay has no refund".
+   */
+  async findPaymentRefunds(paymentRef: string): Promise<ProviderRefundRecord[]> {
+    const page = await this.client.payments.fetchMultipleRefund(paymentRef, { count: 100 });
+    return (page.items ?? []).map((r) => {
+      const noteKey = (r.notes as Record<string, unknown> | undefined)?.etg_refund_key;
+      return {
+        refundRef: r.id,
+        amountMinor: Number(r.amount ?? 0),
+        status: razorpayRefundStatus(r.status),
+        idempotencyKey:
+          (typeof r.receipt === 'string' && r.receipt) ||
+          (typeof noteKey === 'string' && noteKey) ||
+          null,
+        createdAt: typeof r.created_at === 'number' ? new Date(r.created_at * 1000) : null,
+      };
+    });
   }
 
   /**
@@ -471,6 +493,18 @@ export class RazorpayPaymentProvider implements PaymentProvider {
     const receipt = body.payload?.order?.entity?.receipt;
     return receipt != null ? String(receipt) : undefined;
   }
+}
+
+/*
+  Only `processed` means the money went back. A Razorpay refund is normally `pending` when
+  created and is settled later — reported by `refund.processed` or `refund.failed` — so calling
+  a pending refund COMPLETED told the customer, the credit note and the books that money had
+  moved when Razorpay could still fail it.
+*/
+function razorpayRefundStatus(status: string): RefundResult['status'] {
+  if (status === 'processed') return 'COMPLETED';
+  if (status === 'failed') return 'FAILED';
+  return 'PROCESSING';
 }
 
 /** Map a Razorpay payment.status to our normalized lifecycle status. */

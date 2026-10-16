@@ -326,10 +326,11 @@ describe('integration-real-postgres: retrying a failed refund', () => {
     });
     expect(provider.calls).toBe(0);
 
-    // A retry that itself goes unanswered leaves it needing the check again.
+    // A retry that itself goes unanswered leaves it needing the check again. This stub cannot
+    // be asked for the payment's refunds, so the refund is held for review, never resent.
     provider.next = 'THROW';
     const lost = await refunds.retry(admin, f.refundId, { confirmedNoProviderRefund: true });
-    expect(lost.outcome).toBe('ERROR');
+    expect(lost.outcome).toBe('NEEDS_REVIEW');
     expect(await refunds.retryCheck(f.refundId)).toMatchObject({ needsConfirmation: true });
 
     provider.next = 'COMPLETED';

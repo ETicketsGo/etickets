@@ -49,6 +49,19 @@ const SENTENCES: Record<string, string> = {
     'Refund stopped: some of its tickets had already been refunded or cancelled. Nothing was paid out',
   REFUND_RETRY_STARTED: 'Sent to the payment provider again',
   REFUND_RETRY_REFUSED: 'Try again was refused, so nothing was sent',
+  REFUND_PROVIDER_LOOKUP:
+    'The payment provider did not answer, so it was asked for the refunds it holds',
+  REFUND_NEEDS_MANUAL_REVIEW:
+    'Held for a manual check: the provider could not confirm whether it made this refund',
+};
+
+/** What the provider's list of the payment's refunds showed, for REFUND_PROVIDER_LOOKUP. */
+const LOOKUP_RESULT: Record<string, string> = {
+  FOUND: 'The provider has this refund',
+  REFUSED: 'The provider has this refund, refused',
+  NONE: 'The provider shows no refund for it',
+  UNMATCHED: 'The provider shows a refund that cannot be matched to this one',
+  UNAVAILABLE: 'The provider could not be asked',
 };
 
 /** A retry's result, by what the provider answered. */
@@ -56,6 +69,8 @@ const RETRY_RESULT: Record<string, string> = {
   COMPLETED: 'Tried again: the refund was paid back',
   PROCESSING: 'Tried again: the provider accepted it and is paying it',
   FAILED: 'Tried again: the payment provider refused it',
+  NEEDS_REVIEW:
+    'Tried again: the payment provider did not answer and could not be asked. It needs a manual check',
   ERROR: 'Tried again: the payment provider did not answer, so it may or may not have paid',
 };
 
@@ -64,6 +79,7 @@ const PROBLEMS = new Set([
   'REFUND_FAILED_AT_PROVIDER',
   'REFUND_TICKETS_NOT_LIVE',
   'REFUND_RETRY_REFUSED',
+  'REFUND_NEEDS_MANUAL_REVIEW',
 ]);
 
 /** Where a request came from, for REFUND_REQUESTED's `via`. */
@@ -84,6 +100,9 @@ export function historyLine(entry: HistoryEntry): HistoryLine {
   // A before -> after an action wrote in words (a cinema's legal type), read out as written.
   const change = text(m.change);
   if (change) details.push(change);
+  // What the provider's lookup showed comes before the reason it gives.
+  const lookup = entry.action === 'REFUND_PROVIDER_LOOKUP' ? text(m.result) : null;
+  if (lookup && LOOKUP_RESULT[lookup]) details.push(LOOKUP_RESULT[lookup]);
   const reason = text(m.reason) ?? text(m.note);
   if (reason) details.push(`Reason: ${reason}`);
   const via = text(m.via);
@@ -100,7 +119,11 @@ export function historyLine(entry: HistoryEntry): HistoryLine {
     text: (outcome && RETRY_RESULT[outcome]) ?? SENTENCES[entry.action] ?? plainWords(entry.action),
     who: entry.actor ? entry.actor.fullName || entry.actor.email : 'System',
     detail: details.length ? details.join('. ') : null,
-    problem: PROBLEMS.has(entry.action) || outcome === 'FAILED' || outcome === 'ERROR',
+    problem:
+      PROBLEMS.has(entry.action) ||
+      outcome === 'FAILED' ||
+      outcome === 'ERROR' ||
+      outcome === 'NEEDS_REVIEW',
   };
 }
 
@@ -125,11 +148,30 @@ export function historyLines(entries: HistoryEntry[]): HistoryLine[] {
  * A FAILED refund is a dead end in the console: nothing can approve it again. So the page says
  * what the failure means for the customer and who has to act, rather than "This refund is failed."
  */
-export function failedRefundAdvice(entries: HistoryEntry[]): {
+export function failedRefundAdvice(
+  entries: HistoryEntry[],
+  // Set when the refund is held for a manual check (`Refund.manualReviewReason`).
+  manualReviewReason?: string | null,
+): {
   cause: string;
   steps: string[];
 } {
   const actions = new Set(entries.map((e) => e.action));
+  /*
+    The case nothing automatic may settle: a call lost its answer and the provider could not be
+    asked. First, because the money may already be with the customer.
+  */
+  if (manualReviewReason) {
+    return {
+      cause:
+        'The payment provider did not answer, and it could not be asked whether it made this refund. The money may already be with the customer. Nothing is sent again automatically.',
+      steps: [
+        "Look the payment up in the provider's dashboard with the payment reference below.",
+        'If a refund is there, do not send it again. Try the refund again asks the provider first, and records that refund once the provider can be asked.',
+        'If there is no refund there, use Try the refund again below and confirm what you checked.',
+      ],
+    };
+  }
   // The worst case first: the customer has lost their tickets and has not had their money.
   if (actions.has('REFUND_FAILED_AT_PROVIDER')) {
     return {

@@ -2268,15 +2268,58 @@ model Refund {
   requestedByUserId        String?
   processedByUserId        String?
   providerRef              String?
+  /// The idempotency key every provider call for this refund carries (Stripe's Idempotency-Key
+  /// header; Razorpay's `receipt` and `notes`). Set once, before the first call, and reused for
+  /// every call whose earlier answer was lost. It changes only after the provider REFUSED the
+  /// last call, because Stripe replays a refused answer for 24 hours under the same key. Every
+  /// key this refund has used starts with `etg-rf-<id>`, which is how reconciliation finds it.
+  providerIdempotencyKey   String?                 @unique
+  /// How many create-refund calls have been sent to the provider for this refund. Advanced with
+  /// a conditional UPDATE in the same transaction that writes the attempt row.
+  providerCallCount        Int                     @default(0)
+  /// Set when the provider's answer was lost and asking the provider did not settle it. A person
+  /// must look at the provider's own dashboard. Nothing sends this refund again automatically
+  /// while it is set. Cleared when the refund is settled.
+  manualReviewReason       String?
+  manualReviewAt           DateTime?
+  providerAttempts         RefundProviderAttempt[]
   creditNote               Receipt?
-  createdAt                DateTime     @default(now())
-  updatedAt                DateTime     @updatedAt
+  createdAt                DateTime                @default(now())
+  updatedAt                DateTime                @updatedAt
 
   @@index([bookingId])
   // Composite serves both status-only reads and the risk service's
   // status+createdAt window scan (leftmost prefix covers status alone). (v2.1 audit)
   @@index([status, createdAt])
   @@index([organizationId])
+}
+
+/// One create-refund call sent to a payment provider, written BEFORE the call is made.
+///
+/// A refund call can reach the provider and lose its answer on the way back. Without a record
+/// of the call there is nothing to reconcile against, and the only safe recovery is a person.
+/// The row is the evidence that a call was made, with the key it carried, so the provider can
+/// be asked "did you pay this?" and the answer matched to it.
+///
+/// `@@unique([refundId, attemptNo])` is the database guard: two processes that both think they
+/// are making attempt N cannot both write it, so at most one of them reaches the provider.
+model RefundProviderAttempt {
+  id                String    @id @default(cuid())
+  refundId          String
+  refund            Refund    @relation(fields: [refundId], references: [id], onDelete: Cascade)
+  attemptNo         Int
+  idempotencyKey    String
+  /// APPROVAL | AUTO_RESEND | ADMIN_RETRY
+  trigger           String
+  /// SENT (no answer yet) | ACCEPTED | REFUSED | UNKNOWN (the call threw; the answer was lost)
+  outcome           String    @default("SENT")
+  providerRefundRef String?
+  detail            String?
+  startedAt         DateTime  @default(now())
+  finishedAt        DateTime?
+
+  @@unique([refundId, attemptNo])
+  @@index([idempotencyKey])
 }
 
 model Payout {

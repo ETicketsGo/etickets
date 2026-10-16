@@ -82,7 +82,13 @@ function setupProcess(opts: ProcessOpts = {}) {
     ticket: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
     booking: { update: jest.fn().mockResolvedValue({}) },
     payment: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
-    refund: { update: jest.fn().mockResolvedValue({}) },
+    refund: {
+      update: jest.fn().mockResolvedValue({}),
+      // The attempt bookkeeping written before each provider call (refund-provider-call.ts).
+      findUnique: jest.fn().mockResolvedValue({ providerCallCount: 0 }),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
+    refundProviderAttempt: { create: jest.fn().mockResolvedValue({ id: 'att-1', attemptNo: 1 }) },
   };
 
   const prisma = {
@@ -107,6 +113,7 @@ function setupProcess(opts: ProcessOpts = {}) {
     },
     booking: { findUnique: jest.fn().mockResolvedValue(booking) },
     payment: { findUnique: jest.fn().mockResolvedValue({ providerRef: 'pi_123' }) },
+    refundProviderAttempt: { update: jest.fn().mockResolvedValue({}) },
     $transaction: jest.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
   };
 
@@ -241,9 +248,26 @@ describe('RefundsService.process', () => {
     await expect(service.process(ADMIN, 'rf-1', 'APPROVE')).rejects.toBeInstanceOf(AppException);
   });
 
-  it('provider failure marks the refund FAILED and rethrows', async () => {
-    const { service, prisma } = setupProcess({ approveClaimCount: 1, providerThrows: true });
-    await expect(service.process(ADMIN, 'rf-1', 'APPROVE')).rejects.toThrow('provider down');
+  /*
+    A call that throws may have reached the provider. It used to be retried (twice, by the
+    orchestrator) and then marked FAILED as if nothing had happened. Now the provider is asked;
+    this stub cannot be asked, so the refund is held for a person and NOT sent again.
+  */
+  it('a provider call with no answer is held for manual review, never resent', async () => {
+    const { service, prisma, payments } = setupProcess({
+      approveClaimCount: 1,
+      providerThrows: true,
+    });
+    await expect(service.process(ADMIN, 'rf-1', 'APPROVE')).rejects.toMatchObject({
+      details: { providerOutcome: 'UNRESOLVED' },
+    });
+    expect(payments.refundPayment).toHaveBeenCalledTimes(1);
+    expect(prisma.refund.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'rf-1' },
+        data: expect.objectContaining({ manualReviewReason: expect.any(String) }),
+      }),
+    );
     expect(prisma.refund.update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: 'rf-1' },

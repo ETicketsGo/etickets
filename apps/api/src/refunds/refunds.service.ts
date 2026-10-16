@@ -23,9 +23,12 @@ import { refundTaxForTickets, ticketNetPrices } from './refund-tax';
 import {
   assessRetry,
   providerRefsOf,
+  type ProviderLookupFact,
   type RefundHistoryEntry,
   type RetryFacts,
 } from './refund-retry';
+import { RefundProviderCalls, type CallOutcome } from './refund-provider-call';
+import type { Reconciliation } from './refund-reconcile';
 import { ACCEPTED_TRANSFERS, currentHolderUserId, isTransferred } from '../tickets/ticket-holder';
 import type { RequestUser } from '../common/decorators';
 import { MetricsService } from '../metrics/metrics.service';
@@ -123,7 +126,12 @@ export class RefundsService {
     private readonly notifications: NotificationService,
     private readonly metrics: MetricsService,
     private readonly receipts: ReceiptsService,
-  ) {}
+  ) {
+    this.calls = new RefundProviderCalls(this.prisma, this.payments, this.audit);
+  }
+
+  /** Every create-refund call goes through here: see `refund-provider-call.ts`. */
+  private readonly calls: RefundProviderCalls;
 
   /** The booking a refund request is about, with everything the rules below read. */
   private async loadForRefund(bookingId: string): Promise<BookingForRefund> {
@@ -408,10 +416,20 @@ export class RefundsService {
     const refund = await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`refund-request:${booking.id}`}))`;
 
-      // Tickets already covered by an open (requested/processing/completed) refund
-      // must not be refunded again.
+      /*
+        Tickets already covered by an open (requested/processing/completed) refund must not be
+        refunded again. Nor may tickets on a FAILED refund held for manual review: its provider
+        call lost its answer and the provider could not say whether it paid, so a second refund
+        for the same tickets could pay the customer twice.
+      */
       const priorRefunds = await tx.refund.findMany({
-        where: { bookingId: booking.id, status: { in: [...OPEN_REFUND_STATUSES] } },
+        where: {
+          bookingId: booking.id,
+          OR: [
+            { status: { in: [...OPEN_REFUND_STATUSES] } },
+            { status: RefundStatus.FAILED, manualReviewReason: { not: null } },
+          ],
+        },
       });
       const alreadyCovered = new Set(priorRefunds.flatMap((r) => r.ticketIds));
 
@@ -1005,7 +1023,9 @@ export class RefundsService {
       amountMinor: number;
       reason: string;
       ticketIds: string[];
+      createdAt: Date;
     },
+    opts: { trigger?: 'APPROVAL' | 'ADMIN_RETRY'; known?: KnownAnswer } = {},
   ) {
     const refundId = refund.id;
     const booking = await this.prisma.booking.findUnique({
@@ -1077,21 +1097,19 @@ export class RefundsService {
     */
     const nothingWasCaptured = !payment && refund.amountMinor === 0;
 
-    // Provider call happens exactly once (after the claim). On failure the refund
-    // is marked FAILED rather than left stuck in PROCESSING.
+    /*
+      The provider is asked once (after the claim), with this refund's stable key. A lost answer
+      is settled by asking the provider, never by resending blindly: see `refund-provider-call.ts`.
+      On anything but an answer the refund is marked FAILED rather than left stuck in PROCESSING.
+
+      `known` is a retry that found this refund already made at the provider: it is recorded
+      as the provider's answer and no money call is made at all.
+    */
     let providerResult: { providerRef: string; status?: 'COMPLETED' | 'PROCESSING' | 'FAILED' };
     try {
       providerResult = nothingWasCaptured
         ? { providerRef: `free:${refund.bookingId}`, status: 'COMPLETED' }
-        : await this.payments.refundPayment(
-            payment?.providerRef ?? 'mock',
-            refund.amountMinor,
-            refund.reason,
-            // Keep the refund on the gateway that captured the payment.
-            payment?.provider,
-            // Currency lets PayPal/Square format a partial refund.
-            booking.currency,
-          );
+        : await this.providerAnswer(user, refund, payment, booking.currency, opts);
     } catch (err) {
       await this.prisma.refund
         .update({ where: { id: refundId }, data: { status: RefundStatus.FAILED } })
@@ -1113,7 +1131,11 @@ export class RefundsService {
     if (providerResult.status === 'FAILED') {
       await this.prisma.refund.update({
         where: { id: refundId },
-        data: { status: RefundStatus.FAILED, providerRef: providerResult.providerRef },
+        data: {
+          status: RefundStatus.FAILED,
+          providerRef: providerResult.providerRef,
+          ...SETTLED_REVIEW,
+        },
       });
       await this.audit.record({
         actorUserId: user.id,
@@ -1178,6 +1200,7 @@ export class RefundsService {
           status: settledStatus,
           processedByUserId: user.id,
           providerRef: providerResult.providerRef,
+          ...SETTLED_REVIEW,
         },
       });
 
@@ -1224,6 +1247,62 @@ export class RefundsService {
     return this.prisma.refund.findUnique({ where: { id: refundId } });
   }
 
+  /**
+   * The provider's answer to one refund call, or the refusal to pretend there was one.
+   *
+   * `known` short-circuits: a retry found this refund already made at the provider, so it is
+   * recorded rather than sent. Otherwise the call goes through `RefundProviderCalls`, which sends
+   * once and settles a lost answer by asking the provider.
+   */
+  private async providerAnswer(
+    user: RequestUser,
+    refund: {
+      id: string;
+      bookingId: string;
+      organizationId: string;
+      amountMinor: number;
+      reason: string;
+      createdAt: Date;
+    },
+    payment: { provider: string; providerRef: string | null } | null,
+    currency: string,
+    opts: { trigger?: 'APPROVAL' | 'ADMIN_RETRY'; known?: KnownAnswer },
+  ): Promise<KnownAnswer> {
+    if (opts.known) return opts.known;
+    const outcome: CallOutcome = await this.calls.send({
+      refund,
+      payment,
+      currency,
+      actorUserId: user.id,
+      trigger: opts.trigger ?? 'APPROVAL',
+    });
+    if (outcome.kind === 'ANSWERED') return outcome.result;
+    if (outcome.kind === 'NOT_REFUNDED') {
+      // A definite answer: the provider shows no refund. Recorded as a refusal, so a retry is
+      // offered without asking the admin to check the dashboard first (see `lastAnswerOf`).
+      await this.audit.record({
+        actorUserId: user.id,
+        organizationId: refund.organizationId,
+        action: 'REFUND_FAILED',
+        entityType: 'Refund',
+        entityId: refund.id,
+        metadata: { amountMinor: refund.amountMinor, providerOutcome: 'NOT_REFUNDED' },
+      });
+      throw new AppException(
+        ErrorCodes.PAYMENT_PROVIDER_UNAVAILABLE,
+        outcome.message,
+        HttpStatus.BAD_GATEWAY,
+        { providerOutcome: 'NOT_REFUNDED' },
+      );
+    }
+    throw new AppException(
+      ErrorCodes.PAYMENT_PROVIDER_UNAVAILABLE,
+      `The payment provider did not answer, and we could not confirm whether it made this refund. It needs a manual check in the provider dashboard. ${outcome.reason}`,
+      HttpStatus.BAD_GATEWAY,
+      { providerOutcome: 'UNRESOLVED', reason: outcome.reason },
+    );
+  }
+
   // ─── Retrying a refund that did not go through ───
 
   /**
@@ -1232,6 +1311,9 @@ export class RefundsService {
    * The history is this refund's own audit trail, oldest first. Provider refunds the webhook
    * store has seen on this payment are compared with every provider reference any refund on the
    * booking has carried; one that matches none is a refund we do not know about.
+   *
+   * The provider itself is asked too (`RefundProviderCalls.lookup`, a read): its list of the
+   * payment's refunds is what settles a call whose answer was lost.
    */
   private async retryFacts(refundId: string, confirmedNoProviderRefund: boolean) {
     const refund = await this.prisma.refund.findUnique({
@@ -1280,6 +1362,25 @@ export class RefundsService {
         .map((t) => t.id),
     );
 
+    /*
+      Ask the provider, when there is a payment there to ask about. Only for a FAILED refund (the
+      only kind a retry acts on), and never for cash or a free booking, which no provider holds.
+    */
+    let lookup: Reconciliation | null = null;
+    if (
+      refund.status === RefundStatus.FAILED &&
+      refund.amountMinor > 0 &&
+      booking?.paymentMethod !== 'CASH' &&
+      booking?.payment?.providerRef
+    ) {
+      lookup = await this.calls.lookup(
+        { refund, payment: booking.payment },
+        booking.payment.providerRef,
+        refund.providerIdempotencyKey,
+      );
+    }
+    const foundRef = lookup?.kind === 'FOUND' ? lookup.record.refundRef : null;
+
     // Provider refunds reported on this payment (Razorpay's webhooks name the payment id).
     let unmatched = 0;
     const paymentId = booking?.payment?.providerPaymentIntentId;
@@ -1295,6 +1396,8 @@ export class RefundsService {
       const known = new Set([
         ...providerRefsOf(entries, refund.providerRef),
         ...siblings.map((r) => r.providerRef).filter((r): r is string => !!r),
+        // The provider's own lookup matched this one to our key: it is accounted for.
+        ...(foundRef ? [foundRef] : []),
       ]);
       const ids = new Set(
         seen
@@ -1322,6 +1425,8 @@ export class RefundsService {
       otherRefunds: siblings.map((r) => ({ status: r.status, amountMinor: r.amountMinor })),
       unmatchedProviderRefunds: unmatched,
       confirmedNoProviderRefund,
+      providerLookup: lookup ? lookupFact(lookup) : null,
+      manualReviewReason: refund.manualReviewReason,
     };
     return { refund, booking, facts };
   }
@@ -1336,13 +1441,18 @@ export class RefundsService {
    * Send a FAILED refund to the payment provider again. Platform staff with REFUND_APPROVE only.
    *
    * ── WHY IT CANNOT PAY TWICE ───────────────────────────────────────────────────────
-   *   · `assessRetry` refuses whenever the money may already have moved: an unanswered call
-   *     needs the admin's word that the provider dashboard shows no refund, and a provider
-   *     refund on this payment that no row accounts for stops it outright.
+   *   · The provider is asked FIRST. If its list of the payment's refunds holds one made with
+   *     this refund's key, that refund is recorded and nothing is sent. If it shows no refund,
+   *     the refund is sent with the SAME key the lost call carried, so Stripe returns the first
+   *     refund rather than making a second. Only when the provider cannot be asked does the
+   *     admin have to confirm the dashboard shows no refund.
+   *   · `assessRetry` refuses whenever the money may already have moved in a way nothing here
+   *     matches: a provider refund on this payment that no row accounts for stops it outright.
    *   · The claim FAILED -> PROCESSING is atomic, so of two clicks (or two admins) one wins and
    *     the other is refused before the provider is called. The marker that a provider call is
    *     about to happen is written in the SAME transaction as the claim, so a crash mid-call
-   *     leaves this refund reading "answer unknown", never "refused".
+   *     leaves this refund reading "answer unknown", never "refused". Each call then writes its
+   *     own attempt row under `@@unique([refundId, attemptNo])` before it is sent.
    *   · A refund the provider accepted and then failed has already returned its tickets, so only
    *     the provider leg is repeated (`resendAccepted`); everything else goes through
    *     `payClaimed`, the code an approval uses.
@@ -1371,6 +1481,12 @@ export class RefundsService {
       });
     }
 
+    const lookup = facts.providerLookup;
+    const known: KnownAnswer | undefined =
+      assessment.action === 'RECORD_PROVIDER_REFUND' && lookup?.providerRef && lookup.status
+        ? { providerRef: lookup.providerRef, status: lookup.status }
+        : undefined;
+
     const claimed = await this.prisma.$transaction(async (tx) => {
       const claim = await tx.refund.updateMany({
         where: { id: refund.id, status: RefundStatus.FAILED },
@@ -1387,6 +1503,8 @@ export class RefundsService {
           entityId: refund.id,
           metadata: {
             stage: assessment.stage,
+            action: assessment.action,
+            providerLookup: lookup?.kind ?? null,
             amountMinor: refund.amountMinor,
             previousProviderRef: refund.providerRef,
             confirmedNoProviderRefund: confirmed,
@@ -1403,21 +1521,27 @@ export class RefundsService {
       );
     }
 
-    let outcome: 'COMPLETED' | 'PROCESSING' | 'FAILED' | 'ERROR';
+    let outcome: 'COMPLETED' | 'PROCESSING' | 'FAILED' | 'NEEDS_REVIEW' | 'ERROR';
     let message: string | null = null;
     try {
       if (assessment.stage === 'TICKETS_RETURNED' && booking) {
-        await this.resendAccepted(user, refund, booking);
+        await this.resendAccepted(user, refund, booking, known);
       } else {
-        await this.payClaimed(user, refund);
+        await this.payClaimed(user, refund, { trigger: 'ADMIN_RETRY', known });
       }
       const row = await this.prisma.refund.findUnique({ where: { id: refund.id } });
       outcome = row?.status === RefundStatus.COMPLETED ? 'COMPLETED' : 'PROCESSING';
     } catch (err) {
-      const refused =
-        err instanceof AppException &&
-        (err.details as { providerOutcome?: string }).providerOutcome === 'REFUSED';
-      outcome = refused ? 'FAILED' : 'ERROR';
+      const said =
+        err instanceof AppException
+          ? (err.details as { providerOutcome?: string } | undefined)?.providerOutcome
+          : undefined;
+      outcome =
+        said === 'REFUSED' || said === 'NOT_REFUNDED'
+          ? 'FAILED'
+          : said === 'UNRESOLVED'
+            ? 'NEEDS_REVIEW'
+            : 'ERROR';
       message = err instanceof Error ? err.message : String(err);
       // Every path that throws marks the refund FAILED; make sure nothing is left claimed.
       await this.prisma.refund
@@ -1437,11 +1561,19 @@ export class RefundsService {
       entityId: refund.id,
       metadata: {
         outcome,
+        recorded: !!known,
         providerRef: after?.providerRef ?? null,
         ...(message ? { message: message.slice(0, 300) } : {}),
       },
     });
-    return { outcome, message, providerRef: after?.providerRef ?? null, refund: after };
+    return {
+      outcome,
+      message,
+      providerRef: after?.providerRef ?? null,
+      // True when the provider already had it: recorded, and no money call was made.
+      recorded: !!known,
+      refund: after,
+    };
   }
 
   /**
@@ -1451,21 +1583,26 @@ export class RefundsService {
    */
   private async resendAccepted(
     user: RequestUser,
-    refund: { id: string; organizationId: string; amountMinor: number; reason: string },
+    refund: {
+      id: string;
+      bookingId: string;
+      organizationId: string;
+      amountMinor: number;
+      reason: string;
+      createdAt: Date;
+    },
     booking: {
       currency: string;
       payment: { provider: string; providerRef: string | null } | null;
     },
+    known?: KnownAnswer,
   ) {
-    let result: { providerRef: string; status?: 'COMPLETED' | 'PROCESSING' | 'FAILED' };
+    let result: KnownAnswer;
     try {
-      result = await this.payments.refundPayment(
-        booking.payment?.providerRef ?? 'mock',
-        refund.amountMinor,
-        refund.reason,
-        booking.payment?.provider,
-        booking.currency,
-      );
+      result = await this.providerAnswer(user, refund, booking.payment, booking.currency, {
+        trigger: 'ADMIN_RETRY',
+        known,
+      });
     } catch (err) {
       await this.prisma.refund
         .update({ where: { id: refund.id }, data: { status: RefundStatus.FAILED } })
@@ -1475,7 +1612,7 @@ export class RefundsService {
     if (result.status === 'FAILED') {
       await this.prisma.refund.update({
         where: { id: refund.id },
-        data: { status: RefundStatus.FAILED, providerRef: result.providerRef },
+        data: { status: RefundStatus.FAILED, providerRef: result.providerRef, ...SETTLED_REVIEW },
       });
       await this.audit.record({
         actorUserId: user.id,
@@ -1497,7 +1634,12 @@ export class RefundsService {
       result.status === 'PROCESSING' ? RefundStatus.PROCESSING : RefundStatus.COMPLETED;
     await this.prisma.refund.update({
       where: { id: refund.id },
-      data: { status: settled, processedByUserId: user.id, providerRef: result.providerRef },
+      data: {
+        status: settled,
+        processedByUserId: user.id,
+        providerRef: result.providerRef,
+        ...SETTLED_REVIEW,
+      },
     });
     await this.audit.record({
       actorUserId: user.id,
@@ -1508,5 +1650,29 @@ export class RefundsService {
       metadata: { amountMinor: refund.amountMinor, providerRef: result.providerRef },
     });
     if (settled === RefundStatus.COMPLETED) this.metrics.recordRefundCompleted();
+  }
+}
+
+/** A provider's answer about one refund, as the rest of the refund code reads it. */
+type KnownAnswer = { providerRef: string; status: 'COMPLETED' | 'PROCESSING' | 'FAILED' };
+
+/** A settled refund (paid, accepted or refused) is no longer waiting for a person. */
+const SETTLED_REVIEW = { manualReviewReason: null, manualReviewAt: null };
+
+/** The provider lookup, in the plain shape `assessRetry` judges and the console shows. */
+function lookupFact(r: Reconciliation): ProviderLookupFact {
+  switch (r.kind) {
+    case 'FOUND':
+    case 'REFUSED':
+      return {
+        kind: r.kind,
+        providerRef: r.record.refundRef,
+        status: r.record.status,
+        amountMinor: r.record.amountMinor,
+      };
+    case 'NONE':
+      return { kind: 'NONE' };
+    default:
+      return { kind: r.kind, reason: r.reason };
   }
 }

@@ -17,6 +17,7 @@ import type {
   PaymentEvent,
   PaymentIntent,
   PaymentProvider,
+  ProviderRefundRecord,
   RefundInput,
   RefundResult,
   TransferInput,
@@ -298,15 +299,38 @@ export class StripePaymentProvider implements PaymentProvider {
   }
 
   async refund(input: RefundInput): Promise<RefundResult> {
-    const refund = await this.client.refunds.create({
+    /*
+      The key is sent as Stripe's Idempotency-Key, so a resend after a lost answer returns the
+      refund the first call made rather than a second one (Stripe keeps keys for 24 hours). It is
+      also put in `metadata`, so `findPaymentRefunds` can match the refund after that window.
+    */
+    const params: Stripe.RefundCreateParams = {
       payment_intent: input.providerRef,
       amount: input.amountMinor,
       reason: input.reason === 'requested_by_customer' ? 'requested_by_customer' : undefined,
-    });
-    return {
-      providerRef: refund.id,
-      status: refund.status === 'failed' || refund.status === 'canceled' ? 'FAILED' : 'COMPLETED',
     };
+    const refund = input.idempotencyKey
+      ? await this.client.refunds.create(
+          { ...params, metadata: { etg_refund_key: input.idempotencyKey } },
+          { idempotencyKey: input.idempotencyKey },
+        )
+      : await this.client.refunds.create(params);
+    return { providerRef: refund.id, status: stripeRefundStatus(refund.status) };
+  }
+
+  /**
+   * Every refund Stripe holds against a PaymentIntent - the read that settles a lost answer.
+   * Errors are NOT swallowed: "Stripe did not answer" must not read as "Stripe has no refund".
+   */
+  async findPaymentRefunds(paymentRef: string): Promise<ProviderRefundRecord[]> {
+    const list = await this.client.refunds.list({ payment_intent: paymentRef, limit: 100 });
+    return list.data.map((r) => ({
+      refundRef: r.id,
+      amountMinor: r.amount,
+      status: stripeRefundStatus(r.status),
+      idempotencyKey: r.metadata?.etg_refund_key || null,
+      createdAt: typeof r.created === 'number' ? new Date(r.created * 1000) : null,
+    }));
   }
 
   // ─── Connect (marketplace) ───
@@ -482,6 +506,11 @@ export class StripePaymentProvider implements PaymentProvider {
 function appendParam(url: string, key: string, value: string): string {
   const sep = url.includes('?') ? '&' : '?';
   return `${url}${sep}${key}=${encodeURIComponent(value)}`;
+}
+
+/** Unchanged from before the lookup existed: only failed/canceled is a refusal. */
+function stripeRefundStatus(status: string | null): RefundResult['status'] {
+  return status === 'failed' || status === 'canceled' ? 'FAILED' : 'COMPLETED';
 }
 
 function requireKey(config: ConfigService, key: string): string {

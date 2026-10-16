@@ -133,9 +133,9 @@ export class PaymentsService {
   }
 
   /**
-   * Issue a provider refund for a captured payment. Routed through the orchestrator
-   * for retry/timeout/circuit protection; `provider` (when known) keeps the refund
-   * on the gateway that took the payment.
+   * Issue a provider refund for a captured payment. Routed through the orchestrator for
+   * timeout/circuit protection (a refund call is never retried there); `provider` (when known)
+   * keeps the refund on the gateway that took the payment.
    */
   refundPayment(
     providerRef: string,
@@ -143,8 +143,21 @@ export class PaymentsService {
     reason?: string,
     provider?: string,
     currency?: string,
+    // The refund's stable key; see `RefundInput.idempotencyKey` for what each provider does.
+    idempotencyKey?: string,
   ) {
-    return this.orchestrator.refund({ providerRef, amountMinor, reason, currency }, { provider });
+    return this.orchestrator.refund(
+      { providerRef, amountMinor, reason, currency, idempotencyKey },
+      { provider },
+    );
+  }
+
+  /**
+   * The refunds the provider holds against a payment: how a refund call whose answer was lost
+   * is settled. Throws when the provider cannot say.
+   */
+  findProviderRefunds(providerRef: string, provider?: string) {
+    return this.orchestrator.findPaymentRefunds(providerRef, { provider });
   }
 
   /**

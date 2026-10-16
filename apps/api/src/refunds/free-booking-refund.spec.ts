@@ -59,7 +59,13 @@ function setup(opts: { amountMinor: number; hasPayment: boolean }) {
     ticket: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
     booking: { update: jest.fn().mockResolvedValue({}) },
     payment: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
-    refund: { update: jest.fn().mockResolvedValue({}) },
+    refund: {
+      update: jest.fn().mockResolvedValue({}),
+      // The attempt bookkeeping written before each provider call (refund-provider-call.ts).
+      findUnique: jest.fn().mockResolvedValue({ providerCallCount: 0 }),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
+    refundProviderAttempt: { create: jest.fn().mockResolvedValue({ id: 'att-1', attemptNo: 1 }) },
   };
 
   const prisma = {
@@ -76,6 +82,7 @@ function setup(opts: { amountMinor: number; hasPayment: boolean }) {
         .fn()
         .mockResolvedValue(opts.hasPayment ? { providerRef: 'pi_123', provider: 'mock' } : null),
     },
+    refundProviderAttempt: { update: jest.fn().mockResolvedValue({}) },
     $transaction: jest.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
   };
 
@@ -148,6 +155,8 @@ describe('the gateway skip does not leak into paid bookings', () => {
       'changed my mind',
       'mock',
       'INR',
+      // The refund's stable idempotency key travels with the one call.
+      'etg-rf-rf-1',
     );
   });
 
@@ -165,6 +174,7 @@ describe('the gateway skip does not leak into paid bookings', () => {
       'changed my mind',
       undefined,
       'INR',
+      'etg-rf-rf-1',
     );
   });
 });

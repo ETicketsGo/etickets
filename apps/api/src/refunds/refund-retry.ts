@@ -21,6 +21,14 @@
  * And, whatever the answers, never more back than was paid, and never while the provider
  * reports a refund on this payment that no row here accounts for - that unaccounted refund may
  * be this one.
+ *
+ * ── ASK THE PROVIDER FIRST ─────────────────────────────────────────────────────────
+ * Question 1 used to be answered only by the admin ticking "I checked the dashboard". The
+ * provider is now asked directly for the payment's refunds (`refund-reconcile.ts`):
+ *   FOUND        it holds a refund made with this refund's key - record it, send nothing.
+ *   NONE         it answered and shows no such refund - sending again (same key) is safe.
+ *   UNMATCHED    it shows a refund that may be this one but cannot be matched - refuse.
+ *   UNAVAILABLE  it could not be asked - only then is the admin's confirmation needed.
  */
 
 /** What the latest attempt at this refund told us about the money. */
@@ -63,7 +71,25 @@ export interface RetryFacts {
   unmatchedProviderRefunds: number;
   /** The admin confirmed they checked the provider dashboard and found no refund for this. */
   confirmedNoProviderRefund: boolean;
+  /**
+   * What the provider's own list of this payment's refunds said, or null when it was not asked
+   * (cash, a free booking, no payment reference). Optional so older callers stay valid.
+   */
+  providerLookup?: ProviderLookupFact | null;
+  /** Why the refund is held for a person, when it is (see `Refund.manualReviewReason`). */
+  manualReviewReason?: string | null;
 }
+
+export interface ProviderLookupFact {
+  kind: 'FOUND' | 'REFUSED' | 'NONE' | 'UNMATCHED' | 'UNAVAILABLE';
+  providerRef?: string;
+  status?: 'COMPLETED' | 'PROCESSING' | 'FAILED';
+  amountMinor?: number;
+  reason?: string;
+}
+
+/** What an allowed retry does: send the money, or record a refund the provider already made. */
+export type RetryAction = 'SEND' | 'RECORD_PROVIDER_REFUND';
 
 export interface RetryAssessment {
   allowed: boolean;
@@ -74,6 +100,12 @@ export interface RetryAssessment {
   needsConfirmation: boolean;
   /** One plain sentence: what a retry would do, or why it cannot be done. */
   message: string;
+  /** What an allowed retry would do; null when it is not allowed. */
+  action: RetryAction | null;
+  /** What the provider said when it was asked; echoed so the console can show it. */
+  providerLookup: ProviderLookupFact | null;
+  /** Set when the refund is held for a person, with the reason. */
+  manualReviewReason: string | null;
 }
 
 /** Audit actions that mean the provider ACCEPTED this refund at some point. */
@@ -116,6 +148,8 @@ export function providerRefsOf(history: RefundHistoryEntry[], current: string | 
 
 export function assessRetry(f: RetryFacts): RetryAssessment {
   const lastAnswer = lastAnswerOf(f.history);
+  const lookup = f.providerLookup ?? null;
+  const echo = { providerLookup: lookup, manualReviewReason: f.manualReviewReason ?? null };
   const refuse = (
     refusal: RetryRefusal,
     message: string,
@@ -127,6 +161,8 @@ export function assessRetry(f: RetryFacts): RetryAssessment {
     refusal,
     needsConfirmation: false,
     message,
+    action: null,
+    ...echo,
   });
 
   if (f.status !== 'FAILED') {
@@ -160,6 +196,14 @@ export function assessRetry(f: RetryFacts): RetryAssessment {
     );
   }
 
+  if (lookup?.kind === 'UNMATCHED') {
+    return refuse(
+      'UNMATCHED_PROVIDER_REFUND',
+      `${lookup.reason ?? 'The payment provider shows a refund on this payment that cannot be matched to this one.'} Check the provider dashboard before doing anything else.`,
+      stage,
+    );
+  }
+  const found = lookup?.kind === 'FOUND';
   if (f.unmatchedProviderRefunds > 0) {
     return refuse(
       'UNMATCHED_PROVIDER_REFUND',
@@ -169,9 +213,11 @@ export function assessRetry(f: RetryFacts): RetryAssessment {
   }
   if (f.payment) {
     // Settled refunds the provider has reported. More than ours means one we do not know about.
-    const ourSettled = f.otherRefunds
-      .filter((r) => r.status === 'COMPLETED')
-      .reduce((sum, r) => sum + r.amountMinor, 0);
+    // A refund the provider's lookup matched to this one is accounted for by this row.
+    const ourSettled =
+      f.otherRefunds
+        .filter((r) => r.status === 'COMPLETED')
+        .reduce((sum, r) => sum + r.amountMinor, 0) + (found ? (lookup?.amountMinor ?? 0) : 0);
     if (f.payment.refundedMinor > ourSettled) {
       return refuse(
         'UNMATCHED_PROVIDER_REFUND',
@@ -191,27 +237,55 @@ export function assessRetry(f: RetryFacts): RetryAssessment {
     }
   }
 
-  if (lastAnswer === 'UNKNOWN' && !f.confirmedNoProviderRefund) {
+  if (found) {
+    return {
+      allowed: true,
+      stage,
+      lastAnswer,
+      refusal: null,
+      needsConfirmation: false,
+      action: 'RECORD_PROVIDER_REFUND',
+      ...echo,
+      message:
+        stage === 'TICKETS_RETURNED'
+          ? 'The payment provider already has this refund. Trying again records it here. No money is sent again.'
+          : 'The payment provider already has this refund. Trying again records it here, cancels the tickets and tells the customer. No money is sent again.',
+    };
+  }
+
+  // The provider answered the lookup: it shows no refund (or refused this key). Safe to send.
+  const providerSaysNone = lookup?.kind === 'NONE' || lookup?.kind === 'REFUSED';
+  if (lastAnswer === 'UNKNOWN' && !providerSaysNone && !f.confirmedNoProviderRefund) {
     return {
       allowed: false,
       stage,
       lastAnswer,
       refusal: 'NEEDS_CONFIRMATION',
       needsConfirmation: true,
+      action: null,
+      ...echo,
       message:
-        'The last call to the payment provider did not come back with an answer, so the money may have moved. Look the payment up in the provider dashboard first. Try again only if there is no refund there.',
+        (f.manualReviewReason ? 'This refund needs a manual check. ' : '') +
+        'The last call to the payment provider did not come back with an answer, and the provider could not be asked whether it made the refund, so the money may have moved. Look the payment up in the provider dashboard first. Try again only if there is no refund there.',
     };
   }
 
+  const sameKey =
+    lastAnswer === 'UNKNOWN' && providerSaysNone
+      ? ' The last call did not come back with an answer, but the provider shows no refund for it. It is sent once more, with the same key.'
+      : '';
   return {
     allowed: true,
     stage,
     lastAnswer,
     refusal: null,
     needsConfirmation: false,
+    action: 'SEND',
+    ...echo,
     message:
-      stage === 'TICKETS_RETURNED'
+      (stage === 'TICKETS_RETURNED'
         ? 'The tickets were already cancelled when the provider first accepted this refund. Trying again only asks the provider to pay it.'
-        : 'Trying again sends the refund to the provider. If it is paid, the tickets are cancelled and the customer is told.',
+        : 'Trying again sends the refund to the provider. If it is paid, the tickets are cancelled and the customer is told.') +
+      sameKey,
   };
 }
