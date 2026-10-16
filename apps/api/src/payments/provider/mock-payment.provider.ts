@@ -10,6 +10,7 @@ import type {
   PaymentIntent,
   PaymentProvider,
   PaymentStatusResult,
+  ProviderRefundRecord,
   RefundInput,
   RefundResult,
   WebhookInput,
@@ -103,22 +104,63 @@ export class MockPaymentProvider implements PaymentProvider {
   }
 
   /**
+   * Refunds this process has "made", per payment, so `findPaymentRefunds` can answer the way a
+   * real provider's lookup does. In memory: a restart forgets them, as a dev mock may.
+   */
+  private readonly refunds = new Map<string, ProviderRefundRecord[]>();
+
+  /**
    * Refund — DEV/TEST scenarios (ADR-043 P5.3B Phase 6) encoded in the input providerRef via a
    * `#scenario` suffix: `#refundfail` → FAILED, `#refundambiguous` → throws (the executor
-   * recovers via getRefund), otherwise COMPLETED. Idempotent: repeating a refund returns the
-   * same COMPLETED result.
+   * recovers via getRefund), `#refundlost` → the refund is made and THEN the call throws (the
+   * answer was lost on the way back), `#refundunknown` → throws, and so does the lookup.
+   * Otherwise COMPLETED. Idempotent: repeating a refund with the same key (or with no key)
+   * returns the same COMPLETED result.
    */
   async refund(input: RefundInput): Promise<RefundResult> {
     const scenario = this.scenario(input.providerRef);
     if (scenario === 'refundfail') return { providerRef: input.providerRef, status: 'FAILED' };
-    if (scenario === 'refundambiguous') {
+    if (scenario === 'refundambiguous' || scenario === 'refundunknown') {
       throw new AppException(
         ErrorCodes.INTERNAL,
         'mock refund ambiguous',
         HttpStatus.GATEWAY_TIMEOUT,
       );
     }
-    return { providerRef: `mock_rf_${this.hash(input.providerRef)}`, status: 'COMPLETED' };
+    const ref = `mock_rf_${this.hash(
+      input.idempotencyKey ? `${input.providerRef}|${input.idempotencyKey}` : input.providerRef,
+    )}`;
+    const made = this.refunds.get(input.providerRef) ?? [];
+    if (!made.some((r) => r.refundRef === ref)) {
+      made.push({
+        refundRef: ref,
+        amountMinor: input.amountMinor,
+        status: 'COMPLETED',
+        idempotencyKey: input.idempotencyKey ?? null,
+        createdAt: new Date(),
+      });
+      this.refunds.set(input.providerRef, made);
+    }
+    if (scenario === 'refundlost') {
+      throw new AppException(
+        ErrorCodes.INTERNAL,
+        'mock refund answer lost',
+        HttpStatus.GATEWAY_TIMEOUT,
+      );
+    }
+    return { providerRef: ref, status: 'COMPLETED' };
+  }
+
+  /** The payment's refunds (dev/test). `#refundunknown` → the lookup cannot answer either. */
+  async findPaymentRefunds(paymentRef: string): Promise<ProviderRefundRecord[]> {
+    if (this.scenario(paymentRef) === 'refundunknown') {
+      throw new AppException(
+        ErrorCodes.INTERNAL,
+        'mock refund lookup unavailable',
+        HttpStatus.GATEWAY_TIMEOUT,
+      );
+    }
+    return [...(this.refunds.get(paymentRef) ?? [])];
   }
 
   /** Refund status query (dev/test). `#reffail` → FAILED, otherwise COMPLETED (recovered). */

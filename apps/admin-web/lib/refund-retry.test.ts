@@ -16,3 +16,19 @@ describe('what a refund retry answered', () => {
     expect(retryOutcomeText({ outcome: 'FAILED' })).toMatch(/No money moved/);
   });
 });
+
+describe('a retry the provider could not settle, or had already paid', () => {
+  it('says a held refund needs a manual check and may have moved money', () => {
+    const text = retryOutcomeText({ outcome: 'NEEDS_REVIEW' });
+    expect(text).toMatch(/manual check/);
+    expect(text).toMatch(/may or may not have moved/);
+    expect(retrySucceeded({ outcome: 'NEEDS_REVIEW' })).toBe(false);
+  });
+
+  it('says a recorded refund sent no money again', () => {
+    expect(retryOutcomeText({ outcome: 'COMPLETED', recorded: true })).toMatch(
+      /No money was sent again/,
+    );
+    expect(retryOutcomeText({ outcome: 'COMPLETED' })).not.toMatch(/recorded/);
+  });
+});

@@ -13,9 +13,11 @@ import {
   type CreatePaymentInput,
   type PaymentIntent,
   type PaymentProvider,
+  type ProviderRefundRecord,
   type RefundInput,
   type RefundResult,
 } from '../provider/payment-provider.interface';
+import { PaymentErrorCode, PaymentProviderError } from '../domain/payment-errors';
 import { CircuitBreaker } from './circuit-breaker';
 import { PaymentProviderResolver } from '../provider/payment-provider.resolver';
 import { PaymentProviderRegistry } from './provider-registry';
@@ -157,11 +159,54 @@ export class PaymentOrchestrator {
         DEFAULT_OPS.circuitCooldownMs,
       ),
       timeoutMs: DEFAULT_OPS.timeoutMs,
-      maxRetries: DEFAULT_OPS.maxRetries,
+      /*
+        NEVER retried here. This used to be `DEFAULT_OPS.maxRetries` (2): a refund call that
+        timed out was sent twice more. A timeout does not mean the provider did nothing - the
+        call may have landed and only its answer been lost - so each retry could pay the
+        customer again. A refund call is now sent once; the caller settles a lost answer by
+        asking the provider (`findPaymentRefunds`), and resends only under the same key and only
+        when the provider shows no refund. See `refunds/refund-reconcile.ts`.
+      */
+      maxRetries: 0,
       retryBackoffMs: DEFAULT_OPS.retryBackoffMs,
       run: () => provider.refund(input),
     };
     return executeWithFailover([candidate]);
+  }
+
+  /**
+   * Every refund the provider holds against a payment. A READ, so the usual retry and timeout
+   * protection applies: it moves no money however many times it is sent.
+   *
+   * Throws when the provider cannot answer, including when its adapter has no lookup at all.
+   * "No refunds" is an answer that permits a resend, so it must never stand in for "unknown".
+   */
+  async findPaymentRefunds(
+    paymentRef: string,
+    opts: { provider?: string } = {},
+  ): Promise<ProviderRefundRecord[]> {
+    const provider = opts.provider ? this.resolveNamed(opts.provider) : this.defaultProvider;
+    if (typeof provider.findPaymentRefunds !== 'function') {
+      throw new PaymentProviderError(
+        PaymentErrorCode.UNSUPPORTED,
+        `The payment provider '${provider.name}' cannot be asked for a payment's refunds.`,
+        provider.name,
+      );
+    }
+    return executeWithFailover([
+      {
+        provider: provider.name,
+        breaker: this.breakerFor(
+          provider.name,
+          DEFAULT_OPS.circuitFailureThreshold,
+          DEFAULT_OPS.circuitCooldownMs,
+        ),
+        timeoutMs: DEFAULT_OPS.timeoutMs,
+        maxRetries: DEFAULT_OPS.maxRetries,
+        retryBackoffMs: DEFAULT_OPS.retryBackoffMs,
+        run: () => provider.findPaymentRefunds!(paymentRef),
+      },
+    ]);
   }
 
   /** The adapter for a provider that owns a payment, or an error — never a substitute. */

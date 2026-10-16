@@ -129,3 +129,26 @@ describe('a retried refund in its history', () => {
     expect(line.problem).toBe(true);
   });
 });
+
+describe('a refund held for a manual check', () => {
+  it('puts the manual check first, before any older failure', () => {
+    const advice = failedRefundAdvice(
+      [entry('REFUND_FAILED', '2026-10-15T09:00:00Z')],
+      'The payment provider could not be asked whether it made this refund: 503',
+    );
+    expect(advice.cause).toMatch(/could not be asked/);
+    expect(advice.steps.join(' ')).toMatch(/do not send it again/);
+  });
+
+  it('reads the provider lookup and the hold in the history, and marks the hold', () => {
+    const lines = historyLines([
+      entry('REFUND_PROVIDER_LOOKUP', '2026-10-15T09:00:00Z', { result: 'UNAVAILABLE' }),
+      entry('REFUND_NEEDS_MANUAL_REVIEW', '2026-10-15T09:00:01Z', { reason: 'Razorpay 503' }),
+      entry('REFUND_RETRY_RESULT', '2026-10-15T09:10:00Z', { outcome: 'NEEDS_REVIEW' }),
+    ]);
+    expect(lines[0].detail).toBe('The provider could not be asked');
+    expect(lines[1].text).toMatch(/manual check/);
+    expect(lines[1].detail).toBe('Reason: Razorpay 503');
+    expect(lines.map((l) => l.problem)).toEqual([false, true, true]);
+  });
+});

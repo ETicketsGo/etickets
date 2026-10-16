@@ -68,6 +68,23 @@ describe('CheckInDeviceService lifecycle (audited)', () => {
     );
   });
 
+  it('approves a pending device and brings a suspended one back', async () => {
+    for (const status of ['PENDING', 'SUSPENDED']) {
+      const { svc, update } = build({ ...activeDevice, status });
+      await svc.approve(USER, 'd1');
+      expect(update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ status: 'ACTIVE' }) }),
+      );
+    }
+  });
+
+  it('refuses to approve a revoked device: revoked is final', async () => {
+    const { svc, update, audit } = build({ ...activeDevice, status: 'REVOKED' });
+    await expect(svc.approve(USER, 'd1')).rejects.toMatchObject({ code: 'CONFLICT' });
+    expect(update).not.toHaveBeenCalled();
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
   it('404s a lifecycle action on a missing device', async () => {
     const { svc } = build(null);
     await expect(svc.revoke(USER, 'missing', 'x')).rejects.toBeInstanceOf(AppException);

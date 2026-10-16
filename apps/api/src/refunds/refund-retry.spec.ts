@@ -177,3 +177,79 @@ describe('lastAnswerOf and providerRefsOf', () => {
     ).toEqual(['rfnd_0', 'rfnd_1', 'rfnd_2']);
   });
 });
+
+describe('assessRetry: the provider is asked first', () => {
+  const unanswered = (over: Partial<RetryFacts> = {}) =>
+    refused({ history: [{ action: 'REFUND_REQUESTED' }], ...over });
+
+  it('records a refund the provider already made instead of sending one', () => {
+    const a = assessRetry(
+      unanswered({
+        providerLookup: {
+          kind: 'FOUND',
+          providerRef: 'rfnd_9',
+          status: 'COMPLETED',
+          amountMinor: 5000,
+        },
+        // Razorpay's webhook may already have counted it against the payment.
+        payment: { amountMinor: 5000, refundedMinor: 5000 },
+      }),
+    );
+    expect(a).toMatchObject({
+      allowed: true,
+      action: 'RECORD_PROVIDER_REFUND',
+      needsConfirmation: false,
+    });
+  });
+
+  it('sends again without the dashboard check when the provider shows no refund', () => {
+    const a = assessRetry(unanswered({ providerLookup: { kind: 'NONE' } }));
+    expect(a).toMatchObject({ allowed: true, action: 'SEND', needsConfirmation: false });
+    expect(a.message).toMatch(/same key/);
+  });
+
+  it('still needs the dashboard check when the provider could not be asked', () => {
+    const a = assessRetry(
+      unanswered({
+        providerLookup: { kind: 'UNAVAILABLE', reason: 'Razorpay answered 503' },
+        manualReviewReason: 'Razorpay answered 503',
+      }),
+    );
+    expect(a).toMatchObject({
+      allowed: false,
+      refusal: 'NEEDS_CONFIRMATION',
+      manualReviewReason: 'Razorpay answered 503',
+    });
+    expect(a.message).toMatch(/manual check/);
+  });
+
+  it('refuses outright when the provider shows a refund it cannot match, even if confirmed', () => {
+    const a = assessRetry(
+      unanswered({
+        providerLookup: { kind: 'UNMATCHED', reason: 'A refund of the same amount.' },
+        confirmedNoProviderRefund: true,
+      }),
+    );
+    expect(a).toMatchObject({ allowed: false, refusal: 'UNMATCHED_PROVIDER_REFUND', action: null });
+  });
+
+  it('does not let a found refund get past the tickets or the amount paid', () => {
+    const found = {
+      kind: 'FOUND' as const,
+      providerRef: 'rfnd_9',
+      status: 'COMPLETED' as const,
+      amountMinor: 5000,
+    };
+    expect(assessRetry(unanswered({ providerLookup: found, ticketsLive: false })).refusal).toBe(
+      'TICKETS_GONE',
+    );
+    expect(
+      assessRetry(
+        unanswered({
+          providerLookup: found,
+          otherRefunds: [{ status: 'COMPLETED', amountMinor: 1000 }],
+        }),
+      ).refusal,
+    ).toBe('OVER_PAYMENT');
+  });
+});

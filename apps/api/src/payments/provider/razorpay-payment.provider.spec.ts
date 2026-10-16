@@ -4,12 +4,13 @@ import { RazorpayPaymentProvider } from './razorpay-payment.provider';
 
 const mockOrdersCreate = jest.fn();
 const mockPaymentsRefund = jest.fn();
+const mockFetchMultipleRefund = jest.fn();
 
 // Mock the Razorpay SDK so no network call is ever made.
 jest.mock('razorpay', () =>
   jest.fn().mockImplementation(() => ({
     orders: { create: mockOrdersCreate },
-    payments: { refund: mockPaymentsRefund },
+    payments: { refund: mockPaymentsRefund, fetchMultipleRefund: mockFetchMultipleRefund },
   })),
 );
 
@@ -38,6 +39,7 @@ function signWebhook(body: object): { rawBody: string; signature: string } {
 beforeEach(() => {
   mockOrdersCreate.mockReset();
   mockPaymentsRefund.mockReset();
+  mockFetchMultipleRefund.mockReset();
 });
 
 describe('RazorpayPaymentProvider', () => {
@@ -153,5 +155,62 @@ describe('RazorpayPaymentProvider', () => {
     mockPaymentsRefund.mockResolvedValue({ id: 'rfnd_2', status: 'failed' });
     const result = await makeProvider().refund({ providerRef: 'pay_1', amountMinor: 1 });
     expect(result).toEqual({ providerRef: 'rfnd_2', status: 'FAILED' });
+  });
+
+  // The key lets a later lookup recognise our refund; Razorpay is not relied on to dedupe it.
+  it('refund carries our key in receipt and notes', async () => {
+    mockPaymentsRefund.mockResolvedValue({ id: 'rfnd_4', status: 'pending' });
+    await makeProvider().refund({
+      providerRef: 'pay_1',
+      amountMinor: 500,
+      reason: 'customer request',
+      idempotencyKey: 'etg-rf-r1',
+    });
+    expect(mockPaymentsRefund).toHaveBeenCalledWith('pay_1', {
+      amount: 500,
+      receipt: 'etg-rf-r1',
+      notes: { reason: 'customer request', etg_refund_key: 'etg-rf-r1' },
+    });
+  });
+
+  it("lists a payment's refunds with the key we sent, its amount and status", async () => {
+    mockFetchMultipleRefund.mockResolvedValue({
+      count: 2,
+      items: [
+        { id: 'rfnd_a', amount: 500, status: 'processed', receipt: 'etg-rf-r1', created_at: 1 },
+        { id: 'rfnd_b', amount: 200, status: 'pending', notes: { etg_refund_key: 'etg-rf-r2' } },
+        { id: 'rfnd_c', amount: 100, status: 'failed', receipt: null, notes: [] },
+      ],
+    });
+    const list = await makeProvider().findPaymentRefunds('pay_1');
+    expect(mockFetchMultipleRefund).toHaveBeenCalledWith('pay_1', { count: 100 });
+    expect(list).toEqual([
+      {
+        refundRef: 'rfnd_a',
+        amountMinor: 500,
+        status: 'COMPLETED',
+        idempotencyKey: 'etg-rf-r1',
+        createdAt: new Date(1000),
+      },
+      {
+        refundRef: 'rfnd_b',
+        amountMinor: 200,
+        status: 'PROCESSING',
+        idempotencyKey: 'etg-rf-r2',
+        createdAt: null,
+      },
+      {
+        refundRef: 'rfnd_c',
+        amountMinor: 100,
+        status: 'FAILED',
+        idempotencyKey: null,
+        createdAt: null,
+      },
+    ]);
+  });
+
+  it('a lookup that fails throws rather than answering "no refunds"', async () => {
+    mockFetchMultipleRefund.mockRejectedValue(new Error('503'));
+    await expect(makeProvider().findPaymentRefunds('pay_1')).rejects.toThrow('503');
   });
 });

@@ -5248,6 +5248,12 @@ export interface RefundRow {
   processedByUserId?: string | null;
   /** The provider's id for the refund, once one was asked for. */
   providerRef?: string | null;
+  /**
+   * Set when a provider call lost its answer and the provider could not be asked whether it paid:
+   * a person must check the provider dashboard. Absent on an older API.
+   */
+  manualReviewReason?: string | null;
+  manualReviewAt?: string | null;
   updatedAt?: string;
 }
 
@@ -5262,12 +5268,33 @@ export interface RefundRetryCheck {
   /** True when the only thing missing is the admin's confirmation about the provider dashboard. */
   needsConfirmation: boolean;
   message: string;
+  /**
+   * What an allowed retry does: SEND the money, or RECORD_PROVIDER_REFUND - the provider already
+   * has this refund, so it is recorded and nothing is sent. Null when not allowed. Absent on an
+   * older API.
+   */
+  action?: 'SEND' | 'RECORD_PROVIDER_REFUND' | null;
+  /** What the provider said when it was asked for the payment's refunds; null if not asked. */
+  providerLookup?: {
+    kind: 'FOUND' | 'REFUSED' | 'NONE' | 'UNMATCHED' | 'UNAVAILABLE';
+    providerRef?: string;
+    status?: 'COMPLETED' | 'PROCESSING' | 'FAILED';
+    amountMinor?: number;
+    reason?: string;
+  } | null;
+  /** Why the refund is held for a manual check, when it is. */
+  manualReviewReason?: string | null;
 }
-/** What a retry did. FAILED is the provider saying no; ERROR is a call that never answered. */
+/**
+ * What a retry did. FAILED is the provider saying no (or showing no refund); NEEDS_REVIEW is a
+ * call that never answered and could not be settled by asking; ERROR is anything else.
+ */
 export interface RefundRetryResult {
-  outcome: 'COMPLETED' | 'PROCESSING' | 'FAILED' | 'ERROR';
+  outcome: 'COMPLETED' | 'PROCESSING' | 'FAILED' | 'NEEDS_REVIEW' | 'ERROR';
   message: string | null;
   providerRef: string | null;
+  /** True when the provider already had the refund: it was recorded and no money was sent. */
+  recorded?: boolean;
   refund: RefundRow | null;
 }
 

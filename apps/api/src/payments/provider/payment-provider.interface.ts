@@ -87,6 +87,34 @@ export interface RefundInput {
    * (Stripe/Razorpay infer it); PayPal/Square require it to format a partial refund.
    */
   currency?: string;
+  /**
+   * Our stable key for this refund (`etg-rf-<refundId>...`). Optional for backward compatibility.
+   *
+   * What each adapter does with it differs, and the difference matters:
+   *   Stripe    sends it as the `Idempotency-Key` header, so a resend under the same key within
+   *             Stripe's 24-hour window returns the first refund instead of making a second one.
+   *             It is also written to the refund's `metadata` so a later lookup can match it.
+   *   Razorpay  writes it to the refund's `receipt` and `notes`. That lets a lookup MATCH it; it
+   *             is not known to make Razorpay refuse a duplicate. Only asking first protects it.
+   */
+  idempotencyKey?: string;
+}
+
+/**
+ * One refund the provider holds against a payment, as a lookup returns it.
+ *
+ * The recovery read for a refund call whose answer was lost: we never learned the provider's
+ * refund id, so the only way to find it is to list the payment's refunds and match them by the
+ * key we sent, or failing that by amount and time.
+ */
+export interface ProviderRefundRecord {
+  refundRef: string;
+  amountMinor: number;
+  status: 'COMPLETED' | 'PROCESSING' | 'FAILED';
+  /** The key we attached when we created it, read back from the provider; null if none. */
+  idempotencyKey: string | null;
+  /** When the provider says it was created; null when the provider does not say. */
+  createdAt: Date | null;
 }
 
 export interface RefundResult {
@@ -394,6 +422,14 @@ export interface PaymentProvider {
    */
   findOrderPayments?(orderId: string): Promise<PaymentStatusResult[]>;
   getRefund?(refundRef: string): Promise<RefundResult>;
+  /**
+   * Every refund the provider holds against a payment (`paymentRef` is what `refund` takes).
+   *
+   * Used to settle a refund call whose answer was lost. It must THROW when it cannot answer -
+   * never return an empty list - because "the provider has no refund" lets the refund be sent
+   * again and "the provider did not say" must not.
+   */
+  findPaymentRefunds?(paymentRef: string): Promise<ProviderRefundRecord[]>;
   /** Parse an already-verified webhook body (verifyWebhook does both by default). */
   parseWebhook?(rawBody: string): PaymentEvent;
   /**
