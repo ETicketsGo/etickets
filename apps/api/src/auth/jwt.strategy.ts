@@ -1,9 +1,10 @@
-import { Injectable, Optional, UnauthorizedException } from '@nestjs/common';
+import { HttpStatus, Injectable, Optional, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { MemberStatus, Role, UserStatus } from '@eticketsgo/shared-types';
 import type { RequestUser } from '../common/decorators';
+import { AppException } from '../common/errors';
 import { PrismaService } from '../prisma/prisma.service';
 import { MfaService } from './mfa/mfa.service';
 
@@ -20,6 +21,51 @@ export interface AccessTokenPayload {
   amr?: string[];
   mfaCid?: string;
   mfaAt?: number;
+  /** Issued-at, epoch seconds, added by the signer. Compared with a team removal below. */
+  iat?: number;
+}
+
+/**
+ * The code a session gets when a team removal ended it.
+ *
+ * Its own code rather than a bare UNAUTHORIZED, so a console can tell the person what happened
+ * ("You no longer have access to ...") instead of an unexplained sign-in page.
+ */
+export const ACCESS_REMOVED = 'ACCESS_REMOVED';
+
+/**
+ * The organization whose removal ended this token's session, or null when none did.
+ *
+ * Mirrors OrganizationsService.removeMember: a removal signs the person out everywhere only
+ * when it took their LAST active seat and they are not platform staff. It revokes their
+ * refresh tokens, but the access token they already hold is a stateless JWT, valid until it
+ * expires (JWT_ACCESS_TTL, 900s). For those minutes the account kept working as a plain
+ * customer, so the console's open tab saw no organizer role and sent them to "Set up your
+ * organization" - just after the removal said "signed out everywhere".
+ *
+ * The removal time is the REMOVED seat's `updatedAt`: removal is the last write to a REMOVED
+ * row (inviting them again moves it back to INVITED, and a role change refuses a removed
+ * member). A token issued before it is refused; one issued after it is a session they started
+ * again by signing in, and passes. `iat` is whole seconds, so a token from the same second as
+ * the removal counts as older and is refused - the safe side.
+ */
+export function removedSessionOrg(
+  iat: number | undefined,
+  globalRoles: Role[],
+  seats: { status?: string; updatedAt?: Date; organizationId?: string }[],
+): string | null {
+  if (typeof iat !== 'number') return null;
+  if (globalRoles.some((r) => r === Role.ADMIN || r === Role.SUPER_ADMIN)) return null;
+  if (seats.some((s) => s.status === MemberStatus.ACTIVE)) return null;
+  let latest: { updatedAt: Date; organizationId?: string } | null = null;
+  for (const s of seats) {
+    if (s.status !== MemberStatus.REMOVED || !s.updatedAt) continue;
+    if (!latest || s.updatedAt > latest.updatedAt) {
+      latest = { updatedAt: s.updatedAt, organizationId: s.organizationId };
+    }
+  }
+  if (!latest || iat * 1000 > latest.updatedAt.getTime()) return null;
+  return latest.organizationId ?? '';
 }
 
 /** The only membership roles that map onto a route-level role. */
@@ -96,11 +142,32 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     }
 
     // Roles held through a TEAM seat. Read per request, like the global roles, so a member
-    // who is removed or demoted loses the grant on their very next call.
-    const seats = await this.prisma.organizationMember.findMany({
-      where: { userId: user.id, status: MemberStatus.ACTIVE },
-      select: { role: true },
+    // who is removed or demoted loses the grant on their very next call. REMOVED seats come
+    // back in the same query (no extra round trip) so a session that a removal ended can be
+    // refused here, rather than carried on as a customer until the token expires.
+    const rows = await this.prisma.organizationMember.findMany({
+      where: { userId: user.id, status: { in: [MemberStatus.ACTIVE, MemberStatus.REMOVED] } },
+      select: { role: true, status: true, updatedAt: true, organizationId: true },
     });
+    const seats = rows.filter((s) => s.status !== MemberStatus.REMOVED);
+
+    const removedFrom = removedSessionOrg(payload.iat, user.roles as Role[], rows);
+    if (removedFrom !== null) {
+      // Only on this rare path: the name is for the message the person is about to read.
+      const org = removedFrom
+        ? await this.prisma.organization.findUnique({
+            where: { id: removedFrom },
+            select: { name: true },
+          })
+        : null;
+      throw new AppException(
+        ACCESS_REMOVED,
+        org?.name
+          ? `You no longer have access to ${org.name}.`
+          : 'You no longer have access to this organization.',
+        HttpStatus.UNAUTHORIZED,
+      );
+    }
 
     /*
       Second-factor state is judged on the account's GLOBAL roles, read just now from the
