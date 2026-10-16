@@ -13,6 +13,7 @@ import { AdminPermissionGuard } from '../auth/admin-permission.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { OpsController } from '../ops/ops.controller';
 import { AdminController } from './admin.controller';
+import { AdminCinemasController } from '../cinemas/admin-cinemas.controller';
 
 /**
  * Who may read and who may change platform configuration - over real HTTP, through the real
@@ -101,6 +102,22 @@ const CONFIG_ROUTES: {
   { method: 'POST', path: '/admin/cinema-pricing-policies/cp1/activate', kind: 'write' },
   { method: 'POST', path: '/admin/cinema-pricing-policies/cp1/supersede', kind: 'write', body: {} },
   { method: 'POST', path: '/admin/cinema-pricing-policies/cp1/disable', kind: 'write' },
+  /*
+    A cinema's legal type picks the price limit its tickets are checked against, so it is
+    configuration like the policies above, and set by nobody below PLATFORM_CONFIG.
+  */
+  { method: 'GET', path: '/admin/cinemas', kind: 'read' },
+  {
+    method: 'PATCH',
+    path: '/admin/cinemas/c1/legal-type',
+    kind: 'write',
+    body: {
+      localBodyType: 'MUNICIPAL_CORPORATION',
+      cinemaFormat: 'MULTIPLEX',
+      climateType: 'AC',
+      reason: 'Checked against the licence.',
+    },
+  },
   {
     method: 'POST',
     path: '/admin/ops/maintenance',
@@ -117,7 +134,7 @@ describe('platform configuration is least-privilege', () => {
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
-      controllers: [AdminController, OpsController],
+      controllers: [AdminController, OpsController, AdminCinemasController],
     })
       .useMocker((token) => {
         const name = typeof token === 'function' ? token.name : String(token);
@@ -293,7 +310,11 @@ describe('platform configuration is least-privilege', () => {
     }
     // Normalise the test's concrete paths back to the route templates.
     const covered = CONFIG_ROUTES.filter(
-      (r) => r.path.startsWith('/admin/') && !r.path.includes('/ops/'),
+      (r) =>
+        r.path.startsWith('/admin/') &&
+        !r.path.includes('/ops/') &&
+        // AdminCinemasController's, held to the rule above but not a handler on this class.
+        !r.path.startsWith('/admin/cinemas'),
     ).map(
       (r) =>
         `${r.method} ${r.path

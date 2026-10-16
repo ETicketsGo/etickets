@@ -11,6 +11,7 @@ import {
   ceilingFrom,
   type ClassCeiling,
 } from '../pricing/cinema-policy/class-ceilings';
+import { placePosition, unmappedSeatClassMessage } from '../pricing/cinema-policy/sale-eligibility';
 
 /**
  * What an organizer is told about the rules their cinema is priced under.
@@ -228,6 +229,22 @@ export class CinemaComplianceService {
           ? 'SEAT_CLASS_UNMAPPED'
           : 'CINEMA_NOT_CLASSIFIED';
     const classified = Boolean(cinema.localBodyType && cinema.cinemaFormat && cinema.climateType);
+    /*
+      The place on its own, with the unmapped categories set aside - only to word the summary
+      truthfully (see `unmappedSeatClassMessage`): Telangana has no price rules at all, so
+      "this location sets a price limit for each seat class" was false there.
+    */
+    const placeStatus =
+      reasonCode === 'SEAT_CLASS_UNMAPPED'
+        ? (await placePosition((cls) => this.policies.resolveForCinema(cinema, 'INR', cls, at, [])))
+            .status
+        : null;
+    const placeName =
+      cinema.region?.trim() ||
+      cinema.venue?.region?.trim() ||
+      cinema.city?.trim() ||
+      cinema.venue?.city?.trim() ||
+      'this area';
 
     return {
       jurisdiction: {
@@ -244,6 +261,8 @@ export class CinemaComplianceService {
       summary: this.summarise(resolution.status, resolution.explanation, livePrices, {
         reasonCode,
         unmappedSeatCategories,
+        placeStatus,
+        placeName,
         /*
           Only where the state's order actually prices by it: a Telangana cinema (no rules at
           all) was told it "also needs its local body, format and climate type", which would
@@ -442,6 +461,8 @@ export class CinemaComplianceService {
     why: {
       reasonCode: ComplianceView['reasonCode'];
       unmappedSeatCategories: string[];
+      placeStatus: PricingComplianceStatus | null;
+      placeName: string;
       classified: boolean;
     },
   ): string {
@@ -460,19 +481,20 @@ export class CinemaComplianceService {
         return 'Compliance review required — the online booking fee for this jurisdiction is pending confirmation, so no booking fee is charged.';
       case 'INVALID_CINEMA_CLASSIFICATION':
         if (why.reasonCode === 'SEAT_CLASS_UNMAPPED') {
-          const names = why.unmappedSeatCategories.map((n) => `"${n}"`).join(', ');
-          const one = why.unmappedSeatCategories.length === 1;
-          // Named, because the fix is one field on one seat category. Mentions the
-          // classification too when that is ALSO missing, so the next wall is not a surprise.
-          return (
-            `Seats in ${names} cannot be sold yet: ${one ? 'this seat category has' : 'these seat categories have'} no regulatory seat class. ` +
-            'This location sets a price limit for each seat class. Set it under Seat classes.' +
-            (why.classified
-              ? ''
-              : ' This cinema also needs its local body, format and climate type on record: contact ETicketsGo support to record them.')
+          // Named, because the fix is one field on one seat category. Says so too when the
+          // place ALSO blocks (no rules, or no legal type on record), so the next wall is not a
+          // surprise. The same sentence readiness and the event page use.
+          return unmappedSeatClassMessage(
+            why.unmappedSeatCategories,
+            why.placeName,
+            why.placeStatus,
           );
         }
-        return 'Tickets cannot be sold yet: this location sets prices by type of cinema, and this cinema has no type recorded. Contact ETicketsGo support to record its local body, format and climate type.';
+        return (
+          "Tickets cannot be sold yet: this location sets prices by the cinema's legal type " +
+          '(local body, format and cooling), and this cinema has none on record. Only ETicketsGo ' +
+          'can set it: use "Ask ETicketsGo to change this" below.'
+        );
       case 'POLICY_NOT_FOUND':
         return `Tickets cannot be sold yet: no pricing order is configured for this location. ${explanation}`;
       case 'POLICY_CONFIGURATION_ERROR':

@@ -302,6 +302,7 @@ export default function SettingsPage() {
             <p className="text-[0.9375rem] text-text-secondary">
               Let people reserve seats online and pay you in cash when they arrive. Seats are held
               until the show starts, and your staff mark them paid from <strong>Counter</strong>.
+              Selling to somebody standing at the counter does not need this.
             </p>
             <p className="text-caption text-text-muted">
               This money never passes through ETicketsGo, so it is not part of a payout and no card

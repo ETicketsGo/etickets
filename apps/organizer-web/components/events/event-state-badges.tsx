@@ -6,7 +6,7 @@ import { lifecycleOf, type LifecycleInput } from './event-lifecycle';
 /**
  * Where the event is in its life, in the console's one vocabulary: Draft, In review, Approved,
  * Published, Ended, Cancelled - plus, when the stage alone hides it, the one fact that matters
- * ("Paused by platform", "Changes requested", "Sold out").
+ * ("Paused by ETicketsGo", "Changes requested", "Sold out").
  *
  * Words always; the colour and the dot only repeat them. "Stage: " is said to a screen reader
  * so the pill is not read as a bare word between a title and a date.

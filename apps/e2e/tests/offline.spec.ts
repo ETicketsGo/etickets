@@ -1,11 +1,12 @@
 import { test, expect, type Page } from '@playwright/test';
-import { CUSTOMER, NEW_ACCOUNT_PASSWORD, uniqueEmail } from './helpers';
+import { CUSTOMER, NEW_ACCOUNT_PASSWORD, uniqueEmail, chooseEmailSignUp } from './helpers';
 import { openPaidEvent } from './pick-event';
 import { chooseQuantity, quantitySteppers } from './ticket-quantity';
 
 /** Registers a fresh customer and books `qty` tickets, landing on confirmation. */
 async function registerAndBook(page: Page, name: string, email: string, qty: string) {
   await page.goto(`${CUSTOMER}/register`);
+  await chooseEmailSignUp(page);
   await page.getByLabel('Full name').fill(name);
   await page.getByLabel('Email').fill(email);
   await page.getByLabel(/Password/).fill(NEW_ACCOUNT_PASSWORD);
@@ -96,6 +97,7 @@ test('offline privacy: logout clears cache and a second user cannot see it', asy
   // A second user registers and opens the wallet — must not see A's ticket. Sign-up ends on
   // the home page unless it was given somewhere to return to, so it is given the wallet.
   await page.goto(`${CUSTOMER}/register?next=${encodeURIComponent('/account/tickets')}`);
+  await chooseEmailSignUp(page);
   await page.getByLabel('Full name').fill('User B');
   await page.getByLabel('Email').fill(uniqueEmail('userB'));
   await page.getByLabel(/Password/).fill(NEW_ACCOUNT_PASSWORD);

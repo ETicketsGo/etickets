@@ -356,6 +356,17 @@ const discovery = Object.assign(
   customer or organizer surface, and storing "undefined" as a session there would be worse than
   a clear refusal.
 */
+/**
+ * GET /capabilities: feature flags, plus what this deployment can reach by text message.
+ *
+ * `phoneSignInCountries` is absent from an API older than it; a caller treats absent as "not
+ * known" and keeps its previous behaviour rather than as "nowhere".
+ */
+export type PlatformCapabilities = Record<string, boolean | string[] | undefined> & {
+  phoneSignIn?: boolean;
+  phoneSignInCountries?: string[];
+};
+
 function refuseChallenge<T extends object>(r: T | MfaChallengeResponse): T {
   if ('mfaRequired' in r && r.mfaRequired) {
     throw new ApiRequestError(
@@ -489,13 +500,22 @@ export const api = {
         body: JSON.stringify({ phone }),
         auth: false,
       }),
-    /** Exchanges a code for a session, creating the account when the number is new. */
-    verifyPhoneCode: (phone: string, code: string) =>
+    /**
+     * Exchanges a code for a session, creating the account when the number is new.
+     *
+     * `signUp` is what the Mobile tab of the sign-up page adds: a name for a new account and,
+     * for a US number, the text-message agreement. Sign-in sends neither.
+     */
+    verifyPhoneCode: (
+      phone: string,
+      code: string,
+      signUp?: { fullName: string; smsConsent?: true; country?: string },
+    ) =>
       request<(AuthTokens & { isNewAccount: boolean }) | MfaChallengeResponse>(
         '/auth/phone/verify',
         {
           method: 'POST',
-          body: JSON.stringify({ phone, code }),
+          body: JSON.stringify({ phone, code, ...signUp }),
           auth: false,
         },
       ).then((r) => refuseChallenge<AuthTokens & { isNewAccount: boolean }>(r)),
@@ -595,7 +615,7 @@ export const api = {
     request<{ category: string; count: number }[]>('/public/categories', { auth: false }),
 
   /** Resolved platform feature flags (drives capability-gated UI). */
-  capabilities: () => request<Record<string, boolean>>('/capabilities', { auth: false }),
+  capabilities: () => request<PlatformCapabilities>('/capabilities', { auth: false }),
 
   reviews: {
     forEvent: (eventId: string) =>
@@ -956,6 +976,19 @@ export const api = {
       request<CashBooking[]>(
         `/organizations/${id}/cash-bookings${qs({ includeCollected: includeCollected || undefined })}`,
       ),
+    /**
+     * Sell at the counter: tickets for the person in front of the staff member, paid in cash
+     * there and issued at once. One `idempotencyKey` per sale, so a double press sells once.
+     */
+    /** The dates on sale now, with their ticket types and what is left, for the counter. */
+    counterShows: (id: string) =>
+      request<CounterShow[]>(`/organizations/${id}/counter-sales/shows`),
+    counterSale: (id: string, body: CounterSaleBody, idempotencyKey?: string) =>
+      request<CounterSaleResult>(`/organizations/${id}/counter-sales`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+        ...(idempotencyKey ? { headers: { 'Idempotency-Key': idempotencyKey } } : {}),
+      }),
     members: (id: string) => request<OrgMember[]>(`/organizations/${id}/members`),
     invite: (id: string, body: { email: string; role: string }) =>
       request<InvitedMember>(`/organizations/${id}/members`, {
@@ -970,7 +1003,7 @@ export const api = {
       ),
     /** Take somebody off the team. Owner only; their access ends on their next request. */
     removeMember: (id: string, memberId: string) =>
-      request<OrgMember>(`/organizations/${id}/members/${memberId}`, { method: 'DELETE' }),
+      request<RemovedMember>(`/organizations/${id}/members/${memberId}`, { method: 'DELETE' }),
     /** Change what a team member may do. Owner only; the last owner cannot be demoted. */
     changeMemberRole: (id: string, memberId: string, role: string) =>
       request<OrgMember>(`/organizations/${id}/members/${memberId}`, {
@@ -1107,7 +1140,11 @@ export const api = {
         address: string;
         capacity: number;
       }>,
-    ) => request<Venue>(`/venues/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    ) =>
+      request<Venue & { sessionsKeptLocalTime?: number }>(`/venues/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      }),
 
     /**
      * The bookable spaces inside a venue - cinema screens included.
@@ -1533,7 +1570,14 @@ export const api = {
     addSession: (
       id: string,
       // `screenId` is the whole difference between reserved seating and general admission.
-      body: { startsAt: string; endsAt: string; screenId?: string; seatMapId?: string },
+      // `standingSpaceId` keeps it general admission, capped by what that standing space holds.
+      body: {
+        startsAt: string;
+        endsAt: string;
+        screenId?: string;
+        seatMapId?: string;
+        standingSpaceId?: string;
+      },
     ) =>
       request<EventSession>(`/events/${id}/sessions`, {
         method: 'POST',
@@ -1544,6 +1588,15 @@ export const api = {
      * Change a session's space - and, when that space has several layouts, WHICH one. The
      * server refuses a multi-layout space without a `seatMapId` rather than picking for you.
      */
+    /**
+     * Put a general-admission session in a standing space (its capacity caps what is on sale),
+     * or take it out with null. Never changes the tickets on sale; says if they are over.
+     */
+    setStandingSpace: (sessionId: string, standingSpaceId: string | null) =>
+      request<EventSession & { onSale: number; overCapacityBy: number }>(
+        `/events/sessions/${sessionId}/standing-space`,
+        { method: 'PATCH', body: JSON.stringify({ standingSpaceId }) },
+      ),
     updateSessionSeating: (sessionId: string, screenId: string | null, seatMapId?: string | null) =>
       request<EventSession>(`/events/sessions/${sessionId}/seating`, {
         method: 'PATCH',
@@ -1572,6 +1625,15 @@ export const api = {
     pause: (id: string) => request<OrgEventDetail>(`/events/${id}/pause`, { method: 'POST' }),
     /** Refused (403) for an event the platform team paused. May land UNDER_REVIEW, not live. */
     resume: (id: string) => request<EventResumeResult>(`/events/${id}/resume`, { method: 'POST' }),
+    /**
+     * Cancel the whole event: sales stop, every date still to come is cancelled, a refund
+     * opens for each paid booking and every buyer is told. Owner only; cannot be undone.
+     */
+    cancel: (id: string, reason: string) =>
+      request<EventCancelResult>(`/events/${id}/cancel`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      }),
     orders: (id: string, params: PageParams & { status?: string; q?: string }) =>
       request<Paged<OrderRow>>(`/events/${id}/orders${qs(params)}`),
     /** Who booked: filtered and paged on the server, with per-status totals for the filter. */
@@ -2121,6 +2183,15 @@ export const api = {
       request<CinemaPricingPolicyRow>(`/admin/cinema-pricing-policies/${id}/disable`, {
         method: 'POST',
       }),
+    /** Every cinema with where it is (from its venue) and its legal type. */
+    cinemas: (params: { q?: string; page?: number; pageSize?: number } = {}) =>
+      request<Paged<AdminCinemaRow>>(`/admin/cinemas${qs(params)}`),
+    /** Set a cinema's legal type. Every field is sent, null to clear; audited with the reason. */
+    setCinemaLegalType: (id: string, body: CinemaLegalTypeBody) =>
+      request<AdminCinemaRow>(`/admin/cinemas/${id}/legal-type`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      }),
     organizerLegalIdentity: (id: string) =>
       request<OrganizationLegalIdentity>(`/admin/organizers/${id}/legal-identity`),
     updateOrganizerLegalIdentity: (id: string, patch: Partial<OrganizationLegalIdentityFields>) =>
@@ -2186,6 +2257,18 @@ export const api = {
     },
     /** One refund by id — the detail page used to search the newest hundred for it. */
     refund: (id: string) => request<RefundRow>(`/admin/refunds/${id}`),
+    /** Whether a FAILED refund can be sent to the provider again, and why not. Reads only. */
+    refundRetryCheck: (id: string) => request<RefundRetryCheck>(`/admin/refunds/${id}/retry-check`),
+    /**
+     * Send a FAILED refund to the provider again. `confirmedNoProviderRefund` is the admin saying
+     * they looked the payment up in the provider dashboard and found no refund there; the API
+     * asks for it only when the last provider call came back with no answer.
+     */
+    retryRefund: (id: string, body: { confirmedNoProviderRefund?: boolean } = {}) =>
+      request<RefundRetryResult>(`/admin/refunds/${id}/retry`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
     payouts: () => request<Payout[]>('/admin/payouts'),
     markPayoutPaid: (id: string, body: { reference?: string; note?: string } = {}) =>
       request<Payout>(`/admin/payouts/${id}/pay`, { method: 'POST', body: JSON.stringify(body) }),
@@ -3197,6 +3280,33 @@ export interface AttendeeSummary {
 }
 
 /** Everything an invoice must name about the seller. All optional until a market needs it. */
+/**
+ * A cinema as the admin legal-type screen lists it. Where it is comes from its venue first.
+ * The legal type (local body, format, cooling) decides which price limit applies, so only the
+ * platform team sets it.
+ */
+export interface AdminCinemaRow {
+  id: string;
+  name: string;
+  organization: { id: string; name: string };
+  venueName: string | null;
+  city: string | null;
+  region: string | null;
+  country: string | null;
+  localBodyType: LocalBodyType | null;
+  cinemaFormat: CinemaFormat | null;
+  climateType: ClimateType | null;
+  updatedAt: string;
+}
+
+export interface CinemaLegalTypeBody {
+  localBodyType: LocalBodyType | null;
+  cinemaFormat: CinemaFormat | null;
+  climateType: ClimateType | null;
+  /** Kept on the audit entry. At least 5 characters. */
+  reason: string;
+}
+
 /** One row of the cinema pricing rule table, as the admin console reads it. */
 export interface CinemaPricingPolicyRow {
   id: string;
@@ -3455,6 +3565,19 @@ export interface OrgMember {
   status: string;
   user: { id: string; email: string; fullName: string };
 }
+/** What removing a member returns: the member, and the access that was taken back with them. */
+export interface RemovedMember extends OrgMember {
+  revoked?: {
+    /** Check-in devices they registered or were assigned, now revoked. */
+    devices: number;
+    /** Offline check-in activations they approved, now revoked. */
+    activations: number;
+    /** Signed-in sessions ended. Zero when they still work for another organization. */
+    sessions: number;
+    /** False when sessions were kept because they are still on another organization's team. */
+    signedOut: boolean;
+  };
+}
 /** What `invite` returns: the member, plus the link to actually send them. */
 export interface InvitedMember extends OrgMember {
   /**
@@ -3636,6 +3759,19 @@ export interface SpaceDetail {
   sessions: number;
   /** Sessions still to come that are not cancelled. */
   upcomingSessions: number;
+  /**
+   * For a standing space: each session still to come that is held in it, with how many
+   * tickets it has on sale and by how much that is more than the space holds (0 = fits).
+   * Older APIs do not send it.
+   */
+  standingSessions?: {
+    sessionId: string;
+    eventId: string;
+    eventTitle: string;
+    startsAt: string;
+    onSale: number;
+    overCapacityBy: number;
+  }[];
 }
 
 export interface Venue {
@@ -3789,8 +3925,20 @@ export interface Cinema extends Omit<CinemaBody, 'venueId'> {
    * unrelated things in two different lists.
    */
   venueId: string | null;
-  /** The venue this room belongs to. Its country decides the currency the room prices in. */
-  venue?: { country: string; region: string | null } | null;
+  /**
+   * The venue this room belongs to. Its country decides the currency the room prices in, and
+   * the rest is WHERE the cinema is: the cinema's location is the venue's, edited on the venue.
+   * The name, city and address are only sent by newer APIs.
+   */
+  venue?: {
+    country: string;
+    region: string | null;
+    id?: string;
+    name?: string;
+    city?: string;
+    address?: string | null;
+    timezone?: string | null;
+  } | null;
   /**
    * AUTHORITATIVE for every local date and time this client renders for the venue.
    *
@@ -4388,6 +4536,8 @@ export interface EventSession {
   /** Set when the session is in a room: buyers pick named seats rather than a quantity. */
   screenId?: string | null;
   seatMapId?: string | null;
+  /** The standing space a general-admission session is held in; its capacity caps the offer. */
+  standingSpaceId?: string | null;
   /**
    * Where a seated session is. `cinema` is null for a space that is not a cinema screen -
    * an arena or an auditorium - so the place is named from `venue` first.
@@ -4398,6 +4548,56 @@ export interface EventSession {
     cinema?: { name: string } | null;
   } | null;
   ticketTypes?: TicketType[];
+}
+export interface CounterSaleBody {
+  eventSessionId: string;
+  items: { ticketTypeId: string; quantity: number; seatIds?: string[] }[];
+  buyerName: string;
+  /** Optional: without it the confirmation goes to the organization's contact address. */
+  buyerEmail?: string;
+}
+export interface CounterShow {
+  sessionId: string;
+  startsAt: string;
+  eventId: string;
+  eventTitle: string;
+  isFree: boolean;
+  venueName: string | null;
+  /** The venue's zone, so the time reads as it does on the door. */
+  timezone: string | null;
+  /** The venue's country: its zone when the venue has none of its own. */
+  country?: string | null;
+  spaceName: string | null;
+  /** Seats are named on these tickets, so the counter gives seats from the seat map. */
+  seated: boolean;
+  ticketTypes: {
+    id: string;
+    name: string;
+    priceMinor: number;
+    currency: string;
+    maxPerOrder: number;
+    seatCategoryId: string | null;
+    /** Null when it is counted on the seat map instead. */
+    left: number | null;
+  }[];
+}
+export interface CounterSaleResult {
+  bookingId: string;
+  reference: string | null;
+  status: string;
+  totalMinor: number;
+  currency: string;
+  ticketCount: number;
+  emailedTo: string;
+}
+export interface EventCancelResult {
+  eventId: string;
+  status: string;
+  datesCancelled: number;
+  /** References of the paid bookings a refund was opened for. */
+  bookingsRequiringRefund: string[];
+  /** Cash bookings on this event: the platform cannot refund cash, the counter hands it back. */
+  cashToReturn: number;
 }
 /** A room an event can be seated in — one that has a published seat map. */
 export interface SeatingRoom {
@@ -4411,6 +4611,19 @@ export interface SeatingRoom {
   layoutKind: string;
   /** Seats that can be sold: aisles and gaps are not counted. */
   sellableSeats: number;
+  /** The cinema this space is a screen of. Null for every space that is not a cinema screen. */
+  cinemaId?: string | null;
+  /**
+   * What regulated cinema prices need before this layout can sell here, asked before the
+   * event exists. `MAP_CLASSES`: `unmapped` categories need a seat class (`fixPath` is the
+   * control). `NO_RULES`: no price rules cover the place yet, so it cannot sell online at all.
+   * Absent from an older API, which is read as NONE.
+   */
+  seatClasses?: {
+    state: 'NONE' | 'MAP_CLASSES' | 'NO_RULES' | 'BLOCKED';
+    unmapped: string[];
+    fixPath: string | null;
+  };
 }
 export interface TicketType {
   id: string;
@@ -4459,6 +4672,8 @@ export interface OrgEventDetail extends EventDetails {
   needsReviewOnResume?: boolean;
   /** Paused by the platform team, so only they can resume it. */
   pausedByAdmin?: boolean;
+  /** The platform team's reason for that pause, in their words. Null when not paused by them. */
+  pausedByAdminReason?: string | null;
 }
 /** What resuming did: `sentForReview` when edits made while paused sent it to the review queue. */
 export type EventResumeResult = OrgEventDetail & { sentForReview: boolean };
@@ -4916,6 +5131,26 @@ export interface RefundRow {
   /** The provider's id for the refund, once one was asked for. */
   providerRef?: string | null;
   updatedAt?: string;
+}
+
+/** What `refundRetryCheck` answers. `message` is one plain sentence for the admin. */
+export interface RefundRetryCheck {
+  allowed: boolean;
+  /** TICKETS_RETURNED: the provider accepted it once, so only the money is sent again. */
+  stage: 'TICKETS_HELD' | 'TICKETS_RETURNED' | null;
+  /** UNKNOWN: the last provider call never answered, so the money may have moved. */
+  lastAnswer: 'REFUSED' | 'UNKNOWN';
+  refusal: string | null;
+  /** True when the only thing missing is the admin's confirmation about the provider dashboard. */
+  needsConfirmation: boolean;
+  message: string;
+}
+/** What a retry did. FAILED is the provider saying no; ERROR is a call that never answered. */
+export interface RefundRetryResult {
+  outcome: 'COMPLETED' | 'PROCESSING' | 'FAILED' | 'ERROR';
+  message: string | null;
+  providerRef: string | null;
+  refund: RefundRow | null;
 }
 
 /** The seller's legal + tax identity, plus what is still missing to issue a tax invoice. */

@@ -89,6 +89,18 @@ export interface CinemaPolicyOutcome {
    * builds an outcome by hand (a test harness) does not have to restate an empty list.
    */
   unrated?: UnratedLine[];
+  /**
+   * The place's own position with the unmapped seat categories set aside - present only when an
+   * unmapped category is what refused the cart. Read for WORDING and for naming a second cause,
+   * never to sell: the cart stays refused either way.
+   *
+   * Without it, a Telangana cinema with one unmapped seat category was told "Telangana caps the
+   * price of each class. Set it under Seat classes." Telangana has no price rules at all, so the
+   * sentence was false, and an organizer who did as told met a second refusal they had not been
+   * warned of ("no state price rules are configured yet"). Asking the place on its own tells the
+   * two cases apart.
+   */
+  jurisdiction?: PolicyResolution;
 }
 
 export interface UnratedLine {
@@ -241,6 +253,20 @@ export async function resolveCinemaPolicy(
         explanation: 'Cinema pricing policy resolution is not configured in this context.',
         specificity: -1,
       };
+  /*
+    Refused for an unmapped seat category - which the resolver reports BEFORE it looks for a rule
+    at all. So whether this place has rules, and whether they can be applied to this cinema, is
+    still unknown. Ask it once more without the unmapped categories, purely to say the right
+    thing (see `jurisdiction`). Nothing below reads it to price or to allow a sale.
+  */
+  const jurisdiction =
+    resolve &&
+    resolution.status === 'INVALID_CINEMA_CLASSIFICATION' &&
+    unmappedSeatCategories.length > 0
+      ? await placePosition((classes) =>
+          resolve({ ...context, seatCategories: classes, unmappedSeatCategories: [] }),
+        )
+      : undefined;
   // Tickets, not lines: a maintenance charge is per head.
   const ticketCount = admissionLines.reduce((n, l) => n + Math.max(0, l.quantity), 0);
 
@@ -332,7 +358,37 @@ export async function resolveCinemaPolicy(
     context,
     overCeiling,
     unrated,
+    ...(jurisdiction ? { jurisdiction } : {}),
   };
+}
+
+/**
+ * The regulatory seat classes, in the order a rate order lists them. Kept here rather than
+ * imported from `class-ceilings`, which imports this file.
+ */
+const PLACE_CLASSES = ['REGULAR', 'RECLINER', 'PREMIUM', 'NON_PREMIUM'];
+
+/**
+ * Where a place stands on its own: does it have price rules, and can they be applied to this
+ * cinema? Asked with no seat category in play.
+ *
+ * A place whose rules all name a seat class answers POLICY_NOT_FOUND to a class-less question,
+ * which would read as "no rules here" for a state that has them. So a POLICY_NOT_FOUND is asked
+ * again for each class, and the first class that finds something is the answer. Only when no
+ * class finds anything does the place truly have no rules (Telangana today).
+ *
+ * For wording and for naming a second cause only. Never used to price or to allow a sale.
+ */
+export async function placePosition(
+  ask: (seatCategories: string[]) => Promise<PolicyResolution>,
+): Promise<PolicyResolution> {
+  const whole = await ask([]);
+  if (whole.status !== 'POLICY_NOT_FOUND') return whole;
+  for (const cls of PLACE_CLASSES) {
+    const one = await ask([cls]);
+    if (one.status !== 'POLICY_NOT_FOUND') return one;
+  }
+  return whole;
 }
 
 /**
@@ -375,6 +431,45 @@ const listOf = (names: string[]) =>
   names.length <= 1
     ? (names[0] ?? '')
     : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+
+/**
+ * What an organizer is told about seat categories with no regulatory seat class.
+ *
+ * ── ONE SENTENCE, THREE READERS ────────────────────────────────────────────────────
+ * Readiness and checkout (through `saleBlockersFromPolicy`), the event page and its
+ * notifications (`EventSellabilityService`) and the compliance panel all report this, and they
+ * used to word it three ways, two of them "this jurisdiction caps the price of each class" -
+ * said of Telangana too, which has no price rules on record at all. So it is worded here once.
+ *
+ * `placeStatus` is the place's own answer with the unmapped categories set aside (see
+ * `CinemaPolicyOutcome.jurisdiction`); null when it was not asked. When the place itself blocks
+ * sales, the sentence says choosing a class will not be enough on its own, and why - the
+ * organizer is not sent to fix one thing only to meet the next wall unwarned.
+ */
+export function unmappedSeatClassMessage(
+  names: string[],
+  place: string,
+  placeStatus: PricingComplianceStatus | null | undefined,
+): string {
+  const one = names.length === 1;
+  const subject = `Seat ${one ? 'category' : 'categories'} ${listOf(names)} ${one ? 'has' : 'have'} no seat class yet`;
+  if (placeStatus && blocksBooking(placeStatus)) {
+    const why =
+      placeStatus === 'POLICY_NOT_FOUND'
+        ? `online sales in ${place} stay closed until ETicketsGo adds the state's price rules`
+        : placeStatus === 'INVALID_CINEMA_CLASSIFICATION'
+          ? "online sales also need this cinema's legal type, which only ETicketsGo can set"
+          : `online sales in ${place} also wait on ETicketsGo to correct its price rules`;
+    return (
+      `${subject}. Choose ${one ? 'it' : 'them'} under Seat classes. That alone will not open ` +
+      `sales: ${why}.`
+    );
+  }
+  return (
+    `${subject}, so ${one ? 'its' : 'their'} tickets cannot be sold online. ${place} sets the ` +
+    'highest price for each seat class. Choose the class under Seat classes.'
+  );
+}
 
 /**
  * The refusals checkout makes for one cart, as blockers.
@@ -438,18 +533,37 @@ export function saleBlockersFromPolicy(
     const unmapped = (context.unmappedSeatCategories ?? []).filter((n) => n.trim());
     if (unrated.length > 0 && unmapped.length === 0) return unrated;
     if (resolution.status === 'INVALID_CINEMA_CLASSIFICATION' && unmapped.length > 0) {
+      /*
+        The place's own refusal, when it has one, is reported beside the unmapped category: it
+        is the cause that would remain after the organizer chose a class (Telangana: no rules),
+        and it is the platform's to fix, so the organizer must hear it now, not afterwards.
+        Built by this same function, so it reads exactly as it would on its own.
+      */
+      const placeStatus = outcome.jurisdiction?.status ?? null;
+      const behind =
+        outcome.jurisdiction && blocksBooking(outcome.jurisdiction.status)
+          ? saleBlockersFromPolicy(
+              {
+                ...outcome,
+                resolution: outcome.jurisdiction,
+                context: { ...context, unmappedSeatCategories: [] },
+                overCeiling: [],
+                unrated: [],
+                jurisdiction: undefined,
+              },
+              where,
+            )
+          : [];
       return [
         {
           ...base,
           code: 'SEAT_CLASS_UNMAPPED',
           owner: 'ORGANIZER',
-          organizerMessage:
-            `Seat ${unmapped.length === 1 ? 'category' : 'categories'} ${listOf(unmapped)} ` +
-            `${unmapped.length === 1 ? 'needs' : 'need'} a regulatory seat class before ` +
-            `tickets can be sold. ${place} caps the price of each class. Set it under Seat classes.`,
+          organizerMessage: unmappedSeatClassMessage(unmapped, place, placeStatus),
           fixPath: seatClassesPath(where.cinemaId),
           subject: unmapped.join(', '),
         },
+        ...behind,
       ];
     }
     if (resolution.status === 'INVALID_CINEMA_CLASSIFICATION') {
@@ -459,8 +573,10 @@ export function saleBlockersFromPolicy(
           code: 'CINEMA_NOT_CLASSIFIED',
           owner: 'PLATFORM',
           organizerMessage:
-            `Ticket sales are paused for this cinema: ${place} sets ticket prices by type of ` +
-            'cinema, and this cinema has no type on record yet. Contact support to set it.',
+            `Ticket sales are paused for this cinema: ${place} sets ticket prices by the ` +
+            "cinema's legal type (local body, format and cooling), and this cinema has none on " +
+            'record yet. Only ETicketsGo can set it: use "Ask ETicketsGo to change this" under ' +
+            'Regulatory pricing.',
           fixPath: null,
         },
       ];

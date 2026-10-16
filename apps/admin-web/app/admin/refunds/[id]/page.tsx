@@ -17,7 +17,9 @@ import {
   dateTime,
   useToast,
   errorMessage,
+  type RefundRetryResult,
 } from '@eticketsgo/web-kit';
+import { retryOutcomeText, retrySucceeded } from '@/lib/refund-retry';
 import { accountContactText } from '../../../../components/account-contact';
 import { MoneyStatusPill } from '@/components/money-status';
 import { RecordHistory, useRecordHistory } from '@/components/record-history';
@@ -30,6 +32,7 @@ export default function RefundDetail() {
   const toast = useToast();
   const [confirmApprove, setConfirmApprove] = useState(false);
   const [confirmReject, setConfirmReject] = useState(false);
+  const [lastRetry, setLastRetry] = useState<RefundRetryResult | null>(null);
 
   /*
     Read by id. This used to look for the refund inside the newest hundred rows of the list,
@@ -102,6 +105,28 @@ export default function RefundDetail() {
         />
       )}
 
+      {/*
+        Try again. There was no way to: a FAILED refund was a dead end and the page could only
+        say "pay the customer by hand from the provider dashboard". Shown while it is FAILED, and
+        afterwards with what the provider answered, so the admin sees the result where they acted.
+      */}
+      {(refund.status === 'FAILED' || lastRetry) && (
+        <RetryRefundCard
+          refundId={refund.id}
+          failed={refund.status === 'FAILED'}
+          amount={money(refund.amountMinor, refund.booking?.currency)}
+          buyer={accountContactText(refund.booking?.buyerEmail) ?? 'the buyer'}
+          provider={providerName(refund.booking?.payment?.provider ?? '')}
+          paymentRef={refund.booking?.payment?.providerRef ?? null}
+          lastRetry={lastRetry}
+          onDone={(result) => {
+            setLastRetry(result);
+            qc.invalidateQueries({ queryKey: ['admin', 'refunds'] });
+            qc.invalidateQueries({ queryKey: ['admin', 'audit'] });
+          }}
+        />
+      )}
+
       <div className="grid gap-6 lg:grid-cols-3">
         <Card title="Details" className="lg:col-span-2">
           <dl className="space-y-2 text-sm">
@@ -137,7 +162,7 @@ export default function RefundDetail() {
                 <dd className="text-right text-text-primary">
                   {providerName(refund.booking.payment.provider)}
                   {refund.booking.payment.providerRef && (
-                    <span className="block font-mono text-caption text-text-muted">
+                    <span className="block break-all font-mono text-caption text-text-muted">
                       {refund.booking.payment.providerRef}
                     </span>
                   )}
@@ -294,16 +319,158 @@ function FailedRefundPanel({
             </>
           )}
           <dt className="text-text-muted">Payment reference</dt>
-          <dd className="font-mono text-text-primary">{paymentRef ?? 'None recorded'}</dd>
+          <dd className="break-all font-mono text-text-primary">{paymentRef ?? 'None recorded'}</dd>
           {/* A refused refund can come back carrying the payment's own reference; once is enough. */}
           {refundRef && refundRef !== paymentRef && (
             <>
               <dt className="text-text-muted">Refund reference</dt>
-              <dd className="font-mono text-text-primary">{refundRef}</dd>
+              <dd className="break-all font-mono text-text-primary">{refundRef}</dd>
             </>
           )}
         </dl>
       </div>
+    </Card>
+  );
+}
+
+/** Send a failed refund to the provider again, or say exactly why that cannot be done. */
+function RetryRefundCard({
+  refundId,
+  failed,
+  amount,
+  buyer,
+  provider,
+  paymentRef,
+  lastRetry,
+  onDone,
+}: {
+  refundId: string;
+  failed: boolean;
+  amount: string;
+  buyer: string;
+  provider: string;
+  paymentRef: string | null;
+  lastRetry: RefundRetryResult | null;
+  onDone: (r: RefundRetryResult) => void;
+}) {
+  const toast = useToast();
+  const [open, setOpen] = useState(false);
+  const [checked, setChecked] = useState(false);
+  const check = useQuery({
+    queryKey: ['admin', 'refunds', 'retry-check', refundId],
+    queryFn: () => api.admin.refundRetryCheck(refundId),
+    enabled: failed,
+    retry: false,
+  });
+  const retry = useMutation({
+    mutationFn: () =>
+      api.admin.retryRefund(
+        refundId,
+        check.data?.needsConfirmation ? { confirmedNoProviderRefund: true } : {},
+      ),
+    onSuccess: (r) => {
+      setOpen(false);
+      setChecked(false);
+      toast.push(retryOutcomeText(r), retrySucceeded(r) ? 'success' : 'error');
+      check.refetch();
+      onDone(r);
+    },
+    onError: (e) => {
+      setOpen(false);
+      toast.push(errorMessage(e), 'error');
+      check.refetch();
+    },
+  });
+  const a = check.data;
+  const canTry = !!a && (a.allowed || a.needsConfirmation);
+
+  return (
+    <Card title="Try the refund again">
+      <div className="space-y-3 text-sm">
+        {lastRetry && (
+          <div
+            role="status"
+            className={`rounded-md border p-3 ${
+              retrySucceeded(lastRetry)
+                ? 'border-status-success/40 bg-status-success/10'
+                : 'border-status-error/40 bg-status-error/5'
+            }`}
+          >
+            <p className="font-semibold text-text-primary">
+              Last try: {retryOutcomeText(lastRetry)}
+            </p>
+            {lastRetry.providerRef && (
+              <p className="mt-1 text-caption text-text-secondary">
+                Provider reference{' '}
+                <span className="break-all font-mono">{lastRetry.providerRef}</span>
+              </p>
+            )}
+            {lastRetry.message &&
+              (lastRetry.outcome === 'FAILED' || lastRetry.outcome === 'ERROR') && (
+                <p className="mt-1 break-words text-caption text-text-secondary">
+                  Provider said: {lastRetry.message}
+                </p>
+              )}
+          </div>
+        )}
+        {failed && check.isLoading && <Skeleton className="h-10 w-full" />}
+        {failed && check.isError && (
+          <p className="text-text-secondary">
+            We could not check whether this refund can be tried again. {errorMessage(check.error)}
+          </p>
+        )}
+        {failed && a && <p className="text-text-primary">{a.message}</p>}
+        {failed && canTry && (
+          <Button onClick={() => setOpen(true)} disabled={retry.isPending}>
+            Try the refund again
+          </Button>
+        )}
+      </div>
+
+      <Dialog
+        open={open}
+        onClose={() => setOpen(false)}
+        title="Send this refund again?"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              loading={retry.isPending}
+              disabled={!!a?.needsConfirmation && !checked}
+              onClick={() => retry.mutate()}
+            >
+              Send {amount} again
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3 text-sm text-text-secondary">
+          <p>
+            This asks {provider || 'the payment provider'} to pay <strong>{amount}</strong> back to{' '}
+            {buyer}. It is sent once; a second click is refused while it is being sent.
+          </p>
+          {a?.stage === 'TICKETS_RETURNED' && (
+            <p>The tickets were already cancelled, so only the money is sent.</p>
+          )}
+          {a?.needsConfirmation && (
+            <label className="flex items-start gap-2 rounded-md border border-border p-3 text-text-primary">
+              <input
+                type="checkbox"
+                className="mt-1"
+                checked={checked}
+                onChange={(e) => setChecked(e.target.checked)}
+              />
+              <span>
+                I looked up payment{' '}
+                <span className="break-all font-mono">{paymentRef ?? 'for this booking'}</span> in
+                the {provider || 'provider'} dashboard and there is no refund for it.
+              </span>
+            </label>
+          )}
+        </div>
+      </Dialog>
     </Card>
   );
 }

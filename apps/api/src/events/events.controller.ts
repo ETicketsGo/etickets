@@ -29,12 +29,16 @@ import {
   createSessionSchema,
   createTicketTypeSchema,
   updateSessionSeatingSchema,
+  updateSessionStandingSpaceSchema,
   updateTicketTypeSchema,
   paginationSchema,
   reviewDecisionSchema,
+  cancelShowSchema,
+  type CancelShowInput,
   type CreateSessionInput,
   type CreateTicketTypeInput,
   type UpdateSessionSeatingInput,
+  type UpdateSessionStandingSpaceInput,
   type UpdateTicketTypeInput,
   type ReviewDecisionInput,
 } from '@eticketsgo/validation';
@@ -300,6 +304,20 @@ export class EventsController {
     return this.events.updateSessionSeating(user, sessionId, body.screenId, body.seatMapId);
   }
 
+  @Patch('sessions/:sessionId/standing-space')
+  @ApiOperation({
+    summary:
+      'Put a general-admission session in a standing space (its capacity caps the tickets on sale), or take it out.',
+  })
+  updateSessionStandingSpace(
+    @CurrentUser() user: RequestUser,
+    @Param('sessionId') sessionId: string,
+    @Body(new ZodValidationPipe(updateSessionStandingSpaceSchema))
+    body: UpdateSessionStandingSpaceInput,
+  ) {
+    return this.events.setStandingSpace(user, sessionId, body.standingSpaceId);
+  }
+
   @Post('ticket-types')
   @ApiOperation({ summary: 'Add a ticket type to a session.' })
   addTicketType(
@@ -384,6 +402,20 @@ export class EventsController {
   @ApiOperation({ summary: 'Resume a paused event.' })
   resume(@CurrentUser() user: RequestUser, @Param('id') id: string) {
     return this.events.setPaused(user, id, false);
+  }
+
+  /*
+    Cancel the whole event: every date still to come is cancelled through the show
+    cancellation, which opens the refunds and tells the buyers. Owner only, in the service.
+  */
+  @Post(':id/cancel')
+  @ApiOperation({ summary: 'Cancel an event: stop sales, cancel its dates, refund its buyers.' })
+  cancel(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(cancelShowSchema)) body: CancelShowInput,
+  ) {
+    return this.events.cancelEvent(user, id, body.reason);
   }
 }
 

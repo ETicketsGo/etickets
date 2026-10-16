@@ -181,6 +181,13 @@ export class BookingsService {
     input: CreateBookingInput,
     idempotencyKey?: string,
     hooks?: { inHoldTx?: (tx: Prisma.TransactionClient, bookingId: string) => Promise<void> },
+    /**
+     * A sale made by the organizer's own staff at the counter (`CounterSalesService`), paid in
+     * cash in front of them and collected straight after this returns. Never set from a
+     * request body: only that service passes it, after checking the caller is staff of the
+     * session's organization.
+     */
+    opts?: { counterSale?: boolean },
   ) {
     if (idempotencyKey) {
       const existing = await this.prisma.idempotencyRecord.findUnique({
@@ -575,7 +582,14 @@ export class BookingsService {
         HttpStatus.CONFLICT,
       );
     }
-    if (wantsCash && !session.event.organization.cashPaymentsEnabled) {
+    /*
+      The switch is about buyers ONLINE reserving now and paying at the venue later - what the
+      storefront offers. A counter sale is not that: the organizer's own staff take the money
+      in hand and the ticket is issued at once, so it does not wait on the switch. Turning
+      reservations on just to sell at the door would also have offered "pay at the venue" to
+      every online buyer, which an organizer may not want.
+    */
+    if (wantsCash && !opts?.counterSale && !session.event.organization.cashPaymentsEnabled) {
       throw new AppException(
         ErrorCodes.VALIDATION_FAILED,
         'This organizer does not accept cash at the venue.',
@@ -592,9 +606,11 @@ export class BookingsService {
       cinema already does with a telephone booking — and why the organizer can cancel one
       from the console to put the seats back.
     */
-    const holdExpiresAt = wantsCash
-      ? session.startsAt
-      : new Date(now.getTime() + this.holdMinutes * 60 * 1000);
+    // A counter sale is collected the moment it is made, so it holds only as long as any sale.
+    const holdExpiresAt =
+      wantsCash && !opts?.counterSale
+        ? session.startsAt
+        : new Date(now.getTime() + this.holdMinutes * 60 * 1000);
 
     // The inventory model is chosen by the experience type — general admission
     // for events today, seat-based for movies in a later PR — without this
@@ -1996,6 +2012,25 @@ export class BookingsService {
   }
 
   /**
+   * Put back a counter sale whose cash could not be recorded (`CounterSalesService`), so the
+   * seats are not held until they expire for a sale that did not happen. The caller has
+   * already checked the staff member belongs to the booking's organization.
+   */
+  async releaseCounterSale(
+    bookingId: string,
+    actorUserId: string,
+  ): Promise<{ id: string; status: string; refundPending: false }> {
+    const booking = await this.prisma.booking.findUnique({
+      where: { id: bookingId },
+      include: { items: true, payment: { select: { status: true } } },
+    });
+    if (!booking) {
+      throw new AppException(ErrorCodes.NOT_FOUND, 'Booking not found.', HttpStatus.NOT_FOUND);
+    }
+    return this.releaseUnpaid(booking, { actorUserId, cancelledBy: 'COUNTER' });
+  }
+
+  /**
    * Give back what an unpaid booking holds, exactly once.
    *
    * The claim-first helper the expiry sweep uses: a conditional update from PENDING_PAYMENT to
@@ -2010,7 +2045,10 @@ export class BookingsService {
       organizationId: string;
       payment: { status: string } | null;
     },
-    by: { actorUserId: string | null; cancelledBy: 'BUYER' | 'PLATFORM_STAFF' | 'GUEST' },
+    by: {
+      actorUserId: string | null;
+      cancelledBy: 'BUYER' | 'PLATFORM_STAFF' | 'GUEST' | 'COUNTER';
+    },
   ): Promise<{ id: string; status: string; refundPending: false }> {
     if (booking.status !== BookingStatus.PENDING_PAYMENT) {
       throw this.notCancellable(booking.status);
@@ -2351,7 +2389,8 @@ function bookingPlace(booking: {
   const venue = booking.event?.venue;
   const name = cinema?.name ?? venue?.name ?? null;
   if (!name) return null;
-  return { name, city: cinema?.city ?? venue?.city ?? null };
+  // The city is the VENUE's: a cinema's location is edited on its venue, never on the cinema.
+  return { name, city: venue?.city ?? cinema?.city ?? null };
 }
 
 function bookingTimeZone(booking: {

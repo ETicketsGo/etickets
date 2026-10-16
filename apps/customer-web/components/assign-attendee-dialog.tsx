@@ -10,6 +10,7 @@ import { api } from '@/lib/api';
 import { getPathname } from '@/i18n/navigation';
 import { Button, Dialog, Input } from '@/components/ui';
 import { siteUrl } from '@/lib/site-url';
+import { PhoneNumberField, usePhoneNumber } from '@/components/phone-number-field';
 
 type Mode = 'invite' | 'assign';
 
@@ -27,6 +28,7 @@ export function AssignAttendeeDialog({
   onClose: () => void;
 }) {
   const t = useTranslations('storefront.assignAttendee');
+  const au = useTranslations('storefront.auth');
   const sc = useTranslations('storefront.common');
   const tx = useTranslations('common');
   const qc = useQueryClient();
@@ -35,14 +37,20 @@ export function AssignAttendeeDialog({
   const [mode, setMode] = useState<Mode>('invite');
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
-  const [phone, setPhone] = useState('');
+  /*
+    The attendee's number, as country + digits like every other phone field here. It was free
+    text stored exactly as typed, so "98450 12345" reached the organizer's attendee list with no
+    country at all. The country opens on where the buyer is - usually where their guest is too -
+    and is theirs to change.
+  */
+  const phone = usePhoneNumber();
   const [inviteLink, setInviteLink] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
   const reset = () => {
     setEmail('');
     setName('');
-    setPhone('');
+    phone.reset();
     setInviteLink(null);
     setCopied(false);
   };
@@ -66,7 +74,8 @@ export function AssignAttendeeDialog({
   });
 
   const assign = useMutation({
-    mutationFn: () => api.assignAttendee(ticket.id, { name, email, phone: phone || undefined }),
+    mutationFn: () =>
+      api.assignAttendee(ticket.id, { name, email, phone: phone.e164 || undefined }),
     onSuccess: () => {
       invalidate();
       toast.push(t('assignedToast'), 'success');
@@ -157,11 +166,12 @@ export function AssignAttendeeDialog({
             onChange={(e) => setName(e.target.value)}
           />
           {mode === 'assign' && (
-            <Input
-              id="attendee-phone"
+            <PhoneNumberField
+              phone={phone}
+              ids={{ country: 'attendee-phone-country', number: 'attendee-phone' }}
               label={t('phoneOptional')}
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
+              countryLabel={au('countryLabel')}
+              countryPlaceholder={au('countryPlaceholder')}
             />
           )}
 

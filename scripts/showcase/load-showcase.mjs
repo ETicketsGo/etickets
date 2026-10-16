@@ -575,12 +575,23 @@ async function ensureCinema(ctx, venueKey, orgCtx, venue) {
         region: where.state,
         district: where.city,
         timezone: where.tz,
-        cinemaFormat: 'MULTIPLEX',
-        climateType: 'AC',
-        ...(where.country === 'IN' ? { localBodyType: 'MUNICIPAL_CORPORATION' } : {}),
       },
     });
     entry.actions.push('created cinema');
+    /*
+      The legal type (local body, format, cooling) decides a cinema's price limit, so an
+      organizer cannot set it; the platform team does, as admin. Set the way the console does.
+    */
+    await call('PATCH', `/admin/cinemas/${cinema.id}/legal-type`, {
+      token: ctx.admin,
+      body: {
+        cinemaFormat: 'MULTIPLEX',
+        climateType: 'AC',
+        localBodyType: where.country === 'IN' ? 'MUNICIPAL_CORPORATION' : null,
+        reason: 'Showcase loader: fictional catalogue cinema.',
+      },
+    });
+    entry.actions.push('set legal type as admin');
   }
   entry.cinemaId = cinema.id;
   let screen = rows(

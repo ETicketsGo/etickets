@@ -47,7 +47,7 @@ describe('approvalOf', () => {
     expect(approvalOf({ status: 'PAUSED', publishedAt: '2026-01-01' }).label).toBe('Approved');
     expect(
       approvalOf({ status: 'PAUSED', publishedAt: '2026-01-01', pausedByAdmin: true }).label,
-    ).toBe('Paused by platform');
+    ).toBe('Paused by ETicketsGo');
     expect(
       approvalOf({ status: 'PAUSED', publishedAt: '2026-01-01', needsReviewOnResume: true }).label,
     ).toBe('Review needed to resume');

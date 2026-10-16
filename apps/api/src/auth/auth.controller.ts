@@ -32,7 +32,19 @@ const phoneVerifySchema = z.object({
     .string()
     .trim()
     .regex(/^\d{6}$/, 'The code is six digits.'),
+  /*
+    Sign-UP by mobile sends what the email form sends: a name and, for a US number, the
+    text-message agreement. Both optional, so sign-IN is the same request it always was.
+
+    The name is applied only to an account that has none (see `applyPhoneSignup`) - typing a
+    name on the sign-up tab with a number that already has an account must not rename it.
+  */
+  fullName: z.string().trim().min(2, 'Please enter your name.').max(120).optional(),
+  smsConsent: z.literal(true).optional(),
+  /** The market whose disclosure was shown. The VERSION is resolved server-side. */
+  country: z.string().trim().max(40).optional(),
 });
+type PhoneVerifyBody = z.infer<typeof phoneVerifySchema>;
 import { AllowMfaPending, CurrentUser, Public, type RequestUser } from '../common/decorators';
 import { AUTH_THROTTLE } from '../common/throttle';
 
@@ -77,10 +89,20 @@ export class AuthController {
   @Post('phone/verify')
   @ApiOperation({ summary: 'Exchange a one-time code for a session, creating the account if new.' })
   async verifyPhoneCode(
-    @Body(new ZodValidationPipe(phoneVerifySchema)) body: { phone: string; code: string },
+    @Body(new ZodValidationPipe(phoneVerifySchema)) body: PhoneVerifyBody,
     @Req() req: Request,
   ) {
     const { id, isNewAccount } = await this.otp.verifyCode(body.phone, body.code);
+    /*
+      AFTER the code is proven and BEFORE the session is minted: the access token carries the
+      name, so applying it afterwards would leave a brand-new account nameless until its first
+      refresh. Nothing here runs for a wrong code - `verifyCode` has already thrown.
+    */
+    await this.auth.applyPhoneSignup(id, {
+      fullName: body.fullName,
+      smsConsent: body.smsConsent,
+      country: body.country,
+    });
     const tokens = await this.auth.completePhoneSignIn(id, meta(req));
     // The client uses this to decide whether to ask for a name — a brand-new account has
     // none, and asking an existing customer again would be rude. (A back-office account gets a

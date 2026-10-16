@@ -125,6 +125,35 @@ const FIXTURES: Fixture[] = [
     expected: ['SEAT_CLASS_UNMAPPED'],
   },
   {
+    /*
+      QA 2026-10-16: readiness told this organizer "Telangana caps the price of each class. Set
+      it under Seat classes." Telangana has no rules at all, so the sentence was false and the
+      real wall (only the platform can lift it) was hidden. Mapping cannot open the sale there,
+      so the one true blocker is the platform's (no seat class is asked for where no rule covers
+      the place).
+    */
+    name: 'an unmapped category in a state with no price rules (Telangana with Standard unmapped)',
+    rows: NORTH_ROWS,
+    cinema: cinema({ region: 'South', city: 'Southtown' }),
+    ticketTypes: [tt('a', 15_000, STANDARD_UNMAPPED)],
+    expected: ['NO_PRICING_POLICY'],
+  },
+  {
+    // Rules that all name a class must not read as "no rules here" to a class-less question.
+    name: 'an unmapped category where every rule names a seat class',
+    rows: [row({ id: 'only-regular', seatCategory: 'REGULAR', ticketPriceMaxMinor: 15_000 })],
+    cinema: cinema(),
+    ticketTypes: [tt('a', 15_000, STANDARD_UNMAPPED)],
+    expected: ['SEAT_CLASS_UNMAPPED'],
+  },
+  {
+    name: 'an unmapped category at a cinema with no legal type, where the state prices by it',
+    rows: [row({ localBodyType: 'MUNICIPAL_CORPORATION' })],
+    cinema: cinema(),
+    ticketTypes: [tt('a', 15_000, STANDARD_UNMAPPED)],
+    expected: ['SEAT_CLASS_UNMAPPED', 'CINEMA_NOT_CLASSIFIED'],
+  },
+  {
     name: 'a state that prices by cinema type, for a cinema with no type',
     rows: [row({ localBodyType: 'MUNICIPAL_CORPORATION' })],
     cinema: cinema(),
@@ -320,6 +349,24 @@ describe('saleBlockersFromPolicy - each kind of blocker', () => {
     expect(b.owner).toBe('PLATFORM');
   });
 
+  it("gives a state with no rules ONE true blocker, the platform's, even with a class unmapped", async () => {
+    const { blockers } = await sessionSaleEligibility(
+      resolverFor(NORTH_ROWS),
+      cinema({ region: 'South', city: 'Southtown' }),
+      [tt('a', 1, STANDARD_UNMAPPED)],
+      'India',
+      AT,
+    );
+    expect(blockers.map((b) => b.code)).toEqual(['NO_PRICING_POLICY']);
+    const [closed] = blockers;
+    expect(closed.owner).toBe('PLATFORM');
+    expect(closed.fixPath).toBeNull();
+    // No task the organizer cannot complete, and no claim that the state caps anything.
+    expect(closed.organizerMessage).not.toMatch(/caps|seat class|Seat classes/);
+    expect(closed.organizerMessage).toMatch(/South/);
+    expect(closed.buyerMessage).toBe(BUYER_SALE_NOT_OPEN);
+  });
+
   it('names the unmapped category and sends the organizer to Seat classes', async () => {
     const [b] = (
       await sessionSaleEligibility(
@@ -330,8 +377,8 @@ describe('saleBlockersFromPolicy - each kind of blocker', () => {
         AT,
       )
     ).blockers;
-    expect(b.organizerMessage).toMatch(/^Seat category Standard needs a regulatory seat class/);
-    expect(b.organizerMessage).toMatch(/Set it under Seat classes\.$/);
+    expect(b.organizerMessage).toMatch(/^Seat category Standard has no seat class yet/);
+    expect(b.organizerMessage).toMatch(/Choose the class under Seat classes\.$/);
     expect(b.fixPath).toBe('/organizer/cinemas/cin-1/readiness#seat-classes');
   });
 

@@ -84,7 +84,12 @@ export class PilotReadinessService {
   async evaluate(user: RequestUser, cinemaId: string): Promise<PilotReadinessReport> {
     const cinema = await this.prisma.cinema.findUnique({
       where: { id: cinemaId },
-      include: { organization: true, screens: true },
+      include: {
+        organization: true,
+        screens: true,
+        // Where the cinema is comes from its venue; its own columns only for an older row.
+        venue: { select: { address: true, city: true } },
+      },
     });
     if (!cinema) {
       throw new AppException(ErrorCodes.NOT_FOUND, 'Cinema not found.', HttpStatus.NOT_FOUND);
@@ -191,8 +196,8 @@ export class PilotReadinessService {
       cinema: {
         timezone: cinema.timezone,
         status: cinema.status,
-        address: cinema.address,
-        city: cinema.city,
+        address: cinema.venue ? cinema.venue.address : cinema.address,
+        city: cinema.venue?.city ?? cinema.city,
       },
       activeScreens: activeScreens.length,
       totalScreens: cinema.screens.length,

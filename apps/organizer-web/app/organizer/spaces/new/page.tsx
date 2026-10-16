@@ -12,21 +12,16 @@ import {
   PageHeader,
   Select,
   Skeleton,
-  defaultLocation,
   errorMessage,
   useToast,
 } from '@eticketsgo/web-kit';
-import {
-  SPACE_KINDS,
-  SPACE_KIND_VALUES,
-  marketFor,
-  type SpaceKind,
-} from '@eticketsgo/shared-types';
+import { SPACE_KINDS, SPACE_KIND_VALUES, type SpaceKind } from '@eticketsgo/shared-types';
 import {
   InheritedVenueLocation,
   VenueFields,
   VenuePicker,
   emptyVenueDraft,
+  homeLocation,
   venuePayload,
   venueProblems,
   type VenueDraft,
@@ -93,7 +88,7 @@ export default function NewSpacePage() {
   const [screenType, setScreenType] = useState('2D');
   const [newVenue, setNewVenue] = useState<VenueDraft>(() => ({
     ...emptyVenueDraft(),
-    where: defaultLocation(),
+    where: homeLocation(activeOrg.registeredCountry, []),
   }));
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -101,19 +96,15 @@ export default function NewSpacePage() {
     A new venue starts in the country this organization already sells in, not the browser's.
 
     The browser guess put a Warangal venue in the United States on QA, and through it every
-    price on that venue in dollars. Where the organization already has a venue, its country is
-    a far better first answer - and still only a first answer, shown and changeable.
+    price on that venue in dollars. The organization's registered country, else where most of
+    its venues are, is a far better first answer - the same rule as every other door that
+    creates a venue (`homeLocation`), and still only a first answer, shown and changeable.
   */
-  const lastCountry = venues.data?.[0]?.country;
   useEffect(() => {
-    const market = marketFor(lastCountry);
-    if (!market) return;
-    setNewVenue((v) =>
-      v.name || v.city
-        ? v
-        : { ...v, where: { country: market.name, region: '', timezone: market.timezones[0] } },
-    );
-  }, [lastCountry]);
+    if (!venues.data) return;
+    const home = homeLocation(activeOrg.registeredCountry, venues.data);
+    setNewVenue((v) => (v.name || v.city ? v : { ...v, where: home }));
+  }, [venues.data, activeOrg.registeredCountry]);
 
   const list = venues.data ?? [];
   const selectedVenue = list.find((v) => v.id === venueId) ?? null;

@@ -391,7 +391,7 @@ describe('integration-real-postgres: one sale-eligibility truth', () => {
             `/organizer/cinemas/${cinemas.ap.cinemaId}/readiness#seat-classes`,
           ],
         ]);
-        expect(sales[0].message).toMatch(/^Seat category Standard needs a regulatory seat class/);
+        expect(sales[0].message).toMatch(/^Seat category Standard has no seat class yet/);
         expect((await tryToBuy(cinemas.ap.sessionId))?.details).toEqual({
           reason: SALE_NOT_OPEN_REASON,
           blockers: ['SEAT_CLASS_UNMAPPED'],
