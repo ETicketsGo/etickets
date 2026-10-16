@@ -1,9 +1,10 @@
 'use client';
 
 import { useQueries, useQuery } from '@tanstack/react-query';
-import { Film, Search } from 'lucide-react';
+import { ChevronDown, Search } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import {
+  BrandButton,
   DISCOVERY_COUNTRIES,
   cityScope,
   countryKey,
@@ -13,9 +14,25 @@ import {
   useCity,
 } from '@eticketsgo/web-kit';
 import { api } from '@/lib/api';
-import { MovieCard } from '@/components/movie-card';
-import { Button, EmptyState, ErrorState, Input, Select } from '@/components/ui';
 import { EmptyPlace, PlaceSections } from '@/components/place-sections';
+import { Placeholder, Rail, RailItem } from '@/components/home/parts';
+import { BRAND_FIELD } from '@/components/booking-brand';
+import { BRAND_WRAP, BrandEmpty, BrandPage, FilmCard } from '@/components/storefront-brand';
+
+/*
+  ── MOVIES ON THE BRAND LAYER (docs/design/DESIGN-SYSTEM.md) ─────────────────────────────
+  The film list in the same system as the home page's "Now showing": posters in the 2:3 box,
+  the title under the picture in the display face, the facts and the audience rating below it.
+  It used to be the old system's white boxes with a shadow and a blue search button, and a film
+  with no poster was a gradient with a film icon on it. Same search, same genre filter, same
+  lists and the same place groups as before; only the drawing changed.
+*/
+
+/** The one uniform grid this page has: every film in the visitor's place. */
+const FILM_GRID =
+  'grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 lg:grid-cols-4 lg:gap-x-6 xl:grid-cols-5';
+
+const LABEL = 'mb-1.5 block text-brand-ui font-semibold text-brand-ink';
 
 export default function MoviesPage() {
   const [q, setQ] = useState('');
@@ -76,7 +93,13 @@ export default function MoviesPage() {
       enabled: hasPlace,
     })),
   });
-  const buckets = useMemo(() => {
+  /*
+    Computed on every render rather than memoised. The memo listed one dependency per OTHER
+    country, and that list is one longer before the visitor's country is known than after it, so
+    React reported "the final argument passed to useMemo changed size between renders" on every
+    visit (the "1 issue" badge in development). Filtering a few dozen films is cheaper than that.
+  */
+  const buckets = (() => {
     const shown = new Set((data ?? []).map((m) => m.id));
     const sameCountry = (near.data ?? []).filter((m) => !shown.has(m.id));
     sameCountry.forEach((m) => shown.add(m.id));
@@ -86,8 +109,7 @@ export default function MoviesPage() {
       return items.length > 0 ? [{ code, name: countryLabelOf(code), items }] : [];
     });
     return { sameCountry, elsewhere, homeCountry: homeCode };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, near.data, homeCode, ...abroad.map((q) => q.data)]);
+  })();
 
   // Genre options for the filter come from an unfiltered baseline fetch so the
   // list stays stable regardless of what is currently applied.
@@ -102,95 +124,142 @@ export default function MoviesPage() {
   }, [baseline.data]);
 
   return (
-    <div className="space-y-8">
-      <div>
-        <h1 className="text-h2 font-bold tracking-tight text-text-primary">Movies</h1>
-        <p className="mt-1.5 text-[0.9375rem] text-text-muted">Find a film and book your seats.</p>
-      </div>
-
-      <form
-        className="grid gap-3 rounded-lg border border-border bg-background-surface p-4 shadow-sm sm:grid-cols-[1fr_1fr_auto]"
-        onSubmit={(e) => {
-          e.preventDefault();
-          setApplied({ q: q || undefined, genre: genre || undefined });
-        }}
-      >
-        <Input
-          id="q"
-          label="Search"
-          icon={Search}
-          placeholder="Title..."
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-        />
-        <Select id="genre" label="Genre" value={genre} onChange={(e) => setGenre(e.target.value)}>
-          <option value="">All genres</option>
-          {genres.map((g) => (
-            <option key={g} value={g}>
-              {g}
-            </option>
-          ))}
-        </Select>
-        <div className="flex items-end">
-          <Button type="submit" className="w-full">
-            Search
-          </Button>
-        </div>
-      </form>
-
-      {isError ? (
-        <ErrorState
-          message="We couldn't load movies. Please try again."
-          onRetry={() => refetch()}
-        />
-      ) : isLoading ? (
-        <div className="grid grid-cols-2 gap-6 sm:grid-cols-3 lg:grid-cols-4">
-          {Array.from({ length: 8 }).map((_, i) => (
-            <div
-              key={i}
-              className="aspect-[2/3] animate-pulse rounded-lg border border-border bg-background-subtle"
-            />
-          ))}
-        </div>
-      ) : data && data.length > 0 ? (
-        <>
-          <p className="text-caption text-text-muted">
-            {data.length} movie{data.length === 1 ? '' : 's'}
+    <BrandPage>
+      <section data-brand-tone="stage" className="bg-brand-canvas">
+        <div className={`${BRAND_WRAP} py-10 lg:py-14`}>
+          <h1 className="text-balance font-brand-display text-brand-d1 text-brand-ink">Movies</h1>
+          <p className="mt-3 max-w-prose text-brand-lead text-brand-ink-2">
+            Find a film and book your seats.
           </p>
-          <div className="grid grid-cols-2 gap-6 sm:grid-cols-3 lg:grid-cols-4">
-            {data.map((m) => (
-              <MovieCard key={m.id} movie={m} />
+          <span aria-hidden className="mt-6 block h-1 w-10 rounded-full bg-brand-marigold" />
+        </div>
+      </section>
+
+      <div className={`${BRAND_WRAP} space-y-8 pt-8 lg:pt-10`}>
+        <form
+          role="search"
+          aria-label="Search movies"
+          className="grid gap-3 rounded-brand-card bg-brand-sunken p-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end"
+          onSubmit={(e) => {
+            e.preventDefault();
+            setApplied({ q: q || undefined, genre: genre || undefined });
+          }}
+        >
+          <div className="min-w-0">
+            <label htmlFor="q" className={LABEL}>
+              Search
+            </label>
+            <div className="relative">
+              <Search
+                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-brand-ink-3"
+                aria-hidden
+              />
+              <input
+                id="q"
+                type="search"
+                placeholder="Title..."
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                className={`${BRAND_FIELD} w-full pl-9`}
+              />
+            </div>
+          </div>
+          <div className="min-w-0">
+            <label htmlFor="genre" className={LABEL}>
+              Genre
+            </label>
+            <div className="relative">
+              <select
+                id="genre"
+                value={genre}
+                onChange={(e) => setGenre(e.target.value)}
+                className={`${BRAND_FIELD} w-full appearance-none pr-10`}
+              >
+                <option value="">All genres</option>
+                {genres.map((g) => (
+                  <option key={g} value={g}>
+                    {g}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown
+                className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-brand-ink-2"
+                aria-hidden
+              />
+            </div>
+          </div>
+          <BrandButton type="submit" className="w-full sm:w-auto">
+            Search
+          </BrandButton>
+        </form>
+
+        {isError ? (
+          <BrandEmpty
+            title="We couldn't load movies. Please try again."
+            action={
+              <BrandButton variant="secondary" onClick={() => void refetch()}>
+                Try again
+              </BrandButton>
+            }
+          />
+        ) : isLoading ? (
+          <div className={FILM_GRID} aria-busy="true">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <Placeholder key={i} className="aspect-[2/3] w-full" />
             ))}
           </div>
-        </>
-      ) : /*
-          Same reasoning as Browse: an empty page must name its cause.
+        ) : data && data.length > 0 ? (
+          <section aria-label="Movies" className="space-y-4">
+            <p role="status" className="text-brand-meta text-brand-ink-3">
+              {data.length} movie{data.length === 1 ? '' : 's'}
+            </p>
+            <ul className={FILM_GRID}>
+              {data.map((m, i) => (
+                <li key={m.id} className="min-w-0">
+                  <FilmCard movie={m} priority={i < 2} />
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : /*
+            Same reasoning as Browse: an empty page must name its cause.
 
-          The location is the cause nobody guesses, because it was chosen once in the header
-          and then forgotten. It names the place, offers cities in the same country that have
-          films, and the groups below still show the rest of the country and the world.
-        */
-      cityOnly && place ? (
-        <EmptyPlace place={place} noun="films" icon={Film} />
-      ) : (
-        <EmptyState title="No movies match your search" hint="Try clearing filters." icon={Film} />
-      )}
+            The location is the cause nobody guesses, because it was chosen once in the header
+            and then forgotten. It names the place, offers cities in the same country that have
+            films, and the groups below still show the rest of the country and the world.
+          */
+        cityOnly && place ? (
+          <EmptyPlace place={place} noun="films" variant="brand" />
+        ) : (
+          <BrandEmpty title="No movies match your search" hint="Try clearing filters." />
+        )}
+      </div>
 
       {/* Beyond the selected city: the rest of its country, then the world, by country. */}
       {hasPlace && !isLoading && !isError && (
-        <div className="space-y-12" data-testid="place-groups">
+        <div
+          className={`${BRAND_WRAP} space-y-12 lg:space-y-16 ${
+            buckets.elsewhere.length > 0 || (placeInfo.city && buckets.sameCountry.length > 0)
+              ? 'pt-12 lg:pt-16'
+              : ''
+          }`}
+          data-testid="place-groups"
+        >
           <PlaceSections
+            variant="brand"
             buckets={{ ...buckets, sameCountry: placeInfo.city ? buckets.sameCountry : [] }}
             render={(items) => (
-              <div className="grid grid-cols-2 gap-6 sm:grid-cols-3 lg:grid-cols-4">
+              <Rail cols={5} phone="poster" label="Movies">
                 {items.map((m) => (
-                  <MovieCard key={m.id} movie={m} />
+                  <RailItem key={m.id}>
+                    <FilmCard movie={m} />
+                  </RailItem>
                 ))}
-              </div>
+              </Rail>
             )}
           />
         </div>
       )}
-    </div>
+    </BrandPage>
   );
 }

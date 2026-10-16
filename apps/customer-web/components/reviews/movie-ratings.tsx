@@ -4,8 +4,8 @@ import { useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { MessageSquareText } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-import { api, useIsAuthenticated } from '@eticketsgo/web-kit';
-import { Button, Skeleton } from '@/components/ui';
+import { api, BrandButton, useIsAuthenticated } from '@eticketsgo/web-kit';
+import { Skeleton } from '@/components/ui';
 import { RatingSummary } from './rating-summary';
 import { RecentReviews } from './recent-reviews';
 import { movieReviewKeys, RateMoviePanel } from './rate-movie-panel';
@@ -44,7 +44,7 @@ export function MovieRatings({ slug }: { slug: string }) {
       aria-labelledby="ratings-heading"
       className="min-w-0 scroll-mt-24 space-y-4"
     >
-      <h2 id="ratings-heading" className="text-h3 font-semibold text-text-primary">
+      <h2 id="ratings-heading" className="font-brand-display text-brand-d2 text-brand-ink">
         {t('heading')}
       </h2>
 
@@ -59,16 +59,16 @@ export function MovieRatings({ slug }: { slug: string }) {
               ))}
             </div>
           ) : reviews.isError || !reviews.data ? (
-            <div className="rounded-lg border border-border bg-background-surface p-4">
-              <p className="text-[0.9375rem] text-text-secondary">{t('loadError')}</p>
-              <Button
-                variant="outline"
+            <div className="rounded-brand-card border border-brand-line bg-brand-surface p-4">
+              <p className="text-brand-ui text-brand-ink-2">{t('loadError')}</p>
+              <BrandButton
+                variant="secondary"
                 size="sm"
                 className="mt-3"
                 onClick={() => reviews.refetch()}
               >
                 {tx('action.retry')}
-              </Button>
+              </BrandButton>
             </div>
           ) : reviews.data.count > 0 ? (
             <RatingSummary summary={reviews.data} />
@@ -110,13 +110,13 @@ function NoRatingsYet({ slug }: { slug: string }) {
   const canRate = authed && !!mine.data?.eligibleEventId;
 
   return (
-    <div className="flex items-start gap-3 rounded-lg border border-dashed border-border bg-background-surface p-4">
-      <MessageSquareText className="mt-0.5 h-5 w-5 shrink-0 text-text-muted" aria-hidden />
+    <div className="flex items-start gap-3 rounded-brand-card border border-dashed border-brand-line-strong p-4">
+      <MessageSquareText className="mt-0.5 h-5 w-5 shrink-0 text-brand-ink-3" aria-hidden />
       <div>
-        <p className="font-semibold text-text-primary">
+        <p className="font-brand-display text-brand-card text-brand-ink">
           {canRate ? t('firstTitle') : t('emptyTitle')}
         </p>
-        <p className="mt-1 text-[0.9375rem] text-text-muted">
+        <p className="mt-1 text-brand-ui text-brand-ink-2">
           {canRate ? t('firstHint') : t('emptyHint')}
         </p>
       </div>

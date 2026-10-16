@@ -51,14 +51,14 @@ export function CinemaCard({
   return (
     <article
       aria-labelledby={headingId}
-      className="min-w-0 rounded-lg border border-border bg-background-surface p-4 shadow-sm sm:p-5 lg:grid lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-6"
+      className="min-w-0 rounded-brand-card border border-brand-line bg-brand-surface p-4 sm:p-5 lg:grid lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-6"
     >
       <div className="flex min-w-0 items-start justify-between gap-2">
         <div className="min-w-0">
-          <h3 id={headingId} className="text-body font-semibold text-text-primary">
+          <h3 id={headingId} className="font-brand-display text-brand-card text-brand-ink">
             {group.name}
           </h3>
-          <p className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-caption text-text-muted">
+          <p className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-brand-meta text-brand-ink-2">
             <MapPin className="h-3.5 w-3.5 shrink-0" aria-hidden />
             <span>{group.city}</span>
             {brand && (
@@ -73,7 +73,7 @@ export function CinemaCard({
             first line whenever the note wrapped.
           */}
           {zone && (
-            <p className="mt-0.5 text-caption text-text-muted">{t('localTime', { zone })}</p>
+            <p className="mt-0.5 text-brand-meta text-brand-ink-3">{t('localTime', { zone })}</p>
           )}
         </div>
         <button
@@ -81,8 +81,8 @@ export function CinemaCard({
           aria-pressed={group.favourite}
           aria-label={t('favourite', { name: group.name })}
           onClick={() => onToggleFavourite(group.key)}
-          className={`-mr-1.5 -mt-1.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full hover:bg-background-subtle ${focusRing} ${
-            group.favourite ? 'text-status-error' : 'text-text-muted hover:text-text-primary'
+          className={`-mr-1.5 -mt-1.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full hover:bg-brand-sunken ${focusRing} ${
+            group.favourite ? 'text-brand-critical' : 'text-brand-ink-3 hover:text-brand-ink'
           }`}
         >
           {/* Filled when on: the shape changes, not just the colour. */}

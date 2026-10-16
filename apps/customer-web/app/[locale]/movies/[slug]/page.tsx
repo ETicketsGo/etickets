@@ -3,11 +3,13 @@
 import { useQuery } from '@tanstack/react-query';
 import { useParams } from 'next/navigation';
 import { useMemo, useState } from 'react';
-import { Clock, Film, MapPin, SearchX } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import {
   api,
   applyShowtimeFilters,
+  BRAND_FOCUS,
+  BrandButton,
+  brandButtonClasses,
   buildDateStrip,
   cityScope,
   countByTimeOfDay,
@@ -23,7 +25,8 @@ import {
   type ShowtimeFilters,
 } from '@eticketsgo/web-kit';
 import { ApiRequestError } from '@/lib/api';
-import { Button, ButtonLink, EmptyState, ErrorState } from '@/components/ui';
+import { Link } from '@/i18n/navigation';
+import { BRAND_WRAP, BrandEmpty, BrandPage } from '@/components/storefront-brand';
 import {
   AvailabilityLegend,
   CinemaCard,
@@ -40,6 +43,7 @@ const SHOW_LIMIT = 200;
 
 export default function MovieDetailPage() {
   const t = useTranslations('showtimes');
+  const tx = useTranslations('common');
   const { slug } = useParams<{ slug: string }>();
 
   // The header's location, as Movies applies it: a chosen city, else the visitor's country. Sending
@@ -93,23 +97,42 @@ export default function MovieDetailPage() {
     };
   }, [rows, picked, filters, formats, sortFirst]);
 
-  if (isLoading) return <ShowtimesSkeleton />;
+  if (isLoading)
+    return (
+      <BrandPage>
+        <ShowtimesSkeleton />
+      </BrandPage>
+    );
 
   if (isError || !data) {
     const notFound = error instanceof ApiRequestError && error.code === 'NOT_FOUND';
-    return notFound || !isError ? (
-      <EmptyState
-        title={t('movie.notFoundTitle')}
-        hint={t('movie.notFoundHint')}
-        icon={Film}
-        action={
-          <ButtonLink href="/movies" variant="secondary">
-            {t('movie.browseMovies')}
-          </ButtonLink>
-        }
-      />
-    ) : (
-      <ErrorState message={t('movie.loadError')} onRetry={() => refetch()} />
+    return (
+      <BrandPage>
+        <div className={`${BRAND_WRAP} pt-10`}>
+          {notFound || !isError ? (
+            <BrandEmpty
+              headingLevel="h2"
+              title={t('movie.notFoundTitle')}
+              hint={t('movie.notFoundHint')}
+              action={
+                <Link href="/movies" className={brandButtonClasses('secondary', 'md')}>
+                  {t('movie.browseMovies')}
+                </Link>
+              }
+            />
+          ) : (
+            <BrandEmpty
+              headingLevel="h2"
+              title={t('movie.loadError')}
+              action={
+                <BrandButton variant="secondary" onClick={() => void refetch()}>
+                  {tx('action.retry')}
+                </BrandButton>
+              }
+            />
+          )}
+        </div>
+      </BrandPage>
     );
   }
 
@@ -132,110 +155,114 @@ export default function MovieDetailPage() {
       : null;
 
   return (
-    <div className="min-w-0 space-y-8 sm:space-y-10">
+    <BrandPage>
       <MovieHero movie={data.movie} />
 
-      <section aria-labelledby="showtimes-heading" className="min-w-0 space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-          <h2 id="showtimes-heading" className="text-h3 font-semibold text-text-primary">
-            {t('heading')}
-          </h2>
-          {rows.length > 0 && <AvailabilityLegend />}
-        </div>
+      <div className={`${BRAND_WRAP} min-w-0 space-y-12 pt-8 sm:pt-10 lg:space-y-16`}>
+        <section aria-labelledby="showtimes-heading" className="min-w-0 space-y-4">
+          <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
+            <h2 id="showtimes-heading" className="font-brand-display text-brand-d2 text-brand-ink">
+              {t('heading')}
+            </h2>
+            {rows.length > 0 && <AvailabilityLegend />}
+          </div>
 
-        {rows.length === 0 ? (
-          city ? (
-            /*
-              Same reasoning as Movies: an empty page must name its cause, and the location
-              is the cause nobody guesses — it was chosen once in the header and forgotten.
-            */
-            <EmptyState
-              title={t('empty.noShowsInCityTitle', { city })}
-              hint={t('empty.noShowsInCityHint')}
-              icon={MapPin}
-              action={
-                <Button variant="secondary" onClick={() => preference.setCity(null)}>
-                  {t('city.showAll')}
-                </Button>
-              }
-            />
-          ) : (
-            <EmptyState
-              title={t('empty.noShowsTitle')}
-              hint={t('empty.noShowsHint')}
-              icon={Clock}
-            />
-          )
-        ) : (
-          <>
-            <div className="space-y-2 rounded-lg border border-border bg-background-surface p-2 shadow-sm sm:p-3">
-              <DateStrip
-                days={view.strip}
-                selected={view.selected}
-                onSelect={selectDay}
-                paging={paging}
-              />
-              <div className="border-t border-border pt-2">
-                <ShowtimeFilterBar
-                  formats={formats}
-                  filters={view.active}
-                  timeCounts={view.timeCounts}
-                  onChange={setFilters}
-                />
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-caption text-text-muted">
-              <p role="status">
-                {t('summary', { shows: view.visible.length, cinemas: view.cinemas.length })}
-              </p>
-              {city && (
-                <p className="flex flex-wrap items-center gap-x-2">
-                  <span>{t('city.scoped', { city })}</span>
-                  <button
-                    type="button"
-                    onClick={() => preference.setCity(null)}
-                    className="rounded-sm font-semibold text-text-primary underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    {t('city.showAll')}
-                  </button>
-                </p>
-              )}
-            </div>
-
-            {view.cinemas.length === 0 ? (
-              <EmptyState
-                title={t('empty.noMatchTitle')}
-                hint={t('empty.noMatchHint')}
-                icon={SearchX}
+          {rows.length === 0 ? (
+            city ? (
+              /*
+                Same reasoning as Movies: an empty page must name its cause, and the location
+                is the cause nobody guesses - it was chosen once in the header and forgotten.
+              */
+              <BrandEmpty
+                title={t('empty.noShowsInCityTitle', { city })}
+                hint={t('empty.noShowsInCityHint')}
                 action={
-                  hasActiveShowtimeFilters(view.active) ? (
-                    <Button variant="secondary" onClick={() => setFilters(NO_SHOWTIME_FILTERS)}>
-                      {t('filters.clear')}
-                    </Button>
-                  ) : undefined
+                  <BrandButton variant="secondary" onClick={() => preference.setCity(null)}>
+                    {t('city.showAll')}
+                  </BrandButton>
                 }
               />
             ) : (
-              <ul aria-label={t('cinema.list')} className="space-y-3">
-                {view.cinemas.map((group) => (
-                  <li key={group.key} className="min-w-0">
-                    <CinemaCard group={group} onToggleFavourite={toggleFavourite} />
-                  </li>
-                ))}
-              </ul>
-            )}
+              <BrandEmpty title={t('empty.noShowsTitle')} hint={t('empty.noShowsHint')} />
+            )
+          ) : (
+            <>
+              {/*
+                The choices that narrow the list, on one sunken bar: the day, then the format and
+                the time of day. Sunken rather than a white card with a shadow, so the cinemas
+                below are the only surfaces on the page.
+              */}
+              <div className="space-y-2 rounded-brand-card bg-brand-sunken p-2 sm:p-3">
+                <DateStrip
+                  days={view.strip}
+                  selected={view.selected}
+                  onSelect={selectDay}
+                  paging={paging}
+                />
+                <div className="border-t border-brand-line pt-2">
+                  <ShowtimeFilterBar
+                    formats={formats}
+                    filters={view.active}
+                    timeCounts={view.timeCounts}
+                    onChange={setFilters}
+                  />
+                </div>
+              </div>
 
-            {data.meta.total > data.meta.returned && (
-              <p className="text-caption text-text-muted">
-                {t('truncated', { returned: data.meta.returned, total: data.meta.total })}
-              </p>
-            )}
-          </>
-        )}
-      </section>
+              <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-brand-meta text-brand-ink-3">
+                <p role="status">
+                  {t('summary', { shows: view.visible.length, cinemas: view.cinemas.length })}
+                </p>
+                {city && (
+                  <p className="flex flex-wrap items-center gap-x-2">
+                    <span>{t('city.scoped', { city })}</span>
+                    <button
+                      type="button"
+                      onClick={() => preference.setCity(null)}
+                      className={`inline-flex min-h-11 items-center rounded-sm font-semibold text-brand-ink underline decoration-brand-line-strong underline-offset-4 hover:decoration-brand-ink sm:min-h-0 ${BRAND_FOCUS}`}
+                    >
+                      {t('city.showAll')}
+                    </button>
+                  </p>
+                )}
+              </div>
 
-      <MovieRatings slug={data.movie.slug} />
-    </div>
+              {view.cinemas.length === 0 ? (
+                <BrandEmpty
+                  title={t('empty.noMatchTitle')}
+                  hint={t('empty.noMatchHint')}
+                  action={
+                    hasActiveShowtimeFilters(view.active) ? (
+                      <BrandButton
+                        variant="secondary"
+                        onClick={() => setFilters(NO_SHOWTIME_FILTERS)}
+                      >
+                        {t('filters.clear')}
+                      </BrandButton>
+                    ) : undefined
+                  }
+                />
+              ) : (
+                <ul aria-label={t('cinema.list')} className="space-y-3">
+                  {view.cinemas.map((group) => (
+                    <li key={group.key} className="min-w-0">
+                      <CinemaCard group={group} onToggleFavourite={toggleFavourite} />
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              {data.meta.total > data.meta.returned && (
+                <p className="text-brand-meta text-brand-ink-3">
+                  {t('truncated', { returned: data.meta.returned, total: data.meta.total })}
+                </p>
+              )}
+            </>
+          )}
+        </section>
+
+        <MovieRatings slug={data.movie.slug} />
+      </div>
+    </BrandPage>
   );
 }
