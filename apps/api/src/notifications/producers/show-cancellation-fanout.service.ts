@@ -5,6 +5,7 @@ import {
   SessionStatus,
   venueZone,
 } from '@eticketsgo/shared-types';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationService } from '../notification.service';
 
@@ -43,6 +44,26 @@ export interface FanoutSummary {
  * data still finds the customers nobody told. A cancelled show with untold ticket holders is
  * the one failure this platform cannot leave to a retry policy.
  */
+/**
+ * Who is told, as SQL, written once for the three queries that must agree on it.
+ *
+ * A live booking (CONFIRMED, PARTIALLY_REFUNDED), and also a cash booking this cancellation
+ * voided. Cancelling a show voids its counter cash sales at once (`CashReturnsService`), and
+ * the event cancel does that before the ShowCancelled event is dispatched. Without the second
+ * clause those buyers - who paid in cash and are owed it back - were the only ticket holders
+ * nobody told. A CONFIRMED cash booking can only become CANCELLED that way, so the clause
+ * cannot reach a booking somebody cancelled for another reason.
+ */
+const TOLD_WHEN_SHOW_CANCELLED = Prisma.sql`(
+  b."status" IN ('CONFIRMED', 'PARTIALLY_REFUNDED')
+  OR (b."status" = 'CANCELLED' AND b."paymentMethod" = 'CASH' AND b."cashCollectedAt" IS NOT NULL)
+)`;
+
+/** Same address, ignoring case and spaces. */
+function sameEmail(a: string | null | undefined, b: string | null | undefined): boolean {
+  return Boolean(a && b && a.trim().toLowerCase() === b.trim().toLowerCase());
+}
+
 @Injectable()
 export class ShowCancellationFanoutService {
   private readonly logger = new Logger('Notification');
@@ -95,6 +116,7 @@ export class ShowCancellationFanoutService {
             title: true,
             organizationId: true,
             venue: { select: { timezone: true, country: true } },
+            organization: { select: { contactEmail: true } },
           },
         },
       },
@@ -119,7 +141,7 @@ export class ShowCancellationFanoutService {
       SELECT b."id"
       FROM "Booking" b
       WHERE b."eventSessionId" = ${sessionId}
-        AND b."status" IN ('CONFIRMED', 'PARTIALLY_REFUNDED')
+        AND ${TOLD_WHEN_SHOW_CANCELLED}
         AND NOT EXISTS (
           SELECT 1 FROM "Notification" n
           WHERE n."bookingId" = b."id" AND n."type" = 'SHOW_CANCELLED'
@@ -134,7 +156,19 @@ export class ShowCancellationFanoutService {
     const pending = await this.prisma.booking.findMany({
       where: { id: { in: pendingIds.map((r) => r.id) } },
       orderBy: { id: 'asc' },
-      select: { id: true, userId: true, buyerEmail: true, reference: true, organizationId: true },
+      select: {
+        id: true,
+        userId: true,
+        buyerEmail: true,
+        buyerName: true,
+        reference: true,
+        organizationId: true,
+        paymentMethod: true,
+        cashCollectedAt: true,
+        totalMinor: true,
+        currency: true,
+        cashCollectedBy: { select: { email: true } },
+      },
     });
 
     const timeZone =
@@ -151,6 +185,19 @@ export class ShowCancellationFanoutService {
         means this booking is still pending on the next pass.
       */
       try {
+        /*
+          Paid in cash at the counter: no refund follows, the cash is given back at the venue,
+          so the message says that and how much. A walk-up buyer who gave no email has the
+          organization's (or the seller's) address on the booking - the counter puts it there
+          so the copy reaches somebody - and that reader is the one who has to repay them, so
+          it says whom and how much. Online buyers keep the refund wording.
+        */
+        const paidInCash = booking.paymentMethod === 'CASH' && booking.cashCollectedAt !== null;
+        const toOrganizer =
+          paidInCash &&
+          !booking.userId &&
+          (sameEmail(booking.buyerEmail, session.event?.organization?.contactEmail) ||
+            sameEmail(booking.buyerEmail, booking.cashCollectedBy?.email));
         await this.notifications.send({
           type: NotificationType.SHOW_CANCELLED,
           userId: booking.userId,
@@ -162,6 +209,16 @@ export class ShowCancellationFanoutService {
             eventTitle: session.event?.title ?? '',
             startsAt: session.startsAt.toISOString(),
             timeZone,
+            ...(paidInCash
+              ? {
+                  paidInCash: true,
+                  amountMinor: booking.totalMinor,
+                  currency: booking.currency,
+                  ...(toOrganizer
+                    ? { cashRecipient: 'ORGANIZER', buyerName: booking.buyerName }
+                    : {}),
+                }
+              : {}),
           },
         });
         notified += 1;
@@ -188,7 +245,7 @@ export class ShowCancellationFanoutService {
       SELECT COUNT(*)::bigint AS n
       FROM "Booking" b
       WHERE b."eventSessionId" = ${sessionId}
-        AND b."status" IN ('CONFIRMED', 'PARTIALLY_REFUNDED')
+        AND ${TOLD_WHEN_SHOW_CANCELLED}
         AND NOT EXISTS (
           SELECT 1 FROM "Notification" n
           WHERE n."bookingId" = b."id" AND n."type" = 'SHOW_CANCELLED'
@@ -223,7 +280,7 @@ export class ShowCancellationFanoutService {
         AND EXISTS (
           SELECT 1 FROM "Booking" b
           WHERE b."eventSessionId" = s."id"
-            AND b."status" IN ('CONFIRMED', 'PARTIALLY_REFUNDED')
+            AND ${TOLD_WHEN_SHOW_CANCELLED}
             AND NOT EXISTS (
               SELECT 1 FROM "Notification" n
               WHERE n."bookingId" = b."id" AND n."type" = 'SHOW_CANCELLED'

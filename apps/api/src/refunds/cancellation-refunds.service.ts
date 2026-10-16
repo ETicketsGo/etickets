@@ -142,6 +142,16 @@ export class CancellationRefundsService {
     const since = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000);
 
     /*
+      Cash sales already voided whose receipt still stands (voided before credit notes were
+      issued for them, or by a pass that failed part-way). Their shows owe nobody a refund, so
+      the selection below never revisits them; this is the one pass that does. No refund is
+      opened by it.
+    */
+    await this.cash.reverseUnreversed({ since }).catch((err: unknown) => {
+      this.logger.error(`cash receipt reversal pass failed: ${(err as Error)?.message}`);
+    });
+
+    /*
       Cancelled recently, and with somebody still owed.
 
       Bounded by a lookback for the reason every sweep is: an unbounded scan over every

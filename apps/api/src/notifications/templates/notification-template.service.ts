@@ -321,15 +321,43 @@ const BUILDERS: Partial<Record<NotificationType, Builder>> = {
     The show being called off, which is a different message from the customer's own
     cancellation below: it has to say WHICH show and WHEN it was, because the reader did not
     initiate this and may be about to travel to it.
+
+    Three readers. An online buyer is told a refund follows, and one does. A buyer who paid
+    cash at the counter is not: no refund is sent anywhere, the cash is given back at the venue,
+    so they are told that, how much, and the reference to show. And a walk-up cash sale with no
+    buyer email has the organization's address on it, so that copy goes to the people who must
+    repay the buyer: it says whom and how much.
   */
-  [NotificationType.SHOW_CANCELLED]: (l, p) => ({
-    subject: t(l, 'emails.SHOW_CANCELLED.subject'),
-    body: t(l, 'emails.SHOW_CANCELLED.body', {
+  [NotificationType.SHOW_CANCELLED]: (l, p) => {
+    const vars = {
       event: str(p, 'eventTitle', t(l, 'emails.fragments.yourEvent')),
       reference: bookingName(l, p),
       when: whenClause(l, p),
-    }),
-  }),
+    };
+    if (p.paidInCash === true && str(p, 'cashRecipient') === 'ORGANIZER') {
+      return {
+        subject: t(l, 'emails.SHOW_CANCELLED.subjectOrganizerCash'),
+        body: t(l, 'emails.SHOW_CANCELLED.bodyOrganizerCash', {
+          ...vars,
+          amount: moneyValue(l, p, 'amountMinor'),
+          buyer: str(p, 'buyerName').trim() || t(l, 'emails.fragments.theBuyer'),
+        }),
+      };
+    }
+    if (p.paidInCash === true) {
+      return {
+        subject: t(l, 'emails.SHOW_CANCELLED.subject'),
+        body: t(l, 'emails.SHOW_CANCELLED.bodyCash', {
+          ...vars,
+          amount: moneyValue(l, p, 'amountMinor'),
+        }),
+      };
+    }
+    return {
+      subject: t(l, 'emails.SHOW_CANCELLED.subject'),
+      body: t(l, 'emails.SHOW_CANCELLED.body', vars),
+    };
+  },
 
   [NotificationType.BOOKING_CANCELLED]: (l, p) => ({
     subject: t(l, 'emails.BOOKING_CANCELLED.subject'),

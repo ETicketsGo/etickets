@@ -293,3 +293,56 @@ describe('NotificationTemplateService', () => {
     expect(resumed.body).toMatch(/de nouveau en vente/);
   });
 });
+
+/*
+  F1: the show-cancelled message told a buyer who paid cash at the counter "A refund will
+  follow". No refund follows a cash sale: the cash is given back at the venue.
+*/
+describe('SHOW_CANCELLED: cash buyers are told where their cash comes back', () => {
+  const svc = new NotificationTemplateService();
+  const base = {
+    reference: 'ETG-IND-2026-000099',
+    eventTitle: 'Walk Show',
+    startsAt: '2026-10-20T13:30:00.000Z',
+    timeZone: 'Asia/Kolkata',
+  };
+  const cash = { ...base, paidInCash: true, amountMinor: 93_540, currency: 'INR' };
+
+  it('an online buyer keeps the refund wording', () => {
+    const en = svc.render(NotificationType.SHOW_CANCELLED, 'en', base);
+    expect(en.body).toContain('A refund will follow.');
+    const fr = svc.render(NotificationType.SHOW_CANCELLED, 'fr-CA', base);
+    expect(fr.body).toContain('Un remboursement suivra.');
+  });
+
+  it('a cash buyer is told the cash comes back at the box office, with amount and reference', () => {
+    const en = svc.render(NotificationType.SHOW_CANCELLED, 'en', cash);
+    expect(en.body).not.toMatch(/refund/i);
+    expect(en.body).toContain('box office');
+    expect(en.body).toContain('ETG-IND-2026-000099');
+    expect(en.body).toContain('935.40');
+    // House rule: ASCII-only English copy.
+    expect(en.body.replace(/[₹]/g, '')).toMatch(/^[ -~]*$/);
+
+    const fr = svc.render(NotificationType.SHOW_CANCELLED, 'fr-CA', cash);
+    expect(fr.body).not.toMatch(/rembours/i);
+    expect(fr.body).toContain('billetterie');
+    expect(fr.body).toContain('argent comptant');
+    expect(fr.body).toContain('ETG-IND-2026-000099');
+    expect(fr.body).toContain('935,40');
+  });
+
+  it('a walk-up sale with no buyer email tells the organization whom to repay, and how much', () => {
+    const org = { ...cash, cashRecipient: 'ORGANIZER', buyerName: 'Walk Counter Buyer' };
+    for (const locale of ['en', 'fr-CA'] as const) {
+      const out = svc.render(NotificationType.SHOW_CANCELLED, locale, org);
+      expect(out.body).toContain('Walk Counter Buyer');
+      expect(out.body).toContain('ETG-IND-2026-000099');
+      expect(out.body).toMatch(/935[.,]40/);
+      expect(out.body).toContain('Mark as given back');
+      expect(out.body).not.toMatch(/refund will follow|remboursement suivra/i);
+    }
+    const en = svc.render(NotificationType.SHOW_CANCELLED, 'en', org);
+    expect(en.subject).toBe('Show cancelled: cash to give back');
+  });
+});

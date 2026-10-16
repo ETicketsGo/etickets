@@ -45,7 +45,10 @@ function makeService(opts: {
       return { id: `r-${id}` };
     }),
   };
-  const cash = { cancelForCancelledSession: jest.fn().mockResolvedValue({ cancelled: 0 }) };
+  const cash = {
+    cancelForCancelledSession: jest.fn().mockResolvedValue({ cancelled: 0 }),
+    reverseUnreversed: jest.fn().mockResolvedValue({ reversed: 0 }),
+  };
   const service = new CancellationRefundsService(prisma as never, refunds as never, cash as never);
   return { service, prisma, refunds, calls, cash };
 }
@@ -145,6 +148,20 @@ describe('the sweep is the guarantee', () => {
     // Bounded: an unbounded scan over every cancelled show eventually times out.
     expect(args.take).toBeGreaterThan(0);
     expect(args.where.updatedAt.gte).toBeInstanceOf(Date);
+  });
+
+  /*
+    F1: a show whose cash sales were voided owes nobody a refund, so the selection above never
+    comes back to it. The receipt reversal of those sales gets its own pass on every sweep.
+  */
+  it('reverses the receipts of voided cash sales, within the same lookback', async () => {
+    const { service, cash, prisma } = makeService({});
+    await service.sweep({ lookbackDays: 30 });
+    expect(cash.reverseUnreversed).toHaveBeenCalledTimes(1);
+    const since = cash.reverseUnreversed.mock.calls[0][0].since as Date;
+    expect(since.getTime()).toBe(
+      prisma.eventSession.findMany.mock.calls[0][0].where.updatedAt.gte.getTime(),
+    );
   });
 
   it('still opens refunds when the event handler never ran', async () => {

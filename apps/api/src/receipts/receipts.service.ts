@@ -351,6 +351,134 @@ export class ReceiptsService {
     });
   }
 
+  /**
+   * Issue the credit note that reverses the whole sale of a cash booking cancelled with no
+   * refund: a counter cash sale whose show was cancelled.
+   *
+   * ── WHY THIS IS NOT `issueCreditNote` ──────────────────────────────────────────────
+   * That one is keyed to a `Refund`, and a cash return is deliberately not a Refund: no money
+   * passed through a provider, so a Refund row would be an unreconcilable figure in the
+   * refund, settlement and payout reports. Without a credit note, though, the sale receipt
+   * (a tax invoice, in India) stood in the books for a sale that was undone. So this issues
+   * the same document, in the same CRN series, keyed by `cancellationForBookingId` instead.
+   *
+   * ── WHAT IT SAYS ───────────────────────────────────────────────────────────────────
+   * Exactly the opposite of the sale document as it was ISSUED, read from that document and
+   * not from the live booking: every tax line negated with its basis, the fee negated, the
+   * total negated. So the sale and its credit note sum to zero on every column a report
+   * reads. As with a refund credit note, the subtotal is the ticket value after the discount
+   * and the discount column is zero: the renderer reads a discount as a deduction, and a
+   * negative deduction on a credit note would not foot.
+   *
+   * Idempotent: a second call for the same booking returns the credit note already issued,
+   * and the unique column makes a concurrent second issue fail rather than duplicate. Must run
+   * inside the cancelling transaction, so "cancelled" and "reversed" commit together.
+   */
+  async issueCancellationCreditNote(
+    tx: Prisma.TransactionClient,
+    bookingId: string,
+    reason: string,
+  ): Promise<{ id: string; number: string; reversesId: string; reversesNumber: string } | null> {
+    const sale = await tx.receipt.findUnique({ where: { saleForBookingId: bookingId } });
+    // No sale document means nothing was ever recorded as sold, so there is nothing to reverse.
+    if (!sale) return null;
+    const existing = await tx.receipt.findUnique({
+      where: { cancellationForBookingId: bookingId },
+      select: { id: true, number: true },
+    });
+    if (existing) {
+      return { ...existing, reversesId: sale.id, reversesNumber: sale.number };
+    }
+
+    const booking = await tx.booking.findUnique({
+      where: { id: bookingId },
+      select: {
+        id: true,
+        organizationId: true,
+        reference: true,
+        buyerName: true,
+        buyerEmail: true,
+      },
+    });
+    if (!booking) return null;
+    const organization = await tx.organization.findUnique({
+      where: { id: booking.organizationId },
+    });
+    if (!organization) return null;
+
+    const issuedAt = new Date();
+    const number = await this.nextNumber(tx, booking.organizationId, 'CREDIT_NOTE', issuedAt);
+    const saleDoc = sale.documentJson as unknown as ReceiptDocument | null;
+
+    // The ticket value after the discount: what the subtotal of a credit note means.
+    const netOfDiscount = sale.subtotalMinor - Math.abs(sale.discountMinor);
+    const totals = negateTotals({
+      subtotalMinor: netOfDiscount,
+      discountMinor: 0,
+      feeMinor: sale.feeMinor,
+      taxMinor: sale.taxMinor,
+      totalMinor: sale.totalMinor,
+    });
+
+    const document = buildReceiptDocument({
+      kind: 'CREDIT_NOTE',
+      number,
+      issuedAt,
+      currency: sale.currency,
+      seller: this.sellerFrom(organization),
+      buyer: { name: booking.buyerName, email: booking.buyerEmail },
+      order: saleDoc?.order ?? {
+        bookingId: booking.id,
+        reference: booking.reference,
+        eventTitle: null,
+        sessionStartsAt: null,
+        venue: null,
+      },
+      lines: [
+        {
+          description: `Cancellation of ${booking.reference ?? booking.id}`,
+          quantity: 1,
+          unitPriceMinor: -netOfDiscount,
+          lineTotalMinor: -netOfDiscount,
+        },
+      ],
+      taxLines: (saleDoc?.taxLines ?? []).map((t) => ({
+        label: t.label,
+        rateBasisPoints: t.rateBasisPoints,
+        baseMinor: -t.baseMinor,
+        amountMinor: -t.amountMinor,
+        basis: t.basis ?? null,
+        inclusive: t.inclusive ?? null,
+      })),
+      totals,
+      feeParts: saleDoc?.feeParts
+        ? {
+            bookingFeeMinor: -saleDoc.feeParts.bookingFeeMinor,
+            paymentFeeMinor: -saleDoc.feeParts.paymentFeeMinor,
+          }
+        : undefined,
+      reverses: { number: sale.number, issuedAt: sale.issuedAt },
+      reason,
+    });
+
+    const created = await tx.receipt.create({
+      data: {
+        number,
+        kind: 'CREDIT_NOTE',
+        organizationId: booking.organizationId,
+        bookingId: booking.id,
+        cancellationForBookingId: booking.id,
+        reversesId: sale.id,
+        issuedAt,
+        currency: sale.currency,
+        ...totals,
+        documentJson: document as unknown as Prisma.InputJsonValue,
+      },
+      select: { id: true, number: true },
+    });
+    return { ...created, reversesId: sale.id, reversesNumber: sale.number };
+  }
+
   /** Every document issued for one booking, oldest first. */
   async listForBooking(bookingId: string) {
     return this.prisma.receipt.findMany({

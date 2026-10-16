@@ -11,6 +11,7 @@ import {
   type CashReturnRow,
   type Column,
 } from '@eticketsgo/web-kit';
+import { useOrg } from '@/components/org-context';
 import { timeAtVenue } from '@/components/events/event-list-model';
 import { totalsText } from '@/lib/cancel-impact';
 
@@ -23,6 +24,11 @@ import { totalsText } from '@/lib/cancel-impact';
  * handed it back and when. Nothing is sent to any payment provider.
  *
  * Used on the Counter page (every event) and in the summary after cancelling one event.
+ *
+ * Each row names the credit note that reversed the sale's receipt when the show was
+ * cancelled, so the person handing the cash back and the person reading the books are looking
+ * at the same record. Owners and managers can open it; check-in staff see the number only,
+ * because the document names a buyer and an amount (the API refuses it to them as well).
  */
 export function CashReturnsList({
   organizationId,
@@ -40,6 +46,7 @@ export function CashReturnsList({
 }) {
   const qc = useQueryClient();
   const toast = useToast();
+  const { can } = useOrg();
   const key = ['cash-returns', organizationId, eventId ?? 'all'];
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: key,
@@ -106,9 +113,31 @@ export function CashReturnsList({
       header: 'Cash to give back',
       // Tabular figures: the person at the counter is counting notes against this.
       render: (r) => (
-        <span className="font-semibold tabular-nums text-text-primary">
-          {money(r.amountMinor, r.currency)}
-        </span>
+        <div>
+          <span className="font-semibold tabular-nums text-text-primary">
+            {money(r.amountMinor, r.currency)}
+          </span>
+          {r.creditNote ? (
+            <p className="text-caption text-text-muted">
+              Receipt reversed by credit note{' '}
+              {can.financials ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    api.receipts
+                      .openHtml(r.creditNote!.id)
+                      .catch((e) => toast.push(errorMessage(e), 'error'))
+                  }
+                  className="font-mono text-action-primary underline underline-offset-2"
+                >
+                  {r.creditNote.number}
+                </button>
+              ) : (
+                <span className="font-mono">{r.creditNote.number}</span>
+              )}
+            </p>
+          ) : null}
+        </div>
       ),
     },
     {
