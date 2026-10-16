@@ -1,25 +1,17 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useId, useState } from 'react';
 import { useRouter } from '@/i18n/navigation';
+import { Link } from '@/i18n/navigation';
 import { api, tokenStore, ApiRequestError } from '@/lib/api';
-import { Button, Input, Select } from '@/components/ui';
-import { visitorCountry } from '@eticketsgo/web-kit';
+import { Button, Input } from '@/components/ui';
 import { afterSignIn } from '@/lib/sign-in-return';
-import { MARKETS } from '@eticketsgo/shared-types';
+import { PHONE_COUNTRIES } from '@/lib/phone-number';
+import { PhoneNumberField, usePhoneNumber } from '@/components/phone-number-field';
 import { useTranslations } from 'next-intl';
 
-/** The countries we sell in, in the order a person scans a list: by name. */
-const COUNTRIES = [...MARKETS].sort((a, b) => a.name.localeCompare(b.name));
-
-/** Longest calling code first, so a pasted +971 number is not read as +9. */
-const BY_LONGEST_CODE = [...COUNTRIES].sort((a, b) => b.callingCode.length - a.callingCode.length);
-
-/** The domestic trunk `0` is not part of the number once a country code is in front of it. */
-const withoutTrunkZero = (digits: string) => digits.replace(/^0+/, '');
-
 /**
- * Signing in with a mobile number and a code.
+ * Signing in - or signing up - with a mobile number and a code.
  *
  * ── WHY THIS IS THE DEFAULT AND EMAIL IS THE ALTERNATIVE ───────────────────────────
  * Every platform an Indian buyer already uses to book a film asks for a phone number. This
@@ -27,64 +19,99 @@ const withoutTrunkZero = (digits: string) => digits.replace(/^0+/, '');
  * often a one-off, and made on a phone with one thumb. Email sign-in has not been removed;
  * it has stopped being the thing somebody meets first.
  *
+ * ── ONE COMPONENT FOR SIGN-IN AND SIGN-UP ──────────────────────────────────────────
+ * The owner asked for creating an account to work like signing in: the same Mobile | Email
+ * tabs, not one long form with everything in it. A code already creates the account when the
+ * number is new, so sign-up is sign-in plus the two things an account should start with: a
+ * name, and - for a US number only - the text-message agreement the A2P campaign rests on.
+ *
  * ── THE TWO STEPS ARE ONE SCREEN ───────────────────────────────────────────────────
  * Number, then code, without a navigation between them. A route change loses the number on
  * a back-swipe and costs a page load on the connection where this matters most.
+ *
+ * ── NEVER A DEAD FORM ──────────────────────────────────────────────────────────────
+ * When a code cannot reach the chosen country (`smsCountries` from GET /capabilities says
+ * so in advance; a 503 SMS_UNAVAILABLE says so after the fact) the tab says that plainly and
+ * offers the Email tab in one press, carrying the name across. It used to show a red line
+ * under a form that could never succeed.
  */
-export function PhoneSignIn({ next }: { next: string }) {
+export function PhoneSignIn({
+  next,
+  signUp = false,
+  smsCountries,
+  onUseEmail,
+}: {
+  next: string;
+  signUp?: boolean;
+  /** Countries a code can reach; undefined when the API did not say (keep trying). */
+  smsCountries?: string[];
+  /** Switch the page to its Email tab, carrying over the name typed here. */
+  onUseEmail?: (fullName: string) => void;
+}) {
   const a = useTranslations('storefront.auth');
   const router = useRouter();
   /*
     The country is asked for, never assumed. It used to be a `+91` printed in the field as a
     placeholder while the server put `+91` in front of any ten-digit number — so a visitor in
     the United States typing their own number was sent to a stranger in India, who got their
-    sign-in code. The country is now part of the number the client builds.
+    sign-in code. It now opens on where the visitor is (see `usePhoneNumber`) and stays a
+    choice.
   */
-  const [country, setCountry] = useState('');
-  const [national, setNational] = useState('');
+  const phone = usePhoneNumber();
+  const [fullName, setFullName] = useState('');
+  const [nameError, setNameError] = useState<string | null>(null);
+  const [smsConsent, setSmsConsent] = useState(false);
   const [code, setCode] = useState('');
   const [sentTo, setSentTo] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The send was refused because text messages cannot be sent at all right now.
+  const [unavailable, setUnavailable] = useState(false);
   const [loading, setLoading] = useState(false);
-
   /*
-    Set after hydration, not during render: the browser's time zone and languages do not exist
-    on the server, and a first render that disagrees with the server's is a hydration error.
-    An unrecognised country leaves the select empty and the person chooses — which is the
-    honest outcome for somebody we cannot place.
+    One id per copy of the form - see the note in the register page. The sign-in page keeps the
+    plain `phone` / `phone-country` ids it always had.
   */
-  useEffect(() => {
-    const guess = visitorCountry();
-    if (guess && COUNTRIES.some((c) => c.code === guess)) setCountry(guess);
-  }, []);
-
-  const market = COUNTRIES.find((c) => c.code === country) ?? null;
-  const e164 = market ? `+${market.callingCode}${national}` : '';
-
-  /** Accepts a pasted international number by reading the country out of it. */
-  const onNationalChange = (typed: string) => {
-    const trimmed = typed.trim();
-    if (trimmed.startsWith('+') || trimmed.startsWith('00')) {
-      const digits = trimmed.replace(/\D/g, '').replace(/^00/, '');
-      const pasted = BY_LONGEST_CODE.find((c) => digits.startsWith(c.callingCode));
-      if (pasted) {
-        setCountry(pasted.code);
-        setNational(withoutTrunkZero(digits.slice(pasted.callingCode.length)));
-        return;
+  const uid = useId();
+  const ids = signUp
+    ? {
+        name: `${uid}name`,
+        country: `${uid}phone-country`,
+        number: `${uid}phone`,
+        consent: `${uid}sms-consent`,
       }
-    }
-    setNational(withoutTrunkZero(typed.replace(/\D/g, '')));
-  };
+    : { name: 'name', country: 'phone-country', number: 'phone', consent: 'sms-consent' };
 
-  const sendCode = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const market = PHONE_COUNTRIES.find((c) => c.code === phone.country) ?? null;
+  // Known in advance: this deployment cannot text this country (or anywhere at all).
+  const blocked =
+    smsCountries !== undefined &&
+    (smsCountries.length === 0 || (market !== null && !smsCountries.includes(market.code)));
+  const noSms = blocked || unavailable;
+  /*
+    The agreement is asked only where it applies. A2P 10DLC - the reason this exact wording
+    exists - governs messages to US numbers; anywhere else the box would be a question about a
+    programme that does not cover the person answering it.
+  */
+  const askConsent = signUp && phone.country === 'US' && !noSms;
+
+  const sendCode = async (e?: React.FormEvent) => {
+    e?.preventDefault();
     setError(null);
+    if (signUp && fullName.trim().length < 2) {
+      setNameError(a('nameRequired'));
+      return;
+    }
     setLoading(true);
     try {
-      await api.requestPhoneCode(e164);
-      setSentTo(e164);
+      await api.requestPhoneCode(phone.e164);
+      setSentTo(phone.e164);
     } catch (err) {
-      setError(err instanceof ApiRequestError ? err.message : a('loginFailed'));
+      if (err instanceof ApiRequestError && err.code === 'SMS_UNAVAILABLE') {
+        // Said by the panel below, with the way out - not as a red line under a dead form.
+        setUnavailable(true);
+      } else {
+        setError(err instanceof ApiRequestError ? err.message : a('loginFailed'));
+      }
     } finally {
       setLoading(false);
     }
@@ -95,12 +122,21 @@ export function PhoneSignIn({ next }: { next: string }) {
     setError(null);
     setLoading(true);
     try {
-      const tokens = await api.verifyPhoneCode(sentTo!, code);
+      const tokens = await api.verifyPhoneCode(
+        sentTo!,
+        code,
+        signUp
+          ? {
+              fullName: fullName.trim(),
+              // Only an affirmative tick is sent; an unticked box sends nothing at all.
+              ...(askConsent && smsConsent ? { smsConsent: true as const, country: 'US' } : {}),
+            }
+          : undefined,
+      );
       tokenStore.set(tokens);
       /*
-        A brand-new account has no name yet — the person gave a number and nothing else. They
-        go on where they were going rather than being interrogated at the door; the name is
-        asked for at checkout, where it is actually needed and where they are already typing.
+        Sign-in asks for nothing more: a brand-new account goes on where it was going, and the
+        name is asked for at checkout, where it is needed. Sign-up has already asked.
       */
       // Checked again here, so the component is safe whoever renders it.
       router.push(afterSignIn(next));
@@ -113,53 +149,122 @@ export function PhoneSignIn({ next }: { next: string }) {
 
   if (!sentTo) {
     return (
-      <form className="space-y-4" onSubmit={sendCode}>
-        {/*
-          One column on a phone, two where there is room. The column widths are explicit: an
-          implicit grid track sizes to its widest child, which a country name is.
-        */}
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-[11rem_minmax(0,1fr)]">
-          <Select
-            id="phone-country"
-            label={a('countryLabel')}
-            value={country}
-            onChange={(e) => setCountry(e.target.value)}
-            required
-          >
-            <option value="">{a('countryPlaceholder')}</option>
-            {COUNTRIES.map((c) => (
-              <option key={c.code} value={c.code}>
-                {c.name} +{c.callingCode}
-              </option>
-            ))}
-          </Select>
+      <form className="space-y-4" onSubmit={sendCode} noValidate={noSms}>
+        {signUp && (
           <Input
-            id="phone"
-            label={a('phoneLabel')}
-            type="tel"
-            inputMode="tel"
-            // The national part only: the country is the field beside it.
-            autoComplete="tel-national"
+            id={ids.name}
+            label={a('fullName')}
+            autoComplete="name"
             autoFocus
-            value={national}
-            onChange={(e) => onNationalChange(e.target.value)}
+            value={fullName}
+            onChange={(e) => {
+              setFullName(e.target.value);
+              if (nameError) setNameError(null);
+            }}
+            error={nameError ?? undefined}
             required
           />
-        </div>
-        <p className="text-caption text-text-muted">{a('phoneHint')}</p>
-        {error && (
-          <p role="alert" className="text-caption text-status-error">
-            {error}
-          </p>
         )}
-        <Button
-          type="submit"
-          className="w-full"
-          loading={loading}
-          disabled={!market || national.length < 6}
-        >
-          {a('sendCode')}
-        </Button>
+        <PhoneNumberField
+          phone={phone}
+          ids={{ country: ids.country, number: ids.number }}
+          label={a('phoneLabel')}
+          countryLabel={a('countryLabel')}
+          countryPlaceholder={a('countryPlaceholder')}
+          autoFocus={!signUp}
+          required={!noSms}
+          // Known in advance that no code can go: the country stays changeable, the number box
+          // does not invite typing into a form that cannot be sent.
+          countryOnly={blocked}
+          onEdit={() => {
+            // A different country may be one we can text; let them try again.
+            setUnavailable(false);
+            setError(null);
+          }}
+        />
+
+        {noSms ? (
+          <div
+            role="status"
+            data-testid="phone-sms-unavailable"
+            className="space-y-3 rounded-md border border-border bg-background-subtle p-4"
+          >
+            <p className="text-[0.9375rem] font-medium text-text-primary">
+              {blocked && market && smsCountries && smsCountries.length > 0
+                ? a('smsUnavailableFor', { country: market.name })
+                : a('smsUnavailableNow')}
+            </p>
+            <p className="text-caption text-text-secondary">
+              {signUp ? a('smsUseEmailSignUp') : a('smsUseEmailSignIn')}
+            </p>
+            {onUseEmail && (
+              <Button type="button" className="w-full" onClick={() => onUseEmail(fullName)}>
+                {a('useEmailInstead')}
+              </Button>
+            )}
+          </div>
+        ) : (
+          <>
+            <p className="text-caption text-text-muted">
+              {signUp ? a('signUpPhoneHint') : a('phoneHint')}
+            </p>
+
+            {askConsent && (
+              /*
+                OPTIONAL, OFF BY DEFAULT, AND ITS OWN QUESTION.
+
+                Separate from accepting the terms and from any marketing. The disclosure sits
+                with the control rather than in a policy page, because somebody deciding has to
+                be able to read what they are agreeing to without leaving the form. The wording
+                is the A2P campaign's opt-in evidence and is kept word for word.
+              */
+              <div className="space-y-3 rounded-lg border border-border bg-background-subtle/40 p-4">
+                <label className="flex cursor-pointer items-start gap-3">
+                  <input
+                    type="checkbox"
+                    id={ids.consent}
+                    checked={smsConsent}
+                    onChange={(e) => setSmsConsent(e.target.checked)}
+                    className="mt-1 h-4 w-4 shrink-0 rounded border-border-input text-action-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+                  />
+                  <span className="text-[0.875rem] leading-relaxed text-text-secondary">
+                    Send me transactional text messages from ETicketsGo about my bookings, tickets,
+                    event updates, cancellations, refunds, and account or service notifications.
+                    Message frequency varies. Message and data rates may apply. Reply{' '}
+                    <strong className="font-semibold text-text-primary">STOP</strong> to opt out or{' '}
+                    <strong className="font-semibold text-text-primary">HELP</strong> for help.
+                    Consent is not a condition of purchase.
+                  </span>
+                </label>
+                <p className="text-[0.875rem] text-text-secondary">
+                  See our{' '}
+                  <Link href="/terms" className="font-medium text-action-primary hover:underline">
+                    Terms &amp; Conditions
+                  </Link>{' '}
+                  and{' '}
+                  <Link href="/privacy" className="font-medium text-action-primary hover:underline">
+                    Privacy Policy
+                  </Link>
+                  .
+                </p>
+              </div>
+            )}
+
+            {error && (
+              <p role="alert" className="text-caption text-status-error">
+                {error}
+              </p>
+            )}
+            <Button
+              type="submit"
+              className="w-full"
+              loading={loading}
+              disabled={!market || phone.national.length < 6}
+            >
+              {a('sendCode')}
+            </Button>
+          </>
+        )}
       </form>
     );
   }
@@ -186,7 +291,7 @@ export function PhoneSignIn({ next }: { next: string }) {
         </p>
       )}
       <Button type="submit" className="w-full" loading={loading} disabled={code.length !== 6}>
-        {a('verifyAndSignIn')}
+        {signUp ? a('createAccount') : a('verifyAndSignIn')}
       </Button>
       {/*
         Both ways out of a stuck state. A code that never arrived and a number typed wrong are
@@ -199,7 +304,7 @@ export function PhoneSignIn({ next }: { next: string }) {
           onClick={() => {
             setCode('');
             setError(null);
-            void sendCode(new Event('submit') as unknown as React.FormEvent);
+            void sendCode();
           }}
           className="text-action-primary underline-offset-2 hover:underline"
         >

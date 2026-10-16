@@ -510,6 +510,15 @@
     "signInInstead": "Sign in instead, or register with a different email address.",
     "signInAs": "Sign in as {email} ->",
     "registerFailed": "We could not create your account. Check your connection and try again.",
+    "signUpPhoneHint": "We will text you a 6-digit code to confirm your number.",
+    "smsUnavailableFor": "We cannot send a code by text message to {country} numbers yet.",
+    "smsUnavailableNow": "We could not send a code by text message just now.",
+    "smsUseEmailSignIn": "Sign in with your email address instead.",
+    "smsUseEmailSignUp": "Create your account with your email address instead.",
+    "useEmailInstead": "Use email instead",
+    "phoneUnavailableSignUp": "Creating an account with a mobile number is not available right now. Use your email address.",
+    "nameRequired": "Enter your name.",
+    "organizerEmailOnly": "Organizer accounts use an email address and a password, because that is how the organizer console signs you in.",
     "loading": "Loading..."
   },
   "booking": {
@@ -800,6 +809,7 @@
     "updated": "Profile updated.",
     "phoneHeading": "Mobile number",
     "phoneLead": "Used for sign-in codes and, if you ask for them, WhatsApp booking updates.",
+    "phoneSmsUnavailable": "We cannot send text messages to this country right now, so this number cannot be confirmed yet. Try again later.",
     "phoneNone": "No mobile number on this account.",
     "phoneVerified": "Verified",
     "phoneAdd": "Add a mobile number",

@@ -110,7 +110,9 @@ export class AuthService {
         throw err;
       });
 
-    await this.recordSignupSmsConsent(user.id, user.email, input);
+    if (input.smsConsent === true && input.phone) {
+      await this.recordSignupSmsConsent(user.id, user.email, input.phone, input.country);
+    }
     return this.issueTokens(user.id, user.email, user.fullName, user.roles as Role[], meta);
   }
 
@@ -132,6 +134,8 @@ export class AuthService {
    * number yet and this one is self-declared by the person creating their own account, for
    * themselves, in the same request - so it is the right subject to record, and `source`
    * says exactly where it came from.
+   * The Mobile sign-up tab passes the number its code has just PROVED instead (see
+   * `applyPhoneSignup`), which is the stronger subject of the two.
    *
    * -- WHY A FAILURE HERE DOES NOT FAIL THE SIGNUP ----------------------------------
    * The account exists and tokens are about to be issued. Throwing now would leave somebody
@@ -142,12 +146,12 @@ export class AuthService {
   private async recordSignupSmsConsent(
     userId: string,
     email: string,
-    input: RegisterInput,
+    rawPhone: string,
+    country: string | undefined,
   ): Promise<void> {
-    if (input.smsConsent !== true || !input.phone) return;
     try {
-      const phone = normalisePhone(input.phone);
-      const jurisdiction = policyJurisdictionFor(input.country);
+      const phone = normalisePhone(rawPhone);
+      const jurisdiction = policyJurisdictionFor(country);
       if (!this.consent) return;
       await this.consent.record({ userId, email }, 'sms:transactional', true, {
         source: 'CUSTOMER_SIGNUP',
@@ -351,6 +355,46 @@ export class AuthService {
    * sign-in produces exactly the same tokens, with the same claims and the same refresh
    * record, as email sign-in — rather than a second session path that drifts.
    */
+  /**
+   * What the Mobile sign-up tab adds to a proven number: a name, and the text-message agreement.
+   *
+   * ── WHY ONLY AN EMPTY NAME IS FILLED ───────────────────────────────────────────────
+   * The sign-up tab cannot know whether the number already has an account - saying so would make
+   * request-code an "is this person registered" oracle. So a number that does have one simply
+   * signs in, and its name is left alone: a sign-up form must never be a way to rename somebody
+   * else's account, or your own by accident. A phone-only account created by an earlier sign-in
+   * has an empty name, and that one is filled.
+   *
+   * ── WHY THE CONSENT IS RECORDED HERE AND NOT THROUGH THE SETTINGS ENDPOINT ──────────
+   * Provenance. The settings endpoint records `account-settings:*`, which would claim the person
+   * ticked a box on the settings screen. They ticked it on the sign-up form, and the evidence
+   * says so (`CUSTOMER_SIGNUP`), against the number the code just PROVED - a stronger subject
+   * than the self-declared number the email form records.
+   *
+   * Neither step fails the sign-in: the code is already spent and the person is owed a session.
+   */
+  async applyPhoneSignup(
+    userId: string,
+    input: { fullName?: string; smsConsent?: true; country?: string },
+  ): Promise<void> {
+    if (!input.fullName && input.smsConsent !== true) return;
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, fullName: true, phone: true },
+    });
+    if (!user) return;
+    if (input.fullName && !user.fullName.trim()) {
+      await this.prisma.user
+        .updateMany({ where: { id: user.id, fullName: '' }, data: { fullName: input.fullName } })
+        .catch((err: unknown) =>
+          this.logger.warn(`sign-up name not saved for user ${user.id}: ${(err as Error).message}`),
+        );
+    }
+    if (input.smsConsent === true && user.phone) {
+      await this.recordSignupSmsConsent(user.id, user.email, user.phone, input.country);
+    }
+  }
+
   async completePhoneSignIn(
     userId: string,
     meta: RequestMeta,

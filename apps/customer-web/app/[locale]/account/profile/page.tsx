@@ -7,12 +7,15 @@ import { useRouter } from '@/i18n/navigation';
 import { Button, Card, Input, Skeleton, errorMessage, useToast } from '@eticketsgo/web-kit';
 import { CheckCircle2, Phone } from 'lucide-react';
 import { ErrorState } from '@/components/ui';
-import { api, tokenStore } from '@/lib/api';
+import { PhoneNumberField, usePhoneNumber } from '@/components/phone-number-field';
+import { api, tokenStore, ApiRequestError } from '@/lib/api';
+import { useSmsCapability } from '@/lib/sign-in-modes';
 import { useMounted } from '@/lib/use-mounted';
 import { dateOnly } from '@/lib/format';
 
 export default function ProfilePage() {
   const t = useTranslations('storefront.profile');
+  const a = useTranslations('storefront.auth');
   const router = useRouter();
   const mounted = useMounted();
   const qc = useQueryClient();
@@ -31,8 +34,22 @@ export default function ProfilePage() {
     the reason an unverified number is never written down at all.
   */
   const [phoneStep, setPhoneStep] = useState<'idle' | 'entering' | 'confirming'>('idle');
-  const [phone, setPhone] = useState('');
+  /*
+    Country + number, opening on where the visitor is - the same field sign-in uses.
+
+    This was one free-text box, and the server refuses a number without its country code, so
+    somebody in the United States typing their own ten digits was told to "start your number
+    with the country code". The country is now its own choice, already made for them.
+  */
+  const phoneField = usePhoneNumber();
+  const phone = phoneField.e164;
   const [code, setCode] = useState('');
+  // Which countries a code can reach. Absent from an older API: then we simply try.
+  const { smsCountries } = useSmsCapability();
+  const smsBlocked =
+    smsCountries !== undefined &&
+    (smsCountries.length === 0 ||
+      (phoneField.country !== '' && !smsCountries.includes(phoneField.country)));
 
   useEffect(() => {
     if (!tokenStore.access) router.push('/login?next=/account/profile');
@@ -66,7 +83,15 @@ export default function ProfilePage() {
       setPhoneStep('confirming');
       toast.push(t('phoneSent'), 'success');
     },
-    onError: (e) => toast.push(errorMessage(e), 'error'),
+    onError: (e) =>
+      toast.push(
+        // The API's sentence is written for the sign-in page ("sign in with your email
+        // instead"), which is the wrong advice on a profile somebody is already signed into.
+        e instanceof ApiRequestError && e.code === 'SMS_UNAVAILABLE'
+          ? t('phoneSmsUnavailable')
+          : errorMessage(e),
+        'error',
+      ),
   });
 
   const confirmPhone = useMutation({
@@ -139,7 +164,7 @@ export default function ProfilePage() {
                 variant="outline"
                 className="mt-4"
                 onClick={() => {
-                  setPhone(me.data?.phone ?? '');
+                  phoneField.reset(me.data?.phone);
                   setPhoneStep('entering');
                 }}
               >
@@ -149,23 +174,27 @@ export default function ProfilePage() {
 
             {phoneStep === 'entering' && (
               <div className="mt-4 space-y-3">
-                <Input
-                  id="phone"
+                <PhoneNumberField
+                  phone={phoneField}
+                  ids={{ country: 'phone-country', number: 'phone' }}
                   label={t('phoneLabel')}
-                  value={phone}
-                  inputMode="tel"
-                  autoComplete="tel"
-                  onChange={(e) => setPhone(e.target.value)}
+                  countryLabel={a('countryLabel')}
+                  countryPlaceholder={a('countryPlaceholder')}
                 />
+                {smsBlocked && (
+                  <p role="status" className="text-caption text-text-secondary">
+                    {t('phoneSmsUnavailable')}
+                  </p>
+                )}
                 <div className="flex flex-wrap gap-2">
                   <Button
                     loading={sendCode.isPending}
                     /*
-                      A bare national number is refused by the server, so the button waits for
-                      something that could plausibly be dialled rather than spending an SMS on
-                      a typo. The server is still the judge.
+                      Waits for something that could plausibly be dialled rather than spending
+                      an SMS on a typo, and for a country a code can reach. The server is still
+                      the judge.
                     */
-                    disabled={phone.replace(/\D/g, '').length < 8}
+                    disabled={smsBlocked || !phone || phoneField.national.length < 6}
                     onClick={() => sendCode.mutate()}
                   >
                     {t('phoneSend')}
