@@ -14,7 +14,7 @@ import {
   Dialog,
   ButtonLink,
   money,
-  dateTime,
+  recordedAt,
   useToast,
   errorMessage,
   type RefundRetryResult,
@@ -156,7 +156,7 @@ export default function RefundDetail() {
             </div>
             <div className="flex justify-between">
               <dt className="text-text-muted">Requested</dt>
-              <dd className="text-text-primary">{dateTime(refund.createdAt)}</dd>
+              <dd className="text-text-primary">{recordedAt(refund.createdAt)}</dd>
             </div>
             {refund.booking?.payment && (
               <div className="flex justify-between gap-4">

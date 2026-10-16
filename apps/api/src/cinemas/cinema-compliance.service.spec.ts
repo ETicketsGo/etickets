@@ -152,7 +152,7 @@ describe('CinemaComplianceService.forCinema - what the panel may blame, and what
       upcoming: false,
     });
     expect(v.prices.find((p) => p.name === 'Gold')).toMatchObject({ ok: true, upcoming: true });
-    expect(v.summary).toMatch(/^Compliant/);
+    expect(v.summary).toMatch(/^Ticket prices are within the highest prices allowed/);
     expect(v.summary).not.toMatch(/Old test/);
   });
 
@@ -169,6 +169,25 @@ describe('CinemaComplianceService.forCinema - what the panel may blame, and what
     expect(v.onlineFee.maxMinor).toBe(0);
     expect(v.onlineFee.description).toMatch(/holds the booking fee at 0/);
     expect(v.onlineFee.description).not.toMatch(/may be charged/);
+  });
+
+  it('says in words that only ETicketsGo can add missing state price rules', async () => {
+    // The resolver's audit sentence used to be shown to the organizer as it was.
+    const svc = build(
+      {
+        status: 'POLICY_NOT_FOUND',
+        policy: null,
+        explanation:
+          'India has active cinema pricing policies but none covers Karnataka / Bengaluru on 2026-10-16.',
+      },
+      [],
+    );
+    const v = await svc.forCinema(MEMBER, 'cin-1', NOW);
+    expect(v.summary).toMatch(/^Cinema screens in this area cannot sell online yet/);
+    expect(v.summary).toMatch(/no state ticket price rules on record/);
+    expect(v.summary).toMatch(/Only ETicketsGo can add them/);
+    expect(v.summary).not.toMatch(/pricing order|none covers|2026-10-16/);
+    expect(v.summary).toMatch(/^[ -~]*$/);
   });
 
   it('keeps "may be charged" for a policy that allows a fee, with no ceiling', async () => {

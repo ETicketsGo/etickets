@@ -13,14 +13,19 @@ import {
 } from '@eticketsgo/shared-types';
 import {
   CANVAS,
+  areaOf,
+  boxOf,
   centreOf,
   clampMove,
+  clampPoint,
   coversNotably,
   freeSpot,
   keepInside,
+  labelPointOf,
   normaliseDeg,
   rectangle,
   rotate,
+  selfCrosses,
   translate,
   type Pt,
 } from './block-geometry';
@@ -480,8 +485,12 @@ export function documentProblems(doc: LayoutDocument, priceText: Record<string, 
 
 // -- Blocks on a venue map ------------------------------------------------------------------
 
-/** What a new block looks like: a plain rectangle, or the outline of a block already there. */
-export type NewBlockShape = { kind: 'RECTANGLE' } | { kind: 'COPY'; of: number };
+/**
+ * What a new block looks like: a plain rectangle, the outline of a block already there, or an
+ * outline the organizer drew on the map, where it is.
+ */
+export type NewBlockShape =
+  { kind: 'RECTANGLE' } | { kind: 'COPY'; of: number } | { kind: 'DRAWN'; points: Pt[] };
 
 export interface NewBlock {
   name: string;
@@ -528,7 +537,73 @@ export function newBlockProblem(doc: LayoutDocument, block: NewBlock): string | 
   if (doc.sections.length >= 400) return 'A layout can have at most 400 blocks.';
   if (block.shape.kind === 'COPY' && !doc.sections[block.shape.of]?.shape)
     return 'That block is not on the map, so its shape cannot be copied.';
+  if (block.shape.kind === 'DRAWN') return drawnOutlineProblem(block.shape.points);
   return null;
+}
+
+/** The smallest drawn block, in square map units: about what a fingertip covers on a phone. */
+const MIN_DRAWN_AREA = 30 * 30;
+/** The most corners a drawn outline may have (the server stores at most 400 points). */
+const MAX_DRAWN_CORNERS = 60;
+
+/**
+ * Why a drawn outline cannot become a block, or null when it can. Said in the words of the
+ * person drawing it, with what to do next.
+ */
+export function drawnOutlineProblem(points: readonly Pt[]): string | null {
+  if (points.length < 3) return 'Place at least 3 corners to make a shape.';
+  if (points.length > MAX_DRAWN_CORNERS)
+    return `A shape can have at most ${MAX_DRAWN_CORNERS} corners.`;
+  if (selfCrosses(points))
+    return 'The outline crosses itself. Undo the last corner and place it somewhere else.';
+  if (areaOf(points) < MIN_DRAWN_AREA)
+    return 'The shape is too small to tap on the map. Draw it bigger.';
+  return null;
+}
+
+/**
+ * Rows and seats a drawn block suggests, from the size it was drawn at.
+ *
+ * The map is a diagram, not to scale, so the size is read in the ROOM's own scale: the blocks
+ * already on the map say how many seats a patch of map holds, and a block drawn as big as Rear 3
+ * suggests about as many seats as Rear 3 has. The rows and seats per row follow the drawn
+ * shape's proportions (wide and shallow: few long rows). With no seated block to compare with,
+ * it falls back to the inverse of `rectangleFor`, so a block drawn the size "Add a block" draws
+ * one suggests the same rows and seats. Only a suggestion: the person types the real numbers.
+ */
+export function suggestBlockSize(
+  points: readonly Pt[],
+  doc?: LayoutDocument,
+): { rows: number; seatsPerRow: number } {
+  const b = boxOf(points);
+  const width = Math.max(1, b.maxX - b.minX);
+  const height = Math.max(1, b.maxY - b.minY);
+  const clampRows = (n: number) => Math.max(1, Math.min(120, Math.round(n)));
+  const clampSeats = (n: number) => Math.max(1, Math.min(200, Math.round(n)));
+
+  let seats = 0;
+  let ground = 0;
+  for (const s of doc?.sections ?? []) {
+    if (!s.shape || s.shape.length < 3) continue;
+    const n = s.rows.reduce((sum, r) => sum + seatsInRow(r), 0);
+    if (n === 0) continue;
+    seats += n;
+    ground += areaOf(s.shape as Pt[]);
+  }
+  if (seats > 0 && ground > 0) {
+    const total = Math.max(1, (areaOf(points) * seats) / ground);
+    // A seat is about 9 map units wide and a row 12 deep (as `rectangleFor` draws them), so the
+    // shape's proportions in those units give seats per row against rows.
+    const across = width / 9 / (height / 12);
+    const rows = clampRows(Math.sqrt(total / across));
+    return { rows, seatsPerRow: clampSeats(total / rows) };
+  }
+
+  const fill = Math.min(1, areaOf(points) / (width * height));
+  return {
+    rows: clampRows((height - 24) / 12),
+    seatsPerRow: clampSeats(((width - 30) / 9) * fill),
+  };
 }
 
 /**
@@ -546,12 +621,22 @@ export function addBlock(
   if (newBlockProblem(doc, block)) return { doc, index: -1 };
   const next = clone(doc);
   const source = block.shape.kind === 'COPY' ? doc.sections[block.shape.of] : null;
-  const outline = source?.shape
-    ? (source.shape as Pt[])
-    : rectangleFor(block.rows, block.seatsPerRow);
-  const prefer: Pt = source?.shape ? centreOf(source.shape as Pt[]) : [CANVAS / 2, CANVAS / 2];
-  const shape = freeSpot(outline, takenShapes(doc, focal), prefer);
-  const [labelX, labelY] = centreOf(shape);
+  let shape: Pt[];
+  let label: Pt;
+  if (block.shape.kind === 'DRAWN') {
+    // Drawn where the seats are, so it stays exactly there: no search for empty ground. If it
+    // covers another block, the editor says so, as it does for a block dragged onto another.
+    shape = block.shape.points.map(clampPoint);
+    label = labelPointOf(shape);
+  } else {
+    const outline = source?.shape
+      ? (source.shape as Pt[])
+      : rectangleFor(block.rows, block.seatsPerRow);
+    const prefer: Pt = source?.shape ? centreOf(source.shape as Pt[]) : [CANVAS / 2, CANVAS / 2];
+    shape = freeSpot(outline, takenShapes(doc, focal), prefer);
+    label = centreOf(shape);
+  }
+  const [labelX, labelY] = label;
   const rows: LayoutDocumentRow[] = Array.from({ length: block.rows }, (_v, r) => ({
     label: rowLabelAt(r),
     kinds: SEAT_KIND_CODE.SEAT.repeat(block.seatsPerRow),
@@ -644,10 +729,24 @@ export function blockOverlaps(
 ): string[] {
   const section = doc.sections[s];
   if (!section?.shape || section.shape.length < 3) return [];
-  const mine = section.shape as Pt[];
+  return outlineOverlaps(doc, section.shape as Pt[], focal, s);
+}
+
+/**
+ * What an outline would cover, by name - for a block not added yet, such as one just drawn, so
+ * the person hears it before they name and size it.
+ */
+export function outlineOverlaps(
+  doc: LayoutDocument,
+  mine: readonly Pt[],
+  focal: { shape: Pt[] | null; label: string } | null,
+  except = -1,
+): string[] {
+  if (mine.length < 3) return [];
   const names = doc.sections
     .filter(
-      (o, i) => i !== s && o.shape && o.shape.length >= 3 && coversNotably(mine, o.shape as Pt[]),
+      (o, i) =>
+        i !== except && o.shape && o.shape.length >= 3 && coversNotably(mine, o.shape as Pt[]),
     )
     .map((o) => o.name);
   if (focal?.shape && focal.shape.length >= 3 && coversNotably(mine, focal.shape))

@@ -84,19 +84,19 @@ test('device lifecycle: register→approve→suspend→resume→revoke, impact, 
 
   await page.getByLabel('Search').fill(devName); // isolate this device in the paginated fleet
   const row = page.getByRole('row').filter({ hasText: devName });
-  await expect(row.getByText('PENDING')).toBeVisible({ timeout: 20_000 });
+  await expect(row.getByText('Waiting for approval')).toBeVisible({ timeout: 20_000 });
 
   await row.getByRole('button', { name: 'Approve' }).click();
   await confirmDialog(page);
-  await expect(row.getByText('ACTIVE')).toBeVisible({ timeout: 20_000 });
+  await expect(row.getByText('Approved', { exact: true })).toBeVisible({ timeout: 20_000 });
 
   await row.getByRole('button', { name: 'Suspend' }).click();
   await confirmDialog(page);
-  await expect(row.getByText('SUSPENDED')).toBeVisible({ timeout: 20_000 });
+  await expect(row.getByText('Paused', { exact: true })).toBeVisible({ timeout: 20_000 });
 
   await row.getByRole('button', { name: 'Approve' }).click(); // resume
   await confirmDialog(page);
-  await expect(row.getByText('ACTIVE')).toBeVisible({ timeout: 20_000 });
+  await expect(row.getByText('Approved', { exact: true })).toBeVisible({ timeout: 20_000 });
 
   // ── Activation impact: certify + activate a scope using THIS device ──
   const devices = await (
@@ -150,11 +150,11 @@ test('device lifecycle: register→approve→suspend→resume→revoke, impact, 
   const row2 = page.getByRole('row').filter({ hasText: devName });
   await expect(row2).toBeVisible({ timeout: 20_000 });
   await row2.getByRole('button', { name: 'Revoke' }).click();
-  await expect(page.getByText(/Activation impact/)).toBeVisible();
+  await expect(page.getByText(/Offline check-in is on with this device/)).toBeVisible();
   // Confirm is disabled until a reason is given.
   await expect(page.getByRole('dialog').getByRole('button', { name: 'Confirm' })).toBeDisabled();
   await confirmDialog(page, 'Reassigning hardware after the pilot.');
-  await expect(row2.getByText('REVOKED')).toBeVisible({ timeout: 20_000 });
+  await expect(row2.getByText('Revoked', { exact: true })).toBeVisible({ timeout: 20_000 });
 
   // Server enforces the rule: the scope downgrades to NO_GO (mustDowngrade).
   expect(await activationOf(), 'revoking an in-scope device downgrades activation').toBe('NO_GO');
@@ -165,7 +165,7 @@ test('device lifecycle: register→approve→suspend→resume→revoke, impact, 
   await expect(lostRow).toBeVisible({ timeout: 20_000 });
   await lostRow.getByRole('button', { name: 'Lost', exact: true }).click();
   await confirmDialog(page, 'Device reported stolen at the venue.');
-  await expect(lostRow.getByText('REVOKED')).toBeVisible({ timeout: 20_000 });
+  await expect(lostRow.getByText('Revoked', { exact: true })).toBeVisible({ timeout: 20_000 });
 
   // ── Authorization: a customer cannot perform lifecycle actions ──
   const custToken = (await apiLogin(request, CUSTOMER)).accessToken;

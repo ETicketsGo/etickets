@@ -20,7 +20,7 @@ import {
   errorMessage,
   type CheckInOutcome,
   type BadgeTone,
-  dateTime,
+  recordedAt,
 } from '@eticketsgo/web-kit';
 import { OfflineCheckin } from '@/components/offline-checkin';
 import { timeAtVenue } from '@/components/events/event-list-model';
@@ -264,7 +264,7 @@ export default function CheckinTab() {
                 <option value="">Any session</option>
                 {event?.sessions.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {event ? timeAtVenue(s.startsAt, event.venue) : dateTime(s.startsAt)}
+                    {timeAtVenue(s.startsAt, event?.venue)}
                   </option>
                 ))}
               </Select>
@@ -396,7 +396,7 @@ export default function CheckinTab() {
                       <Badge tone={RESULT_TONE[h.outcome.result]}>
                         {h.outcome.result.replaceAll('_', ' ')}
                       </Badge>
-                      {dateTime(h.at)}
+                      {recordedAt(h.at)}
                     </span>
                   </li>
                 ))}

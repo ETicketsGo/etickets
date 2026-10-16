@@ -16,7 +16,9 @@ import {
   Skeleton,
   type AuditFilters,
   type AuditRow,
+  zoneShortName,
 } from '@eticketsgo/web-kit';
+import { viewerTimeZone } from '@eticketsgo/shared-types';
 import { accountContactText } from '../../../components/account-contact';
 import { FilterBar, useFilterDescription, useUrlFilters } from '../../../components/list-filters';
 
@@ -44,16 +46,23 @@ const ISO = (d: Date) => d.toISOString().slice(0, 10);
 const TODAY = ISO(new Date());
 const THIRTY_DAYS_AGO = ISO(new Date(Date.now() - 30 * 86_400_000));
 
+/*
+  The reader's own calendar day. Entries were grouped by their UTC date and timed on the
+  reader's clock, so in Denver an entry at 7 pm sat under the next day's heading.
+*/
+const localDay = (at: Date | string) =>
+  new Intl.DateTimeFormat('en-CA', { timeZone: viewerTimeZone() }).format(new Date(at));
+
 /** A heading a person recognises: "Today", "Yesterday", then the date. */
-function dayHeading(iso: string): string {
-  const day = iso.slice(0, 10);
-  if (day === TODAY) return 'Today';
-  if (day === ISO(new Date(Date.now() - 86_400_000))) return 'Yesterday';
-  return new Date(`${day}T12:00:00Z`).toLocaleDateString(undefined, {
+function dayHeading(day: string): string {
+  if (day === localDay(new Date())) return 'Today';
+  if (day === localDay(new Date(Date.now() - 86_400_000))) return 'Yesterday';
+  return new Date(`${day}T12:00:00Z`).toLocaleDateString('en-GB', {
     weekday: 'long',
     day: 'numeric',
     month: 'long',
     year: 'numeric',
+    timeZone: 'UTC',
   });
 }
 
@@ -70,8 +79,16 @@ function actionLabel(action: string): string {
   return [words[0][0].toUpperCase() + words[0].slice(1), ...words.slice(1)].join(' ');
 }
 
+/** "7:05 pm MDT": the reader's clock, named, like every other recorded time in the console. */
 function timeOfDay(iso: string): string {
-  return new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  const zone = viewerTimeZone();
+  const time = new Date(iso).toLocaleTimeString('en-IN', {
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: zone,
+  });
+  const name = zoneShortName(iso, zone);
+  return name ? `${time} ${name}` : time;
 }
 
 /**
@@ -84,8 +101,8 @@ function timeOfDay(iso: string): string {
 function Entry({ row }: { row: AuditRow }) {
   return (
     <li className="flex flex-wrap items-baseline gap-x-2 gap-y-1 py-2.5 text-sm">
-      {/* Wide enough for "02:58 AM" in one line: at w-12 the meridiem wrapped under the time. */}
-      <span className="w-20 shrink-0 whitespace-nowrap tabular-nums text-text-muted">
+      {/* Wide enough for "12:58 am GMT+5:30" in one line, so the zone never runs into the action. */}
+      <span className="w-32 shrink-0 whitespace-nowrap tabular-nums text-text-muted">
         {timeOfDay(row.createdAt)}
       </span>
       <span className="font-medium text-text-primary">{actionLabel(row.action)}</span>
@@ -182,7 +199,7 @@ export default function AuditPage() {
   const days = useMemo(() => {
     const groups: { day: string; rows: AuditRow[] }[] = [];
     for (const row of list.data?.data ?? []) {
-      const day = row.createdAt.slice(0, 10);
+      const day = localDay(row.createdAt);
       const last = groups[groups.length - 1];
       if (last?.day === day) last.rows.push(row);
       else groups.push({ day, rows: [row] });

@@ -13,12 +13,12 @@ import {
   Dialog,
   ErrorState,
   money,
-  dateTime,
   useToast,
   errorMessage,
   priceBreakdown,
   moneyFractionDigits,
-  zoneShortName,
+  timeAtVenue,
+  recordedAt,
   type BookingDetail,
   type FeeTaxPart,
   type RefundRow,
@@ -361,7 +361,7 @@ export default function AdminBookingDetail() {
                     {money(r.amountMinor, b.currency)}
                   </Link>
                   <p className="text-xs text-text-muted">
-                    {r.reason} - asked {dateTime(r.createdAt)}
+                    {r.reason} - asked {recordedAt(r.createdAt)}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -469,10 +469,7 @@ export default function AdminBookingDetail() {
 
 /** A show time at the venue's clock, with the zone named. Unknown zone: the reader's, said so. */
 function showTime(iso: string, zone?: string | null): string {
-  if (!zone) return `${dateTime(iso)} (your time)`;
-  const when = dateTime(iso, 'en-IN', zone);
-  const abbrev = zoneShortName(iso, zone);
-  return abbrev ? `${when} ${abbrev}` : when;
+  return timeAtVenue(iso, zone ?? null);
 }
 
 function Row({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
