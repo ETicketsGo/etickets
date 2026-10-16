@@ -118,7 +118,7 @@ function AskDialog({
           organizationId: activeOrg.id,
           organizationName: activeOrg.name,
           // Where the platform team sets it, so the request carries its own way to act.
-          adminPath: `/admin/cinemas?cinema=${cinemaId}`,
+          adminPath: `/admin/cinema-pricing/legal-types?cinema=${cinemaId}`,
         },
       });
       setMessage('');

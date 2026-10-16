@@ -11,6 +11,7 @@ import {
   Select,
   Dialog,
   PageHeader,
+  ButtonLink,
   ErrorState,
   useToast,
   errorMessage,
@@ -509,7 +510,18 @@ export default function CinemaPricingPolicies() {
       <PageHeader
         title="Cinema pricing policies"
         description="Government orders as configuration. History is superseded, never edited."
-        action={mayEdit ? <Button onClick={() => setDrafting(true)}>New policy</Button> : undefined}
+        action={
+          <div className="flex flex-wrap gap-2">
+            {/*
+              Each cinema's legal type is what these policies match on (local body, format,
+              cooling), so it is set from here rather than from a nav entry of its own.
+            */}
+            <ButtonLink href="/admin/cinema-pricing/legal-types" variant="secondary">
+              Cinema legal types
+            </ButtonLink>
+            {mayEdit && <Button onClick={() => setDrafting(true)}>New policy</Button>}
+          </div>
+        }
       />
 
       {!mayEdit && <p className="text-sm text-text-secondary">{READ_ONLY_NOTE}</p>}

@@ -41,7 +41,8 @@ import {
  * no screen to do it from. This is that screen. Each change needs a reason and is recorded with
  * who made it and what it was before, in the same transaction as the change.
  *
- * An organizer's request arrives in Support with a link here (`?cinema=<id>`), which opens the
+ * Reached from Cinema pricing (the policies match on these fields), not from a nav entry of its
+ * own. An organizer's request carries this page's address with `?cinema=<id>`, which opens that
  * cinema straight away.
  */
 export default function AdminCinemas() {
@@ -129,6 +130,10 @@ export default function AdminCinemas() {
   return (
     <div className="space-y-6">
       <PageHeader
+        breadcrumbs={[
+          { label: 'Cinema pricing', href: '/admin/cinema-pricing' },
+          { label: 'Cinema legal types' },
+        ]}
         title="Cinema legal types"
         description="Local body, format and cooling for each cinema. A state's price order uses them to set the highest ticket price, so only the platform team sets them. Every change is recorded."
       />
