@@ -104,7 +104,7 @@ export default function AcceptInvitePage() {
       <main className="grid min-h-screen place-items-center p-6">
         <Card className="w-full max-w-md">
           <h1 className="text-title font-semibold text-text-primary">
-            This invitation can&rsquo;t be used
+            This invitation cannot be used
           </h1>
           {/*
             The server's own words. It distinguishes expired from spent from withdrawn, and
@@ -134,7 +134,7 @@ export default function AcceptInvitePage() {
           Join {invite.organizationName}
         </h1>
         <p className="mt-2 text-[0.9375rem] text-text-secondary">
-          You&rsquo;ve been invited as <strong>{roleLabel}</strong>, for {invite.email}.
+          You have been invited as <strong>{roleLabel}</strong>, for {invite.email}.
         </p>
 
         <div className="mt-5 space-y-4">
@@ -163,7 +163,7 @@ export default function AcceptInvitePage() {
           ) : (
             <p className="rounded-md border border-border bg-background-canvas p-3 text-caption text-text-secondary">
               You already have an ETicketsGo account for this address. Accepting adds this
-              organization to it — your password does not change.
+              organization to it. Your password does not change.
             </p>
           )}
 

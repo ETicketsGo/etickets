@@ -14,7 +14,7 @@ import {
   StatusBadge,
   useToast,
   errorMessage,
-  dateTime,
+  timeAtVenue,
   type Column,
   type EventSession,
   DateTimeField,
@@ -129,8 +129,8 @@ export default function SessionsTab() {
     return s.status === 'CANCELLED' ? 'cancelled' : 'ended';
   };
   const columns: Column<EventSession>[] = [
-    { key: 'start', header: 'Starts', render: (s) => dateTime(s.startsAt, undefined, venueTz) },
-    { key: 'end', header: 'Ends', render: (s) => dateTime(s.endsAt, undefined, venueTz) },
+    { key: 'start', header: 'Starts', render: (s) => timeAtVenue(s.startsAt, venueTz ?? null) },
+    { key: 'end', header: 'Ends', render: (s) => timeAtVenue(s.endsAt, venueTz ?? null) },
     {
       key: 'seating',
       header: 'Seating',
@@ -301,7 +301,7 @@ export default function SessionsTab() {
         rooms={venueRooms}
         roomsFailed={rooms.isError}
         roomsLoading={rooms.isLoading}
-        whenLabel={editing ? dateTime(editing.startsAt, undefined, venueTz) : ''}
+        whenLabel={editing ? timeAtVenue(editing.startsAt, venueTz ?? null) : ''}
         onClose={() => setEditing(null)}
       />
       <EditSessionTimeDialog
@@ -314,7 +314,7 @@ export default function SessionsTab() {
       <CancelSessionDialog
         eventId={id}
         session={cancelling}
-        whenLabel={cancelling ? dateTime(cancelling.startsAt, undefined, venueTz) : ''}
+        whenLabel={cancelling ? timeAtVenue(cancelling.startsAt, venueTz ?? null) : ''}
         sold={
           cancelling
             ? sessionSeating({ session: cancelling, space: null, layout: null, now: Date.now() })

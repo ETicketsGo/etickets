@@ -16,14 +16,13 @@ import {
   ErrorState,
   useToast,
   errorMessage,
-  dateTime,
-  zoneShortName,
+  timeAtVenue,
   money,
   termsList,
 } from '@eticketsgo/web-kit';
 import { StatusBadge } from '@/components/status-badge';
 import { feeModeWords, statusWords } from '@/lib/words';
-import { taxCategoryLabel, venueZone } from '@eticketsgo/shared-types';
+import { taxCategoryLabel } from '@eticketsgo/shared-types';
 
 export default function AdminEventDetail() {
   const { id } = useParams<{ id: string }>();
@@ -130,13 +129,7 @@ export default function AdminEventDetail() {
 
   // The show time at the venue, with its zone said, like every other screen. Where the venue
   // has no known zone the reader's own is used and called theirs, not passed off as the venue's.
-  const zone = venueZone(event.venue.timezone, event.venue.country) ?? undefined;
-  const showTime = (iso: string) => {
-    const when = dateTime(iso, 'en-IN', zone);
-    if (!zone) return `${when} (your time)`;
-    const abbrev = zoneShortName(iso, zone);
-    return abbrev ? `${when} ${abbrev}` : when;
-  };
+  const showTime = (iso: string) => timeAtVenue(iso, event.venue);
 
   return (
     <div className="space-y-6">

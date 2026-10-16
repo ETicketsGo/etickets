@@ -69,7 +69,7 @@ test.describe('adding a staff member', () => {
 
     // And they are listed as not yet joined, rather than silently looking like a member.
     // Regex, not a literal: the page renders a typographic apostrophe, not an ASCII one.
-    await expect(page.getByText(/Hasn.t joined yet/).first()).toBeVisible();
+    await expect(page.getByText(/Has not joined yet/).first()).toBeVisible();
   });
 
   test('2: before accepting, the account cannot sign in at all', async ({ request }) => {

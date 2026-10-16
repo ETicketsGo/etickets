@@ -1,3 +1,5 @@
+import { countryDisplay } from '@eticketsgo/web-kit';
+
 /**
  * A cinema's legal type in plain words, for the admin legal-type screen.
  *
@@ -37,8 +39,22 @@ export function legalTypeSummary(t: {
   if (!t.localBodyType && !t.cinemaFormat && !t.climateType) return null;
   const word = (v: string | null, gap: string) => (v ? (LABELS[v] ?? v) : gap);
   return [
-    word(t.localBodyType, 'local body not set'),
-    word(t.cinemaFormat, 'format not set'),
-    word(t.climateType, 'cooling not set'),
+    word(t.localBodyType, 'Local body not set'),
+    word(t.cinemaFormat, 'Format not set'),
+    word(t.climateType, 'Cooling not set'),
   ].join(', ');
+}
+
+/**
+ * Where a cinema is, as one line: "Bengaluru, Karnataka, India".
+ *
+ * The country is named through the market, never shown as stored. Rows typed before the
+ * dropdowns existed say "IN" and newer ones "India", and the list read as two countries.
+ */
+export function placeLine(c: {
+  city?: string | null;
+  region?: string | null;
+  country?: string | null;
+}): string {
+  return [c.city, c.region, countryDisplay(c.country)?.name].filter(Boolean).join(', ');
 }

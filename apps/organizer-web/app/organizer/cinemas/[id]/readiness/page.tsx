@@ -66,7 +66,7 @@ export default function LaunchReadinessPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title={report ? `${report.cinemaName} — launch readiness` : 'Launch readiness'}
+        title={report ? `${report.cinemaName}: launch readiness` : 'Launch readiness'}
         description="What is configured, what needs review, and what is stopping this cinema opening."
         breadcrumbs={[
           { label: 'Venues & seating', href: '/organizer/venues' },
