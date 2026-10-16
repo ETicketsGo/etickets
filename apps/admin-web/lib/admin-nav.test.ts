@@ -31,7 +31,18 @@ function adminRoutes(): string[] {
 describe('the admin menu', () => {
   it('has a way in to every admin page', () => {
     const hrefs = new Set(allNavLinks().map((l) => l.href));
-    const missing = adminRoutes().filter((r) => !hrefs.has(r));
+    /*
+      A page reached from a button on its parent page, named here so it is a decision and not
+      an oversight. Cinema legal types lives under Cinema pricing: the policies match on those
+      fields, and one more menu link made the open configuration group taller than a 768px
+      window (console-navigation e2e).
+    */
+    const FROM_PARENT: Record<string, string> = {
+      '/admin/cinema-pricing/legal-types': '/admin/cinema-pricing',
+    };
+    const missing = adminRoutes().filter(
+      (r) => !hrefs.has(r) && !(FROM_PARENT[r] && hrefs.has(FROM_PARENT[r])),
+    );
     expect(missing).toEqual([]);
   });
 

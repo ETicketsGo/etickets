@@ -278,7 +278,9 @@ export const ADMIN_NAV: AdminNavGroup[] = [
         href: '/admin/cinema-pricing',
         icon: Percent,
         needs: 'PLATFORM_CONFIG_READ',
-        keywords: ['ceilings', 'regulated'],
+        // Its page links to Cinema legal types (local body, format, cooling), which has no menu
+        // entry of its own; these words find it from quick navigation.
+        keywords: ['ceilings', 'regulated', 'legal type', 'local body', 'multiplex'],
       },
       {
         label: 'Payment config',

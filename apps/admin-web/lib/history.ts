@@ -32,6 +32,7 @@ export interface HistoryLine {
 }
 
 const SENTENCES: Record<string, string> = {
+  CINEMA_LEGAL_TYPE_CHANGED: 'Legal type changed',
   BOOKING_CREATED: 'Booking started',
   BOOKING_CONFIRMED: 'Paid and confirmed. Tickets issued',
   BOOKING_CANCELLED: 'Booking cancelled',
@@ -80,6 +81,9 @@ function text(value: unknown): string | null {
 export function historyLine(entry: HistoryEntry): HistoryLine {
   const m = entry.metadata ?? {};
   const details: string[] = [];
+  // A before -> after an action wrote in words (a cinema's legal type), read out as written.
+  const change = text(m.change);
+  if (change) details.push(change);
   const reason = text(m.reason) ?? text(m.note);
   if (reason) details.push(`Reason: ${reason}`);
   const via = text(m.via);

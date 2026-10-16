@@ -39,6 +39,20 @@ describe('a record history', () => {
     expect(line.who).toBe('System');
   });
 
+  it('reads a cinema legal type change as before -> after, with the reason', () => {
+    const line = historyLine(
+      entry('CINEMA_LEGAL_TYPE_CHANGED', '2026-10-16T09:00:00Z', {
+        change: 'not set, Multiplex, not set -> Municipal corporation, Multiplex, Air-conditioned',
+        reason: 'Licence copy received',
+        before: { localBodyType: null },
+      }),
+    );
+    expect(line.text).toBe('Legal type changed');
+    expect(line.detail).toBe(
+      'not set, Multiplex, not set -> Municipal corporation, Multiplex, Air-conditioned. Reason: Licence copy received',
+    );
+  });
+
   it('leaves out the record of an admin opening the page, which is not something that happened to it', () => {
     const lines = historyLines([
       entry('PLATFORM_ORGANIZER_ACCESS_ALLOWED', '2026-10-15T09:00:00Z', {

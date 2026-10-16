@@ -2183,6 +2183,15 @@ export const api = {
       request<CinemaPricingPolicyRow>(`/admin/cinema-pricing-policies/${id}/disable`, {
         method: 'POST',
       }),
+    /** Every cinema with where it is (from its venue) and its legal type. */
+    cinemas: (params: { q?: string; page?: number; pageSize?: number } = {}) =>
+      request<Paged<AdminCinemaRow>>(`/admin/cinemas${qs(params)}`),
+    /** Set a cinema's legal type. Every field is sent, null to clear; audited with the reason. */
+    setCinemaLegalType: (id: string, body: CinemaLegalTypeBody) =>
+      request<AdminCinemaRow>(`/admin/cinemas/${id}/legal-type`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      }),
     organizerLegalIdentity: (id: string) =>
       request<OrganizationLegalIdentity>(`/admin/organizers/${id}/legal-identity`),
     updateOrganizerLegalIdentity: (id: string, patch: Partial<OrganizationLegalIdentityFields>) =>
@@ -3271,6 +3280,33 @@ export interface AttendeeSummary {
 }
 
 /** Everything an invoice must name about the seller. All optional until a market needs it. */
+/**
+ * A cinema as the admin legal-type screen lists it. Where it is comes from its venue first.
+ * The legal type (local body, format, cooling) decides which price limit applies, so only the
+ * platform team sets it.
+ */
+export interface AdminCinemaRow {
+  id: string;
+  name: string;
+  organization: { id: string; name: string };
+  venueName: string | null;
+  city: string | null;
+  region: string | null;
+  country: string | null;
+  localBodyType: LocalBodyType | null;
+  cinemaFormat: CinemaFormat | null;
+  climateType: ClimateType | null;
+  updatedAt: string;
+}
+
+export interface CinemaLegalTypeBody {
+  localBodyType: LocalBodyType | null;
+  cinemaFormat: CinemaFormat | null;
+  climateType: ClimateType | null;
+  /** Kept on the audit entry. At least 5 characters. */
+  reason: string;
+}
+
 /** One row of the cinema pricing rule table, as the admin console reads it. */
 export interface CinemaPricingPolicyRow {
   id: string;
