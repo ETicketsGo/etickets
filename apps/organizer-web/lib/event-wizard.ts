@@ -714,11 +714,42 @@ export function initialWizardDraft(seed: WizardSeed = {}): WizardDraft {
         sessionIndex: 0,
         name: seed.ticketName ?? 'General',
         priceMajor: '',
-        quantityTotal: '100',
+        quantityTotal: DEFAULT_TICKET_QUANTITY,
         maxPerOrder: '6',
       },
     ],
   };
+}
+
+/** The quantity the first ticket row opens with, before any space is known. */
+export const DEFAULT_TICKET_QUANTITY = '100';
+
+/**
+ * The opening quantity, brought down to what a standing space holds.
+ *
+ * The first row opens at 100 before the organizer has said where the event is. Choosing a lawn
+ * that holds 50 then showed 100 tickets for it beside a warning that 100 is too many: the form
+ * proposing a number it would refuse. Only a quantity the organizer has not changed is lowered,
+ * and only where it is the session's one ticket row - a number they typed is theirs, and with
+ * several rows there is no right way to split the space, so the warning asks them instead.
+ * Returns the same array when nothing changes, so it is safe to call on every render.
+ */
+export function fitDefaultQuantity(tickets: TicketDraft[], capacity: number | null): TicketDraft[] {
+  if (capacity == null || !Number.isFinite(capacity) || capacity < 1) return tickets;
+  if (capacity >= Number(DEFAULT_TICKET_QUANTITY)) return tickets;
+  let changed = false;
+  const next = tickets.map((t) => {
+    const alone = tickets.filter((x) => x.sessionIndex === t.sessionIndex).length === 1;
+    if (!alone || t.quantityTotal !== DEFAULT_TICKET_QUANTITY) return t;
+    changed = true;
+    const max = Number(t.maxPerOrder);
+    return {
+      ...t,
+      quantityTotal: String(capacity),
+      maxPerOrder: Number.isFinite(max) && max > capacity ? String(capacity) : t.maxPerOrder,
+    };
+  });
+  return changed ? next : tickets;
 }
 
 /**

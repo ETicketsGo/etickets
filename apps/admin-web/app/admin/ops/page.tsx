@@ -18,7 +18,7 @@ import {
   Skeleton,
   useToast,
   errorMessage,
-  dateTime,
+  recordedAt,
   titleCase,
   type BadgeTone,
   type Column,
@@ -90,7 +90,7 @@ function DependencyTile({
  * missing backup is what turns Overall to Degraded, so the page has to say which it is.
  */
 function BackupTile({ backup }: { backup: Parameters<typeof backupHealthView>[0] }) {
-  const v = backupHealthView(backup, dateTime);
+  const v = backupHealthView(backup, recordedAt);
   if (!v) return null;
   return (
     <div className="rounded-lg border border-border bg-background-surface p-4">
@@ -122,7 +122,7 @@ function OpsAlertsLine({ alerts }: { alerts?: OpsAlertsStatus }) {
           ? `Emailed to ${alerts.recipients} ${alerts.recipients === 1 ? 'address' : 'addresses'} (${alerts.emailProvider}).`
           : (alerts.reason ?? 'Alerts are written to the log only.')}{' '}
         {alerts.lastAlertAt
-          ? `Last alert: ${dateTime(alerts.lastAlertAt)}${alerts.lastAlertKind ? ` (${alerts.lastAlertKind})` : ''}.`
+          ? `Last alert: ${recordedAt(alerts.lastAlertAt)}${alerts.lastAlertKind ? ` (${alerts.lastAlertKind})` : ''}.`
           : 'No alert has been sent yet.'}
       </p>
     </div>
@@ -253,7 +253,7 @@ function PilotCard({ pilot }: { pilot?: OpsPilotStatus | null }) {
         )}
         <p className="text-sm text-text-secondary [overflow-wrap:anywhere]">
           {last
-            ? `Last automatic pause: ${dateTime(last.at)}${last.trigger ? ` (${last.trigger})` : ''}, event ${last.eventId ?? 'unknown'}.`
+            ? `Last automatic pause: ${recordedAt(last.at)}${last.trigger ? ` (${last.trigger})` : ''}, event ${last.eventId ?? 'unknown'}.`
             : 'No event has been paused automatically.'}
         </p>
       </div>
@@ -392,7 +392,7 @@ export default function AdminOps() {
         <div className="space-y-1">
           <p className="tabular-nums text-text-primary">{r.attemptsMade}</p>
           <p className="text-caption text-text-muted">
-            {r.timestamp ? dateTime(r.timestamp) : 'no timestamp'}
+            {r.timestamp ? recordedAt(r.timestamp) : 'no timestamp'}
           </p>
         </div>
       ),

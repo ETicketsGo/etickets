@@ -19,7 +19,7 @@ import {
   type GroupSelection,
   EmptyState,
   money,
-  dateTime,
+  recordedAt,
   type Column,
   type AdminBookingRow,
 } from '@eticketsgo/web-kit';
@@ -140,7 +140,7 @@ export default function AdminBookings() {
       header: 'Made',
       className: 'whitespace-nowrap tabular-nums',
       render: (b) => (
-        <span className="text-caption text-text-secondary">{dateTime(b.createdAt)}</span>
+        <span className="text-caption text-text-secondary">{recordedAt(b.createdAt)}</span>
       ),
       sortable: true,
       sortValue: (b) => b.createdAt,
@@ -293,7 +293,7 @@ function BookingQuickLook({
                 ? moneyStatusLabel('payment', booking.paymentStatus)
                 : 'No payment'}
             </QuickFact>
-            <QuickFact label="Made">{dateTime(booking.createdAt)}</QuickFact>
+            <QuickFact label="Made">{recordedAt(booking.createdAt)}</QuickFact>
           </dl>
         </div>
       )}

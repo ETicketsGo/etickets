@@ -19,7 +19,7 @@ import {
   Select,
   Skeleton,
   StatusPill,
-  dateTime,
+  timeAtVenue,
   errorMessage,
   money,
   type LayoutTemplateFitMode,
@@ -415,7 +415,7 @@ export default function SpacePage() {
                         {s.eventTitle}
                         <span className="font-normal text-text-secondary">
                           {' '}
-                          - {dateTime(s.startsAt, undefined, space.venue?.timezone ?? undefined)}
+                          - {timeAtVenue(s.startsAt, space.venue ?? null)}
                         </span>
                       </Link>
                       {s.overCapacityBy > 0 ? (
@@ -490,7 +490,9 @@ export default function SpacePage() {
                       <Badge tone={STATUS_TONE[l.status]}>{STATUS_WORD[l.status]}</Badge>
                       {l.id === activeId ? <Badge tone="info">In use today</Badge> : null}
                       {isFuture(l, now) ? (
-                        <Badge tone="warning">Starts {dateTime(l.effectiveFrom as string)}</Badge>
+                        <Badge tone="warning">
+                          Starts {timeAtVenue(l.effectiveFrom as string, space.venue ?? null)}
+                        </Badge>
                       ) : null}
 
                       <span className="text-sm text-text-muted">
@@ -819,7 +821,7 @@ export default function SpacePage() {
               This builds a draft you can then change seat by seat. Nothing changes for buyers until
               you publish it.
               {kindOption
-                ? ` Showing the layouts that fit a ${kindOption.label.toLowerCase()}.`
+                ? ` Showing the layouts that fit ${withArticle(kindOption.label.toLowerCase())}.`
                 : ''}
             </p>
             <div className="grid gap-4 sm:grid-cols-2">
@@ -1165,4 +1167,9 @@ function Comparison({ data }: { data: import('@eticketsgo/web-kit').LayoutCompar
       </p>
     </div>
   );
+}
+
+/** "a hall or theatre", "an arena or stadium": the article a reader expects before the kind. */
+function withArticle(noun: string): string {
+  return `${/^[aeiou]/i.test(noun) ? 'an' : 'a'} ${noun}`;
 }

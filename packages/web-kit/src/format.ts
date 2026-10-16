@@ -15,6 +15,8 @@ import {
   dateTime,
   dateOnly,
   zoneAbbrev,
+  venueZone,
+  viewerTimeZone,
 } from '@eticketsgo/shared-types';
 
 export {
@@ -152,4 +154,55 @@ export function zoneShortName(iso: string, zone: string): string {
     }
   });
   return names.find((n) => n && !/^(GMT|UTC)/.test(n)) ?? (names[0] || zoneAbbrev(iso, zone));
+}
+
+/** Where a show is: anything that carries the venue's zone, or the zone itself. */
+export type ShowPlace = { timezone?: string | null; country?: string | null } | string | null;
+
+/**
+ * A show or session start as the time AT THE VENUE, with the zone's short name:
+ * "20 Nov 2026, 7:00 pm IST".
+ *
+ * -- THE DEFECT THIS EXISTS FOR ---------------------------------------------------------
+ * `dateTime(startsAt)` with no zone formats in the READER's clock. On QA a Mountain-time
+ * organizer read a 7:00 pm Bengaluru show as "20 Nov 2026, 6:30 am" on the bookings search
+ * and in the check-in device list, with nothing on the screen saying whose clock that was.
+ * Every console screen that names a show time uses this instead, so the console reads the
+ * time the ticket prints, the storefront shows and the door staff work to.
+ *
+ * The zone is the venue's own, else the only zone its country has. When neither is known the
+ * reader's clock is used and said to be theirs - never passed off as the venue's.
+ */
+export function timeAtVenue(
+  value: string | Date | null | undefined,
+  place: ShowPlace | undefined,
+): string {
+  if (!value) return '-';
+  const zone =
+    typeof place === 'string'
+      ? place.trim() || null
+      : venueZone(place?.timezone ?? null, place?.country ?? null);
+  if (!zone) return `${dateTime(value, 'en-IN')} (your time)`;
+  const iso = new Date(value).toISOString();
+  const name = zoneShortName(iso, zone);
+  const when = dateTime(value, 'en-IN', zone);
+  return name ? `${when} ${name}` : when;
+}
+
+/**
+ * When something HAPPENED - an audit line, a created-at, a last-seen - on the reader's own
+ * clock, named: "16 Oct 2026, 9:12 am MDT".
+ *
+ * Not a show time, so it is not moved to any venue: "when did this refund get asked for" is
+ * best read on the clock of the person asking. But it carries its zone's name, so it cannot be
+ * mistaken for a venue time sitting next to one on the same screen.
+ */
+export function recordedAt(
+  value: string | Date | null | undefined,
+  zone: string = viewerTimeZone(),
+): string {
+  if (!value) return '-';
+  const when = dateTime(value, 'en-IN', zone);
+  const name = zoneShortName(new Date(value).toISOString(), zone);
+  return name ? `${when} ${name}` : when;
 }

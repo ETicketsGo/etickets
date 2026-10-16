@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import {
   api,
-  dateTime,
+  recordedAt,
   EmptyState,
   ErrorState,
   IconTile,
@@ -96,7 +96,7 @@ export function RecentActivity() {
                       {a.organizationName ? ` - ${a.organizationName}` : ''}
                     </p>
                     <p className="text-caption tabular-nums text-text-muted">
-                      {dateTime(a.createdAt)}
+                      {recordedAt(a.createdAt)}
                     </p>
                   </div>
                 </li>

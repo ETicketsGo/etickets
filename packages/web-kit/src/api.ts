@@ -6296,7 +6296,13 @@ export interface AdminEventRow {
   updatedAt: string;
   organization: { name: string };
   /** `country` is as stored - any spelling; name it with `countryDisplay`. */
-  venue: { name: string; city: string; country?: string | null };
+  venue: {
+    name: string;
+    city: string;
+    country?: string | null;
+    /** The venue's zone; its dates are read on its calendar. Absent from an older API. */
+    timezone?: string | null;
+  };
   /**
    * When the event actually happens, as opposed to when its row was last edited.
    *
