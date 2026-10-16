@@ -327,7 +327,7 @@ function FailedRefundPanel({
             {manualReviewReason}
             {manualReviewAt && (
               <span className="mt-1 block text-caption text-text-secondary">
-                Held since {dateTime(manualReviewAt)}
+                Held since {recordedAt(manualReviewAt)}
               </span>
             )}
           </p>
