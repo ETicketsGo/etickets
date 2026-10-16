@@ -152,7 +152,7 @@ describe('CinemaComplianceService.forCinema - what the panel may blame, and what
       upcoming: false,
     });
     expect(v.prices.find((p) => p.name === 'Gold')).toMatchObject({ ok: true, upcoming: true });
-    expect(v.summary).toMatch(/^Compliant/);
+    expect(v.summary).toMatch(/^Ticket prices are within the highest prices allowed/);
     expect(v.summary).not.toMatch(/Old test/);
   });
 
@@ -169,6 +169,25 @@ describe('CinemaComplianceService.forCinema - what the panel may blame, and what
     expect(v.onlineFee.maxMinor).toBe(0);
     expect(v.onlineFee.description).toMatch(/holds the booking fee at 0/);
     expect(v.onlineFee.description).not.toMatch(/may be charged/);
+  });
+
+  it('says in words that only ETicketsGo can add missing state price rules', async () => {
+    // The resolver's audit sentence used to be shown to the organizer as it was.
+    const svc = build(
+      {
+        status: 'POLICY_NOT_FOUND',
+        policy: null,
+        explanation:
+          'India has active cinema pricing policies but none covers Karnataka / Bengaluru on 2026-10-16.',
+      },
+      [],
+    );
+    const v = await svc.forCinema(MEMBER, 'cin-1', NOW);
+    expect(v.summary).toMatch(/^Cinema screens in this area cannot sell online yet/);
+    expect(v.summary).toMatch(/no state ticket price rules on record/);
+    expect(v.summary).toMatch(/Only ETicketsGo can add them/);
+    expect(v.summary).not.toMatch(/pricing order|none covers|2026-10-16/);
+    expect(v.summary).toMatch(/^[ -~]*$/);
   });
 
   it('keeps "may be charged" for a policy that allows a fee, with no ceiling', async () => {
@@ -291,11 +310,12 @@ describe('CinemaComplianceService.forCinema - INVALID_CINEMA_CLASSIFICATION name
     expect(v.blocksPublishing).toBe(true);
     expect(v.reasonCode).toBe('SEAT_CLASS_UNMAPPED');
     expect(v.unmappedSeatCategories).toEqual(['Platinum Executive']);
-    expect(v.summary).toMatch(/Seats in "Platinum Executive" cannot be sold yet/);
-    expect(v.summary).toMatch(/no regulatory seat class/);
+    expect(v.summary).toMatch(/^Seat category Platinum Executive has no seat class yet/);
+    expect(v.summary).toMatch(/Andhra Pradesh sets the highest price for each seat class/);
     expect(v.summary).toMatch(/Seat classes/);
-    expect(v.summary).not.toMatch(/no type recorded/);
-    expect(v.summary).not.toMatch(/local body/);
+    // The place has rules and this cinema's legal type is on record: nothing else to blame.
+    expect(v.summary).not.toMatch(/legal type/);
+    expect(v.summary).not.toMatch(/ETicketsGo/);
   });
 
   it('keeps the classification message for a cinema that is genuinely unclassified', async () => {
@@ -305,7 +325,8 @@ describe('CinemaComplianceService.forCinema - INVALID_CINEMA_CLASSIFICATION name
     expect(v.blocksPublishing).toBe(true);
     expect(v.reasonCode).toBe('CINEMA_NOT_CLASSIFIED');
     expect(v.unmappedSeatCategories).toEqual([]);
-    expect(v.summary).toMatch(/no type recorded/);
+    expect(v.summary).toMatch(/legal type \(local body, format and cooling\)/);
+    expect(v.summary).toMatch(/Only ETicketsGo can set it/);
   });
 
   it('names the seat class first and the missing classification after, when both are wrong', async () => {
@@ -313,8 +334,10 @@ describe('CinemaComplianceService.forCinema - INVALID_CINEMA_CLASSIFICATION name
     const v = await svc.forCinema(MEMBER, 'cin-1', NOW);
     expect(v.blocksPublishing).toBe(true);
     expect(v.reasonCode).toBe('SEAT_CLASS_UNMAPPED');
-    expect(v.summary).toMatch(/"Platinum Executive"/);
-    expect(v.summary).toMatch(/also needs its local body, format and climate type/);
+    expect(v.summary).toMatch(/^Seat category Platinum Executive has no seat class yet/);
+    // The second wall, named now: mapping alone would not open sales.
+    expect(v.summary).toMatch(/That alone will not open sales/);
+    expect(v.summary).toMatch(/legal type, which only ETicketsGo can set/);
   });
 
   it('reports no reason code for a cinema that sells', async () => {

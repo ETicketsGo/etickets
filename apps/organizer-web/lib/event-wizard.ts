@@ -176,6 +176,12 @@ export interface WizardAnswers {
    * instead of creating an event whose seats are in a different building.
    */
   venueSeatMaps?: readonly string[] | null;
+  /**
+   * The standing space a general-admission event is held in, when the organizer chose one.
+   * Its capacity caps what each session puts on sale - the server refuses more, so the form
+   * says so first.
+   */
+  standingSpace?: { name: string; capacity: number } | null;
 }
 
 export type FieldErrors = Record<string, string>;
@@ -430,6 +436,15 @@ export function validateStep(stepId: WizardStepId, a: WizardAnswers): FieldError
             e[`t${i}Max`] = 'Max per order cannot be more than the quantity on sale.';
         }
       });
+      // A standing space holds so many people; one session cannot offer more than that.
+      const space = a.standingSpace;
+      if (space) {
+        capacityBySession(a).forEach((total, i) => {
+          if (total > space.capacity)
+            e[`s${i}Cap`] =
+              `${space.name} holds ${space.capacity.toLocaleString('en-US')} people. The tickets on sale add up to ${total.toLocaleString('en-US')}. Lower a quantity.`;
+        });
+      }
     }
   }
   return e;
@@ -451,7 +466,7 @@ export function describeProblems(
   nouns: { session: string; ticket: string } = { session: 'Session', ticket: 'Ticket type' },
 ): string[] {
   return Object.entries(errors).map(([key, message]) => {
-    let m = /^s(\d+)(Start|End|Seat)$/.exec(key);
+    let m = /^s(\d+)(Start|End|Seat|Cap)$/.exec(key);
     if (m) return `${nouns.session} ${Number(m[1]) + 1}: ${message}`;
     m = /^t(\d+)(Name|Price|Qty|Max)$/.exec(key);
     if (m) return `${nouns.ticket} ${Number(m[1]) + 1}: ${message}`;
@@ -699,11 +714,42 @@ export function initialWizardDraft(seed: WizardSeed = {}): WizardDraft {
         sessionIndex: 0,
         name: seed.ticketName ?? 'General',
         priceMajor: '',
-        quantityTotal: '100',
+        quantityTotal: DEFAULT_TICKET_QUANTITY,
         maxPerOrder: '6',
       },
     ],
   };
+}
+
+/** The quantity the first ticket row opens with, before any space is known. */
+export const DEFAULT_TICKET_QUANTITY = '100';
+
+/**
+ * The opening quantity, brought down to what a standing space holds.
+ *
+ * The first row opens at 100 before the organizer has said where the event is. Choosing a lawn
+ * that holds 50 then showed 100 tickets for it beside a warning that 100 is too many: the form
+ * proposing a number it would refuse. Only a quantity the organizer has not changed is lowered,
+ * and only where it is the session's one ticket row - a number they typed is theirs, and with
+ * several rows there is no right way to split the space, so the warning asks them instead.
+ * Returns the same array when nothing changes, so it is safe to call on every render.
+ */
+export function fitDefaultQuantity(tickets: TicketDraft[], capacity: number | null): TicketDraft[] {
+  if (capacity == null || !Number.isFinite(capacity) || capacity < 1) return tickets;
+  if (capacity >= Number(DEFAULT_TICKET_QUANTITY)) return tickets;
+  let changed = false;
+  const next = tickets.map((t) => {
+    const alone = tickets.filter((x) => x.sessionIndex === t.sessionIndex).length === 1;
+    if (!alone || t.quantityTotal !== DEFAULT_TICKET_QUANTITY) return t;
+    changed = true;
+    const max = Number(t.maxPerOrder);
+    return {
+      ...t,
+      quantityTotal: String(capacity),
+      maxPerOrder: Number.isFinite(max) && max > capacity ? String(capacity) : t.maxPerOrder,
+    };
+  });
+  return changed ? next : tickets;
 }
 
 /**

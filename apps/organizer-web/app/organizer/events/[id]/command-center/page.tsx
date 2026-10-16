@@ -24,7 +24,8 @@ import {
   Select,
   Spinner,
   Textarea,
-  dateTime,
+  recordedAt,
+  timeAtVenue,
   errorMessage,
   useAuthUser,
   useToast,
@@ -116,7 +117,7 @@ export default function CommandCenter() {
       render: (a) => `${a.entityType}${a.entityId ? ` · ${a.entityId.slice(0, 8)}` : ''}`,
     },
     { key: 'actor', header: 'Actor', render: (a) => a.actor?.email ?? 'system' },
-    { key: 'when', header: 'When', render: (a) => dateTime(a.createdAt) },
+    { key: 'when', header: 'When', render: (a) => recordedAt(a.createdAt) },
   ];
 
   return (
@@ -138,13 +139,13 @@ export default function CommandCenter() {
           >
             {event?.sessions.map((se) => (
               <option key={se.id} value={se.id}>
-                {dateTime(se.startsAt)}
+                {timeAtVenue(se.startsAt, event?.venue)}
               </option>
             ))}
           </Select>
           <div className="flex items-center gap-2 pb-1">
             <span className="text-caption text-text-muted" aria-live="polite">
-              {snap.isFetching ? 'Refreshing…' : s ? `Updated ${dateTime(s.generatedAt)}` : ''}
+              {snap.isFetching ? 'Refreshing…' : s ? `Updated ${recordedAt(s.generatedAt)}` : ''}
             </span>
             <Button variant="outline" size="sm" onClick={() => snap.refetch()}>
               <RefreshCw className="h-3.5 w-3.5" /> Refresh
@@ -291,7 +292,8 @@ export default function CommandCenter() {
                   <span className="flex items-center gap-2 text-text-muted">
                     <Badge tone={d.status === 'ACTIVE' ? 'success' : 'neutral'}>{d.status}</Badge>
                     <span className="text-xs">
-                      seen {d.lastSeenAt ? dateTime(d.lastSeenAt) : 'never'} · v{d.manifestVersion}
+                      seen {d.lastSeenAt ? recordedAt(d.lastSeenAt) : 'never'} · v
+                      {d.manifestVersion}
                     </span>
                   </span>
                 </li>

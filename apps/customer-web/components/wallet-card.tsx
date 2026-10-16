@@ -3,18 +3,17 @@
 import {
   BadgeCheck,
   Car,
-  CheckCircle2,
   ChevronRight,
   Gift,
   ShoppingBag,
   Ticket as TicketIcon,
   TicketPercent,
-  TriangleAlert,
-  XCircle,
   type LucideIcon,
 } from 'lucide-react';
 import {
-  gradientFor,
+  BrandStatusPill,
+  brandButtonClasses,
+  type BrandStatus,
   type GroupStatusTone,
   type WalletItem,
   type WalletItemType,
@@ -33,17 +32,49 @@ const TYPE_ICON: Record<WalletItemType, LucideIcon> = {
   REWARD: Gift,
 };
 
-const TONE: Record<GroupStatusTone, { text: string; dot: string; Icon: LucideIcon }> = {
-  success: { text: 'text-status-success', dot: 'bg-status-success', Icon: CheckCircle2 },
-  info: { text: 'text-status-info', dot: 'bg-status-info', Icon: CheckCircle2 },
-  warning: { text: 'text-status-warning', dot: 'bg-status-warning', Icon: TriangleAlert },
-  error: { text: 'text-status-error', dot: 'bg-status-error', Icon: XCircle },
-  neutral: { text: 'text-text-secondary', dot: 'bg-text-muted', Icon: TicketIcon },
+/* The wallet's tones as the brand's status pills: words always, the colour only helps. */
+const TONE: Record<GroupStatusTone, BrandStatus> = {
+  success: 'positive',
+  info: 'info',
+  warning: 'caution',
+  error: 'critical',
+  neutral: 'neutral',
 };
 
+/** "Fri", "16", "Oct" on the venue's calendar, for the stub; null when there is no date. */
+function useStubDate() {
+  const { locale } = useFormat();
+  return (iso: string | null, timeZone?: string | null) => {
+    if (!iso) return null;
+    const at = new Date(iso);
+    const part = (options: Intl.DateTimeFormatOptions) => {
+      try {
+        return new Intl.DateTimeFormat(locale ?? 'en-IN', {
+          ...options,
+          timeZone: timeZone ?? undefined,
+        }).format(at);
+      } catch {
+        return new Intl.DateTimeFormat(locale ?? 'en-IN', options).format(at);
+      }
+    };
+    return {
+      weekday: part({ weekday: 'short' }),
+      day: part({ day: 'numeric' }),
+      month: part({ month: 'short' }),
+    };
+  };
+}
+
 /**
- * Renders ANY wallet item from its normalized shape — no per-type branching. A
- * ticket, membership, coupon or parking pass all draw from WalletItem fields.
+ * Renders ANY wallet item from its normalized shape - no per-type branching. A ticket,
+ * membership, coupon or parking pass all draw from WalletItem fields.
+ *
+ * ── A TICKET STUB, NOT A GRADIENT TILE ─────────────────────────────────────────────
+ * The card used to open with an 80px pastel gradient carrying a "Event" chip: the most space
+ * on the card given to the one thing that said nothing. On the brand layer the stub on the left
+ * is the date on the venue's calendar (the fact people look for first in a wallet), set on the
+ * stage tone; an item with no date shows what kind of item it is instead. Everything the card
+ * said before is still said, in the brand's type and status pills.
  */
 export function WalletCard({
   item,
@@ -56,88 +87,93 @@ export function WalletCard({
   const { dateTime } = useFormat();
   // A show is read on the venue's clock with the zone written out, as on every booking page.
   const venueWhenText = useVenueWhenText();
+  const stub = useStubDate()(item.startsAt, item.timeZone);
   const Icon = TYPE_ICON[item.icon] ?? TicketIcon;
-  const tone = TONE[item.statusTone];
   const pct = item.progress ? Math.round((item.progress.done / item.progress.total) * 100) : 0;
+  // The reference is already in the subtitle for a booking ("2 tickets - ETG-..."); once is enough.
+  const showReference = Boolean(item.reference) && !item.subtitle?.includes(item.reference ?? '');
 
   return (
     <article
       aria-labelledby={`wi-${item.id}`}
-      className="flex flex-col overflow-hidden rounded-lg border border-border bg-background-surface shadow-sm transition-shadow hover:shadow-md"
+      className="flex h-full min-w-0 overflow-hidden rounded-brand-card border border-brand-line bg-brand-surface"
     >
       <div
-        className={`relative flex h-20 items-end bg-gradient-to-br p-4 ${gradientFor(item.artworkSeed)}`}
+        data-brand-tone="stage"
+        className="flex w-[4.5rem] shrink-0 flex-col items-center justify-center gap-0.5 bg-brand-canvas px-2 py-4 text-center text-brand-ink sm:w-24"
       >
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-background-surface/90 px-2.5 py-1 text-caption font-medium text-text-secondary shadow-sm backdrop-blur">
-          <Icon className="h-3.5 w-3.5" />
-          {item.badge ?? item.type}
-        </span>
+        {stub ? (
+          <>
+            <span className="text-brand-eyebrow uppercase text-brand-ink-2">{stub.weekday}</span>
+            <span className="font-brand-display text-[2rem] font-bold leading-none tabular-nums">
+              {stub.day}
+            </span>
+            <span className="text-brand-meta text-brand-ink-2">{stub.month}</span>
+          </>
+        ) : (
+          <Icon className="h-6 w-6 text-brand-ink-2" aria-hidden />
+        )}
+        <span aria-hidden className="mt-2 h-[3px] w-6 rounded-full bg-brand-marigold" />
       </div>
 
-      <div className="flex flex-1 flex-col p-5">
+      <div className="flex min-w-0 flex-1 flex-col p-4 sm:p-5">
+        <p className="text-brand-eyebrow uppercase text-brand-ink-3">{item.badge ?? item.type}</p>
         <h2
           id={`wi-${item.id}`}
-          className="line-clamp-1 text-title font-semibold text-text-primary"
+          className="mt-1 line-clamp-2 font-brand-display text-brand-card text-brand-ink"
         >
           {item.title}
         </h2>
         {item.subtitle && (
-          <p className="mt-0.5 line-clamp-1 text-[0.9375rem] text-text-secondary">
-            {item.subtitle}
-          </p>
+          <p className="mt-1 line-clamp-1 text-brand-meta text-brand-ink-2">{item.subtitle}</p>
         )}
 
-        {/* Status (text + icon + dot — never colour alone) */}
-        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
-          <span
-            className={`inline-flex items-center gap-1.5 text-caption font-medium ${tone.text}`}
-          >
-            <span className={`h-1.5 w-1.5 rounded-full ${tone.dot}`} aria-hidden />
-            <tone.Icon className="h-3.5 w-3.5" aria-hidden />
-            {item.status}
-          </span>
+        <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1.5">
+          <BrandStatusPill status={TONE[item.statusTone]}>{item.status}</BrandStatusPill>
           {item.startsAt && (
-            <span className="text-caption text-text-muted">
-              - {venueWhenText(item.startsAt, item.timeZone ?? undefined)}
+            <span className="text-brand-meta text-brand-ink-2">
+              {venueWhenText(item.startsAt, item.timeZone ?? undefined)}
             </span>
           )}
           {item.expiresAt && !item.startsAt && (
-            <span className="text-caption text-text-muted">
-              - {wc('expires', { when: dateTime(item.expiresAt) })}
+            <span className="text-brand-meta text-brand-ink-2">
+              {wc('expires', { when: dateTime(item.expiresAt) })}
             </span>
           )}
         </div>
 
-        {/* Progress */}
         {item.progress && (
           <div className="mt-3">
-            <div className="mb-1 flex items-center justify-between text-caption text-text-muted">
-              <span>{item.progress.label}</span>
-            </div>
+            <p className="mb-1 text-brand-meta tabular-nums text-brand-ink-3">
+              {item.progress.label}
+            </p>
             <div
-              className="h-1.5 overflow-hidden rounded-full bg-background-subtle"
+              className="h-1.5 overflow-hidden rounded-full bg-brand-sunken"
               role="img"
               aria-label={item.progress.label}
             >
-              <div className="h-full rounded-full bg-status-info" style={{ width: `${pct}%` }} />
+              <div className="h-full rounded-full bg-brand-ink" style={{ width: `${pct}%` }} />
             </div>
           </div>
         )}
 
-        <div className="mt-4 flex items-center justify-between gap-3 border-t border-border pt-4">
-          <span className="font-mono text-caption text-text-muted">{item.reference ?? ' '}</span>
+        <div className="mt-auto flex flex-wrap items-center justify-between gap-3 pt-4">
+          <span className="min-w-0 truncate font-mono text-brand-meta text-brand-ink-3">
+            {showReference ? item.reference : ''}
+          </span>
           {item.primaryAction.href ? (
             <Link
               href={item.primaryAction.href}
-              className="inline-flex items-center gap-1.5 rounded-md bg-action-primary px-4 py-2 text-caption font-semibold text-action-primary-foreground shadow-sm transition-colors hover:bg-action-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
+              className={`${brandButtonClasses('primary', 'md')} ml-auto`}
             >
               {item.primaryAction.label}
-              <ChevronRight className="h-3.5 w-3.5" />
+              <ChevronRight className="h-4 w-4" aria-hidden />
             </Link>
           ) : (
             <button
+              type="button"
               onClick={() => onPreview?.(item)}
-              className="inline-flex items-center gap-1.5 rounded-md border border-border px-4 py-2 text-caption font-semibold text-text-secondary transition-colors hover:bg-background-subtle hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+              className={`${brandButtonClasses('secondary', 'md')} ml-auto`}
             >
               {item.primaryAction.label}
             </button>

@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { api, Card, Skeleton, dateTime } from '@eticketsgo/web-kit';
+import { api, Card, Skeleton, recordedAt } from '@eticketsgo/web-kit';
 import { historyLines, type HistoryEntry } from '../lib/history';
 
 /** The audit entries for these records, as `Type:id` pairs. See `lib/history.ts`. */
@@ -52,9 +52,13 @@ export function RecordHistory({
                 <p className={line.problem ? 'text-status-error' : 'text-text-primary'}>
                   {line.text}
                 </p>
-                {line.detail && <p className="text-caption text-text-secondary">{line.detail}</p>}
+                {line.detail && (
+                  <p className="break-words text-caption text-text-secondary [overflow-wrap:anywhere]">
+                    {line.detail}
+                  </p>
+                )}
                 <p className="text-caption text-text-muted">
-                  {dateTime(line.when)} - {line.who}
+                  {recordedAt(line.when)} - {line.who}
                 </p>
               </div>
             </li>

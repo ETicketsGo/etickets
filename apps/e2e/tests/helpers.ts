@@ -68,3 +68,16 @@ export function futureLocal(daysAhead: number, hour: number): string {
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
+
+/**
+ * On the storefront's sign-up page, switch to the Email tab.
+ *
+ * Sign-up has Mobile | Email tabs like sign-in, Mobile first. The tabs appear once GET
+ * /capabilities answers; when text messages are unavailable there are none and the page is
+ * already on Email - so this waits for whichever of the two the page settles on.
+ */
+export async function chooseEmailSignUp(page: Page): Promise<void> {
+  const tab = page.getByRole('tab', { name: 'Email' });
+  await tab.or(page.getByTestId('phone-signin-off')).first().waitFor({ timeout: 20_000 });
+  if (await tab.count()) await tab.click();
+}

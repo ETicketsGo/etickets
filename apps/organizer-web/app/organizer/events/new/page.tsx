@@ -42,6 +42,7 @@ import {
   IconTile,
   LifecyclePill,
   SetupPill,
+  StatusPill,
   tileClasses,
   type TileTone,
   Input,
@@ -55,8 +56,6 @@ import {
   currencyForCountry,
   DateTimeField,
   LocationFields,
-  defaultLocation,
-  locationFrom,
   termsList,
   dateTime,
   join,
@@ -67,7 +66,7 @@ import {
   type LocationValue,
   type SeatingRoom,
 } from '@eticketsgo/web-kit';
-import { venuePayload } from '@/components/venue-fields';
+import { homeLocation, venuePayload } from '@/components/venue-fields';
 import { useOrg } from '@/components/org-context';
 import { venueInputZone, wallClockToInstant, zoneLabel } from '@/lib/zoned-time';
 import { getTemplate } from '@/lib/templates';
@@ -82,6 +81,7 @@ import {
   buyerFeeNote,
   canVisitStep,
   capacityBySession,
+  fitDefaultQuantity,
   describeProblems,
   firstInvalidFieldId,
   fromPriceMinor,
@@ -141,6 +141,8 @@ import { CoverFocus } from '@/components/create-event/cover-focus';
 import { ExperienceArt } from '@/components/create-event/experience-art';
 import { HowItWorks } from '@/components/create-event/how-it-works';
 import { SeatMapPreviewDialog } from '@/components/events/seat-map-preview';
+import { SeatClassNoticeCard } from '@/components/events/seat-class-notice-card';
+import { seatClassNotice, type SeatClassNotice } from '@/lib/seat-class-notice';
 
 /*
   Each step's tile in the console's pastel set: the same colour on its heading, in the
@@ -262,6 +264,19 @@ function NewEventWizard() {
   const roomsQ = useQuery({
     queryKey: ['seating-rooms', activeOrg.id],
     queryFn: () => api.events.seatingRooms(activeOrg.id),
+    /*
+      Seat classes are chosen in another tab (the notice's link opens one); coming back here
+      reads the answer again, so a fixed notice goes away without a reload.
+    */
+    refetchOnWindowFocus: true,
+  });
+  /*
+    Every space in the organization, for the STANDING ones at the chosen venue: a lawn or a
+    floor that holds so many people. Same query key as Venues & seating, so it is shared.
+  */
+  const spacesQ = useQuery({
+    queryKey: ['venue-spaces', activeOrg.id],
+    queryFn: () => api.venues.allSpaces(activeOrg.id),
   });
 
   /*
@@ -315,6 +330,9 @@ function NewEventWizard() {
   const isFree = isFreeAdmission(admission);
   const [venueMode, setVenueMode] = useState<'existing' | 'new'>(initial.venueMode);
   const [venueId, setVenueId] = useState(initial.venueId);
+  /* The standing space a general-admission event is in ('' = not in one space). */
+  const [standingSpaceId, setStandingSpaceId] = useState('');
+  const standingTouched = useRef(false);
   const [newVenue, setNewVenue] = useState(initial.newVenue);
   // Same three interdependent answers as the venues page, from the same component.
   const [newVenueWhere, setNewVenueWhere] = useState<LocationValue>(() =>
@@ -575,6 +593,43 @@ function NewEventWizard() {
       : [];
   /* Null while the list is loading or failed: nothing can be judged against an unknown list. */
   const venueSeatMaps = roomsQ.data ? venueRooms.map((r) => r.layoutId) : null;
+  /*
+    -- WHERE PEOPLE STAND ---------------------------------------------------------------------
+    A standing space ("Main Lawn, holds 100") said "set how many to sell, up to 100" and nothing
+    held anybody to it: 500 tickets for the lawn went through. A general-admission event at a
+    venue with standing spaces now says which one it is in, and that space's capacity caps each
+    session - here, as the organizer types, and on the server, which refuses more.
+
+    One standing space is chosen for them (it can only be that one, or "not in one space"); with
+    several, the organizer picks.
+  */
+  const standingAtVenue =
+    venueMode === 'existing' && venueId
+      ? (spacesQ.data ?? []).filter(
+          (sp) => sp.venueId === venueId && sp.kind === 'STANDING' && sp.status !== 'INACTIVE',
+        )
+      : [];
+  const standingKey = standingAtVenue.map((sp) => sp.id).join(',');
+  useEffect(() => {
+    setStandingSpaceId((current) =>
+      standingAtVenue.some((sp) => sp.id === current)
+        ? current
+        : standingAtVenue.length === 1 && !standingTouched.current
+          ? standingAtVenue[0].id
+          : '',
+    );
+    // Keyed on the ids: the array is a new object every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [standingKey]);
+  const standingSpace =
+    admission === 'free' || admission === 'paid'
+      ? (standingAtVenue.find((sp) => sp.id === standingSpaceId) ?? null)
+      : null;
+  // A lawn that holds 50 must not open at the 100 the form starts with (see fitDefaultQuantity).
+  const standingCapacity = standingSpace?.capacity ?? null;
+  useEffect(() => {
+    setTickets((rows) => fitDefaultQuantity(rows, standingCapacity));
+  }, [standingCapacity]);
   const seatingAvailable = venueRooms.length > 0;
   const roomByLayout = (seatMapId: string) => roomsQ.data?.find((r) => r.layoutId === seatMapId);
   const seatMapVenueIds = new Set(
@@ -591,6 +646,9 @@ function NewEventWizard() {
     sessions,
     tickets,
     venueSeatMaps,
+    standingSpace: standingSpace
+      ? { name: standingSpace.name, capacity: standingSpace.capacity }
+      : null,
   };
   const errorsByStep = validateAll(answers);
   const statuses = WIZARD_STEPS.map((_, i) => stepStatus(i, step, furthest, errorsByStep));
@@ -818,6 +876,8 @@ function NewEventWizard() {
           // Omitted rather than sent empty: '' is a room id that does not exist.
           ...(s.screenId ? { screenId: s.screenId } : {}),
           ...(s.seatMapId ? { seatMapId: s.seatMapId } : {}),
+          // General admission in a standing space: its capacity caps what is on sale.
+          ...(!s.screenId && standingSpace ? { standingSpaceId: standingSpace.id } : {}),
         });
         sessionIds.push(created.id);
       }
@@ -938,6 +998,27 @@ function NewEventWizard() {
     }))
     .filter((s) => s.problems.length > 0);
   const thingsToSetUp = outstanding.reduce((n, s) => n + s.problems.length, 0);
+  /* One notice per seat map chosen, not per session: three dates in one room say it once. */
+  const seatClassNotices =
+    admission === 'seated'
+      ? [...new Set(sessions.map((x) => x.seatMapId).filter(Boolean))]
+          .map((key) => ({ key, notice: seatClassNotice(roomByLayout(key)) }))
+          .filter((x): x is { key: string; notice: SeatClassNotice } => x.notice !== null)
+      : [];
+  /*
+    "Setup complete" beside a seat-class warning was a claim the next page took back: the event
+    can be created, but its tickets cannot sell. So the pill says that instead, and the Tickets
+    step stops saying Done, until the notice clears.
+  */
+  const cannotSellYet = thingsToSetUp === 0 && seatClassNotices.length > 0;
+  const setupPill = (size?: 'sm' | 'md') =>
+    cannotSellYet ? (
+      <StatusPill tone="warning" size={size}>
+        Cannot sell yet
+      </StatusPill>
+    ) : (
+      <SetupPill missing={thingsToSetUp} size={size} />
+    );
   const totals = capacityBySession({ admission, sessions, tickets });
 
   /* The preview: the facts a buyer decides on, as the storefront will show them. */
@@ -1798,41 +1879,97 @@ function NewEventWizard() {
                       </ul>
                     </div>
                     {sessions.map((s, i) => (
-                      <Select
-                        key={i}
-                        id={`sr${i}`}
-                        label={
-                          sessions.length === 1
-                            ? 'Seat map'
-                            : `Seat map for ${nouns.session.toLowerCase()} ${i + 1} (${sessionWhen(s, i, nouns.session)})`
-                        }
-                        required
-                        value={s.seatMapId}
-                        error={fieldErrors[`s${i}Seat`]}
-                        onBlur={() => reveal(`s${i}Seat`)}
-                        onChange={(e) => {
-                          const seatMapId = e.target.value;
-                          const room = venueRooms.find((r) => r.layoutId === seatMapId);
-                          setSessions(
-                            sessions.map((x, j) =>
-                              j === i ? { ...x, seatMapId, screenId: room?.id ?? '' } : x,
-                            ),
-                          );
-                        }}
-                      >
-                        <option value="">Choose a seat map...</option>
-                        {venueRooms.map((r) => (
-                          <option key={r.layoutId} value={r.layoutId}>
-                            {r.name} - {r.layoutName ?? 'Layout'} ({r.sellableSeats} seats)
-                          </option>
-                        ))}
-                      </Select>
+                      <div key={i} className="space-y-2">
+                        <Select
+                          id={`sr${i}`}
+                          label={
+                            sessions.length === 1
+                              ? 'Seat map'
+                              : `Seat map for ${nouns.session.toLowerCase()} ${i + 1} (${sessionWhen(s, i, nouns.session)})`
+                          }
+                          required
+                          value={s.seatMapId}
+                          error={fieldErrors[`s${i}Seat`]}
+                          onBlur={() => reveal(`s${i}Seat`)}
+                          onChange={(e) => {
+                            const seatMapId = e.target.value;
+                            const room = venueRooms.find((r) => r.layoutId === seatMapId);
+                            setSessions(
+                              sessions.map((x, j) =>
+                                j === i ? { ...x, seatMapId, screenId: room?.id ?? '' } : x,
+                              ),
+                            );
+                          }}
+                        >
+                          <option value="">Choose a seat map...</option>
+                          {venueRooms.map((r) => (
+                            <option key={r.layoutId} value={r.layoutId}>
+                              {r.name} - {r.layoutName ?? 'Layout'} ({r.sellableSeats} seats)
+                            </option>
+                          ))}
+                        </Select>
+                        {/*
+                        Said here, as the seat map is chosen, rather than on the event page
+                        after it is created and cannot sell.
+                      */}
+                        {(() => {
+                          const notice = s.seatMapId
+                            ? seatClassNotice(roomByLayout(s.seatMapId))
+                            : null;
+                          return notice ? (
+                            <SeatClassNoticeCard
+                              notice={notice}
+                              onRecheck={() => roomsQ.refetch()}
+                              rechecking={roomsQ.isFetching}
+                            />
+                          ) : null;
+                        })()}
+                      </div>
                     ))}
                   </div>
                 )}
 
                 {(admission === 'free' || admission === 'paid') && (
                   <div className="space-y-3">
+                    {standingAtVenue.length > 0 ? (
+                      <fieldset
+                        data-testid="standing-space"
+                        className="space-y-2 rounded-md border border-border p-3"
+                      >
+                        <legend className="px-1 text-sm font-medium text-text-primary">
+                          Where in {chosenVenue?.name ?? 'the venue'}?
+                        </legend>
+                        <p className="text-caption text-text-muted">
+                          A standing space holds a set number of people. You cannot put more tickets
+                          on sale for one {nouns.session.toLowerCase()} than it holds.
+                        </p>
+                        {[
+                          ...standingAtVenue.map((sp) => ({
+                            id: sp.id,
+                            label: `${sp.name} (standing, holds ${sp.capacity.toLocaleString()})`,
+                          })),
+                          { id: '', label: 'Not in one space' },
+                        ].map((o) => (
+                          <label
+                            key={o.id || 'none'}
+                            className="flex min-h-9 cursor-pointer items-center gap-2 text-sm text-text-primary"
+                          >
+                            <input
+                              type="radio"
+                              name="standing-space"
+                              value={o.id}
+                              checked={standingSpaceId === o.id}
+                              onChange={() => {
+                                standingTouched.current = true;
+                                setStandingSpaceId(o.id);
+                              }}
+                              className="h-4 w-4 accent-action-primary"
+                            />
+                            {o.label}
+                          </label>
+                        ))}
+                      </fieldset>
+                    ) : null}
                     {isFree ? (
                       <p className="rounded-md border border-border bg-background-subtle p-3 text-caption text-text-secondary">
                         Nobody is charged, so there is no checkout, no booking fee and no platform
@@ -2053,10 +2190,28 @@ function NewEventWizard() {
                                 `${nouns.session.toLowerCase()} ${i + 1}, ${n.toLocaleString()}`,
                             )
                             .join('; ')}`}
-                      {venueCapacity !== null
-                        ? ` (the venue holds ${venueCapacity.toLocaleString()})`
-                        : ''}
+                      {standingSpace
+                        ? ` (${standingSpace.name} holds ${standingSpace.capacity.toLocaleString()})`
+                        : venueCapacity !== null
+                          ? ` (the venue holds ${venueCapacity.toLocaleString()})`
+                          : ''}
                     </p>
+                    {/*
+                      Said as it is typed, not only on Continue: the cap is a fact about the
+                      lawn, and finding it out after pressing a button is the dead end this
+                      replaces.
+                    */}
+                    {standingSpace && totals.some((n) => n > standingSpace.capacity) ? (
+                      <p
+                        role="alert"
+                        data-testid="standing-over-cap"
+                        className="rounded-md border border-status-error/40 bg-status-error/10 px-3 py-2 text-sm text-text-primary"
+                      >
+                        {standingSpace.name} holds {standingSpace.capacity.toLocaleString()} people.
+                        Lower a quantity so each {nouns.session.toLowerCase()} has no more than that
+                        on sale, or choose &quot;Not in one space&quot; above.
+                      </p>
+                    ) : null}
                     {/*
                       The second row is usually one of a few names. Offered as one click each,
                       named and priced by the organizer: nothing is priced for them.
@@ -2201,7 +2356,7 @@ function NewEventWizard() {
                       {previewWhere}
                     </p>
                     <div className="mt-2 flex flex-wrap items-center gap-2">
-                      <SetupPill missing={thingsToSetUp} />
+                      {setupPill()}
                       <span className="text-caption text-text-muted">{previewPrice}</span>
                     </div>
                   </div>
@@ -2244,6 +2399,26 @@ function NewEventWizard() {
                         </li>
                       ))}
                     </ul>
+                  </section>
+                ) : null}
+
+                {/*
+                  Seat maps on cinema screens that cannot sell as they are: which seat
+                  categories need a class, with the control one click away.
+                */}
+                {seatClassNotices.length > 0 ? (
+                  <section aria-labelledby="review-seat-classes" className="space-y-2">
+                    <h3 id="review-seat-classes" className="font-semibold text-text-primary">
+                      Before tickets can sell
+                    </h3>
+                    {seatClassNotices.map(({ key, notice }) => (
+                      <SeatClassNoticeCard
+                        key={key}
+                        notice={notice}
+                        onRecheck={() => roomsQ.refetch()}
+                        rechecking={roomsQ.isFetching}
+                      />
+                    ))}
                   </section>
                 ) : null}
 
@@ -2582,14 +2757,16 @@ function NewEventWizard() {
               <h2 id="panel-setup" className="text-ui font-semibold text-text-primary">
                 Setup
               </h2>
-              <SetupPill missing={thingsToSetUp} size="sm" />
+              {setupPill('sm')}
             </div>
             <ul className="mt-3 space-y-1">
               {stepTitles.slice(0, REVIEW_STEP).map((s, i) => {
                 const n = Object.keys(errorsByStep[s.id]).length;
                 const reached = i <= furthest;
-                const state =
-                  n > 0
+                const cannotSell = cannotSellYet && s.id === 'tickets' && n === 0 && reached;
+                const state = cannotSell
+                  ? 'Cannot sell yet'
+                  : n > 0
                     ? reached
                       ? `${n} to do`
                       : 'Not started'
@@ -2598,8 +2775,12 @@ function NewEventWizard() {
                       : s.id === 'details'
                         ? 'Optional'
                         : 'Not started';
-                const done = n === 0 && reached;
-                const Mark = done ? CircleCheck : n > 0 && reached ? CircleAlert : CircleDashed;
+                const done = n === 0 && reached && !cannotSell;
+                const Mark = done
+                  ? CircleCheck
+                  : (n > 0 && reached) || cannotSell
+                    ? CircleAlert
+                    : CircleDashed;
                 const row = (
                   <>
                     <Mark
@@ -2607,9 +2788,11 @@ function NewEventWizard() {
                       className={`h-4 w-4 shrink-0 ${
                         done
                           ? 'text-status-success'
-                          : n > 0 && reached
-                            ? 'text-status-error'
-                            : 'text-text-muted'
+                          : cannotSell
+                            ? 'text-status-warning'
+                            : n > 0 && reached
+                              ? 'text-status-error'
+                              : 'text-text-muted'
                       }`}
                     />
                     <span
@@ -2618,7 +2801,7 @@ function NewEventWizard() {
                       {s.title}
                     </span>
                     <span
-                      className={`text-caption ${done ? 'text-status-success' : n > 0 && reached ? 'text-status-error' : 'text-text-muted'}`}
+                      className={`text-caption ${done ? 'text-status-success' : cannotSell ? 'text-status-warning' : n > 0 && reached ? 'text-status-error' : 'text-text-muted'}`}
                     >
                       {state}
                     </span>
@@ -2786,26 +2969,4 @@ export default function NewEventPage() {
       <NewEventWizard />
     </Suspense>
   );
-}
-
-/**
- * Where a new venue starts: the organization's own country, else the one most of its venues
- * are in, else a guess from the browser.
- *
- * The browser guess alone opened "New venue" on United States / New York for a Bengaluru
- * organizer, and the country decides the currency and the tax rules. It stays a default: the
- * field is a dropdown and nothing is decided until the organizer creates the event.
- */
-function homeLocation(
-  registeredCountry: string | null | undefined,
-  venues: { country?: string | null }[],
-): LocationValue {
-  if (registeredCountry?.trim()) return locationFrom({ country: registeredCountry });
-  const counts = new Map<string, number>();
-  for (const v of venues) {
-    const c = v.country?.trim();
-    if (c) counts.set(c, (counts.get(c) ?? 0) + 1);
-  }
-  const top = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
-  return top ? { ...locationFrom({ country: top }), region: '' } : defaultLocation();
 }

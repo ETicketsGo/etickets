@@ -25,6 +25,17 @@ export const movieStatusSchema = z.object({
 });
 export type MovieStatusInput = z.infer<typeof movieStatusSchema>;
 
+/** A cinema's legal type, in the terms a state rate order uses. */
+export const LOCAL_BODY_TYPES = [
+  'MUNICIPAL_CORPORATION',
+  'MUNICIPALITY',
+  'NAGAR_PANCHAYAT',
+  'GRAM_PANCHAYAT',
+  'OTHER',
+] as const;
+export const CINEMA_FORMATS = ['MULTIPLEX', 'SINGLE_SCREEN', 'SPECIAL_THEATRE'] as const;
+export const CLIMATE_TYPES = ['AC', 'AIR_COOLED', 'NON_AC'] as const;
+
 export const createCinemaSchema = z.object({
   name: z.string().trim().min(2).max(160),
   brand: z.string().trim().max(120).optional(),
@@ -59,17 +70,37 @@ export const createCinemaSchema = z.object({
   country: z.string().trim().min(2).max(80).optional(),
   region: z.string().trim().min(1).max(120).optional(),
   district: z.string().trim().min(1).max(120).optional(),
+  /*
+    The legal type: local body, format and cooling. Still parsed here so an old client that
+    sends them gets a clear refusal from the API rather than having them dropped in silence.
+    Only the platform team may set them (see `cinemaLegalTypeSchema`): they decide which price
+    limit a cinema sells under, so an organizer choosing them would be choosing their own cap.
+  */
   /** Municipal Corporation, Municipality, Nagar/Gram Panchayat — the slab selector in AP. */
-  localBodyType: z
-    .enum(['MUNICIPAL_CORPORATION', 'MUNICIPALITY', 'NAGAR_PANCHAYAT', 'GRAM_PANCHAYAT', 'OTHER'])
-    .optional(),
-  cinemaFormat: z.enum(['MULTIPLEX', 'SINGLE_SCREEN', 'SPECIAL_THEATRE']).optional(),
-  climateType: z.enum(['AC', 'AIR_COOLED', 'NON_AC']).optional(),
+  localBodyType: z.enum(LOCAL_BODY_TYPES).optional(),
+  cinemaFormat: z.enum(CINEMA_FORMATS).optional(),
+  climateType: z.enum(CLIMATE_TYPES).optional(),
 });
 export type CreateCinemaInput = z.infer<typeof createCinemaSchema>;
 
 export const updateCinemaSchema = createCinemaSchema.partial();
 export type UpdateCinemaInput = z.infer<typeof updateCinemaSchema>;
+
+/**
+ * The platform team setting a cinema's legal type (admin only).
+ *
+ * Each field is required and nullable: leaving one out is a 400, and clearing one is done by
+ * saying `null` on purpose, so a half-filled form cannot wipe a value nobody meant to touch.
+ * The reason is kept on the audit entry, because this changes the price limit the cinema's
+ * tickets are checked against.
+ */
+export const cinemaLegalTypeSchema = z.object({
+  localBodyType: z.enum(LOCAL_BODY_TYPES).nullable(),
+  cinemaFormat: z.enum(CINEMA_FORMATS).nullable(),
+  climateType: z.enum(CLIMATE_TYPES).nullable(),
+  reason: z.string().trim().min(5).max(500),
+});
+export type CinemaLegalTypeInput = z.infer<typeof cinemaLegalTypeSchema>;
 
 export const createScreenSchema = z.object({
   name: z.string().trim().min(1).max(120),

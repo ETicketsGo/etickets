@@ -13,7 +13,7 @@ import {
   type OrgEventDetail,
   type TileTone,
 } from '@eticketsgo/web-kit';
-import { type NextStep, type SaleState, type Setup } from './event-lifecycle';
+import { pauseNoticeOf, type NextStep, type SaleState, type Setup } from './event-lifecycle';
 import { seatingMix } from './seating-model';
 import { ticketTotals, sessionBreakdown } from './event-overview-model';
 import { timeAtVenue } from './event-list-model';
@@ -36,6 +36,7 @@ export function OverviewLead({
   onResume,
   onPause,
   onDelete,
+  onCancel,
   busy,
 }: {
   event: OrgEventDetail;
@@ -46,21 +47,35 @@ export function OverviewLead({
   onResume: () => void;
   onPause: () => void;
   onDelete: () => void;
+  /** Cancel the whole event and refund its buyers. Absent for anybody but the owner. */
+  onCancel?: () => void;
   busy: { submit: boolean; resume: boolean; pause: boolean };
 }) {
   const base = `/organizer/events/${event.id}`;
   const [setupOpen, setSetupOpen] = useState(false);
   const booked = (event._count?.bookings ?? 0) > 0;
+  const pause = pauseNoticeOf(event);
 
   const more: MenuItem[] = [{ kind: 'link', label: 'Edit details', href: `${base}/edit` }];
   if (event.status === 'PUBLISHED') more.push({ label: 'Pause sales', onSelect: onPause });
   more.push({ kind: 'link', label: 'Open check-in', href: `${base}/checkin` });
+  /*
+    Cancelling is for an event that has been on sale; one that never was is deleted instead.
+    Before this, an event with bookings could only be paused: there was no way to call it off
+    and give everybody their money back.
+  */
+  const cancellable = ['PUBLISHED', 'PAUSED', 'SOLD_OUT'].includes(event.status);
+  if (cancellable && onCancel) {
+    more.push({ label: 'Cancel event and refund buyers', onSelect: onCancel, danger: true });
+  }
   more.push(
     booked
       ? {
           kind: 'note',
           label: 'Delete',
-          reason: 'This event has bookings, so it cannot be deleted. Pause it to stop sales.',
+          reason: cancellable
+            ? 'This event has bookings, so it cannot be deleted. Pause it to stop sales, or cancel it to refund everybody.'
+            : 'This event has bookings, so it cannot be deleted.',
         }
       : { label: 'Delete event', onSelect: onDelete, danger: true },
   );
@@ -92,6 +107,20 @@ export function OverviewLead({
       aria-labelledby="next-step-title"
       className="rounded-lg border border-border bg-background-surface p-4 sm:p-5"
     >
+      {/*
+        The platform team's reason, first and in their words. It used to be in the audit log
+        only, which the organizer cannot read, so the page said "paused by the platform team"
+        and nothing about why.
+      */}
+      {pause ? (
+        <div
+          role="status"
+          className="mb-4 rounded-md border border-status-error/40 bg-status-error/5 p-3"
+        >
+          <p className="break-words font-semibold text-text-primary">{pause.headline}</p>
+          <p className="mt-1 text-sm text-text-secondary">{pause.detail}</p>
+        </div>
+      ) : null}
       {/*
         Stage and sales are in the event's header, on every page of it. What is left here is
         the third answer - what is still the organizer's to set up - beside the one next step.

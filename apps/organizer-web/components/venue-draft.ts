@@ -1,4 +1,4 @@
-import type { LocationValue, Venue } from '@eticketsgo/web-kit';
+import { defaultLocation, locationFrom, type LocationValue, type Venue } from '@eticketsgo/web-kit';
 
 /**
  * The fields that define a venue, in ONE place.
@@ -81,4 +81,31 @@ export function venueProblems(draft: VenueDraft): Record<string, string> {
     e.capacity = 'Capacity must be a number.';
   }
   return e;
+}
+
+/**
+ * Where a NEW venue starts: the organization's own country, else the one most of its venues
+ * are in, else a guess from the browser.
+ *
+ * The browser guess alone opened "New venue" on United States / New York for a Bengaluru
+ * organizer, and the country decides the currency and the tax rules. That is how four
+ * "Rangabhoomi Hall, Warangal" venues were saved on QA as United States venues: the city was
+ * typed, the country was never looked at, and a US-English browser had answered it. Each door
+ * used to have its own rule (the event wizard already did this; Venues & seating and New space
+ * did not), so the same organizer got a different country depending on where they clicked.
+ * It stays a default: the field is a dropdown and nothing is decided until the venue is saved.
+ */
+export function homeLocation(
+  registeredCountry: string | null | undefined,
+  venues: readonly { country?: string | null }[],
+): LocationValue {
+  if (registeredCountry?.trim())
+    return { ...locationFrom({ country: registeredCountry }), region: '' };
+  const counts = new Map<string, number>();
+  for (const v of venues) {
+    const c = v.country?.trim();
+    if (c) counts.set(c, (counts.get(c) ?? 0) + 1);
+  }
+  const top = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+  return top ? { ...locationFrom({ country: top }), region: '' } : defaultLocation();
 }

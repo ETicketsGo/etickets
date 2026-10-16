@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { CUSTOMER, NEW_ACCOUNT_PASSWORD, uniqueEmail } from './helpers';
+import { CUSTOMER, NEW_ACCOUNT_PASSWORD, uniqueEmail, chooseEmailSignUp } from './helpers';
 import { openPaidEvent } from './pick-event';
 import { chooseQuantity, quantitySteppers } from './ticket-quantity';
 
@@ -26,6 +26,7 @@ async function openTicketViewerFromWallet(page: Page) {
 test('customer registers, books a ticket, pays, and sees a QR ticket', async ({ page }) => {
   // Register
   await page.goto(`${CUSTOMER}/register`);
+  await chooseEmailSignUp(page);
   await page.getByLabel('Full name').fill('E2E Customer');
   await page.getByLabel('Email').fill(uniqueEmail('cust'));
   await page.getByLabel(/Password/).fill(NEW_ACCOUNT_PASSWORD);
@@ -127,6 +128,7 @@ test('attendee identity: owner invites, recipient claims, ticket moves to their 
 }) => {
   // Owner registers and books one ticket
   await page.goto(`${CUSTOMER}/register`);
+  await chooseEmailSignUp(page);
   await page.getByLabel('Full name').fill('Owner Olive');
   await page.getByLabel('Email').fill(uniqueEmail('owner'));
   await page.getByLabel(/Password/).fill(NEW_ACCOUNT_PASSWORD);
@@ -158,6 +160,7 @@ test('attendee identity: owner invites, recipient claims, ticket moves to their 
 
   // Recipient registers, then claims the ticket
   await page.goto(`${CUSTOMER}/register`);
+  await chooseEmailSignUp(page);
   await page.getByLabel('Full name').fill('Rita Recipient');
   await page.getByLabel('Email').fill(attendeeEmail);
   await page.getByLabel(/Password/).fill(NEW_ACCOUNT_PASSWORD);
@@ -180,6 +183,7 @@ test('secure sharing: owner creates a guest link, recipient opens it, then it is
 }) => {
   // Owner registers and books one ticket
   await page.goto(`${CUSTOMER}/register`);
+  await chooseEmailSignUp(page);
   await page.getByLabel('Full name').fill('Share Owner');
   await page.getByLabel('Email').fill(uniqueEmail('sharer'));
   await page.getByLabel(/Password/).fill(NEW_ACCOUNT_PASSWORD);
@@ -235,6 +239,7 @@ test('experience wallet: placeholder items appear behind a feature flag and filt
 }) => {
   // Register + book a ticket
   await page.goto(`${CUSTOMER}/register`);
+  await chooseEmailSignUp(page);
   await page.getByLabel('Full name').fill('Wallet User');
   await page.getByLabel('Email').fill(uniqueEmail('wallet'));
   await page.getByLabel(/Password/).fill(NEW_ACCOUNT_PASSWORD);

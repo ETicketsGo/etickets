@@ -16,14 +16,13 @@ import {
   ErrorState,
   useToast,
   errorMessage,
-  dateTime,
-  zoneShortName,
+  timeAtVenue,
   money,
   termsList,
 } from '@eticketsgo/web-kit';
 import { StatusBadge } from '@/components/status-badge';
 import { feeModeWords, statusWords } from '@/lib/words';
-import { taxCategoryLabel, venueZone } from '@eticketsgo/shared-types';
+import { taxCategoryLabel } from '@eticketsgo/shared-types';
 
 export default function AdminEventDetail() {
   const { id } = useParams<{ id: string }>();
@@ -97,7 +96,7 @@ export default function AdminEventDetail() {
       // Say what changed for buyers, not that "a status" did.
       toast.push(
         status === 'PAUSED'
-          ? 'Paused. Tickets stop selling now. Only an admin can put it back on sale.'
+          ? 'Paused. Tickets stop selling now and the organizer has been told why.'
           : status === 'PUBLISHED'
             ? 'Back on sale. Buyers can book again.'
             : status === 'CANCELLED'
@@ -130,13 +129,7 @@ export default function AdminEventDetail() {
 
   // The show time at the venue, with its zone said, like every other screen. Where the venue
   // has no known zone the reader's own is used and called theirs, not passed off as the venue's.
-  const zone = venueZone(event.venue.timezone, event.venue.country) ?? undefined;
-  const showTime = (iso: string) => {
-    const when = dateTime(iso, 'en-IN', zone);
-    if (!zone) return `${when} (your time)`;
-    const abbrev = zoneShortName(iso, zone);
-    return abbrev ? `${when} ${abbrev}` : when;
-  };
+  const showTime = (iso: string) => timeAtVenue(iso, event.venue);
 
   return (
     <div className="space-y-6">
@@ -348,6 +341,17 @@ export default function AdminEventDetail() {
                     ? 'Paused by the platform team. The organizer cannot resume it.'
                     : 'Paused by the organizer.'}
                 </p>
+                {/* What the organizer was told, so whoever answers their reply sees the same words. */}
+                {event.pausedByAdmin && event.pausedByAdminReason ? (
+                  <p className="break-words text-sm text-text-primary">
+                    Reason sent to the organizer: {event.pausedByAdminReason}
+                  </p>
+                ) : null}
+                {event.pausedByAdmin ? (
+                  <p className="text-caption text-text-muted">
+                    Putting it back on sale tells the organizer by email and in their console.
+                  </p>
+                ) : null}
                 <Button
                   variant="outline"
                   className="w-full"
@@ -439,14 +443,15 @@ export default function AdminEventDetail() {
         <div className="space-y-3">
           <p className="text-sm text-text-secondary">
             Tickets stop selling the moment you confirm. Tickets already sold stay valid. The
-            organizer sees that the platform team paused it and cannot resume it themselves.
+            organizer is told by email and in their console, with your reason, and cannot resume it
+            themselves.
           </p>
           <Textarea
             label="Why are you pausing it?"
             rows={3}
             maxLength={500}
             value={pauseReason}
-            hint="Recorded in the audit log with your name. Support reads it when the organizer asks."
+            hint="Sent to the organizer as you write it, and recorded in the audit log with your name."
             onChange={(e) => setPauseReason(e.target.value)}
           />
         </div>

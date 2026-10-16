@@ -11,6 +11,7 @@ import {
   orderReference,
   splitPrices,
 } from './compliance-presentation';
+import { CinemaLegalType } from './cinema-legal-type';
 
 /**
  * What an exhibitor is told about the order their cinema is priced under.
@@ -91,25 +92,21 @@ export function PricingCompliancePanel({
           value={[c.jurisdiction.city, c.jurisdiction.region, c.jurisdiction.country]
             .filter(Boolean)
             .join(', ')}
-          hint={c.jurisdiction.localBodyType?.replace(/_/g, ' ').toLowerCase()}
         />
-        <Row
-          label="Classification"
-          value={
-            [c.classification.cinemaFormat, c.classification.climateType]
-              .filter(Boolean)
-              .map((v) => v!.replace(/_/g, ' ').toLowerCase())
-              .join(', ') || 'Not classified'
-          }
-          // Only where it changes the rate, and saying who sets it. The hint used to tell the
-          // exhibitor to "set the format and climate type", which no organizer screen offers
-          // (ETicketsGo records it, as the readiness blocker says), and it showed for places
-          // with no order at all - a US cinema, Telangana.
-          hint={
-            askClassification
-              ? 'ETicketsGo records the cinema type (local body, format and cooling). Contact support to set it.'
-              : undefined
-          }
+        {/*
+          The legal type, read-only, with the one thing an organizer can do about it: ask. It
+          decides the price limit, so the API refuses it from an organizer. It used to be split
+          over two rows (local body as a hint under Jurisdiction, "Classification" for the rest)
+          in lower-cased enum names, with "Contact support" and no way to.
+        */}
+        <CinemaLegalType
+          cinemaId={cinemaId}
+          value={{
+            localBodyType: c.jurisdiction.localBodyType,
+            cinemaFormat: c.classification.cinemaFormat,
+            climateType: c.classification.climateType,
+          }}
+          needed={askClassification}
         />
         <Row label="Order" value={orderReference(c)} />
         {classLines.length > 0 && c.maxTicketPriceMinor == null ? (

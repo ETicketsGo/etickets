@@ -27,6 +27,7 @@ import { statusWords } from '@/lib/words';
 import { CalendarRange } from 'lucide-react';
 import { CountryFilter, CountryLabel, useCountryParam } from '../../../components/country-filter';
 import { alreadyHappened } from '@/lib/event-timing';
+import { venueZone } from '@eticketsgo/shared-types';
 
 /**
  * The event moderation queue.
@@ -77,9 +78,12 @@ function whenItHappens(e: AdminEventRow): { line: string; past: boolean; broken:
   const first = new Date(e.firstSessionAt);
   const last = e.lastSessionAt ? new Date(e.lastSessionAt) : first;
   const past = last.getTime() < Date.now();
-  if (e.sessionCount === 1) return { line: dateOnly(e.firstSessionAt), past, broken: false };
+  // The venue's calendar: a 7 pm Bengaluru show is on the 20th even to a reviewer in Denver.
+  const zone = venueZone(e.venue.timezone, e.venue.country) ?? undefined;
+  const day = (iso: string) => dateOnly(iso, 'en-IN', zone);
+  if (e.sessionCount === 1) return { line: day(e.firstSessionAt), past, broken: false };
   return {
-    line: `${dateOnly(e.firstSessionAt)} to ${dateOnly(e.lastSessionAt ?? e.firstSessionAt)}`,
+    line: `${day(e.firstSessionAt)} to ${day(e.lastSessionAt ?? e.firstSessionAt)}`,
     past,
     broken: false,
   };

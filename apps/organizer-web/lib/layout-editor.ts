@@ -11,6 +11,24 @@ import {
   type LayoutDocumentSection,
   type LayoutSeatKind,
 } from '@eticketsgo/shared-types';
+import {
+  CANVAS,
+  areaOf,
+  boxOf,
+  centreOf,
+  clampMove,
+  clampPoint,
+  coversNotably,
+  freeSpot,
+  keepInside,
+  labelPointOf,
+  normaliseDeg,
+  rectangle,
+  rotate,
+  selfCrosses,
+  translate,
+  type Pt,
+} from './block-geometry';
 
 /**
  * The seat layout editor's operations, as pure functions on the layout document.
@@ -463,4 +481,275 @@ export function documentProblems(doc: LayoutDocument, priceText: Record<string, 
   for (const [name, count] of sectionNames)
     if (name && count > 1) problems.push(`Two sections are called "${name}".`);
   return [...new Set(problems)];
+}
+
+// -- Blocks on a venue map ------------------------------------------------------------------
+
+/**
+ * What a new block looks like: a plain rectangle, the outline of a block already there, or an
+ * outline the organizer drew on the map, where it is.
+ */
+export type NewBlockShape =
+  { kind: 'RECTANGLE' } | { kind: 'COPY'; of: number } | { kind: 'DRAWN'; points: Pt[] };
+
+export interface NewBlock {
+  name: string;
+  shape: NewBlockShape;
+  rows: number;
+  seatsPerRow: number;
+  categoryKey: string;
+}
+
+/** Outlines a new block must not land on: every placed block, and the stage or screen. */
+function takenShapes(doc: LayoutDocument, focal: Pt[] | null, except?: number): Pt[][] {
+  const out = doc.sections
+    .filter((s, i) => i !== except && Array.isArray(s.shape) && s.shape.length >= 3)
+    .map((s) => s.shape as Pt[]);
+  if (focal && focal.length >= 3) out.push(focal);
+  return out;
+}
+
+/**
+ * The outline a new rectangular block gets. The map draws no seats, so this is a diagram: wide
+ * enough for its name and price to fit, and growing with the block so a big block looks big.
+ */
+export function rectangleFor(rows: number, seatsPerRow: number): Pt[] {
+  const width = Math.max(90, Math.min(360, seatsPerRow * 9 + 30));
+  const height = Math.max(60, Math.min(300, rows * 12 + 24));
+  return rectangle(0, 0, width, height);
+}
+
+/**
+ * Why a block cannot be added as asked, or null when it can. The server checks the same limits;
+ * here the message can sit beside the field.
+ */
+export function newBlockProblem(doc: LayoutDocument, block: NewBlock): string | null {
+  const name = block.name.trim();
+  if (!name) return 'Give the block a name.';
+  if (doc.sections.some((s) => s.name.trim().toLowerCase() === name.toLowerCase()))
+    return `There is already a block called ${name}.`;
+  if (!Number.isInteger(block.rows) || block.rows < 1 || block.rows > 120)
+    return 'A block can have 1 to 120 rows.';
+  if (!Number.isInteger(block.seatsPerRow) || block.seatsPerRow < 1 || block.seatsPerRow > 200)
+    return 'A row can have 1 to 200 seats.';
+  if (!doc.categories.some((c) => c.key === block.categoryKey))
+    return 'Choose a ticket category for the block.';
+  if (doc.sections.length >= 400) return 'A layout can have at most 400 blocks.';
+  if (block.shape.kind === 'COPY' && !doc.sections[block.shape.of]?.shape)
+    return 'That block is not on the map, so its shape cannot be copied.';
+  if (block.shape.kind === 'DRAWN') return drawnOutlineProblem(block.shape.points);
+  return null;
+}
+
+/** The smallest drawn block, in square map units: about what a fingertip covers on a phone. */
+const MIN_DRAWN_AREA = 30 * 30;
+/** The most corners a drawn outline may have (the server stores at most 400 points). */
+const MAX_DRAWN_CORNERS = 60;
+
+/**
+ * Why a drawn outline cannot become a block, or null when it can. Said in the words of the
+ * person drawing it, with what to do next.
+ */
+export function drawnOutlineProblem(points: readonly Pt[]): string | null {
+  if (points.length < 3) return 'Place at least 3 corners to make a shape.';
+  if (points.length > MAX_DRAWN_CORNERS)
+    return `A shape can have at most ${MAX_DRAWN_CORNERS} corners.`;
+  if (selfCrosses(points))
+    return 'The outline crosses itself. Undo the last corner and place it somewhere else.';
+  if (areaOf(points) < MIN_DRAWN_AREA)
+    return 'The shape is too small to tap on the map. Draw it bigger.';
+  return null;
+}
+
+/**
+ * Rows and seats a drawn block suggests, from the size it was drawn at.
+ *
+ * The map is a diagram, not to scale, so the size is read in the ROOM's own scale: the blocks
+ * already on the map say how many seats a patch of map holds, and a block drawn as big as Rear 3
+ * suggests about as many seats as Rear 3 has. The rows and seats per row follow the drawn
+ * shape's proportions (wide and shallow: few long rows). With no seated block to compare with,
+ * it falls back to the inverse of `rectangleFor`, so a block drawn the size "Add a block" draws
+ * one suggests the same rows and seats. Only a suggestion: the person types the real numbers.
+ */
+export function suggestBlockSize(
+  points: readonly Pt[],
+  doc?: LayoutDocument,
+): { rows: number; seatsPerRow: number } {
+  const b = boxOf(points);
+  const width = Math.max(1, b.maxX - b.minX);
+  const height = Math.max(1, b.maxY - b.minY);
+  const clampRows = (n: number) => Math.max(1, Math.min(120, Math.round(n)));
+  const clampSeats = (n: number) => Math.max(1, Math.min(200, Math.round(n)));
+
+  let seats = 0;
+  let ground = 0;
+  for (const s of doc?.sections ?? []) {
+    if (!s.shape || s.shape.length < 3) continue;
+    const n = s.rows.reduce((sum, r) => sum + seatsInRow(r), 0);
+    if (n === 0) continue;
+    seats += n;
+    ground += areaOf(s.shape as Pt[]);
+  }
+  if (seats > 0 && ground > 0) {
+    const total = Math.max(1, (areaOf(points) * seats) / ground);
+    // A seat is about 9 map units wide and a row 12 deep (as `rectangleFor` draws them), so the
+    // shape's proportions in those units give seats per row against rows.
+    const across = width / 9 / (height / 12);
+    const rows = clampRows(Math.sqrt(total / across));
+    return { rows, seatsPerRow: clampSeats(total / rows) };
+  }
+
+  const fill = Math.min(1, areaOf(points) / (width * height));
+  return {
+    rows: clampRows((height - 24) / 12),
+    seatsPerRow: clampSeats(((width - 30) / 9) * fill),
+  };
+}
+
+/**
+ * Add a block: its rows of ordinary seats, its category, and an outline on empty ground.
+ *
+ * A copied outline lands as near its source as there is room, so "another one like 104" appears
+ * beside 104; a rectangle lands nearest the middle of the map. Either way the organizer then
+ * drags or nudges it into place. Returns the document and the new block's index.
+ */
+export function addBlock(
+  doc: LayoutDocument,
+  block: NewBlock,
+  focal: Pt[] | null,
+): { doc: LayoutDocument; index: number } {
+  if (newBlockProblem(doc, block)) return { doc, index: -1 };
+  const next = clone(doc);
+  const source = block.shape.kind === 'COPY' ? doc.sections[block.shape.of] : null;
+  let shape: Pt[];
+  let label: Pt;
+  if (block.shape.kind === 'DRAWN') {
+    // Drawn where the seats are, so it stays exactly there: no search for empty ground. If it
+    // covers another block, the editor says so, as it does for a block dragged onto another.
+    shape = block.shape.points.map(clampPoint);
+    label = labelPointOf(shape);
+  } else {
+    const outline = source?.shape
+      ? (source.shape as Pt[])
+      : rectangleFor(block.rows, block.seatsPerRow);
+    const prefer: Pt = source?.shape ? centreOf(source.shape as Pt[]) : [CANVAS / 2, CANVAS / 2];
+    shape = freeSpot(outline, takenShapes(doc, focal), prefer);
+    label = centreOf(shape);
+  }
+  const [labelX, labelY] = label;
+  const rows: LayoutDocumentRow[] = Array.from({ length: block.rows }, (_v, r) => ({
+    label: rowLabelAt(r),
+    kinds: SEAT_KIND_CODE.SEAT.repeat(block.seatsPerRow),
+  }));
+  next.sections.push({
+    name: block.name.trim(),
+    categoryKey: block.categoryKey,
+    shape,
+    labelX,
+    labelY,
+    tier: source?.tier ?? 'FLOOR',
+    rotationDeg: source?.rotationDeg ?? 0,
+    rows,
+  });
+  return { doc: next, index: next.sections.length - 1 };
+}
+
+/** A, B, ... Z, AA: the label of the row at an index. */
+function rowLabelAt(index: number): string {
+  let out = '';
+  let n = index;
+  do {
+    out = String.fromCharCode(65 + (n % 26)) + out;
+    n = Math.floor(n / 26) - 1;
+  } while (n >= 0);
+  return out;
+}
+
+/** Move a block's outline and its label together, stopping at the edge of the map. */
+export function moveBlock(doc: LayoutDocument, s: number, dx: number, dy: number): LayoutDocument {
+  const section = doc.sections[s];
+  if (!section?.shape || section.shape.length < 3) return doc;
+  const [mx, my] = clampMove(section.shape as Pt[], dx, dy);
+  if (mx === 0 && my === 0) return doc;
+  const next = clone(doc);
+  const sec = next.sections[s];
+  sec.shape = translate(section.shape as Pt[], mx, my);
+  if (sec.labelX !== null) sec.labelX = Math.round(sec.labelX + mx);
+  if (sec.labelY !== null) sec.labelY = Math.round(sec.labelY + my);
+  return next;
+}
+
+/**
+ * Turn a block around its own middle, clockwise for a positive angle. Its label turns with it
+ * (the words stay upright on the map), and a block turned past the edge is moved back inside.
+ */
+export function rotateBlock(doc: LayoutDocument, s: number, deg: number): LayoutDocument {
+  const section = doc.sections[s];
+  if (!section?.shape || section.shape.length < 3 || deg % 360 === 0) return doc;
+  const about = centreOf(section.shape as Pt[]);
+  const turned = rotate(section.shape as Pt[], deg, about);
+  const inside = keepInside(turned);
+  const [sx, sy] = [inside[0][0] - turned[0][0], inside[0][1] - turned[0][1]];
+  const label: Pt =
+    section.labelX !== null && section.labelY !== null
+      ? rotate([[section.labelX, section.labelY]], deg, about)[0]
+      : about;
+  const next = clone(doc);
+  const sec = next.sections[s];
+  sec.shape = inside;
+  sec.labelX = label[0] + sx;
+  sec.labelY = label[1] + sy;
+  sec.rotationDeg = normaliseDeg((section.rotationDeg ?? 0) + deg);
+  return next;
+}
+
+/**
+ * Put a block that has no outline onto the map, as a rectangle on empty ground. A layout can
+ * carry such a block (an older venue, a hand-made section); until now it could only be listed.
+ */
+export function placeBlock(doc: LayoutDocument, s: number, focal: Pt[] | null): LayoutDocument {
+  const section = doc.sections[s];
+  if (!section || (section.shape && section.shape.length >= 3)) return doc;
+  const widest = Math.max(1, ...section.rows.map((r) => r.kinds.length));
+  const shape = freeSpot(rectangleFor(section.rows.length, widest), takenShapes(doc, focal, s), [
+    CANVAS / 2,
+    CANVAS / 2,
+  ]);
+  const next = clone(doc);
+  const [labelX, labelY] = centreOf(shape);
+  Object.assign(next.sections[s], { shape, labelX, labelY });
+  return next;
+}
+
+/** What a block's outline overlaps, by name: other blocks, and the stage itself. */
+export function blockOverlaps(
+  doc: LayoutDocument,
+  s: number,
+  focal: { shape: Pt[] | null; label: string } | null,
+): string[] {
+  const section = doc.sections[s];
+  if (!section?.shape || section.shape.length < 3) return [];
+  return outlineOverlaps(doc, section.shape as Pt[], focal, s);
+}
+
+/**
+ * What an outline would cover, by name - for a block not added yet, such as one just drawn, so
+ * the person hears it before they name and size it.
+ */
+export function outlineOverlaps(
+  doc: LayoutDocument,
+  mine: readonly Pt[],
+  focal: { shape: Pt[] | null; label: string } | null,
+  except = -1,
+): string[] {
+  if (mine.length < 3) return [];
+  const names = doc.sections
+    .filter(
+      (o, i) =>
+        i !== except && o.shape && o.shape.length >= 3 && coversNotably(mine, o.shape as Pt[]),
+    )
+    .map((o) => o.name);
+  if (focal?.shape && focal.shape.length >= 3 && coversNotably(mine, focal.shape))
+    names.push(`the ${focal.label.toLowerCase()}`);
+  return names;
 }

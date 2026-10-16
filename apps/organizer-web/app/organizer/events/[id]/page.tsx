@@ -14,6 +14,7 @@ import {
   ErrorState,
   useToast,
   errorMessage,
+  type EventCancelResult,
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
 import { SellabilityPanel } from '@/components/sellability-panel';
@@ -26,6 +27,8 @@ import {
   TicketsSection,
 } from '@/components/events/overview-sections';
 import { ManageTiles, OverviewLead } from '@/components/events/overview-lead';
+import { CancelEventDialog } from '@/components/events/cancel-event-dialog';
+import { CancelEventResultDialog } from '@/components/events/cancel-event-result-dialog';
 import { timeAtVenue } from '@/components/events/event-list-model';
 import { useEventSaleState } from '@/components/events/event-header';
 import {
@@ -48,7 +51,7 @@ export default function EventOverview() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
   const toast = useToast();
-  const { orgSentenceName } = useOrg();
+  const { orgSentenceName, can } = useOrg();
   const {
     data: event,
     isLoading,
@@ -117,6 +120,22 @@ export default function EventOverview() {
     onError,
   });
   const router = useRouter();
+  const [confirmCancel, setConfirmCancel] = useState(false);
+  // What the cancellation did, kept open as a summary with the cash list, not a passing toast.
+  const [cancelResult, setCancelResult] = useState<EventCancelResult | null>(null);
+  const cancel = useMutation({
+    mutationFn: (reason: string) => api.events.cancel(id, reason),
+    onSuccess: (r) => {
+      setConfirmCancel(false);
+      setCancelResult(r);
+      qc.invalidateQueries({ queryKey: ['event', id] });
+      qc.invalidateQueries({ queryKey: ['event-sellability', id] });
+      qc.invalidateQueries({ queryKey: ['organizer-event-sale-states'] });
+      qc.invalidateQueries({ queryKey: ['events'] });
+      qc.invalidateQueries({ queryKey: ['cash-returns'] });
+    },
+    onError,
+  });
   const [confirmDelete, setConfirmDelete] = useState(false);
   const remove = useMutation({
     mutationFn: () => api.events.remove(id),
@@ -173,6 +192,7 @@ export default function EventOverview() {
         onResume={() => resume.mutate()}
         onPause={() => pause.mutate()}
         onDelete={() => setConfirmDelete(true)}
+        onCancel={can.ownerActions ? () => setConfirmCancel(true) : undefined}
         busy={{ submit: submit.isPending, resume: resume.isPending, pause: pause.isPending }}
       />
 
@@ -260,6 +280,21 @@ export default function EventOverview() {
           <QuickLinks eventId={id} />
         </div>
       </div>
+
+      <CancelEventDialog
+        open={confirmCancel}
+        eventId={id}
+        title={event.title}
+        busy={cancel.isPending}
+        onClose={() => setConfirmCancel(false)}
+        onConfirm={(reason) => cancel.mutate(reason)}
+      />
+      <CancelEventResultDialog
+        result={cancelResult}
+        eventId={id}
+        organizationId={event.organizationId}
+        onClose={() => setCancelResult(null)}
+      />
 
       <Dialog
         open={confirmDelete}

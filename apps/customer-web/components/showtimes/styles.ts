@@ -1,8 +1,10 @@
+import { BRAND_FOCUS } from '@eticketsgo/web-kit';
+
 /**
- * The keyboard focus ring every control on the film page shares.
+ * The keyboard focus ring every control on the film page shares: the brand's, now that the
+ * film page is on the brand layer (docs/design/DESIGN-SYSTEM.md).
  *
- * Offset against the canvas so it stays visible on a solid accent tile. Anything that scrolls
+ * Offset against the canvas so it stays visible on a solid ink tile. Anything that scrolls
  * horizontally gives its children padding for it, or the ring is clipped to nothing.
  */
-export const focusRing =
-  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas';
+export const focusRing = BRAND_FOCUS;

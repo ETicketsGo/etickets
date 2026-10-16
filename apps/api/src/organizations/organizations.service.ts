@@ -20,6 +20,7 @@ import type {
   UpdateOrganizationProfileInput,
 } from '@eticketsgo/validation';
 import { PrismaService } from '../prisma/prisma.service';
+import { SHOW_ZONE_SELECT, showZone } from '../refunds/cash-returns.service';
 import { AuditService } from '../audit/audit.service';
 import { checkLegalIdentity, findNameCollisions } from './organization-identity';
 import {
@@ -893,10 +894,11 @@ export class OrganizationsService {
    * delete, for the same reason a complaint outlives its subject: the audit log and every
    * "who scanned this ticket" answer still point at the membership row.
    *
-   * Setting REMOVED is enough to end their access at once. `assertMember` refuses anything that
-   * is not ACTIVE and the JWT strategy reads team seats per request, so the removed person's
-   * very next call is refused - no token needs to expire. A pending invitation is withdrawn by
-   * the same status (`loadInvitation` refuses a REMOVED member's link).
+   * Setting REMOVED ends their access to the console at once. `assertMember` refuses anything
+   * that is not ACTIVE and the JWT strategy reads team seats per request, so the removed
+   * person's very next call is refused. A pending invitation is withdrawn by the same status
+   * (`loadInvitation` refuses a REMOVED member's link). What it did NOT end - their check-in
+   * devices, the offline activations they approved and their sessions - is ended below.
    *
    * The last active owner cannot be removed, by anybody including themselves: an organization
    * with no owner has nobody who can invite, change payout details or close it, and only
@@ -909,20 +911,130 @@ export class OrganizationsService {
     if (member.role === Role.ORGANIZER_OWNER && member.status === 'ACTIVE') {
       await this.assertAnotherOwner(orgId, member.id);
     }
-    const updated = await this.prisma.organizationMember.update({
-      where: { id: member.id },
-      data: { status: 'REMOVED' },
-      include: { user: { select: { id: true, email: true, fullName: true } } },
+    const userId = member.userId;
+    const now = new Date();
+
+    /*
+      ── WHAT ELSE GOES WITH THE SEAT ─────────────────────────────────────────────────
+      The status change ends their access to the console at once, but three things they set up
+      outlive it and were left running: a check-in device they registered or were handed keeps
+      admitting people at the door (it works offline, so the next request refused is not soon
+      enough); an offline activation they approved keeps a session in offline mode on their
+      say-so; and their signed-in sessions keep refreshing. All three end here, in the same
+      transaction as the removal, so there is no moment where the person is off the team and
+      their door phone is still trusted.
+
+      Only this organization's devices and activations: a person can work the door for two
+      organizers, and the other one did not remove them. Devices they merely APPROVED for
+      somebody else stay - those belong to people still on the team.
+
+      Sessions are per account, not per organization, so they end only when this was the last
+      team they were on (and they are not platform staff). Otherwise signing them out would let
+      one organizer interrupt another organizer's door; their access to this organization has
+      ended either way, because team seats are read on every request.
+    */
+    const otherSeats = await this.prisma.organizationMember.count({
+      where: { userId, status: 'ACTIVE', organizationId: { not: orgId } },
     });
+    const account = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { roles: true },
+    });
+    const staff = (account?.roles ?? []).some((r) => r === Role.ADMIN || r === Role.SUPER_ADMIN);
+    const signOut = otherSeats === 0 && !staff;
+
+    const { updated, devices, activations, sessions } = await this.prisma.$transaction(
+      async (tx) => {
+        const updated = await tx.organizationMember.update({
+          where: { id: member.id },
+          data: { status: 'REMOVED' },
+          include: { user: { select: { id: true, email: true, fullName: true } } },
+        });
+        const devices = await tx.checkInDevice.findMany({
+          where: {
+            organizationId: orgId,
+            status: { in: ['PENDING', 'ACTIVE', 'SUSPENDED'] },
+            OR: [{ createdByUserId: userId }, { assignedStaffUserId: userId }],
+          },
+          select: { id: true },
+        });
+        if (devices.length > 0) {
+          await tx.checkInDevice.updateMany({
+            where: { id: { in: devices.map((d) => d.id) } },
+            data: { status: 'REVOKED' },
+          });
+        }
+        const activations = await tx.offlineActivation.findMany({
+          where: { organizationId: orgId, state: 'ACTIVE', approvedByUserId: userId },
+          select: { id: true },
+        });
+        if (activations.length > 0) {
+          await tx.offlineActivation.updateMany({
+            where: { id: { in: activations.map((a) => a.id) } },
+            data: {
+              state: 'REVOKED',
+              revokedByUserId: user.id,
+              revokedAt: now,
+              revokeReason: 'The person who approved it was removed from the team.',
+            },
+          });
+        }
+        const sessions = signOut
+          ? (
+              await tx.refreshToken.updateMany({
+                where: { userId, revokedAt: null, expiresAt: { gt: now } },
+                data: { revokedAt: now },
+              })
+            ).count
+          : 0;
+        return { updated, devices, activations, sessions };
+      },
+    );
+
     await this.audit.record({
       actorUserId: user.id,
       organizationId: orgId,
       action: 'MEMBER_REMOVED',
       entityType: 'OrganizationMember',
       entityId: member.id,
-      metadata: { role: member.role, previousStatus: member.status },
+      metadata: {
+        role: member.role,
+        previousStatus: member.status,
+        devicesRevoked: devices.length,
+        activationsRevoked: activations.length,
+        sessionsEnded: sessions,
+      },
     });
-    return updated;
+    // One entry per device and activation too, under the action their own pages already show.
+    for (const d of devices) {
+      await this.audit.record({
+        actorUserId: user.id,
+        organizationId: orgId,
+        action: 'CHECKIN_DEVICE_REVOKED',
+        entityType: 'CheckInDevice',
+        entityId: d.id,
+        metadata: { reason: 'MEMBER_REMOVED', memberId: member.id },
+      });
+    }
+    for (const a of activations) {
+      await this.audit.record({
+        actorUserId: user.id,
+        organizationId: orgId,
+        action: 'OFFLINE_ACTIVATION_REVOKED',
+        entityType: 'OfflineActivation',
+        entityId: a.id,
+        metadata: { reason: 'MEMBER_REMOVED', memberId: member.id },
+      });
+    }
+    return {
+      ...updated,
+      revoked: {
+        devices: devices.length,
+        activations: activations.length,
+        sessions,
+        signedOut: signOut,
+      },
+    };
   }
 
   /**
@@ -1053,8 +1165,8 @@ export class OrganizationsService {
         cashCollectedAt: true,
         createdAt: true,
         cashCollectedBy: { select: { fullName: true } },
-        event: { select: { title: true } },
-        eventSession: { select: { startsAt: true } },
+        event: { select: { title: true, ...SHOW_ZONE_SELECT.event.select } },
+        eventSession: SHOW_ZONE_SELECT.eventSession,
       },
       orderBy: [{ eventSession: { startsAt: 'asc' } }, { createdAt: 'asc' }],
       take: 200,
@@ -1070,6 +1182,8 @@ export class OrganizationsService {
       status: b.status,
       eventTitle: b.event.title,
       startsAt: b.eventSession.startsAt,
+      // The venue's clock, not the reader's: a 7:00 pm Bengaluru show read 7:30 am in Denver.
+      timezone: showZone(b.event.venue, b.eventSession.screen),
       collectedAt: b.cashCollectedAt,
       collectedBy: b.cashCollectedBy?.fullName ?? null,
     }));

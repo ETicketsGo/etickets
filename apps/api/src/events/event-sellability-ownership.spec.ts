@@ -105,10 +105,10 @@ describe('who can actually fix it', () => {
     expect(blocker!.owner).toBe('PLATFORM');
     // The defect, stated as a test: there was a link, and it led nowhere useful.
     expect(blocker!.fixPath).toBeNull();
-    expect(blocker!.fix).toContain('Nothing here can fix this');
+    expect(blocker!.fix).toContain('ETicketsGo has to add the price rules first');
   });
 
-  it('does send them to the cinema when the cinema is what is unclassified', async () => {
+  it("sends them to the cinema to ASK for its legal type, which is the platform's to set", async () => {
     const service = new EventSellabilityService(
       prismaWith(eventWith(ONE_SHOW)),
       unclassifiedCinema,
@@ -117,9 +117,14 @@ describe('who can actually fix it', () => {
 
     const blocker = blockers.find((b) => b.code === 'CINEMA_NOT_CLASSIFIED');
     expect(blocker).toBeDefined();
-    // This one really is theirs, and the link really does reach the control.
-    expect(blocker!.owner).toBe('ORGANIZER');
+    /*
+      The legal type decides the price limit, so organizers cannot set it (the API refuses
+      them). The link still goes to the cinema, where the legal type on record is shown with
+      "Ask ETicketsGo to change this" - the one thing the organizer can actually do.
+    */
+    expect(blocker!.owner).toBe('PLATFORM');
     expect(blocker!.fixPath).toBe('/organizer/cinemas');
+    expect(blocker!.fix).toMatch(/Only ETicketsGo can set the legal type/);
   });
 
   it('treats contradictory platform rules as the platform’s', async () => {

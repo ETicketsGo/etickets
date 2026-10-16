@@ -21,6 +21,7 @@ import {
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
 import { isForbidden } from '@/lib/org-permissions';
+import { removalSummary } from '@/lib/team-removal';
 
 const ROLES = ['ORGANIZER_MANAGER', 'CHECKIN_STAFF', 'ORGANIZER_OWNER'];
 
@@ -165,7 +166,7 @@ export default function TeamPage() {
   const remove = useMutation({
     mutationFn: (m: MemberRow) => api.organizations.removeMember(activeOrg.id, m.id),
     onSuccess: (m) => {
-      toast.push(`${m.user.fullName} has been removed. Their access has ended.`, 'success');
+      toast.push(removalSummary(m), 'success');
       qc.invalidateQueries({ queryKey: ['members', activeOrg.id] });
       closeManage();
     },
@@ -216,7 +217,7 @@ export default function TeamPage() {
             <span className="whitespace-nowrap">
               <BrandStatusPill status="caution">Invitation pending</BrandStatusPill>
             </span>
-            <span className="text-brand-meta text-brand-ink-3">Hasn&rsquo;t joined yet</span>
+            <span className="text-brand-meta text-brand-ink-3">Has not joined yet</span>
             {/* Owner only at the API: re-issuing mints a fresh credential for this person. */}
             {can.ownerActions && (
               <button
@@ -402,6 +403,10 @@ export default function TeamPage() {
                 {activeOrg.name} straight away.
                 {managing.status === 'INVITED' ? ' Their invitation link stops working.' : ''}
               </p>
+              <p>
+                Any check-in device they set up stops working, offline check-in they approved is
+                turned off, and they are signed out.
+              </p>
               <p>What they did stays in your records. You can invite them again later.</p>
             </div>
           ) : managing ? (
@@ -467,7 +472,7 @@ export default function TeamPage() {
                 the team, and a manager who came here to add somebody needs to know who can.
               */
               <p className="text-caption text-text-muted">
-                Only the organization&rsquo;s owner can add people to the team.
+                Only the owner of the organization can add people to the team.
               </p>
             )}
             <Input

@@ -2,8 +2,16 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { Compass, MapPin } from 'lucide-react';
-import { api as webKitApi, countryPhrase, countryKey, useCity } from '@eticketsgo/web-kit';
+import {
+  api as webKitApi,
+  brandChipClasses,
+  BrandButton,
+  countryPhrase,
+  countryKey,
+  useCity,
+} from '@eticketsgo/web-kit';
 import { Button, EmptyState } from '@/components/ui';
+import { BrandEmpty } from './storefront-brand';
 
 /*
   The groups below the selected city: "More in <country>", then one "Elsewhere: <country>" per
@@ -31,6 +39,7 @@ export function PlaceSections<T>({
   currencyOf,
   limit = PER_GROUP,
   level = 2,
+  variant = 'legacy',
 }: {
   buckets: PlaceGroupsView<T>;
   render: (items: T[]) => React.ReactNode;
@@ -38,21 +47,31 @@ export function PlaceSections<T>({
   currencyOf?: (item: T) => string | undefined;
   limit?: number;
   level?: 2 | 3;
+  /**
+   * `brand` for a page on the brand layer (Explore, Movies): the display-face section heading
+   * and the brand's quiet note. Browse still draws the old system and keeps `legacy`.
+   */
+  variant?: 'legacy' | 'brand';
 }) {
   const Heading = (level === 2 ? 'h2' : 'h3') as 'h2';
   const country = buckets.homeCountry;
+  const brand = variant === 'brand';
+  const headingClass = brand
+    ? 'text-balance font-brand-display text-brand-d2 text-brand-ink'
+    : 'text-h3 font-bold tracking-tight text-text-primary';
+  const noteClass = brand
+    ? 'mt-2 text-brand-meta text-brand-ink-3'
+    : 'mt-1 text-[0.9375rem] text-text-muted';
+  const sectionClass = brand ? 'space-y-6' : 'space-y-5';
   return (
     <>
       {buckets.sameCountry.length > 0 && (
         <section
           aria-labelledby="place-same-country"
           data-place-group="same-country"
-          className="space-y-5"
+          className={sectionClass}
         >
-          <Heading
-            id="place-same-country"
-            className="text-h3 font-bold tracking-tight text-text-primary"
-          >
+          <Heading id="place-same-country" className={headingClass}>
             {country ? `More in ${countryPhrase(country)}` : 'More events'}
           </Heading>
           {render(buckets.sameCountry.slice(0, limit))}
@@ -69,16 +88,14 @@ export function PlaceSections<T>({
             aria-labelledby={id}
             data-place-group="elsewhere"
             data-country={group.code}
-            className="space-y-5"
+            className={sectionClass}
           >
             <div>
-              <Heading id={id} className="text-h3 font-bold tracking-tight text-text-primary">
+              <Heading id={id} className={headingClass}>
                 {`Elsewhere: ${group.name}`}
               </Heading>
               {currencies.length === 1 && (
-                <p className="mt-1 text-[0.9375rem] text-text-muted">
-                  Prices in {currencies[0]}. Times are at the venue.
-                </p>
+                <p className={noteClass}>Prices in {currencies[0]}. Times are at the venue.</p>
               )}
             </div>
             {render(group.items.slice(0, limit))}
@@ -101,10 +118,13 @@ export function EmptyPlace({
   place,
   noun = 'events',
   icon = Compass,
+  variant = 'legacy',
 }: {
   place: string;
   noun?: string;
   icon?: typeof Compass;
+  /** `brand` draws the same words and choices on the brand layer; see `PlaceSections`. */
+  variant?: 'legacy' | 'brand';
 }) {
   const preference = useCity();
   const country = preference.place?.country ?? preference.country;
@@ -117,15 +137,48 @@ export function EmptyPlace({
   const suggestions = (nearby.data ?? [])
     .filter((c) => c.eventCount > 0 && c.city.toLowerCase() !== preference.city?.toLowerCase())
     .slice(0, 6);
+  const title = `No ${noun} available in ${place} yet`;
+  const hint =
+    suggestions.length > 0
+      ? `These cities in ${key ? countryPhrase(key) : 'your country'} have something on:`
+      : 'Search for a city to see what is on there.';
+  const choose = (c: (typeof suggestions)[number]) =>
+    preference.setCity(c.city, {
+      region: c.region ?? null,
+      country: c.countryCode ?? c.country,
+    });
+
+  if (variant === 'brand') {
+    return (
+      <BrandEmpty
+        title={title}
+        hint={hint}
+        action={
+          <>
+            {suggestions.map((c) => (
+              <button
+                key={`${c.countryCode ?? c.country}-${c.city}`}
+                type="button"
+                onClick={() => choose(c)}
+                className={`${brandChipClasses(false)} h-11`}
+              >
+                {c.city}
+                <span className="tabular-nums text-brand-ink-3">{c.eventCount}</span>
+              </button>
+            ))}
+            <BrandButton variant="secondary" onClick={() => preference.requestPicker()}>
+              Search for a city
+            </BrandButton>
+          </>
+        }
+      />
+    );
+  }
 
   return (
     <EmptyState
-      title={`No ${noun} available in ${place} yet`}
-      hint={
-        suggestions.length > 0
-          ? `These cities in ${key ? countryPhrase(key) : 'your country'} have something on:`
-          : 'Search for a city to see what is on there.'
-      }
+      title={title}
+      hint={hint}
       icon={icon}
       action={
         <div className="flex flex-wrap items-center justify-center gap-2">
@@ -133,12 +186,7 @@ export function EmptyPlace({
             <Button
               key={`${c.countryCode ?? c.country}-${c.city}`}
               variant="outline"
-              onClick={() =>
-                preference.setCity(c.city, {
-                  region: c.region ?? null,
-                  country: c.countryCode ?? c.country,
-                })
-              }
+              onClick={() => choose(c)}
             >
               <MapPin className="h-4 w-4" aria-hidden="true" />
               {c.city}

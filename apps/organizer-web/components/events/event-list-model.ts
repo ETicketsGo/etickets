@@ -1,5 +1,5 @@
 import {
-  dateTime,
+  timeAtVenue,
   zoneShortName,
   type BadgeTone,
   type ImageCategory,
@@ -71,7 +71,7 @@ export function approvalOf(event: {
       ? { label: 'Changes requested', tone: 'error' }
       : { label: 'Not submitted', tone: 'neutral' };
   if (event.status === 'PAUSED' && event.pausedByAdmin)
-    return { label: 'Paused by platform', tone: 'error' };
+    return { label: 'Paused by ETicketsGo', tone: 'error' };
   if (event.status === 'PAUSED' && event.needsReviewOnResume)
     return { label: 'Review needed to resume', tone: 'warning' };
   if (event.publishedAt) return { label: 'Approved', tone: 'success' };
@@ -89,21 +89,9 @@ export function eventZone(venue: { timezone?: string | null; country?: string | 
 
 /**
  * A start time as the time AT THE VENUE, with the zone's short name: "14 Nov 2026, 7:30 pm IST".
- *
- * A time with no zone is the ambiguity that once had a ticket and its email disagree by hours.
- * When the venue has no zone the reader's own is used and said to be theirs, rather than
- * passed off as the venue's.
+ * Moved to web-kit so the admin console and every organizer screen share the one rule.
  */
-export function timeAtVenue(
-  iso: string,
-  venue: { timezone?: string | null; country?: string | null },
-): string {
-  const { zone, known } = eventZone(venue);
-  const when = dateTime(iso, 'en-IN', zone);
-  if (!known) return `${when} (your time)`;
-  const abbrev = zoneShortName(iso, zone!);
-  return abbrev ? `${when} ${abbrev}` : when;
-}
+export { timeAtVenue };
 
 export { zoneShortName };
 

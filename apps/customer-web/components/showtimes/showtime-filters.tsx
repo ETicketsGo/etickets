@@ -51,7 +51,7 @@ export function ShowtimeFilterBar({
               aria-labelledby={formatId}
               className="flex shrink-0 items-center gap-2"
             >
-              <span id={formatId} className="text-caption font-medium text-text-muted">
+              <span id={formatId} className="text-brand-meta font-medium text-brand-ink-2">
                 {t('format')}
               </span>
               {formats.map((format) => (
@@ -65,11 +65,11 @@ export function ShowtimeFilterBar({
                 </Chip>
               ))}
             </div>
-            <span aria-hidden className="h-6 w-px shrink-0 bg-border" />
+            <span aria-hidden className="h-6 w-px shrink-0 bg-brand-line-strong" />
           </>
         )}
         <div role="group" aria-labelledby={timeId} className="flex shrink-0 items-center gap-2">
-          <span id={timeId} className="text-caption font-medium text-text-muted">
+          <span id={timeId} className="text-brand-meta font-medium text-brand-ink-2">
             {t('time')}
           </span>
           {TIMES_OF_DAY.map((bucket) => {
@@ -93,7 +93,7 @@ export function ShowtimeFilterBar({
         <button
           type="button"
           onClick={() => onChange({ formats: [], times: [] })}
-          className={`inline-flex h-9 shrink-0 items-center gap-1 rounded-md px-2 text-caption font-semibold text-text-primary underline underline-offset-2 hover:bg-background-subtle ${focusRing}`}
+          className={`inline-flex h-9 shrink-0 items-center gap-1 rounded-brand-control px-2 text-brand-meta font-semibold text-brand-ink underline underline-offset-2 hover:bg-brand-surface ${focusRing}`}
         >
           <X className="h-4 w-4" aria-hidden />
           {t('clear')}
@@ -123,12 +123,12 @@ function Chip({
       disabled={disabled}
       onClick={onClick}
       {...data}
-      className={`inline-flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 text-caption font-medium motion-safe:transition-colors motion-safe:duration-150 ${focusRing} ${
+      className={`inline-flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 text-brand-meta font-medium motion-safe:transition-colors motion-safe:duration-150 ${focusRing} ${
         pressed
-          ? 'border-action-primary bg-tint-primary text-action-primary'
+          ? 'border-brand-action bg-brand-action text-brand-on-action'
           : disabled
-            ? 'cursor-not-allowed border-dashed border-border bg-background-subtle text-text-muted'
-            : 'border-border-input bg-background-surface text-text-secondary hover:bg-background-subtle hover:text-text-primary'
+            ? 'cursor-not-allowed border-dashed border-brand-line-strong bg-transparent text-brand-ink-3'
+            : 'border-brand-line-strong bg-brand-surface text-brand-ink hover:border-brand-ink-3'
       }`}
     >
       {/* The check says "on" in a shape, not only in the chip's colour. */}

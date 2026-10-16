@@ -13,14 +13,22 @@ import {
   useToast,
   errorMessage,
   money,
-  dateTime,
   type Column,
   type CashBooking,
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
+import { CounterSaleForm } from '@/components/counter/counter-sale-form';
+import { CashReturnsList } from '@/components/counter/cash-returns-list';
+import { timeAtVenue } from '@/components/events/event-list-model';
 
 /**
- * The counter: cash reserved but not yet handed over.
+ * The counter: selling to the person in front of you, and cash reserved but not yet handed over.
+ *
+ * ── TWO JOBS, ONE PAGE ─────────────────────────────────────────────────────────────
+ * Selling at the counter (the form at the top) needs nothing switched on: the organizer's own
+ * staff take the money. The list below is the other job - buyers who reserved online and pay
+ * on arrival - and that one exists only while "Cash at the venue" is on. The page used to be
+ * only the list, so with the switch off it was a dead end with nothing to do.
  *
  * ── WHO THIS IS FOR ────────────────────────────────────────────────────────────────
  * A single-screen cinema that takes cash. Somebody reserves seats online or by phone and
@@ -53,7 +61,7 @@ export default function CounterPage() {
     onSuccess: (r) => {
       toast.push(
         r.status === 'already_collected'
-          ? 'Already collected — nothing changed.'
+          ? 'Already collected. Nothing changed.'
           : 'Cash recorded. The ticket is issued.',
         'success',
       );
@@ -79,7 +87,10 @@ export default function CounterPage() {
       render: (b) => (
         <div>
           <p className="text-text-primary">{b.eventTitle}</p>
-          <p className="text-caption text-text-muted">{dateTime(b.startsAt)}</p>
+          {/* On the venue's clock, with its zone: the reader may be anywhere. */}
+          <p className="text-caption text-text-muted">
+            {timeAtVenue(b.startsAt, { timezone: b.timezone ?? null })}
+          </p>
         </div>
       ),
     },
@@ -128,13 +139,10 @@ export default function CounterPage() {
     <div className="space-y-4">
       <PageHeader
         title="Counter"
-        description="Cash reserved for shows, and not yet handed over."
-        action={
-          <Button variant="outline" size="sm" onClick={() => setShowCollected((v) => !v)}>
-            {showCollected ? 'Hide collected' : 'Show collected'}
-          </Button>
-        }
+        description="Sell tickets to people at the counter, and take cash for tickets reserved online."
       />
+
+      <CounterSaleForm organizationId={activeOrg.id} />
 
       {/*
         Said once, plainly. Cash never reaches ETicketsGo, so it is not in a payout and the
@@ -143,11 +151,30 @@ export default function CounterPage() {
       */}
       <Card>
         <p className="text-[0.9375rem] text-text-secondary">
-          Money taken here stays with you — it never passes through ETicketsGo, so it is not part of
-          a payout. Pressing <strong>Collect</strong> issues the ticket and records who took the
-          money.
+          Money taken here stays with you. It never passes through ETicketsGo, so it is not part of
+          a payout. Every sale and every collection records who took the money.
         </p>
       </Card>
+
+      {/*
+        Cash owed back because a show was cancelled. Only shown while there is (or was) some, so
+        a counter that never had a cancellation sees the page exactly as before.
+      */}
+      <CashReturnsSection organizationId={activeOrg.id} />
+
+      <div className="flex flex-wrap items-end justify-between gap-3 pt-2">
+        <div>
+          <h2 className="text-title font-semibold text-text-primary">
+            Reserved online, paying here
+          </h2>
+          <p className="text-caption text-text-muted">
+            Press <strong>Collect</strong> when the money is in your hand: the ticket is issued.
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => setShowCollected((v) => !v)}>
+          {showCollected ? 'Hide collected' : 'Show collected'}
+        </Button>
+      </div>
 
       <DataTable
         columns={columns}
@@ -163,17 +190,18 @@ export default function CounterPage() {
             ) : (
               <>
                 <p>
-                  Cash at the venue is turned off, so buyers cannot reserve and pay here. Nothing
-                  will appear on this list until it is on.
+                  Online buyers cannot reserve and pay here: Cash at the venue is off. You can still
+                  sell at the counter above.
                 </p>
                 <p className="mt-2">
+                  To let online buyers pay when they arrive,{' '}
                   <Link
                     href="/organizer/settings"
                     className="font-medium text-action-primary underline underline-offset-2"
                   >
-                    Turn it on in Settings
-                  </Link>{' '}
-                  (Cash at the venue). Online sales are not affected either way.
+                    turn it on in Settings
+                  </Link>
+                  . Online sales are not affected either way.
                 </p>
               </>
             )}
@@ -181,5 +209,27 @@ export default function CounterPage() {
         }
       />
     </div>
+  );
+}
+
+function CashReturnsSection({ organizationId }: { organizationId: string }) {
+  const { data } = useQuery({
+    queryKey: ['cash-returns', organizationId, 'all'],
+    queryFn: () => api.organizations.cashReturns(organizationId, { includeReturned: true }),
+  });
+  if (!data || data.length === 0) return null;
+  return (
+    <section className="space-y-2 pt-2" aria-labelledby="cash-returns-heading">
+      <div>
+        <h2 id="cash-returns-heading" className="text-title font-semibold text-text-primary">
+          Cash to give back
+        </h2>
+        <p className="text-caption text-text-muted">
+          These shows were cancelled, so their tickets no longer work. Give the cash back, then
+          press <strong>Mark as given back</strong>. No money moves online.
+        </p>
+      </div>
+      <CashReturnsList organizationId={organizationId} />
+    </section>
   );
 }

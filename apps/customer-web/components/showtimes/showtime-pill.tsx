@@ -15,7 +15,7 @@ import { Link } from '@/i18n/navigation';
 import { focusRing } from './styles';
 
 const pillShape =
-  'flex h-full min-h-[3.75rem] w-full flex-col items-center justify-center rounded-md border px-2 py-1.5 text-center';
+  'flex h-full min-h-[3.75rem] w-full flex-col items-center justify-center rounded-brand-control border px-2 py-1.5 text-center';
 
 /**
  * One screening.
@@ -54,13 +54,13 @@ export function ShowtimePill({ show }: { show: PublicShowRow }) {
     return (
       <div
         {...data}
-        className={`${pillShape} border-dashed border-border bg-background-subtle text-text-muted`}
+        className={`${pillShape} border-dashed border-brand-line-strong bg-brand-sunken text-brand-ink-3`}
       >
-        <span className="inline-flex items-center gap-1 text-body font-medium leading-tight">
+        <span className="inline-flex items-center gap-1 text-brand-body font-medium leading-tight tabular-nums">
           {time}
           {lateNight && <Moon className="h-3.5 w-3.5" aria-hidden />}
         </span>
-        <span className="text-caption">{status}</span>
+        <span className="text-brand-meta">{status}</span>
         {(screen || lateNight) && (
           <span className="sr-only">
             {[screen, lateNight ? t('pill.lateNight') : null]
@@ -89,30 +89,30 @@ export function ShowtimePill({ show }: { show: PublicShowRow }) {
       {...data}
       href={`/shows/${show.sessionId}`}
       aria-label={name}
-      className={`${pillShape} bg-background-surface motion-safe:transition-colors motion-safe:duration-150 ${focusRing} ${
+      className={`${pillShape} bg-brand-surface motion-safe:transition-colors motion-safe:duration-150 ${focusRing} ${
         limited
-          ? 'border-status-warning hover:bg-tint-warning'
-          : 'border-status-success hover:bg-tint-success'
+          ? 'border-brand-caution hover:bg-brand-caution-tint'
+          : 'border-brand-positive hover:bg-brand-positive-tint'
       }`}
     >
       <span
-        className={`inline-flex items-center gap-1 text-body font-semibold leading-tight ${
-          limited ? 'text-status-warning' : 'text-status-success'
+        className={`inline-flex items-center gap-1 text-brand-body font-semibold leading-tight tabular-nums ${
+          limited ? 'text-brand-caution' : 'text-brand-positive'
         }`}
       >
         {time}
         {lateNight && <Moon className="h-3.5 w-3.5" aria-hidden />}
       </span>
       {(screen || price) && (
-        <span className="mt-0.5 flex max-w-full items-center justify-center gap-1 text-caption text-text-secondary">
+        <span className="mt-0.5 flex max-w-full items-center justify-center gap-1 text-brand-meta tabular-nums text-brand-ink-2">
           {screen && <span className="truncate">{screen}</span>}
           {screen && price && <span aria-hidden>-</span>}
           {price && <span className="shrink-0">{price}</span>}
         </span>
       )}
       {limited && (
-        <span className="mt-0.5 inline-flex items-center gap-1 text-caption font-semibold text-status-warning">
-          <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-status-warning" />
+        <span className="mt-0.5 inline-flex items-center gap-1 text-brand-meta font-semibold text-brand-caution">
+          <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-brand-caution" />
           {status}
         </span>
       )}

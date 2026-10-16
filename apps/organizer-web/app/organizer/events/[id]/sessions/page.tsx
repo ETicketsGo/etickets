@@ -14,7 +14,7 @@ import {
   StatusBadge,
   useToast,
   errorMessage,
-  dateTime,
+  timeAtVenue,
   type Column,
   type EventSession,
   DateTimeField,
@@ -81,6 +81,16 @@ export default function SessionsTab() {
     ? `Venue time: ${zoneLabel(inputZone.zone)}`
     : `Your time zone (${inputZone.zone}) - set the venue's time zone to be sure`;
 
+  /*
+    A new general-admission date goes in the same standing space as the event's other
+    general-admission dates, when they all share one - so the lawn's capacity caps it too. A
+    different space is chosen on the Seating page.
+  */
+  const gaSpaces = new Set(
+    (event?.sessions ?? []).filter((s) => !s.screenId).map((s) => s.standingSpaceId ?? ''),
+  );
+  const sharedStanding = gaSpaces.size === 1 ? [...gaSpaces][0] : '';
+
   const add = useMutation({
     mutationFn: () =>
       api.events.addSession(id, {
@@ -88,7 +98,8 @@ export default function SessionsTab() {
         endsAt: wallClockToInstant(form.endsAt, inputZone.zone).toISOString(),
         // Omitted entirely when general admission — sending an empty string would be a room
         // id that does not exist, and the request would be refused rather than understood.
-        ...(seatingFor(form.layoutId) ?? {}),
+        ...(seatingFor(form.layoutId) ??
+          (sharedStanding ? { standingSpaceId: sharedStanding } : {})),
       }),
     onSuccess: (session) => {
       toast.push(
@@ -118,8 +129,8 @@ export default function SessionsTab() {
     return s.status === 'CANCELLED' ? 'cancelled' : 'ended';
   };
   const columns: Column<EventSession>[] = [
-    { key: 'start', header: 'Starts', render: (s) => dateTime(s.startsAt, undefined, venueTz) },
-    { key: 'end', header: 'Ends', render: (s) => dateTime(s.endsAt, undefined, venueTz) },
+    { key: 'start', header: 'Starts', render: (s) => timeAtVenue(s.startsAt, venueTz ?? null) },
+    { key: 'end', header: 'Ends', render: (s) => timeAtVenue(s.endsAt, venueTz ?? null) },
     {
       key: 'seating',
       header: 'Seating',
@@ -175,22 +186,25 @@ export default function SessionsTab() {
       key: 'actions',
       header: '',
       /*
-        Offered where the server allows it: a date still to come that nobody has bought for
-        or is buying for. Past that, the seating column already says why it is locked.
+        Change time: a date still to come that nobody has bought for or is buying for; the
+        server refuses the rest, because a buyer chose that time. Cancel: any date still to
+        come - with buyers it refunds them and tells them, through the show cancellation.
       */
       render: (s) =>
-        sessionEditable(s, Date.now()) && !lockReason(s) ? (
+        sessionEditable(s, Date.now()) ? (
           <div className="flex flex-col items-start gap-1">
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setRetiming(s);
-              }}
-              className="whitespace-nowrap rounded text-caption text-action-primary underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-            >
-              Change time
-            </button>
+            {!lockReason(s) ? (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setRetiming(s);
+                }}
+                className="whitespace-nowrap rounded text-caption text-action-primary underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+              >
+                Change time
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={(e) => {
@@ -199,7 +213,7 @@ export default function SessionsTab() {
               }}
               className="whitespace-nowrap rounded text-caption text-status-error underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
             >
-              Cancel date
+              {lockReason(s) ? 'Cancel date and refund' : 'Cancel date'}
             </button>
           </div>
         ) : null,
@@ -287,7 +301,7 @@ export default function SessionsTab() {
         rooms={venueRooms}
         roomsFailed={rooms.isError}
         roomsLoading={rooms.isLoading}
-        whenLabel={editing ? dateTime(editing.startsAt, undefined, venueTz) : ''}
+        whenLabel={editing ? timeAtVenue(editing.startsAt, venueTz ?? null) : ''}
         onClose={() => setEditing(null)}
       />
       <EditSessionTimeDialog
@@ -300,7 +314,13 @@ export default function SessionsTab() {
       <CancelSessionDialog
         eventId={id}
         session={cancelling}
-        whenLabel={cancelling ? dateTime(cancelling.startsAt, undefined, venueTz) : ''}
+        whenLabel={cancelling ? timeAtVenue(cancelling.startsAt, venueTz ?? null) : ''}
+        sold={
+          cancelling
+            ? sessionSeating({ session: cancelling, space: null, layout: null, now: Date.now() })
+                .counts.sold
+            : 0
+        }
         onClose={() => setCancelling(null)}
       />
     </div>

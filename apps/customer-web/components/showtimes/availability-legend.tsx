@@ -6,14 +6,14 @@ import { useTranslations } from 'next-intl';
 export function AvailabilityLegend() {
   const t = useTranslations('showtimes.legend');
   const items = [
-    { label: t('available'), mark: 'bg-status-success' },
-    { label: t('fillingFast'), mark: 'bg-status-warning' },
-    { label: t('soldOut'), mark: 'border border-dashed border-text-muted bg-background-subtle' },
+    { label: t('available'), mark: 'bg-brand-positive' },
+    { label: t('fillingFast'), mark: 'bg-brand-caution' },
+    { label: t('soldOut'), mark: 'border border-dashed border-brand-ink-3 bg-brand-sunken' },
   ];
   return (
     <ul
       aria-label={t('label')}
-      className="flex flex-wrap items-center gap-x-4 gap-y-1 text-caption text-text-secondary"
+      className="flex flex-wrap items-center gap-x-4 gap-y-1 text-brand-meta text-brand-ink-2"
     >
       {items.map((item) => (
         <li key={item.label} className="inline-flex items-center gap-1.5">

@@ -326,3 +326,39 @@ describe('sections', () => {
     ]);
   });
 });
+
+describe('a pause by the platform team', () => {
+  const pause = (minutes: number) =>
+    row(
+      { eventId: 'e-pause', eventTitle: 'Standup Night', reason: 'Age limit missing' },
+      { type: 'EVENT_PAUSED_BY_ADMIN', minutes },
+    );
+  const resume = (minutes: number) =>
+    row(
+      { eventId: 'e-pause', eventTitle: 'Standup Night' },
+      { type: 'EVENT_RESUMED_BY_ADMIN', minutes },
+    );
+
+  it('needs the organizer until it is lifted, with a way to the event', () => {
+    const [card] = groupNotifications([pause(1)]);
+    expect(card).toMatchObject({
+      category: 'ACTION_REQUIRED',
+      severity: 'CRITICAL',
+      resolved: null,
+      action: { label: 'Open event', href: '/organizer/events/e-pause' },
+    });
+  });
+
+  it('is settled once the platform puts the event back on sale, and not by an older resume', () => {
+    const cards = groupNotifications([pause(1), resume(5)]);
+    const paused = cards.find((c) => c.type === 'EVENT_PAUSED_BY_ADMIN')!;
+    expect(paused).toMatchObject({ resolved: true, severity: 'SUCCESS', action: null });
+    expect(cards.find((c) => c.type === 'EVENT_RESUMED_BY_ADMIN')!.category).toBe(
+      'EVENT_APPROVALS',
+    );
+
+    // Paused again after that resume: the new pause stands.
+    const again = groupNotifications([resume(5), pause(9)]);
+    expect(again.find((c) => c.type === 'EVENT_PAUSED_BY_ADMIN')!.resolved).toBeNull();
+  });
+});

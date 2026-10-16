@@ -19,7 +19,7 @@ import {
   Select,
   Skeleton,
   StatusPill,
-  dateTime,
+  timeAtVenue,
   errorMessage,
   money,
   type LayoutTemplateFitMode,
@@ -388,12 +388,50 @@ export default function SpacePage() {
               <p className="font-semibold text-text-primary">General admission. No seat map.</p>
               <p className="text-text-secondary">
                 Buyers do not choose a seat. When you create an event at{' '}
-                {space.venue?.name ?? 'this venue'}, choose free or paid tickets and set how many to
-                sell, up to {space.capacity.toLocaleString()}, the number this space holds.
+                {space.venue?.name ?? 'this venue'}, choose free or paid tickets and this space. You
+                cannot put more than {space.capacity.toLocaleString()} tickets on sale for one
+                session here, the number this space holds.
               </p>
               <ButtonLink size="sm" variant="secondary" href="/organizer/events/new">
                 Create an event
               </ButtonLink>
+              {/*
+                The sessions held here, each with what it has on sale. One offering more than
+                the space holds - from before the cap, or after the capacity was lowered - is
+                FLAGGED, never changed: lowering it is the organizer's call, on its Tickets page.
+              */}
+              {space.standingSessions && space.standingSessions.length > 0 ? (
+                <ul className="mt-2 space-y-1.5" aria-label="Sessions in this space">
+                  {space.standingSessions.map((s) => (
+                    <li
+                      key={s.sessionId}
+                      data-testid="standing-session"
+                      className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-md border border-border bg-background-canvas px-3 py-2 text-sm"
+                    >
+                      <Link
+                        href={`/organizer/events/${s.eventId}/tickets`}
+                        className="min-w-0 break-words font-medium text-text-primary underline-offset-2 [overflow-wrap:anywhere] hover:text-action-primary hover:underline"
+                      >
+                        {s.eventTitle}
+                        <span className="font-normal text-text-secondary">
+                          {' '}
+                          - {timeAtVenue(s.startsAt, space.venue ?? null)}
+                        </span>
+                      </Link>
+                      {s.overCapacityBy > 0 ? (
+                        <StatusPill tone="error" size="sm">
+                          {s.onSale.toLocaleString()} on sale, {s.overCapacityBy.toLocaleString()}{' '}
+                          more than it holds
+                        </StatusPill>
+                      ) : (
+                        <span className="text-caption tabular-nums text-text-secondary">
+                          {s.onSale.toLocaleString()} of {space.capacity.toLocaleString()} on sale
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
             </div>
           </div>
         </Card>
@@ -452,7 +490,9 @@ export default function SpacePage() {
                       <Badge tone={STATUS_TONE[l.status]}>{STATUS_WORD[l.status]}</Badge>
                       {l.id === activeId ? <Badge tone="info">In use today</Badge> : null}
                       {isFuture(l, now) ? (
-                        <Badge tone="warning">Starts {dateTime(l.effectiveFrom as string)}</Badge>
+                        <Badge tone="warning">
+                          Starts {timeAtVenue(l.effectiveFrom as string, space.venue ?? null)}
+                        </Badge>
                       ) : null}
 
                       <span className="text-sm text-text-muted">
@@ -781,7 +821,7 @@ export default function SpacePage() {
               This builds a draft you can then change seat by seat. Nothing changes for buyers until
               you publish it.
               {kindOption
-                ? ` Showing the layouts that fit a ${kindOption.label.toLowerCase()}.`
+                ? ` Showing the layouts that fit ${withArticle(kindOption.label.toLowerCase())}.`
                 : ''}
             </p>
             <div className="grid gap-4 sm:grid-cols-2">
@@ -1127,4 +1167,9 @@ function Comparison({ data }: { data: import('@eticketsgo/web-kit').LayoutCompar
       </p>
     </div>
   );
+}
+
+/** "a hall or theatre", "an arena or stadium": the article a reader expects before the kind. */
+function withArticle(noun: string): string {
+  return `${/^[aeiou]/i.test(noun) ? 'an' : 'a'} ${noun}`;
 }

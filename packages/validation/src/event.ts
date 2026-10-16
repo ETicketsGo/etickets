@@ -163,12 +163,35 @@ export const createSessionSchema = z
      * on the SESSION and not on the event.
      */
     screenId: z.string().cuid().optional(),
+    /**
+     * The STANDING space a general-admission session is held in - a lawn, a floor, a terrace.
+     *
+     * Optional. Naming one makes the space's capacity a cap on the tickets put on sale for this
+     * session; it never makes the session seated. Cannot be combined with `screenId`, which is
+     * reserved seating in a room with a seat map.
+     */
+    standingSpaceId: z.string().cuid().optional(),
   })
   .refine((v) => v.endsAt > v.startsAt, {
     message: 'Session end must be after its start.',
     path: ['endsAt'],
+  })
+  .refine((v) => !(v.screenId && v.standingSpaceId), {
+    message: 'A session is either in a seated space or in a standing space, not both.',
+    path: ['standingSpaceId'],
   });
 export type CreateSessionInput = z.infer<typeof createSessionSchema>;
+
+/**
+ * Put a general-admission session in a standing space, or take it out of one (`null`).
+ *
+ * Its own call rather than part of `updateSessionSeating`: that one REPLACES ticket types when
+ * the room changes, and naming the lawn a session is on must never touch what is on sale.
+ */
+export const updateSessionStandingSpaceSchema = z.object({
+  standingSpaceId: z.string().cuid().nullable(),
+});
+export type UpdateSessionStandingSpaceInput = z.infer<typeof updateSessionStandingSpaceSchema>;
 
 /**
  * Change, add or remove a session's room after it exists.

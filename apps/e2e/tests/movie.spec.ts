@@ -1,9 +1,10 @@
 import { test, expect } from '@playwright/test';
-import { CUSTOMER, NEW_ACCOUNT_PASSWORD, uniqueEmail } from './helpers';
+import { CUSTOMER, NEW_ACCOUNT_PASSWORD, uniqueEmail, chooseEmailSignUp } from './helpers';
 
 test('customer books a movie seat and pays', async ({ page }) => {
   // Register
   await page.goto(`${CUSTOMER}/register`);
+  await chooseEmailSignUp(page);
   await page.getByLabel('Full name').fill('E2E Movie Fan');
   await page.getByLabel('Email').fill(uniqueEmail('movie'));
   await page.getByLabel(/Password/).fill(NEW_ACCOUNT_PASSWORD);

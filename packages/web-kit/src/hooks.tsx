@@ -2,7 +2,14 @@
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import {
+  useEffect,
+  useReducer,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from 'react';
 import { api, tokenStore, getAuthSnapshot, getServerAuthSnapshot, type AuthUser } from './api';
 import { Spinner } from './components';
 import {
@@ -61,6 +68,14 @@ export function RequireAuth({
   const pathname = usePathname();
   const { user, isLoading } = useAuthUser();
   const hasToken = typeof window !== 'undefined' && !!tokenStore.access;
+  /*
+    Re-read the session when it changes. A session can end under an open page - a team removal
+    answers the next request, whichever request it is, by clearing the tokens - and without this
+    the guard noticed only if that request happened to be its own `auth/me`, leaving the page on
+    an error state instead of the sign-in page.
+  */
+  const [, rerender] = useReducer((n: number) => n + 1, 0);
+  useEffect(() => tokenStore.subscribe(rerender), []);
 
   useEffect(() => {
     if (!hasToken) {

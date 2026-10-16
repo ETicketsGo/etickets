@@ -1,17 +1,18 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
+import { ChevronRight } from 'lucide-react';
 import {
-  Building2,
-  Clapperboard,
-  Compass,
-  Film,
-  History,
-  Sparkles,
-  TrendingUp,
-  Users,
-} from 'lucide-react';
-import { cityScope, countryKey, countryPhrase, selectedPlace, useCity } from '@eticketsgo/web-kit';
+  BrandButton,
+  brandButtonClasses,
+  brandChipClasses,
+  BRAND_FOCUS,
+  cityScope,
+  countryKey,
+  countryPhrase,
+  selectedPlace,
+  useCity,
+} from '@eticketsgo/web-kit';
 import { api } from '@/lib/api';
 import type {
   DiscoverySection,
@@ -20,198 +21,253 @@ import type {
   PublicMovieCard,
   VenueSpotlight,
 } from '@/lib/api';
+import type { Buyability } from '@/lib/home-feed';
+import { hasPhoto } from '@/lib/home-feed';
+import { useBuyability } from '@/lib/use-buyability';
 import { useRecentlyViewed } from '@/lib/use-live-events';
 import { usePlaceGroups } from '@/lib/use-place-groups';
 import { EmptyPlace, PlaceSections } from '@/components/place-sections';
-import { EventCard } from '@/components/event-card';
-import { MovieCard } from '@/components/movie-card';
-import { ButtonLink, EmptyState, ErrorState } from '@/components/ui';
+import {
+  EventRow,
+  EventTile,
+  FeatureCard,
+  Placeholder,
+  PosterCard,
+  Rail,
+  RailItem,
+  SectionHead,
+  sectionLinkClasses,
+} from '@/components/home/parts';
+import {
+  BRAND_WRAP,
+  BrandEmpty,
+  BrandPage,
+  FilmCard,
+  SaveEventButton,
+} from '@/components/storefront-brand';
 import { Link } from '@/i18n/navigation';
 
-function Section({
-  title,
-  subtitle,
-  icon: Icon,
-  action,
-  children,
+/*
+  ── EXPLORE ON THE STAGE (docs/design/DESIGN-SYSTEM.md) ─────────────────────────────────
+  What it replaced: a white box with a blurred blue glow and a badge, then every section as the
+  same three-column grid of shadowed cards with pastel letter tiles - eight uniform grids in a
+  row, about 13,500px tall at 1440 and 27,000px on a phone. It read as a different product from
+  the home page one click away.
+
+  What it is now: the same pieces as the home page. A paper header with the page's one primary
+  action, the films on a stage band as posters, the trending list as a 16:9 feature beside a
+  4:3 list, and every other list as a rail that scrolls inside itself on a phone (and becomes a
+  grid from `lg`). Same lists, same order, same data as before; only how they are drawn changed.
+
+  A card shows its price only once the event's own page proves a ticket is on sale (see
+  `useBuyability`), exactly as on the home page: "From Rs 799" over a sold-out show was the
+  misleading price that rule exists to prevent.
+*/
+
+type States = Map<string, Buyability | undefined>;
+
+/** A 4:3 event card with the wishlist heart over its picture. */
+function Tile({
+  event,
+  states,
+  showCity = false,
 }: {
-  title: string;
-  subtitle?: string;
-  icon?: typeof Sparkles;
-  action?: React.ReactNode;
-  children: React.ReactNode;
+  event: PublicEventCard;
+  states: States;
+  showCity?: boolean;
 }) {
   return (
-    <section className="space-y-5">
-      <div className="flex items-end justify-between gap-4">
-        <div>
-          <h2 className="flex items-center gap-2 text-h3 font-bold tracking-tight text-text-primary">
-            {Icon && <Icon className="h-5 w-5 text-action-primary" />}
-            {title}
-          </h2>
-          {subtitle && <p className="mt-1 text-[0.9375rem] text-text-muted">{subtitle}</p>}
-        </div>
-        {action}
+    <div className="relative">
+      <EventTile event={event} state={states.get(event.slug)} showCity={showCity} />
+      <SaveEventButton event={event} />
+    </div>
+  );
+}
+
+function EventRail({
+  items,
+  label,
+  states,
+  showCity = false,
+}: {
+  items: PublicEventCard[];
+  label: string;
+  states: States;
+  showCity?: boolean;
+}) {
+  return (
+    <Rail cols={4} label={label}>
+      {items.map((e) => (
+        <RailItem key={e.id}>
+          <Tile event={e} states={states} showCity={showCity} />
+        </RailItem>
+      ))}
+    </Rail>
+  );
+}
+
+function FilmRail({ items, label }: { items: PublicMovieCard[]; label: string }) {
+  return (
+    <Rail cols={5} phone="poster" label={label}>
+      {items.map((m) => (
+        <RailItem key={m.id}>
+          <FilmCard movie={m} />
+        </RailItem>
+      ))}
+    </Rail>
+  );
+}
+
+/**
+ * The lead list: a 16:9 feature beside 4:3 rows when the first event has a photo, rows alone
+ * when it does not (a 16:9 block of title-on-black above the same title read as a broken
+ * picture on the home page, for the same reason).
+ */
+function LeadList({ items, states }: { items: PublicEventCard[]; states: States }) {
+  if (!hasPhoto(items[0])) {
+    return (
+      <ul className="grid gap-x-10 divide-y divide-brand-line lg:grid-cols-2 lg:divide-y-0">
+        {items.map((e) => (
+          <li key={e.id} className="lg:border-b lg:border-brand-line">
+            <EventRow event={e} state={states.get(e.slug)} />
+          </li>
+        ))}
+      </ul>
+    );
+  }
+  return (
+    <div className="grid gap-8 lg:grid-cols-[7fr_5fr] lg:gap-10">
+      <div className="relative">
+        <FeatureCard event={items[0]} state={states.get(items[0].slug)} />
+        <SaveEventButton event={items[0]} />
       </div>
-      {children}
+      {items.length > 1 && (
+        <ul className="divide-y divide-brand-line lg:-mt-4">
+          {items.slice(1).map((e) => (
+            <li key={e.id}>
+              <EventRow event={e} state={states.get(e.slug)} />
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/** Organizers and venues as a quiet list of rows: a name, a fact, and where it goes. */
+function SpotlightList({
+  items,
+  label,
+}: {
+  items: { key: string; href: string; title: string; meta: string }[];
+  label: string;
+}) {
+  return (
+    <ul
+      aria-label={label}
+      className="grid gap-x-8 border-t border-brand-line sm:grid-cols-2 lg:grid-cols-3"
+    >
+      {items.map((item) => (
+        <li key={item.key} className="min-w-0 border-b border-brand-line">
+          <Link
+            href={item.href}
+            /*
+              `min-w-0` on the LINK, not only on the text inside it: a flex row only lets its
+              children shrink when the row itself is allowed to, and without it this was the
+              one storefront row that pushed a phone sideways.
+            */
+            className={`group flex min-h-16 min-w-0 items-center gap-3 rounded-brand-control py-3 ${BRAND_FOCUS}`}
+          >
+            <span className="min-w-0 flex-1">
+              <span className="block truncate font-brand-display text-brand-card text-brand-ink">
+                {item.title}
+              </span>
+              <span className="block truncate text-brand-meta text-brand-ink-2">{item.meta}</span>
+            </span>
+            <ChevronRight
+              className="h-4 w-4 shrink-0 text-brand-ink-3 transition-transform duration-150 motion-safe:group-hover:translate-x-0.5"
+              aria-hidden
+            />
+          </Link>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function organizerRows(items: OrganizerSpotlight[]) {
+  return items.map((o) => ({
+    key: o.id,
+    href: `/organizers/${o.id}`,
+    title: o.name,
+    meta: `${o.eventCount} event${o.eventCount === 1 ? '' : 's'}${o.verified ? ', verified' : ''}`,
+  }));
+}
+
+function venueRows(items: VenueSpotlight[]) {
+  return items.map((v) => ({
+    key: v.id,
+    href: `/events?city=${encodeURIComponent(v.city)}`,
+    title: v.name,
+    meta: `${v.city}, ${v.eventCount} event${v.eventCount === 1 ? '' : 's'}`,
+  }));
+}
+
+/** One composed strategy section, drawn by kind. */
+function DynamicSection({ section, states }: { section: DiscoverySection; states: States }) {
+  const id = `explore-${section.key}`;
+  let body: React.ReactNode;
+  switch (section.kind) {
+    case 'movies':
+      body = <FilmRail items={section.items as PublicMovieCard[]} label={section.title} />;
+      break;
+    case 'organizers':
+      body = (
+        <SpotlightList
+          items={organizerRows(section.items as OrganizerSpotlight[])}
+          label={section.title}
+        />
+      );
+      break;
+    case 'venues':
+      body = (
+        <SpotlightList items={venueRows(section.items as VenueSpotlight[])} label={section.title} />
+      );
+      break;
+    case 'events':
+    default:
+      body = (
+        <EventRail
+          items={section.items as PublicEventCard[]}
+          label={section.title}
+          states={states}
+        />
+      );
+      break;
+  }
+  return (
+    <section aria-labelledby={id} className={`${BRAND_WRAP} pt-12 lg:pt-16`}>
+      <SectionHead id={id} title={section.title} />
+      {body}
     </section>
   );
 }
 
-function EventSkeletons({ count = 6 }: { count?: number }) {
+/** Category links as chips that wrap: a short list a person scans, not a rail. */
+function CategoryChips({ items, label }: { items: string[]; label: string }) {
   return (
-    <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-      {Array.from({ length: count }).map((_, i) => (
-        <div
-          key={i}
-          className="h-72 animate-pulse rounded-lg border border-border bg-background-subtle"
-        />
+    <ul aria-label={label} className="flex flex-wrap gap-2">
+      {items.map((c) => (
+        <li key={c}>
+          <Link
+            href={`/events?category=${encodeURIComponent(c)}`}
+            className={`${brandChipClasses(false)} h-11 lg:h-9`}
+          >
+            {c}
+          </Link>
+        </li>
       ))}
-    </div>
-  );
-}
-
-function MovieSkeletons({ count = 5 }: { count?: number }) {
-  return (
-    <div className="grid grid-cols-2 gap-6 sm:grid-cols-3 lg:grid-cols-5">
-      {Array.from({ length: count }).map((_, i) => (
-        <div
-          key={i}
-          className="aspect-[2/3] animate-pulse rounded-lg border border-border bg-background-subtle"
-        />
-      ))}
-    </div>
-  );
-}
-
-function SeeAllLink({ href, label = 'See all' }: { href: string; label?: string }) {
-  return (
-    <ButtonLink href={href} variant="ghost">
-      {label}
-    </ButtonLink>
-  );
-}
-
-function EventGrid({ items }: { items: PublicEventCard[] }) {
-  return (
-    <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-      {items.map((e) => (
-        <EventCard key={e.id} event={e} />
-      ))}
-    </div>
-  );
-}
-
-function MovieGrid({ items }: { items: PublicMovieCard[] }) {
-  return (
-    <div className="grid grid-cols-2 gap-6 sm:grid-cols-3 lg:grid-cols-5">
-      {items.map((m) => (
-        <MovieCard key={m.id} movie={m} />
-      ))}
-    </div>
-  );
-}
-
-/** Lightweight organizer/venue tiles — reuse existing surface/border styling. */
-function SpotlightTile({
-  href,
-  title,
-  meta,
-  icon: Icon,
-}: {
-  href: string;
-  title: string;
-  meta: string;
-  icon: typeof Users;
-}) {
-  return (
-    <Link
-      href={href}
-      /*
-        `min-w-0` on the LINK, not only on the text inside it.
-
-        Without it this tile was 423px wide inside a 379px column on a phone - the 44px icon
-        added on top of a text block that never agreed to shrink - and Explore was the one
-        storefront page that scrolled sideways. A flex row only lets its children shrink when
-        the row itself is allowed to.
-      */
-      className="group flex min-w-0 items-center gap-3 rounded-lg border border-border bg-background-surface p-4 shadow-sm transition-all duration-300 ease-premium hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
-    >
-      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-tint-primary text-action-primary">
-        <Icon className="h-5 w-5" />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-title font-semibold text-text-primary transition-colors group-hover:text-action-primary">
-          {title}
-        </span>
-        <span className="block truncate text-caption text-text-muted">{meta}</span>
-      </span>
-    </Link>
-  );
-}
-
-function OrganizerList({ items }: { items: OrganizerSpotlight[] }) {
-  return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      {items.map((o) => (
-        <SpotlightTile
-          key={o.id}
-          href={`/organizers/${o.id}`}
-          title={o.name}
-          meta={`${o.eventCount} event${o.eventCount === 1 ? '' : 's'}${o.verified ? ', verified' : ''}`}
-          icon={Users}
-        />
-      ))}
-    </div>
-  );
-}
-
-function VenueList({ items }: { items: VenueSpotlight[] }) {
-  return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      {items.map((v) => (
-        <SpotlightTile
-          key={v.id}
-          href={`/events?city=${encodeURIComponent(v.city)}`}
-          title={v.name}
-          meta={`${v.city}, ${v.eventCount} event${v.eventCount === 1 ? '' : 's'}`}
-          icon={Building2}
-        />
-      ))}
-    </div>
-  );
-}
-
-const SECTION_ICON: Record<DiscoverySection['kind'], typeof Sparkles> = {
-  events: TrendingUp,
-  movies: Clapperboard,
-  organizers: Users,
-  venues: Building2,
-};
-
-/** Render one composed strategy section, choosing the layout by kind. */
-function DynamicSection({ section }: { section: DiscoverySection }) {
-  const icon = SECTION_ICON[section.kind];
-  let body: React.ReactNode;
-  switch (section.kind) {
-    case 'movies':
-      body = <MovieGrid items={section.items as PublicMovieCard[]} />;
-      break;
-    case 'organizers':
-      body = <OrganizerList items={section.items as OrganizerSpotlight[]} />;
-      break;
-    case 'venues':
-      body = <VenueList items={section.items as VenueSpotlight[]} />;
-      break;
-    case 'events':
-    default:
-      body = <EventGrid items={section.items as PublicEventCard[]} />;
-      break;
-  }
-  return (
-    <Section title={section.title} icon={icon}>
-      {body}
-    </Section>
+    </ul>
   );
 }
 
@@ -255,6 +311,7 @@ export default function ExplorePage() {
   */
   const groups = usePlaceGroups(place);
   const placeSections = { ...groups, homeCountry: countryKey(place.country) };
+  const hasGroups = groups.sameCountry.length > 0 || groups.elsewhere.length > 0;
 
   /*
     Recently viewed: current, still on sale, and in this place.
@@ -279,173 +336,235 @@ export default function ExplorePage() {
     data!.thisWeekend.length === 0 &&
     extraSections.length === 0;
 
+  // Every event card on the page, in page order, so the first ones are checked first.
+  const states = useBuyability([
+    ...recent.map((e) => e.slug),
+    ...(data?.trendingEvents ?? []).map((e) => e.slug),
+    ...(data?.thisWeekend ?? []).map((e) => e.slug),
+    ...extraSections
+      .filter((s) => s.kind === 'events')
+      .flatMap((s) => (s.items as PublicEventCard[]).map((e) => e.slug)),
+    ...groups.sameCountry.slice(0, 6).map((e) => e.slug),
+    ...groups.elsewhere.flatMap((g) => g.items.slice(0, 6).map((e) => e.slug)),
+  ]);
+
   return (
-    <div className="space-y-16">
-      {/* Hero */}
-      <section className="relative overflow-hidden rounded-[1.75rem] border border-border bg-background-surface px-6 py-14 text-center shadow-sm sm:py-16">
-        <div className="pointer-events-none absolute inset-x-0 -top-24 mx-auto h-64 w-[36rem] max-w-full rounded-full bg-action-primary/10 blur-3xl" />
-        <div className="relative mx-auto max-w-2xl">
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background-canvas px-3 py-1 text-caption font-medium text-text-secondary">
-            <Compass className="h-3.5 w-3.5 text-action-primary" />
-            Explore what is on
-          </span>
-          <h1 className="mt-6 text-h1 font-bold tracking-tight text-text-primary sm:text-hero">
+    <BrandPage>
+      {/*
+        What this page is, and its one primary action, on paper. The films right under it are the
+        stage band; two dark bands with a strip of paper between them read as a rendering fault.
+      */}
+      <section>
+        <div className={`${BRAND_WRAP} pt-8 lg:pt-14`}>
+          <p className="text-brand-eyebrow uppercase text-brand-ink-3">Explore what is on</p>
+          <h1 className="mt-3 max-w-3xl text-balance font-brand-display text-brand-d1 text-brand-ink">
             Movies, events, and more
           </h1>
-          <p className="mx-auto mt-4 max-w-xl text-[1.05rem] leading-relaxed text-text-secondary">
+          <p className="mt-4 max-w-prose text-brand-lead text-brand-ink-2">
             Films playing now, events people are booking, and things to do this weekend.
           </p>
-          <div className="mt-8 flex flex-wrap items-center justify-center gap-2">
-            <ButtonLink href="/movies" variant="primary">
+          <div className="mt-8 flex flex-wrap items-center gap-3">
+            <Link href="/movies" className={brandButtonClasses('primary', 'lg')}>
               Browse movies
-            </ButtonLink>
-            <ButtonLink href="/events" variant="outline">
+            </Link>
+            <Link href="/events" className={brandButtonClasses('secondary', 'lg')}>
               Browse events
-            </ButtonLink>
+            </Link>
           </div>
         </div>
       </section>
 
-      {/* Recently viewed — client-side, hidden when empty */}
+      {/* Recently viewed - client-side, hidden when empty */}
       {recent.length > 0 && (
-        <Section title="Recently viewed" subtitle="Pick up where you left off." icon={History}>
-          <EventGrid items={recent} />
-        </Section>
+        <section aria-labelledby="explore-recent" className={`${BRAND_WRAP} pt-12 lg:pt-16`}>
+          <SectionHead
+            id="explore-recent"
+            title="Recently viewed"
+            hint="Pick up where you left off."
+          />
+          <EventRail items={recent} label="Recently viewed" states={states} />
+        </section>
       )}
 
       {isError ? (
-        <ErrorState
-          message="We could not load this page. Please try again."
-          onRetry={() => refetch()}
-        />
+        <div className={`${BRAND_WRAP} pt-12 lg:pt-16`}>
+          <BrandEmpty
+            title="We could not load this page. Please try again."
+            action={
+              <BrandButton variant="secondary" onClick={() => void refetch()}>
+                Try again
+              </BrandButton>
+            }
+          />
+        </div>
       ) : isLoading ? (
-        <div className="space-y-16">
-          <Section title="Now showing" icon={Clapperboard}>
-            <MovieSkeletons />
-          </Section>
-          <Section title="Trending events" icon={TrendingUp}>
-            <EventSkeletons />
-          </Section>
+        <div className={`${BRAND_WRAP} space-y-12 pt-12 lg:pt-16`} aria-busy="true">
+          <span className="sr-only" role="status">
+            Loading
+          </span>
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5 lg:gap-6">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Placeholder key={i} className="aspect-[2/3] w-full" />
+            ))}
+          </div>
+          <div className="grid gap-8 lg:grid-cols-[7fr_5fr]">
+            <Placeholder className="aspect-video w-full" />
+            <div className="space-y-4">
+              <Placeholder className="h-20 w-full" />
+              <Placeholder className="h-20 w-full" />
+              <Placeholder className="h-20 w-full" />
+            </div>
+          </div>
         </div>
       ) : nothingHere && where ? (
-        <EmptyPlace place={where} />
+        <div className={`${BRAND_WRAP} pt-12 lg:pt-16`}>
+          <EmptyPlace place={where} variant="brand" />
+        </div>
       ) : (
-        <div className="space-y-16">
-          {/* Now showing */}
-          <Section
-            title="Now showing"
-            subtitle="Films playing near you right now."
-            icon={Clapperboard}
-            action={
-              data && data.nowShowing.length > 0 ? (
-                <SeeAllLink href="/movies" label="See all movies" />
-              ) : undefined
-            }
-          >
-            {data && data.nowShowing.length > 0 ? (
-              <MovieGrid items={data.nowShowing} />
-            ) : (
-              <EmptyState
+        <>
+          {/* Now showing: posters on a stage band, as on the home page. */}
+          {data && data.nowShowing.length > 0 ? (
+            <section
+              data-brand-tone="stage"
+              aria-labelledby="explore-films"
+              className="mt-12 bg-brand-canvas py-12 lg:mt-16 lg:py-16"
+            >
+              <div className={BRAND_WRAP}>
+                <SectionHead
+                  id="explore-films"
+                  title="Now showing"
+                  hint="Films playing near you right now."
+                  action={
+                    <Link href="/movies" className={sectionLinkClasses()}>
+                      See all movies
+                    </Link>
+                  }
+                />
+                <Rail cols={5} phone="poster" label="Now showing">
+                  {data.nowShowing.map((m) => (
+                    <RailItem key={m.id}>
+                      <PosterCard movie={m} />
+                    </RailItem>
+                  ))}
+                </Rail>
+              </div>
+            </section>
+          ) : (
+            <section aria-labelledby="explore-films" className={`${BRAND_WRAP} pt-12 lg:pt-16`}>
+              <SectionHead id="explore-films" title="Now showing" />
+              <BrandEmpty
                 title={where ? `No films showing in ${where} yet` : 'No films showing yet'}
                 hint="We list films here as soon as a cinema adds showtimes."
-                icon={Film}
-                action={<ButtonLink href="/movies">Browse movies</ButtonLink>}
+                action={
+                  <Link href="/movies" className={brandButtonClasses('secondary', 'md')}>
+                    Browse movies
+                  </Link>
+                }
               />
-            )}
-          </Section>
+            </section>
+          )}
 
-          {/* Trending events */}
-          <Section
-            title="Trending events"
-            subtitle="Popular events people are booking."
-            icon={TrendingUp}
-            action={
-              data && data.trendingEvents.length > 0 ? <SeeAllLink href="/events" /> : undefined
-            }
-          >
+          {/* Trending events: the lead of the page, a feature beside a list. */}
+          <section aria-labelledby="explore-trending" className={`${BRAND_WRAP} pt-12 lg:pt-16`}>
+            <SectionHead
+              id="explore-trending"
+              title="Trending events"
+              hint="Popular events people are booking."
+              action={
+                data && data.trendingEvents.length > 0 ? (
+                  <Link href="/events" className={sectionLinkClasses()}>
+                    See all
+                  </Link>
+                ) : undefined
+              }
+            />
             {data && data.trendingEvents.length > 0 ? (
-              <EventGrid items={data.trendingEvents} />
+              <LeadList items={data.trendingEvents} states={states} />
             ) : (
-              <EmptyState
+              <BrandEmpty
                 title={where ? `No popular events in ${where} yet` : 'No popular events yet'}
                 hint="Events appear here once people start booking them."
-                icon={Sparkles}
-                action={<ButtonLink href="/events">Browse events</ButtonLink>}
+                action={
+                  <Link href="/events" className={brandButtonClasses('secondary', 'md')}>
+                    Browse events
+                  </Link>
+                }
               />
             )}
-          </Section>
+          </section>
 
-          {/* This weekend — hidden when empty */}
+          {/* This weekend - hidden when empty */}
           {data && data.thisWeekend.length > 0 && (
-            <Section
-              title="This weekend"
-              subtitle="Happening in the next few days."
-              icon={Sparkles}
-              action={<SeeAllLink href="/events" />}
-            >
-              <EventGrid items={data.thisWeekend} />
-            </Section>
+            <section aria-labelledby="explore-weekend" className={`${BRAND_WRAP} pt-12 lg:pt-16`}>
+              <SectionHead
+                id="explore-weekend"
+                title="This weekend"
+                hint="Happening in the next few days."
+                action={
+                  <Link href="/events" className={sectionLinkClasses()}>
+                    See all
+                  </Link>
+                }
+              />
+              <EventRail items={data.thisWeekend} label="This weekend" states={states} />
+            </section>
           )}
 
-          {/* Composed strategy sections (organizer/venue spotlights, new releases, …). */}
+          {/* Composed strategy sections (organizer/venue spotlights, new releases, ...). */}
           {extraSections.map((section) => (
-            <DynamicSection key={section.key} section={section} />
+            <DynamicSection key={section.key} section={section} states={states} />
           ))}
 
-          {/* Browse by category — hidden when empty */}
+          {/* Browse by category - hidden when empty */}
           {data && data.categories.length > 0 && (
-            <Section
-              title="Browse by category"
-              subtitle="Jump straight to a category."
-              icon={Compass}
+            <section
+              aria-labelledby="explore-categories"
+              className={`${BRAND_WRAP} pt-12 lg:pt-16`}
             >
-              <div className="flex flex-wrap gap-2.5">
-                {data.categories.map((c) => (
-                  <Link
-                    key={c}
-                    href={`/events?category=${encodeURIComponent(c)}`}
-                    className="rounded-full border border-border bg-background-surface px-4 py-2 text-[0.9375rem] font-medium text-text-secondary shadow-sm transition-all hover:border-border-strong hover:bg-background-subtle hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
-                  >
-                    {c}
-                  </Link>
-                ))}
-              </div>
-            </Section>
+              <SectionHead
+                id="explore-categories"
+                title="Browse by category"
+                hint="Jump straight to a category."
+              />
+              <CategoryChips items={data.categories} label="Browse by category" />
+            </section>
           )}
 
-          {/* Continue exploring — client-side, from recently-viewed categories */}
+          {/* Continue exploring - client-side, from recently-viewed categories */}
           {recentCategories.length > 0 && (
-            <Section
-              title="Continue exploring"
-              subtitle="Categories you have been browsing."
-              icon={Compass}
-            >
-              <div className="flex flex-wrap gap-2.5">
-                {recentCategories.map((c) => (
-                  <Link
-                    key={c}
-                    href={`/events?category=${encodeURIComponent(c)}`}
-                    className="rounded-full border border-border bg-background-surface px-4 py-2 text-[0.9375rem] font-medium text-text-secondary shadow-sm transition-all hover:border-border-strong hover:bg-background-subtle hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
-                  >
-                    {c}
-                  </Link>
-                ))}
-              </div>
-            </Section>
+            <section aria-labelledby="explore-continue" className={`${BRAND_WRAP} pt-12 lg:pt-16`}>
+              <SectionHead
+                id="explore-continue"
+                title="Continue exploring"
+                hint="Categories you have been browsing."
+              />
+              <CategoryChips items={recentCategories} label="Continue exploring" />
+            </section>
           )}
-        </div>
+        </>
       )}
 
       {/* Beyond the selected city: the rest of its country, then the world, by country. */}
       {!isLoading && !isError && (
-        <div className="space-y-16" data-testid="place-groups">
+        <div
+          className={`${BRAND_WRAP} space-y-12 lg:space-y-16 ${hasGroups ? 'pt-12 lg:pt-16' : ''}`}
+          data-testid="place-groups"
+        >
           <PlaceSections
+            variant="brand"
             buckets={placeSections}
             currencyOf={(e) => e.currency}
-            render={(items) => <EventGrid items={items as PublicEventCard[]} />}
+            render={(items) => (
+              <EventRail
+                items={items as PublicEventCard[]}
+                label="Events"
+                states={states}
+                showCity
+              />
+            )}
           />
         </div>
       )}
-    </div>
+    </BrandPage>
   );
 }
