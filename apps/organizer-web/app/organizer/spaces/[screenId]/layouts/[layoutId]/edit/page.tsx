@@ -10,10 +10,12 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowUp,
+  Check,
   EyeOff,
   HandHeart,
   Lock,
   MapPin,
+  PenLine,
   Plus,
   RotateCcw,
   RotateCw,
@@ -56,8 +58,10 @@ import {
   addSeatsToRow,
   blockOverlaps,
   documentProblems,
+  drawnOutlineProblem,
   moveBlock,
   newBlockProblem,
+  outlineOverlaps,
   placeBlock,
   rotateBlock,
   uniqueName,
@@ -75,10 +79,11 @@ import {
   setKinds,
   setSectionCategory,
   splitSection,
+  suggestBlockSize,
   updateCategory,
   type NewBlock,
 } from '@/lib/layout-editor';
-import type { Pt } from '@/lib/block-geometry';
+import { rectangleFromCorners, sameCorner, type Pt } from '@/lib/block-geometry';
 import { venueCurrency } from '../../../../../venue-spaces';
 
 /**
@@ -99,8 +104,9 @@ import { venueCurrency } from '../../../../../venue-spaces';
  *
  * -- BLOCKS ON A VENUE MAP --------------------------------------------------------------------
  * A block can be added (a rectangle, or the outline of a block already there, so a new block
- * matches the room's family of shapes), moved by dragging it or with arrows, turned, and
- * removed. The map draws outlines only; seats belong to rows, so moving a block never moves
+ * matches the room's family of shapes), or DRAWN on the map where its seats are: drag a
+ * rectangle, or tap the corners of any outline (the way that works on a phone). It is then moved
+ * by dragging it or with arrows, turned, and removed. The map draws outlines only; seats belong to rows, so moving a block never moves
  * a seat from one price to another. Overlapping another block is allowed but said in words,
  * because a buyer could not tap the block underneath.
  *
@@ -129,7 +135,7 @@ const TURN_DEG = 15;
 /** The new-block form, as typed. */
 interface BlockForm {
   name: string;
-  /** 'RECTANGLE', or 'COPY:<block index>'. */
+  /** 'RECTANGLE', 'COPY:<block index>', or 'DRAWN' (the outline drawn on the map). */
   shape: string;
   rows: string;
   seats: string;
@@ -174,6 +180,36 @@ export default function LayoutEditorPage() {
   const [size, setSize] = useState<{ rows: string; front: string }>({ rows: '', front: '' });
   const [splitAt, setSplitAt] = useState('');
   const [blockForm, setBlockForm] = useState<BlockForm | null>(null);
+  /** Corners placed so far while drawing a block; null when not drawing. */
+  const [drawing, setDrawing] = useState<Pt[] | null>(null);
+  /** Why the drawn outline cannot be used yet, said next to the drawing tools. */
+  const [drawProblem, setDrawProblem] = useState<string | null>(null);
+  /** The finished outline, while the person names and sizes the block drawn. */
+  const [drawn, setDrawn] = useState<Pt[] | null>(null);
+
+  // Starting to draw brings the whole map into view, with room below it (scroll-mb-24) for the
+  // toast corner: on the first walk the last added block's toast covered the map's bottom-right
+  // corner, and a corner tapped there landed on the toast instead.
+  const isDrawing = !!drawing;
+  useEffect(() => {
+    if (!isDrawing) return;
+    document
+      .getElementById('layout-blocks-map')
+      ?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+  }, [isDrawing]);
+
+  // Escape stops drawing, as it closes any other tool.
+  useEffect(() => {
+    if (!drawing) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setDrawing(null);
+        setDrawProblem(null);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [drawing]);
 
   // Load (and reload after a save) from the server's copy.
   useEffect(() => {
@@ -379,14 +415,23 @@ export default function LayoutEditorPage() {
   };
   const blockSpec = (form: BlockForm): NewBlock => ({
     name: form.name,
-    shape: form.shape.startsWith('COPY:')
-      ? { kind: 'COPY', of: Number(form.shape.slice(5)) }
-      : { kind: 'RECTANGLE' },
+    shape:
+      form.shape === 'DRAWN' && drawn
+        ? { kind: 'DRAWN', points: drawn }
+        : form.shape.startsWith('COPY:')
+          ? { kind: 'COPY', of: Number(form.shape.slice(5)) }
+          : { kind: 'RECTANGLE' },
     rows: Number(form.rows),
     seatsPerRow: Number(form.seats),
     categoryKey: form.categoryKey,
   });
   const blockFormProblem = blockForm ? newBlockProblem(doc, blockSpec(blockForm)) : null;
+  const drawnForm = blockForm?.shape === 'DRAWN' && !!drawn;
+  const drawnCovers = drawnForm && drawn ? outlineOverlaps(doc, drawn, loaded.focal) : [];
+  const closeBlockForm = () => {
+    setBlockForm(null);
+    setDrawn(null);
+  };
   const createBlock = () => {
     if (!blockForm || blockFormProblem) return;
     const { doc: next, index } = addBlock(doc, blockSpec(blockForm), focalShape);
@@ -395,11 +440,56 @@ export default function LayoutEditorPage() {
     setActive(index);
     setSelected(new Set());
     setTab('section');
-    setBlockForm(null);
+    closeBlockForm();
     toast.push(
-      `Added ${blockForm.name.trim()}. Drag it on the map, or use the arrows under Place on the map, to put it where it is.`,
+      drawnForm
+        ? `Added ${blockForm.name.trim()} where you drew it. Drag it or use the arrows to move it.`
+        : `Added ${blockForm.name.trim()}. Drag it on the map, or use the arrows under Place on the map, to put it where it is.`,
       'success',
     );
+  };
+
+  // -- Drawing a block ---------------------------------------------------------------------
+  const startDrawing = () => {
+    setDrawing([]);
+    setDrawProblem(null);
+    setSelected(new Set());
+  };
+  const stopDrawing = () => {
+    setDrawing(null);
+    setDrawProblem(null);
+  };
+  /** A finished outline: check it, then ask for the block's name, size and price. */
+  const finishOutline = (points: Pt[]) => {
+    const problem = drawnOutlineProblem(points);
+    if (problem) {
+      setDrawProblem(problem);
+      return;
+    }
+    const usage = new Map<string, number>();
+    for (const s of doc.sections) usage.set(s.categoryKey, (usage.get(s.categoryKey) ?? 0) + 1);
+    const commonest = [...usage.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+    const suggested = suggestBlockSize(points, doc);
+    setDrawing(null);
+    setDrawProblem(null);
+    setDrawn(points);
+    setBlockForm({
+      name: uniqueName(
+        doc.sections.map((s) => s.name),
+        'New block',
+      ),
+      shape: 'DRAWN',
+      rows: String(suggested.rows),
+      seats: String(suggested.seatsPerRow),
+      categoryKey: commonest ?? doc.categories[0]?.key ?? '',
+    });
+  };
+  const addCorner = (point: Pt) => {
+    if (!drawing) return;
+    const last = drawing[drawing.length - 1];
+    if (last && sameCorner(last, point)) return;
+    setDrawProblem(null);
+    setDrawing([...drawing, point]);
   };
 
   const setPrice = (key: string, text: string) => {
@@ -526,9 +616,26 @@ export default function LayoutEditorPage() {
               padding="sm"
               action={
                 editable ? (
-                  <Button size="sm" variant="secondary" icon={Plus} onClick={openBlockForm}>
-                    Add a block
-                  </Button>
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      icon={PenLine}
+                      onClick={startDrawing}
+                      disabled={!!drawing}
+                    >
+                      Draw a block
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      icon={Plus}
+                      onClick={openBlockForm}
+                      disabled={!!drawing}
+                    >
+                      Add a block
+                    </Button>
+                  </div>
                 ) : undefined
               }
             >
@@ -547,8 +654,58 @@ export default function LayoutEditorPage() {
                   ))}
                 </Select>
               </div>
+              {drawing ? (
+                <div
+                  className="mb-3 space-y-2 rounded-md border border-action-primary bg-background-subtle p-3 text-sm"
+                  data-testid="draw-tools"
+                >
+                  <p className="font-medium text-text-primary">Draw the new block on the map</p>
+                  <p className="text-text-secondary">
+                    Drag on the map to draw a rectangle. Or tap each corner of the shape, one after
+                    the other, then tap the first corner again or choose Finish shape.
+                  </p>
+                  <p className="text-caption text-text-muted" aria-live="polite">
+                    <span data-testid="draw-corners">{drawing.length}</span>{' '}
+                    {drawing.length === 1 ? 'corner' : 'corners'} placed.
+                  </p>
+                  {drawProblem ? (
+                    <p
+                      role="alert"
+                      className="rounded-md bg-status-error/10 p-2.5 text-text-primary"
+                      data-testid="draw-problem"
+                    >
+                      {drawProblem}
+                    </p>
+                  ) : null}
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      icon={Check}
+                      disabled={drawing.length < 3}
+                      onClick={() => finishOutline(drawing)}
+                    >
+                      Finish shape
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      icon={Undo2}
+                      disabled={drawing.length === 0}
+                      onClick={() => {
+                        setDrawProblem(null);
+                        setDrawing(drawing.slice(0, -1));
+                      }}
+                    >
+                      Remove last corner
+                    </Button>
+                    <Button size="sm" variant="ghost" icon={X} onClick={stopDrawing}>
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
               {/* Small enough that the chosen block's seats sit just below it, not a page away. */}
-              <div className="mx-auto max-w-md">
+              <div className="mx-auto max-w-md scroll-mb-24" id="layout-blocks-map">
                 <VenueMap
                   focal={loaded.focal}
                   sections={venueSections}
@@ -559,8 +716,18 @@ export default function LayoutEditorPage() {
                   listWhenNarrow={false}
                   // The whole canvas, so a block can be moved into empty space.
                   frame="canvas"
+                  draw={
+                    drawing
+                      ? {
+                          points: drawing,
+                          onCorner: addCorner,
+                          onClose: () => finishOutline(drawing),
+                          onRectangle: (from, to) => finishOutline(rectangleFromCorners(from, to)),
+                        }
+                      : undefined
+                  }
                   onMoveBlock={
-                    editable
+                    editable && !drawing
                       ? (id, dx, dy) => {
                           const index = Number(id);
                           change(moveBlock(doc, index, dx, dy));
@@ -1154,13 +1321,14 @@ export default function LayoutEditorPage() {
       {blockForm ? (
         <Dialog
           open
-          onClose={() => setBlockForm(null)}
-          title="Add a block"
+          onClose={closeBlockForm}
+          title={drawnForm ? 'The block you drew' : 'Add a block'}
           footer={
             <>
-              <Button variant="outline" onClick={() => setBlockForm(null)}>
+              <Button variant="outline" onClick={closeBlockForm}>
                 Cancel
               </Button>
+
               <Button disabled={!!blockFormProblem} onClick={createBlock} data-testid="add-block">
                 Add the block
               </Button>
@@ -1174,22 +1342,42 @@ export default function LayoutEditorPage() {
               value={blockForm.name}
               onChange={(e) => setBlockForm({ ...blockForm, name: e.target.value })}
             />
-            <Select
-              id="new-block-shape"
-              label="Shape"
-              hint="Copy a block's outline to match the rest of the room, or use a plain rectangle."
-              value={blockForm.shape}
-              onChange={(e) => setBlockForm({ ...blockForm, shape: e.target.value })}
-            >
-              <option value="RECTANGLE">Rectangle</option>
-              {doc.sections.map((s, i) =>
-                s.shape && s.shape.length >= 3 ? (
-                  <option key={i} value={`COPY:${i}`}>
-                    Same shape as {s.name}
-                  </option>
-                ) : null,
-              )}
-            </Select>
+            {drawnForm && drawn ? (
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-text-secondary" data-testid="drawn-shape">
+                  Shape: the outline you drew, with {drawn.length} corners. It stays where you drew
+                  it.
+                </p>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  icon={PenLine}
+                  onClick={() => {
+                    closeBlockForm();
+                    startDrawing();
+                  }}
+                >
+                  Draw again
+                </Button>
+              </div>
+            ) : (
+              <Select
+                id="new-block-shape"
+                label="Shape"
+                hint="Copy a block's outline to match the rest of the room, or use a plain rectangle."
+                value={blockForm.shape}
+                onChange={(e) => setBlockForm({ ...blockForm, shape: e.target.value })}
+              >
+                <option value="RECTANGLE">Rectangle</option>
+                {doc.sections.map((s, i) =>
+                  s.shape && s.shape.length >= 3 ? (
+                    <option key={i} value={`COPY:${i}`}>
+                      Same shape as {s.name}
+                    </option>
+                  ) : null,
+                )}
+              </Select>
+            )}
             <div className="grid grid-cols-2 gap-2">
               <Input
                 id="new-block-rows"
@@ -1226,8 +1414,20 @@ export default function LayoutEditorPage() {
               {Number(blockForm.rows) > 0 && Number(blockForm.seats) > 0
                 ? `${(Number(blockForm.rows) * Number(blockForm.seats)).toLocaleString()} seats. `
                 : ''}
-              It goes on empty ground on the map; then drag it or use the arrows to put it in place.
+              {drawnForm
+                ? 'Rows and seats are suggested from the size you drew. The map is not to scale, so enter the real numbers.'
+                : 'It goes on empty ground on the map; then drag it or use the arrows to put it in place.'}
             </p>
+            {drawnCovers.length > 0 ? (
+              <p
+                role="note"
+                className="rounded-md bg-status-warning/10 p-2.5"
+                data-testid="drawn-overlap"
+              >
+                The shape covers {drawnCovers.join(', ')}. Buyers could not tap what is underneath.
+                You can add it and move it, or draw again.
+              </p>
+            ) : null}
             {blockFormProblem ? (
               <p role="alert" className="rounded-md bg-status-error/10 p-2.5">
                 {blockFormProblem}
