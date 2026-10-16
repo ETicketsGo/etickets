@@ -506,7 +506,10 @@ describe('integration-real-postgres: cinema timezone is authoritative', () => {
     expect(updated.timezone).toBe('Australia/Perth');
 
     // Saving other fields without touching the zone is always fine.
-    const renamed = await cinemas.update(ORGANIZER, fresh.id, { city: 'Fremantle' } as never);
+    // (A cinema in a venue takes its city from the venue now, so the other field is its name.)
+    const renamed = await cinemas.update(ORGANIZER, fresh.id, {
+      name: `Renamed ${suffix}`,
+    } as never);
     expect(renamed.timezone).toBe('Australia/Perth');
 
     await db!.cinema.delete({ where: { id: fresh.id } });

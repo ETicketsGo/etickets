@@ -19,7 +19,6 @@ import {
   PageHeader,
   Skeleton,
   StatusPill,
-  defaultLocation,
   locationFrom,
   useToast,
   errorMessage,
@@ -29,7 +28,8 @@ import {
   type Venue,
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
-import { venuePayload } from '@/components/venue-fields';
+import { homeLocation, venuePayload } from '@/components/venue-fields';
+import { sameClock, zoneInWords } from '@eticketsgo/shared-types';
 import {
   groupSpacesByVenue,
   spaceCapabilityLabel,
@@ -161,10 +161,16 @@ export default function VenuesPage() {
   */
   const [where, setWhere] = useState<LocationValue>({ country: 'India', region: '', timezone: '' });
 
+  /* Why the last save was refused, said inside the dialog where the organizer is looking. */
+  const [saveError, setSaveError] = useState<string | null>(null);
   const openCreate = () => {
     setForm(EMPTY);
-    // Opens on a guess from the browser's locale, and says so. One click to correct.
-    setWhere(defaultLocation());
+    /*
+      Opens on the organization's own country (or where its venues are), never on a bare
+      browser guess - that guess is how Warangal venues were saved in the United States.
+    */
+    setWhere(homeLocation(activeOrg.registeredCountry, venues.data ?? []));
+    setSaveError(null);
     setCreating(true);
   };
   const openEdit = (v: Venue) => {
@@ -175,6 +181,7 @@ export default function VenuesPage() {
       capacity: v.capacity != null ? String(v.capacity) : '',
     });
     setWhere(locationFrom(v));
+    setSaveError(null);
     setEditing(v);
   };
   const close = () => {
@@ -198,6 +205,17 @@ export default function VenuesPage() {
     // closed it would make it impossible to dismiss.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wantsNew]);
+  /*
+    "Edit venue" from a cinema's page lands here with the venue's form open: a cinema's
+    location IS its venue's, and this is the one place it is edited.
+  */
+  const wantsEdit = params.get('edit');
+  const editTarget = venues.data?.find((v) => v.id === wantsEdit);
+  useEffect(() => {
+    if (editTarget) openEdit(editTarget);
+    // Once per arrival, for the same reason as `new=1` above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editTarget?.id]);
 
   /*
     Blank optional fields are sent as undefined, not ''. An empty address box means "I did
@@ -223,13 +241,36 @@ export default function VenuesPage() {
       editing
         ? api.venues.update(editing.id, payload())
         : api.venues.create({ organizationId: activeOrg.id, ...payload() }),
-    onSuccess: () => {
-      toast.push(editing ? 'Venue updated.' : 'Venue added.', 'success');
+    onSuccess: (saved) => {
+      // Only an edit says it; a newly added venue has no sessions to keep.
+      const kept = (saved as { sessionsKeptLocalTime?: number }).sessionsKeptLocalTime ?? 0;
+      toast.push(
+        editing
+          ? kept > 0
+            ? `Venue updated. ${kept} session${kept === 1 ? '' : 's'} kept ${
+                kept === 1 ? 'its' : 'their'
+              } local start time in the new time zone.`
+            : 'Venue updated.'
+          : 'Venue added.',
+        'success',
+      );
       close();
       qc.invalidateQueries({ queryKey: ['venues', activeOrg.id] });
+      qc.invalidateQueries({ queryKey: ['venue-spaces', activeOrg.id] });
     },
-    onError: (e) => toast.push(errorMessage(e), 'error'),
+    onError: (e) => {
+      setSaveError(errorMessage(e));
+      toast.push(errorMessage(e), 'error');
+    },
   });
+
+  /*
+    Said BEFORE saving: a new clock for a venue is not a label change. Sessions nobody has
+    bought from keep their local start time; a venue with sales keeps its clock (the server
+    refuses, and the reason shows here).
+  */
+  const clockChanging =
+    !!editing?.timezone && !!where.timezone && !sameClock(editing.timezone, where.timezone);
 
   const valid = form.name.trim().length > 0 && form.city.trim().length > 0;
   const loading = venues.isLoading || rooms.isLoading;
@@ -463,6 +504,16 @@ export default function VenuesPage() {
             onChange={setWhere}
             countryHint="Sets the currency you sell in and the tax rules that apply."
           />
+          {clockChanging && editing ? (
+            <p
+              data-testid="venue-clock-change"
+              className="rounded-md border border-border bg-background-subtle p-3 text-caption text-text-secondary"
+            >
+              You are moving this venue from {zoneInWords(editing.timezone)} to{' '}
+              {zoneInWords(where.timezone)}. Sessions here that have not sold keep their local start
+              time. If any session here has tickets sold, the time zone cannot be changed.
+            </p>
+          ) : null}
           {/*
             "Street address", not "Address".
 
@@ -487,6 +538,16 @@ export default function VenuesPage() {
             value={form.capacity}
             onChange={(e) => setForm({ ...form, capacity: e.target.value })}
           />
+          {saveError ? (
+            <p
+              ref={(el) => el?.scrollIntoView({ block: 'nearest' })}
+              role="alert"
+              data-testid="venue-save-error"
+              className="rounded-md border border-status-error/40 bg-status-error/10 p-3 text-sm text-text-primary"
+            >
+              {saveError}
+            </p>
+          ) : null}
         </div>
       </Dialog>
     </div>

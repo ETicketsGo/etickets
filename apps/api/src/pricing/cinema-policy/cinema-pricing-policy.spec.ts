@@ -105,6 +105,45 @@ describe('a market is regulated only when a row says so', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────────────
+describe('seat classes are asked for only where a rule covers the place', () => {
+  const ap = [
+    rule({ id: 'ap', region: 'Andhra Pradesh', seatCategory: 'PREMIUM', ticketPriceMaxMinor: 99 }),
+    rule({ id: 'ap-any', region: 'Andhra Pradesh' }),
+  ];
+
+  it('refuses an unmapped category where a rule covers the place, and names it', () => {
+    const r = resolvePolicy(ap, ctx({ seatCategories: [], unmappedSeatCategories: ['Gold'] }));
+    expect(r.status).toBe('INVALID_CINEMA_CLASSIFICATION');
+    expect(r.explanation).toContain('"Gold"');
+  });
+
+  it('does not ask for one where nothing covers the place: no rules there is the cause', () => {
+    /*
+      A Bengaluru screen. India is claimed (by Andhra Pradesh), Karnataka is not, so mapping
+      "Gold" would change nothing: the sale stays closed for want of a rule. Still closed -
+      the fail-closed answer is unchanged - but for the reason that is true.
+    */
+    const r = resolvePolicy(
+      ap,
+      ctx({
+        region: 'Karnataka',
+        city: 'Bengaluru',
+        seatCategories: [],
+        unmappedSeatCategories: ['Gold'],
+      }),
+    );
+    expect(r.status).toBe('POLICY_NOT_FOUND');
+    expect(r.explanation).not.toContain('Gold');
+  });
+
+  it('counts a rule not yet in force as not covering the place', () => {
+    const later = [rule({ region: 'Andhra Pradesh', effectiveFrom: new Date('2027-01-01Z') })];
+    const r = resolvePolicy(later, ctx({ unmappedSeatCategories: ['Gold'] }));
+    expect(r.status).toBe('POLICY_NOT_FOUND');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────
 describe('precedence is deterministic', () => {
   it('lets a narrower rule beat a broader one', () => {
     const broad = rule({ id: 'broad', region: '*' });

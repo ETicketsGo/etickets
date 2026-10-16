@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { RefundsModule } from '../refunds/refunds.module';
 import { ShowsModule } from '../shows/shows.module';
 import { PricingModule } from '../pricing/pricing.module';
 import {
@@ -18,7 +19,8 @@ import { OrganizerCalendarService } from './organizer-calendar.service';
 import { OrganizerSaleEligibilityService } from './organizer-sale-eligibility.service';
 
 @Module({
-  imports: [PricingModule, ShowsModule],
+  // Refunds: cancelling an event opens its buyers' refunds at once (see `cancelEvent`).
+  imports: [PricingModule, ShowsModule, RefundsModule],
   controllers: [
     EventsController,
     PublicEventsController,

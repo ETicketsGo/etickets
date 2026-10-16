@@ -41,7 +41,9 @@
   },
   "REFUND_REQUESTED": {
     "subject": "A refund was requested for your booking",
-    "body": "A refund of {amount} was requested for booking {reference}. Nothing has been decided yet and no money has moved - the organizer reviews the request and you will be told the outcome. If you did not ask for this, contact the organizer before it is approved: whoever has the link to your tickets was able to make this request."
+    "subjectShowCancelled": "Your show was cancelled: a refund is open",
+    "body": "A refund of {amount} was requested for booking {reference}. Nothing has been decided yet and no money has moved - the organizer reviews the request and you will be told the outcome. If you did not ask for this, contact the organizer before it is approved: whoever has the link to your tickets was able to make this request.",
+    "bodyShowCancelled": "Your show was cancelled, so a refund of {amount} has been opened for booking {reference}. You do not need to do anything. The organizer approves it, and you will be told when the money is on its way."
   },
   "TICKET_CHECKED_IN": {
     "subject": "Ticket checked in",
@@ -102,6 +104,14 @@
   "EVENT_NOT_SELLABLE": {
     "subject": "'{event}' is live but cannot be sold",
     "body": "Customers can find '{event}' and are turned away at checkout. {reason} Open the event in your organizer console to fix it."
+  },
+  "EVENT_PAUSED_BY_ADMIN": {
+    "subject": "ETicketsGo paused sales for '{event}'",
+    "body": "ETicketsGo paused '{event}', so tickets are not on sale.{reason} Tickets already sold stay valid. Fix what the reason names, then write to ETicketsGo support from Help & support in your organizer console and ask for sales to start again. Only ETicketsGo can lift this pause."
+  },
+  "EVENT_RESUMED_BY_ADMIN": {
+    "subject": "'{event}' is on sale again",
+    "body": "ETicketsGo lifted the pause on '{event}'. Tickets are on sale again."
   },
   "PAYOUT_ACCOUNT_UPDATED": {
     "saved": {

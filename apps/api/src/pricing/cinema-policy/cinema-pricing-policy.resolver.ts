@@ -156,6 +156,24 @@ function applies(rule: PolicyRow, ctx: PolicyContext): boolean {
   return true;
 }
 
+/**
+ * Whether any ACTIVE rule covers this PLACE on this date: country, region, district, city and
+ * currency, ignoring the cinema's classification and the seat class. Those two are what an
+ * organizer or the platform still has to supply, so they cannot decide whether to ask for them.
+ */
+export function coversPlace(active: PolicyRow[], ctx: PolicyContext): boolean {
+  return active.some(
+    (r) =>
+      scopeMatches(r.country, ctx.country) &&
+      scopeMatches(r.region, ctx.region) &&
+      scopeMatches(r.district, ctx.district) &&
+      scopeMatches(r.city, ctx.city) &&
+      scopeMatches(r.currency, ctx.currency) &&
+      ctx.at >= r.effectiveFrom &&
+      !(r.effectiveTo && ctx.at >= r.effectiveTo),
+  );
+}
+
 /** Whether any ACTIVE rule claims this country at all — i.e. is this market regulated. */
 export function isRegulated(active: PolicyRow[], ctx: PolicyContext): boolean {
   return active.some((r) => scopeMatches(r.country, ctx.country));
@@ -197,9 +215,18 @@ export function resolvePolicy(active: PolicyRow[], ctx: PolicyContext): PolicyRe
 
     The refusal names the category, since the fix is one field on one seat category and the
     person reading it needs to know which.
+
+    ── ONLY WHERE A RULE COVERS THIS PLACE ──────────────────────────────────────────
+    "Regulated" above is decided by COUNTRY, so a Bengaluru cinema counts as regulated because
+    Andhra Pradesh has an order. Asking it to map seat classes sent the organizer to fill in a
+    form that could never open the sale: with no rule for Karnataka, the matching below refuses
+    as POLICY_NOT_FOUND whatever the classes are. So the classes are asked for only when some
+    rule covers this place on this date (its classification and seat class aside, which are
+    what the mapping and the cinema's type supply). Otherwise the truthful answer is the one
+    below - no rules here yet - which only the platform can clear.
   */
   const unmapped = (ctx.unmappedSeatCategories ?? []).filter((n) => n.trim());
-  if (unmapped.length > 0) {
+  if (unmapped.length > 0 && coversPlace(active, ctx)) {
     return {
       status: 'INVALID_CINEMA_CLASSIFICATION',
       policy: null,

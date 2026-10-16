@@ -2,7 +2,15 @@
 
 import Link from 'next/link';
 import { Armchair, Eye, Lock, Users } from 'lucide-react';
-import { Badge, Button, Menu, StatusBadge, money, type MenuItem } from '@eticketsgo/web-kit';
+import {
+  Badge,
+  Button,
+  Menu,
+  Select,
+  StatusBadge,
+  money,
+  type MenuItem,
+} from '@eticketsgo/web-kit';
 import { layoutLabel, type SessionSeating } from './seating-model';
 
 /**
@@ -17,6 +25,7 @@ export function SessionSeatingCard({
   seating,
   onPreview,
   onChange,
+  standing,
 }: {
   sessionId: string;
   eventId: string;
@@ -26,6 +35,18 @@ export function SessionSeatingCard({
   seating: SessionSeating;
   onPreview: () => void;
   onChange: () => void;
+  /**
+   * For a general-admission show at a venue with standing spaces: which one it is in (its
+   * capacity caps what is on sale), and the choice. Absent where there is nothing to choose.
+   */
+  standing?: {
+    current: { id: string; name: string; capacity: number } | null;
+    options: { id: string; name: string; capacity: number }[];
+    /** Tickets on sale now: the quantities of the active ticket types. */
+    onSale: number;
+    pending: boolean;
+    onChoose: (spaceId: string | null) => void;
+  };
 }) {
   const base = `/organizer/events/${eventId}`;
   const reserved = seating.kind === 'reserved';
@@ -146,13 +167,60 @@ export function SessionSeatingCard({
               </div>
             </>
           ) : (
-            <div className="min-w-0">
-              <dt className="text-caption text-text-muted">Seating</dt>
-              <dd className="text-text-primary">
-                Buyers choose how many tickets they want; there is no seat map. Capacity is the
-                quantity of each ticket type.
-              </dd>
-            </div>
+            <>
+              <div className="min-w-0">
+                <dt className="text-caption text-text-muted">Seating</dt>
+                <dd className="text-text-primary">
+                  Buyers choose how many tickets they want; there is no seat map. Capacity is the
+                  quantity of each ticket type
+                  {standing?.current
+                    ? `, up to ${standing.current.capacity.toLocaleString()} in all, what ${standing.current.name} holds`
+                    : ''}
+                  .
+                </dd>
+              </div>
+              {/*
+                The standing space, and a flag when this show offers more than it holds. The
+                flag never changes anything: lowering a quantity is the organizer's decision.
+              */}
+              {standing && standing.options.length > 0 ? (
+                <div className="min-w-0">
+                  <dt className="text-caption text-text-muted">
+                    <label htmlFor={`standing-${sessionId}`}>Standing space</label>
+                  </dt>
+                  <dd className="mt-1 space-y-1.5">
+                    <Select
+                      id={`standing-${sessionId}`}
+                      value={standing.current?.id ?? ''}
+                      disabled={standing.pending}
+                      onChange={(e) => standing.onChoose(e.target.value || null)}
+                    >
+                      <option value="">Not in one space</option>
+                      {standing.options.map((o) => (
+                        <option key={o.id} value={o.id}>
+                          {o.name} (holds {o.capacity.toLocaleString()})
+                        </option>
+                      ))}
+                    </Select>
+                    {standing.current && standing.onSale > standing.current.capacity ? (
+                      <p
+                        role="alert"
+                        data-testid="session-over-cap"
+                        className="rounded-md border border-status-error/40 bg-status-error/10 px-2.5 py-1.5 text-caption text-text-primary"
+                      >
+                        {standing.onSale.toLocaleString()} tickets are on sale, which is{' '}
+                        {(standing.onSale - standing.current.capacity).toLocaleString()} more than{' '}
+                        {standing.current.name} holds. Nothing was changed. Lower a quantity on{' '}
+                        <Link href={`${base}/tickets`} className="font-medium underline">
+                          Tickets
+                        </Link>
+                        .
+                      </p>
+                    ) : null}
+                  </dd>
+                </div>
+              ) : null}
+            </>
           )}
         </dl>
 

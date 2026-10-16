@@ -212,6 +212,22 @@ export const EVENT_POLICY: Partial<Record<NotificationType, EventPolicy>> = {
   },
 
   /*
+    The platform team stopped this organizer's sales, or started them again. Same channels and
+    weight as an unsellable listing, for the same reason: it is their sales, it is acted on
+    from a desk, and every hour they do not know is an hour they cannot answer for it.
+  */
+  [NotificationType.EVENT_PAUSED_BY_ADMIN]: {
+    channels: [E, A],
+    urgency: 'IMPORTANT',
+    guaranteed: [E, A],
+  },
+  [NotificationType.EVENT_RESUMED_BY_ADMIN]: {
+    channels: [E, A],
+    urgency: 'IMPORTANT',
+    guaranteed: [E, A],
+  },
+
+  /*
     Somebody changed where the organization's money is sent. The owners need to see this fast
     enough to say "that was not me", so it is IMPORTANT and guaranteed on both channels. Email and
     the console only: a bank account change is no business of a messaging app, and the message

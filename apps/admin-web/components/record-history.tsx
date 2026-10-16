@@ -52,7 +52,11 @@ export function RecordHistory({
                 <p className={line.problem ? 'text-status-error' : 'text-text-primary'}>
                   {line.text}
                 </p>
-                {line.detail && <p className="text-caption text-text-secondary">{line.detail}</p>}
+                {line.detail && (
+                  <p className="break-words text-caption text-text-secondary [overflow-wrap:anywhere]">
+                    {line.detail}
+                  </p>
+                )}
                 <p className="text-caption text-text-muted">
                   {dateTime(line.when)} - {line.who}
                 </p>
