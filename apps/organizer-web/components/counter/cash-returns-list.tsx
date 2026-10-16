@@ -8,10 +8,10 @@ import {
   useToast,
   errorMessage,
   money,
-  dateTime,
   type CashReturnRow,
   type Column,
 } from '@eticketsgo/web-kit';
+import { timeAtVenue } from '@/components/events/event-list-model';
 import { totalsText } from '@/lib/cancel-impact';
 
 /**
@@ -93,7 +93,9 @@ export function CashReturnsList({
             render: (r: CashReturnRow) => (
               <div>
                 <p className="text-text-primary">{r.eventTitle}</p>
-                <p className="text-caption text-text-muted">{dateTime(r.startsAt)}</p>
+                <p className="text-caption text-text-muted">
+                  {timeAtVenue(r.startsAt, { timezone: r.timezone ?? null })}
+                </p>
               </div>
             ),
           } satisfies Column<CashReturnRow>,
@@ -116,7 +118,7 @@ export function CashReturnsList({
       render: (r) =>
         r.returnedAt ? (
           <p className="text-caption text-text-muted">
-            Given back {dateTime(r.returnedAt)}
+            Given back {timeAtVenue(r.returnedAt, { timezone: r.timezone ?? null })}
             {r.returnedBy ? ` by ${r.returnedBy}` : ''}
           </p>
         ) : (

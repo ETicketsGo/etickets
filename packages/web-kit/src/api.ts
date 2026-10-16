@@ -3618,6 +3618,8 @@ export interface CashBooking {
   status: string;
   eventTitle: string;
   startsAt: string;
+  /** The show's zone (IANA), so its time reads on the venue's clock. Null when unknown. */
+  timezone?: string | null;
   collectedAt: string | null;
   collectedBy: string | null;
 }
@@ -4697,6 +4699,8 @@ export interface CashReturnRow {
   eventId: string;
   eventTitle: string;
   startsAt: string;
+  /** The show's zone (IANA), so its time reads on the venue's clock. Null when unknown. */
+  timezone?: string | null;
   collectedBy: string | null;
   returnedAt: string | null;
   returnedBy: string | null;

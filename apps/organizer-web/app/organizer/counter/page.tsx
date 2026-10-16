@@ -13,13 +13,13 @@ import {
   useToast,
   errorMessage,
   money,
-  dateTime,
   type Column,
   type CashBooking,
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
 import { CounterSaleForm } from '@/components/counter/counter-sale-form';
 import { CashReturnsList } from '@/components/counter/cash-returns-list';
+import { timeAtVenue } from '@/components/events/event-list-model';
 
 /**
  * The counter: selling to the person in front of you, and cash reserved but not yet handed over.
@@ -87,7 +87,10 @@ export default function CounterPage() {
       render: (b) => (
         <div>
           <p className="text-text-primary">{b.eventTitle}</p>
-          <p className="text-caption text-text-muted">{dateTime(b.startsAt)}</p>
+          {/* On the venue's clock, with its zone: the reader may be anywhere. */}
+          <p className="text-caption text-text-muted">
+            {timeAtVenue(b.startsAt, { timezone: b.timezone ?? null })}
+          </p>
         </div>
       ),
     },

@@ -1,5 +1,11 @@
 import { HttpStatus, Injectable, Logger } from '@nestjs/common';
-import { BookingStatus, Role, SessionStatus, TicketStatus } from '@eticketsgo/shared-types';
+import {
+  BookingStatus,
+  Role,
+  SessionStatus,
+  TicketStatus,
+  venueZone,
+} from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 import { InventoryService } from '../inventory/inventory.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
@@ -14,6 +20,48 @@ const COUNTER_ROLES = [Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER, Role.CHECKI
 const LIVE_BOOKING = [BookingStatus.CONFIRMED, BookingStatus.PARTIALLY_REFUNDED];
 const LIVE_TICKET = [TicketStatus.ACTIVE, TicketStatus.CHECKED_IN];
 
+/** What the show's zone is read from: the space's venue, its cinema, the event's venue. */
+export const SHOW_ZONE_SELECT = {
+  event: { select: { venue: { select: { timezone: true, country: true } } } },
+  eventSession: {
+    select: {
+      startsAt: true,
+      screen: {
+        select: {
+          venue: { select: { timezone: true, country: true } },
+          cinema: { select: { timezone: true } },
+        },
+      },
+    },
+  },
+} as const;
+
+/**
+ * The zone a show runs in, so the counter reads its time on the venue's clock, the way the
+ * ticket prints it, and not the reader's. The space's venue first, then its cinema, then the
+ * event's venue; each place's own zone, else the only zone its country has. The same order as
+ * the check-in counter's `bookingZone` (#410); a null means no place says, and the console
+ * then labels the time as the reader's own.
+ */
+export function showZone(
+  eventVenue: { timezone: string | null; country: string | null } | null | undefined,
+  screen:
+    | {
+        venue?: { timezone: string | null; country: string | null } | null;
+        cinema?: { timezone: string | null } | null;
+      }
+    | null
+    | undefined,
+): string | null {
+  return (
+    screen?.venue?.timezone?.trim() ||
+    screen?.cinema?.timezone?.trim() ||
+    venueZone(eventVenue?.timezone, eventVenue?.country) ||
+    venueZone(null, screen?.venue?.country) ||
+    null
+  );
+}
+
 /** One cash booking whose money is owed back, or was handed back. */
 export interface CashReturnRow {
   bookingId: string;
@@ -25,6 +73,8 @@ export interface CashReturnRow {
   eventId: string;
   eventTitle: string;
   startsAt: Date;
+  /** The show's zone (IANA), for its time on the venue's clock. Null when no place says. */
+  timezone: string | null;
   collectedBy: string | null;
   returnedAt: Date | null;
   returnedBy: string | null;
@@ -197,8 +247,8 @@ export class CashReturnsService {
         currency: true,
         eventId: true,
         cashReturnedAt: true,
-        event: { select: { title: true } },
-        eventSession: { select: { startsAt: true } },
+        event: { select: { title: true, ...SHOW_ZONE_SELECT.event.select } },
+        eventSession: SHOW_ZONE_SELECT.eventSession,
         cashCollectedBy: { select: { fullName: true } },
         cashReturnedBy: { select: { fullName: true } },
       },
@@ -215,6 +265,7 @@ export class CashReturnsService {
       eventId: b.eventId,
       eventTitle: b.event.title,
       startsAt: b.eventSession.startsAt,
+      timezone: showZone(b.event.venue, b.eventSession.screen),
       collectedBy: b.cashCollectedBy?.fullName ?? null,
       returnedAt: b.cashReturnedAt,
       returnedBy: b.cashReturnedBy?.fullName ?? null,

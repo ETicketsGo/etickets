@@ -1,3 +1,4 @@
+import { showZone } from '../refunds/cash-returns.service';
 import { cancelImpact, totalsByCurrency } from './event-cancel-impact';
 
 const b = (over: Partial<Parameters<typeof cancelImpact>[1][number]> = {}) => ({
@@ -44,5 +45,26 @@ describe('what cancelling an event does to money', () => {
       { currency: 'INR', amountMinor: 900 },
       { currency: 'USD', amountMinor: 150 },
     ]);
+  });
+});
+
+describe('the zone a counter list reads a show time in', () => {
+  const india = { timezone: null, country: 'India' };
+  it("is the space's venue, then its cinema, then the event's venue", () => {
+    expect(
+      showZone(india, {
+        venue: { timezone: 'Asia/Kolkata', country: 'India' },
+        cinema: { timezone: 'Europe/London' },
+      }),
+    ).toBe('Asia/Kolkata');
+    expect(showZone(india, { venue: null, cinema: { timezone: 'Asia/Kolkata' } })).toBe(
+      'Asia/Kolkata',
+    );
+  });
+  it("falls back to the only zone the event venue's country has", () => {
+    expect(showZone(india, null)).toBe('Asia/Kolkata');
+  });
+  it('says nothing rather than guess for a country with several zones', () => {
+    expect(showZone({ timezone: null, country: 'United States' }, null)).toBeNull();
   });
 });
