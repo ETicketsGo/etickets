@@ -16,11 +16,13 @@ import {
   money,
   dateOnly,
   type Column,
+  type OrganizerAnalytics,
   type PayoutSummary,
   type PayoutSummaryCurrency,
   type TileTone,
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
+import { overviewBridge } from '@/lib/finance-view';
 import { ProviderSettled } from './provider-settled';
 import { FinanceNotices } from './finance-notices';
 
@@ -120,7 +122,16 @@ function Amount({
   They are four separate buckets of the ledger, shown side by side and never added up here: held
   is a gross and the other three are nets, so a sum would mix the two.
 */
-function CurrencyBlock({ row }: { row: PayoutSummaryCurrency }) {
+function CurrencyBlock({
+  row,
+  analytics,
+  providerSettledEvents,
+}: {
+  row: PayoutSummaryCurrency;
+  analytics: OrganizerAnalytics | undefined;
+  providerSettledEvents: number;
+}) {
+  const bridge = overviewBridge(analytics, row);
   const stages: {
     label: string;
     value: number;
@@ -234,6 +245,77 @@ function CurrencyBlock({ row }: { row: PayoutSummaryCurrency }) {
           </dl>
         </SectionCard>
       </div>
+
+      {/*
+        The answer to "why does Finance not match my Overview". Every line is a server field; the
+        page adds nothing up. See `overviewBridge`.
+      */}
+      {bridge && (
+        <SectionCard
+          title="How this matches your Overview"
+          description="Your Overview counts every ticket sold. This is where that money is now."
+          headingLevel={3}
+        >
+          <div className="grid items-start gap-4 lg:grid-cols-2">
+            <dl className="divide-y divide-border rounded-md border border-border text-ui">
+              {bridge.sold.map((line) => (
+                <div
+                  key={line.label}
+                  className="flex items-baseline justify-between gap-4 px-4 py-2.5"
+                >
+                  <dt className="text-text-secondary">{line.label}</dt>
+                  <dd className="whitespace-nowrap tabular-nums text-text-primary">
+                    <Amount
+                      value={line.amountMinor}
+                      currency={bridge.currency}
+                      negative={line.negative}
+                    />
+                  </dd>
+                </div>
+              ))}
+              <div className="flex items-baseline justify-between gap-4 rounded-b-md bg-background-subtle px-4 py-3">
+                <dt className="font-semibold text-text-primary">After refunds and your fee</dt>
+                <dd className="font-semibold tabular-nums text-text-primary">
+                  {money(bridge.afterMinor, bridge.currency)}
+                </dd>
+              </div>
+            </dl>
+            <dl
+              className="divide-y divide-border rounded-md border border-border text-ui"
+              aria-label="Where that money is now"
+            >
+              {bridge.where.map((line) => (
+                <div
+                  key={line.label}
+                  className="flex items-baseline justify-between gap-4 px-4 py-2.5"
+                >
+                  <dt className="text-text-secondary">{line.label}</dt>
+                  <dd className="whitespace-nowrap tabular-nums text-text-primary">
+                    <Amount
+                      value={line.amountMinor}
+                      currency={bridge.currency}
+                      negative={line.negative}
+                    />
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+          {(bridge.discountMinor !== null || providerSettledEvents > 0) && (
+            <p className="mt-3 text-caption text-text-muted">
+              {bridge.discountMinor !== null && (
+                <>
+                  Discounts of {money(bridge.discountMinor, bridge.currency)} come off when a show
+                  is paid out.{' '}
+                </>
+              )}
+              {providerSettledEvents > 0 && (
+                <>Money your payment provider pays you directly is shown in its own section.</>
+              )}
+            </p>
+          )}
+        </SectionCard>
+      )}
     </section>
   );
 }
@@ -268,6 +350,15 @@ export default function FinancePage() {
     queryKey: ['organizer', 'payout-summary', activeOrg.id],
     queryFn: () => api.payouts.summary(activeOrg.id),
   });
+  /*
+    The Overview's own figures, from the Overview's own query key, so the bridge quotes exactly
+    what the Overview shows. Optional: if it fails, the ledger above is still true and only the
+    bridge is left out.
+  */
+  const analyticsQ = useQuery({
+    queryKey: ['analytics', 'organizer', activeOrg.id],
+    queryFn: () => api.analytics.organizer(activeOrg.id),
+  });
 
   return (
     <div className="space-y-8">
@@ -290,7 +381,7 @@ export default function FinancePage() {
         >
           Overview
         </Link>
-        . This page follows that money from held, to payable, to paid.
+        . This page follows that money from held, to payable, to paid, and shows how the two match.
       </p>
 
       {isLoading && (
@@ -365,7 +456,12 @@ export default function FinancePage() {
             */
             <div className="space-y-10">
               {data.currencies.map((row) => (
-                <CurrencyBlock key={row.currency} row={row} />
+                <CurrencyBlock
+                  key={row.currency}
+                  row={row}
+                  analytics={analyticsQ.data}
+                  providerSettledEvents={data.excluded.providerSettledEvents}
+                />
               ))}
             </div>
           )}

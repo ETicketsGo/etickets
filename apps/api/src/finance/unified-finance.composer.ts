@@ -85,6 +85,12 @@ export interface FinanceCurrencyGroup {
    * provider. A zero would assert something about a route this organization does not use.
    */
   paths: FinancePathSummary[];
+  /**
+   * The money a provider transfer has claimed, and only that: what "Settled by your payment
+   * provider" may show. Unlike the PROVIDER path it leaves out settlements that have moved
+   * nothing, whose revenue the payout ledger still counts. Absent when there is none.
+   */
+  providerRoute?: FinancePathSummary;
   warnings: FinanceWarning[];
 }
 
@@ -224,8 +230,8 @@ function buildGroup(
     settlement of 299 600). Release refuses to transfer while a standing payout covers the event, so
     the settlement can never pay out - but it is still listed.
 
-    So the entry stays in `entries` (nothing is hidden, and DOUBLE_CLAIM below still reports the
-    overlap) while the TOTALS count the payout, which is the ledger that actually owes the money.
+    So the entry stays in `entries` (nothing is hidden) while the TOTALS count the payout, which is
+    the ledger that actually owes the money. It is not a DOUBLE_CLAIM either: see below.
     Only settlements that have moved nothing are set aside: one in TRANSFER_PROCESSING or later has
     claimed the event, the generator would have refused to pay it, and it is counted.
   */
@@ -235,6 +241,17 @@ function buildGroup(
   // ── double claim, the one thing composition must not let through ─────────────────
   const claims = new Map<string, Map<FinancePath, string[]>>();
   for (const item of items) {
+    /*
+      A settlement that has moved nothing has claimed nothing. `syncForEvent` accrues one for
+      every event with an online payment, with or without a payment account to send it to, and
+      the payout generator pays that event's revenue through the ledger as designed (FIN-1
+      trace, step 3); release then refuses to transfer while the payout stands. A payout beside
+      such a settlement is therefore the normal state of every organizer without a linked
+      account, not two routes claiming one event. QA showed it to the seed organizer as "Needs
+      attention: An event appears in two payment routes at once" when nothing was wrong and
+      nobody was checking. Both entries are still listed; only the false alarm is gone.
+    */
+    if (isUnclaimedSettlement(item)) continue;
     for (const eventId of financeClaimedEvents(item.entry)) {
       const byPath = claims.get(eventId) ?? new Map<FinancePath, string[]>();
       byPath.set(item.path, [...(byPath.get(item.path) ?? []), item.entry.sourceId]);
@@ -355,8 +372,56 @@ function buildGroup(
       .map((path) => ({ path, items: counted.filter((i) => i.path === path) }))
       .filter(({ items: subset }) => subset.length > 0)
       .map(({ path, items: subset }) => ({ path, ...buildSummary(subset) })),
+    ...providerRoute(items),
     warnings,
   };
+}
+
+/**
+ * Settlement statuses in which a provider transfer has CLAIMED the event: the payout generator's
+ * own `SETTLEMENT_CLAIMED_STATUSES`, restated here so this pure module does not import the payout
+ * service. A spec pins the two lists equal.
+ */
+export const PROVIDER_CLAIMED_STATUSES: ReadonlySet<string> = new Set([
+  'TRANSFER_PROCESSING',
+  'TRANSFERRED',
+  'PARTIALLY_REFUNDED',
+  'REVERSED',
+]);
+
+/**
+ * The provider route's figures, over settlements that have claimed their event and nothing else.
+ *
+ * ── WHY NOT THE PROVIDER PATH ──────────────────────────────────────────────────────
+ * `paths` sums every settlement row, and a settlement row exists for every event with an online
+ * payment - including every event of an organizer with no payment account at all. Until a
+ * transfer claims the event, the payout ledger counts that same revenue as held, payable or in a
+ * payout (`/payouts/summary`). The Finance page showed the provider path under "Settled by your
+ * payment provider ... not part of the figures above", so the seed organizer on QA saw Rs 14,040
+ * of its own held and payable money a second time, with a sentence saying it was other money.
+ *
+ * Claimed settlements are exactly the events the ledger leaves out, so this figure and the
+ * ledger are disjoint by construction: the same boundary, read from the other side. Absent when
+ * no settlement has claimed anything, so an organizer the provider pays nothing sees no provider
+ * section at all.
+ */
+function providerRoute(items: Array<{ path: FinancePath; entry: FinanceEntry }>): {
+  providerRoute?: FinancePathSummary;
+} {
+  const claimed = items.filter(
+    (item) => item.path === 'PROVIDER' && PROVIDER_CLAIMED_STATUSES.has(item.entry.sourceStatus),
+  );
+  if (claimed.length === 0) return {};
+  return { providerRoute: { path: 'PROVIDER', ...buildSummary(claimed) } };
+}
+
+/** A provider settlement that has moved nothing, so it claims no event. See DOUBLE_CLAIM. */
+function isUnclaimedSettlement(item: { path: FinancePath; entry: FinanceEntry }): boolean {
+  return (
+    item.path === 'PROVIDER' &&
+    UNMOVED_SETTLEMENT_STATUSES.has(item.entry.sourceStatus) &&
+    item.entry.movement === undefined
+  );
 }
 
 /**
