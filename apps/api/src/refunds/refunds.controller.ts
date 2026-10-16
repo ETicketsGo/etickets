@@ -137,4 +137,36 @@ export class AdminRefundsController {
   get(@Param('id') id: string) {
     return this.refunds.adminGet(id);
   }
+
+  /*
+    Whether a FAILED refund can be tried again, and what trying would do. Read-only, so the
+    queue's own REFUND_REVIEW is enough: the console asks before it offers the button.
+  */
+  @Get(':id/retry-check')
+  @ApiOperation({ summary: 'Whether a failed refund can be retried, and why not (admin).' })
+  retryCheck(@Param('id') id: string) {
+    return this.refunds.retryCheck(id);
+  }
+
+  /*
+    Sending it again moves money, so the service also requires REFUND_APPROVE, the capability an
+    approval needs - checked there, audited allowed or refused, like `process`.
+  */
+  @Post(':id/retry')
+  @ApiOperation({ summary: 'Send a failed refund to the payment provider again (admin).' })
+  retry(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @Body(
+      new ZodValidationPipe(
+        z.object({
+          // "I looked the payment up in the provider dashboard and there is no refund there."
+          confirmedNoProviderRefund: z.boolean().optional(),
+        }),
+      ),
+    )
+    body: { confirmedNoProviderRefund?: boolean },
+  ) {
+    return this.refunds.retry(user, id, body);
+  }
 }

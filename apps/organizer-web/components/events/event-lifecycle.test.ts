@@ -3,6 +3,7 @@ import {
   hasSessionToday,
   lifecycleOf,
   nextStepOf,
+  pauseNoticeOf,
   saleStateOf,
   setupOf,
   type SaleState,
@@ -33,7 +34,7 @@ describe('lifecycleOf: the console vocabulary', () => {
 
   it('names who paused it, because that decides who can lift it', () => {
     expect(lifecycleOf({ status: 'PAUSED', pausedByAdmin: true }).detail?.label).toBe(
-      'Paused by platform',
+      'Paused by ETicketsGo',
     );
     expect(lifecycleOf({ status: 'PAUSED' }).detail?.label).toBe('Paused');
     expect(lifecycleOf({ status: 'SOLD_OUT' }).detail?.label).toBe('Sold out');
@@ -181,8 +182,17 @@ describe('nextStepOf: one thing to do next', () => {
 
   it('offers no action the organizer cannot take', () => {
     expect(nextStepOf({ ...base, status: 'UNDER_REVIEW' }).kind).toBe('none');
-    expect(nextStepOf({ ...base, status: 'PAUSED', pausedByAdmin: true }).kind).toBe('none');
     expect(nextStepOf({ ...base, status: 'PAUSED' }).kind).toBe('resume');
+  });
+
+  it('sends a platform pause to support, never to a Resume that would fail', () => {
+    const step = nextStepOf({ ...base, status: 'PAUSED', pausedByAdmin: true });
+    expect(step).toMatchObject({
+      kind: 'link',
+      label: 'Ask ETicketsGo to resume',
+      href: '/organizer/help?event=e1#support',
+    });
+    expect(step.body).toMatch(/Only ETicketsGo can lift this pause/);
   });
 
   it('shares a selling event', () => {
@@ -190,5 +200,30 @@ describe('nextStepOf: one thing to do next', () => {
       title: 'On sale now',
       href: '/organizer/events/e1/promote',
     });
+  });
+});
+
+describe('pauseNoticeOf: what the platform team said', () => {
+  it('leads with the reason in their words', () => {
+    expect(
+      pauseNoticeOf({
+        status: 'PAUSED',
+        pausedByAdmin: true,
+        pausedByAdminReason: ' The age limit is missing. ',
+      })?.headline,
+    ).toBe('Paused by ETicketsGo: The age limit is missing.');
+  });
+
+  it('says no reason was recorded rather than ending on a colon', () => {
+    const n = pauseNoticeOf({ status: 'PAUSED', pausedByAdmin: true, pausedByAdminReason: null });
+    expect(n?.headline).toBe('Paused by ETicketsGo');
+    expect(n?.detail).toMatch(/No reason was recorded/);
+  });
+
+  it('is silent for a pause the organizer made, and for an event on sale', () => {
+    expect(pauseNoticeOf({ status: 'PAUSED', pausedByAdmin: false })).toBeNull();
+    expect(
+      pauseNoticeOf({ status: 'PUBLISHED', pausedByAdmin: true, pausedByAdminReason: 'old' }),
+    ).toBeNull();
   });
 });

@@ -517,6 +517,31 @@ const BUILDERS: Partial<Record<NotificationType, Builder>> = {
     };
   },
 
+  /*
+    The reason is the admin's own words and is the whole point of the message: "paused" alone
+    sends the organizer straight to support to ask why. It is required by the console, but an
+    older caller may omit it, so it is optional here like the rejection note.
+  */
+  [NotificationType.EVENT_PAUSED_BY_ADMIN]: (l, p) => {
+    const event = str(p, 'eventTitle', t(l, 'emails.fragments.yourEvent'));
+    return {
+      subject: t(l, 'emails.EVENT_PAUSED_BY_ADMIN.subject', { event }),
+      body: t(l, 'emails.EVENT_PAUSED_BY_ADMIN.body', {
+        event,
+        // The fragment ends the sentence itself; a reason typed with a full stop read "us..".
+        reason: optional(l, 'reason', { reason: str(p, 'reason').replace(/[.!?\s]+$/, '') }),
+      }),
+    };
+  },
+
+  [NotificationType.EVENT_RESUMED_BY_ADMIN]: (l, p) => {
+    const event = str(p, 'eventTitle', t(l, 'emails.fragments.yourEvent'));
+    return {
+      subject: t(l, 'emails.EVENT_RESUMED_BY_ADMIN.subject', { event }),
+      body: t(l, 'emails.EVENT_RESUMED_BY_ADMIN.body', { event }),
+    };
+  },
+
   [NotificationType.EVENT_REJECTED]: (l, p) => {
     const event = str(p, 'eventTitle', t(l, 'emails.fragments.yourEvent'));
     return {

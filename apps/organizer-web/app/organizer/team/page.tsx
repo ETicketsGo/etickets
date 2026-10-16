@@ -21,6 +21,7 @@ import {
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
 import { isForbidden } from '@/lib/org-permissions';
+import { removalSummary } from '@/lib/team-removal';
 
 const ROLES = ['ORGANIZER_MANAGER', 'CHECKIN_STAFF', 'ORGANIZER_OWNER'];
 
@@ -165,7 +166,7 @@ export default function TeamPage() {
   const remove = useMutation({
     mutationFn: (m: MemberRow) => api.organizations.removeMember(activeOrg.id, m.id),
     onSuccess: (m) => {
-      toast.push(`${m.user.fullName} has been removed. Their access has ended.`, 'success');
+      toast.push(removalSummary(m), 'success');
       qc.invalidateQueries({ queryKey: ['members', activeOrg.id] });
       closeManage();
     },
@@ -401,6 +402,10 @@ export default function TeamPage() {
                 {managing.user.fullName} ({managing.user.email}) will lose access to{' '}
                 {activeOrg.name} straight away.
                 {managing.status === 'INVITED' ? ' Their invitation link stops working.' : ''}
+              </p>
+              <p>
+                Any check-in device they set up stops working, offline check-in they approved is
+                turned off, and they are signed out.
               </p>
               <p>What they did stays in your records. You can invite them again later.</p>
             </div>

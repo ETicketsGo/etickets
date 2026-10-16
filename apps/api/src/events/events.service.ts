@@ -824,6 +824,11 @@ export class EventsService {
       // So the console shows why there is no Resume button, rather than one that can only fail.
       // A stale marker on an event that has since completed says nothing about resuming.
       pausedByAdmin: row.status === EventStatus.PAUSED && row.pausedByAdminAt !== null,
+      // Why, in the admin's words, so the organizer reads it on the page rather than asking.
+      pausedByAdminReason:
+        row.status === EventStatus.PAUSED && row.pausedByAdminAt !== null
+          ? row.pausedByAdminReason
+          : null,
       imagePath: coverImagePath(row.id, images),
       imageVariants: coverImageVariants(row.id, images),
       images: eventImagesView(row.id, images).map((view, i) => ({
@@ -2272,17 +2277,26 @@ export class EventsService {
     const event = await this.prisma.event.findUnique({ where: { id } });
     if (!event)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Event not found.', HttpStatus.NOT_FOUND);
+    const note = reason?.trim() || null;
     /*
       Who paused it decides who may resume it, so an admin pause is recorded. Moving the event
       anywhere else lifts the marker — and settles any edits made while paused, because an
       admin putting it back on sale has looked at it, which is what review was for.
+
+      The reason is stored on the event as well as in the audit log: the organizer's page shows
+      it, and the organizer cannot read the audit log.
     */
     const updated = await this.prisma.event.update({
       where: { id },
       data:
         status === EventStatus.PAUSED
-          ? { status, pausedByAdminAt: new Date() }
-          : { status, pausedByAdminAt: null, needsReviewOnResume: false },
+          ? { status, pausedByAdminAt: new Date(), pausedByAdminReason: note }
+          : {
+              status,
+              pausedByAdminAt: null,
+              pausedByAdminReason: null,
+              needsReviewOnResume: false,
+            },
     });
     await this.audit.record({
       actorUserId: admin.id,
@@ -2292,8 +2306,28 @@ export class EventsService {
       entityId: id,
       // The status it left as well as the one it took, and the admin's reason when given: an
       // entry that says only "PAUSED" cannot answer "why did my event stop selling".
-      metadata: { status, from: event.status, ...(reason ? { reason } : {}) },
+      metadata: { status, from: event.status, ...(note ? { reason: note } : {}) },
     });
+
+    /*
+      And tell the organizer. A pause by the platform team used to change the status and
+      nothing else, so sales stopped and the organizer found out from a buyer. Only a real
+      change is announced: pausing an event that was already paused by an admin (a second click,
+      a corrected reason) is not news, and nor is "putting back on sale" one that was not paused
+      by us. Sent after the write, through the owners fan-out, which never throws.
+    */
+    const pausedNow = status === EventStatus.PAUSED;
+    const wasAdminPaused = event.status === EventStatus.PAUSED && event.pausedByAdminAt !== null;
+    const resumedNow = wasAdminPaused && status === EventStatus.PUBLISHED;
+    if ((pausedNow && !wasAdminPaused) || resumedNow) {
+      await this.audience.notifyOrganizationOwners(
+        event.organizationId,
+        pausedNow
+          ? NotificationType.EVENT_PAUSED_BY_ADMIN
+          : NotificationType.EVENT_RESUMED_BY_ADMIN,
+        { eventId: id, eventTitle: updated.title, reason: pausedNow ? (note ?? '') : '' },
+      );
+    }
     return updated;
   }
 

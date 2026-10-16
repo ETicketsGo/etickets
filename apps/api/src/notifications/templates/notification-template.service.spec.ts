@@ -268,4 +268,28 @@ describe('NotificationTemplateService', () => {
     expect(out.subject).toContain('MYSTERY_TYPE');
     expect(out.body).toContain('bar');
   });
+
+  it('tells the organizer why the platform paused their event, and that it is back on sale', () => {
+    const paused = svc.render(NotificationType.EVENT_PAUSED_BY_ADMIN, 'en', {
+      eventId: 'ev-1',
+      eventTitle: 'Standup Night',
+      reason: 'Add the age limit, then tell us.',
+    });
+    expect(paused.subject).toBe("ETicketsGo paused sales for 'Standup Night'");
+    expect(paused.body).toContain('Reason: Add the age limit, then tell us. Tickets already sold');
+    expect(paused.body).not.toContain('..');
+    expect(paused.body).toMatch(/Only ETicketsGo can lift this pause/);
+
+    const noReason = svc.render(NotificationType.EVENT_PAUSED_BY_ADMIN, 'en', {
+      eventTitle: 'Standup Night',
+      reason: '',
+    });
+    expect(noReason.body).not.toContain('Reason:');
+
+    const resumed = svc.render(NotificationType.EVENT_RESUMED_BY_ADMIN, 'fr-CA', {
+      eventTitle: 'Standup Night',
+    });
+    expect(resumed.subject).toContain('Standup Night');
+    expect(resumed.body).toMatch(/de nouveau en vente/);
+  });
 });

@@ -983,7 +983,7 @@ export const api = {
       ),
     /** Take somebody off the team. Owner only; their access ends on their next request. */
     removeMember: (id: string, memberId: string) =>
-      request<OrgMember>(`/organizations/${id}/members/${memberId}`, { method: 'DELETE' }),
+      request<RemovedMember>(`/organizations/${id}/members/${memberId}`, { method: 'DELETE' }),
     /** Change what a team member may do. Owner only; the last owner cannot be demoted. */
     changeMemberRole: (id: string, memberId: string, role: string) =>
       request<OrgMember>(`/organizations/${id}/members/${memberId}`, {
@@ -2228,6 +2228,18 @@ export const api = {
     },
     /** One refund by id — the detail page used to search the newest hundred for it. */
     refund: (id: string) => request<RefundRow>(`/admin/refunds/${id}`),
+    /** Whether a FAILED refund can be sent to the provider again, and why not. Reads only. */
+    refundRetryCheck: (id: string) => request<RefundRetryCheck>(`/admin/refunds/${id}/retry-check`),
+    /**
+     * Send a FAILED refund to the provider again. `confirmedNoProviderRefund` is the admin saying
+     * they looked the payment up in the provider dashboard and found no refund there; the API
+     * asks for it only when the last provider call came back with no answer.
+     */
+    retryRefund: (id: string, body: { confirmedNoProviderRefund?: boolean } = {}) =>
+      request<RefundRetryResult>(`/admin/refunds/${id}/retry`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
     payouts: () => request<Payout[]>('/admin/payouts'),
     markPayoutPaid: (id: string, body: { reference?: string; note?: string } = {}) =>
       request<Payout>(`/admin/payouts/${id}/pay`, { method: 'POST', body: JSON.stringify(body) }),
@@ -3497,6 +3509,19 @@ export interface OrgMember {
   status: string;
   user: { id: string; email: string; fullName: string };
 }
+/** What removing a member returns: the member, and the access that was taken back with them. */
+export interface RemovedMember extends OrgMember {
+  revoked?: {
+    /** Check-in devices they registered or were assigned, now revoked. */
+    devices: number;
+    /** Offline check-in activations they approved, now revoked. */
+    activations: number;
+    /** Signed-in sessions ended. Zero when they still work for another organization. */
+    sessions: number;
+    /** False when sessions were kept because they are still on another organization's team. */
+    signedOut: boolean;
+  };
+}
 /** What `invite` returns: the member, plus the link to actually send them. */
 export interface InvitedMember extends OrgMember {
   /**
@@ -4591,6 +4616,8 @@ export interface OrgEventDetail extends EventDetails {
   needsReviewOnResume?: boolean;
   /** Paused by the platform team, so only they can resume it. */
   pausedByAdmin?: boolean;
+  /** The platform team's reason for that pause, in their words. Null when not paused by them. */
+  pausedByAdminReason?: string | null;
 }
 /** What resuming did: `sentForReview` when edits made while paused sent it to the review queue. */
 export type EventResumeResult = OrgEventDetail & { sentForReview: boolean };
@@ -5048,6 +5075,26 @@ export interface RefundRow {
   /** The provider's id for the refund, once one was asked for. */
   providerRef?: string | null;
   updatedAt?: string;
+}
+
+/** What `refundRetryCheck` answers. `message` is one plain sentence for the admin. */
+export interface RefundRetryCheck {
+  allowed: boolean;
+  /** TICKETS_RETURNED: the provider accepted it once, so only the money is sent again. */
+  stage: 'TICKETS_HELD' | 'TICKETS_RETURNED' | null;
+  /** UNKNOWN: the last provider call never answered, so the money may have moved. */
+  lastAnswer: 'REFUSED' | 'UNKNOWN';
+  refusal: string | null;
+  /** True when the only thing missing is the admin's confirmation about the provider dashboard. */
+  needsConfirmation: boolean;
+  message: string;
+}
+/** What a retry did. FAILED is the provider saying no; ERROR is a call that never answered. */
+export interface RefundRetryResult {
+  outcome: 'COMPLETED' | 'PROCESSING' | 'FAILED' | 'ERROR';
+  message: string | null;
+  providerRef: string | null;
+  refund: RefundRow | null;
 }
 
 /** The seller's legal + tax identity, plus what is still missing to issue a tax invoice. */

@@ -59,7 +59,7 @@ export function lifecycleOf(e: LifecycleInput): Lifecycle {
         label: 'Approved',
         tone: 'neutral',
         detail: e.pausedByAdmin
-          ? { label: 'Paused by platform', tone: 'error' }
+          ? { label: 'Paused by ETicketsGo', tone: 'error' }
           : e.needsReviewOnResume
             ? { label: 'Paused, review needed to resume', tone: 'warning' }
             : { label: 'Paused', tone: 'warning' },
@@ -200,6 +200,28 @@ export type NextStep =
   | { kind: 'none'; title: string; body: string };
 
 /**
+ * What the platform team said when it paused the event, for the top of its overview.
+ *
+ * Null unless the event is paused by them. The reason is the admin's own words; an event paused
+ * before reasons were stored (or by an older console) has none, and says so rather than
+ * leaving a blank after the colon.
+ */
+export function pauseNoticeOf(e: {
+  status: string;
+  pausedByAdmin?: boolean;
+  pausedByAdminReason?: string | null;
+}): { headline: string; detail: string } | null {
+  if (e.status !== 'PAUSED' || !e.pausedByAdmin) return null;
+  const reason = e.pausedByAdminReason?.trim();
+  return {
+    headline: reason ? `Paused by ETicketsGo: ${reason}` : 'Paused by ETicketsGo',
+    detail: reason
+      ? 'Buyers cannot book until the pause is lifted. Tickets already sold stay valid.'
+      : 'No reason was recorded. Buyers cannot book until the pause is lifted. Tickets already sold stay valid. Ask ETicketsGo why.',
+  };
+}
+
+/**
  * The one thing to do next, which the overview leads with.
  *
  * In the order an organizer would want it: run the door when there is a show today; fix what
@@ -262,11 +284,18 @@ export function nextStepOf(input: {
         body: 'The platform team is reviewing this event. You can keep editing while you wait.',
       };
     case 'PAUSED':
+      /*
+        The way out, not only the fact. This said "Contact support to resume sales" with no
+        link and no reason, so the organizer had to find support and then ask it why. The
+        reason itself is shown above the next step (see `pauseNoticeOf`); this is what to do.
+      */
       if (input.pausedByAdmin)
         return {
-          kind: 'none',
-          title: 'Paused by the platform team',
-          body: 'Only the platform team can lift this pause. Contact support to resume sales.',
+          kind: 'link',
+          title: 'Fix it, then ask ETicketsGo to resume',
+          body: 'Only ETicketsGo can lift this pause. Tell them what you changed and they put the event back on sale. You get an email when they do.',
+          label: 'Ask ETicketsGo to resume',
+          href: `/organizer/help?event=${encodeURIComponent(input.eventId)}#support`,
         };
       return {
         kind: 'resume',

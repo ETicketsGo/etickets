@@ -105,6 +105,14 @@
     "subject": "« {event} » est en ligne mais ne peut pas être vendu",
     "body": "Les clients trouvent « {event} » et sont refusés au paiement. {reason} Ouvrez l'événement dans votre console organisateur pour corriger cela."
   },
+  "EVENT_PAUSED_BY_ADMIN": {
+    "subject": "ETicketsGo a suspendu la vente de « {event} »",
+    "body": "ETicketsGo a suspendu « {event} » : les billets ne sont plus en vente.{reason} Les billets déjà vendus restent valides. Corrigez ce que la raison indique, puis écrivez au soutien ETicketsGo depuis Aide et soutien dans votre console organisateur pour demander la reprise des ventes. Seul ETicketsGo peut lever cette suspension."
+  },
+  "EVENT_RESUMED_BY_ADMIN": {
+    "subject": "« {event} » est de nouveau en vente",
+    "body": "ETicketsGo a levé la suspension de « {event} ». Les billets sont de nouveau en vente."
+  },
   "PAYOUT_ACCOUNT_UPDATED": {
     "saved": {
       "subject": "Votre compte bancaire de versement en {currency} a été modifié",
