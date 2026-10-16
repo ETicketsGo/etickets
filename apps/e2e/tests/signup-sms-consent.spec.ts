@@ -199,4 +199,72 @@ test.describe('signup as the A2P opt-in evidence', () => {
       expect(sms?.granted).toBeFalsy();
     }
   });
+
+  test.describe('while the deployment cannot text anybody yet', () => {
+    /*
+      The state the carrier reviews in: the campaign is not approved, so no number can be sent a
+      code (production today). The disclosure must still be there, word for word, on the page
+      they open - disabled, with a line saying sign-up by text opens later - and the Email tab
+      must still create an account.
+    */
+    test.beforeEach(async ({ page }) => {
+      await page.route('**/api/capabilities', (route) =>
+        route.fulfill({ json: { phoneSignIn: true, phoneSignInCountries: [] } }),
+      );
+    });
+
+    test('a US reviewer still reads the full disclosure without clicking', async ({ page }) => {
+      const errors: string[] = [];
+      page.on('pageerror', (e) => errors.push(e.message));
+      const res = await page.goto(`${CUSTOMER}/register`);
+      expect(res?.status()).toBe(200);
+      await expect(page.getByRole('tab', { name: 'Mobile' })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      );
+      await expect(page.getByLabel('Country', { exact: true })).toHaveValue('US');
+      await expect(page.getByTestId('phone-sms-unavailable')).toBeVisible();
+      await expect(page.getByTestId('sms-opens-later')).toBeVisible();
+
+      const box = consentBox(page);
+      await expect(box).toBeVisible();
+      await expect(box).toBeDisabled();
+      await expect(box).not.toBeChecked();
+
+      const text = await page.locator('body').innerText();
+      expect(text).toMatch(/Send me transactional text messages from ETicketsGo/i);
+      expect(text).toMatch(/bookings, tickets, event updates, cancellations, refunds/i);
+      expect(text).toMatch(/Message frequency varies/i);
+      expect(text).toMatch(/Message and data rates may apply/i);
+      expect(text).toMatch(/Reply\s+STOP\s+to opt out/i);
+      expect(text).toMatch(/HELP\s+for help/i);
+      expect(text).toMatch(/Consent is not a condition of purchase/i);
+      for (const href of ['/terms', '/privacy']) {
+        await expect(page.locator(`a[href$="${href}"]`).first()).toHaveCount(1);
+      }
+      // Nothing that could only fail: no number box, no Send code.
+      await expect(page.getByLabel('Mobile number', { exact: true })).toHaveCount(0);
+      await expect(page.getByRole('button', { name: /send code/i })).toHaveCount(0);
+      expect(errors).toEqual([]);
+    });
+
+    test('the Email tab still creates an account', async ({ page }) => {
+      await page.goto(`${CUSTOMER}/register`);
+      await page.getByRole('button', { name: 'Use email instead' }).click();
+      await page.getByLabel('Full name', { exact: true }).fill('Reviewer Email');
+      await page.getByLabel('Email', { exact: true }).fill(`${unique()}@example.com`);
+      await page.getByLabel('Password', { exact: true }).fill(NEW_ACCOUNT_PASSWORD);
+      await page.getByRole('button', { name: /create account/i }).click();
+      await page.waitForURL((u) => !u.pathname.includes('/register'), { timeout: 20000 });
+    });
+
+    test('the public text-message page loads without errors', async ({ page }) => {
+      const errors: string[] = [];
+      page.on('pageerror', (e) => errors.push(e.message));
+      const res = await page.goto(`${CUSTOMER}/sms`);
+      expect(res?.status()).toBe(200);
+      await expect(page.getByRole('heading', { name: /text messages/i }).first()).toBeVisible();
+      expect(errors).toEqual([]);
+    });
+  });
 });

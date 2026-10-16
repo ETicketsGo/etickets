@@ -7,7 +7,8 @@ import { api, tokenStore, ApiRequestError } from '@/lib/api';
 import { Button, Card, Input } from '@/components/ui';
 import { PasswordField, passwordAcceptable } from '@eticketsgo/web-kit';
 import { afterSignIn } from '@/lib/sign-in-return';
-import { signInModes, useSmsCapability, type SignInMode } from '@/lib/sign-in-modes';
+import { useSmsCapability, type SignInMode } from '@/lib/sign-in-modes';
+import { usePhoneCountryGuess } from '@/components/phone-number-field';
 import { PhoneSignIn } from '@/components/phone-sign-in';
 import { usePasswordCopy } from '@/lib/use-password-copy';
 import { Link } from '@/i18n/navigation';
@@ -54,9 +55,26 @@ function RegisterForm() {
   */
   const { loaded: capsLoaded, phoneSignIn, smsCountries } = useSmsCapability();
   const [chosen, setChosen] = useState<SignInMode | null>(null);
+  /*
+    UNLIKE SIGN-IN, THE MOBILE TAB STAYS EVEN WHEN NO NUMBER CAN BE TEXTED.
+
+    This page is the A2P campaign's opt-in evidence, and the carrier reviews it before the
+    campaign is approved - when the deployment can text nobody yet. A US visitor therefore still
+    opens on Mobile and reads the full agreement (disabled, with "opens later"), and the Email tab
+    is one press away. Anyone else whose number cannot be texted opens on Email, so nobody lands
+    on a form that can only send them elsewhere.
+  */
+  const guess = usePhoneCountryGuess();
+  const phoneWorksHere =
+    phoneSignIn !== false &&
+    (smsCountries === undefined ||
+      (guess !== null ? smsCountries.includes(guess) : smsCountries.length > 0));
   const { modes, initial } = organizerIntent
     ? { modes: ['email'] as SignInMode[], initial: 'email' as SignInMode }
-    : signInModes(phoneSignIn, false, smsCountries);
+    : {
+        modes: ['phone', 'email'] as SignInMode[],
+        initial: (phoneWorksHere || guess === 'US' ? 'phone' : 'email') as SignInMode,
+      };
   const mode = chosen && modes.includes(chosen) ? chosen : initial;
   /*
     ONE ID PER COPY OF THE FORM, NOT ONE PER PAGE.
@@ -159,10 +177,6 @@ function RegisterForm() {
         </p>
       ) : !capsLoaded ? (
         <div className="h-[3.25rem] rounded-md bg-background-subtle" aria-hidden="true" />
-      ) : modes.length === 1 ? (
-        <p className="text-caption text-text-muted" data-testid="phone-signin-off">
-          {a('phoneUnavailableSignUp')}
-        </p>
       ) : (
         <div className="flex gap-1 rounded-md bg-background-subtle p-1" role="tablist">
           {modes.map((m) => (

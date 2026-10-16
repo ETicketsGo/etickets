@@ -516,7 +516,8 @@
     "smsUseEmailSignIn": "Connectez-vous plutôt avec votre adresse courriel.",
     "smsUseEmailSignUp": "Créez plutôt votre compte avec votre adresse courriel.",
     "useEmailInstead": "Utiliser le courriel",
-    "phoneUnavailableSignUp": "La création d'un compte avec un numéro de mobile n'est pas offerte pour le moment. Utilisez votre adresse courriel.",
+    "smsNotAvailableYet": "Les codes par message texte ne sont pas encore offerts.",
+    "smsSignUpOpensLater": "L'inscription par message texte ouvrira plus tard. L'accord ci-dessous est celui qu'on vous demandera alors.",
     "nameRequired": "Entrez votre nom.",
     "organizerEmailOnly": "Les comptes organisateur utilisent une adresse courriel et un mot de passe, car c'est ainsi que la console organisateur vous connecte.",
     "loading": "Chargement..."

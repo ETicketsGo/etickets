@@ -40,13 +40,11 @@ export interface PhoneNumberState {
  * the server, and a first render that disagrees with the server's is a hydration error.
  */
 export function usePhoneNumber(): PhoneNumberState {
-  const { locatedCountry } = useCity();
-  const [browser, setBrowser] = useState<string | null>(null);
-  useEffect(() => setBrowser(visitorCountry()), []);
+  const guess = usePhoneCountryGuess();
   const [chosen, setChosen] = useState<string | null>(null);
   const [national, setNational] = useState('');
 
-  const country = chosen ?? phoneCountryGuess(locatedCountry, browser) ?? '';
+  const country = chosen ?? guess ?? '';
   return {
     country,
     national,
@@ -63,6 +61,14 @@ export function usePhoneNumber(): PhoneNumberState {
       setNational(read.national);
     },
   };
+}
+
+/** Where the visitor is, as a dialable country, or null - see `usePhoneNumber`. */
+export function usePhoneCountryGuess(): string | null {
+  const { locatedCountry } = useCity();
+  const [browser, setBrowser] = useState<string | null>(null);
+  useEffect(() => setBrowser(visitorCountry()), []);
+  return phoneCountryGuess(locatedCountry, browser);
 }
 
 /**

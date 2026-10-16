@@ -93,6 +93,16 @@ export function PhoneSignIn({
     programme that does not cover the person answering it.
   */
   const askConsent = signUp && phone.country === 'US' && !noSms;
+  /*
+    ── THE DISCLOSURE IS SHOWN EVEN WHILE TEXTING IS OFF ────────────────────────────────
+    A carrier reviewer judges the A2P campaign from this page, and they review BEFORE the
+    campaign is approved - which is exactly when the deployment cannot text anybody yet. Hiding
+    the disclosure whenever sending is unavailable would hide it from the one person who has to
+    read it. So a US number always sees the full text; while texting is off it sits inside the
+    "not available yet" panel with the box disabled, and a plain line says sign-up by text
+    opens later.
+  */
+  const showDisabledConsent = signUp && phone.country === 'US' && noSms;
 
   const sendCode = async (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -192,11 +202,22 @@ export function PhoneSignIn({
             <p className="text-[0.9375rem] font-medium text-text-primary">
               {blocked && market && smsCountries && smsCountries.length > 0
                 ? a('smsUnavailableFor', { country: market.name })
-                : a('smsUnavailableNow')}
+                : blocked
+                  ? // Known in advance and everywhere: not a hiccup, so not "just now".
+                    a('smsNotAvailableYet')
+                  : a('smsUnavailableNow')}
             </p>
             <p className="text-caption text-text-secondary">
               {signUp ? a('smsUseEmailSignUp') : a('smsUseEmailSignIn')}
             </p>
+            {showDisabledConsent && (
+              <>
+                <p className="text-caption text-text-secondary" data-testid="sms-opens-later">
+                  {a('smsSignUpOpensLater')}
+                </p>
+                <SmsConsentDisclosure id={ids.consent} checked={false} disabled />
+              </>
+            )}
             {onUseEmail && (
               <Button type="button" className="w-full" onClick={() => onUseEmail(fullName)}>
                 {a('useEmailInstead')}
@@ -218,36 +239,11 @@ export function PhoneSignIn({
                 be able to read what they are agreeing to without leaving the form. The wording
                 is the A2P campaign's opt-in evidence and is kept word for word.
               */
-              <div className="space-y-3 rounded-lg border border-border bg-background-subtle/40 p-4">
-                <label className="flex cursor-pointer items-start gap-3">
-                  <input
-                    type="checkbox"
-                    id={ids.consent}
-                    checked={smsConsent}
-                    onChange={(e) => setSmsConsent(e.target.checked)}
-                    className="mt-1 h-4 w-4 shrink-0 rounded border-border-input text-action-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
-                  />
-                  <span className="text-[0.875rem] leading-relaxed text-text-secondary">
-                    Send me transactional text messages from ETicketsGo about my bookings, tickets,
-                    event updates, cancellations, refunds, and account or service notifications.
-                    Message frequency varies. Message and data rates may apply. Reply{' '}
-                    <strong className="font-semibold text-text-primary">STOP</strong> to opt out or{' '}
-                    <strong className="font-semibold text-text-primary">HELP</strong> for help.
-                    Consent is not a condition of purchase.
-                  </span>
-                </label>
-                <p className="text-[0.875rem] text-text-secondary">
-                  See our{' '}
-                  <Link href="/terms" className="font-medium text-action-primary hover:underline">
-                    Terms &amp; Conditions
-                  </Link>{' '}
-                  and{' '}
-                  <Link href="/privacy" className="font-medium text-action-primary hover:underline">
-                    Privacy Policy
-                  </Link>
-                  .
-                </p>
-              </div>
+              <SmsConsentDisclosure
+                id={ids.consent}
+                checked={smsConsent}
+                onChange={setSmsConsent}
+              />
             )}
 
             {error && (
@@ -323,5 +319,57 @@ export function PhoneSignIn({
         </button>
       </div>
     </form>
+  );
+}
+
+/**
+ * The US text-message agreement, word for word as submitted with the A2P campaign.
+ *
+ * One component so the live box and the disabled one shown while texting is off can never
+ * drift apart in wording - the reviewer must read the same sentences either way.
+ */
+function SmsConsentDisclosure({
+  id,
+  checked,
+  onChange,
+  disabled = false,
+}: {
+  id: string;
+  checked: boolean;
+  onChange?: (checked: boolean) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="space-y-3 rounded-lg border border-border bg-background-surface p-4">
+      <label className={`flex items-start gap-3 ${disabled ? '' : 'cursor-pointer'}`}>
+        <input
+          type="checkbox"
+          id={id}
+          checked={checked}
+          disabled={disabled}
+          onChange={(e) => onChange?.(e.target.checked)}
+          className="mt-1 h-4 w-4 shrink-0 rounded border-border-input text-action-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 disabled:cursor-not-allowed"
+        />
+        <span className="text-[0.875rem] leading-relaxed text-text-secondary">
+          Send me transactional text messages from ETicketsGo about my bookings, tickets, event
+          updates, cancellations, refunds, and account or service notifications. Message frequency
+          varies. Message and data rates may apply. Reply{' '}
+          <strong className="font-semibold text-text-primary">STOP</strong> to opt out or{' '}
+          <strong className="font-semibold text-text-primary">HELP</strong> for help. Consent is not
+          a condition of purchase.
+        </span>
+      </label>
+      <p className="text-[0.875rem] text-text-secondary">
+        See our{' '}
+        <Link href="/terms" className="font-medium text-action-primary hover:underline">
+          Terms &amp; Conditions
+        </Link>{' '}
+        and{' '}
+        <Link href="/privacy" className="font-medium text-action-primary hover:underline">
+          Privacy Policy
+        </Link>
+        .
+      </p>
+    </div>
   );
 }

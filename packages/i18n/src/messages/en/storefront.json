@@ -516,7 +516,8 @@
     "smsUseEmailSignIn": "Sign in with your email address instead.",
     "smsUseEmailSignUp": "Create your account with your email address instead.",
     "useEmailInstead": "Use email instead",
-    "phoneUnavailableSignUp": "Creating an account with a mobile number is not available right now. Use your email address.",
+    "smsNotAvailableYet": "Codes by text message are not available yet.",
+    "smsSignUpOpensLater": "Sign-up by text message opens later. The agreement below is what you will be asked then.",
     "nameRequired": "Enter your name.",
     "organizerEmailOnly": "Organizer accounts use an email address and a password, because that is how the organizer console signs you in.",
     "loading": "Loading..."

@@ -72,13 +72,18 @@ test.describe('login page and the SMS capability', () => {
     await expect(page.getByLabel('Password')).toBeVisible();
   });
 
-  test('an empty country list is the same as SMS off', async ({ page }) => {
+  test('sign-up with no number reachable opens on Email for a non-US visitor', async ({ page }) => {
+    // The suite browses from Asia/Kolkata. Sign-up keeps its Mobile tab (the A2P disclosure
+    // lives there for US visitors) but nobody else is opened on a form that cannot send.
     await page.route('**/api/capabilities', (route) =>
       route.fulfill({ json: { phoneSignIn: true, phoneSignInCountries: [] } }),
     );
     await page.goto(`${CUSTOMER}/register`);
-    await expect(page.getByTestId('phone-signin-off')).toBeVisible();
-    await expect(page.getByRole('tab', { name: 'Mobile' })).toHaveCount(0);
+    await expect(page.getByRole('tab', { name: 'Email' })).toHaveAttribute('aria-selected', 'true');
     await expect(page.getByLabel('Password', { exact: true })).toBeVisible();
+    await page.getByRole('tab', { name: 'Mobile' }).click();
+    await expect(page.getByTestId('phone-sms-unavailable')).toBeVisible();
+    // Not a US number: no agreement to show.
+    await expect(page.locator('input[type="checkbox"]')).toHaveCount(0);
   });
 });
