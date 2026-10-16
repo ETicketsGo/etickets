@@ -84,6 +84,7 @@ describe('the organizer sidebar', () => {
       'Venues & seating',
       'Movies',
       'Bookings & attendees',
+      'Counter',
       'Check-in',
       'Notifications',
       'Marketing',
@@ -102,9 +103,9 @@ describe('the organizer sidebar', () => {
     );
   });
 
-  it('has one level only: secondary pages are tabs of Bookings, Finance and Settings', () => {
+  it('has one level only: secondary pages are tabs of Finance and Settings', () => {
     const parents = owner.filter((i) => i.children?.length).map((i) => i.href);
-    expect(parents).toEqual(['/organizer/bookings', '/organizer/finance', '/organizer/settings']);
+    expect(parents).toEqual(['/organizer/finance', '/organizer/settings']);
     for (const kid of owner.flatMap((i) => i.children ?? [])) {
       expect(kid.children, `${kid.href} nests a third level`).toBeUndefined();
     }
@@ -123,6 +124,15 @@ describe('the organizer sidebar', () => {
     );
     expect(top('theme')).toBe('/organizer/settings');
     expect(top('contact')).toBe('/organizer/help');
+  });
+
+  it('lists Counter in the sidebar, straight under Bookings & attendees', () => {
+    // As a tab of Bookings it was reachable only through Find a page (QA, 2026-10-16).
+    const rows = owner.filter((i) => i.sidebar !== false).map((i) => i.href);
+    expect(rows[rows.indexOf('/organizer/bookings') + 1]).toBe('/organizer/counter');
+    expect(filterQuickNav(quickNavEntries(owner), 'box office')[0]?.href).toBe(
+      '/organizer/counter',
+    );
   });
 
   it('links the calendar', () => {

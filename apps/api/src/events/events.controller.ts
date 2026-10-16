@@ -405,6 +405,16 @@ export class EventsController {
   }
 
   /*
+    What cancelling would do, in counts and totals per currency, read before confirming.
+    Changes nothing. Owner only, in the service, like the cancellation itself.
+  */
+  @Get(':id/cancel-preview')
+  @ApiOperation({ summary: 'What cancelling this event would refund and what cash is owed.' })
+  cancelPreview(@CurrentUser() user: RequestUser, @Param('id') id: string) {
+    return this.events.cancelPreview(user, id);
+  }
+
+  /*
     Cancel the whole event: every date still to come is cancelled through the show
     cancellation, which opens the refunds and tells the buyers. Owner only, in the service.
   */

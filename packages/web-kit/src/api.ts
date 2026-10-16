@@ -1026,6 +1026,17 @@ export const api = {
       request<CashBooking[]>(
         `/organizations/${id}/cash-bookings${qs({ includeCollected: includeCollected || undefined })}`,
       ),
+    /** Cancelled cash bookings whose money is owed back (or, with `includeReturned`, was). */
+    cashReturns: (id: string, opts: { eventId?: string; includeReturned?: boolean } = {}) =>
+      request<CashReturnRow[]>(
+        `/organizations/${id}/cash-returns${qs({ eventId: opts.eventId, includeReturned: opts.includeReturned || undefined })}`,
+      ),
+    /** Record, offline, that the cash was handed back. No payment provider is involved. */
+    markCashReturned: (id: string, bookingId: string) =>
+      request<{ bookingId: string; status: 'returned' | 'already_returned'; returnedAt: string }>(
+        `/organizations/${id}/cash-returns/${bookingId}/returned`,
+        { method: 'POST' },
+      ),
     /**
      * Sell at the counter: tickets for the person in front of the staff member, paid in cash
      * there and issued at once. One `idempotencyKey` per sale, so a double press sells once.
@@ -1679,6 +1690,7 @@ export const api = {
      * Cancel the whole event: sales stop, every date still to come is cancelled, a refund
      * opens for each paid booking and every buyer is told. Owner only; cannot be undone.
      */
+    cancelPreview: (id: string) => request<EventCancelPreview>(`/events/${id}/cancel-preview`),
     cancel: (id: string, reason: string) =>
       request<EventCancelResult>(`/events/${id}/cancel`, {
         method: 'POST',
@@ -3606,6 +3618,8 @@ export interface CashBooking {
   status: string;
   eventTitle: string;
   startsAt: string;
+  /** The show's zone (IANA), so its time reads on the venue's clock. Null when unknown. */
+  timezone?: string | null;
   collectedAt: string | null;
   collectedBy: string | null;
 }
@@ -4646,8 +4660,50 @@ export interface EventCancelResult {
   datesCancelled: number;
   /** References of the paid bookings a refund was opened for. */
   bookingsRequiringRefund: string[];
-  /** Cash bookings on this event: the platform cannot refund cash, the counter hands it back. */
+  /** Cash bookings on this event still owed back: the platform cannot refund cash. */
   cashToReturn: number;
+  /** Refund requests on this event waiting for approval, with their totals per currency. */
+  refundsAwaiting?: { count: number; totals: CurrencyTotal[] };
+  /** Each cancelled cash booking whose money is still to be handed back. */
+  cashReturns?: {
+    bookingId: string;
+    reference: string | null;
+    buyerName: string;
+    amountMinor: number;
+    currency: string;
+  }[];
+  /** The cash still to hand back, per currency. */
+  cashTotals?: CurrencyTotal[];
+}
+/** An amount in one currency. Two currencies are never added together. */
+export interface CurrencyTotal {
+  currency: string;
+  amountMinor: number;
+}
+/** What cancelling an event would do, read before confirming. Changes nothing. */
+export interface EventCancelPreview {
+  datesToCancel: number;
+  onlineRefunds: { count: number; totals: CurrencyTotal[] };
+  alreadyInRefund: number;
+  free: number;
+  cash: { count: number; totals: CurrencyTotal[] };
+}
+/** A cancelled cash booking: the money to hand back at the counter, or handed back. */
+export interface CashReturnRow {
+  bookingId: string;
+  reference: string | null;
+  buyerName: string;
+  buyerEmail: string;
+  amountMinor: number;
+  currency: string;
+  eventId: string;
+  eventTitle: string;
+  startsAt: string;
+  /** The show's zone (IANA), so its time reads on the venue's clock. Null when unknown. */
+  timezone?: string | null;
+  collectedBy: string | null;
+  returnedAt: string | null;
+  returnedBy: string | null;
 }
 /** A room an event can be seated in — one that has a published seat map. */
 export interface SeatingRoom {
@@ -4784,6 +4840,11 @@ export interface OrderRow {
   createdAt: string;
   ticketCount: number;
   paymentStatus: string | null;
+  /** ONLINE or CASH. A cash booking has no payment row, so `paymentStatus` is null for it. */
+  paymentMethod?: string;
+  cashCollected?: boolean;
+  /** A cancelled cash booking whose money was handed back at the counter. */
+  cashReturned?: boolean;
 }
 /** The four states an organizer reads a booking in. */
 export type AttendeeState = 'CONFIRMED' | 'PENDING' | 'CANCELLED' | 'REFUNDED';

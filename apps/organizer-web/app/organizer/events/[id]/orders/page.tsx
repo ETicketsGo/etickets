@@ -20,6 +20,7 @@ import {
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
 import { timeAtVenue } from '@/components/events/event-list-model';
+import { cashPaymentLabel } from '@/lib/booking-status';
 
 /* The filter in the words the table's own status pills use, not the stored names. */
 const STATUSES: { value: string; label: string }[] = [
@@ -30,6 +31,16 @@ const STATUSES: { value: string; label: string }[] = [
   { value: 'CANCELLED', label: 'Cancelled' },
   { value: 'EXPIRED', label: 'Expired' },
 ];
+
+/*
+  How the order was paid, in words. A cash booking has no payment row, so the column used to
+  read "-" for a sale the counter had been paid for in full.
+*/
+function PaymentCell({ order }: { order: OrderRow }) {
+  const cash = cashPaymentLabel(order);
+  if (cash) return <span className="whitespace-nowrap text-sm text-text-primary">{cash}</span>;
+  return order.paymentStatus ? <StatusBadge status={order.paymentStatus} /> : <span>-</span>;
+}
 
 export default function OrdersTab() {
   const { id } = useParams<{ id: string }>();
@@ -118,7 +129,7 @@ export default function OrdersTab() {
     {
       key: 'payment',
       header: 'Payment',
-      render: (o) => (o.paymentStatus ? <StatusBadge status={o.paymentStatus} /> : '—'),
+      render: (o) => <PaymentCell order={o} />,
     },
     {
       key: 'date',
@@ -216,7 +227,7 @@ export default function OrdersTab() {
               <div className="flex justify-between">
                 <dt className="text-text-muted">Payment</dt>
                 <dd>
-                  {selected.paymentStatus ? <StatusBadge status={selected.paymentStatus} /> : '-'}
+                  <PaymentCell order={selected} />
                 </dd>
               </div>
               <Field label="Booked" value={placedAt(selected.createdAt)} />
@@ -231,8 +242,12 @@ export default function OrdersTab() {
                   <Ticket className="h-4 w-4" aria-hidden /> See its tickets and check-in
                 </Link>
               ) : null}
-              {/* Only once tickets exist: an unpaid booking has none to print. */}
-              {selected.ticketCount > 0 ? (
+              {/*
+                Only while tickets exist that still work: an unpaid booking has none to print, and
+                a cancelled or refunded one has only void tickets, which the print page refuses.
+              */}
+              {selected.ticketCount > 0 &&
+              (selected.status === 'CONFIRMED' || selected.status === 'PARTIALLY_REFUNDED') ? (
                 <Link
                   href={`/organizer/bookings/${selected.id}/print`}
                   className="inline-flex items-center gap-2 font-medium text-action-primary underline underline-offset-2"
