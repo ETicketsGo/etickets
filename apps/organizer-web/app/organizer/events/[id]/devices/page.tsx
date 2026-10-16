@@ -11,11 +11,13 @@ import {
   AlertTriangle,
   ShieldAlert,
   Plus,
+  WifiOff,
 } from 'lucide-react';
 import {
   api,
   Badge,
   Button,
+  ButtonLink,
   Card,
   DataTable,
   Dialog,
@@ -34,6 +36,7 @@ import {
   type Column,
   type CheckInDeviceRow,
 } from '@eticketsgo/web-kit';
+import { offlineDevicesAvailability } from '@/lib/offline-checkin-availability';
 
 const MANAGER_ROLES = ['ORGANIZER_OWNER', 'ORGANIZER_MANAGER', 'ADMIN', 'SUPER_ADMIN'];
 const PAGE_SIZE = 10;
@@ -84,12 +87,21 @@ export default function DevicesPage() {
     enabled: !!orgId,
     retry: false,
   });
+  // The same readiness report the event tabs read: its flag says whether the platform has
+  // offline check-in turned on at all. Off, every device endpoint answers 404.
+  const readiness = useQuery({
+    queryKey: ['offline-readiness', orgId],
+    queryFn: () => api.offlineCheckin.offlineReadiness(orgId!),
+    enabled: !!orgId,
+    retry: false,
+  });
+  const offlineOff = offlineDevicesAvailability(readiness.data, devices.error) === 'off';
 
   // Active activation decisions — used to warn about downgrade impact before actions.
   const activations = useQuery({
     queryKey: ['activation-decisions', orgId],
     queryFn: () => api.offlineCheckin.listActivations(orgId!),
-    enabled: !!orgId && canManage,
+    enabled: !!orgId && canManage && !offlineOff,
     retry: false,
   });
   const deviceInActiveScope = (deviceId: string) =>
@@ -255,69 +267,86 @@ export default function DevicesPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold text-text-primary">Offline devices</h2>
-          <p className="text-caption text-text-muted">
-            Register, approve, suspend, revoke and report devices. State changes are audited; the
-            server enforces activation + readiness rules.
-          </p>
+          {!offlineOff && (
+            <p className="text-caption text-text-muted">
+              Register, approve, suspend, revoke and report devices. State changes are audited; the
+              server enforces activation + readiness rules.
+            </p>
+          )}
         </div>
-        {canManage && (
+        {canManage && !offlineOff && (
           <Button onClick={() => setRegisterOpen(true)}>
             <Plus className="h-4 w-4" /> Register device
           </Button>
         )}
       </div>
 
-      <Card>
-        <div className="grid gap-3 sm:grid-cols-3">
-          <Input
-            id="d-search"
-            label="Search"
-            placeholder="Device name…"
-            value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setPage(1);
-            }}
-          />
-          <Select
-            id="d-status"
-            label="Status"
-            value={statusFilter}
-            onChange={(e) => {
-              setStatusFilter(e.target.value);
-              setPage(1);
-            }}
-          >
-            <option value="">All statuses</option>
-            {['PENDING', 'ACTIVE', 'SUSPENDED', 'REVOKED', 'EXPIRED'].map((st) => (
-              <option key={st} value={st}>
-                {statusLabel(st)}
-              </option>
-            ))}
-          </Select>
-          <Select
-            id="d-sort"
-            label="Sort by"
-            value={sort}
-            onChange={(e) => setSort(e.target.value as typeof sort)}
-          >
-            <option value="name">Name</option>
-            <option value="lastSeen">Last seen</option>
-            <option value="status">Status</option>
-          </Select>
-        </div>
-      </Card>
+      {offlineOff ? (
+        <EmptyState
+          icon={WifiOff}
+          title="Offline check-in devices are not turned on for this platform yet"
+          hint="You cannot register devices for now. You can still check people in online on the Check-in tab."
+          action={
+            <ButtonLink href={`/organizer/events/${id}/checkin`} variant="outline">
+              Go to check-in
+            </ButtonLink>
+          }
+        />
+      ) : (
+        <>
+          <Card>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Input
+                id="d-search"
+                label="Search"
+                placeholder="Device name..."
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setPage(1);
+                }}
+              />
+              <Select
+                id="d-status"
+                label="Status"
+                value={statusFilter}
+                onChange={(e) => {
+                  setStatusFilter(e.target.value);
+                  setPage(1);
+                }}
+              >
+                <option value="">All statuses</option>
+                {['PENDING', 'ACTIVE', 'SUSPENDED', 'REVOKED', 'EXPIRED'].map((st) => (
+                  <option key={st} value={st}>
+                    {statusLabel(st)}
+                  </option>
+                ))}
+              </Select>
+              <Select
+                id="d-sort"
+                label="Sort by"
+                value={sort}
+                onChange={(e) => setSort(e.target.value as typeof sort)}
+              >
+                <option value="name">Name</option>
+                <option value="lastSeen">Last seen</option>
+                <option value="status">Status</option>
+              </Select>
+            </div>
+          </Card>
 
-      <DataTable
-        columns={columns}
-        rows={pageRows}
-        loading={devices.isLoading}
-        error={devices.isError ? "We couldn't load devices. Please try again." : undefined}
-        onRetry={() => devices.refetch()}
-        empty={<EmptyState title="No devices" hint="Register a device to get started." />}
-        rowKey={(d) => d.id}
-      />
-      {totalPages > 1 && <Pagination page={page} totalPages={totalPages} onChange={setPage} />}
+          <DataTable
+            columns={columns}
+            rows={pageRows}
+            loading={devices.isLoading}
+            error={devices.isError ? "We couldn't load devices. Please try again." : undefined}
+            onRetry={() => devices.refetch()}
+            empty={<EmptyState title="No devices" hint="Register a device to get started." />}
+            rowKey={(d) => d.id}
+          />
+          {totalPages > 1 && <Pagination page={page} totalPages={totalPages} onChange={setPage} />}
+        </>
+      )}
 
       {/* Register dialog */}
       <Dialog

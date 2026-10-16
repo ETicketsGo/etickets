@@ -209,9 +209,10 @@ function RegisterForm() {
           signUp
           next={next}
           smsCountries={smsCountries}
-          onUseEmail={(typedName) => {
-            // The name typed on the Mobile tab is not lost on the way to the Email tab.
-            if (typedName && !fullName) setFullName(typedName);
+          // One name for both tabs: pressing either tab, or "Use email instead", keeps it.
+          fullName={fullName}
+          onFullNameChange={setFullName}
+          onUseEmail={() => {
             setChosen('email');
             setError(null);
           }}

@@ -72,7 +72,14 @@ function mount(props: {
 }
 
 /** A pointer event as a browser sends it: React reads pointerId and pointerType off it. */
-function pointer(target: Element, type: string, x: number, y: number, id = 1) {
+function pointer(
+  target: Element,
+  type: string,
+  x: number,
+  y: number,
+  id = 1,
+  pointerType = 'mouse',
+) {
   const e = new MouseEvent(type, {
     bubbles: true,
     cancelable: true,
@@ -81,7 +88,7 @@ function pointer(target: Element, type: string, x: number, y: number, id = 1) {
     button: 0,
   });
   Object.defineProperty(e, 'pointerId', { value: id });
-  Object.defineProperty(e, 'pointerType', { value: 'mouse' });
+  Object.defineProperty(e, 'pointerType', { value: pointerType });
   act(() => {
     target.dispatchEvent(e);
   });
@@ -147,6 +154,44 @@ describe('drawing a block on the venue map', () => {
     tap(svg, 302, 352); // within a fingertip of the first corner (300, 350)
     expect(three.calls.closed).toBe(1);
     expect(three.calls.corners).toEqual([]);
+  });
+
+  it('cancels the click a finger tap would send, so the dialog the tap opens is not pressed', () => {
+    /*
+      On a phone the click that follows a tap lands on whatever is under the finger once the
+      touch ends. Closing the outline opens the naming dialog right there, and the click pressed
+      its "Add the block": the block was added unnamed. The touch's end must be cancelled, which
+      is what stops the browser sending that click.
+    */
+    const touchEnd = (target: Element) => {
+      const e = new Event('touchend', { bubbles: true, cancelable: true });
+      act(() => {
+        target.dispatchEvent(e);
+      });
+      return e;
+    };
+    const three = drawing([
+      [600, 700],
+      [800, 700],
+      [700, 900],
+    ]);
+    const svg = mount({ draw: three.draw });
+    pointer(svg, 'pointerdown', 302, 352, 1, 'touch');
+    pointer(svg, 'pointerup', 302, 352, 1, 'touch');
+    expect(three.calls.closed).toBe(1);
+    expect(touchEnd(svg).defaultPrevented).toBe(true);
+    // One touch, one cancelled click: a later touch that was not a drawing tap is left alone.
+    expect(touchEnd(svg).defaultPrevented).toBe(false);
+
+    // A corner tap is cancelled the same way; a mouse click is not a touch and is left to
+    // the map's own click handling.
+    pointer(svg, 'pointerdown', 450, 450, 2, 'touch');
+    pointer(svg, 'pointerup', 450, 450, 2, 'touch');
+    expect(three.calls.corners).toEqual([[900, 900]]);
+    expect(touchEnd(svg).defaultPrevented).toBe(true);
+    pointer(svg, 'pointerdown', 460, 460);
+    pointer(svg, 'pointerup', 460, 460);
+    expect(touchEnd(svg).defaultPrevented).toBe(false);
   });
 
   it('never chooses or moves a block while drawing, even when the press lands on one', () => {

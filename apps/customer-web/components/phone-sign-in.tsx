@@ -40,6 +40,8 @@ export function PhoneSignIn({
   signUp = false,
   smsCountries,
   onUseEmail,
+  fullName: sharedName,
+  onFullNameChange,
 }: {
   next: string;
   signUp?: boolean;
@@ -47,6 +49,14 @@ export function PhoneSignIn({
   smsCountries?: string[];
   /** Switch the page to its Email tab, carrying over the name typed here. */
   onUseEmail?: (fullName: string) => void;
+  /*
+    The name, when the page holds it (sign-up). This tab unmounts when the Email tab is chosen,
+    so a name kept only in here was lost by pressing the Email tab, while "Use email instead"
+    carried it over: two ways to the same tab that disagreed. Held by the page, both tabs show
+    the one name, however the person moves between them.
+  */
+  fullName?: string;
+  onFullNameChange?: (fullName: string) => void;
 }) {
   const a = useTranslations('storefront.auth');
   const router = useRouter();
@@ -58,7 +68,10 @@ export function PhoneSignIn({
     choice.
   */
   const phone = usePhoneNumber();
-  const [fullName, setFullName] = useState('');
+  const [ownName, setOwnName] = useState('');
+  const fullName = sharedName ?? ownName;
+  const setFullName = (value: string) =>
+    onFullNameChange ? onFullNameChange(value) : setOwnName(value);
   const [nameError, setNameError] = useState<string | null>(null);
   const [smsConsent, setSmsConsent] = useState(false);
   const [code, setCode] = useState('');

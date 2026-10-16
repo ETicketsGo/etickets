@@ -11,12 +11,15 @@ import {
   ShieldAlert,
   RefreshCw,
   Printer,
+  WifiOff,
 } from 'lucide-react';
 import {
   api,
   Badge,
   Button,
+  ButtonLink,
   Card,
+  EmptyState,
   ErrorState,
   Select,
   Spinner,
@@ -29,6 +32,7 @@ import {
   type PreflightVerdict,
 } from '@eticketsgo/web-kit';
 import { loadManifest, queueMetrics } from '@/lib/offline/checkin-queue';
+import { offlineDevicesAvailability } from '@/lib/offline-checkin-availability';
 
 const VERDICT: Record<
   PreflightVerdict,
@@ -71,6 +75,14 @@ export default function PreflightPage() {
     enabled: !!orgId,
     retry: false,
   });
+  // Off for the platform, there are no devices to choose and nothing to check: say so.
+  const readiness = useQuery({
+    queryKey: ['offline-readiness', orgId],
+    queryFn: () => api.offlineCheckin.offlineReadiness(orgId!),
+    enabled: !!orgId,
+    retry: false,
+  });
+  const offlineOff = offlineDevicesAvailability(readiness.data, devices.error) === 'off';
 
   const run = useMutation({
     mutationFn: async () => {
@@ -105,47 +117,60 @@ export default function PreflightPage() {
           <h2 className="text-lg font-semibold text-text-primary">Offline preflight</h2>
           <p className="text-caption text-text-muted">
             An advisory check that a device is safe to enter offline mode. It never overrides the
-            activation or readiness rules — the server stays authoritative.
+            activation or readiness rules: the server has the final say.
           </p>
         </div>
-        <div className="flex items-end gap-2">
-          <Select
-            id="pf-session"
-            label="Session"
-            value={activeSession}
-            onChange={(e) => setSessionId(e.target.value)}
-          >
-            {event?.sessions.map((s) => (
-              <option key={s.id} value={s.id}>
-                {timeAtVenue(s.startsAt, event?.venue)}
-              </option>
-            ))}
-          </Select>
-          <Select
-            id="pf-device"
-            label="Device"
-            value={deviceId}
-            onChange={(e) => setDeviceId(e.target.value)}
-          >
-            <option value="">Select a device…</option>
-            {devices.data?.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.name} ({d.status})
-              </option>
-            ))}
-          </Select>
-          <Button
-            className="mb-1"
-            disabled={!deviceId || !activeSession}
-            loading={run.isPending}
-            onClick={() => run.mutate()}
-          >
-            <RefreshCw className="h-4 w-4" /> Run checks
-          </Button>
-        </div>
+        {!offlineOff && (
+          <div className="flex items-end gap-2">
+            <Select
+              id="pf-session"
+              label="Session"
+              value={activeSession}
+              onChange={(e) => setSessionId(e.target.value)}
+            >
+              {event?.sessions.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {timeAtVenue(s.startsAt, event?.venue)}
+                </option>
+              ))}
+            </Select>
+            <Select
+              id="pf-device"
+              label="Device"
+              value={deviceId}
+              onChange={(e) => setDeviceId(e.target.value)}
+            >
+              <option value="">Select a device...</option>
+              {devices.data?.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name} ({d.status})
+                </option>
+              ))}
+            </Select>
+            <Button
+              className="mb-1"
+              disabled={!deviceId || !activeSession}
+              loading={run.isPending}
+              onClick={() => run.mutate()}
+            >
+              <RefreshCw className="h-4 w-4" /> Run checks
+            </Button>
+          </div>
+        )}
       </div>
 
-      {run.isError ? (
+      {offlineOff ? (
+        <EmptyState
+          icon={WifiOff}
+          title="Offline check-in devices are not turned on for this platform yet"
+          hint="There is no device to check for now. You can still check people in online on the Check-in tab."
+          action={
+            <ButtonLink href={`/organizer/events/${id}/checkin`} variant="outline">
+              Go to check-in
+            </ButtonLink>
+          }
+        />
+      ) : run.isError ? (
         <ErrorState message={errorMessage(run.error)} onRetry={() => run.mutate()} />
       ) : run.isPending ? (
         <div className="flex justify-center py-16">
