@@ -513,8 +513,8 @@ describe('integration-real-postgres: a cancelled counter cash sale is reversed b
     });
     expect(await creditNotesFor(emailedId)).toHaveLength(0);
 
+    // The sweep alone: this show owes nobody a refund, so only the reversal pass reaches it.
     await app!.get(CancellationRefundsService).sweep();
-    await app!.get(CashReturnsService).cancelForCancelledSession(show.sessionId);
     const reissued = await creditNotesFor(emailedId);
     expect(reissued).toHaveLength(1);
     expect(reissued[0].cancellationForBookingId).toBe(emailedId);

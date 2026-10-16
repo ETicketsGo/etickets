@@ -186,6 +186,39 @@ export class CashReturnsService {
     return { cancelled };
   }
 
+  /**
+   * Reverse the receipt of every cash sale a show cancellation voided but did not reverse,
+   * across cancelled shows since `since`. Bounded; the next sweep continues.
+   */
+  async reverseUnreversed(opts: { since: Date; limit?: number }): Promise<{ reversed: number }> {
+    const bookings = await this.prisma.booking.findMany({
+      where: {
+        paymentMethod: 'CASH',
+        status: BookingStatus.CANCELLED,
+        cashCollectedAt: { not: null },
+        eventSession: { status: SessionStatus.CANCELLED, updatedAt: { gte: opts.since } },
+        Receipt: { some: { saleForBookingId: { not: null } } },
+        NOT: { Receipt: { some: { cancellationForBookingId: { not: null } } } },
+      },
+      select: { id: true },
+      orderBy: { createdAt: 'asc' },
+      take: opts.limit ?? 100,
+    });
+    let reversed = 0;
+    for (const { id } of bookings) {
+      try {
+        // Already CANCELLED, so this only reverses the receipt (see `cancelOne`).
+        await this.cancelOne(id);
+        reversed += 1;
+      } catch (err) {
+        this.logger.error(
+          `cash booking ${id}: receipt reversal left for the next pass: ${(err as Error)?.message}`,
+        );
+      }
+    }
+    return { reversed };
+  }
+
   private async cancelOne(bookingId: string): Promise<boolean> {
     const outcome = await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`refund-request:${bookingId}`}))`;
