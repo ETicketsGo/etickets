@@ -65,6 +65,13 @@ test.describe('venues', () => {
     await page.getByRole('button', { name: 'New venue' }).click();
     await page.locator('#venueName').fill(original);
     await page.locator('#venueCity').fill('Warangal');
+    /*
+      Warangal is in Telangana, India - said, not left to the form's default. Four runs of this
+      test saved "Rangabhoomi Hall, Warangal" as a United States venue on QA, because the form
+      opened on the CI browser's country and the test never looked at it.
+    */
+    await page.locator('#venue-country').selectOption('India');
+    await page.locator('#venue-region').selectOption('Telangana');
     await page.locator('#venueCapacity').fill('320');
     await page.getByRole('button', { name: 'Add venue' }).click();
 
@@ -107,6 +114,7 @@ test.describe('venues', () => {
     expect(saved, `expected a venue named ${corrected}`).toBeTruthy();
     // And the edit did not blank the fields the form merely redisplayed.
     expect(saved.city).toBe('Warangal');
+    expect(saved.country).toBe('India');
     expect(saved.capacity).toBe(320);
   });
 

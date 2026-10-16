@@ -2351,7 +2351,8 @@ function bookingPlace(booking: {
   const venue = booking.event?.venue;
   const name = cinema?.name ?? venue?.name ?? null;
   if (!name) return null;
-  return { name, city: cinema?.city ?? venue?.city ?? null };
+  // The city is the VENUE's: a cinema's location is edited on its venue, never on the cinema.
+  return { name, city: venue?.city ?? cinema?.city ?? null };
 }
 
 function bookingTimeZone(booking: {

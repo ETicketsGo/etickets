@@ -81,6 +81,16 @@ export default function SessionsTab() {
     ? `Venue time: ${zoneLabel(inputZone.zone)}`
     : `Your time zone (${inputZone.zone}) - set the venue's time zone to be sure`;
 
+  /*
+    A new general-admission date goes in the same standing space as the event's other
+    general-admission dates, when they all share one - so the lawn's capacity caps it too. A
+    different space is chosen on the Seating page.
+  */
+  const gaSpaces = new Set(
+    (event?.sessions ?? []).filter((s) => !s.screenId).map((s) => s.standingSpaceId ?? ''),
+  );
+  const sharedStanding = gaSpaces.size === 1 ? [...gaSpaces][0] : '';
+
   const add = useMutation({
     mutationFn: () =>
       api.events.addSession(id, {
@@ -88,7 +98,8 @@ export default function SessionsTab() {
         endsAt: wallClockToInstant(form.endsAt, inputZone.zone).toISOString(),
         // Omitted entirely when general admission — sending an empty string would be a room
         // id that does not exist, and the request would be refused rather than understood.
-        ...(seatingFor(form.layoutId) ?? {}),
+        ...(seatingFor(form.layoutId) ??
+          (sharedStanding ? { standingSpaceId: sharedStanding } : {})),
       }),
     onSuccess: (session) => {
       toast.push(

@@ -1,10 +1,18 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
-import { Role, effectiveSpaceKind, venueZone, zoneForPlace } from '@eticketsgo/shared-types';
+import {
+  Role,
+  effectiveSpaceKind,
+  sameClock,
+  venueZone,
+  zoneForPlace,
+} from '@eticketsgo/shared-types';
 import type { CreateScreenInput, CreateVenueInput, UpdateVenueInput } from '@eticketsgo/validation';
 import { PrismaService } from '../prisma/prisma.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import type { RequestUser } from '../common/decorators';
+import { countsTowardsCap, overCapBy } from '../events/standing-capacity';
+import { SOLD_BOOKING_STATUSES, keepWallClock } from './venue-timezone';
 
 @Injectable()
 export class VenuesService {
@@ -65,7 +73,15 @@ export class VenuesService {
   async update(user: RequestUser, id: string, input: UpdateVenueInput) {
     const venue = await this.prisma.venue.findUnique({
       where: { id },
-      select: { id: true, organizationId: true, country: true, region: true, timezone: true },
+      select: {
+        id: true,
+        organizationId: true,
+        city: true,
+        address: true,
+        country: true,
+        region: true,
+        timezone: true,
+      },
     });
     if (!venue) {
       throw new AppException(ErrorCodes.NOT_FOUND, 'Venue not found.', HttpStatus.NOT_FOUND);
@@ -84,20 +100,129 @@ export class VenuesService {
         ? zoneForPlace(input.country ?? venue.country, input.region ?? venue.region)
         : null;
 
-    return this.prisma.venue.update({
-      where: { id },
-      data: {
-        ...(input.name !== undefined ? { name: input.name } : {}),
-        ...(input.city !== undefined ? { city: input.city } : {}),
-        ...(input.country !== undefined ? { country: input.country } : {}),
-        ...(input.region !== undefined ? { region: input.region } : {}),
-        ...(input.timezone !== undefined ? { timezone: input.timezone } : {}),
-        ...(filledZone ? { timezone: filledZone } : {}),
-        ...(input.address !== undefined ? { address: input.address } : {}),
-        ...(input.capacity !== undefined ? { capacity: input.capacity } : {}),
-      },
-      include: { areas: true },
+    /*
+      -- A NEW CLOCK FOR A VENUE THAT HAS SOLD -------------------------------------------------
+      Session times are stored as instants, resolved through the venue's zone when they were
+      typed. Moving the zone does not move them; it changes the local time they are SHOWN as - so
+      a ticket that says 19:00 would start saying 17:00, and its holder would arrive two hours
+      late. That is refused while any session here has a ticket sold or being paid for, the same
+      rule a cinema's own zone already has.
+
+      A session nobody has bought from keeps its LOCAL time instead: the organizer who typed
+      19:00 meant 19:00 at the venue, so its instants (and its ticket sale windows) are
+      re-resolved in the new zone in the same transaction. That is the correction a wrong zone
+      needs, and nobody holds a ticket that names the old reading.
+
+      Only a stored zone being replaced by a different clock counts. Filling an empty zone, or
+      re-spelling one (Asia/Calcutta to Asia/Kolkata), changes no time anybody sees.
+    */
+    const nextZone = input.timezone ?? null;
+    const oldZone = venue.timezone;
+    const clockChanges = !!(nextZone && oldZone && !sameClock(nextZone, oldZone));
+    const sessionsHere = {
+      OR: [
+        { event: { venueId: id } },
+        { screen: { venueId: id } },
+        { screen: { cinema: { venueId: id } } },
+      ],
+    };
+    let unsold: { id: string; startsAt: Date; endsAt: Date }[] = [];
+    if (clockChanges) {
+      const sold = await this.prisma.eventSession.count({
+        where: {
+          ...sessionsHere,
+          bookings: { some: { status: { in: [...SOLD_BOOKING_STATUSES] } } },
+        },
+      });
+      if (sold > 0) {
+        throw new AppException(
+          ErrorCodes.CONFLICT,
+          `You cannot change this venue's time zone. ${sold} session${
+            sold === 1 ? ' here has' : 's here have'
+          } tickets sold or being paid for, and those tickets would show a different start time. Keep the time zone as it is, or contact ETicketsGo support to move the schedule safely.`,
+          HttpStatus.CONFLICT,
+          { reason: 'TIMEZONE_LOCKED_BY_SALES', soldSessions: sold },
+        );
+      }
+      unsold = await this.prisma.eventSession.findMany({
+        where: sessionsHere,
+        select: { id: true, startsAt: true, endsAt: true },
+      });
+    }
+
+    /*
+      -- THE CINEMAS HERE TAKE THE VENUE'S LOCATION ----------------------------------------------
+      A cinema is the film business AT a venue, and its location is the venue's. Its own city,
+      address, country, region and clock columns are kept (older rows and older instances read
+      them), but they are written from here, so an edit to the venue cannot leave a cinema in
+      it saying somewhere else. The cinema page no longer edits them at all.
+    */
+    /*
+      Only what the organizer actually CHANGED, and never a blank. The venue form sends every
+      field on every save, and a cinema's own state and country still decide which regulated
+      price rules apply to it (they are read before the venue's). Copying an unchanged or empty
+      answer over them would let a street-address edit quietly clear a Telangana cinema's state.
+    */
+    const changed = (next: string | null | undefined, before: string | null) =>
+      next !== undefined && next !== null && next.trim() !== '' && next !== (before ?? '');
+    const location = {
+      ...(changed(input.city, venue.city) ? { city: input.city } : {}),
+      ...(changed(input.address, venue.address) ? { address: input.address } : {}),
+      ...(changed(input.country, venue.country) ? { country: input.country } : {}),
+      ...(changed(input.region, venue.region) ? { region: input.region } : {}),
+      ...(changed(input.timezone, venue.timezone) ? { timezone: input.timezone } : {}),
+      ...(filledZone ? { timezone: filledZone } : {}),
+    };
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const row = await tx.venue.update({
+        where: { id },
+        data: {
+          ...(input.name !== undefined ? { name: input.name } : {}),
+          ...(input.city !== undefined ? { city: input.city } : {}),
+          ...(input.country !== undefined ? { country: input.country } : {}),
+          ...(input.region !== undefined ? { region: input.region } : {}),
+          ...(input.timezone !== undefined ? { timezone: input.timezone } : {}),
+          ...(filledZone ? { timezone: filledZone } : {}),
+          ...(input.address !== undefined ? { address: input.address } : {}),
+          ...(input.capacity !== undefined ? { capacity: input.capacity } : {}),
+        },
+        include: { areas: true },
+      });
+      if (Object.keys(location).length > 0) {
+        await tx.cinema.updateMany({ where: { venueId: id }, data: location });
+      }
+      if (clockChanges && nextZone && oldZone) {
+        for (const s of unsold) {
+          await tx.eventSession.update({
+            where: { id: s.id },
+            data: {
+              startsAt: keepWallClock(s.startsAt, oldZone, nextZone),
+              endsAt: keepWallClock(s.endsAt, oldZone, nextZone),
+            },
+          });
+          const windows = await tx.ticketType.findMany({
+            where: {
+              eventSessionId: s.id,
+              OR: [{ salesStartAt: { not: null } }, { salesEndAt: { not: null } }],
+            },
+            select: { id: true, salesStartAt: true, salesEndAt: true },
+          });
+          for (const t of windows) {
+            await tx.ticketType.update({
+              where: { id: t.id },
+              data: {
+                salesStartAt: t.salesStartAt && keepWallClock(t.salesStartAt, oldZone, nextZone),
+                salesEndAt: t.salesEndAt && keepWallClock(t.salesEndAt, oldZone, nextZone),
+              },
+            });
+          }
+        }
+      }
+      return row;
     });
+    // Said back so the form can tell the organizer their sessions kept their local times.
+    return { ...updated, sessionsKeptLocalTime: clockChanges ? unsold.length : 0 };
   }
 
   async list(user: RequestUser, organizationId: string) {
@@ -286,12 +411,44 @@ export class VenuesService {
     await this.access.assertMember(user, organizationId);
 
     const now = new Date();
-    const [sessions, upcomingSessions] = await Promise.all([
-      this.prisma.eventSession.count({ where: { screenId: spaceId } }),
+    // A standing space's sessions name it through `standingSpaceId`, a seated one's `screenId`.
+    const inSpace = { OR: [{ screenId: spaceId }, { standingSpaceId: spaceId }] };
+    const [sessions, upcomingSessions, standing] = await Promise.all([
+      this.prisma.eventSession.count({ where: inSpace }),
       this.prisma.eventSession.count({
-        where: { screenId: spaceId, startsAt: { gt: now }, status: { not: 'CANCELLED' } },
+        where: { ...inSpace, startsAt: { gt: now }, status: { not: 'CANCELLED' } },
+      }),
+      /*
+        Every session still to come in this space when it is a standing floor, with what it has
+        on sale - so a session offering more than the space holds is FLAGGED here. It is never
+        changed: lowering it is the organizer's decision, on the event's Tickets page.
+      */
+      this.prisma.eventSession.findMany({
+        where: { standingSpaceId: spaceId, startsAt: { gt: now }, status: { not: 'CANCELLED' } },
+        orderBy: { startsAt: 'asc' },
+        take: 50,
+        select: {
+          id: true,
+          startsAt: true,
+          event: { select: { id: true, title: true } },
+          ticketTypes: { select: { quantityTotal: true, status: true } },
+        },
       }),
     ]);
+    const standingSessions = standing.map((s) => {
+      const onSale = s.ticketTypes.reduce(
+        (n, t) => n + (countsTowardsCap(t.status) ? t.quantityTotal : 0),
+        0,
+      );
+      return {
+        sessionId: s.id,
+        eventId: s.event.id,
+        eventTitle: s.event.title,
+        startsAt: s.startsAt,
+        onSale,
+        overCapacityBy: overCapBy(space.capacity, onSale),
+      };
+    });
 
     const byName = new Map<string, (typeof space.seatMaps)[number]>();
     for (const m of space.seatMaps) if (!byName.has(m.name)) byName.set(m.name, m);
@@ -320,6 +477,7 @@ export class VenuesService {
       layouts: [...byName.values()],
       sessions,
       upcomingSessions,
+      standingSessions,
     };
   }
 

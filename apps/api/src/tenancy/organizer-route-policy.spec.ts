@@ -162,6 +162,7 @@ export const ORGANIZER_ROUTE_POLICY: Record<string, StaffPolicy> = {
   'DELETE /events/:id/images/:imageId': 'NONE',
   'POST /events/:id/sessions': 'NONE',
   'PATCH /events/sessions/:sessionId/seating': 'NONE',
+  'PATCH /events/sessions/:sessionId/standing-space': 'NONE',
   'POST /events/ticket-types': 'NONE',
   'PATCH /events/ticket-types/:id': 'NONE',
   'DELETE /events/ticket-types/:id': 'NONE',
