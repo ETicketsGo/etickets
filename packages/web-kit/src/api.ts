@@ -192,6 +192,38 @@ export function apiAssetUrl(path: string | null | undefined): string | null {
   return path ? `${API_URL}${path}` : null;
 }
 
+/** The API's code for a session that a team removal ended (see JwtStrategy). */
+export const ACCESS_REMOVED_CODE = 'ACCESS_REMOVED';
+const SIGNED_OUT_NOTICE_KEY = 'etg_signed_out_notice';
+
+/*
+  Why the last session ended, for the sign-in page to say once.
+
+  Session storage, not memory: the console reaches its sign-in page by client navigation in
+  one case and by a full reload in another, and the sentence has to survive both. Never a
+  credential, only the API's own plain sentence.
+*/
+function rememberSignedOutNotice(message: string | undefined): void {
+  if (typeof window === 'undefined' || !message) return;
+  try {
+    sessionStorage.setItem(SIGNED_OUT_NOTICE_KEY, message);
+  } catch {
+    // Storage blocked: the person still reaches the sign-in page, just without the reason.
+  }
+}
+
+/** Read and forget why the last session ended. Null when it ended in the ordinary way. */
+export function takeSignedOutNotice(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const message = sessionStorage.getItem(SIGNED_OUT_NOTICE_KEY);
+    sessionStorage.removeItem(SIGNED_OUT_NOTICE_KEY);
+    return message;
+  } catch {
+    return null;
+  }
+}
+
 let refreshInFlight: Promise<boolean> | null = null;
 
 async function tryRefresh(): Promise<boolean> {
@@ -261,15 +293,33 @@ async function request<T>(path: string, options: Options = {}): Promise<T> {
   }
   markApiReachable();
 
-  // Attempt a single transparent refresh on auth failure.
-  if (res.status === 401 && options.auth !== false && !options._retried && tokenStore.refresh) {
+  const text = await res.text();
+  const data = text ? JSON.parse(text) : null;
+
+  /*
+    A team removal ended this session (the API says so with its own code). Refreshing cannot
+    help - the removal revoked the refresh token too - so the session is closed here, and the
+    API's sentence ("You no longer have access to ...") is kept for the sign-in page to show.
+    Without it the person's open tab carried on as a customer and landed on "Set up your
+    organization".
+  */
+  if (res.status === 401 && (data as ApiError | null)?.code === ACCESS_REMOVED_CODE) {
+    if (tokenStore.access || tokenStore.refresh) {
+      rememberSignedOutNotice((data as ApiError).message);
+      tokenStore.clear();
+    }
+  } else if (
+    // Attempt a single transparent refresh on auth failure.
+    res.status === 401 &&
+    options.auth !== false &&
+    !options._retried &&
+    tokenStore.refresh
+  ) {
     if (await tryRefresh()) {
       return request<T>(path, { ...options, _retried: true });
     }
   }
 
-  const text = await res.text();
-  const data = text ? JSON.parse(text) : null;
   if (!res.ok) {
     const err = data as ApiError;
     if (

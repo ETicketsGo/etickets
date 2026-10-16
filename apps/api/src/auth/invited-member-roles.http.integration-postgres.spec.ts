@@ -324,8 +324,12 @@ describe('integration-real-postgres: invited member roles over HTTP', () => {
     );
     expect((await sessionsOf(token, 'A')).status).toBe(200);
     await db!.organizationMember.update({ where: { id: memberId }, data: { status: 'REMOVED' } });
-    // Same access token, no new sign-in.
-    expect((await sessionsOf(token, 'A')).status).toBe(403);
+    // Same access token, no new sign-in. That was their last seat, so the removal ended the
+    // session itself (401 ACCESS_REMOVED), not only this organization's door (403). See
+    // session-freshness.http.integration-postgres.spec.ts.
+    const after = await sessionsOf(token, 'A');
+    expect(after.status).toBe(401);
+    expect(after.json.code).toBe('ACCESS_REMOVED');
   });
 
   maybe('a role change takes effect on the next request, in both directions', async () => {

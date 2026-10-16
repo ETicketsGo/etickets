@@ -242,7 +242,22 @@ export default function ExperienceWalletPage() {
           </span>
         </div>
 
-        {isError && !data ? (
+        {syncState === 'REQUIRES_SIGN_IN' && mounted && !data ? (
+          // The session ended after the page opened (a refresh that failed clears the tokens), so
+          // the mount-time redirect above never ran. "Try again" cannot help here; signing in can.
+          <BrandEmpty
+            title={w('signInTitle')}
+            hint={w('signInDescription')}
+            action={
+              <Link
+                href="/login?next=/account/tickets"
+                className={brandButtonClasses('primary', 'md')}
+              >
+                {w('signIn')}
+              </Link>
+            }
+          />
+        ) : isError && !data ? (
           <BrandEmpty
             title={w('loadError')}
             action={
