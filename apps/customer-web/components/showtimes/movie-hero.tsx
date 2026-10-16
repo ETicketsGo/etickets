@@ -29,9 +29,9 @@ const tag =
  * reachable without scrolling past a full-width poster.
  *
  * A stage band (docs/design/DESIGN-SYSTEM.md): the film header is one of the places the
- * storefront dims the lights. It carries its own `data-brand` because the rest of the film page
- * (the showtimes) has not moved to the brand layer yet, and reaches the page column's edges so
- * it reads as a band rather than a card.
+ * storefront dims the lights. The film page puts the whole page on the brand layer and out to
+ * the column's edges (`BrandPage`), so this band reaches them too; it keeps its own `data-brand`
+ * so it still resolves its colours wherever it is drawn.
  */
 export function MovieHero({ movie }: { movie: PublicMovieShows['movie'] }) {
   const t = useTranslations('showtimes.movie');
@@ -64,7 +64,7 @@ export function MovieHero({ movie }: { movie: PublicMovieShows['movie'] }) {
   const hasDetails = Boolean(movie.synopsis || movie.director || movie.cast.length > 0);
 
   return (
-    <div data-brand="customer" className="-mx-4 -mt-6 font-brand-text sm:-mx-6 sm:-mt-10 lg:-mx-8">
+    <div data-brand="customer" className="font-brand-text">
       <div
         data-brand-tone="stage"
         className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-x-4 gap-y-5 bg-brand-canvas px-4 pb-8 pt-6 sm:grid-cols-[12rem_minmax(0,1fr)] sm:gap-x-8 sm:px-6 sm:pb-10 sm:pt-10 lg:grid-cols-[14rem_minmax(0,1fr)] lg:px-10"

@@ -7,11 +7,14 @@ import { useTranslations } from 'next-intl';
 import {
   api,
   ApiRequestError,
+  BrandButton,
+  brandButtonClasses,
   REVIEW_COMMENT_MAX,
   useIsAuthenticated,
   type MyMovieReview,
 } from '@eticketsgo/web-kit';
-import { Button, ButtonLink, RatingStars, Skeleton, Textarea, useToast } from '@/components/ui';
+import { RatingStars, Skeleton, Textarea, useToast } from '@/components/ui';
+import { Link } from '@/i18n/navigation';
 
 /** Query keys the ratings feature reads and refreshes. */
 export const movieReviewKeys = {
@@ -19,7 +22,10 @@ export const movieReviewKeys = {
   mine: (slug: string) => ['movie-review-mine', slug] as const,
 };
 
-const panel = 'rounded-lg border border-border bg-background-subtle p-4';
+/* A sunken block on the brand layer: an inset place to act, not a third card level. */
+const panel = 'rounded-brand-card bg-brand-sunken p-4';
+const panelTitle = 'font-brand-display text-brand-card text-brand-ink';
+const panelText = 'text-brand-ui text-brand-ink-2';
 
 /**
  * Where a viewer rates the film, or learns why they cannot yet.
@@ -42,17 +48,15 @@ export function RateMoviePanel({ slug }: { slug: string }) {
   if (!authed) {
     return (
       <div className={panel}>
-        <p className="font-semibold text-text-primary">{t('title')}</p>
-        <p className="mt-1 text-[0.9375rem] text-text-secondary">{t('signedOut')}</p>
-        <ButtonLink
+        <p className={panelTitle}>{t('title')}</p>
+        <p className={`mt-1 ${panelText}`}>{t('signedOut')}</p>
+        <Link
           href={`/login?next=${encodeURIComponent(`/movies/${slug}#ratings`)}`}
-          variant="secondary"
-          size="sm"
-          className="mt-3"
+          className={`mt-3 ${brandButtonClasses('secondary', 'md')}`}
         >
           <LogIn className="h-4 w-4" aria-hidden />
           {t('signIn')}
-        </ButtonLink>
+        </Link>
       </div>
     );
   }
@@ -69,7 +73,7 @@ export function RateMoviePanel({ slug }: { slug: string }) {
   if (mine.isError || !mine.data) {
     return (
       <div className={panel}>
-        <p className="text-[0.9375rem] text-text-secondary">{t('checkError')}</p>
+        <p className={panelText}>{t('checkError')}</p>
         <RetryButton onRetry={() => mine.refetch()} />
       </div>
     );
@@ -82,14 +86,12 @@ export function RateMoviePanel({ slug }: { slug: string }) {
     const Icon = notStarted ? CalendarClock : Ticket;
     return (
       <div className={panel}>
-        <p className="font-semibold text-text-primary">{review ? t('updateTitle') : t('title')}</p>
+        <p className={panelTitle}>{review ? t('updateTitle') : t('title')}</p>
         {review && (
-          <p className="mt-1 text-[0.9375rem] text-text-secondary">
-            {t('yourRatingIs', { rating: review.rating })}
-          </p>
+          <p className={`mt-1 ${panelText}`}>{t('yourRatingIs', { rating: review.rating })}</p>
         )}
-        <p className="mt-1 flex items-start gap-2 text-[0.9375rem] text-text-secondary">
-          <Icon className="mt-0.5 h-4 w-4 shrink-0 text-text-muted" aria-hidden />
+        <p className={`mt-1 flex items-start gap-2 ${panelText}`}>
+          <Icon className="mt-0.5 h-4 w-4 shrink-0 text-brand-ink-3" aria-hidden />
           {notStarted ? t('notStarted') : t('noBooking')}
         </p>
       </div>
@@ -102,9 +104,9 @@ export function RateMoviePanel({ slug }: { slug: string }) {
 function RetryButton({ onRetry }: { onRetry: () => void }) {
   const tx = useTranslations('common');
   return (
-    <Button variant="outline" size="sm" className="mt-3" onClick={onRetry}>
+    <BrandButton variant="secondary" size="sm" className="mt-3" onClick={onRetry}>
       {tx('action.retry')}
-    </Button>
+    </BrandButton>
   );
 }
 
@@ -172,11 +174,11 @@ function RateForm({
         if (rating >= 1) submit.mutate();
       }}
     >
-      <p className="font-semibold text-text-primary">{review ? t('updateTitle') : t('title')}</p>
+      <p className={panelTitle}>{review ? t('updateTitle') : t('title')}</p>
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <RatingStars value={rating} onChange={setRating} size="lg" label={t('yourRating')} />
-        <p id={statusId} aria-live="polite" className="text-[0.9375rem] text-text-secondary">
+        <p id={statusId} aria-live="polite" className={panelText}>
           {rating >= 1 ? t(`words.${rating}`) : t('pick')}
         </p>
       </div>
@@ -192,14 +194,14 @@ function RateForm({
         hint={t('counter', { used: comment.length, max: REVIEW_COMMENT_MAX })}
       />
 
-      <Button
+      <BrandButton
         type="submit"
-        loading={submit.isPending}
-        disabled={rating < 1}
+        disabled={rating < 1 || submit.isPending}
+        aria-busy={submit.isPending || undefined}
         aria-describedby={rating < 1 ? statusId : undefined}
       >
         {review ? t('update') : t('submit')}
-      </Button>
+      </BrandButton>
     </form>
   );
 }

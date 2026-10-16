@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Wallet } from 'lucide-react';
-import { useToast } from '@eticketsgo/web-kit';
+import { brandButtonClasses, useToast } from '@eticketsgo/web-kit';
 import { api } from '@/lib/api';
 
 const LABEL: Record<string, string> = { apple: 'Apple Wallet', google: 'Google Wallet' };
@@ -70,12 +70,12 @@ export function WalletPasses({
   return (
     <section
       aria-label="Wallet passes"
-      className="rounded-lg border border-border bg-background-surface p-4 shadow-sm"
+      className="rounded-brand-card border border-brand-line bg-brand-surface p-4"
     >
-      <h2 className="mb-1 flex items-center gap-2 text-title font-semibold text-text-primary">
+      <h2 className="mb-1 flex items-center gap-2 font-brand-display text-brand-card text-brand-ink">
         <Wallet className="h-4 w-4" aria-hidden /> Add to your wallet
       </h2>
-      <p className="mb-3 text-caption text-text-muted">
+      <p className="mb-3 text-brand-meta text-brand-ink-2">
         A wallet pass is a shortcut to this ticket - it uses the same secure QR code.
       </p>
       <div className="flex flex-wrap gap-2">
@@ -85,12 +85,12 @@ export function WalletPasses({
             data-testid={`wallet-btn-${p.provider}`}
             disabled={generate.isPending}
             onClick={() => generate.mutate(p.provider)}
-            className="inline-flex items-center gap-2 rounded-md border border-border bg-background-subtle px-4 py-2.5 text-[0.9375rem] font-medium text-text-primary transition-colors hover:bg-background-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-60"
+            className={brandButtonClasses('secondary', 'md')}
           >
             <Wallet className="h-4 w-4" aria-hidden />
             Add to {LABEL[p.provider]}
             {p.mode === 'sandbox' && (
-              <span className="rounded bg-tint-warning px-1.5 py-0.5 text-xs font-normal text-status-warning">
+              <span className="rounded bg-brand-caution-tint px-1.5 py-0.5 text-brand-meta font-normal text-brand-caution">
                 sandbox
               </span>
             )}

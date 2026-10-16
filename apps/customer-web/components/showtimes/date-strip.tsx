@@ -52,19 +52,19 @@ export function DateStrip({
               aria-label={empty ? `${parts.full}, ${t('noShows')}` : parts.full}
               disabled={empty}
               onClick={() => onSelect(day.date)}
-              className={`flex w-[4.25rem] shrink-0 snap-start flex-col items-center rounded-lg border px-1 py-2 text-center motion-safe:transition-colors motion-safe:duration-150 ${focusRing} ${
+              className={`flex w-[4.25rem] shrink-0 snap-start flex-col items-center rounded-brand-control border px-1 py-2 text-center motion-safe:transition-colors motion-safe:duration-150 ${focusRing} ${
                 isSelected
-                  ? 'border-action-primary bg-action-primary text-action-primary-foreground shadow-sm'
+                  ? 'border-brand-action bg-brand-action text-brand-on-action'
                   : empty
-                    ? 'cursor-not-allowed border-dashed border-border bg-background-subtle text-text-muted'
-                    : 'border-border-input bg-background-surface text-text-primary hover:border-action-primary hover:bg-tint-primary'
+                    ? 'cursor-not-allowed border-dashed border-brand-line-strong bg-transparent text-brand-ink-3'
+                    : 'border-brand-line-strong bg-brand-surface text-brand-ink hover:border-brand-ink-3'
               }`}
             >
-              <span className="text-caption font-medium uppercase tracking-wide">
-                {parts.weekday}
+              <span className="text-brand-eyebrow uppercase">{parts.weekday}</span>
+              <span className="font-brand-display text-brand-card leading-tight tabular-nums">
+                {parts.day}
               </span>
-              <span className="text-title font-semibold leading-tight">{parts.day}</span>
-              <span className="text-caption">{parts.month}</span>
+              <span className="text-brand-meta">{parts.month}</span>
             </button>
           );
         })}
@@ -93,7 +93,7 @@ function PageButton({
       aria-label={label}
       disabled={!onClick}
       onClick={onClick ?? undefined}
-      className={`inline-flex h-11 w-9 shrink-0 items-center justify-center rounded-md text-text-secondary hover:bg-background-subtle hover:text-text-primary disabled:cursor-not-allowed disabled:text-text-muted disabled:hover:bg-transparent ${focusRing}`}
+      className={`inline-flex h-11 w-9 shrink-0 items-center justify-center rounded-brand-control text-brand-ink-2 hover:bg-brand-surface hover:text-brand-ink disabled:cursor-not-allowed disabled:text-brand-ink-3 disabled:hover:bg-transparent ${focusRing}`}
     >
       {children}
     </button>

@@ -16,24 +16,53 @@ import {
   Share2,
 } from 'lucide-react';
 import {
+  BRAND_FOCUS,
+  BrandButton,
+  BrandStatusPill,
+  brandButtonClasses,
   buildIcsDataUrl,
+  eventImageSource,
   googleMapsUrl,
   googleDirectionsUrl,
-  gradientFor,
   useCountdown,
   useToast,
   venueAddressLine,
+  type BrandStatus,
 } from '@eticketsgo/web-kit';
 import { api, tokenStore } from '@/lib/api';
 import { fetchTicketWithOffline } from '@/lib/offline/sync';
 import { useFormat } from '@/lib/format';
 import { isSaved, toggleSaved } from '@/lib/saved';
 import dynamic from 'next/dynamic';
-import { Badge, ErrorState, Skeleton, StatusBadge } from '@/components/ui';
 import { useTranslations } from 'next-intl';
 import { useMounted } from '@/lib/use-mounted';
 import { useStatusLabel } from '@/lib/status-label';
 import { currentPageUrl } from '@/lib/site-url';
+import { BRAND_EYEBROW, BRAND_PANEL } from '@/components/booking-brand';
+import { Placeholder as LoadingBlock } from '@/components/home/parts';
+import { BrandEmpty, BrandPage } from '@/components/storefront-brand';
+
+/*
+  ── ONE TICKET ON THE BRAND LAYER (docs/design/DESIGN-SYSTEM.md) ───────────────────────
+  The ticket a buyer holds up at the door. It used to open with a pastel gradient, a blue
+  category badge and a pulsing blue glow around the QR; it now follows the confirmation page
+  the buyer arrived from: the event on a stage band (title in the display face, the venue and
+  the time on the venue's clock, the countdown in tabular figures), then the QR on paper with
+  its status in words. Same facts, same actions, same order.
+*/
+
+/** A ticket's state as the brand's pill. Words always; the colour only helps. */
+const TICKET_TONE: Record<string, BrandStatus> = {
+  ACTIVE: 'positive',
+  CHECKED_IN: 'info',
+  TRANSFERRED: 'neutral',
+  REFUNDED: 'neutral',
+  CANCELLED: 'critical',
+  VOID: 'critical',
+};
+
+/** The page's column: narrow, like a ticket, with the shell's gutters. */
+const COLUMN = 'mx-auto max-w-2xl px-4 sm:px-6';
 
 // Lazy-loaded (WS6): the Apple/Google wallet-pass panel is below the fold and only
 // needed when a pass is available, so it's split out of the initial ticket bundle.
@@ -128,8 +157,29 @@ export default function TicketDetailPage() {
   };
 
   if (ticketQ.isError)
-    return <ErrorState message={td('loadError')} onRetry={() => ticketQ.refetch()} />;
-  if (ticketQ.isLoading || !ticket) return <Skeleton className="h-96 w-full" />;
+    return (
+      <BrandPage>
+        <div className={`${COLUMN} pt-10`}>
+          <BrandEmpty
+            title={td('loadError')}
+            action={
+              <BrandButton variant="secondary" onClick={() => void ticketQ.refetch()}>
+                {tx('action.retry')}
+              </BrandButton>
+            }
+          />
+        </div>
+      </BrandPage>
+    );
+  if (ticketQ.isLoading || !ticket)
+    return (
+      <BrandPage>
+        <div className={`${COLUMN} space-y-6 pt-6 sm:pt-10`} aria-busy="true">
+          <LoadingBlock className="h-48 w-full" />
+          <LoadingBlock className="h-72 w-full" />
+        </div>
+      </BrandPage>
+    );
 
   const zone = ticket.timezone ?? event?.venue.timezone ?? undefined;
   const venueName = event?.venue.name ?? '';
@@ -140,6 +190,9 @@ export default function TicketDetailPage() {
     : '';
   const mapsQuery = event ? `${event.venue.name}, ${event.venue.city}` : ticket.event.title;
   const fallback = qrFallback(w('qrUnavailable'));
+  const thumb = event
+    ? eventImageSource({ variants: event.imageVariants, path: event.imagePath }, 'card')
+    : null;
 
   const ics = buildIcsDataUrl({
     title: ticket.event.title,
@@ -149,166 +202,193 @@ export default function TicketDetailPage() {
   });
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6">
-      <button
-        onClick={() => router.push('/account/tickets')}
-        className="flex items-center gap-1.5 rounded-md text-[0.9375rem] text-text-secondary transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
-      >
-        <ArrowLeft className="h-4 w-4" /> {b('allTickets')}
-      </button>
-
-      {/* Artwork + countdown */}
-      <div className="overflow-hidden rounded-lg border border-border shadow-sm">
-        <div
-          className={`relative flex h-44 items-end bg-gradient-to-br p-6 ${gradientFor(ticket.id)}`}
+    <BrandPage>
+      <div className={`${COLUMN} pt-4 sm:pt-8`}>
+        <button
+          type="button"
+          onClick={() => router.push('/account/tickets')}
+          className={`-ml-2 inline-flex min-h-11 items-center gap-1.5 rounded-brand-control px-2 text-brand-ui font-medium text-brand-ink-2 hover:text-brand-ink ${BRAND_FOCUS}`}
         >
-          <div>
-            <Badge tone="info">{event?.category ?? td('categoryFallback')}</Badge>
-            <h1 className="mt-2 text-h3 font-bold tracking-tight text-text-primary">
-              {ticket.event.title}
-            </h1>
-            <p className="mt-1 flex items-center gap-1.5 text-[0.9375rem] text-text-secondary">
-              <MapPin className="h-4 w-4" /> {venueName || td('venueTba')}
+          <ArrowLeft className="h-4 w-4" aria-hidden /> {b('allTickets')}
+        </button>
+      </div>
+
+      <div className={`${COLUMN} mt-2 space-y-6`}>
+        {/* The event, on a stage band: what this ticket is for, where, and how long until. */}
+        <section
+          data-brand-tone="stage"
+          aria-labelledby="ticket-title"
+          className="overflow-hidden rounded-brand-card bg-brand-canvas text-brand-ink"
+        >
+          <div className="flex items-start gap-4 p-5 sm:p-6">
+            <div className="min-w-0 flex-1">
+              <p className="text-brand-eyebrow uppercase text-brand-ink-2">
+                {event?.category ?? td('categoryFallback')}
+              </p>
+              <h1
+                id="ticket-title"
+                className="mt-2 text-balance font-brand-display text-brand-d3 text-brand-ink"
+              >
+                {ticket.event.title}
+              </h1>
+              <p className="mt-2 flex items-center gap-1.5 text-brand-ui text-brand-ink-2">
+                <MapPin className="h-4 w-4 shrink-0" aria-hidden /> {venueName || td('venueTba')}
+              </p>
+            </div>
+            {thumb && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={thumb.src}
+                srcSet={thumb.srcSet}
+                sizes="96px"
+                alt=""
+                width={400}
+                height={300}
+                className="hidden aspect-[4/3] w-24 shrink-0 rounded-brand-control object-cover min-[360px]:block"
+              />
+            )}
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 border-t border-brand-line px-5 py-4 sm:px-6">
+            {countdown.isPast ? (
+              <p className="text-brand-ui font-medium text-brand-ink-2">{td('pastEvent')}</p>
+            ) : (
+              <div className="flex items-center gap-4">
+                <span className="text-brand-eyebrow uppercase text-brand-ink-2">
+                  {td('startsIn')}
+                </span>
+                <div className="flex gap-3 tabular-nums">
+                  {[
+                    { k: 'd', v: countdown.days, l: td('unitDays') },
+                    { k: 'h', v: countdown.hours, l: td('unitHours') },
+                    { k: 'm', v: countdown.minutes, l: td('unitMinutes') },
+                    { k: 's', v: countdown.seconds, l: td('unitSeconds') },
+                  ].map((u) => (
+                    <div key={u.k} className="text-center">
+                      <span className="block text-brand-figure-sm text-brand-ink">
+                        {String(u.v).padStart(2, '0')}
+                      </span>
+                      <span className="text-brand-meta text-brand-ink-2">{u.l}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={toggleSave}
+                aria-label={saved ? td('removeFromWishlist') : td('saveToWishlist')}
+                aria-pressed={saved}
+                // Square: the secondary button's own padding would leave the icon no room.
+                className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-brand-control border border-brand-line-strong bg-brand-surface text-brand-ink transition-colors duration-150 hover:border-brand-ink-3 ${BRAND_FOCUS}`}
+              >
+                <Heart className={`h-4 w-4 ${saved ? 'fill-current' : ''}`} aria-hidden />
+              </button>
+              <button
+                type="button"
+                onClick={share}
+                aria-label={tx('action.share')}
+                className={brandButtonClasses('secondary', 'md')}
+              >
+                <Share2 className="h-4 w-4" aria-hidden />{' '}
+                {shared ? td('copied') : tx('action.share')}
+              </button>
+            </div>
+          </div>
+        </section>
+
+        {/* The QR: what the door scans. On white, for the scanner, never tinted. */}
+        <section className={`${BRAND_PANEL} p-6 text-center`}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            // A vendor barcode the server cannot draw arrives as null: show the fallback.
+            src={ticket.qrDataUrl ?? fallback}
+            alt={b('qrAlt', { serial: ticket.serial })}
+            onError={(e) => {
+              const img = e.currentTarget;
+              if (img.src !== fallback) img.src = fallback;
+            }}
+            className="mx-auto h-56 w-56 rounded-brand-control border border-brand-line bg-white p-2"
+          />
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+            <BrandStatusPill status={TICKET_TONE[ticket.status] ?? 'neutral'}>
+              {statusLabel('ticket', ticket.status)}
+            </BrandStatusPill>
+            <span className="font-mono text-brand-meta text-brand-ink-3">{ticket.serial}</span>
+          </div>
+          {/*
+            The venue's clock, named. A phone set to another zone showed a different time from the
+            one printed at the venue; the ticket's own zone first, the event's venue if the ticket
+            does not carry one.
+          */}
+          <p className="mt-2 text-brand-ui font-semibold tabular-nums text-brand-ink">
+            {dateTime(ticket.startsAt, undefined, zone)}
+            {zone ? (
+              <span className="font-normal text-brand-ink-2">
+                {' '}
+                ({zoneAbbrev(ticket.startsAt, zone)})
+              </span>
+            ) : null}
+          </p>
+          {ticket.holderName && (
+            <p className="mt-1 text-brand-meta text-brand-ink-2">
+              {td('holder', { name: ticket.holderName })}
+            </p>
+          )}
+        </section>
+
+        {/* Actions */}
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <a
+            href={ics}
+            download={`${ticket.event.slug}.ics`}
+            className={`${brandButtonClasses('secondary', 'md')} whitespace-normal text-center`}
+          >
+            <CalendarPlus className="h-4 w-4 shrink-0" aria-hidden /> {tx('action.addToCalendar')}
+          </a>
+          <a
+            href={googleDirectionsUrl(mapsQuery)}
+            target="_blank"
+            rel="noreferrer"
+            className={`${brandButtonClasses('secondary', 'md')} whitespace-normal text-center`}
+          >
+            <Navigation className="h-4 w-4 shrink-0" aria-hidden /> {td('directions')}
+          </a>
+          <a
+            href={googleMapsUrl(mapsQuery)}
+            target="_blank"
+            rel="noreferrer"
+            className={`${brandButtonClasses('secondary', 'md')} col-span-2 whitespace-normal text-center sm:col-span-1`}
+          >
+            <MapPin className="h-4 w-4 shrink-0" aria-hidden /> {td('viewVenue')}
+          </a>
+        </div>
+
+        {/* Wallet passes (only when a provider is configured + the ticket is eligible) */}
+        <WalletPasses ticketId={ticket.id} ticketStatus={ticket.status} />
+
+        {/* Venue + placeholders */}
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div className={`${BRAND_PANEL} p-4 sm:col-span-3`}>
+            <p className="font-brand-display text-brand-card text-brand-ink">
+              {venueName || td('venue')}
+            </p>
+            <p className="mt-1 text-brand-ui text-brand-ink-2">
+              {venueLine || td('detailsToFollow')}
             </p>
           </div>
-          <div className="absolute right-4 top-4 flex gap-2">
-            <button
-              onClick={toggleSave}
-              aria-label={saved ? td('removeFromWishlist') : td('saveToWishlist')}
-              aria-pressed={saved}
-              className="flex h-9 w-9 items-center justify-center rounded-full bg-background-surface/90 text-text-secondary shadow-sm backdrop-blur transition-colors hover:text-status-error focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
-            >
-              <Heart className={`h-4 w-4 ${saved ? 'fill-status-error text-status-error' : ''}`} />
-            </button>
-            <button
-              onClick={share}
-              aria-label={tx('action.share')}
-              className="flex h-9 items-center gap-1.5 rounded-full bg-background-surface/90 px-3 text-caption font-medium text-text-secondary shadow-sm backdrop-blur transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
-            >
-              <Share2 className="h-3.5 w-3.5" /> {shared ? td('copied') : tx('action.share')}
-            </button>
-          </div>
+          <Placeholder icon={CloudSun} title={td('weather')} note={td('weatherNote')} />
+          <Placeholder icon={ParkingCircle} title={td('parking')} note={td('parkingNote')} />
+          <Placeholder icon={Navigation} title={td('gettingThere')} note={td('gettingThereNote')} />
         </div>
-        <div className="border-t border-border bg-background-surface px-6 py-4">
-          {countdown.isPast ? (
-            <p className="text-[0.9375rem] font-medium text-text-muted">{td('pastEvent')}</p>
-          ) : (
-            <div className="flex items-center gap-4">
-              <span className="text-caption uppercase tracking-wide text-text-muted">
-                {td('startsIn')}
-              </span>
-              <div className="flex gap-3 tabular-nums">
-                {[
-                  { k: 'd', v: countdown.days, l: td('unitDays') },
-                  { k: 'h', v: countdown.hours, l: td('unitHours') },
-                  { k: 'm', v: countdown.minutes, l: td('unitMinutes') },
-                  { k: 's', v: countdown.seconds, l: td('unitSeconds') },
-                ].map((u) => (
-                  <div key={u.k} className="text-center">
-                    <span className="block text-title font-bold text-text-primary">
-                      {String(u.v).padStart(2, '0')}
-                    </span>
-                    <span className="text-caption text-text-muted">{u.l}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
 
-      {/* QR pass */}
-      <div className="rounded-lg border border-border bg-background-surface p-6 text-center shadow-sm">
-        <div className="mx-auto flex w-fit items-center justify-center">
-          <span className="relative">
-            <span
-              className="absolute inset-0 -m-2 animate-pulse rounded-2xl bg-action-primary/10"
-              aria-hidden
-            />
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              // A vendor barcode the server cannot draw arrives as null: show the fallback.
-              src={ticket.qrDataUrl ?? fallback}
-              alt={b('qrAlt', { serial: ticket.serial })}
-              onError={(e) => {
-                const img = e.currentTarget;
-                if (img.src !== fallback) img.src = fallback;
-              }}
-              className="relative h-52 w-52 rounded-2xl bg-white p-2"
-            />
-          </span>
-        </div>
-        <div className="mt-4 flex items-center justify-center gap-2">
-          <StatusBadge status={ticket.status} label={statusLabel('ticket', ticket.status)} />
-          <span className="font-mono text-caption text-text-muted">{ticket.serial}</span>
-        </div>
-        {/*
-          The venue's clock, named. A phone set to another zone showed a different time from the
-          one printed at the venue; the ticket's own zone first, the event's venue if the ticket
-          does not carry one.
-        */}
-        <p className="mt-1 text-[0.9375rem] text-text-secondary">
-          {dateTime(ticket.startsAt, undefined, zone)}
-          {zone ? (
-            <span className="text-text-muted"> ({zoneAbbrev(ticket.startsAt, zone)})</span>
-          ) : null}
-        </p>
-        {ticket.holderName && (
-          <p className="text-caption text-text-muted">
-            {td('holder', { name: ticket.holderName })}
-          </p>
-        )}
+        {/* Status timeline */}
+        <section className={`${BRAND_PANEL} p-5`}>
+          <h2 className={`mb-4 ${BRAND_EYEBROW}`}>{w('ticketStatus')}</h2>
+          <Timeline status={ticket.status} />
+        </section>
       </div>
-
-      {/* Actions */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-        <a
-          href={ics}
-          download={`${ticket.event.slug}.ics`}
-          className="flex items-center justify-center gap-2 rounded-md border border-border bg-background-surface px-4 py-3 text-[0.9375rem] font-medium text-text-primary shadow-sm transition-colors hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
-        >
-          <CalendarPlus className="h-4 w-4" /> {tx('action.addToCalendar')}
-        </a>
-        <a
-          href={googleDirectionsUrl(mapsQuery)}
-          target="_blank"
-          rel="noreferrer"
-          className="flex items-center justify-center gap-2 rounded-md border border-border bg-background-surface px-4 py-3 text-[0.9375rem] font-medium text-text-primary shadow-sm transition-colors hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
-        >
-          <Navigation className="h-4 w-4" /> {td('directions')}
-        </a>
-        <a
-          href={googleMapsUrl(mapsQuery)}
-          target="_blank"
-          rel="noreferrer"
-          className="col-span-2 flex items-center justify-center gap-2 rounded-md border border-border bg-background-surface px-4 py-3 text-[0.9375rem] font-medium text-text-primary shadow-sm transition-colors hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas sm:col-span-1"
-        >
-          <MapPin className="h-4 w-4" /> {td('viewVenue')}
-        </a>
-      </div>
-
-      {/* Wallet passes (only when a provider is configured + the ticket is eligible) */}
-      <WalletPasses ticketId={ticket.id} ticketStatus={ticket.status} />
-
-      {/* Venue + placeholders */}
-      <div className="grid gap-3 sm:grid-cols-3">
-        <div className="rounded-lg border border-border bg-background-surface p-4 shadow-sm sm:col-span-3">
-          <p className="font-semibold text-text-primary">{venueName || td('venue')}</p>
-          <p className="mt-1 text-[0.9375rem] text-text-muted">
-            {venueLine || td('detailsToFollow')}
-          </p>
-        </div>
-        <Placeholder icon={CloudSun} title={td('weather')} note={td('weatherNote')} />
-        <Placeholder icon={ParkingCircle} title={td('parking')} note={td('parkingNote')} />
-        <Placeholder icon={Navigation} title={td('gettingThere')} note={td('gettingThereNote')} />
-      </div>
-
-      {/* Status timeline */}
-      <div className="rounded-lg border border-border bg-background-surface p-5 shadow-sm">
-        <h2 className="mb-4 text-title font-semibold text-text-primary">{w('ticketStatus')}</h2>
-        <Timeline status={ticket.status} />
-      </div>
-    </div>
+    </BrandPage>
   );
 }
 
@@ -322,12 +402,12 @@ function Placeholder({
   note: string;
 }) {
   return (
-    <div className="rounded-lg border border-dashed border-border p-4">
-      <div className="flex items-center gap-2 text-text-secondary">
-        <Icon className="h-4 w-4" />
-        <p className="text-[0.9375rem] font-medium text-text-primary">{title}</p>
+    <div className="rounded-brand-card bg-brand-sunken p-4">
+      <div className="flex items-center gap-2 text-brand-ink-2">
+        <Icon className="h-4 w-4" aria-hidden />
+        <p className="text-brand-ui font-semibold text-brand-ink">{title}</p>
       </div>
-      <p className="mt-1 text-caption text-text-muted">{note}</p>
+      <p className="mt-1 text-brand-meta text-brand-ink-2">{note}</p>
     </div>
   );
 }
@@ -356,18 +436,16 @@ function Timeline({ status }: { status: string }) {
         <li key={s.key} className="flex gap-3">
           <div className="flex flex-col items-center">
             <span
-              className={`flex h-6 w-6 items-center justify-center rounded-full text-caption ${
-                s.done
-                  ? 'bg-action-primary text-action-primary-foreground'
-                  : 'bg-background-subtle text-text-muted'
+              className={`flex h-6 w-6 items-center justify-center rounded-full text-brand-meta tabular-nums ${
+                s.done ? 'bg-brand-action text-brand-on-action' : 'bg-brand-sunken text-brand-ink-3'
               }`}
             >
               {s.done ? <Check className="h-3.5 w-3.5" aria-hidden /> : i + 1}
             </span>
-            {i < steps.length - 1 && <span className="my-1 h-6 w-px bg-border" />}
+            {i < steps.length - 1 && <span className="my-1 h-6 w-px bg-brand-line-strong" />}
           </div>
           <span
-            className={`pt-0.5 text-[0.9375rem] ${s.done ? 'text-text-primary' : 'text-text-muted'}`}
+            className={`pt-0.5 text-brand-ui ${s.done ? 'text-brand-ink' : 'text-brand-ink-3'}`}
           >
             {s.label}
           </span>
