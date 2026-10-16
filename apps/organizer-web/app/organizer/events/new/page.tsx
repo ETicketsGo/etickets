@@ -139,6 +139,8 @@ import { CoverFocus } from '@/components/create-event/cover-focus';
 import { ExperienceArt } from '@/components/create-event/experience-art';
 import { HowItWorks } from '@/components/create-event/how-it-works';
 import { SeatMapPreviewDialog } from '@/components/events/seat-map-preview';
+import { SeatClassNoticeCard } from '@/components/events/seat-class-notice-card';
+import { seatClassNotice, type SeatClassNotice } from '@/lib/seat-class-notice';
 
 /*
   Each step's tile in the console's pastel set: the same colour on its heading, in the
@@ -260,6 +262,11 @@ function NewEventWizard() {
   const roomsQ = useQuery({
     queryKey: ['seating-rooms', activeOrg.id],
     queryFn: () => api.events.seatingRooms(activeOrg.id),
+    /*
+      Seat classes are chosen in another tab (the notice's link opens one); coming back here
+      reads the answer again, so a fixed notice goes away without a reload.
+    */
+    refetchOnWindowFocus: true,
   });
   /*
     Every space in the organization, for the STANDING ones at the chosen venue: a lawn or a
@@ -984,6 +991,13 @@ function NewEventWizard() {
     }))
     .filter((s) => s.problems.length > 0);
   const thingsToSetUp = outstanding.reduce((n, s) => n + s.problems.length, 0);
+  /* One notice per seat map chosen, not per session: three dates in one room say it once. */
+  const seatClassNotices =
+    admission === 'seated'
+      ? [...new Set(sessions.map((x) => x.seatMapId).filter(Boolean))]
+          .map((key) => ({ key, notice: seatClassNotice(roomByLayout(key)) }))
+          .filter((x): x is { key: string; notice: SeatClassNotice } => x.notice !== null)
+      : [];
   const totals = capacityBySession({ admission, sessions, tickets });
 
   /* The preview: the facts a buyer decides on, as the storefront will show them. */
@@ -1844,35 +1858,52 @@ function NewEventWizard() {
                       </ul>
                     </div>
                     {sessions.map((s, i) => (
-                      <Select
-                        key={i}
-                        id={`sr${i}`}
-                        label={
-                          sessions.length === 1
-                            ? 'Seat map'
-                            : `Seat map for ${nouns.session.toLowerCase()} ${i + 1} (${sessionWhen(s, i, nouns.session)})`
-                        }
-                        required
-                        value={s.seatMapId}
-                        error={fieldErrors[`s${i}Seat`]}
-                        onBlur={() => reveal(`s${i}Seat`)}
-                        onChange={(e) => {
-                          const seatMapId = e.target.value;
-                          const room = venueRooms.find((r) => r.layoutId === seatMapId);
-                          setSessions(
-                            sessions.map((x, j) =>
-                              j === i ? { ...x, seatMapId, screenId: room?.id ?? '' } : x,
-                            ),
-                          );
-                        }}
-                      >
-                        <option value="">Choose a seat map...</option>
-                        {venueRooms.map((r) => (
-                          <option key={r.layoutId} value={r.layoutId}>
-                            {r.name} - {r.layoutName ?? 'Layout'} ({r.sellableSeats} seats)
-                          </option>
-                        ))}
-                      </Select>
+                      <div key={i} className="space-y-2">
+                        <Select
+                          id={`sr${i}`}
+                          label={
+                            sessions.length === 1
+                              ? 'Seat map'
+                              : `Seat map for ${nouns.session.toLowerCase()} ${i + 1} (${sessionWhen(s, i, nouns.session)})`
+                          }
+                          required
+                          value={s.seatMapId}
+                          error={fieldErrors[`s${i}Seat`]}
+                          onBlur={() => reveal(`s${i}Seat`)}
+                          onChange={(e) => {
+                            const seatMapId = e.target.value;
+                            const room = venueRooms.find((r) => r.layoutId === seatMapId);
+                            setSessions(
+                              sessions.map((x, j) =>
+                                j === i ? { ...x, seatMapId, screenId: room?.id ?? '' } : x,
+                              ),
+                            );
+                          }}
+                        >
+                          <option value="">Choose a seat map...</option>
+                          {venueRooms.map((r) => (
+                            <option key={r.layoutId} value={r.layoutId}>
+                              {r.name} - {r.layoutName ?? 'Layout'} ({r.sellableSeats} seats)
+                            </option>
+                          ))}
+                        </Select>
+                        {/*
+                        Said here, as the seat map is chosen, rather than on the event page
+                        after it is created and cannot sell.
+                      */}
+                        {(() => {
+                          const notice = s.seatMapId
+                            ? seatClassNotice(roomByLayout(s.seatMapId))
+                            : null;
+                          return notice ? (
+                            <SeatClassNoticeCard
+                              notice={notice}
+                              onRecheck={() => roomsQ.refetch()}
+                              rechecking={roomsQ.isFetching}
+                            />
+                          ) : null;
+                        })()}
+                      </div>
                     ))}
                   </div>
                 )}
@@ -2347,6 +2378,26 @@ function NewEventWizard() {
                         </li>
                       ))}
                     </ul>
+                  </section>
+                ) : null}
+
+                {/*
+                  Seat maps on cinema screens that cannot sell as they are: which seat
+                  categories need a class, with the control one click away.
+                */}
+                {seatClassNotices.length > 0 ? (
+                  <section aria-labelledby="review-seat-classes" className="space-y-2">
+                    <h3 id="review-seat-classes" className="font-semibold text-text-primary">
+                      Before tickets can sell
+                    </h3>
+                    {seatClassNotices.map(({ key, notice }) => (
+                      <SeatClassNoticeCard
+                        key={key}
+                        notice={notice}
+                        onRecheck={() => roomsQ.refetch()}
+                        rechecking={roomsQ.isFetching}
+                      />
+                    ))}
                   </section>
                 ) : null}
 

@@ -172,6 +172,7 @@ export const ORGANIZER_ROUTE_POLICY: Record<string, StaffPolicy> = {
   'POST /events/:id/duplicate': 'NONE',
   'GET /events/:id/promotion': 'NONE',
   'POST /events/:id/pause': 'NONE',
+  'POST /events/:id/cancel': 'NONE',
   'POST /events/:id/resume': 'NONE',
   'GET /organizer-calendar': 'NONE',
   'GET /organizer-calendar/sale-eligibility': 'NONE',
@@ -219,6 +220,9 @@ export const ORGANIZER_ROUTE_POLICY: Record<string, StaffPolicy> = {
   'GET /organizations/:id/members': ORG_READ('organization.members.read'),
   'PATCH /organizations/:id/cash-payments': 'NONE',
   'GET /organizations/:id/cash-bookings': 'NONE',
+  /** A walk-up sale issues tickets against cash only the venue saw. */
+  'POST /organizations/:id/counter-sales': 'ORGANIZER_ONLY',
+  'GET /organizations/:id/counter-sales/shows': 'ORGANIZER_ONLY',
   'POST /organizations/:id/members': 'NONE',
   'POST /organizations/:id/members/:memberId/resend-invite': 'NONE',
   'DELETE /organizations/:id/members/:memberId': 'NONE',

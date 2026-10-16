@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger, Optional } from '@nestjs/common';
 import { Prisma, Prisma as PrismaNamespace } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
 import * as QRCode from 'qrcode';
@@ -28,6 +28,7 @@ import { redirectUrl } from '../common/console-urls';
 import { requireCommerceCurrency } from '../common/commerce-currency';
 import { EventSellabilityService } from './event-sellability.service';
 import { ShowsService } from '../shows/shows.service';
+import { CancellationRefundsService } from '../refunds/cancellation-refunds.service';
 import type { RequestUser } from '../common/decorators';
 import { isUniqueViolation } from './request-key';
 import {
@@ -195,6 +196,12 @@ export class EventsService {
       a customer has been taken to a seat map they cannot buy from.
     */
     private readonly sellabilityService: EventSellabilityService,
+    /*
+      ON THE END and optional, so the hand-built test harnesses keep compiling. The running app
+      always has it (EventsModule imports RefundsModule); without it `cancelEvent` leaves the
+      refunds to the ShowCancelled handler and the worker's sweep, as a date cancel does.
+    */
+    @Optional() private readonly cancellationRefunds?: CancellationRefundsService,
   ) {}
 
   /**
@@ -950,7 +957,22 @@ export class EventsService {
         name: true,
         venueId: true,
         venue: { select: { name: true } },
-        cinema: { select: { name: true, venueId: true } },
+        cinema: {
+          select: {
+            id: true,
+            name: true,
+            venueId: true,
+            // What the regulated-price rules match on, for `seatClassNeeds` below.
+            country: true,
+            region: true,
+            district: true,
+            city: true,
+            localBodyType: true,
+            cinemaFormat: true,
+            climateType: true,
+            venue: { select: { country: true, region: true, city: true } },
+          },
+        },
         seatMaps: {
           where: { status: 'PUBLISHED' },
           /*
@@ -971,13 +993,14 @@ export class EventsService {
             layoutKind: true,
             // Bookable at a new session: not an aisle, and not a house seat (held back at every session).
             _count: { select: { seats: { where: { kind: { notIn: ['GAP', 'HOUSE'] } } } } },
+            categories: { select: { name: true, regulatoryClass: true } },
           },
         },
       },
       orderBy: [{ name: 'asc' }],
     });
 
-    return screens.flatMap((s) => {
+    const rooms = screens.flatMap((s) => {
       // A name is a configuration and versions are its history. Offer only the current
       // published version of each named configuration, not every historical revision.
       const currentByName = new Map<string, (typeof s.seatMaps)[number]>();
@@ -999,8 +1022,26 @@ export class EventsService {
         layoutName: layout.name,
         layoutKind: layout.layoutKind,
         sellableSeats: layout._count.seats,
+        cinema: s.cinema,
+        categories: layout.categories,
       }));
     });
+
+    /*
+      Whether this layout can sell on this screen as far as regulated prices go, asked now so
+      the wizard can say so before the event exists rather than after (see `seatClassNeeds`).
+      Only cinema screens are under those rules; every other space answers NONE without a query.
+    */
+    const at = new Date();
+    return Promise.all(
+      rooms.map(async ({ cinema, categories, ...room }) => ({
+        ...room,
+        cinemaId: cinema?.id ?? null,
+        seatClasses: cinema
+          ? await this.sellabilityService.seatClassNeeds(cinema, categories, at)
+          : { state: 'NONE' as const, unmapped: [], fixPath: null },
+      })),
+    );
   }
 
   /**
@@ -1886,6 +1927,105 @@ export class EventsService {
    *   · an admin pauses an event and the organizer resumes it. A pause by the platform team
    *     is now lifted only by the platform team.
    */
+  /**
+   * Cancel a whole event, bookings and all: sales stop, every date still to come is cancelled,
+   * and every paid booking on those dates is refunded and its buyer told.
+   *
+   * ── WHY IT IS THE SHOW CANCELLATION, ONCE PER DATE ───────────────────────────────────
+   * Cancelling one date already does all of that and has been proven on it: `cancelShow`
+   * cancels the session, releases unpaid holds, records the ShowCancelled fact, and from that
+   * fact the refunds are opened for every paid booking (`CancellationRefundsService`, with a
+   * sweep behind it) and every ticket holder is told (`ShowCancellationFanoutService`). An
+   * event-level copy of that would be a second refund path to keep in step with the first, so
+   * there is none: this marks the event CANCELLED, which stops every sale at once (booking
+   * create sells only PUBLISHED events), and then cancels each date through the same call.
+   *
+   * Dates that have already started are left alone: their audience came, and nobody is owed a
+   * refund for a show they saw. The refunds open as requests, as every cancellation refund
+   * does, and the owner approves them (singly or all at once) on the event's refunds page.
+   *
+   * OWNER only. It refunds everyone and cannot be undone; the same role approves refunds.
+   */
+  async cancelEvent(user: RequestUser, id: string, reason: string) {
+    const event = await this.loadOwnedEvent(user, id, [Role.ORGANIZER_OWNER]);
+    if (event.status === EventStatus.COMPLETED || event.status === EventStatus.ARCHIVED) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'This event has ended, so it cannot be cancelled. Refund a booking from Bookings instead.',
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    const now = new Date();
+    if (event.status !== EventStatus.CANCELLED) {
+      await this.prisma.event.update({ where: { id }, data: { status: EventStatus.CANCELLED } });
+    }
+
+    // Every date still to come. A second run (a retry after a failure part-way) finds only the
+    // dates the first did not reach, and `cancelShow` is idempotent for the rest.
+    const sessions = await this.prisma.eventSession.findMany({
+      where: {
+        eventId: id,
+        status: { in: [SessionStatus.SCHEDULED, SessionStatus.PAUSED] },
+        startsAt: { gt: now },
+      },
+      select: { id: true },
+      orderBy: { startsAt: 'asc' },
+    });
+    const bookingsRequiringRefund: string[] = [];
+    for (const session of sessions) {
+      const result = await this.shows.cancelShow(user, session.id, reason);
+      bookingsRequiringRefund.push(...result.bookingsRequiringRefund);
+      /*
+        The refunds, opened now rather than on the next sweep: the organizer is about to be
+        sent to approve them, and an empty list two minutes long reads as "nothing happened".
+        The same call the ShowCancelled handler and the sweep make, so whichever runs first
+        opens them and the others find nothing left to open. A failure here is logged, not
+        thrown: the event is already cancelled and the sweep is the guarantee.
+      */
+      await this.cancellationRefunds?.openFor(session.id).catch((err: unknown) => {
+        new Logger('Events').error(
+          `refunds for cancelled show ${session.id} left to the sweep: ${(err as Error)?.message}`,
+        );
+      });
+    }
+
+    /*
+      Cash is not refunded by the platform: it never passed through it (refunds refuse cash
+      bookings). Counted so the organizer is told how many to hand back at the counter.
+    */
+    const cashToReturn = await this.prisma.booking.count({
+      where: {
+        eventSession: { eventId: id },
+        paymentMethod: 'CASH',
+        status: { in: [BookingStatus.CONFIRMED, BookingStatus.PARTIALLY_REFUNDED] },
+      },
+    });
+
+    await this.audit.record({
+      actorUserId: user.id,
+      organizationId: event.organizationId,
+      action: 'EVENT_CANCELLED',
+      entityType: 'Event',
+      entityId: id,
+      metadata: {
+        from: event.status,
+        reason,
+        datesCancelled: sessions.length,
+        bookingsRequiringRefund: bookingsRequiringRefund.length,
+        cashToReturn,
+      },
+    });
+
+    return {
+      eventId: id,
+      status: EventStatus.CANCELLED,
+      datesCancelled: sessions.length,
+      bookingsRequiringRefund,
+      cashToReturn,
+    };
+  }
+
   async setPaused(user: RequestUser, id: string, paused: boolean) {
     const event = await this.loadOwnedEvent(user, id);
     const target = paused ? EventStatus.PAUSED : EventStatus.PUBLISHED;

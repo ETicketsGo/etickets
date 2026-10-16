@@ -33,6 +33,8 @@ import {
   updateTicketTypeSchema,
   paginationSchema,
   reviewDecisionSchema,
+  cancelShowSchema,
+  type CancelShowInput,
   type CreateSessionInput,
   type CreateTicketTypeInput,
   type UpdateSessionSeatingInput,
@@ -400,6 +402,20 @@ export class EventsController {
   @ApiOperation({ summary: 'Resume a paused event.' })
   resume(@CurrentUser() user: RequestUser, @Param('id') id: string) {
     return this.events.setPaused(user, id, false);
+  }
+
+  /*
+    Cancel the whole event: every date still to come is cancelled through the show
+    cancellation, which opens the refunds and tells the buyers. Owner only, in the service.
+  */
+  @Post(':id/cancel')
+  @ApiOperation({ summary: 'Cancel an event: stop sales, cancel its dates, refund its buyers.' })
+  cancel(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(cancelShowSchema)) body: CancelShowInput,
+  ) {
+    return this.events.cancelEvent(user, id, body.reason);
   }
 }
 

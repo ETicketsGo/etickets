@@ -352,11 +352,23 @@ const BUILDERS: Partial<Record<NotificationType, Builder>> = {
     who should not be given one.
   */
   [NotificationType.REFUND_REQUESTED]: (l, p) => ({
-    subject: t(l, 'emails.REFUND_REQUESTED.subject'),
-    body: t(l, 'emails.REFUND_REQUESTED.body', {
-      amount: moneyValue(l, p, 'amountMinor'),
-      reference: bookingName(l, p),
-    }),
+    subject: t(
+      l,
+      p.showCancelled
+        ? 'emails.REFUND_REQUESTED.subjectShowCancelled'
+        : 'emails.REFUND_REQUESTED.subject',
+    ),
+    // A refund the cancellation opened is nobody's request, so it is not warned about as one.
+    body: t(
+      l,
+      p.showCancelled
+        ? 'emails.REFUND_REQUESTED.bodyShowCancelled'
+        : 'emails.REFUND_REQUESTED.body',
+      {
+        amount: moneyValue(l, p, 'amountMinor'),
+        reference: bookingName(l, p),
+      },
+    ),
   }),
 
   [NotificationType.TICKET_CHECKED_IN]: (l, p) => ({

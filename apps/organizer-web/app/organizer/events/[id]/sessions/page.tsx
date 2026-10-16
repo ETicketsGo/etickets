@@ -186,22 +186,25 @@ export default function SessionsTab() {
       key: 'actions',
       header: '',
       /*
-        Offered where the server allows it: a date still to come that nobody has bought for
-        or is buying for. Past that, the seating column already says why it is locked.
+        Change time: a date still to come that nobody has bought for or is buying for; the
+        server refuses the rest, because a buyer chose that time. Cancel: any date still to
+        come - with buyers it refunds them and tells them, through the show cancellation.
       */
       render: (s) =>
-        sessionEditable(s, Date.now()) && !lockReason(s) ? (
+        sessionEditable(s, Date.now()) ? (
           <div className="flex flex-col items-start gap-1">
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setRetiming(s);
-              }}
-              className="whitespace-nowrap rounded text-caption text-action-primary underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-            >
-              Change time
-            </button>
+            {!lockReason(s) ? (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setRetiming(s);
+                }}
+                className="whitespace-nowrap rounded text-caption text-action-primary underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+              >
+                Change time
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={(e) => {
@@ -210,7 +213,7 @@ export default function SessionsTab() {
               }}
               className="whitespace-nowrap rounded text-caption text-status-error underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
             >
-              Cancel date
+              {lockReason(s) ? 'Cancel date and refund' : 'Cancel date'}
             </button>
           </div>
         ) : null,
@@ -312,6 +315,12 @@ export default function SessionsTab() {
         eventId={id}
         session={cancelling}
         whenLabel={cancelling ? dateTime(cancelling.startsAt, undefined, venueTz) : ''}
+        sold={
+          cancelling
+            ? sessionSeating({ session: cancelling, space: null, layout: null, now: Date.now() })
+                .counts.sold
+            : 0
+        }
         onClose={() => setCancelling(null)}
       />
     </div>

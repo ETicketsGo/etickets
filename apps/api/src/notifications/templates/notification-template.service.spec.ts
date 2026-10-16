@@ -21,6 +21,26 @@ describe('NotificationTemplateService', () => {
     }
   });
 
+  /*
+    Found walking a cancelled show on QA: the buyer was told "If you did not ask for this,
+    contact the organizer before it is approved" about a refund the cancellation opened for them.
+  */
+  it('does not warn a buyer about a refund their show cancellation opened', () => {
+    const base = { reference: 'ETG-IND-2026-000050', currency: 'INR', amountMinor: 51918 };
+    const asked = svc.render(NotificationType.REFUND_REQUESTED, 'en', base);
+    expect(asked.body).toContain('If you did not ask for this');
+    for (const locale of ['en', 'fr-CA'] as const) {
+      const opened = svc.render(NotificationType.REFUND_REQUESTED, locale, {
+        ...base,
+        showCancelled: true,
+      });
+      expect(opened.body).toContain('ETG-IND-2026-000050');
+      expect(opened.body).not.toContain('If you did not ask for this');
+      expect(opened.body).not.toContain("Si vous n'avez rien demandé");
+      expect(opened.subject).not.toBe(asked.subject);
+    }
+  });
+
   it('interpolates payload fields into the body', () => {
     // With no reference on the payload the id is still the fallback — see the readability
     // suite below for what a real, referenced booking now says.
