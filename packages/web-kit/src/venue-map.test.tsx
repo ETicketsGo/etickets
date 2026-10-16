@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { VenueMap } from './venue-map';
+import { VENUE_MAP_LABELS_EN, VenueMap } from './venue-map';
 import type { VenueSectionSummary } from './api';
 
 /*
@@ -86,5 +86,56 @@ describe('VenueMap block colours', () => {
     // Only the fill of the others steps back; their names stay at full strength.
     expect(html).toMatch(/fill-opacity="0.4"/);
     expect(html).not.toMatch(/<g[^>]*opacity=/);
+  });
+});
+
+describe('VenueMap on a phone', () => {
+  it('frames the venue rather than the whole canvas, and offers zoom buttons', () => {
+    const html = render([block({})]);
+    // The one block spans 0..100; the frame is a margin around it (at least a third of the
+    // canvas), not 0 0 1000 1000.
+    expect(html).not.toContain('viewBox="0 0 1000 1000"');
+    expect(html).toContain('aria-label="Enlarge the map"');
+    expect(html).toContain('aria-label="Make the map smaller"');
+    expect(html).toContain('aria-label="Show the whole map"');
+  });
+
+  it('speaks the words it is given, so a French buyer does not meet an English map', () => {
+    const html = renderToStaticMarkup(
+      <VenueMap
+        focal={{ kind: 'STAGE_END', label: 'STAGE', shape: null }}
+        sections={[block({ availableCount: 0 })]}
+        onSelect={() => undefined}
+        formatPrice={(m) => `${m / 100} $`}
+        labels={{
+          ...VENUE_MAP_LABELS_EN,
+          zoomIn: 'Agrandir',
+          soldOut: 'Complet',
+          describe: ({ name }) => `${name}, complet`,
+        }}
+      />,
+    );
+    expect(html).toContain('aria-label="Agrandir"');
+    expect(html).toContain('Complet');
+    expect(html).toContain('aria-label="Front 1, complet"');
+    expect(html).not.toContain('Sold out');
+  });
+
+  it('lets the editor move blocks, and only the editor', () => {
+    const editor = renderToStaticMarkup(
+      <VenueMap
+        focal={{ kind: 'STAGE_END', label: 'STAGE', shape: null }}
+        sections={[block({})]}
+        onSelect={() => undefined}
+        formatPrice={(m) => `$${m}`}
+        frame="canvas"
+        onMoveBlock={() => undefined}
+      />,
+    );
+    expect(editor).toContain('viewBox="0 0 1000 1000"');
+    expect(editor).toMatch(/data-section-id="a"[^>]*touch-action:none/);
+    expect(editor).toContain('Drag a block to move it');
+    const buyer = render([block({})]);
+    expect(buyer).not.toMatch(/data-section-id="a"[^>]*touch-action:none/);
   });
 });

@@ -1120,7 +1120,11 @@ export const api = {
         address: string;
         capacity: number;
       }>,
-    ) => request<Venue>(`/venues/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    ) =>
+      request<Venue & { sessionsKeptLocalTime?: number }>(`/venues/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      }),
 
     /**
      * The bookable spaces inside a venue - cinema screens included.
@@ -1546,7 +1550,14 @@ export const api = {
     addSession: (
       id: string,
       // `screenId` is the whole difference between reserved seating and general admission.
-      body: { startsAt: string; endsAt: string; screenId?: string; seatMapId?: string },
+      // `standingSpaceId` keeps it general admission, capped by what that standing space holds.
+      body: {
+        startsAt: string;
+        endsAt: string;
+        screenId?: string;
+        seatMapId?: string;
+        standingSpaceId?: string;
+      },
     ) =>
       request<EventSession>(`/events/${id}/sessions`, {
         method: 'POST',
@@ -1557,6 +1568,15 @@ export const api = {
      * Change a session's space - and, when that space has several layouts, WHICH one. The
      * server refuses a multi-layout space without a `seatMapId` rather than picking for you.
      */
+    /**
+     * Put a general-admission session in a standing space (its capacity caps what is on sale),
+     * or take it out with null. Never changes the tickets on sale; says if they are over.
+     */
+    setStandingSpace: (sessionId: string, standingSpaceId: string | null) =>
+      request<EventSession & { onSale: number; overCapacityBy: number }>(
+        `/events/sessions/${sessionId}/standing-space`,
+        { method: 'PATCH', body: JSON.stringify({ standingSpaceId }) },
+      ),
     updateSessionSeating: (sessionId: string, screenId: string | null, seatMapId?: string | null) =>
       request<EventSession>(`/events/sessions/${sessionId}/seating`, {
         method: 'PATCH',
@@ -3658,6 +3678,19 @@ export interface SpaceDetail {
   sessions: number;
   /** Sessions still to come that are not cancelled. */
   upcomingSessions: number;
+  /**
+   * For a standing space: each session still to come that is held in it, with how many
+   * tickets it has on sale and by how much that is more than the space holds (0 = fits).
+   * Older APIs do not send it.
+   */
+  standingSessions?: {
+    sessionId: string;
+    eventId: string;
+    eventTitle: string;
+    startsAt: string;
+    onSale: number;
+    overCapacityBy: number;
+  }[];
 }
 
 export interface Venue {
@@ -3811,8 +3844,20 @@ export interface Cinema extends Omit<CinemaBody, 'venueId'> {
    * unrelated things in two different lists.
    */
   venueId: string | null;
-  /** The venue this room belongs to. Its country decides the currency the room prices in. */
-  venue?: { country: string; region: string | null } | null;
+  /**
+   * The venue this room belongs to. Its country decides the currency the room prices in, and
+   * the rest is WHERE the cinema is: the cinema's location is the venue's, edited on the venue.
+   * The name, city and address are only sent by newer APIs.
+   */
+  venue?: {
+    country: string;
+    region: string | null;
+    id?: string;
+    name?: string;
+    city?: string;
+    address?: string | null;
+    timezone?: string | null;
+  } | null;
   /**
    * AUTHORITATIVE for every local date and time this client renders for the venue.
    *
@@ -4410,6 +4455,8 @@ export interface EventSession {
   /** Set when the session is in a room: buyers pick named seats rather than a quantity. */
   screenId?: string | null;
   seatMapId?: string | null;
+  /** The standing space a general-admission session is held in; its capacity caps the offer. */
+  standingSpaceId?: string | null;
   /**
    * Where a seated session is. `cinema` is null for a space that is not a cinema screen -
    * an arena or an auditorium - so the place is named from `venue` first.

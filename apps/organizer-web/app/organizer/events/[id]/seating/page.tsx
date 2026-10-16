@@ -1,6 +1,6 @@
 'use client';
 
-import { useQueries, useQuery } from '@tanstack/react-query';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useMemo, useState } from 'react';
@@ -11,6 +11,8 @@ import {
   ErrorState,
   SegmentedControl,
   Skeleton,
+  errorMessage,
+  useToast,
   type EventSession,
 } from '@eticketsgo/web-kit';
 import { timeAtVenue } from '@/components/events/event-list-model';
@@ -74,6 +76,50 @@ export default function SeatingPage() {
 
   const now = useMemo(() => Date.now(), []);
   const sessions = useMemo(() => event?.sessions ?? [], [event]);
+
+  /*
+    The STANDING spaces at this event's venue. A general-admission show can be put in one, and
+    its capacity then caps what that show puts on sale - the server refuses more. Choosing one
+    never changes a ticket; a show already above it is flagged on its card.
+  */
+  const qc = useQueryClient();
+  const toast = useToast();
+  const standingOptions = (spaces.data ?? [])
+    .filter(
+      (sp) => sp.venueId === event?.venue?.id && sp.kind === 'STANDING' && sp.status !== 'INACTIVE',
+    )
+    .map((sp) => ({ id: sp.id, name: sp.name, capacity: sp.capacity }));
+  const setStanding = useMutation({
+    mutationFn: (v: { sessionId: string; spaceId: string | null }) =>
+      api.events.setStandingSpace(v.sessionId, v.spaceId),
+    onSuccess: (r) => {
+      toast.push(
+        r.standingSpaceId
+          ? r.overCapacityBy > 0
+            ? `Saved. This show has ${r.overCapacityBy} more tickets on sale than the space holds.`
+            : 'Saved. The space now caps what this show can sell.'
+          : 'Saved. This show is no longer in a standing space.',
+        r.overCapacityBy > 0 ? 'error' : 'success',
+      );
+      qc.invalidateQueries({ queryKey: ['event', id] });
+    },
+    onError: (e) => toast.push(errorMessage(e), 'error'),
+  });
+  const standingFor = (s: EventSession) => {
+    if (s.screenId || standingOptions.length === 0) return undefined;
+    const known = (spaces.data ?? []).find((sp) => sp.id === s.standingSpaceId);
+    const onSale = (s.ticketTypes ?? []).reduce(
+      (n, t) => n + ((t.status ?? 'ACTIVE') === 'ACTIVE' ? t.quantityTotal : 0),
+      0,
+    );
+    return {
+      current: known ? { id: known.id, name: known.name, capacity: known.capacity } : null,
+      options: standingOptions,
+      onSale,
+      pending: setStanding.isPending,
+      onChoose: (spaceId: string | null) => setStanding.mutate({ sessionId: s.id, spaceId }),
+    };
+  };
 
   /*
     Each space's layout versions, once per space rather than per show: which version a show
@@ -239,6 +285,7 @@ export default function SeatingPage() {
                     seating={seatingFor(s)}
                     onPreview={() => setPreviewing(s)}
                     onChange={() => setChanging(s)}
+                    standing={standingFor(s)}
                   />
                 </li>
               ))}
