@@ -47,6 +47,12 @@ import {
  * Given `onMoveBlock`, a block can be dragged (or moved with the arrow keys once chosen); the
  * map only reports how far, in map units, and the editor decides what that does to the layout.
  *
+ * ── AND NEW BLOCKS ARE DRAWN ───────────────────────────────────────────────────────
+ * Given `draw`, the map is a drawing surface: dragging draws a rectangle, and each tap places a
+ * corner of an outline (tapping the first corner again closes it). Both work with a mouse and a
+ * finger; a phone user who cannot drag precisely taps the corners. The map reports map units
+ * only, and draws what has been placed so far; the editor decides what becomes a block.
+ *
  * ── COLOUR IS THE TICKET CATEGORY ──────────────────────────────────────────────────
  * Each block is filled with the colour of its ticket category (the one most of its seats are
  * in), the same colour the category has everywhere else. It used to be one colour for every
@@ -106,10 +112,26 @@ export interface VenueMapProps {
    * how far in map units. Absent (the buyer's map), blocks do not move and a drag pans instead.
    */
   onMoveBlock?: (sectionId: string, dx: number, dy: number) => void;
+  /**
+   * Turns the map into a drawing surface for a new block (the layout editor only). While it is
+   * set, blocks are not chosen or moved: a drag reports a rectangle, a tap a corner.
+   */
+  draw?: VenueMapDrawing;
   /** The words the map uses. The storefront passes its translations; the default is English. */
   labels?: VenueMapLabels;
   /** `stage` on the storefront's brand layer, for the zoom buttons; `classic` everywhere else. */
   appearance?: BuyerSeatMapAppearance;
+}
+
+export interface VenueMapDrawing {
+  /** The corners placed so far, in map units. */
+  points: VenuePoint[];
+  /** A drag from one corner to the opposite one, in map units. */
+  onRectangle: (from: VenuePoint, to: VenuePoint) => void;
+  /** A tap: the next corner of the outline. */
+  onCorner: (point: VenuePoint) => void;
+  /** A tap on the first corner once there are three: the outline is finished. */
+  onClose: () => void;
 }
 
 /**
@@ -170,6 +192,19 @@ export const VENUE_MAP_LABELS_EN: VenueMapLabels = {
         }`,
 };
 
+/** How near (px) to the first corner a tap closes a drawn outline: about a fingertip. */
+const CLOSE_PX = 18;
+
+/** The four corners of the rectangle between two opposite corners. */
+function rectangleBetween(a: VenuePoint, b: VenuePoint): VenuePoint[] {
+  return [
+    [a[0], a[1]],
+    [b[0], a[1]],
+    [b[0], b[1]],
+    [a[0], b[1]],
+  ];
+}
+
 /** How far one arrow key moves a chosen block, in map units (a hundredth of the map). */
 const KEY_STEP = 10;
 /** Movement (px) before a press becomes a drag; less is a tap that chooses the block. */
@@ -180,6 +215,7 @@ type Gesture =
   | { kind: 'press'; x: number; y: number; blockId: string | null; view: MapView }
   | { kind: 'drag'; x: number; y: number; blockId: string; unitsPerPx: number }
   | { kind: 'pan'; x: number; y: number; view: MapView }
+  | { kind: 'sketch'; from: VenuePoint }
   | { kind: 'pinch'; distance: number; view: MapView; anchor: [number, number] };
 
 /** Where a block stands on the "any left?" scale. Three states, because three is readable. */
@@ -219,6 +255,7 @@ export function VenueMap({
   availabilityLegend = true,
   frame = 'content',
   onMoveBlock,
+  draw,
   labels = VENUE_MAP_LABELS_EN,
   appearance = 'classic',
 }: VenueMapProps) {
@@ -286,6 +323,27 @@ export function VenueMap({
   // A drag or a pinch ends in a click on whatever is under the finger; that click is not a choice.
   const suppressClick = useRef(false);
   const [drag, setDrag] = useState<{ id: string; dx: number; dy: number } | null>(null);
+  /** While drawing: the rectangle being dragged out, and where a mouse is (for the next edge). */
+  const [sketch, setSketch] = useState<{ from: VenuePoint; to: VenuePoint } | null>(null);
+  const [hover, setHover] = useState<VenuePoint | null>(null);
+  const drawing = !!draw;
+  // Leaving drawing mode leaves nothing half-drawn on the map.
+  useEffect(() => {
+    if (drawing) return;
+    setSketch(null);
+    setHover(null);
+  }, [drawing]);
+
+  /** A point on screen as a point on the map, kept on the canvas and whole. */
+  const mapPointAt = (clientX: number, clientY: number, view: MapView): VenuePoint | null => {
+    const r = svgRef.current?.getBoundingClientRect();
+    if (!r || r.width === 0) return null;
+    const [x, y] = pointAt(frameBox, view, clientX - r.left, clientY - r.top, r.width);
+    return [
+      Math.round(Math.min(FULL_CANVAS.w, Math.max(0, x))),
+      Math.round(Math.min(FULL_CANVAS.h, Math.max(0, y))),
+    ];
+  };
 
   const blockIdOf = (target: EventTarget | null) =>
     target instanceof Element
@@ -302,7 +360,7 @@ export function VenueMap({
         kind: 'press',
         x: e.clientX,
         y: e.clientY,
-        blockId: onMoveBlock ? blockIdOf(e.target) : null,
+        blockId: onMoveBlock && !draw ? blockIdOf(e.target) : null,
         view: current,
       };
     } else if (pointers.current.size === 2) {
@@ -310,6 +368,7 @@ export function VenueMap({
       if (!r) return;
       const [a, b] = [...pointers.current.values()];
       setDrag(null);
+      setSketch(null);
       suppressClick.current = true;
       gesture.current = {
         kind: 'pinch',
@@ -327,6 +386,9 @@ export function VenueMap({
   };
 
   const onPointerMove = (e: ReactPointerEvent<SVGSVGElement>) => {
+    // A mouse over the map while drawing shows where the next edge would go.
+    if (draw && e.pointerType === 'mouse' && draw.points.length > 0 && !pointers.current.size)
+      setHover(mapPointAt(e.clientX, e.clientY, current));
     if (!pointers.current.has(e.pointerId)) return;
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     const r = svgRef.current?.getBoundingClientRect();
@@ -334,7 +396,11 @@ export function VenueMap({
     if (!g || !r) return;
     if (g.kind === 'press') {
       if (Math.hypot(e.clientX - g.x, e.clientY - g.y) < DRAG_PX) return;
-      if (g.blockId) {
+      const from = draw && draw.points.length === 0 ? mapPointAt(g.x, g.y, g.view) : null;
+      if (from) {
+        // Drawing, with no corner placed yet: a drag is a rectangle from where it started.
+        gesture.current = { kind: 'sketch', from };
+      } else if (g.blockId) {
         gesture.current = {
           kind: 'drag',
           x: g.x,
@@ -354,7 +420,10 @@ export function VenueMap({
       suppressClick.current = true;
     }
     const now = gesture.current;
-    if (now?.kind === 'drag') {
+    if (now?.kind === 'sketch') {
+      const to = mapPointAt(e.clientX, e.clientY, current);
+      if (to) setSketch({ from: now.from, to });
+    } else if (now?.kind === 'drag') {
       setDrag({
         id: now.blockId,
         dx: (e.clientX - now.x) * now.unitsPerPx,
@@ -376,7 +445,31 @@ export function VenueMap({
   const onPointerEnd = (e: ReactPointerEvent<SVGSVGElement>) => {
     const g = gesture.current;
     pointers.current.delete(e.pointerId);
-    if (g?.kind === 'drag') {
+    if (g?.kind === 'sketch') {
+      setSketch(null);
+      const to = mapPointAt(e.clientX, e.clientY, current);
+      if (e.type === 'pointerup' && draw && to) draw.onRectangle(g.from, to);
+    } else if (g?.kind === 'press' && draw && e.type === 'pointerup') {
+      // A tap while drawing places a corner, and is never also a click that chooses a block.
+      suppressClick.current = true;
+      gesture.current = null;
+      const r = svgRef.current?.getBoundingClientRect();
+      const first = draw.points[0];
+      if (r && first && draw.points.length >= 3) {
+        const vb = viewBoxOf(frameBox, current);
+        const pxPerUnit = r.width / vb.w;
+        const fx = r.left + (first[0] - vb.x) * pxPerUnit;
+        const fy = r.top + (first[1] - vb.y) * pxPerUnit;
+        // Within a fingertip of the first corner: close the outline there.
+        if (Math.hypot(e.clientX - fx, e.clientY - fy) <= CLOSE_PX) {
+          draw.onClose();
+          return;
+        }
+      }
+      const at = mapPointAt(e.clientX, e.clientY, current);
+      if (at) draw.onCorner(at);
+      return;
+    } else if (g?.kind === 'drag') {
       setDrag(null);
       if (e.type === 'pointerup' && onMoveBlock) {
         const dx = Math.round((e.clientX - g.x) * g.unitsPerPx);
@@ -423,7 +516,16 @@ export function VenueMap({
   };
 
   const look = SEAT_MAP_LOOK[appearance];
-  const hint = onMoveBlock ? labels.moveHint : narrow || zoomed ? labels.zoomHint : null;
+  // While drawing, the editor says what to do, next to its Finish and Cancel buttons.
+  const hint = draw
+    ? null
+    : onMoveBlock
+      ? labels.moveHint
+      : narrow || zoomed
+        ? labels.zoomHint
+        : null;
+  /** A corner marker's radius: about 6px on screen at any zoom. */
+  const markR = box.w / 90;
 
   return (
     <div className="space-y-3">
@@ -469,20 +571,25 @@ export function VenueMap({
       <svg
         ref={svgRef}
         viewBox={`${round1(box.x)} ${round1(box.y)} ${round1(box.w)} ${round1(box.h)}`}
-        className="w-full select-none rounded-xl border border-border bg-background-subtle"
+        className={`w-full select-none rounded-xl border bg-background-subtle ${
+          draw ? 'cursor-crosshair border-action-primary' : 'border-border'
+        }`}
         // The box keeps the venue's proportions at every zoom: zooming changes what is inside it.
         style={{
           aspectRatio: `${frameBox.w} / ${frameBox.h}`,
           // Zoomed, one finger moves the map; unzoomed it scrolls the page, as it always did.
-          touchAction: zoomed ? 'none' : 'pan-y',
+          // Drawing, a finger draws: the page must not scroll out from under it.
+          touchAction: zoomed || draw ? 'none' : 'pan-y',
         }}
         data-zoom={current.scale.toFixed(2)}
+        data-drawing={draw ? 'true' : undefined}
         role="group"
         aria-label={labels.mapLabel(focal.label)}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerEnd}
         onPointerCancel={onPointerEnd}
+        onPointerLeave={() => setHover(null)}
         onClickCapture={(e) => {
           if (!suppressClick.current) return;
           suppressClick.current = false;
@@ -561,7 +668,7 @@ export function VenueMap({
                 : section.priceMinorFrom !== null
                   ? formatPrice(section.priceMinorFrom)
                   : null;
-            const movable = !!onMoveBlock && !standingZone;
+            const movable = !!onMoveBlock && !standingZone && !draw;
             const moving = drag?.id === section.id ? drag : null;
             return (
               <g
@@ -590,16 +697,18 @@ export function VenueMap({
                   } ${
                     soldOut
                       ? 'cursor-not-allowed'
-                      : movable
-                        ? 'cursor-move hover:brightness-110'
-                        : 'cursor-pointer hover:brightness-110'
+                      : draw
+                        ? 'cursor-crosshair'
+                        : movable
+                          ? 'cursor-move hover:brightness-110'
+                          : 'cursor-pointer hover:brightness-110'
                   }`}
                   aria-pressed={
                     soldOut || standingZone || activeSectionId === undefined
                       ? undefined
                       : activeSectionId === section.id
                   }
-                  onClick={soldOut || standingZone ? undefined : () => onSelect(section.id)}
+                  onClick={soldOut || standingZone || draw ? undefined : () => onSelect(section.id)}
                   /*
                     Keyboard reachability on an SVG shape needs all of this: a role, a
                     tabindex, and a key handler. Without it the entire venue is mouse-only,
@@ -671,6 +780,50 @@ export function VenueMap({
               </g>
             );
           })}
+
+        {draw ? (
+          <g className="pointer-events-none" data-testid="venue-map-drawing">
+            {sketch ? (
+              <polygon
+                points={toPoints(rectangleBetween(sketch.from, sketch.to))}
+                className="fill-action-primary/20 stroke-action-primary"
+                strokeWidth={2}
+                strokeDasharray="6 4"
+                vectorEffect="non-scaling-stroke"
+                data-testid="venue-map-sketch"
+              />
+            ) : null}
+            {draw.points.length > 0 ? (
+              <>
+                {draw.points.length >= 3 ? (
+                  <polygon points={toPoints(draw.points)} className="fill-action-primary/15" />
+                ) : null}
+                <polyline
+                  points={toPoints(hover ? [...draw.points, hover] : draw.points)}
+                  className="fill-none stroke-action-primary"
+                  strokeWidth={2}
+                  strokeLinejoin="round"
+                  vectorEffect="non-scaling-stroke"
+                />
+                {draw.points.map(([x, y], i) => (
+                  <circle
+                    key={i}
+                    cx={x}
+                    cy={y}
+                    // The first corner is bigger: tapping it again closes the shape.
+                    r={i === 0 && draw.points.length >= 3 ? markR * 1.6 : markR}
+                    className={`stroke-action-primary ${
+                      i === 0 ? 'fill-background-surface' : 'fill-action-primary'
+                    }`}
+                    strokeWidth={2}
+                    vectorEffect="non-scaling-stroke"
+                    data-corner={i}
+                  />
+                ))}
+              </>
+            ) : null}
+          </g>
+        ) : null}
       </svg>
 
       {categoryKey.length > 0 || availabilityLegend ? (

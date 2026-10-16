@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
 import { KeyRound, Lock, Mail, Ticket } from 'lucide-react';
 import type { AuthTokens } from '@eticketsgo/shared-types';
-import { api, errorMessage, tokenStore } from './api';
+import { api, errorMessage, takeSignedOutNotice, tokenStore } from './api';
 import { Button, Card, Input } from './components';
 import { nextFromSearch } from './safe-next';
 
@@ -80,6 +80,18 @@ export function LoginForm({
   const [challenge, setChallenge] = useState<string | null>(null);
   const [useRecovery, setUseRecovery] = useState(false);
   const [mfaCode, setMfaCode] = useState('');
+
+  /*
+    Why the last session ended, when it was not the ordinary way: a team removal says "You no
+    longer have access to <organization>". Read once after mount, then forgotten, so a later
+    visit to this page does not repeat it.
+  */
+  const [notice, setNotice] = useState<string | null>(null);
+  useEffect(() => {
+    // Only ever set: a second run of this effect (React's strict mode) finds it already taken.
+    const taken = takeSignedOutNotice();
+    if (taken) setNotice(taken);
+  }, []);
 
   /*
     `?email=` fills the address. The storefront hands a newly made organizer here with it, and an
@@ -187,6 +199,15 @@ export function LoginForm({
           <h1 className="text-h3 font-bold tracking-tight text-text-primary">{title}</h1>
           {subtitle && <p className="mt-1.5 text-[0.9375rem] text-text-muted">{subtitle}</p>}
         </div>
+        {notice && (
+          <p
+            role="status"
+            data-testid="signed-out-notice"
+            className="mb-4 rounded-lg bg-tint-warning px-4 py-3 text-[0.9375rem] text-status-warning"
+          >
+            {notice} To work with this team again, ask one of its owners to invite you.
+          </p>
+        )}
         <Card className="space-y-4">
           {challenge ? (
             <form className="space-y-4" onSubmit={submitCode}>
