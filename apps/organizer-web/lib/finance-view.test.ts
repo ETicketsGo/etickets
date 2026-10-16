@@ -597,10 +597,12 @@ describe('money holds at both extremes', () => {
 });
 
 /*
-  ── L6: HOW FINANCE MATCHES THE OVERVIEW ─────────────────────────────────────────────────
-  The QA numbers for the seed organizer, Bengaluru Live, 2026-10-16. Overview gross 23,281;
-  refunds 5,346; platform fee 55.82; held 8,292; ready 6,989.18; in a payout 1,598; and Rs 1,000
-  sold for a cancelled event that no Finance figure reported. The bridge passes each through.
+  ── L6 + G1: HOW FINANCE MATCHES THE OVERVIEW ────────────────────────────────────────────
+  The QA numbers for the seed organizer, Bengaluru Live, 2026-10-16 after the G1 walk: gross
+  26,578; refunds 7,739.94, of which 96.94 is booking and payment fees returned by four
+  cancellation refunds (the organizer's share is 7,643); platform fee 55.82; held 8,792; ready
+  6,989.18; in a payout 1,598; Rs 1,000 sold for a cancelled event; and two cash bookings of a
+  cancelled show, Rs 300 handed back and Rs 200 still owed back. The bridge passes each through.
 */
 describe('overviewBridge', () => {
   const analytics = {
@@ -608,16 +610,19 @@ describe('overviewBridge', () => {
     revenue: [
       {
         currency: 'INR',
-        grossMinor: 2_328_100,
-        bookingFeesMinor: 31_500,
-        paymentFeesMinor: 44_192,
+        grossMinor: 2_657_800,
+        bookingFeesMinor: 40_000,
+        paymentFeesMinor: 50_956,
         organizerFeesMinor: 5_582,
         discountMinor: 0,
-        netMinor: 1_787_918,
-        confirmedBookings: 38,
+        netMinor: 1_857_918,
+        confirmedBookings: 45,
+        refundedSalesMinor: 764_300,
+        refundedOutsideSalesMinor: 9_694,
+        cashGivenBackMinor: 30_000,
       },
     ],
-    refunds: [{ currency: 'INR', count: 5, amountMinor: 534_600, refundRate: 23 }],
+    refunds: [{ currency: 'INR', count: 9, amountMinor: 773_994, refundRate: 29 }],
   } as unknown as OrganizerAnalytics;
   const row: PayoutSummaryCurrency = {
     currency: 'INR',
@@ -630,30 +635,42 @@ describe('overviewBridge', () => {
     net: 698_918,
     paid: 0,
     pending: 159_800,
-    held: 829_200,
+    held: 879_200,
     cancelled: 100_000,
     cash: 0,
+    cashToReturn: 20_000,
     feeNotDeducted: 0,
   };
 
   it('quotes the Overview and the ledger without adding anything up', () => {
     const b = overviewBridge(analytics, row)!;
-    expect(b.sold.map((l) => l.amountMinor)).toEqual([2_328_100, 534_600, 5_582]);
-    expect(b.afterMinor).toBe(1_787_918);
+    expect(b.sold.map((l) => [l.label, l.amountMinor, l.negative ?? false])).toEqual([
+      ['Gross sales on your Overview', 2_657_800, false],
+      ['Ticket money refunded to buyers', 764_300, true],
+      ['Cash given back at the venue', 30_000, true],
+      ['Your platform fee', 5_582, true],
+    ]);
+    expect(b.afterMinor).toBe(1_857_918);
     expect(b.where.map((l) => [l.label, l.amountMinor])).toEqual([
-      ['Held until shows finish', 829_200],
+      ['Held until shows finish', 879_200],
       ['Ready to pay out now', 698_918],
       ['In a payout, not sent', 159_800],
       ['Paid to you', 0],
       ['Sales of cancelled events, to refund to buyers', 100_000],
+      ['Cash to give back for cancelled shows', 20_000],
     ]);
-    // On QA the lines do add up to the Overview's figure: the reason the bridge exists.
-    expect(b.where.reduce((t, l) => t + l.amountMinor, 0)).toBe(b.afterMinor);
+    // On QA both columns add up to the same figure: the reason the bridge exists.
+    const signed = (lines: { amountMinor: number; negative?: boolean }[]) =>
+      lines.reduce((t, l) => t + (l.negative ? -l.amountMinor : l.amountMinor), 0);
+    expect(signed(b.sold)).toBe(b.afterMinor);
+    expect(signed(b.where)).toBe(b.afterMinor);
     expect(b.discountMinor).toBeNull();
+    // The fees refunds gave back are named, not taken off: they were never in gross.
+    expect(b.feesReturnedMinor).toBe(9_694);
   });
 
   it('names cash only when there is some', () => {
-    const b = overviewBridge(analytics, { ...row, cancelled: 0, cash: 45_000 })!;
+    const b = overviewBridge(analytics, { ...row, cancelled: 0, cash: 45_000, cashToReturn: 0 })!;
     expect(b.where.map((l) => l.label)).toEqual([
       'Held until shows finish',
       'Ready to pay out now',
@@ -663,11 +680,31 @@ describe('overviewBridge', () => {
     ]);
   });
 
+  it('leaves out lines for cash given back and fees returned when there were none', () => {
+    const plain = {
+      ...analytics,
+      revenue: [{ ...analytics.revenue![0], cashGivenBackMinor: 0, refundedOutsideSalesMinor: 0 }],
+    } as OrganizerAnalytics;
+    const b = overviewBridge(plain, row)!;
+    expect(b.sold.map((l) => l.label)).toEqual([
+      'Gross sales on your Overview',
+      'Ticket money refunded to buyers',
+      'Your platform fee',
+    ]);
+    expect(b.feesReturnedMinor).toBeNull();
+  });
+
   it('is left out rather than shown with a gap it cannot explain', () => {
     // An API too old to send cancelled/cash would bring back the unexplained difference.
     const { cancelled: _c, cash: _k, ...old } = row;
     expect(overviewBridge(analytics, old)).toBeNull();
     expect(overviewBridge(analytics, { ...row, feeNotDeducted: undefined })).toBeNull();
+    // An API from before G1 states refunds whole and counts cancelled cash as taken: no bridge.
+    expect(overviewBridge(analytics, { ...row, cashToReturn: undefined })).toBeNull();
+    const { refundedSalesMinor: _r, ...oldRevenue } = analytics.revenue![0];
+    expect(
+      overviewBridge({ ...analytics, revenue: [oldRevenue] } as OrganizerAnalytics, row),
+    ).toBeNull();
     // A role that is not shown sales, or nothing sold in this currency.
     expect(overviewBridge(undefined, row)).toBeNull();
     expect(overviewBridge(analytics, { ...row, currency: 'USD' })).toBeNull();
@@ -677,7 +714,7 @@ describe('overviewBridge', () => {
     // A held show with a 4 018 fee: held is stated before it, the Overview after it.
     const withFee = {
       ...analytics,
-      revenue: [{ ...analytics.revenue![0], organizerFeesMinor: 9_600, netMinor: 1_783_900 }],
+      revenue: [{ ...analytics.revenue![0], organizerFeesMinor: 9_600, netMinor: 1_853_900 }],
     } as OrganizerAnalytics;
     const b = overviewBridge(withFee, { ...row, feeNotDeducted: 4_018 })!;
     const last = b.where[b.where.length - 1];

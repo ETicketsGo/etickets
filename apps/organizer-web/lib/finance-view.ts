@@ -330,6 +330,11 @@ export interface OverviewBridgeView {
   where: BridgeLine[];
   /** Discounts the ledger takes off when a show is paid out. Null when there were none. */
   discountMinor: number | null;
+  /**
+   * Booking and payment fees that refunds gave back to buyers. Never part of gross, so not taken
+   * off it; named so "Refunded to buyers" elsewhere still matches. Null when there were none.
+   */
+  feesReturnedMinor: number | null;
 }
 
 /**
@@ -349,6 +354,15 @@ export interface OverviewBridgeView {
  * Null when either side cannot support it: no sales in this currency on the Overview's side (or a
  * role that is not shown sales), or an API too old to send `cancelled`, `cash` and
  * `feeNotDeducted` - without them the gap would be back, unexplained.
+ *
+ * ── WHY "REFUNDED" IS THE TICKET MONEY ONLY (G1) ──────────────────────────────────
+ * QA showed the two sides Rs 69.64 apart, then Rs 96.94 after one more cancellation. It was
+ * exactly the booking and payment fees that cancellation refunds return to buyers: the left side
+ * took whole refunds off a gross that never held those fees, while the buckets take off only the
+ * organizer's share. And "Cash you took at the venue" counted cash bookings cancelled since, one
+ * of them already handed back. Now the left side takes off the organizer's share of refunds and
+ * any cash handed back, the fees returned are named under the table, and cash still owed back is
+ * its own line. Every one is still a server field; an API older than them gets no bridge.
  */
 export function overviewBridge(
   analytics: OrganizerAnalytics | undefined,
@@ -356,10 +370,17 @@ export function overviewBridge(
 ): OverviewBridgeView | null {
   const revenue = analytics?.revenue?.find((r) => r.currency === row.currency);
   if (revenue === undefined || revenue.grossMinor === 0) return null;
-  if (row.cancelled === undefined || row.cash === undefined || row.feeNotDeducted === undefined) {
+  if (
+    row.cancelled === undefined ||
+    row.cash === undefined ||
+    row.cashToReturn === undefined ||
+    row.feeNotDeducted === undefined ||
+    revenue.refundedSalesMinor === undefined ||
+    revenue.refundedOutsideSalesMinor === undefined ||
+    revenue.cashGivenBackMinor === undefined
+  ) {
     return null;
   }
-  const refunds = analytics?.refunds?.find((r) => r.currency === row.currency)?.amountMinor ?? 0;
 
   const where: BridgeLine[] = [
     { label: 'Held until shows finish', amountMinor: row.held },
@@ -377,6 +398,12 @@ export function overviewBridge(
   if (row.cash !== 0) {
     where.push({ label: 'Cash you took at the venue', amountMinor: row.cash });
   }
+  if (row.cashToReturn !== 0) {
+    where.push({
+      label: 'Cash to give back for cancelled shows',
+      amountMinor: row.cashToReturn,
+    });
+  }
   // Held, cancelled and cash are stated before the fee; the Overview's figure is after it.
   if (row.feeNotDeducted !== 0) {
     where.push({
@@ -386,15 +413,34 @@ export function overviewBridge(
     });
   }
 
+  const sold: BridgeLine[] = [
+    { label: 'Gross sales on your Overview', amountMinor: revenue.grossMinor },
+    {
+      label: 'Ticket money refunded to buyers',
+      amountMinor: revenue.refundedSalesMinor,
+      negative: true,
+    },
+  ];
+  if (revenue.cashGivenBackMinor !== 0) {
+    sold.push({
+      label: 'Cash given back at the venue',
+      amountMinor: revenue.cashGivenBackMinor,
+      negative: true,
+    });
+  }
+  sold.push({
+    label: 'Your platform fee',
+    amountMinor: revenue.organizerFeesMinor,
+    negative: true,
+  });
+
   return {
     currency: row.currency,
-    sold: [
-      { label: 'Gross sales on your Overview', amountMinor: revenue.grossMinor },
-      { label: 'Refunded to buyers', amountMinor: refunds, negative: true },
-      { label: 'Your platform fee', amountMinor: revenue.organizerFeesMinor, negative: true },
-    ],
+    sold,
     afterMinor: revenue.netMinor,
     where,
     discountMinor: revenue.discountMinor > 0 ? revenue.discountMinor : null,
+    feesReturnedMinor:
+      revenue.refundedOutsideSalesMinor > 0 ? revenue.refundedOutsideSalesMinor : null,
   };
 }

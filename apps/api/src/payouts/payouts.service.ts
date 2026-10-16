@@ -2,6 +2,7 @@ import { HttpStatus, Injectable, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import {
+  BookingStatus,
   buildProviderEntries,
   currencyForCountry,
   EventStatus,
@@ -23,6 +24,7 @@ import { derivePayoutAccountState, type PayoutAccountState } from './payout-acco
 import { payoutDestinationVerdict, verifierMayNotPay } from './payout-account-safety';
 import {
   calculateCurrencySettlement,
+  organizerShareOfRefund,
   type CurrencySettlement,
 } from './currency-settlement.calculator';
 import {
@@ -98,11 +100,21 @@ export interface PayoutSummaryCurrency {
    * reconciled. See `notPaidOut()`.
    */
   cancelled: number;
-  /** Cash taken at the venue, after completed refunds. The organizer already holds it. */
+  /**
+   * Cash taken at the venue for bookings that still stand, after completed refunds. The organizer
+   * already holds it. A cancelled cash booking is never in here: see `cashToReturn`.
+   */
   cash: number;
   /**
-   * The organizer fee on the bookings behind `held`, `cancelled` and `cash`, which are all stated
-   * before it. Taking it off is what makes the three add up with the after-fee figures.
+   * Cash taken at the venue for bookings cancelled since and not yet handed back. The organizer
+   * holds it, but it is the buyer's. Once handed back it is in no Finance figure, and the
+   * Overview's net leaves it out too (`OrganizerCurrencyRevenue.cashGivenBackMinor`).
+   */
+  cashToReturn: number;
+  /**
+   * The organizer fee on the bookings behind `held`, `cancelled`, `cash` and `cashToReturn`, and on
+   * cash already handed back, which are all stated before it (the Overview's fee total counts every
+   * confirmed booking). Taking it off is what makes them add up with the after-fee figures.
    */
   feeNotDeducted: number;
 }
@@ -278,6 +290,14 @@ export type PayoutAccountStateResponse = PayoutAccountState & {
   providers: PayoutProviderEntry[];
   providerSummary: PayoutProviderSummary;
 };
+
+/** One currency's sales outside the payout ledger. See `PayoutsService.notPaidOut`. */
+interface NotPaidOutTotals {
+  cancelled: number;
+  cash: number;
+  cashToReturn: number;
+  feeBefore: number;
+}
 
 @Injectable()
 export class PayoutsService {
@@ -642,18 +662,25 @@ export class PayoutsService {
         select: {
           amountMinor: true,
           taxAddedMinor: true,
+          platformFeeRefundedMinor: true,
           booking: { select: { eventId: true, currency: true } },
         },
       }),
     ]);
     if (rows.length === 0) return [];
 
+    /*
+      The organizer's share of each refund, by the calculator's own rule. A cancellation also
+      returns the booking and payment fees, which were never in `subtotalMinor`; taking the whole
+      refund off took those fees off the organizer's held sales as well.
+    */
     const refundedBy = new Map<string, number>();
     for (const refund of refunds) {
       const key = `${refund.booking.eventId}|${refund.booking.currency}`;
       refundedBy.set(
         key,
-        (refundedBy.get(key) ?? 0) + refund.amountMinor - (refund.taxAddedMinor ?? 0),
+        (refundedBy.get(key) ?? 0) +
+          organizerShareOfRefund({ ...refund, currency: refund.booking.currency }),
       );
     }
 
@@ -725,8 +752,15 @@ export class PayoutsService {
    * already holds it). QA's seed organizer had Rs 1,000 of the first, and Overview and Finance
    * could not be reconciled by anybody reading them.
    *
-   * Same refund arithmetic as `heldRevenue` and the payout (refund less tax added on top), and
-   * the same per-event clamp, so the figures are stated on the ledger's own basis. Read only.
+   * Same refund arithmetic as `heldRevenue` and the calculator (`organizerShareOfRefund`: the
+   * refund less tax added on top and the platform fees it returned), and the same per-event clamp,
+   * so the figures are stated on the ledger's own basis. Read only.
+   *
+   * Cash is split by whether the booking still stands. A cash booking cancelled with its show
+   * keeps `confirmedAt` but writes no `Refund` (the money only crossed a counter), so counting it
+   * as "cash you took" reported money the organizer owes back, or has already given back, as
+   * theirs. Owed back is `cashToReturn`. Handed back is in no figure here; only its fee is
+   * counted, because the Overview's fee total still includes it.
    *
    * `heldFee` is the organizer fee inside the held, cancelled and cash figures. All three are
    * stated BEFORE the fee (`held` by its own contract), while the Overview's figure is after it,
@@ -739,9 +773,16 @@ export class PayoutsService {
     until: Date,
     transferredEventIds: string[],
     holdDays: number,
-  ): Promise<Map<string, { cancelled: number; cash: number; feeBefore: number }>> {
+  ): Promise<Map<string, NotPaidOutTotals>> {
+    const cashWhere: Prisma.BookingWhereInput = {
+      organizationId,
+      paymentMethod: 'CASH',
+      ...(eventId ? { eventId } : {}),
+      confirmedAt: { lte: until },
+    };
     const populations: Array<{
-      key: 'held' | 'cancelled' | 'cash';
+      // `held` and `cashReturned` are read only for their fee.
+      key: 'held' | 'cancelled' | 'cash' | 'cashToReturn' | 'cashReturned';
       where: Prisma.BookingWhereInput;
     }> = [
       {
@@ -760,18 +801,18 @@ export class PayoutsService {
           event: { status: EventStatus.CANCELLED },
         },
       },
+      { key: 'cash', where: { ...cashWhere, status: { not: BookingStatus.CANCELLED } } },
       {
-        key: 'cash',
-        where: {
-          organizationId,
-          paymentMethod: 'CASH',
-          ...(eventId ? { eventId } : {}),
-          confirmedAt: { lte: until },
-        },
+        key: 'cashToReturn',
+        where: { ...cashWhere, status: BookingStatus.CANCELLED, cashReturnedAt: null },
+      },
+      {
+        key: 'cashReturned',
+        where: { ...cashWhere, status: BookingStatus.CANCELLED, cashReturnedAt: { not: null } },
       },
     ];
 
-    const out = new Map<string, { cancelled: number; cash: number; feeBefore: number }>();
+    const out = new Map<string, NotPaidOutTotals>();
     for (const { key, where } of populations) {
       const [rows, refunds] = await Promise.all([
         client.booking.groupBy({
@@ -784,6 +825,7 @@ export class PayoutsService {
           select: {
             amountMinor: true,
             taxAddedMinor: true,
+            platformFeeRefundedMinor: true,
             booking: { select: { eventId: true, currency: true } },
           },
         }),
@@ -793,7 +835,8 @@ export class PayoutsService {
         const k = `${refund.booking.eventId}|${refund.booking.currency}`;
         refundedBy.set(
           k,
-          (refundedBy.get(k) ?? 0) + refund.amountMinor - (refund.taxAddedMinor ?? 0),
+          (refundedBy.get(k) ?? 0) +
+            organizerShareOfRefund({ ...refund, currency: refund.booking.currency }),
         );
       }
       for (const row of rows) {
@@ -803,8 +846,13 @@ export class PayoutsService {
           sold,
         );
         const currency = row.currency.toUpperCase();
-        const totals = out.get(currency) ?? { cancelled: 0, cash: 0, feeBefore: 0 };
-        if (key !== 'held') totals[key] += sold - refunded;
+        const totals = out.get(currency) ?? {
+          cancelled: 0,
+          cash: 0,
+          cashToReturn: 0,
+          feeBefore: 0,
+        };
+        if (key !== 'held' && key !== 'cashReturned') totals[key] += sold - refunded;
         // On every booking, refunded or not: the Overview's fee total is summed the same way.
         totals.feeBefore += row._sum.organizerFeeMinor ?? 0;
         out.set(currency, totals);
@@ -861,9 +909,10 @@ export class PayoutsService {
    *   held
    *       Revenue that exists and is not yet eligible, with the date it becomes so. Excludes
    *       cancelled events, which owe refunds rather than a payout.
-   *   cancelled / cash
+   *   cancelled / cash / cashToReturn
    *       Sales this ledger never pays out: online sales of cancelled events (owed back to
-   *       buyers) and cash taken at the venue. Reported so the Overview's gross can be traced.
+   *       buyers), cash taken at the venue for bookings that stand, and cash taken for bookings
+   *       cancelled since and not yet handed back. Reported so the Overview can be traced.
    *
    * `net` can be negative when a period's refunds exceed its sales. That is a real balance owed
    * back and is reported as it stands rather than clamped.
@@ -930,7 +979,7 @@ export class PayoutsService {
         ...held.map((h) => h.currency.toUpperCase()),
         ...payouts.map((p) => p.currency.toUpperCase()),
         ...[...outside]
-          .filter(([, v]) => v.cancelled !== 0 || v.cash !== 0)
+          .filter(([, v]) => v.cancelled !== 0 || v.cash !== 0 || v.cashToReturn !== 0)
           .map(([currency]) => currency),
       ]);
 
@@ -957,6 +1006,7 @@ export class PayoutsService {
             .reduce((total, h) => total + h.grossMinor, 0),
           cancelled: outside.get(currency)?.cancelled ?? 0,
           cash: outside.get(currency)?.cash ?? 0,
+          cashToReturn: outside.get(currency)?.cashToReturn ?? 0,
           feeNotDeducted: outside.get(currency)?.feeBefore ?? 0,
         };
       });

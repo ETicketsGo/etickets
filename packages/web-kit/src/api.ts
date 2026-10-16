@@ -5852,9 +5852,14 @@ export interface PayoutSummaryCurrency {
    * Optional only because an API older than this field does not send it.
    */
   cancelled?: number;
-  /** Cash taken at the venue, after refunds. The organizer already holds it. */
+  /** Cash taken at the venue for bookings that still stand. The organizer already holds it. */
   cash?: number;
-  /** The organizer fee inside `held`, `cancelled` and `cash`, which are stated before it. */
+  /** Cash taken for bookings cancelled since and not yet handed back: the buyer's money. */
+  cashToReturn?: number;
+  /**
+   * The organizer fee inside `held`, `cancelled`, `cash` and `cashToReturn` (and on cash already
+   * handed back), which are stated before it.
+   */
   feeNotDeducted?: number;
 }
 
@@ -6279,6 +6284,17 @@ export interface AnalyticsRevenue {
 /** The same figures, labelled with the currency they are in. */
 export interface AnalyticsCurrencyRevenue extends AnalyticsRevenue {
   currency: string;
+  /*
+    What `netMinor` takes off gross besides the fee (organizer analytics only):
+    netMinor = grossMinor - organizerFeesMinor - refundedSalesMinor - cashGivenBackMinor.
+    Optional only because an API older than these fields does not send them.
+  */
+  /** The organizer's share of completed refunds: the ticket money that came off their sales. */
+  refundedSalesMinor?: number;
+  /** The rest of those refunds: booking and payment fees returned to buyers, never in gross. */
+  refundedOutsideSalesMinor?: number;
+  /** Cash handed back at the counter for cancelled cash bookings. */
+  cashGivenBackMinor?: number;
 }
 /** One market an organization trades in, and what it took there. */
 export interface AnalyticsCountryRevenue {

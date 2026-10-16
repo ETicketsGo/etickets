@@ -54,6 +54,38 @@ export interface CurrencyRefunds extends RefundMetrics {
   currency: string;
 }
 
+/**
+ * An organizer's revenue in one currency, with `netMinor` stated as what THEY keep.
+ *
+ * ── WHY A REFUND IS NOT ALL THE ORGANIZER'S ────────────────────────────────────────
+ * `netMinor` used to be gross - organizer fee - every completed refund. But a refund for a
+ * cancelled show returns the buyer everything they paid, booking and payment fees included, and
+ * those fees were never in `grossMinor` (ticket face value). So each such refund took the fees off
+ * the organizer a second time: on QA a Rs 627.30 refund of a Rs 600 ticket lowered this figure by
+ * Rs 627.30 while the payout ledger, which charges the organizer only their share
+ * (`organizerShareOfRefund`), lowered its figures by Rs 600. The Finance page's bridge between the
+ * two could not add up, by exactly the fees returned.
+ *
+ * Cash taken at the counter for a show that was then cancelled is the other gap. Its booking keeps
+ * `confirmedAt`, so it stays in `grossMinor`, but no `Refund` row is written when the cash is
+ * handed back (see `CashReturnsService`). Without subtracting it here the organizer was shown
+ * money a buyer already has.
+ *
+ * The three parts are reported so the Finance page can show each one as a server figure:
+ *   netMinor = grossMinor - organizerFeesMinor - refundedSalesMinor - cashGivenBackMinor
+ */
+export interface OrganizerCurrencyRevenue extends CurrencyRevenue {
+  /** The organizer's share of completed refunds: what came off their sales (`organizerShareOfRefund`). */
+  refundedSalesMinor: number;
+  /**
+   * The rest of those refunds: booking and payment fees (and tax added on top) returned to buyers.
+   * Never part of `grossMinor`, so never taken off the organizer. refunds.amountMinor is the two added.
+   */
+  refundedOutsideSalesMinor: number;
+  /** Cash handed back at the counter for cancelled cash bookings (their ticket price). */
+  cashGivenBackMinor: number;
+}
+
 /** One market an organization actually trades in, and what it took there. */
 export interface CountryRevenue {
   /** As stored on the venue: "India", "United States". */
@@ -133,7 +165,7 @@ export interface OrganizerAnalytics {
    * was ever charged. So the answer is a list, and a dashboard showing an organizer with one
    * currency sees exactly what it always did.
    */
-  revenue?: CurrencyRevenue[];
+  revenue?: OrganizerCurrencyRevenue[];
   refunds?: (CurrencyRefunds & { refundRate: number })[];
   coupons?: { currency: string; redemptions: number; discountMinor: number }[];
   /** Where the money came from, so a multi-country organizer can see the split. */
@@ -301,6 +333,52 @@ export class AnalyticsService {
     }));
   }
 
+  /**
+   * What the Overview's net takes off gross besides the fee, per currency. See
+   * `OrganizerCurrencyRevenue`.
+   *
+   * The refund share is `organizerShareOfRefund` written in SQL: the refund less tax added on top
+   * and the platform fees it returned, never below zero, row by row - the same clamp, so the two
+   * cannot round differently. Cash given back is the ticket price of cancelled cash bookings whose
+   * money was handed back; one still owed back is still with the organizer and stays in net.
+   * One query, with the enum values as literals (a bound text parameter does not compare to an
+   * enum column).
+   */
+  private async organizerDeductionsByCurrency(organizationId: string) {
+    const rows = await this.prisma.$queryRaw<
+      { currency: string; sales: bigint; outside: bigint; cashback: bigint }[]
+    >`
+      SELECT x.currency AS currency,
+             SUM(x.sales)::bigint AS sales,
+             SUM(x.outside)::bigint AS outside,
+             SUM(x.cashback)::bigint AS cashback
+      FROM (
+        SELECT b."currency" AS currency,
+               GREATEST(0, r."amountMinor" - r."taxAddedMinor" - r."platformFeeRefundedMinor") AS sales,
+               r."amountMinor" - GREATEST(0, r."amountMinor" - r."taxAddedMinor" - r."platformFeeRefundedMinor") AS outside,
+               0 AS cashback
+        FROM "Refund" r
+        JOIN "Booking" b ON b."id" = r."bookingId"
+        WHERE r."status" = 'COMPLETED' AND r."organizationId" = ${organizationId}
+        UNION ALL
+        SELECT b."currency", 0, 0, b."subtotalMinor"
+        FROM "Booking" b
+        WHERE b."organizationId" = ${organizationId}
+          AND b."paymentMethod" = 'CASH'
+          AND b."status" = 'CANCELLED'
+          AND b."confirmedAt" IS NOT NULL
+          AND b."cashReturnedAt" IS NOT NULL
+      ) x
+      GROUP BY 1
+    `;
+    return new Map(
+      rows.map((r) => [
+        r.currency,
+        { sales: Number(r.sales), outside: Number(r.outside), cashBack: Number(r.cashback) },
+      ]),
+    );
+  }
+
   /** Completed-refund count + amount in one aggregate. Public for report reuse. */
   async refundStats(where: Prisma.RefundWhereInput): Promise<RefundMetrics> {
     const agg = await this.prisma.refund.aggregate({
@@ -463,6 +541,7 @@ export class AnalyticsService {
       topEvents,
       countries,
       marketActivity,
+      deductions,
     ] = await Promise.all([
       this.attendance({
         organizationId,
@@ -482,6 +561,7 @@ export class AnalyticsService {
       showFinancials ? this.topEvents(organizationId) : Promise.resolve(null),
       showFinancials ? this.countryRevenue(organizationId) : Promise.resolve(null),
       showFinancials ? this.marketActivity(organizationId) : Promise.resolve(null),
+      showFinancials ? this.organizerDeductionsByCurrency(organizationId) : Promise.resolve(null),
     ]);
 
     const capacity = inventory._sum.quantityTotal ?? 0;
@@ -508,10 +588,19 @@ export class AnalyticsService {
         organizer with refunds in a currency they no longer sell in still sees them, as their
         own row, rather than having them quietly subtracted from an unrelated total.
       */
-      const refundByCurrency = new Map(refunds.map((r) => [r.currency, r]));
+      /*
+        Only the organizer's share of a refund comes off, and cash handed back at the counter does
+        too. See `OrganizerCurrencyRevenue` for why the whole refund was the wrong figure.
+      */
       result.revenue = revenue.map((r) => {
-        const refunded = refundByCurrency.get(r.currency)?.amountMinor ?? 0;
-        return { ...r, netMinor: r.netMinor - refunded };
+        const d = deductions?.get(r.currency) ?? { sales: 0, outside: 0, cashBack: 0 };
+        return {
+          ...r,
+          netMinor: r.netMinor - d.sales - d.cashBack,
+          refundedSalesMinor: d.sales,
+          refundedOutsideSalesMinor: d.outside,
+          cashGivenBackMinor: d.cashBack,
+        };
       });
       result.refunds = refunds.map((r) => {
         const gross = revenue.find((v) => v.currency === r.currency)?.grossMinor ?? 0;
