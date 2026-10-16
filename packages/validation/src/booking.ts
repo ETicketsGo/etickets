@@ -66,6 +66,22 @@ export const createBookingSchema = z
 export type CreateBookingInput = z.infer<typeof createBookingSchema>;
 
 /**
+ * A sale at the counter: the organizer's staff sell tickets to the person in front of them,
+ * take the cash, and the tickets are issued at once.
+ *
+ * No `paymentMethod`: the server decides it (cash, or nothing for a free event). The email is
+ * optional because a walk-up buyer may not give one; the tickets are printed either way, and
+ * the confirmation then goes to the organization's own contact address.
+ */
+export const counterSaleSchema = z.object({
+  eventSessionId: z.string().cuid(),
+  items: z.array(bookingItemSchema).min(1).max(50),
+  buyerName: z.string().trim().min(2).max(120),
+  buyerEmail: deliverableEmailSchema.optional(),
+});
+export type CounterSaleInput = z.infer<typeof counterSaleSchema>;
+
+/**
  * Price a cart WITHOUT creating anything.
  *
  * The buyer's cart, minus the buyer. A quote holds no seats, writes no rows and redeems no

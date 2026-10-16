@@ -105,7 +105,7 @@ describe('who can actually fix it', () => {
     expect(blocker!.owner).toBe('PLATFORM');
     // The defect, stated as a test: there was a link, and it led nowhere useful.
     expect(blocker!.fixPath).toBeNull();
-    expect(blocker!.fix).toContain('Nothing here can fix this');
+    expect(blocker!.fix).toContain('ETicketsGo has to add the price rules first');
   });
 
   it("sends them to the cinema to ASK for its legal type, which is the platform's to set", async () => {

@@ -47,9 +47,24 @@ const SENTENCES: Record<string, string> = {
     'The payment provider accepted the refund, then reported it failed. The tickets were already cancelled',
   REFUND_TICKETS_NOT_LIVE:
     'Refund stopped: some of its tickets had already been refunded or cancelled. Nothing was paid out',
+  REFUND_RETRY_STARTED: 'Sent to the payment provider again',
+  REFUND_RETRY_REFUSED: 'Try again was refused, so nothing was sent',
 };
 
-const PROBLEMS = new Set(['REFUND_FAILED', 'REFUND_FAILED_AT_PROVIDER', 'REFUND_TICKETS_NOT_LIVE']);
+/** A retry's result, by what the provider answered. */
+const RETRY_RESULT: Record<string, string> = {
+  COMPLETED: 'Tried again: the refund was paid back',
+  PROCESSING: 'Tried again: the provider accepted it and is paying it',
+  FAILED: 'Tried again: the payment provider refused it',
+  ERROR: 'Tried again: the payment provider did not answer, so it may or may not have paid',
+};
+
+const PROBLEMS = new Set([
+  'REFUND_FAILED',
+  'REFUND_FAILED_AT_PROVIDER',
+  'REFUND_TICKETS_NOT_LIVE',
+  'REFUND_RETRY_REFUSED',
+]);
 
 /** Where a request came from, for REFUND_REQUESTED's `via`. */
 const VIA: Record<string, string> = {
@@ -75,12 +90,17 @@ export function historyLine(entry: HistoryEntry): HistoryLine {
   if (via && VIA[via]) details.push(`Asked ${VIA[via]}`);
   const providerRef = text(m.providerRef);
   if (providerRef) details.push(`Provider reference ${providerRef}`);
+  if (entry.action === 'REFUND_RETRY_STARTED' && m.confirmedNoProviderRefund === true)
+    details.push('Checked the provider dashboard first: no refund there');
+  const message = entry.action === 'REFUND_RETRY_RESULT' ? text(m.message) : null;
+  if (message) details.push(`Provider said: ${message}`);
+  const outcome = entry.action === 'REFUND_RETRY_RESULT' ? text(m.outcome) : null;
   return {
     when: entry.createdAt,
-    text: SENTENCES[entry.action] ?? plainWords(entry.action),
+    text: (outcome && RETRY_RESULT[outcome]) ?? SENTENCES[entry.action] ?? plainWords(entry.action),
     who: entry.actor ? entry.actor.fullName || entry.actor.email : 'System',
     detail: details.length ? details.join('. ') : null,
-    problem: PROBLEMS.has(entry.action),
+    problem: PROBLEMS.has(entry.action) || outcome === 'FAILED' || outcome === 'ERROR',
   };
 }
 
@@ -117,7 +137,7 @@ export function failedRefundAdvice(entries: HistoryEntry[]): {
         'The payment provider accepted it and later reported that it failed. The tickets were cancelled when it was accepted, so the customer has neither their tickets nor their money.',
       steps: [
         "Look the refund up in the provider's dashboard with the provider reference below to see why it failed.",
-        'Pay the customer back by hand from the provider dashboard. This console cannot retry it.',
+        'Once the cause is fixed, use Try the refund again below. Only the money is sent again; the tickets stay cancelled.',
         'Tell the customer what happened and when to expect the money.',
       ],
     };
@@ -138,7 +158,8 @@ export function failedRefundAdvice(entries: HistoryEntry[]): {
         'The payment provider refused it. No money moved and no tickets were cancelled - the customer still holds their tickets.',
       steps: [
         "Look the payment up in the provider's dashboard with the payment reference below to see why it was refused.",
-        'Tell the customer it did not go through. They can ask again once the cause is fixed.',
+        'Once the cause is fixed, use Try the refund again below.',
+        'Tell the customer what is happening with their money.',
       ],
     };
   }
@@ -146,8 +167,8 @@ export function failedRefundAdvice(entries: HistoryEntry[]): {
     cause:
       'The call to the payment provider did not finish, and no reason was recorded. Assume no money moved until the provider says otherwise.',
     steps: [
-      "Look the payment up in the provider's dashboard with the payment reference below: if a refund is there, it did go through.",
-      'If there is no refund there, tell the customer it did not go through. They can ask again.',
+      "Look the payment up in the provider's dashboard with the payment reference below: if a refund is there, it did go through. Do not try again.",
+      'If there is no refund there, use Try the refund again below and confirm what you checked.',
     ],
   };
 }

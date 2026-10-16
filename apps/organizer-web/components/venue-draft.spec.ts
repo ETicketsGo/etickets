@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { venuePayload, venueProblems, emptyVenueDraft, type VenueDraft } from './venue-draft';
+import {
+  homeLocation,
+  venuePayload,
+  venueProblems,
+  emptyVenueDraft,
+  type VenueDraft,
+} from './venue-draft';
 
 /**
  * One venue, whichever door the organizer came through.
@@ -117,5 +123,33 @@ describe('what makes a venue draft incomplete', () => {
 
   it('allows no capacity at all', () => {
     expect(venueProblems(draft({ capacity: '' })).capacity).toBeUndefined();
+  });
+});
+
+/*
+  Where a NEW venue starts. Four "Rangabhoomi Hall, Warangal" venues were saved on QA as United
+  States venues: the form opened on the browser's country (en-US) and nobody looked at it. Every
+  door that creates a venue now opens on the organization's country first.
+*/
+describe('homeLocation', () => {
+  it("opens on the organization's registered country, whatever the browser says", () => {
+    const where = homeLocation('India', []);
+    expect(where.country).toBe('India');
+    expect(where.timezone).toBe('Asia/Kolkata');
+    expect(where.region).toBe('');
+  });
+
+  it('else on the country most of its venues are in', () => {
+    const where = homeLocation(null, [
+      { country: 'India' },
+      { country: 'India' },
+      { country: 'United States' },
+    ]);
+    expect(where.country).toBe('India');
+  });
+
+  it('falls back to a guess only when nothing about the organization says where it works', () => {
+    const where = homeLocation(null, []);
+    expect(typeof where.country).toBe('string');
   });
 });

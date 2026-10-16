@@ -23,9 +23,11 @@ import { instantToWallClock, wallClockToInstant } from '@/lib/zoned-time';
  * sale, with no way to move it or take it off - a cinema show had both, an event had neither.
  *
  * ── WHEN THEY ARE OFFERED ──────────────────────────────────────────────────────────
- * Only for a date nobody has bought for or is buying for (the page decides, from the same
- * sold/held counts that lock its seating). The server applies the same rule again: a buyer
- * chose that time and is owed a cancellation and a refund, not a quiet edit.
+ * Changing the time only for a date nobody has bought for or is buying for (the page decides,
+ * from the same sold/held counts that lock its seating; the server applies the rule again): a
+ * buyer chose that time and is owed a cancellation and a refund, not a quiet edit. Cancelling
+ * is offered for any date still to come; with buyers, the show cancellation opens their
+ * refunds and tells them.
  */
 
 /** "Is this date still the organizer's to change?" - one rule for both buttons. */
@@ -125,11 +127,14 @@ export function CancelSessionDialog({
   eventId,
   session,
   whenLabel,
+  sold = 0,
   onClose,
 }: {
   eventId: string;
   session: EventSession | null;
   whenLabel: string;
+  /** Tickets sold for this date. With any, cancelling refunds their buyers. */
+  sold?: number;
   onClose: () => void;
 }) {
   const qc = useQueryClient();
@@ -139,8 +144,14 @@ export function CancelSessionDialog({
 
   const cancel = useMutation({
     mutationFn: () => api.shows.cancel(session!.id, reason.trim()),
-    onSuccess: () => {
-      toast.push('Date cancelled. It is no longer on sale.', 'success');
+    onSuccess: (r) => {
+      const owed = r.bookingsRequiringRefund?.length ?? 0;
+      toast.push(
+        owed > 0
+          ? `Date cancelled. ${owed} ${owed === 1 ? 'buyer is' : 'buyers are'} owed a refund and will be told. Approve the refunds on Refunds.`
+          : 'Date cancelled. It is no longer on sale.',
+        'success',
+      );
       qc.invalidateQueries({ queryKey: ['event', eventId] });
       onClose();
     },
@@ -152,7 +163,11 @@ export function CancelSessionDialog({
       open={session !== null}
       onClose={onClose}
       title="Cancel this date?"
-      description={`${whenLabel}. Nobody has booked it. Buyers will no longer see it. This cannot be undone.`}
+      description={
+        sold > 0
+          ? `${whenLabel}. ${sold} ${sold === 1 ? 'ticket is' : 'tickets are'} sold for it. Each paid booking gets a refund request for the full amount, which you approve on Refunds, and every ticket holder is told by email. Cash taken at the counter is handed back there. This cannot be undone.`
+          : `${whenLabel}. Nobody has booked it. Buyers will no longer see it. This cannot be undone.`
+      }
       footer={
         <>
           <Button variant="outline" onClick={onClose}>
@@ -164,7 +179,7 @@ export function CancelSessionDialog({
             disabled={reason.trim().length < 3}
             onClick={() => cancel.mutate()}
           >
-            Cancel date
+            {sold > 0 ? 'Cancel date and refund' : 'Cancel date'}
           </Button>
         </>
       }

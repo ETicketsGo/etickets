@@ -187,7 +187,8 @@ export function evaluatePilotReadiness(f: ReadinessFacts): ReadinessCheck[] {
       code: 'NO_ADDRESS',
       level: 'WARNING',
       message: 'No street address, so customers cannot find the venue from the listing.',
-      fixPath: cinemaPath,
+      // The address is the venue's, and is edited there - the cinema page no longer has one.
+      fixPath: '/organizer/venues',
     });
   }
 

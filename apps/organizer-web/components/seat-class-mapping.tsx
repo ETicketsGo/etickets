@@ -1,6 +1,7 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
 import {
   aboveClassLimit,
   classHasNoRate,
@@ -54,6 +55,21 @@ export function SeatClassMapping({ cinemaId }: { cinemaId: string }) {
     },
     onError: (e) => toast.push(errorMessage(e)),
   });
+
+  /*
+    Arriving by a "Choose seat classes" link (the create wizard, an event's blocker) the browser
+    looks for #seat-classes before this card exists - it loads after the page - and the person
+    lands at the top of a dozen checks. Scrolled to once the card is there.
+  */
+  const ready = Boolean(q.data && q.data.length > 0);
+  useEffect(() => {
+    if (!ready || typeof window === 'undefined' || window.location.hash !== '#seat-classes') return;
+    const go = () => document.getElementById('seat-classes')?.scrollIntoView({ block: 'start' });
+    go();
+    // The panels above load on their own and push this down; once more after they have.
+    const later = window.setTimeout(go, 1200);
+    return () => window.clearTimeout(later);
+  }, [ready]);
 
   if (q.isLoading) {
     return (

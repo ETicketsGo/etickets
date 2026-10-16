@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { QA_VALIDATE, QA_SKIP_REASON } from './qa-target';
+import { chooseEmailSignUp } from './helpers';
 
 // Deployment-facing: skipped unless asked for. See qa-target.ts for why.
 test.skip(!QA_VALIDATE, QA_SKIP_REASON);
@@ -29,6 +30,7 @@ test.describe('QA: buying a seat off a venue map', () => {
 
   test('map to block to seat to QR code', async ({ page }) => {
     await page.goto(`${CUSTOMER}/register`, { waitUntil: 'networkidle' });
+    await chooseEmailSignUp(page);
     await page.getByLabel('Full name').fill('QA Venue Buyer');
     await page.getByLabel('Email').fill(uniqueEmail());
     await page.getByLabel(/Password/).fill(PW);

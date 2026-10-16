@@ -250,3 +250,40 @@ describe('CinemasService.update — the venue must belong to the cinema’s orga
     expect(prisma.cinema.update).toHaveBeenCalled();
   });
 });
+
+/*
+  A cinema at a venue is where the venue is. The cinema page carried its own city, street and
+  map, so the two could disagree; now its location is edited on the venue only.
+*/
+describe('CinemasService.update - the location belongs to the venue', () => {
+  const venue = {
+    organizationId: 'org-a',
+    name: 'Rangabhoomi Hall',
+    city: 'Warangal',
+    address: '1 Station Road',
+    country: 'India',
+    region: 'Telangana',
+    timezone: 'Asia/Kolkata',
+  };
+
+  it('refuses a different city, naming the venue to change it on, and writes nothing', async () => {
+    const { svc, prisma } = setup(venue);
+    await expect(svc.update(OPERATOR, 'cin-1', { city: 'Hyderabad' })).rejects.toThrow(
+      "This cinema's location comes from its venue, Rangabhoomi Hall. Change the city on the venue under Venues & seating.",
+    );
+    expect(prisma.cinema.update).not.toHaveBeenCalled();
+  });
+
+  it('accepts the venue values sent back unchanged, and does not write them', async () => {
+    const { svc, prisma } = setup(venue);
+    await svc.update(OPERATOR, 'cin-1', {
+      name: 'Renamed',
+      city: 'Warangal',
+      address: '1 Station Road',
+      timezone: 'Asia/Kolkata',
+    });
+    expect(prisma.cinema.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { name: 'Renamed' } }),
+    );
+  });
+});

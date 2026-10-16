@@ -49,6 +49,8 @@ const CATEGORY_OF: Record<string, FeedCategory> = {
   EVENT_NOT_SELLABLE: 'ACTION_REQUIRED',
   TRANSFER_FAILED: 'ACTION_REQUIRED',
   PAYMENT_DISPUTE_OPENED: 'ACTION_REQUIRED',
+  // Sales are stopped and only a reply to the platform team starts them again.
+  EVENT_PAUSED_BY_ADMIN: 'ACTION_REQUIRED',
 
   BOOKING_CONFIRMED: 'BOOKINGS_AND_SALES',
   BOOKING_CANCELLED: 'BOOKINGS_AND_SALES',
@@ -59,6 +61,7 @@ const CATEGORY_OF: Record<string, FeedCategory> = {
 
   EVENT_APPROVED: 'EVENT_APPROVALS',
   EVENT_REJECTED: 'EVENT_APPROVALS',
+  EVENT_RESUMED_BY_ADMIN: 'EVENT_APPROVALS',
   EVENT_SUBMITTED: 'EVENT_APPROVALS',
   ORGANIZATION_APPROVED: 'EVENT_APPROVALS',
   ORGANIZATION_REJECTED: 'EVENT_APPROVALS',
@@ -94,6 +97,8 @@ const SEVERITY_OF: Record<string, FeedSeverity> = {
   TRANSFER_FAILED: 'CRITICAL',
   PAYMENT_DISPUTE_OPENED: 'CRITICAL',
   EVENT_REJECTED: 'WARNING',
+  EVENT_PAUSED_BY_ADMIN: 'CRITICAL',
+  EVENT_RESUMED_BY_ADMIN: 'SUCCESS',
   PAYOUT_ACCOUNT_UPDATED: 'WARNING',
   ORGANIZATION_REJECTED: 'WARNING',
   PAYMENT_FAILED: 'WARNING',
@@ -250,6 +255,8 @@ function actionFor(type: string, payload: Record<string, unknown>): FeedAction |
     case 'EVENT_APPROVED':
     case 'EVENT_REJECTED':
     case 'EVENT_SUBMITTED':
+    case 'EVENT_PAUSED_BY_ADMIN':
+    case 'EVENT_RESUMED_BY_ADMIN':
       return eventId ? { label: 'Open event', href: `/organizer/events/${eventId}` } : null;
     case 'ORGANIZATION_APPROVED':
     case 'ORGANIZATION_REJECTED':
@@ -465,11 +472,31 @@ export function groupNotifications(rows: FeedSourceRow[], lookup?: ResolutionLoo
     if (list) list.push(row);
     else byKey.set(key, [row]);
   }
-  return [...byKey.entries()].map(([key, members]) =>
-    members[0].type === 'EVENT_NOT_SELLABLE'
-      ? sellabilityGroup(key, members, lookup)
-      : plainGroup(key, members),
-  );
+  /*
+    A pause by the platform team is settled by the platform lifting it. Without this the pause
+    card stayed under Action required, unread and saying "fix it", next to the card saying the
+    event was back on sale.
+  */
+  const resumedAt = new Map<string, number>();
+  for (const row of sorted) {
+    const id = str(row.payload.eventId);
+    if (row.type === 'EVENT_RESUMED_BY_ADMIN' && id && !resumedAt.has(id)) {
+      resumedAt.set(id, row.createdAt.getTime());
+    }
+  }
+  return [...byKey.entries()].map(([key, members]) => {
+    if (members[0].type === 'EVENT_NOT_SELLABLE') return sellabilityGroup(key, members, lookup);
+    const group = plainGroup(key, members);
+    const lifted = group.eventId ? resumedAt.get(group.eventId) : undefined;
+    if (
+      members[0].type === 'EVENT_PAUSED_BY_ADMIN' &&
+      lifted &&
+      lifted > members[0].createdAt.getTime()
+    ) {
+      return { ...group, severity: 'SUCCESS', resolved: true, action: null, dismissible: true };
+    }
+    return group;
+  });
 }
 
 export interface FeedSection {

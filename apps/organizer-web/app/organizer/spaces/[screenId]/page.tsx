@@ -388,12 +388,50 @@ export default function SpacePage() {
               <p className="font-semibold text-text-primary">General admission. No seat map.</p>
               <p className="text-text-secondary">
                 Buyers do not choose a seat. When you create an event at{' '}
-                {space.venue?.name ?? 'this venue'}, choose free or paid tickets and set how many to
-                sell, up to {space.capacity.toLocaleString()}, the number this space holds.
+                {space.venue?.name ?? 'this venue'}, choose free or paid tickets and this space. You
+                cannot put more than {space.capacity.toLocaleString()} tickets on sale for one
+                session here, the number this space holds.
               </p>
               <ButtonLink size="sm" variant="secondary" href="/organizer/events/new">
                 Create an event
               </ButtonLink>
+              {/*
+                The sessions held here, each with what it has on sale. One offering more than
+                the space holds - from before the cap, or after the capacity was lowered - is
+                FLAGGED, never changed: lowering it is the organizer's call, on its Tickets page.
+              */}
+              {space.standingSessions && space.standingSessions.length > 0 ? (
+                <ul className="mt-2 space-y-1.5" aria-label="Sessions in this space">
+                  {space.standingSessions.map((s) => (
+                    <li
+                      key={s.sessionId}
+                      data-testid="standing-session"
+                      className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-md border border-border bg-background-canvas px-3 py-2 text-sm"
+                    >
+                      <Link
+                        href={`/organizer/events/${s.eventId}/tickets`}
+                        className="min-w-0 break-words font-medium text-text-primary underline-offset-2 [overflow-wrap:anywhere] hover:text-action-primary hover:underline"
+                      >
+                        {s.eventTitle}
+                        <span className="font-normal text-text-secondary">
+                          {' '}
+                          - {dateTime(s.startsAt, undefined, space.venue?.timezone ?? undefined)}
+                        </span>
+                      </Link>
+                      {s.overCapacityBy > 0 ? (
+                        <StatusPill tone="error" size="sm">
+                          {s.onSale.toLocaleString()} on sale, {s.overCapacityBy.toLocaleString()}{' '}
+                          more than it holds
+                        </StatusPill>
+                      ) : (
+                        <span className="text-caption tabular-nums text-text-secondary">
+                          {s.onSale.toLocaleString()} of {space.capacity.toLocaleString()} on sale
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
             </div>
           </div>
         </Card>

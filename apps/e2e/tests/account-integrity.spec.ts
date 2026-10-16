@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { API, CUSTOMER, NEW_ACCOUNT_PASSWORD } from './helpers';
+import { API, CUSTOMER, NEW_ACCOUNT_PASSWORD, chooseEmailSignUp } from './helpers';
 
 /**
  * One email, one account; and a password worth having.
@@ -63,6 +63,7 @@ test.describe('account integrity', () => {
 
   test('4: the sign-up form says why before anything is submitted', async ({ page }) => {
     await page.goto(`${CUSTOMER}/register`, { waitUntil: 'networkidle' });
+    await chooseEmailSignUp(page);
 
     await page.getByLabel('Full name').fill('Asha Menon');
     await page.getByLabel('Email').fill(`integrity_form_${stamp()}@e2e.test`);

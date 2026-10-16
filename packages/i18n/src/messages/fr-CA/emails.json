@@ -41,7 +41,9 @@
   },
   "REFUND_REQUESTED": {
     "subject": "Un remboursement a été demandé pour votre réservation",
-    "body": "Un remboursement de {amount} a été demandé pour la réservation {reference}. Rien n'est encore décidé et aucun montant n'a été versé : l'organisateur examine la demande et vous serez informé du résultat. Si vous n'avez rien demandé, communiquez avec l'organisateur avant l'approbation : quiconque détient le lien vers vos billets pouvait faire cette demande."
+    "subjectShowCancelled": "Votre spectacle a été annulé : un remboursement est ouvert",
+    "body": "Un remboursement de {amount} a été demandé pour la réservation {reference}. Rien n'est encore décidé et aucun montant n'a été versé : l'organisateur examine la demande et vous serez informé du résultat. Si vous n'avez rien demandé, communiquez avec l'organisateur avant l'approbation : quiconque détient le lien vers vos billets pouvait faire cette demande.",
+    "bodyShowCancelled": "Votre spectacle a été annulé : un remboursement de {amount} a donc été ouvert pour la réservation {reference}. Vous n'avez rien à faire. L'organisateur l'approuve et vous serez informé dès que l'argent sera en route."
   },
   "TICKET_CHECKED_IN": {
     "subject": "Billet validé à l'entrée",
@@ -102,6 +104,14 @@
   "EVENT_NOT_SELLABLE": {
     "subject": "« {event} » est en ligne mais ne peut pas être vendu",
     "body": "Les clients trouvent « {event} » et sont refusés au paiement. {reason} Ouvrez l'événement dans votre console organisateur pour corriger cela."
+  },
+  "EVENT_PAUSED_BY_ADMIN": {
+    "subject": "ETicketsGo a suspendu la vente de « {event} »",
+    "body": "ETicketsGo a suspendu « {event} » : les billets ne sont plus en vente.{reason} Les billets déjà vendus restent valides. Corrigez ce que la raison indique, puis écrivez au soutien ETicketsGo depuis Aide et soutien dans votre console organisateur pour demander la reprise des ventes. Seul ETicketsGo peut lever cette suspension."
+  },
+  "EVENT_RESUMED_BY_ADMIN": {
+    "subject": "« {event} » est de nouveau en vente",
+    "body": "ETicketsGo a levé la suspension de « {event} ». Les billets sont de nouveau en vente."
   },
   "PAYOUT_ACCOUNT_UPDATED": {
     "saved": {

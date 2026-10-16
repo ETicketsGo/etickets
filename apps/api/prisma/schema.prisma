@@ -403,6 +403,12 @@ enum NotificationType {
   /// request. Otherwise the first the buyer hears of a request they did not make is their
   /// tickets no longer working.
   REFUND_REQUESTED
+
+  /// The platform team paused an organizer's event, or put it back on sale. Addressed to the
+  /// organization's owners. A pause used to change the status and tell nobody: sales stopped
+  /// and the organizer found out from a buyer, or from a dashboard they happened to open.
+  EVENT_PAUSED_BY_ADMIN
+  EVENT_RESUMED_BY_ADMIN
 }
 
 // Assignment lifecycle of a ticket to an attendee (identity layer, ADR-031).
@@ -1149,7 +1155,9 @@ model Screen {
   createdAt  DateTime     @default(now())
   updatedAt  DateTime     @updatedAt
 
-  sessions EventSession[]
+  sessions EventSession[] @relation("SessionScreen")
+  /// General-admission sessions held in this space when it is a standing floor.
+  standingSessions EventSession[] @relation("SessionStandingSpace")
   /// A screen has MANY layout versions over its life, not one. See SeatMap.
   seatMaps SeatMap[]
 
@@ -1481,6 +1489,12 @@ model Event {
   /// Without it an organizer could undo a moderation decision with the same Resume button
   /// they use for their own pauses. Cleared whenever an admin moves the event out of PAUSED.
   pausedByAdminAt     DateTime?
+  /// The admin's reason for that pause, in their words, shown to the organizer on the event.
+  ///
+  /// The audit log already held it, but the organizer cannot read the audit log, so their
+  /// page said only "paused by the platform team" and the first thing they did was write to
+  /// support to ask why. Set and cleared together with `pausedByAdminAt`.
+  pausedByAdminReason String?
 
   sessions    EventSession[]
   bookings    Booking[]
@@ -1628,7 +1642,7 @@ model EventSession {
   /// it is a property of the ROOM rather than of the kind of event: the same concert is
   /// reserved seating in a theatre and general admission in a standing arena.
   screenId  String?
-  screen    Screen?       @relation(fields: [screenId], references: [id])
+  screen    Screen?       @relation("SessionScreen", fields: [screenId], references: [id])
   /// The seat layout VERSION this show was scheduled against, pinned at scheduling time.
   ///
   /// Recoverable from ShowSeat → Seat → seatMapId, but recording it explicitly is what lets
@@ -1636,6 +1650,15 @@ model EventSession {
   /// moved, and makes a re-layout auditable rather than inferred.
   seatMapId String?
   seatMap   SeatMap?      @relation(fields: [seatMapId], references: [id])
+  /// The STANDING space a general-admission session is held in, when the organizer said so.
+  ///
+  /// Not `screenId`: a session with a screen is reserved seating everywhere the booking path
+  /// looks (`Boolean(session.screenId)`), and a lawn has no seats. This only names the place,
+  /// so its capacity can cap the tickets put on sale for the session. Booking and inventory
+  /// never read it. Null - every session before this column, and any general-admission
+  /// session not tied to one space - means no space-level cap, exactly as before.
+  standingSpaceId String?
+  standingSpace   Screen? @relation("SessionStandingSpace", fields: [standingSpaceId], references: [id], onDelete: SetNull)
   startsAt  DateTime
   endsAt    DateTime
   status    SessionStatus @default(SCHEDULED)
@@ -1652,6 +1675,7 @@ model EventSession {
   @@index([eventId])
   @@index([startsAt])
   @@index([screenId])
+  @@index([standingSpaceId])
 }
 
 model TicketType {

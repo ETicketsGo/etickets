@@ -76,7 +76,15 @@ function setup(
     // Publishing consults sellability; these cases are about who reviews, so nothing blocks.
     { check: async () => ({ sellable: true, blockers: [], warnings: [] }) } as never,
   );
-  return { service, prisma, eventUpdate, record, notifyAdmins, organizationFind };
+  return {
+    service,
+    prisma,
+    eventUpdate,
+    record,
+    notifyAdmins,
+    notifyOrganizationOwners,
+    organizationFind,
+  };
 }
 
 describe('editing a paused event', () => {
@@ -312,6 +320,7 @@ describe('an event paused by the platform team', () => {
     expect(eventUpdate.mock.calls[0][0].data).toEqual({
       status: EventStatus.PUBLISHED,
       pausedByAdminAt: null,
+      pausedByAdminReason: null,
       needsReviewOnResume: false,
     });
   });
@@ -323,5 +332,68 @@ describe('an event paused by the platform team', () => {
 
     const own = await setup().service.getForOrg(ORGANIZER, 'ev-1');
     expect(own).toMatchObject({ pausedByAdmin: false });
+  });
+});
+
+describe('telling the organizer about a pause by the platform team', () => {
+  const pausedByAdminAt = new Date('2026-09-01T12:00:00Z');
+
+  it('stores the reason on the event and sends it to the owners', async () => {
+    const { service, eventUpdate, notifyOrganizationOwners } = setup({
+      status: EventStatus.PUBLISHED,
+    });
+    await service.adminSetStatus(ADMIN, 'ev-1', EventStatus.PAUSED, '  Venue licence query  ');
+
+    expect(eventUpdate.mock.calls[0][0].data).toMatchObject({
+      status: EventStatus.PAUSED,
+      pausedByAdminReason: 'Venue licence query',
+    });
+    expect(notifyOrganizationOwners).toHaveBeenCalledTimes(1);
+    expect(notifyOrganizationOwners).toHaveBeenCalledWith(
+      'org-1',
+      NotificationType.EVENT_PAUSED_BY_ADMIN,
+      { eventId: 'ev-1', eventTitle: 'Hamlet', reason: 'Venue licence query' },
+    );
+  });
+
+  it('tells them when it is back on sale, and says nothing for a repeat or a non-change', async () => {
+    const resumed = setup({ pausedByAdminAt });
+    await resumed.service.adminSetStatus(ADMIN, 'ev-1', EventStatus.PUBLISHED);
+    expect(resumed.notifyOrganizationOwners).toHaveBeenCalledWith(
+      'org-1',
+      NotificationType.EVENT_RESUMED_BY_ADMIN,
+      expect.objectContaining({ eventId: 'ev-1' }),
+    );
+
+    // Paused again by an admin (a corrected reason): not news.
+    const again = setup({ pausedByAdminAt });
+    await again.service.adminSetStatus(ADMIN, 'ev-1', EventStatus.PAUSED, 'Corrected reason');
+    expect(again.notifyOrganizationOwners).not.toHaveBeenCalled();
+
+    // The organizer's own pause, "put back on sale" by an admin: nobody is told it was ours.
+    const own = setup();
+    await own.service.adminSetStatus(ADMIN, 'ev-1', EventStatus.PUBLISHED);
+    expect(own.notifyOrganizationOwners).not.toHaveBeenCalled();
+  });
+
+  it('shows the organizer the reason only while the platform pause stands', async () => {
+    const paused = setup({ pausedByAdminAt });
+    paused.prisma.event.findUnique.mockResolvedValue({
+      ...(await paused.prisma.event.findUnique()),
+      pausedByAdminReason: 'Venue licence query',
+    });
+    expect(await paused.service.getForOrg(ORGANIZER, 'ev-1')).toMatchObject({
+      pausedByAdmin: true,
+      pausedByAdminReason: 'Venue licence query',
+    });
+
+    const live = setup({ status: EventStatus.PUBLISHED, pausedByAdminAt });
+    live.prisma.event.findUnique.mockResolvedValue({
+      ...(await live.prisma.event.findUnique()),
+      pausedByAdminReason: 'stale',
+    });
+    expect(await live.service.getForOrg(ORGANIZER, 'ev-1')).toMatchObject({
+      pausedByAdminReason: null,
+    });
   });
 });
