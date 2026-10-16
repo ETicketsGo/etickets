@@ -191,6 +191,89 @@ export function coversNotably(a: readonly Pt[], b: readonly Pt[]): boolean {
   return shared > Math.max(225, 0.03 * Math.min(areaOf(a), areaOf(b)));
 }
 
+// -- Drawing ------------------------------------------------------------------------------
+
+/** A point moved onto the canvas and rounded, as a drawn corner is stored. */
+export function clampPoint([x, y]: readonly [number, number]): Pt {
+  return [round(Math.min(CANVAS, Math.max(0, x))), round(Math.min(CANVAS, Math.max(0, y)))];
+}
+
+/** The rectangle between two opposite corners, as a person drags it out, in either direction. */
+export function rectangleFromCorners(a: readonly [number, number], b: readonly [number, number]) {
+  const [x0, y0] = clampPoint(a);
+  const [x1, y1] = clampPoint(b);
+  const [minX, maxX] = x0 <= x1 ? [x0, x1] : [x1, x0];
+  const [minY, maxY] = y0 <= y1 ? [y0, y1] : [y1, y0];
+  const out: Pt[] = [
+    [minX, minY],
+    [maxX, minY],
+    [maxX, maxY],
+    [minX, maxY],
+  ];
+  return out;
+}
+
+/** Whether a new corner is (almost) where the last one is: a double tap, not a new corner. */
+export const sameCorner = (a: readonly [number, number], b: readonly [number, number]) =>
+  Math.abs(a[0] - b[0]) <= 3 && Math.abs(a[1] - b[1]) <= 3;
+
+/**
+ * Whether an outline's edges cross each other, like a figure eight. Corners tapped out of order
+ * make one; it has no inside a buyer could tap, and its label lands in the wrong place.
+ */
+export function selfCrosses(points: readonly Pt[]): boolean {
+  const n = points.length;
+  if (n < 4) return false;
+  for (let i = 0; i < n; i += 1) {
+    for (let j = i + 2; j < n; j += 1) {
+      // The first and last edges meet at the first corner: neighbours, not a crossing.
+      if (i === 0 && j === n - 1) continue;
+      if (segmentsCross(points[i], points[(i + 1) % n], points[j], points[(j + 1) % n]))
+        return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Where a block's name goes: the middle of its area, so it sits inside the block.
+ *
+ * The average of the corners (what template blocks use) drifts towards wherever the corners are
+ * crowded, and for an L-shaped outline even the area's middle can fall outside it. So: the area's
+ * middle when that is inside; otherwise the middle of the widest stretch of the outline on the
+ * same level.
+ */
+export function labelPointOf(points: readonly Pt[]): Pt {
+  const twice = points.reduce(
+    (a, p, i) => {
+      const q = points[(i + 1) % points.length];
+      const c = p[0] * q[1] - q[0] * p[1];
+      return [a[0] + c, a[1] + (p[0] + q[0]) * c, a[2] + (p[1] + q[1]) * c];
+    },
+    [0, 0, 0],
+  );
+  if (Math.abs(twice[0]) < 1e-9) return centreOf(points);
+  const centre: Pt = [round(twice[1] / (3 * twice[0])), round(twice[2] / (3 * twice[0]))];
+  if (inside(centre, points)) return centre;
+  const y = centre[1];
+  const xs: number[] = [];
+  for (let i = 0, j = points.length - 1; i < points.length; j = i, i += 1) {
+    const [xi, yi] = points[i];
+    const [xj, yj] = points[j];
+    if (yi > y !== yj > y) xs.push(((xj - xi) * (y - yi)) / (yj - yi) + xi);
+  }
+  xs.sort((a, b) => a - b);
+  let best: Pt | null = null;
+  let widest = -1;
+  for (let k = 0; k + 1 < xs.length; k += 2) {
+    if (xs[k + 1] - xs[k] > widest) {
+      widest = xs[k + 1] - xs[k];
+      best = [round((xs[k] + xs[k + 1]) / 2), y];
+    }
+  }
+  return best ?? centreOf(points);
+}
+
 /**
  * Where to put a new block so it lands on empty ground, as near to `prefer` as possible.
  *
