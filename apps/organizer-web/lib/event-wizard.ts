@@ -176,6 +176,12 @@ export interface WizardAnswers {
    * instead of creating an event whose seats are in a different building.
    */
   venueSeatMaps?: readonly string[] | null;
+  /**
+   * The standing space a general-admission event is held in, when the organizer chose one.
+   * Its capacity caps what each session puts on sale - the server refuses more, so the form
+   * says so first.
+   */
+  standingSpace?: { name: string; capacity: number } | null;
 }
 
 export type FieldErrors = Record<string, string>;
@@ -430,6 +436,15 @@ export function validateStep(stepId: WizardStepId, a: WizardAnswers): FieldError
             e[`t${i}Max`] = 'Max per order cannot be more than the quantity on sale.';
         }
       });
+      // A standing space holds so many people; one session cannot offer more than that.
+      const space = a.standingSpace;
+      if (space) {
+        capacityBySession(a).forEach((total, i) => {
+          if (total > space.capacity)
+            e[`s${i}Cap`] =
+              `${space.name} holds ${space.capacity.toLocaleString('en-US')} people. The tickets on sale add up to ${total.toLocaleString('en-US')}. Lower a quantity.`;
+        });
+      }
     }
   }
   return e;
@@ -451,7 +466,7 @@ export function describeProblems(
   nouns: { session: string; ticket: string } = { session: 'Session', ticket: 'Ticket type' },
 ): string[] {
   return Object.entries(errors).map(([key, message]) => {
-    let m = /^s(\d+)(Start|End|Seat)$/.exec(key);
+    let m = /^s(\d+)(Start|End|Seat|Cap)$/.exec(key);
     if (m) return `${nouns.session} ${Number(m[1]) + 1}: ${message}`;
     m = /^t(\d+)(Name|Price|Qty|Max)$/.exec(key);
     if (m) return `${nouns.ticket} ${Number(m[1]) + 1}: ${message}`;

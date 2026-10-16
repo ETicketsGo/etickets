@@ -956,6 +956,19 @@ export const api = {
       request<CashBooking[]>(
         `/organizations/${id}/cash-bookings${qs({ includeCollected: includeCollected || undefined })}`,
       ),
+    /**
+     * Sell at the counter: tickets for the person in front of the staff member, paid in cash
+     * there and issued at once. One `idempotencyKey` per sale, so a double press sells once.
+     */
+    /** The dates on sale now, with their ticket types and what is left, for the counter. */
+    counterShows: (id: string) =>
+      request<CounterShow[]>(`/organizations/${id}/counter-sales/shows`),
+    counterSale: (id: string, body: CounterSaleBody, idempotencyKey?: string) =>
+      request<CounterSaleResult>(`/organizations/${id}/counter-sales`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+        ...(idempotencyKey ? { headers: { 'Idempotency-Key': idempotencyKey } } : {}),
+      }),
     members: (id: string) => request<OrgMember[]>(`/organizations/${id}/members`),
     invite: (id: string, body: { email: string; role: string }) =>
       request<InvitedMember>(`/organizations/${id}/members`, {
@@ -1107,7 +1120,11 @@ export const api = {
         address: string;
         capacity: number;
       }>,
-    ) => request<Venue>(`/venues/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    ) =>
+      request<Venue & { sessionsKeptLocalTime?: number }>(`/venues/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      }),
 
     /**
      * The bookable spaces inside a venue - cinema screens included.
@@ -1533,7 +1550,14 @@ export const api = {
     addSession: (
       id: string,
       // `screenId` is the whole difference between reserved seating and general admission.
-      body: { startsAt: string; endsAt: string; screenId?: string; seatMapId?: string },
+      // `standingSpaceId` keeps it general admission, capped by what that standing space holds.
+      body: {
+        startsAt: string;
+        endsAt: string;
+        screenId?: string;
+        seatMapId?: string;
+        standingSpaceId?: string;
+      },
     ) =>
       request<EventSession>(`/events/${id}/sessions`, {
         method: 'POST',
@@ -1544,6 +1568,15 @@ export const api = {
      * Change a session's space - and, when that space has several layouts, WHICH one. The
      * server refuses a multi-layout space without a `seatMapId` rather than picking for you.
      */
+    /**
+     * Put a general-admission session in a standing space (its capacity caps what is on sale),
+     * or take it out with null. Never changes the tickets on sale; says if they are over.
+     */
+    setStandingSpace: (sessionId: string, standingSpaceId: string | null) =>
+      request<EventSession & { onSale: number; overCapacityBy: number }>(
+        `/events/sessions/${sessionId}/standing-space`,
+        { method: 'PATCH', body: JSON.stringify({ standingSpaceId }) },
+      ),
     updateSessionSeating: (sessionId: string, screenId: string | null, seatMapId?: string | null) =>
       request<EventSession>(`/events/sessions/${sessionId}/seating`, {
         method: 'PATCH',
@@ -1572,6 +1605,15 @@ export const api = {
     pause: (id: string) => request<OrgEventDetail>(`/events/${id}/pause`, { method: 'POST' }),
     /** Refused (403) for an event the platform team paused. May land UNDER_REVIEW, not live. */
     resume: (id: string) => request<EventResumeResult>(`/events/${id}/resume`, { method: 'POST' }),
+    /**
+     * Cancel the whole event: sales stop, every date still to come is cancelled, a refund
+     * opens for each paid booking and every buyer is told. Owner only; cannot be undone.
+     */
+    cancel: (id: string, reason: string) =>
+      request<EventCancelResult>(`/events/${id}/cancel`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      }),
     orders: (id: string, params: PageParams & { status?: string; q?: string }) =>
       request<Paged<OrderRow>>(`/events/${id}/orders${qs(params)}`),
     /** Who booked: filtered and paged on the server, with per-status totals for the filter. */
@@ -3661,6 +3703,19 @@ export interface SpaceDetail {
   sessions: number;
   /** Sessions still to come that are not cancelled. */
   upcomingSessions: number;
+  /**
+   * For a standing space: each session still to come that is held in it, with how many
+   * tickets it has on sale and by how much that is more than the space holds (0 = fits).
+   * Older APIs do not send it.
+   */
+  standingSessions?: {
+    sessionId: string;
+    eventId: string;
+    eventTitle: string;
+    startsAt: string;
+    onSale: number;
+    overCapacityBy: number;
+  }[];
 }
 
 export interface Venue {
@@ -3814,8 +3869,20 @@ export interface Cinema extends Omit<CinemaBody, 'venueId'> {
    * unrelated things in two different lists.
    */
   venueId: string | null;
-  /** The venue this room belongs to. Its country decides the currency the room prices in. */
-  venue?: { country: string; region: string | null } | null;
+  /**
+   * The venue this room belongs to. Its country decides the currency the room prices in, and
+   * the rest is WHERE the cinema is: the cinema's location is the venue's, edited on the venue.
+   * The name, city and address are only sent by newer APIs.
+   */
+  venue?: {
+    country: string;
+    region: string | null;
+    id?: string;
+    name?: string;
+    city?: string;
+    address?: string | null;
+    timezone?: string | null;
+  } | null;
   /**
    * AUTHORITATIVE for every local date and time this client renders for the venue.
    *
@@ -4413,6 +4480,8 @@ export interface EventSession {
   /** Set when the session is in a room: buyers pick named seats rather than a quantity. */
   screenId?: string | null;
   seatMapId?: string | null;
+  /** The standing space a general-admission session is held in; its capacity caps the offer. */
+  standingSpaceId?: string | null;
   /**
    * Where a seated session is. `cinema` is null for a space that is not a cinema screen -
    * an arena or an auditorium - so the place is named from `venue` first.
@@ -4423,6 +4492,56 @@ export interface EventSession {
     cinema?: { name: string } | null;
   } | null;
   ticketTypes?: TicketType[];
+}
+export interface CounterSaleBody {
+  eventSessionId: string;
+  items: { ticketTypeId: string; quantity: number; seatIds?: string[] }[];
+  buyerName: string;
+  /** Optional: without it the confirmation goes to the organization's contact address. */
+  buyerEmail?: string;
+}
+export interface CounterShow {
+  sessionId: string;
+  startsAt: string;
+  eventId: string;
+  eventTitle: string;
+  isFree: boolean;
+  venueName: string | null;
+  /** The venue's zone, so the time reads as it does on the door. */
+  timezone: string | null;
+  /** The venue's country: its zone when the venue has none of its own. */
+  country?: string | null;
+  spaceName: string | null;
+  /** Seats are named on these tickets, so the counter gives seats from the seat map. */
+  seated: boolean;
+  ticketTypes: {
+    id: string;
+    name: string;
+    priceMinor: number;
+    currency: string;
+    maxPerOrder: number;
+    seatCategoryId: string | null;
+    /** Null when it is counted on the seat map instead. */
+    left: number | null;
+  }[];
+}
+export interface CounterSaleResult {
+  bookingId: string;
+  reference: string | null;
+  status: string;
+  totalMinor: number;
+  currency: string;
+  ticketCount: number;
+  emailedTo: string;
+}
+export interface EventCancelResult {
+  eventId: string;
+  status: string;
+  datesCancelled: number;
+  /** References of the paid bookings a refund was opened for. */
+  bookingsRequiringRefund: string[];
+  /** Cash bookings on this event: the platform cannot refund cash, the counter hands it back. */
+  cashToReturn: number;
 }
 /** A room an event can be seated in — one that has a published seat map. */
 export interface SeatingRoom {
@@ -4436,6 +4555,19 @@ export interface SeatingRoom {
   layoutKind: string;
   /** Seats that can be sold: aisles and gaps are not counted. */
   sellableSeats: number;
+  /** The cinema this space is a screen of. Null for every space that is not a cinema screen. */
+  cinemaId?: string | null;
+  /**
+   * What regulated cinema prices need before this layout can sell here, asked before the
+   * event exists. `MAP_CLASSES`: `unmapped` categories need a seat class (`fixPath` is the
+   * control). `NO_RULES`: no price rules cover the place yet, so it cannot sell online at all.
+   * Absent from an older API, which is read as NONE.
+   */
+  seatClasses?: {
+    state: 'NONE' | 'MAP_CLASSES' | 'NO_RULES' | 'BLOCKED';
+    unmapped: string[];
+    fixPath: string | null;
+  };
 }
 export interface TicketType {
   id: string;

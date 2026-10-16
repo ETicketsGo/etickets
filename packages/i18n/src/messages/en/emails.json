@@ -41,7 +41,9 @@
   },
   "REFUND_REQUESTED": {
     "subject": "A refund was requested for your booking",
-    "body": "A refund of {amount} was requested for booking {reference}. Nothing has been decided yet and no money has moved - the organizer reviews the request and you will be told the outcome. If you did not ask for this, contact the organizer before it is approved: whoever has the link to your tickets was able to make this request."
+    "subjectShowCancelled": "Your show was cancelled: a refund is open",
+    "body": "A refund of {amount} was requested for booking {reference}. Nothing has been decided yet and no money has moved - the organizer reviews the request and you will be told the outcome. If you did not ask for this, contact the organizer before it is approved: whoever has the link to your tickets was able to make this request.",
+    "bodyShowCancelled": "Your show was cancelled, so a refund of {amount} has been opened for booking {reference}. You do not need to do anything. The organizer approves it, and you will be told when the money is on its way."
   },
   "TICKET_CHECKED_IN": {
     "subject": "Ticket checked in",

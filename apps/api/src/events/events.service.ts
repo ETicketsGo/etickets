@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger, Optional } from '@nestjs/common';
 import { Prisma, Prisma as PrismaNamespace } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
 import * as QRCode from 'qrcode';
@@ -10,6 +10,7 @@ import {
   Role,
   SessionStatus,
   NotificationType,
+  effectiveSpaceKind,
 } from '@eticketsgo/shared-types';
 import type {
   CreateEventInput,
@@ -27,6 +28,7 @@ import { redirectUrl } from '../common/console-urls';
 import { requireCommerceCurrency } from '../common/commerce-currency';
 import { EventSellabilityService } from './event-sellability.service';
 import { ShowsService } from '../shows/shows.service';
+import { CancellationRefundsService } from '../refunds/cancellation-refunds.service';
 import type { RequestUser } from '../common/decorators';
 import { isUniqueViolation } from './request-key';
 import {
@@ -51,6 +53,12 @@ import { spaceOrganizationId, spaceVenueName } from '../spaces/space-owner';
 import { ratedTaxCategories, requiresTaxClassification } from '../pricing/tax-calculator';
 import { taxRuleFromRow } from '../tax/tax-rule-row';
 import { currencyForCountry } from '../common/country';
+import {
+  countsTowardsCap,
+  overCapBy,
+  refuseOverCap,
+  standingCapProblem,
+} from './standing-capacity';
 
 const ORGANIZER_ROLES = [Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER];
 
@@ -188,6 +196,12 @@ export class EventsService {
       a customer has been taken to a seat map they cannot buy from.
     */
     private readonly sellabilityService: EventSellabilityService,
+    /*
+      ON THE END and optional, so the hand-built test harnesses keep compiling. The running app
+      always has it (EventsModule imports RefundsModule); without it `cancelEvent` leaves the
+      refunds to the ShowCancelled handler and the worker's sweep, as a date cancel does.
+    */
+    @Optional() private readonly cancellationRefunds?: CancellationRefundsService,
   ) {}
 
   /**
@@ -451,6 +465,8 @@ export class EventsService {
             eventId: copy.id,
             screenId: s.screenId,
             seatMapId: seatMap?.id ?? null,
+            // The same lawn on new dates: the copy is capped by the space the original was in.
+            standingSpaceId: s.standingSpaceId,
             startsAt: s.startsAt,
             endsAt: s.endsAt,
           },
@@ -946,7 +962,22 @@ export class EventsService {
         name: true,
         venueId: true,
         venue: { select: { name: true } },
-        cinema: { select: { name: true, venueId: true } },
+        cinema: {
+          select: {
+            id: true,
+            name: true,
+            venueId: true,
+            // What the regulated-price rules match on, for `seatClassNeeds` below.
+            country: true,
+            region: true,
+            district: true,
+            city: true,
+            localBodyType: true,
+            cinemaFormat: true,
+            climateType: true,
+            venue: { select: { country: true, region: true, city: true } },
+          },
+        },
         seatMaps: {
           where: { status: 'PUBLISHED' },
           /*
@@ -967,13 +998,14 @@ export class EventsService {
             layoutKind: true,
             // Bookable at a new session: not an aisle, and not a house seat (held back at every session).
             _count: { select: { seats: { where: { kind: { notIn: ['GAP', 'HOUSE'] } } } } },
+            categories: { select: { name: true, regulatoryClass: true } },
           },
         },
       },
       orderBy: [{ name: 'asc' }],
     });
 
-    return screens.flatMap((s) => {
+    const rooms = screens.flatMap((s) => {
       // A name is a configuration and versions are its history. Offer only the current
       // published version of each named configuration, not every historical revision.
       const currentByName = new Map<string, (typeof s.seatMaps)[number]>();
@@ -995,8 +1027,26 @@ export class EventsService {
         layoutName: layout.name,
         layoutKind: layout.layoutKind,
         sellableSeats: layout._count.seats,
+        cinema: s.cinema,
+        categories: layout.categories,
       }));
     });
+
+    /*
+      Whether this layout can sell on this screen as far as regulated prices go, asked now so
+      the wizard can say so before the event exists rather than after (see `seatClassNeeds`).
+      Only cinema screens are under those rules; every other space answers NONE without a query.
+    */
+    const at = new Date();
+    return Promise.all(
+      rooms.map(async ({ cinema, categories, ...room }) => ({
+        ...room,
+        cinemaId: cinema?.id ?? null,
+        seatClasses: cinema
+          ? await this.sellabilityService.seatClassNeeds(cinema, categories, at)
+          : { state: 'NONE' as const, unmapped: [], fixPath: null },
+      })),
+    );
   }
 
   /**
@@ -1022,8 +1072,21 @@ export class EventsService {
     }
 
     if (!input.screenId) {
+      // General admission, optionally in a named standing space whose capacity caps the offer.
+      if (input.standingSpaceId) {
+        await this.assertStandingSpaceUsable(
+          input.standingSpaceId,
+          event.organizationId,
+          event.venueId,
+        );
+      }
       return this.prisma.eventSession.create({
-        data: { eventId, startsAt: input.startsAt, endsAt: input.endsAt },
+        data: {
+          eventId,
+          startsAt: input.startsAt,
+          endsAt: input.endsAt,
+          ...(input.standingSpaceId ? { standingSpaceId: input.standingSpaceId } : {}),
+        },
       });
     }
 
@@ -1216,6 +1279,161 @@ export class EventsService {
     }
   }
 
+  /**
+   * Put a general-admission session in a standing space, or take it out of one.
+   *
+   * Never touches what is on sale. A session that already offers more than the space holds is
+   * still linked - refusing would hide the problem rather than fix it - and the answer says by
+   * how much, so the page can flag it. From then on its quantities may only come down until
+   * they fit (see `standing-capacity.ts`).
+   */
+  async setStandingSpace(user: RequestUser, sessionId: string, standingSpaceId: string | null) {
+    const session = await this.prisma.eventSession.findUnique({
+      where: { id: sessionId },
+      include: { event: true },
+    });
+    if (!session)
+      throw new AppException(ErrorCodes.NOT_FOUND, 'Session not found.', HttpStatus.NOT_FOUND);
+    await this.access.assertMember(user, session.event.organizationId, ORGANIZER_ROLES);
+    if (standingSpaceId && session.screenId) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'This session has reserved seating in a space with a seat map. Make it general admission first.',
+        HttpStatus.CONFLICT,
+        { reason: 'SESSION_IS_SEATED' },
+      );
+    }
+    let capacity: number | null = null;
+    if (standingSpaceId) {
+      capacity = (
+        await this.assertStandingSpaceUsable(
+          standingSpaceId,
+          session.event.organizationId,
+          session.event.venueId,
+        )
+      ).capacity;
+    }
+    const updated = await this.prisma.eventSession.update({
+      where: { id: sessionId },
+      data: { standingSpaceId },
+    });
+    const onSale = await this.onSaleFor(this.prisma, sessionId);
+    await this.audit.record({
+      actorUserId: user.id,
+      organizationId: session.event.organizationId,
+      action: 'SESSION_STANDING_SPACE_SET',
+      entityType: 'EventSession',
+      entityId: sessionId,
+      metadata: { from: session.standingSpaceId, to: standingSpaceId },
+    });
+    return {
+      ...updated,
+      onSale,
+      overCapacityBy: capacity == null ? 0 : overCapBy(capacity, onSale),
+    };
+  }
+
+  /** Tickets on sale for one session: the quantities of its active ticket types. */
+  private async onSaleFor(
+    db: Pick<PrismaService, 'ticketType'> | Prisma.TransactionClient,
+    sessionId: string,
+    excludeTicketTypeId?: string,
+  ): Promise<number> {
+    const rows = await db.ticketType.findMany({
+      where: {
+        eventSessionId: sessionId,
+        ...(excludeTicketTypeId ? { id: { not: excludeTicketTypeId } } : {}),
+      },
+      select: { quantityTotal: true, status: true },
+    });
+    return rows.reduce((n, r) => n + (countsTowardsCap(r.status) ? r.quantityTotal : 0), 0);
+  }
+
+  /**
+   * The cap check for one ticket-type change on a session in a standing space, inside the
+   * caller's transaction. The session row is locked first, so two ticket types added at once
+   * cannot each see room for themselves and together pass the cap.
+   */
+  private async assertWithinStandingCap(
+    tx: Prisma.TransactionClient,
+    sessionId: string,
+    change: { ticketTypeId?: string; next: number; previous: number },
+  ): Promise<void> {
+    await tx.$queryRaw`SELECT id FROM "EventSession" WHERE id = ${sessionId} FOR UPDATE`;
+    const session = await tx.eventSession.findUnique({
+      where: { id: sessionId },
+      select: { standingSpace: { select: { name: true, capacity: true } } },
+    });
+    const space = session?.standingSpace;
+    if (!space) return;
+    const others = await this.onSaleFor(tx, sessionId, change.ticketTypeId);
+    const problem = standingCapProblem({
+      spaceName: space.name,
+      capacity: space.capacity,
+      others,
+      next: change.next,
+      previous: change.previous,
+    });
+    if (problem) refuseOverCap(problem, space.capacity, others + change.next);
+  }
+
+  /**
+   * A standing space this session may be held in: this organization's, in the event's venue,
+   * in use, and actually a standing floor. Returns its capacity.
+   */
+  private async assertStandingSpaceUsable(
+    spaceId: string,
+    organizationId: string,
+    eventVenueId?: string | null,
+  ): Promise<{ capacity: number }> {
+    const space = await this.prisma.screen.findUnique({
+      where: { id: spaceId },
+      select: {
+        id: true,
+        status: true,
+        kind: true,
+        capacity: true,
+        venueId: true,
+        cinemaId: true,
+        venue: { select: { organizationId: true } },
+        cinema: { select: { organizationId: true, venueId: true } },
+      },
+    });
+    if (!space || spaceOrganizationId(space) !== organizationId) {
+      throw new AppException(
+        ErrorCodes.NOT_FOUND,
+        'Space not found for this organization.',
+        HttpStatus.NOT_FOUND,
+      );
+    }
+    const spaceVenueId = space.venueId ?? space.cinema?.venueId ?? null;
+    if (eventVenueId && spaceVenueId && spaceVenueId !== eventVenueId) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        "That space is in a different venue from this event. Choose a space in the event's venue.",
+        HttpStatus.CONFLICT,
+        { screenId: spaceId, reason: 'SPACE_IN_OTHER_VENUE' },
+      );
+    }
+    if (effectiveSpaceKind(space) !== 'STANDING') {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'That space is not a standing space. Choose a standing space, or use reserved seating for a space with seats.',
+        HttpStatus.CONFLICT,
+        { screenId: spaceId, reason: 'SPACE_NOT_STANDING' },
+      );
+    }
+    if (space.status === 'INACTIVE') {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'That space is out of use. Put it back in use, or choose another space.',
+        HttpStatus.CONFLICT,
+        { screenId: spaceId, reason: 'SPACE_OUT_OF_USE' },
+      );
+    }
+    return { capacity: space.capacity };
+  }
+
   /** The room belongs to this organization and has a published layout. Shared with addSession. */
   private async assertRoomIsUsable(
     screenId: string,
@@ -1286,12 +1504,35 @@ export class EventsService {
     }
     await this.access.assertMember(user, session.event.organizationId, ORGANIZER_ROLES);
     assertPriceFitsEvent(session.event.isFree, input.priceMinor);
-    return this.prisma.ticketType.create({
-      data: {
-        eventSessionId: input.eventSessionId,
-        name: input.name,
-        priceMinor: input.priceMinor,
-        /*
+    /*
+      In a standing space, the new quantity must fit what the space holds - checked under a lock
+      on the session, in the same transaction as the create. Elsewhere nothing changes.
+    */
+    const create = (tx: Prisma.TransactionClient | PrismaService) =>
+      tx.ticketType.create({
+        data: this.ticketTypeCreateData(input, session.event.venue?.country),
+        include: { inventory: true },
+      });
+    if (!session.standingSpaceId) return create(this.prisma);
+    return this.prisma.$transaction(async (tx) => {
+      await this.assertWithinStandingCap(tx, session.id, {
+        next: input.quantityTotal,
+        previous: 0,
+      });
+      return create(tx);
+    });
+  }
+
+  /** The row `addTicketType` writes, kept in one place for both of its paths. */
+  private ticketTypeCreateData(
+    input: CreateTicketTypeInput,
+    venueCountry: string | null | undefined,
+  ) {
+    return {
+      eventSessionId: input.eventSessionId,
+      name: input.name,
+      priceMinor: input.priceMinor,
+      /*
           The currency follows the venue, not a constant.
 
           Every ticket type used to be created in INR because the validation schema
@@ -1304,16 +1545,14 @@ export class EventsService {
           An explicit currency from the caller still wins. Otherwise the venue must name a
           supported country; unknown is not India and cannot safely choose financial rules.
         */
-        currency: input.currency ?? requireCommerceCurrency(session.event.venue?.country),
-        quantityTotal: input.quantityTotal,
-        maxPerOrder: input.maxPerOrder,
-        salesStartAt: input.salesStartAt,
-        salesEndAt: input.salesEndAt,
-        ...(input.taxCategory !== undefined ? { taxCategory: input.taxCategory } : {}),
-        inventory: { create: { quantityTotal: input.quantityTotal } },
-      },
-      include: { inventory: true },
-    });
+      currency: input.currency ?? requireCommerceCurrency(venueCountry),
+      quantityTotal: input.quantityTotal,
+      maxPerOrder: input.maxPerOrder,
+      salesStartAt: input.salesStartAt,
+      salesEndAt: input.salesEndAt,
+      ...(input.taxCategory !== undefined ? { taxCategory: input.taxCategory } : {}),
+      inventory: { create: { quantityTotal: input.quantityTotal } },
+    };
   }
 
   /** Load a ticket type with its inventory + owning org, and assert organizer access. */
@@ -1371,24 +1610,32 @@ export class EventsService {
       );
     }
 
-    const updated = await this.prisma.ticketType.update({
-      where: { id },
-      data: {
-        name: input.name ?? undefined,
-        priceMinor: input.priceMinor ?? undefined,
-        maxPerOrder: input.maxPerOrder ?? undefined,
-        status: input.status ?? undefined,
-        salesStartAt: input.salesStartAt === undefined ? undefined : input.salesStartAt,
-        salesEndAt: input.salesEndAt === undefined ? undefined : input.salesEndAt,
-        quantityTotal: input.quantityTotal ?? undefined,
-        // Null is meaningful: it clears the override so the ticket type inherits the event's.
-        taxCategory: input.taxCategory === undefined ? undefined : input.taxCategory,
-        ...(input.quantityTotal !== undefined
-          ? { inventory: { update: { quantityTotal: input.quantityTotal } } }
-          : {}),
-      },
-      include: { inventory: true },
-    });
+    /*
+      What this ticket type will count for against a standing space's cap: its quantity while it
+      is on sale, nothing once it is not. Only an INCREASE is judged, so a session already above
+      the cap can always come down.
+    */
+    const countFor = (status: string | null | undefined, quantity: number) =>
+      countsTowardsCap(status) ? quantity : 0;
+    const previous = countFor(tt.status, tt.quantityTotal);
+    const next = countFor(input.status ?? tt.status, input.quantityTotal ?? tt.quantityTotal);
+    const write = (db: Prisma.TransactionClient | PrismaService) =>
+      db.ticketType.update({
+        where: { id },
+        data: this.ticketTypeUpdateData(input),
+        include: { inventory: true },
+      });
+    const updated =
+      tt.eventSession.standingSpaceId && next > previous
+        ? await this.prisma.$transaction(async (tx) => {
+            await this.assertWithinStandingCap(tx, tt.eventSessionId, {
+              ticketTypeId: id,
+              next,
+              previous,
+            });
+            return write(tx);
+          })
+        : await write(this.prisma);
     await this.audit.record({
       actorUserId: user.id,
       organizationId: tt.eventSession.event.organizationId,
@@ -1398,6 +1645,24 @@ export class EventsService {
       metadata: { ...input, salesStartAt: undefined, salesEndAt: undefined },
     });
     return updated;
+  }
+
+  /** The fields `updateTicketType` writes. Only what was sent; `null` clears where it means to. */
+  private ticketTypeUpdateData(input: UpdateTicketTypeInput) {
+    return {
+      name: input.name ?? undefined,
+      priceMinor: input.priceMinor ?? undefined,
+      maxPerOrder: input.maxPerOrder ?? undefined,
+      status: input.status ?? undefined,
+      salesStartAt: input.salesStartAt === undefined ? undefined : input.salesStartAt,
+      salesEndAt: input.salesEndAt === undefined ? undefined : input.salesEndAt,
+      quantityTotal: input.quantityTotal ?? undefined,
+      // Null is meaningful: it clears the override so the ticket type inherits the event's.
+      taxCategory: input.taxCategory === undefined ? undefined : input.taxCategory,
+      ...(input.quantityTotal !== undefined
+        ? { inventory: { update: { quantityTotal: input.quantityTotal } } }
+        : {}),
+    };
   }
 
   /** Delete a ticket type only when nothing has been sold or held against it. */
@@ -1667,6 +1932,105 @@ export class EventsService {
    *   · an admin pauses an event and the organizer resumes it. A pause by the platform team
    *     is now lifted only by the platform team.
    */
+  /**
+   * Cancel a whole event, bookings and all: sales stop, every date still to come is cancelled,
+   * and every paid booking on those dates is refunded and its buyer told.
+   *
+   * ── WHY IT IS THE SHOW CANCELLATION, ONCE PER DATE ───────────────────────────────────
+   * Cancelling one date already does all of that and has been proven on it: `cancelShow`
+   * cancels the session, releases unpaid holds, records the ShowCancelled fact, and from that
+   * fact the refunds are opened for every paid booking (`CancellationRefundsService`, with a
+   * sweep behind it) and every ticket holder is told (`ShowCancellationFanoutService`). An
+   * event-level copy of that would be a second refund path to keep in step with the first, so
+   * there is none: this marks the event CANCELLED, which stops every sale at once (booking
+   * create sells only PUBLISHED events), and then cancels each date through the same call.
+   *
+   * Dates that have already started are left alone: their audience came, and nobody is owed a
+   * refund for a show they saw. The refunds open as requests, as every cancellation refund
+   * does, and the owner approves them (singly or all at once) on the event's refunds page.
+   *
+   * OWNER only. It refunds everyone and cannot be undone; the same role approves refunds.
+   */
+  async cancelEvent(user: RequestUser, id: string, reason: string) {
+    const event = await this.loadOwnedEvent(user, id, [Role.ORGANIZER_OWNER]);
+    if (event.status === EventStatus.COMPLETED || event.status === EventStatus.ARCHIVED) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'This event has ended, so it cannot be cancelled. Refund a booking from Bookings instead.',
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    const now = new Date();
+    if (event.status !== EventStatus.CANCELLED) {
+      await this.prisma.event.update({ where: { id }, data: { status: EventStatus.CANCELLED } });
+    }
+
+    // Every date still to come. A second run (a retry after a failure part-way) finds only the
+    // dates the first did not reach, and `cancelShow` is idempotent for the rest.
+    const sessions = await this.prisma.eventSession.findMany({
+      where: {
+        eventId: id,
+        status: { in: [SessionStatus.SCHEDULED, SessionStatus.PAUSED] },
+        startsAt: { gt: now },
+      },
+      select: { id: true },
+      orderBy: { startsAt: 'asc' },
+    });
+    const bookingsRequiringRefund: string[] = [];
+    for (const session of sessions) {
+      const result = await this.shows.cancelShow(user, session.id, reason);
+      bookingsRequiringRefund.push(...result.bookingsRequiringRefund);
+      /*
+        The refunds, opened now rather than on the next sweep: the organizer is about to be
+        sent to approve them, and an empty list two minutes long reads as "nothing happened".
+        The same call the ShowCancelled handler and the sweep make, so whichever runs first
+        opens them and the others find nothing left to open. A failure here is logged, not
+        thrown: the event is already cancelled and the sweep is the guarantee.
+      */
+      await this.cancellationRefunds?.openFor(session.id).catch((err: unknown) => {
+        new Logger('Events').error(
+          `refunds for cancelled show ${session.id} left to the sweep: ${(err as Error)?.message}`,
+        );
+      });
+    }
+
+    /*
+      Cash is not refunded by the platform: it never passed through it (refunds refuse cash
+      bookings). Counted so the organizer is told how many to hand back at the counter.
+    */
+    const cashToReturn = await this.prisma.booking.count({
+      where: {
+        eventSession: { eventId: id },
+        paymentMethod: 'CASH',
+        status: { in: [BookingStatus.CONFIRMED, BookingStatus.PARTIALLY_REFUNDED] },
+      },
+    });
+
+    await this.audit.record({
+      actorUserId: user.id,
+      organizationId: event.organizationId,
+      action: 'EVENT_CANCELLED',
+      entityType: 'Event',
+      entityId: id,
+      metadata: {
+        from: event.status,
+        reason,
+        datesCancelled: sessions.length,
+        bookingsRequiringRefund: bookingsRequiringRefund.length,
+        cashToReturn,
+      },
+    });
+
+    return {
+      eventId: id,
+      status: EventStatus.CANCELLED,
+      datesCancelled: sessions.length,
+      bookingsRequiringRefund,
+      cashToReturn,
+    };
+  }
+
   async setPaused(user: RequestUser, id: string, paused: boolean) {
     const event = await this.loadOwnedEvent(user, id);
     const target = paused ? EventStatus.PAUSED : EventStatus.PUBLISHED;
