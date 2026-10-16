@@ -5747,6 +5747,13 @@ export interface FinanceCurrencyGroupDto {
   summary: FinanceSummaryDto;
   /** One entry per route PRESENT. A platform-only organization has one, not a zeroed pair. */
   paths: FinancePathSummaryDto[];
+  /**
+   * Settlements a provider transfer has CLAIMED, and nothing else: what the provider pays the
+   * organizer directly. The PROVIDER path above also holds settlements that have moved nothing,
+   * whose revenue `/payouts/summary` still counts, so showing it as provider money shows that
+   * money twice. Absent when no transfer has claimed anything.
+   */
+  providerRoute?: FinancePathSummaryDto;
   warnings: FinanceWarningDto[];
 }
 
@@ -5806,6 +5813,15 @@ export interface PayoutSummaryCurrency {
   pending: number;
   /** Revenue that exists and is not yet eligible. */
   held: number;
+  /**
+   * Sold online for cancelled events, after refunds: owed back to buyers, never paid out.
+   * Optional only because an API older than this field does not send it.
+   */
+  cancelled?: number;
+  /** Cash taken at the venue, after refunds. The organizer already holds it. */
+  cash?: number;
+  /** The organizer fee inside `held`, `cancelled` and `cash`, which are stated before it. */
+  feeNotDeducted?: number;
 }
 
 /**
