@@ -68,6 +68,20 @@ export class CheckInDeviceService {
 
   async approve(user: RequestUser, id: string) {
     const device = await this.load(user, id, MANAGER_ROLES);
+    /*
+      Revoked is final. Approve is how a PENDING device starts and how a SUSPENDED one comes
+      back, but it used to set ANY status to ACTIVE - so a phone revoked because it was lost, or
+      because its owner was taken off the team, came back with one call (the devices page hides
+      the button; the API did not refuse). A manager who was removed and invited back could
+      approve their own old phone. A replacement is registered as a new device.
+    */
+    if (device.status === CheckInDeviceStatus.REVOKED) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'This device was revoked and cannot be approved again. Register it as a new device.',
+        HttpStatus.CONFLICT,
+      );
+    }
     const updated = await this.prisma.checkInDevice.update({
       where: { id },
       data: {

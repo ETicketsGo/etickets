@@ -36,7 +36,8 @@ import {
  *
  * Nothing was removed and no route changed. Secondary pages are the TABS of the page they
  * belong to (`children`, rendered by `SectionTabs`): Payouts, Receipts and invoices and Refunds
- * under Finance; Counter under Bookings; Premium under Settings. Quick navigation (Ctrl/Cmd+K)
+ * under Finance; Premium under Settings. Counter was a tab of Bookings and is now its own row
+ * under it, because nobody found it there. Quick navigation (Ctrl/Cmd+K)
  * lists every one of them, and Get started (`sidebar: false`) too.
  *
  * "Bookings & attendees" is the find-a-booking page. Attendee lists themselves live inside
@@ -133,12 +134,22 @@ export function navFor({
       /*
         The box office counter's way in. Distinct from an event's order list, which answers
         "who bought for THIS show" - a counter is holding a phone call about a booking whose
-        show it does not yet know. Counter is a tab of this section, not a sidebar row.
+        show it does not yet know.
       */
       label: 'Bookings & attendees',
       href: '/organizer/bookings',
       icon: ClipboardList,
-      children: [{ label: 'Counter', href: '/organizer/counter', icon: Coins }],
+    },
+    /*
+      A sidebar row of its own, straight under Bookings. As a tab of Bookings it was found only
+      through Find a page: the desk sidebar lists no secondary pages, and somebody selling at
+      the door does not think of a sale as "finding a booking".
+    */
+    {
+      label: 'Counter',
+      href: '/organizer/counter',
+      icon: Coins,
+      keywords: ['box office', 'cash', 'walk-up', 'sell at the door', 'give back cash'],
     },
     {
       label: 'Check-in',

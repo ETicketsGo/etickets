@@ -347,9 +347,10 @@ function ClassicNavTree({
 
   The desk now lists every top-level page, always, in one column:
   - Group names are labels, not buttons. They do not fold and cannot be clicked.
-  - Every row has its icon in one 18px column, one row height (44px touch, 36px from `lg`),
+  - Every row has its icon in one 18px column, one row height (44px touch, 34px from `lg`;
+    it was 36px until Counter became a row, and 14 rows at 36px no longer fit a 768px window),
     and the current page is a surface pill with a hairline and the marigold bar.
-  - Secondary pages (Payouts under Finance, Counter under Bookings) are not listed here; the
+  - Secondary pages (Payouts under Finance, Premium under Settings) are not listed here; the
     page they belong to shows them as tabs (`SectionTabs`), and quick navigation finds them by
     name. While one of them is open, its parent row is marked as the current SECTION
     (`aria-current="true"`); the tab carries `aria-current="page"`.
@@ -404,7 +405,7 @@ function DeskNavList({
                       href={item.href}
                       onClick={onNavigate}
                       aria-current={state}
-                      className={`group/link relative flex min-h-[2.75rem] min-w-0 items-center gap-3 rounded-brand-control border px-3 text-brand-ui transition-colors duration-150 lg:min-h-[2.25rem] ${DESK_FOCUS} ${
+                      className={`group/link relative flex min-h-[2.75rem] min-w-0 items-center gap-3 rounded-brand-control border px-3 text-brand-ui transition-colors duration-150 lg:min-h-[2.125rem] ${DESK_FOCUS} ${
                         state
                           ? 'border-brand-line bg-brand-surface font-semibold text-brand-ink'
                           : 'border-transparent text-brand-ink-2 hover:bg-brand-sunken hover:text-brand-ink'

@@ -3,7 +3,7 @@ import { OrgAccessService } from '../tenancy/org-access.service';
 import { AuditService } from '../audit/audit.service';
 import { Role, TicketInviteKind, TicketInviteStatus, venueZone } from '@eticketsgo/shared-types';
 import * as QRCode from 'qrcode';
-import { BookingStatus } from '@eticketsgo/shared-types';
+import { BookingStatus, TicketStatus } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 import { QrService } from './qr.service';
 import { AppException, ErrorCodes } from '../common/errors';
@@ -123,8 +123,17 @@ export class TicketsService {
     }
     await this.access.assertMember(staff, booking.organizationId, STAFF_ROLES);
 
+    /*
+      Only tickets that still admit somebody. A cancelled, refunded or void ticket came back
+      here with a freshly signed QR, so the counter could print a valid-looking ticket for a
+      show that had been cancelled - the cash booking on a cancelled event was the case found.
+      Check-in refuses such a ticket, but paper in a buyer's hand says otherwise until the door.
+    */
     const tickets = await this.prisma.ticket.findMany({
-      where: { bookingId },
+      where: {
+        bookingId,
+        status: { notIn: [TicketStatus.CANCELLED, TicketStatus.REFUNDED, TicketStatus.VOID] },
+      },
       orderBy: [{ seatLabel: 'asc' }, { serial: 'asc' }],
       include: TICKET_INCLUDE,
     });

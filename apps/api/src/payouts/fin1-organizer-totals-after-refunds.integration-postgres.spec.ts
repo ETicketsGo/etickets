@@ -205,6 +205,18 @@ describe('integration-real-postgres: FIN-1 organizer totals after refunds', () =
       const row = await db!.settlement.findFirst({ where: { organizationId: world.orgA } });
       expect(inr.summary.pendingMinor).toBe(row!.grossSalesMinor - row!.refundsMinor);
     });
+
+    it('is not provider money: the held figure on /payouts/summary already counts it (L6)', async () => {
+      if (!guard()) return;
+      const composed = await finance.forOrganization(owner, world.orgA);
+      const inr = composed.currencies.find((c) => c.currency === 'INR')!;
+      const summary = await payouts.summary(owner, world.orgA);
+      // The ledger holds this event's money...
+      expect(summary.currencies.find((c) => c.currency === 'INR')!.held).toBe(KEPT);
+      // ...so "Settled by your payment provider" must not show it a second time.
+      expect(inr.paths.map((p) => p.path)).toContain('PROVIDER');
+      expect(inr.providerRoute).toBeUndefined();
+    });
   });
 
   describe('platform payout raised for the same revenue as an unmoved settlement', () => {
@@ -227,9 +239,16 @@ describe('integration-real-postgres: FIN-1 organizer totals after refunds', () =
       // Was payout net + settlement gross: the one event's money twice.
       expect(inr.summary.pendingMinor).toBe(payoutRow!.netMinor);
       expect(inr.summary.entitlementMinor).toBe(payoutRow!.netMinor);
-      // Nothing is hidden: the settlement is still listed, and the overlap is still reported.
+      // Nothing is hidden: the settlement is still listed.
       expect(inr.entries).toHaveLength(2);
-      expect(inr.warnings.map((w) => w.code)).toContain('DOUBLE_CLAIM');
+      /*
+        L6 (QA 2026-10-16): and it is NOT a double claim. The settlement has moved nothing, so it
+        has claimed nothing; the payout is the designed route for an org with no linked account.
+        Reporting it showed every such organizer "Needs attention: An event appears in two payment
+        routes at once" with nothing wrong. Nor is it provider money: no `providerRoute`.
+      */
+      expect(inr.warnings.map((w) => w.code)).not.toContain('DOUBLE_CLAIM');
+      expect(inr.providerRoute).toBeUndefined();
     });
 
     it('reconciles: pending + paid + refunds = gross bookings, and matches /payouts/summary', async () => {

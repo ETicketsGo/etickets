@@ -13,12 +13,13 @@ import {
   useToast,
   errorMessage,
   money,
-  dateTime,
   type Column,
   type CashBooking,
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
 import { CounterSaleForm } from '@/components/counter/counter-sale-form';
+import { CashReturnsList } from '@/components/counter/cash-returns-list';
+import { timeAtVenue } from '@/components/events/event-list-model';
 
 /**
  * The counter: selling to the person in front of you, and cash reserved but not yet handed over.
@@ -60,7 +61,7 @@ export default function CounterPage() {
     onSuccess: (r) => {
       toast.push(
         r.status === 'already_collected'
-          ? 'Already collected — nothing changed.'
+          ? 'Already collected. Nothing changed.'
           : 'Cash recorded. The ticket is issued.',
         'success',
       );
@@ -86,7 +87,10 @@ export default function CounterPage() {
       render: (b) => (
         <div>
           <p className="text-text-primary">{b.eventTitle}</p>
-          <p className="text-caption text-text-muted">{dateTime(b.startsAt)}</p>
+          {/* On the venue's clock, with its zone: the reader may be anywhere. */}
+          <p className="text-caption text-text-muted">
+            {timeAtVenue(b.startsAt, { timezone: b.timezone ?? null })}
+          </p>
         </div>
       ),
     },
@@ -147,10 +151,16 @@ export default function CounterPage() {
       */}
       <Card>
         <p className="text-[0.9375rem] text-text-secondary">
-          Money taken here stays with you — it never passes through ETicketsGo, so it is not part of
+          Money taken here stays with you. It never passes through ETicketsGo, so it is not part of
           a payout. Every sale and every collection records who took the money.
         </p>
       </Card>
+
+      {/*
+        Cash owed back because a show was cancelled. Only shown while there is (or was) some, so
+        a counter that never had a cancellation sees the page exactly as before.
+      */}
+      <CashReturnsSection organizationId={activeOrg.id} />
 
       <div className="flex flex-wrap items-end justify-between gap-3 pt-2">
         <div>
@@ -199,5 +209,27 @@ export default function CounterPage() {
         }
       />
     </div>
+  );
+}
+
+function CashReturnsSection({ organizationId }: { organizationId: string }) {
+  const { data } = useQuery({
+    queryKey: ['cash-returns', organizationId, 'all'],
+    queryFn: () => api.organizations.cashReturns(organizationId, { includeReturned: true }),
+  });
+  if (!data || data.length === 0) return null;
+  return (
+    <section className="space-y-2 pt-2" aria-labelledby="cash-returns-heading">
+      <div>
+        <h2 id="cash-returns-heading" className="text-title font-semibold text-text-primary">
+          Cash to give back
+        </h2>
+        <p className="text-caption text-text-muted">
+          These shows were cancelled, so their tickets no longer work. Give the cash back, then
+          press <strong>Mark as given back</strong>. No money moves online.
+        </p>
+      </div>
+      <CashReturnsList organizationId={organizationId} />
+    </section>
   );
 }
