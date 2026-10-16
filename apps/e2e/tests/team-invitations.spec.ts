@@ -123,7 +123,7 @@ test.describe('adding a staff member', () => {
     const path = new URL(inviteUrl).pathname;
     await page.goto(`${ORGANIZER}${path}`, { waitUntil: 'networkidle' });
 
-    await expect(page.getByRole('heading', { name: /can.t be used/i })).toBeVisible({
+    await expect(page.getByRole('heading', { name: /cannot be used/i })).toBeVisible({
       timeout: 30_000,
     });
     // The server's own wording, which points at the next thing to try rather than just
