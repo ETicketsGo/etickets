@@ -16,7 +16,8 @@ import {
   Pagination,
   Select,
   Textarea,
-  dateTime,
+  recordedAt,
+  timeAtVenue,
   errorMessage,
   useToast,
   type BadgeTone,
@@ -150,8 +151,8 @@ export default function ReconciliationConsole() {
       render: (r) => <span className="font-mono text-xs">{r.deviceId.slice(0, 8)}</span>,
     },
     { key: 'operator', header: 'Operator', render: (r) => r.operator?.email ?? '—' },
-    { key: 'scanned', header: 'Scanned (device)', render: (r) => dateTime(r.localScannedAt) },
-    { key: 'reconciled', header: 'Reconciled (server)', render: (r) => dateTime(r.reconciledAt) },
+    { key: 'scanned', header: 'Scanned (device)', render: (r) => recordedAt(r.localScannedAt) },
+    { key: 'reconciled', header: 'Reconciled (server)', render: (r) => recordedAt(r.reconciledAt) },
     {
       key: 'action',
       header: 'Action',
@@ -189,7 +190,7 @@ export default function ReconciliationConsole() {
             {list.isFetching
               ? 'Refreshing…'
               : list.dataUpdatedAt
-                ? `Updated ${dateTime(new Date(list.dataUpdatedAt).toISOString())}`
+                ? `Updated ${recordedAt(new Date(list.dataUpdatedAt))}`
                 : ''}
           </span>
           <Button variant="outline" size="sm" onClick={() => list.refetch()}>
@@ -212,7 +213,7 @@ export default function ReconciliationConsole() {
             <option value="">All sessions</option>
             {event?.sessions.map((s) => (
               <option key={s.id} value={s.id}>
-                {dateTime(s.startsAt)}
+                {timeAtVenue(s.startsAt, event?.venue)}
               </option>
             ))}
           </Select>

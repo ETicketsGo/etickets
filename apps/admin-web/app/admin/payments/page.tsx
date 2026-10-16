@@ -19,7 +19,7 @@ import {
   type GroupSelection,
   EmptyState,
   money,
-  dateTime,
+  recordedAt,
   type Column,
   type AdminPaymentRow,
 } from '@eticketsgo/web-kit';
@@ -125,7 +125,7 @@ export default function AdminPayments() {
             {p.providerRef ? ' · ' : ''}
             <span className="break-all font-mono">{p.providerRef ?? ''}</span>
           </p>
-          <p className="text-caption text-text-muted">{dateTime(p.createdAt)}</p>
+          <p className="text-caption text-text-muted">{recordedAt(p.createdAt)}</p>
         </div>
       ),
       sortable: true,
@@ -293,7 +293,7 @@ function PaymentQuickLook({
             <Fact label="Provider reference">
               <span className="break-all font-mono">{payment.providerRef ?? 'None'}</span>
             </Fact>
-            <Fact label="Taken">{dateTime(payment.createdAt)}</Fact>
+            <Fact label="Taken">{recordedAt(payment.createdAt)}</Fact>
           </dl>
         </div>
       )}

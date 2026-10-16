@@ -14,6 +14,7 @@ import {
   ErrorState,
   useToast,
   errorMessage,
+  type EventCancelResult,
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
 import { SellabilityPanel } from '@/components/sellability-panel';
@@ -27,6 +28,7 @@ import {
 } from '@/components/events/overview-sections';
 import { ManageTiles, OverviewLead } from '@/components/events/overview-lead';
 import { CancelEventDialog } from '@/components/events/cancel-event-dialog';
+import { CancelEventResultDialog } from '@/components/events/cancel-event-result-dialog';
 import { timeAtVenue } from '@/components/events/event-list-model';
 import { useEventSaleState } from '@/components/events/event-header';
 import {
@@ -119,25 +121,18 @@ export default function EventOverview() {
   });
   const router = useRouter();
   const [confirmCancel, setConfirmCancel] = useState(false);
+  // What the cancellation did, kept open as a summary with the cash list, not a passing toast.
+  const [cancelResult, setCancelResult] = useState<EventCancelResult | null>(null);
   const cancel = useMutation({
     mutationFn: (reason: string) => api.events.cancel(id, reason),
     onSuccess: (r) => {
       setConfirmCancel(false);
-      const refunds = r.bookingsRequiringRefund.length;
-      toast.push(
-        `Event cancelled. ${r.datesCancelled} ${r.datesCancelled === 1 ? 'date' : 'dates'} cancelled` +
-          (refunds > 0
-            ? `, and ${refunds} ${refunds === 1 ? 'buyer is' : 'buyers are'} owed a refund. Approve them on Refunds.`
-            : '. Nobody had paid, so there is nothing to refund.') +
-          (r.cashToReturn > 0
-            ? ` ${r.cashToReturn} cash ${r.cashToReturn === 1 ? 'booking needs' : 'bookings need'} the money handed back at the counter.`
-            : ''),
-        'success',
-      );
+      setCancelResult(r);
       qc.invalidateQueries({ queryKey: ['event', id] });
       qc.invalidateQueries({ queryKey: ['event-sellability', id] });
       qc.invalidateQueries({ queryKey: ['organizer-event-sale-states'] });
       qc.invalidateQueries({ queryKey: ['events'] });
+      qc.invalidateQueries({ queryKey: ['cash-returns'] });
     },
     onError,
   });
@@ -288,11 +283,17 @@ export default function EventOverview() {
 
       <CancelEventDialog
         open={confirmCancel}
+        eventId={id}
         title={event.title}
-        bookings={event._count?.bookings ?? 0}
         busy={cancel.isPending}
         onClose={() => setConfirmCancel(false)}
         onConfirm={(reason) => cancel.mutate(reason)}
+      />
+      <CancelEventResultDialog
+        result={cancelResult}
+        eventId={id}
+        organizationId={event.organizationId}
+        onClose={() => setCancelResult(null)}
       />
 
       <Dialog

@@ -15,7 +15,7 @@ import {
   Pagination,
   PageHeader,
   EmptyState,
-  dateTime,
+  recordedAt,
   errorMessage,
   useToast,
   type Column,
@@ -170,7 +170,7 @@ export default function AdminSupport() {
       render: (r) => (
         <div className="space-y-1">
           <StatusBadge status={r.status} />
-          <p className="text-caption text-text-muted">{dateTime(r.createdAt)}</p>
+          <p className="text-caption text-text-muted">{recordedAt(r.createdAt)}</p>
         </div>
       ),
       sortable: true,
@@ -279,7 +279,7 @@ export default function AdminSupport() {
               <dt className="text-text-muted">Account</dt>
               <dd className="text-text-primary">{selected.userId ? 'Signed-in user' : 'Guest'}</dd>
               <dt className="text-text-muted">Received</dt>
-              <dd className="text-text-primary">{dateTime(selected.createdAt)}</dd>
+              <dd className="text-text-primary">{recordedAt(selected.createdAt)}</dd>
               {selected.organizationName && (
                 <>
                   <dt className="text-text-muted">About</dt>

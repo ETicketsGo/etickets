@@ -23,7 +23,7 @@ import {
   money,
   currencySymbol,
   currencyForCountry,
-  dateTime,
+  timeAtVenue,
   type EventSession,
   type MenuItem,
   type TicketType,
@@ -276,7 +276,7 @@ export default function TicketsTab() {
     );
   if (isLoading || !event) return <Skeleton className="h-64 w-full" />;
 
-  const when = (s: EventSession) => dateTime(s.startsAt, undefined, venueTz);
+  const when = (s: EventSession) => timeAtVenue(s.startsAt, venueTz ?? null);
   const sessionName = (s: EventSession, i: number) =>
     `${words.session} ${i + 1}: ${when(s)}${s.status === 'CANCELLED' ? ' (cancelled)' : ''}`;
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  fitDefaultQuantity,
   REVIEW_STEP,
   WIZARD_STEPS,
   buyerFeeNote,
@@ -711,5 +712,37 @@ describe('validateStep - a standing space caps each session', () => {
       }),
     );
     expect(e.s0Cap).toBeUndefined();
+  });
+});
+
+describe('fitDefaultQuantity', () => {
+  const row = (quantityTotal: string, sessionIndex = 0, maxPerOrder = '6') => ({
+    sessionIndex,
+    name: 'General',
+    priceMajor: '',
+    quantityTotal,
+    maxPerOrder,
+  });
+
+  it('lowers the opening 100 to what a 50-person lawn holds', () => {
+    // QA 2026-10-16: the wizard prefilled 100 above a 50-person cap and then warned about it.
+    expect(fitDefaultQuantity([row('100')], 50)).toEqual([row('50')]);
+  });
+
+  it('also lowers max per order when the space is smaller than it', () => {
+    expect(fitDefaultQuantity([row('100')], 4)).toEqual([row('4', 0, '4')]);
+  });
+
+  it('leaves a quantity the organizer typed, and a space big enough, alone', () => {
+    const typed = [row('80')];
+    expect(fitDefaultQuantity(typed, 50)).toBe(typed);
+    const roomy = [row('100')];
+    expect(fitDefaultQuantity(roomy, 500)).toBe(roomy);
+    expect(fitDefaultQuantity(roomy, null)).toBe(roomy);
+  });
+
+  it('does not guess a split when a session has several ticket rows', () => {
+    const two = [row('100'), row('100')];
+    expect(fitDefaultQuantity(two, 50)).toBe(two);
   });
 });

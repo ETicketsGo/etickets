@@ -16,7 +16,7 @@ import {
   type GroupSelection,
   EmptyState,
   money,
-  dateTime,
+  recordedAt,
   type Column,
   type RefundRow,
 } from '@eticketsgo/web-kit';
@@ -120,7 +120,7 @@ export default function AdminRefunds() {
       render: (r) => (
         <div className="space-y-1">
           <MoneyStatusPill entity="refund" status={r.status} />
-          <p className="text-caption text-text-muted">Asked {dateTime(r.createdAt)}</p>
+          <p className="text-caption text-text-muted">Asked {recordedAt(r.createdAt)}</p>
         </div>
       ),
       sortable: true,

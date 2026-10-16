@@ -15,10 +15,9 @@ import {
   SectionCard,
   Select,
   StatusPill,
-  dateTime,
+  timeAtVenue,
   errorMessage,
   money,
-  zoneAbbrev,
   type Column,
   type CounterBookingRow,
 } from '@eticketsgo/web-kit';
@@ -48,9 +47,8 @@ import { bookingStatusLabel, bookingStatusTone, narrowingOptions } from '@/lib/b
  */
 
 function when(b: CounterBookingRow): string {
-  const zone = b.timezone ? zoneAbbrev(b.startsAt, b.timezone) : null;
   // The venue's time, so the counter reads it the way the ticket prints it.
-  return `${dateTime(b.startsAt, undefined, b.timezone ?? undefined)}${zone ? ` (${zone})` : ''}`;
+  return timeAtVenue(b.startsAt, b.timezone);
 }
 
 function BookingStatus({ status }: { status: string }) {

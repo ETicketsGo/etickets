@@ -434,12 +434,18 @@ export class CheckinsService {
         totalMinor: true,
         createdAt: true,
         _count: { select: { tickets: true } },
-        event: { select: { title: true } },
+        event: {
+          select: { title: true, venue: { select: { timezone: true, country: true } } },
+        },
         eventSession: {
           select: {
             startsAt: true,
             screen: {
-              select: { name: true, cinema: { select: { name: true, timezone: true } } },
+              select: {
+                name: true,
+                venue: { select: { timezone: true, country: true } },
+                cinema: { select: { name: true, timezone: true } },
+              },
             },
           },
         },
@@ -462,8 +468,7 @@ export class CheckinsService {
       startsAt: b.eventSession.startsAt,
       screenName: b.eventSession.screen?.name ?? null,
       cinemaName: b.eventSession.screen?.cinema?.name ?? null,
-      /** The venue's zone, so the counter reads the show time the way the ticket prints it. */
-      timezone: b.eventSession.screen?.cinema?.timezone ?? null,
+      timezone: bookingZone(b.event.venue, b.eventSession.screen),
       currency: b.currency,
       totalMinor: b.totalMinor,
     }));
@@ -554,4 +559,31 @@ export class CheckinsService {
     await this.access.assertMember(staff, ticket.organizationId, STAFF_ROLES);
     return this.admit(ticket, staff, { ...opts, method: 'VISUAL' });
   }
+}
+
+/**
+ * The zone a booking's show runs in, so the counter reads the time the way the ticket prints it.
+ *
+ * The space's venue first, then its cinema, then the event's venue; each place's own zone, else
+ * the only zone its country has. It used to read the CINEMA alone, so every show in a space that
+ * is not a cinema screen - a lawn, a hall - came back with no zone and the console printed it in
+ * the reader's own clock: a 7:00 pm Bengaluru concert read "6:30 am" in Denver.
+ */
+export function bookingZone(
+  eventVenue: { timezone: string | null; country: string | null } | null | undefined,
+  screen:
+    | {
+        venue?: { timezone: string | null; country: string | null } | null;
+        cinema?: { timezone: string | null } | null;
+      }
+    | null
+    | undefined,
+): string | null {
+  return (
+    screen?.venue?.timezone?.trim() ||
+    screen?.cinema?.timezone?.trim() ||
+    venueZone(eventVenue?.timezone, eventVenue?.country) ||
+    venueZone(null, screen?.venue?.country) ||
+    null
+  );
 }

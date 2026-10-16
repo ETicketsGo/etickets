@@ -7,6 +7,7 @@ import {
 import { RefundsService } from './refunds.service';
 import { CancellationRefundsService } from './cancellation-refunds.service';
 import { CancellationRefundsHandler } from './cancellation-refunds.handler';
+import { CashReturnsService } from './cash-returns.service';
 import { PaymentsModule } from '../payments/payments.module';
 import { InventoryModule } from '../inventory/inventory.module';
 import { ReceiptsModule } from '../receipts/receipts.module';
@@ -16,12 +17,22 @@ import { DomainEventType } from '../common/domain-events/catalogue/event-types';
 @Module({
   imports: [PaymentsModule, InventoryModule, ReceiptsModule],
   controllers: [RefundsController, OrganizationRefundsController, AdminRefundsController],
-  providers: [RefundsService, CancellationRefundsService, CancellationRefundsHandler],
+  providers: [
+    RefundsService,
+    CancellationRefundsService,
+    CancellationRefundsHandler,
+    CashReturnsService,
+  ],
   // Exported for the guest access-link entry (`requestAsGuest`), which lives on
   // GuestBookingService so that guest authorisation stays in one place — while the refund RULES
   // stay in exactly one place too, here. The dependency runs one way: booking orchestration
   // imports refunds, and refunds knows nothing about bookings.
-  exports: [RefundsService, CancellationRefundsService, CancellationRefundsHandler],
+  exports: [
+    RefundsService,
+    CancellationRefundsService,
+    CancellationRefundsHandler,
+    CashReturnsService,
+  ],
 })
 export class RefundsModule implements OnModuleInit {
   constructor(

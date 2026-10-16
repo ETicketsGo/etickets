@@ -18,7 +18,8 @@ import {
   ErrorState,
   PageHeader,
   brandButtonClasses,
-  dateTime,
+  timeAtVenue,
+  recordedAt,
   zoneAbbrev,
   useToast,
   errorMessage,
@@ -417,7 +418,7 @@ function Row({
           </h3>
           <time
             dateTime={g.lastAt}
-            title={dateTime(g.lastAt)}
+            title={recordedAt(g.lastAt)}
             className="shrink-0 whitespace-nowrap text-brand-meta text-brand-ink-3"
           >
             {relativeTime(g.lastAt)}
@@ -490,7 +491,7 @@ function Row({
                     return (
                       <li key={s.id}>
                         <time dateTime={s.startsAt}>
-                          {dateTime(s.startsAt, undefined, s.timeZone ?? undefined)}
+                          {timeAtVenue(s.startsAt, s.timeZone ?? null)}
                           {zone ? ` ${zone}` : ''}
                         </time>
                       </li>

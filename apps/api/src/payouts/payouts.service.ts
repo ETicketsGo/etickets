@@ -92,6 +92,19 @@ export interface PayoutSummaryCurrency {
   pending: number;
   /** Revenue that exists and is not yet eligible. */
   held: number;
+  /**
+   * Sold online for events that were CANCELLED, after completed refunds: owed back to buyers and
+   * never paid out. The Overview counts it in gross sales, so without it the two screens cannot be
+   * reconciled. See `notPaidOut()`.
+   */
+  cancelled: number;
+  /** Cash taken at the venue, after completed refunds. The organizer already holds it. */
+  cash: number;
+  /**
+   * The organizer fee on the bookings behind `held`, `cancelled` and `cash`, which are all stated
+   * before it. Taking it off is what makes the three add up with the after-fee figures.
+   */
+  feeNotDeducted: number;
 }
 
 /** The organizer's money, read only. See `PayoutsService.summary`. */
@@ -600,17 +613,13 @@ export class PayoutsService {
     holdDays: number,
   ): Promise<HeldRevenue[]> {
     const holdMs = holdDays * 24 * 60 * 60 * 1000;
-    const heldBookings: Prisma.BookingWhereInput = {
+    const heldBookings = this.heldBookingWhere(
       organizationId,
-      paymentMethod: 'ONLINE',
-      ...eventIdFilter(eventId, transferredEventIds),
-      confirmedAt: { lte: until },
-      // Everything the payable filter above leaves out, minus the events that are simply
-      // not going ahead: a cancelled show owes refunds, not a payout, and listing it as
-      // "held" would promise money that is never coming.
-      NOT: { event: this.payableEventFilter(until, holdDays) },
-      event: { status: { not: EventStatus.CANCELLED } },
-    };
+      eventId,
+      until,
+      transferredEventIds,
+      holdDays,
+    );
     const [rows, refunds] = await Promise.all([
       client.booking.groupBy({
         by: ['eventId', 'currency'],
@@ -684,6 +693,126 @@ export class PayoutsService {
       .sort((a, b) => a.payableFrom.getTime() - b.payableFrom.getTime());
   }
 
+  /** The bookings `held` is made of. One definition, read by `heldRevenue` and `notPaidOut`. */
+  private heldBookingWhere(
+    organizationId: string,
+    eventId: string | undefined,
+    until: Date,
+    transferredEventIds: string[],
+    holdDays: number,
+  ): Prisma.BookingWhereInput {
+    return {
+      organizationId,
+      paymentMethod: 'ONLINE',
+      ...eventIdFilter(eventId, transferredEventIds),
+      confirmedAt: { lte: until },
+      // Everything the payable filter above leaves out, minus the events that are simply
+      // not going ahead: a cancelled show owes refunds, not a payout, and listing it as
+      // "held" would promise money that is never coming.
+      NOT: { event: this.payableEventFilter(until, holdDays) },
+      event: { status: { not: EventStatus.CANCELLED } },
+    };
+  }
+
+  /**
+   * Sales the Overview counts and this ledger never pays out, per currency.
+   *
+   * ── WHY A READ SCREEN NEEDS THEM ───────────────────────────────────────────────────
+   * The Overview's gross sales is every confirmed booking. The ledger above pays ONLINE bookings
+   * of events that are not cancelled, so two kinds of sale are in one screen and in neither of the
+   * other's figures: online sales of a cancelled event (`heldRevenue` and the payable filter both
+   * leave them out - that money is owed back to buyers) and cash taken at the venue (the organizer
+   * already holds it). QA's seed organizer had Rs 1,000 of the first, and Overview and Finance
+   * could not be reconciled by anybody reading them.
+   *
+   * Same refund arithmetic as `heldRevenue` and the payout (refund less tax added on top), and
+   * the same per-event clamp, so the figures are stated on the ledger's own basis. Read only.
+   *
+   * `heldFee` is the organizer fee inside the held, cancelled and cash figures. All three are
+   * stated BEFORE the fee (`held` by its own contract), while the Overview's figure is after it,
+   * so without this the bridge between the two screens is off by exactly that fee.
+   */
+  private async notPaidOut(
+    client: Prisma.TransactionClient,
+    organizationId: string,
+    eventId: string | undefined,
+    until: Date,
+    transferredEventIds: string[],
+    holdDays: number,
+  ): Promise<Map<string, { cancelled: number; cash: number; feeBefore: number }>> {
+    const populations: Array<{
+      key: 'held' | 'cancelled' | 'cash';
+      where: Prisma.BookingWhereInput;
+    }> = [
+      {
+        // Only for its fee: the amount itself is `heldRevenue`'s.
+        key: 'held',
+        where: this.heldBookingWhere(organizationId, eventId, until, transferredEventIds, holdDays),
+      },
+      {
+        key: 'cancelled',
+        where: {
+          organizationId,
+          paymentMethod: 'ONLINE',
+          // A provider transfer that claimed the event reports it on the provider route instead.
+          ...eventIdFilter(eventId, transferredEventIds),
+          confirmedAt: { lte: until },
+          event: { status: EventStatus.CANCELLED },
+        },
+      },
+      {
+        key: 'cash',
+        where: {
+          organizationId,
+          paymentMethod: 'CASH',
+          ...(eventId ? { eventId } : {}),
+          confirmedAt: { lte: until },
+        },
+      },
+    ];
+
+    const out = new Map<string, { cancelled: number; cash: number; feeBefore: number }>();
+    for (const { key, where } of populations) {
+      const [rows, refunds] = await Promise.all([
+        client.booking.groupBy({
+          by: ['eventId', 'currency'],
+          where,
+          _sum: { subtotalMinor: true, organizerFeeMinor: true },
+        }),
+        client.refund.findMany({
+          where: { organizationId, status: RefundStatus.COMPLETED, booking: where },
+          select: {
+            amountMinor: true,
+            taxAddedMinor: true,
+            booking: { select: { eventId: true, currency: true } },
+          },
+        }),
+      ]);
+      const refundedBy = new Map<string, number>();
+      for (const refund of refunds) {
+        const k = `${refund.booking.eventId}|${refund.booking.currency}`;
+        refundedBy.set(
+          k,
+          (refundedBy.get(k) ?? 0) + refund.amountMinor - (refund.taxAddedMinor ?? 0),
+        );
+      }
+      for (const row of rows) {
+        const sold = row._sum.subtotalMinor ?? 0;
+        const refunded = Math.min(
+          Math.max(refundedBy.get(`${row.eventId}|${row.currency}`) ?? 0, 0),
+          sold,
+        );
+        const currency = row.currency.toUpperCase();
+        const totals = out.get(currency) ?? { cancelled: 0, cash: 0, feeBefore: 0 };
+        if (key !== 'held') totals[key] += sold - refunded;
+        // On every booking, refunded or not: the Overview's fee total is summed the same way.
+        totals.feeBefore += row._sum.organizerFeeMinor ?? 0;
+        out.set(currency, totals);
+      }
+    }
+    return out;
+  }
+
   /**
    * One payout per currency the scope has unsettled money in.
    *
@@ -732,6 +861,9 @@ export class PayoutsService {
    *   held
    *       Revenue that exists and is not yet eligible, with the date it becomes so. Excludes
    *       cancelled events, which owe refunds rather than a payout.
+   *   cancelled / cash
+   *       Sales this ledger never pays out: online sales of cancelled events (owed back to
+   *       buyers) and cash taken at the venue. Reported so the Overview's gross can be traced.
    *
    * `net` can be negative when a period's refunds exceed its sales. That is a real balance owed
    * back and is reported as it stands rather than clamped.
@@ -751,7 +883,7 @@ export class PayoutsService {
     const now = new Date();
     return this.prisma.$transaction(async (tx) => {
       const scope = await this.settlementScope(tx, organizationId, eventId);
-      const [eligible, held, payouts] = await Promise.all([
+      const [eligible, held, payouts, outside] = await Promise.all([
         // The summary reads money; allocations are only written when a payout is.
         this.settle(
           tx,
@@ -779,16 +911,27 @@ export class PayoutsService {
           },
           select: { currency: true, netMinor: true, status: true },
         }),
+        this.notPaidOut(
+          tx,
+          organizationId,
+          eventId,
+          now,
+          scope.transferredEventIds,
+          scope.terms.holdDays,
+        ),
       ]);
 
       /*
-        Every currency any of the three sources mentions, so a currency that is only paid, or only
-        held, is not silently dropped from a finance screen.
+        Every currency any of the sources mentions, so a currency that is only paid, only held, or
+        only sold for cash is not silently dropped from a finance screen.
       */
       const codes = new Set<string>([
         ...eligible.map((e) => e.currency),
         ...held.map((h) => h.currency.toUpperCase()),
         ...payouts.map((p) => p.currency.toUpperCase()),
+        ...[...outside]
+          .filter(([, v]) => v.cancelled !== 0 || v.cash !== 0)
+          .map(([currency]) => currency),
       ]);
 
       const currencies = [...codes].sort().map((currency) => {
@@ -812,6 +955,9 @@ export class PayoutsService {
           held: held
             .filter((h) => h.currency.toUpperCase() === currency)
             .reduce((total, h) => total + h.grossMinor, 0),
+          cancelled: outside.get(currency)?.cancelled ?? 0,
+          cash: outside.get(currency)?.cash ?? 0,
+          feeNotDeducted: outside.get(currency)?.feeBefore ?? 0,
         };
       });
 

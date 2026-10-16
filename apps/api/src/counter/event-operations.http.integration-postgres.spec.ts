@@ -446,6 +446,110 @@ describe('integration-real-postgres: counter sales, event cancellation, seat cla
     },
   );
 
+  maybe(
+    'cancels an event with a counter cash sale: shown first, voided, listed, given back offline',
+    async () => {
+      const show = await gaEvent(orgId, 'CashCancel', 21_420);
+      const sale = await http('POST', `/organizations/${orgId}/counter-sales`, ownerToken, {
+        eventSessionId: show.sessionId,
+        items: [{ ticketTypeId: show.ticketTypeId, quantity: 1 }],
+        buyerName: 'Walk Counter Buyer',
+      });
+      expect(sale.status).toBe(201);
+      const cashId = sale.json.bookingId as string;
+      const cashTotal = sale.json.totalMinor as number;
+      const sold = await db!.ticketInventory.findUniqueOrThrow({
+        where: { ticketTypeId: show.ticketTypeId },
+      });
+      expect(sold.quantitySold).toBe(1);
+
+      // Before confirming: the cash is named, with its total, apart from online refunds.
+      const preview = await http('GET', `/events/${show.eventId}/cancel-preview`, ownerToken);
+      expect(preview.status).toBe(200);
+      expect(preview.json).toMatchObject({
+        datesToCancel: 1,
+        onlineRefunds: { count: 0, totals: [] },
+        cash: { count: 1, totals: [{ currency: 'INR', amountMinor: cashTotal }] },
+      });
+      // The preview changed nothing.
+      expect((await db!.booking.findUniqueOrThrow({ where: { id: cashId } })).status).toBe(
+        'CONFIRMED',
+      );
+      expect(
+        (await http('GET', `/events/${show.eventId}/cancel-preview`, managerToken)).status,
+      ).toBe(403);
+
+      const r = await http('POST', `/events/${show.eventId}/cancel`, ownerToken, {
+        reason: 'The lawn is flooded.',
+      });
+      expect(r.status).toBe(201);
+      expect(r.json.cashToReturn).toBe(1);
+      expect(r.json.cashTotals).toEqual([{ currency: 'INR', amountMinor: cashTotal }]);
+      expect(r.json.cashReturns).toEqual([
+        expect.objectContaining({
+          bookingId: cashId,
+          buyerName: 'Walk Counter Buyer',
+          amountMinor: cashTotal,
+        }),
+      ]);
+
+      // Voided: booking cancelled, tickets dead, the stock no longer counted as sold.
+      const after = await db!.booking.findUniqueOrThrow({
+        where: { id: cashId },
+        include: { tickets: true, refunds: true, payment: true },
+      });
+      expect(after.status).toBe('CANCELLED');
+      expect(after.tickets.every((t: { status: string }) => t.status === 'CANCELLED')).toBe(true);
+      // No money moved through anything: no refund row, no payment row.
+      expect(after.refunds).toEqual([]);
+      expect(after.payment).toBeNull();
+      const inv = await db!.ticketInventory.findUniqueOrThrow({
+        where: { ticketTypeId: show.ticketTypeId },
+      });
+      expect(inv.quantitySold).toBe(0);
+
+      // The counter cannot print a ticket for it any more.
+      const print = await http('GET', `/tickets/booking/${cashId}/print`, ownerToken);
+      expect(print.status).toBe(200);
+      expect(print.json).toEqual([]);
+
+      // The list of cash to give back, and the offline record of handing it back.
+      const owed = await http('GET', `/organizations/${orgId}/cash-returns`, ownerToken);
+      expect(owed.status).toBe(200);
+      expect(owed.json.map((x: { bookingId: string }) => x.bookingId)).toContain(cashId);
+      expect(
+        (
+          await http(
+            'POST',
+            `/organizations/${orgId}/cash-returns/${cashId}/returned`,
+            customerToken,
+          )
+        ).status,
+      ).toBe(403);
+      const back = await http(
+        'POST',
+        `/organizations/${orgId}/cash-returns/${cashId}/returned`,
+        managerToken,
+      );
+      expect(back.status).toBe(201);
+      expect(back.json.status).toBe('returned');
+      const twice = await http(
+        'POST',
+        `/organizations/${orgId}/cash-returns/${cashId}/returned`,
+        ownerToken,
+      );
+      expect(twice.json.status).toBe('already_returned');
+      const row = await db!.booking.findUniqueOrThrow({ where: { id: cashId } });
+      expect(row.cashReturnedAt).not.toBeNull();
+      expect(await db!.refund.count({ where: { bookingId: cashId } })).toBe(0);
+      const stillOwed = await http('GET', `/organizations/${orgId}/cash-returns`, ownerToken);
+      expect(stillOwed.json.map((x: { bookingId: string }) => x.bookingId)).not.toContain(cashId);
+      // The sweep finds nothing left to do on this show.
+      await app!.get(CancellationRefundsService).sweep();
+      expect(await db!.refund.count({ where: { bookingId: cashId } })).toBe(0);
+    },
+  );
+
   // ── 3. Seat classes, before the event exists ───────────────────────────────────────
 
   maybe(

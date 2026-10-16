@@ -24,7 +24,8 @@ import {
   Pagination,
   Select,
   Textarea,
-  dateTime,
+  recordedAt,
+  timeAtVenue,
   errorMessage,
   useAuthUser,
   useToast,
@@ -37,20 +38,22 @@ import {
 const MANAGER_ROLES = ['ORGANIZER_OWNER', 'ORGANIZER_MANAGER', 'ADMIN', 'SUPER_ADMIN'];
 const PAGE_SIZE = 10;
 
-const STATUS_META: Record<string, { tone: BadgeTone; Icon: typeof Clock }> = {
-  PENDING: { tone: 'warning', Icon: Clock },
-  ACTIVE: { tone: 'success', Icon: CheckCircle2 },
-  SUSPENDED: { tone: 'neutral', Icon: PauseCircle },
-  REVOKED: { tone: 'error', Icon: XCircle },
-  EXPIRED: { tone: 'error', Icon: AlertTriangle },
+// The words a door manager reads. The API's PENDING / ACTIVE are its words, not theirs.
+const STATUS_META: Record<string, { tone: BadgeTone; Icon: typeof Clock; label: string }> = {
+  PENDING: { tone: 'warning', Icon: Clock, label: 'Waiting for approval' },
+  ACTIVE: { tone: 'success', Icon: CheckCircle2, label: 'Approved' },
+  SUSPENDED: { tone: 'neutral', Icon: PauseCircle, label: 'Paused' },
+  REVOKED: { tone: 'error', Icon: XCircle, label: 'Revoked' },
+  EXPIRED: { tone: 'error', Icon: AlertTriangle, label: 'Expired' },
 };
+const statusLabel = (status: string) => STATUS_META[status]?.label ?? status.toLowerCase();
 function StatusCell({ status }: { status: string }) {
   const m = STATUS_META[status] ?? { tone: 'neutral' as BadgeTone, Icon: Clock };
   const Icon = m.Icon;
   return (
     <span className="inline-flex items-center gap-1.5">
       <Icon className="h-4 w-4 shrink-0" aria-hidden />
-      <Badge tone={m.tone}>{status}</Badge>
+      <Badge tone={m.tone}>{statusLabel(status)}</Badge>
     </span>
   );
 }
@@ -95,7 +98,7 @@ export default function DevicesPage() {
   const sessionLabel = (sid: string | null) => {
     if (!sid) return 'Event-wide';
     const s = event?.sessions.find((x) => x.id === sid);
-    return s ? dateTime(s.startsAt) : sid.slice(0, 8);
+    return s ? timeAtVenue(s.startsAt, event?.venue) : sid.slice(0, 8);
   };
 
   // Search / filter / sort / paginate (client-side; the fleet per event is small).
@@ -187,13 +190,13 @@ export default function DevicesPage() {
     {
       key: 'lastSeen',
       header: 'Last seen',
-      render: (d) => (d.lastSeenAt ? dateTime(d.lastSeenAt) : '—'),
+      render: (d) => (d.lastSeenAt ? recordedAt(d.lastSeenAt) : '-'),
     },
     { key: 'manifest', header: 'Manifest', render: (d) => `v${d.manifestVersion}` },
     {
       key: 'expires',
       header: 'Expires',
-      render: (d) => (d.expiresAt ? dateTime(d.expiresAt) : '—'),
+      render: (d) => (d.expiresAt ? recordedAt(d.expiresAt) : '-'),
     },
     {
       key: 'actions',
@@ -288,7 +291,7 @@ export default function DevicesPage() {
             <option value="">All statuses</option>
             {['PENDING', 'ACTIVE', 'SUSPENDED', 'REVOKED', 'EXPIRED'].map((st) => (
               <option key={st} value={st}>
-                {st}
+                {statusLabel(st)}
               </option>
             ))}
           </Select>
@@ -338,8 +341,7 @@ export default function DevicesPage() {
       >
         <div className="space-y-3">
           <p className="text-sm text-text-secondary">
-            The device is created as <strong>pending</strong> and must be approved before it can
-            validate offline.
+            A new device must be <strong>approved</strong> before it can check tickets offline.
           </p>
           <Input
             id="reg-name"
@@ -362,7 +364,7 @@ export default function DevicesPage() {
             <option value="">Event-wide</option>
             {event?.sessions.map((s) => (
               <option key={s.id} value={s.id}>
-                {dateTime(s.startsAt)}
+                {timeAtVenue(s.startsAt, event?.venue)}
               </option>
             ))}
           </Select>
@@ -402,8 +404,8 @@ export default function DevicesPage() {
         {acting && (
           <div className="space-y-3">
             <p className="text-sm text-text-secondary">
-              {ACTION_LABEL[acting.action]} “
-              <span className="font-medium text-text-primary">{acting.device.name}</span>”?
+              {ACTION_LABEL[acting.action]} &quot;
+              <span className="font-medium text-text-primary">{acting.device.name}</span>&quot;?
             </p>
             {impact && (
               <p
@@ -412,10 +414,10 @@ export default function DevicesPage() {
               >
                 <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
                 <span>
-                  <strong>Activation impact:</strong> this device is part of an active activation.
+                  <strong>Offline check-in is on with this device.</strong>
                   {acting.action === 'approve'
                     ? ''
-                    : ' The server will immediately downgrade that scope to NO_GO (mustDowngrade). This does not bypass any rule — it enforces them.'}
+                    : ' If you do this, offline check-in stops at once for the doors this device covers. Scan online there until you turn it on again.'}
                 </span>
               </p>
             )}
@@ -456,21 +458,21 @@ export default function DevicesPage() {
             </dd>
             <dt className="text-text-muted">Approval</dt>
             <dd className="col-span-2 text-text-primary">
-              {viewing.status === 'PENDING' ? 'Awaiting approval' : 'Approved / decided'}
+              {viewing.status === 'PENDING' ? 'Waiting for approval' : 'Decided'}
             </dd>
             <dt className="text-text-muted">Assigned</dt>
             <dd className="col-span-2 text-text-primary">{sessionLabel(viewing.eventSessionId)}</dd>
             <dt className="text-text-muted">Platform</dt>
-            <dd className="col-span-2 text-text-primary">{viewing.platform ?? '—'}</dd>
+            <dd className="col-span-2 text-text-primary">{viewing.platform ?? '-'}</dd>
             <dt className="text-text-muted">Last seen</dt>
             <dd className="col-span-2 text-text-primary">
-              {viewing.lastSeenAt ? dateTime(viewing.lastSeenAt) : 'Never'}
+              {viewing.lastSeenAt ? recordedAt(viewing.lastSeenAt) : 'Never'}
             </dd>
             <dt className="text-text-muted">Manifest</dt>
             <dd className="col-span-2 text-text-primary">v{viewing.manifestVersion}</dd>
             <dt className="text-text-muted">Expires</dt>
             <dd className="col-span-2 text-text-primary">
-              {viewing.expiresAt ? dateTime(viewing.expiresAt) : '—'}
+              {viewing.expiresAt ? recordedAt(viewing.expiresAt) : '-'}
             </dd>
           </dl>
         )}

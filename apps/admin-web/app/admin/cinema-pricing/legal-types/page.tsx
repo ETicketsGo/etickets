@@ -28,6 +28,7 @@ import {
   FORMAT_OPTIONS,
   LOCAL_BODY_OPTIONS,
   legalTypeSummary,
+  placeLine,
 } from '@/lib/cinema-legal-type';
 
 /**
@@ -84,9 +85,7 @@ export default function AdminCinemas() {
       key: 'where',
       header: 'Where',
       render: (r) => (
-        <span className="text-sm text-text-secondary">
-          {[r.city, r.region, r.country].filter(Boolean).join(', ') || 'Not recorded'}
-        </span>
+        <span className="text-sm text-text-secondary">{placeLine(r) || 'Not recorded'}</span>
       ),
     },
     {
@@ -232,7 +231,7 @@ function LegalTypeDialog({
     save.mutate();
   };
 
-  const where = [cinema.city, cinema.region, cinema.country].filter(Boolean).join(', ');
+  const where = placeLine(cinema);
   return (
     <Dialog
       open

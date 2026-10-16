@@ -42,6 +42,7 @@ import {
   IconTile,
   LifecyclePill,
   SetupPill,
+  StatusPill,
   tileClasses,
   type TileTone,
   Input,
@@ -80,6 +81,7 @@ import {
   buyerFeeNote,
   canVisitStep,
   capacityBySession,
+  fitDefaultQuantity,
   describeProblems,
   firstInvalidFieldId,
   fromPriceMinor,
@@ -623,6 +625,11 @@ function NewEventWizard() {
     admission === 'free' || admission === 'paid'
       ? (standingAtVenue.find((sp) => sp.id === standingSpaceId) ?? null)
       : null;
+  // A lawn that holds 50 must not open at the 100 the form starts with (see fitDefaultQuantity).
+  const standingCapacity = standingSpace?.capacity ?? null;
+  useEffect(() => {
+    setTickets((rows) => fitDefaultQuantity(rows, standingCapacity));
+  }, [standingCapacity]);
   const seatingAvailable = venueRooms.length > 0;
   const roomByLayout = (seatMapId: string) => roomsQ.data?.find((r) => r.layoutId === seatMapId);
   const seatMapVenueIds = new Set(
@@ -998,6 +1005,20 @@ function NewEventWizard() {
           .map((key) => ({ key, notice: seatClassNotice(roomByLayout(key)) }))
           .filter((x): x is { key: string; notice: SeatClassNotice } => x.notice !== null)
       : [];
+  /*
+    "Setup complete" beside a seat-class warning was a claim the next page took back: the event
+    can be created, but its tickets cannot sell. So the pill says that instead, and the Tickets
+    step stops saying Done, until the notice clears.
+  */
+  const cannotSellYet = thingsToSetUp === 0 && seatClassNotices.length > 0;
+  const setupPill = (size?: 'sm' | 'md') =>
+    cannotSellYet ? (
+      <StatusPill tone="warning" size={size}>
+        Cannot sell yet
+      </StatusPill>
+    ) : (
+      <SetupPill missing={thingsToSetUp} size={size} />
+    );
   const totals = capacityBySession({ admission, sessions, tickets });
 
   /* The preview: the facts a buyer decides on, as the storefront will show them. */
@@ -2335,7 +2356,7 @@ function NewEventWizard() {
                       {previewWhere}
                     </p>
                     <div className="mt-2 flex flex-wrap items-center gap-2">
-                      <SetupPill missing={thingsToSetUp} />
+                      {setupPill()}
                       <span className="text-caption text-text-muted">{previewPrice}</span>
                     </div>
                   </div>
@@ -2736,14 +2757,16 @@ function NewEventWizard() {
               <h2 id="panel-setup" className="text-ui font-semibold text-text-primary">
                 Setup
               </h2>
-              <SetupPill missing={thingsToSetUp} size="sm" />
+              {setupPill('sm')}
             </div>
             <ul className="mt-3 space-y-1">
               {stepTitles.slice(0, REVIEW_STEP).map((s, i) => {
                 const n = Object.keys(errorsByStep[s.id]).length;
                 const reached = i <= furthest;
-                const state =
-                  n > 0
+                const cannotSell = cannotSellYet && s.id === 'tickets' && n === 0 && reached;
+                const state = cannotSell
+                  ? 'Cannot sell yet'
+                  : n > 0
                     ? reached
                       ? `${n} to do`
                       : 'Not started'
@@ -2752,8 +2775,12 @@ function NewEventWizard() {
                       : s.id === 'details'
                         ? 'Optional'
                         : 'Not started';
-                const done = n === 0 && reached;
-                const Mark = done ? CircleCheck : n > 0 && reached ? CircleAlert : CircleDashed;
+                const done = n === 0 && reached && !cannotSell;
+                const Mark = done
+                  ? CircleCheck
+                  : (n > 0 && reached) || cannotSell
+                    ? CircleAlert
+                    : CircleDashed;
                 const row = (
                   <>
                     <Mark
@@ -2761,9 +2788,11 @@ function NewEventWizard() {
                       className={`h-4 w-4 shrink-0 ${
                         done
                           ? 'text-status-success'
-                          : n > 0 && reached
-                            ? 'text-status-error'
-                            : 'text-text-muted'
+                          : cannotSell
+                            ? 'text-status-warning'
+                            : n > 0 && reached
+                              ? 'text-status-error'
+                              : 'text-text-muted'
                       }`}
                     />
                     <span
@@ -2772,7 +2801,7 @@ function NewEventWizard() {
                       {s.title}
                     </span>
                     <span
-                      className={`text-caption ${done ? 'text-status-success' : n > 0 && reached ? 'text-status-error' : 'text-text-muted'}`}
+                      className={`text-caption ${done ? 'text-status-success' : cannotSell ? 'text-status-warning' : n > 0 && reached ? 'text-status-error' : 'text-text-muted'}`}
                     >
                       {state}
                     </span>
