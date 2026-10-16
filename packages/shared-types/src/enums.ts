@@ -398,6 +398,13 @@ export const NotificationType = {
    * flow is a product decision, not a side effect of closing this hole.
    */
   REFUND_REQUESTED: 'REFUND_REQUESTED',
+  /**
+   * The platform team paused one of the organizer's events, with a reason, or put it back on
+   * sale. Sent to the organization's owners. Until these existed a pause by an admin told
+   * nobody: sales stopped and the organizer heard about it from a buyer.
+   */
+  EVENT_PAUSED_BY_ADMIN: 'EVENT_PAUSED_BY_ADMIN',
+  EVENT_RESUMED_BY_ADMIN: 'EVENT_RESUMED_BY_ADMIN',
 } as const;
 export type NotificationType = (typeof NotificationType)[keyof typeof NotificationType];
 

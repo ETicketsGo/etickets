@@ -71,7 +71,7 @@ export function approvalOf(event: {
       ? { label: 'Changes requested', tone: 'error' }
       : { label: 'Not submitted', tone: 'neutral' };
   if (event.status === 'PAUSED' && event.pausedByAdmin)
-    return { label: 'Paused by platform', tone: 'error' };
+    return { label: 'Paused by ETicketsGo', tone: 'error' };
   if (event.status === 'PAUSED' && event.needsReviewOnResume)
     return { label: 'Review needed to resume', tone: 'warning' };
   if (event.publishedAt) return { label: 'Approved', tone: 'success' };

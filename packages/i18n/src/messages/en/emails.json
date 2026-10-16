@@ -103,6 +103,14 @@
     "subject": "'{event}' is live but cannot be sold",
     "body": "Customers can find '{event}' and are turned away at checkout. {reason} Open the event in your organizer console to fix it."
   },
+  "EVENT_PAUSED_BY_ADMIN": {
+    "subject": "ETicketsGo paused sales for '{event}'",
+    "body": "ETicketsGo paused '{event}', so tickets are not on sale.{reason} Tickets already sold stay valid. Fix what the reason names, then write to ETicketsGo support from Help & support in your organizer console and ask for sales to start again. Only ETicketsGo can lift this pause."
+  },
+  "EVENT_RESUMED_BY_ADMIN": {
+    "subject": "'{event}' is on sale again",
+    "body": "ETicketsGo lifted the pause on '{event}'. Tickets are on sale again."
+  },
   "PAYOUT_ACCOUNT_UPDATED": {
     "saved": {
       "subject": "Your {currency} payout bank account was changed",

@@ -403,6 +403,12 @@ enum NotificationType {
   /// request. Otherwise the first the buyer hears of a request they did not make is their
   /// tickets no longer working.
   REFUND_REQUESTED
+
+  /// The platform team paused an organizer's event, or put it back on sale. Addressed to the
+  /// organization's owners. A pause used to change the status and tell nobody: sales stopped
+  /// and the organizer found out from a buyer, or from a dashboard they happened to open.
+  EVENT_PAUSED_BY_ADMIN
+  EVENT_RESUMED_BY_ADMIN
 }
 
 // Assignment lifecycle of a ticket to an attendee (identity layer, ADR-031).
@@ -1481,6 +1487,12 @@ model Event {
   /// Without it an organizer could undo a moderation decision with the same Resume button
   /// they use for their own pauses. Cleared whenever an admin moves the event out of PAUSED.
   pausedByAdminAt     DateTime?
+  /// The admin's reason for that pause, in their words, shown to the organizer on the event.
+  ///
+  /// The audit log already held it, but the organizer cannot read the audit log, so their
+  /// page said only "paused by the platform team" and the first thing they did was write to
+  /// support to ask why. Set and cleared together with `pausedByAdminAt`.
+  pausedByAdminReason String?
 
   sessions    EventSession[]
   bookings    Booking[]
