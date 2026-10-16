@@ -14,7 +14,6 @@ import {
   strandedSeats,
   useAuthUser,
   useToast,
-  VenueMap,
   BuyerRegionField,
   BRAND_FOCUS,
   BrandButton,
@@ -32,6 +31,7 @@ import { PriceBreakdown } from '@/components/price-breakdown';
 import { ShowHeader } from '@/components/seat-selection/show-header';
 import { TicketCount } from '@/components/seat-selection/ticket-count';
 import { SeatMap } from '@/components/seat-selection/seat-map';
+import { StoreVenueMap } from '@/components/seat-selection/venue-map';
 import { SeatLegend } from '@/components/seat-selection/seat-legend';
 import { BookingBar } from '@/components/seat-selection/booking-bar';
 import {
@@ -683,7 +683,7 @@ export default function SeatSelectionPage() {
         </div>
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
           <div className={`${BRAND_PANEL} min-w-0 p-4 sm:p-6 lg:col-span-2`}>
-            <VenueMap
+            <StoreVenueMap
               focal={layout.focal}
               sections={layout.sections}
               onSelect={chooseSection}
@@ -852,7 +852,7 @@ export default function SeatSelectionPage() {
                 {s('venueMapTitle')}
               </h2>
               <p className="mb-3 mt-1 text-brand-meta text-brand-ink-3">{s('venueMapLead')}</p>
-              <VenueMap
+              <StoreVenueMap
                 focal={venue.focal}
                 sections={venue.sections}
                 onSelect={chooseSection}
