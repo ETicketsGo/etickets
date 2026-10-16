@@ -36,6 +36,7 @@ export function OverviewLead({
   onResume,
   onPause,
   onDelete,
+  onCancel,
   busy,
 }: {
   event: OrgEventDetail;
@@ -46,6 +47,8 @@ export function OverviewLead({
   onResume: () => void;
   onPause: () => void;
   onDelete: () => void;
+  /** Cancel the whole event and refund its buyers. Absent for anybody but the owner. */
+  onCancel?: () => void;
   busy: { submit: boolean; resume: boolean; pause: boolean };
 }) {
   const base = `/organizer/events/${event.id}`;
@@ -55,12 +58,23 @@ export function OverviewLead({
   const more: MenuItem[] = [{ kind: 'link', label: 'Edit details', href: `${base}/edit` }];
   if (event.status === 'PUBLISHED') more.push({ label: 'Pause sales', onSelect: onPause });
   more.push({ kind: 'link', label: 'Open check-in', href: `${base}/checkin` });
+  /*
+    Cancelling is for an event that has been on sale; one that never was is deleted instead.
+    Before this, an event with bookings could only be paused: there was no way to call it off
+    and give everybody their money back.
+  */
+  const cancellable = ['PUBLISHED', 'PAUSED', 'SOLD_OUT'].includes(event.status);
+  if (cancellable && onCancel) {
+    more.push({ label: 'Cancel event and refund buyers', onSelect: onCancel, danger: true });
+  }
   more.push(
     booked
       ? {
           kind: 'note',
           label: 'Delete',
-          reason: 'This event has bookings, so it cannot be deleted. Pause it to stop sales.',
+          reason: cancellable
+            ? 'This event has bookings, so it cannot be deleted. Pause it to stop sales, or cancel it to refund everybody.'
+            : 'This event has bookings, so it cannot be deleted.',
         }
       : { label: 'Delete event', onSelect: onDelete, danger: true },
   );

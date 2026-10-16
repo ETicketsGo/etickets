@@ -956,6 +956,19 @@ export const api = {
       request<CashBooking[]>(
         `/organizations/${id}/cash-bookings${qs({ includeCollected: includeCollected || undefined })}`,
       ),
+    /**
+     * Sell at the counter: tickets for the person in front of the staff member, paid in cash
+     * there and issued at once. One `idempotencyKey` per sale, so a double press sells once.
+     */
+    /** The dates on sale now, with their ticket types and what is left, for the counter. */
+    counterShows: (id: string) =>
+      request<CounterShow[]>(`/organizations/${id}/counter-sales/shows`),
+    counterSale: (id: string, body: CounterSaleBody, idempotencyKey?: string) =>
+      request<CounterSaleResult>(`/organizations/${id}/counter-sales`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+        ...(idempotencyKey ? { headers: { 'Idempotency-Key': idempotencyKey } } : {}),
+      }),
     members: (id: string) => request<OrgMember[]>(`/organizations/${id}/members`),
     invite: (id: string, body: { email: string; role: string }) =>
       request<InvitedMember>(`/organizations/${id}/members`, {
@@ -1572,6 +1585,15 @@ export const api = {
     pause: (id: string) => request<OrgEventDetail>(`/events/${id}/pause`, { method: 'POST' }),
     /** Refused (403) for an event the platform team paused. May land UNDER_REVIEW, not live. */
     resume: (id: string) => request<EventResumeResult>(`/events/${id}/resume`, { method: 'POST' }),
+    /**
+     * Cancel the whole event: sales stop, every date still to come is cancelled, a refund
+     * opens for each paid booking and every buyer is told. Owner only; cannot be undone.
+     */
+    cancel: (id: string, reason: string) =>
+      request<EventCancelResult>(`/events/${id}/cancel`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      }),
     orders: (id: string, params: PageParams & { status?: string; q?: string }) =>
       request<Paged<OrderRow>>(`/events/${id}/orders${qs(params)}`),
     /** Who booked: filtered and paged on the server, with per-status totals for the filter. */
@@ -4399,6 +4421,56 @@ export interface EventSession {
   } | null;
   ticketTypes?: TicketType[];
 }
+export interface CounterSaleBody {
+  eventSessionId: string;
+  items: { ticketTypeId: string; quantity: number; seatIds?: string[] }[];
+  buyerName: string;
+  /** Optional: without it the confirmation goes to the organization's contact address. */
+  buyerEmail?: string;
+}
+export interface CounterShow {
+  sessionId: string;
+  startsAt: string;
+  eventId: string;
+  eventTitle: string;
+  isFree: boolean;
+  venueName: string | null;
+  /** The venue's zone, so the time reads as it does on the door. */
+  timezone: string | null;
+  /** The venue's country: its zone when the venue has none of its own. */
+  country?: string | null;
+  spaceName: string | null;
+  /** Seats are named on these tickets, so the counter gives seats from the seat map. */
+  seated: boolean;
+  ticketTypes: {
+    id: string;
+    name: string;
+    priceMinor: number;
+    currency: string;
+    maxPerOrder: number;
+    seatCategoryId: string | null;
+    /** Null when it is counted on the seat map instead. */
+    left: number | null;
+  }[];
+}
+export interface CounterSaleResult {
+  bookingId: string;
+  reference: string | null;
+  status: string;
+  totalMinor: number;
+  currency: string;
+  ticketCount: number;
+  emailedTo: string;
+}
+export interface EventCancelResult {
+  eventId: string;
+  status: string;
+  datesCancelled: number;
+  /** References of the paid bookings a refund was opened for. */
+  bookingsRequiringRefund: string[];
+  /** Cash bookings on this event: the platform cannot refund cash, the counter hands it back. */
+  cashToReturn: number;
+}
 /** A room an event can be seated in — one that has a published seat map. */
 export interface SeatingRoom {
   id: string;
@@ -4411,6 +4483,19 @@ export interface SeatingRoom {
   layoutKind: string;
   /** Seats that can be sold: aisles and gaps are not counted. */
   sellableSeats: number;
+  /** The cinema this space is a screen of. Null for every space that is not a cinema screen. */
+  cinemaId?: string | null;
+  /**
+   * What regulated cinema prices need before this layout can sell here, asked before the
+   * event exists. `MAP_CLASSES`: `unmapped` categories need a seat class (`fixPath` is the
+   * control). `NO_RULES`: no price rules cover the place yet, so it cannot sell online at all.
+   * Absent from an older API, which is read as NONE.
+   */
+  seatClasses?: {
+    state: 'NONE' | 'MAP_CLASSES' | 'NO_RULES' | 'BLOCKED';
+    unmapped: string[];
+    fixPath: string | null;
+  };
 }
 export interface TicketType {
   id: string;

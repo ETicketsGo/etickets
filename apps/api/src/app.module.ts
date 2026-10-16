@@ -30,6 +30,7 @@ import { CinemasModule } from './cinemas/cinemas.module';
 import { ShowsModule } from './shows/shows.module';
 import { BookingsModule } from './bookings/bookings.module';
 import { PaymentsModule } from './payments/payments.module';
+import { CounterModule } from './counter/counter.module';
 import { TicketsModule } from './tickets/tickets.module';
 import { WalletModule } from './wallet/wallet.module';
 import { AttendeesModule } from './attendees/attendees.module';
@@ -127,6 +128,7 @@ import { HttpObservationMiddleware } from './common/http-observation.middleware'
     ShowsModule,
     BookingsModule,
     PaymentsModule,
+    CounterModule,
     TicketsModule,
     WalletModule,
     AttendeesModule,

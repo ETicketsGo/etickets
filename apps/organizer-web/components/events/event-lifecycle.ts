@@ -229,9 +229,13 @@ export function nextStepOf(input: {
       return {
         kind: 'link',
         title: 'This event is cancelled',
-        body: 'Bookings and refunds stay on the Orders page.',
-        label: 'See orders',
-        href: `${base}/orders`,
+        /*
+          Cancelling opens a refund request for every paid booking; the owner approves them.
+          The refunds are the work left, so they are the next step rather than the orders list.
+        */
+        body: 'Every paid booking has a refund request. Approve them to send the money back.',
+        label: 'Review refunds',
+        href: `/organizer/refunds?event=${input.eventId}`,
       };
     case 'COMPLETED':
       return {

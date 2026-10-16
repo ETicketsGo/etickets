@@ -553,6 +553,12 @@ export class RefundsService {
             reference: booking.reference ?? '',
             currency: booking.currency,
             amountMinor: created.amountMinor,
+            /*
+              Opened because the organizer cancelled the show, not asked for by anybody. The
+              notice otherwise warns "if you did not ask for this, contact the organizer" -
+              which a buyer whose show was called off reads as their money being taken.
+            */
+            ...(options.sessionCancelled ? { showCancelled: true } : {}),
           },
         });
       }

@@ -23,6 +23,7 @@ import {
   type OrganizationRefundRow,
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
+import { RefundAllForEvent } from '@/components/refunds/refund-all-for-event';
 import { isForbidden } from '@/lib/org-permissions';
 
 const FILTERS = ['REQUESTED', 'PROCESSING', 'COMPLETED', 'REJECTED', 'FAILED'] as const;
@@ -197,6 +198,11 @@ function Refunds() {
             Show all events
           </Link>
         </p>
+      ) : null}
+
+      {/* One event's waiting requests, all at once: what a cancelled event leaves behind. */}
+      {eventId && can.ownerActions && status === 'REQUESTED' ? (
+        <RefundAllForEvent organizationId={activeOrg.id} eventId={eventId} />
       ) : null}
 
       <div className="flex flex-wrap gap-2">

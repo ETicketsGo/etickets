@@ -26,6 +26,7 @@ import {
   TicketsSection,
 } from '@/components/events/overview-sections';
 import { ManageTiles, OverviewLead } from '@/components/events/overview-lead';
+import { CancelEventDialog } from '@/components/events/cancel-event-dialog';
 import { timeAtVenue } from '@/components/events/event-list-model';
 import { useEventSaleState } from '@/components/events/event-header';
 import {
@@ -48,7 +49,7 @@ export default function EventOverview() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
   const toast = useToast();
-  const { orgSentenceName } = useOrg();
+  const { orgSentenceName, can } = useOrg();
   const {
     data: event,
     isLoading,
@@ -117,6 +118,29 @@ export default function EventOverview() {
     onError,
   });
   const router = useRouter();
+  const [confirmCancel, setConfirmCancel] = useState(false);
+  const cancel = useMutation({
+    mutationFn: (reason: string) => api.events.cancel(id, reason),
+    onSuccess: (r) => {
+      setConfirmCancel(false);
+      const refunds = r.bookingsRequiringRefund.length;
+      toast.push(
+        `Event cancelled. ${r.datesCancelled} ${r.datesCancelled === 1 ? 'date' : 'dates'} cancelled` +
+          (refunds > 0
+            ? `, and ${refunds} ${refunds === 1 ? 'buyer is' : 'buyers are'} owed a refund. Approve them on Refunds.`
+            : '. Nobody had paid, so there is nothing to refund.') +
+          (r.cashToReturn > 0
+            ? ` ${r.cashToReturn} cash ${r.cashToReturn === 1 ? 'booking needs' : 'bookings need'} the money handed back at the counter.`
+            : ''),
+        'success',
+      );
+      qc.invalidateQueries({ queryKey: ['event', id] });
+      qc.invalidateQueries({ queryKey: ['event-sellability', id] });
+      qc.invalidateQueries({ queryKey: ['organizer-event-sale-states'] });
+      qc.invalidateQueries({ queryKey: ['events'] });
+    },
+    onError,
+  });
   const [confirmDelete, setConfirmDelete] = useState(false);
   const remove = useMutation({
     mutationFn: () => api.events.remove(id),
@@ -173,6 +197,7 @@ export default function EventOverview() {
         onResume={() => resume.mutate()}
         onPause={() => pause.mutate()}
         onDelete={() => setConfirmDelete(true)}
+        onCancel={can.ownerActions ? () => setConfirmCancel(true) : undefined}
         busy={{ submit: submit.isPending, resume: resume.isPending, pause: pause.isPending }}
       />
 
@@ -260,6 +285,15 @@ export default function EventOverview() {
           <QuickLinks eventId={id} />
         </div>
       </div>
+
+      <CancelEventDialog
+        open={confirmCancel}
+        title={event.title}
+        bookings={event._count?.bookings ?? 0}
+        busy={cancel.isPending}
+        onClose={() => setConfirmCancel(false)}
+        onConfirm={(reason) => cancel.mutate(reason)}
+      />
 
       <Dialog
         open={confirmDelete}

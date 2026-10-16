@@ -71,9 +71,9 @@ function eventWith(over: Record<string, unknown> = {}) {
 /** A policy engine that refuses to resolve, which is what an unmapped class produces. */
 const blockingPolicies = {
   resolveForCinema: async () => ({
-    // The real status the resolver returns when a seat category has no class: the rate rows
-    // band on classes, so an unmapped one matches nothing and the policy cannot be found.
-    status: 'POLICY_NOT_FOUND',
+    // The real status the resolver returns when a seat category has no class in a place a
+    // rule covers: it refuses before matching, naming the category.
+    status: 'INVALID_CINEMA_CLASSIFICATION',
     explanation:
       'Seat category "PR" has no regulatory seat class. This jurisdiction sets a maximum ' +
       'price per seat class.',
@@ -107,6 +107,37 @@ describe('what an organizer is told before publishing', () => {
     // And somewhere to go. A problem statement with no next action is a complaint.
     expect(blocker!.fix).toMatch(/regulatory class/i);
     expect(blocker!.fixPath).toBeTruthy();
+    // Straight to the mapping control, not the top of a page of checks.
+    expect(blocker!.fixPath).toMatch(/#seat-classes$/);
+  });
+
+  /*
+    A Bengaluru cinema screen: India has rules (Andhra Pradesh), Karnataka has none. Mapping the
+    classes cannot open the sale there, so the organizer is not sent to map them; they are told
+    the real cause and the one way out they have.
+  */
+  it('does not ask for seat classes where no rule covers the place', async () => {
+    const uncovered = {
+      resolveForCinema: async () => ({
+        status: 'POLICY_NOT_FOUND',
+        explanation: 'India has active cinema pricing policies but none covers Bengaluru.',
+        policy: null,
+      }),
+    } as never;
+    const bengaluru = { ...CINEMA, region: 'Karnataka', district: null, city: 'Bengaluru' };
+    const service = new EventSellabilityService(
+      prismaWith(eventWith({ sessions: [session({ screen: { cinema: bengaluru } })] })),
+      uncovered,
+    );
+    const report = await service.check('e1');
+
+    expect(report.sellable).toBe(false);
+    expect(report.blockers.map((b) => b.code)).toEqual(['NO_PRICING_POLICY']);
+    const blocker = report.blockers[0];
+    expect(blocker.message).toContain('Bengaluru');
+    expect(blocker.message).toContain('Mapping seat classes will not change this');
+    expect(blocker.fix).toMatch(/not a cinema screen/);
+    expect(blocker.fixPath).toBeNull();
   });
 
   it('says nothing about a venue in a jurisdiction with no price rules', async () => {

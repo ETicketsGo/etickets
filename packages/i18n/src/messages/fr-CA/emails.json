@@ -41,7 +41,9 @@
   },
   "REFUND_REQUESTED": {
     "subject": "Un remboursement a été demandé pour votre réservation",
-    "body": "Un remboursement de {amount} a été demandé pour la réservation {reference}. Rien n'est encore décidé et aucun montant n'a été versé : l'organisateur examine la demande et vous serez informé du résultat. Si vous n'avez rien demandé, communiquez avec l'organisateur avant l'approbation : quiconque détient le lien vers vos billets pouvait faire cette demande."
+    "subjectShowCancelled": "Votre spectacle a été annulé : un remboursement est ouvert",
+    "body": "Un remboursement de {amount} a été demandé pour la réservation {reference}. Rien n'est encore décidé et aucun montant n'a été versé : l'organisateur examine la demande et vous serez informé du résultat. Si vous n'avez rien demandé, communiquez avec l'organisateur avant l'approbation : quiconque détient le lien vers vos billets pouvait faire cette demande.",
+    "bodyShowCancelled": "Votre spectacle a été annulé : un remboursement de {amount} a donc été ouvert pour la réservation {reference}. Vous n'avez rien à faire. L'organisateur l'approuve et vous serez informé dès que l'argent sera en route."
   },
   "TICKET_CHECKED_IN": {
     "subject": "Billet validé à l'entrée",
