@@ -128,13 +128,15 @@ const FIXTURES: Fixture[] = [
     /*
       QA 2026-10-16: readiness told this organizer "Telangana caps the price of each class. Set
       it under Seat classes." Telangana has no rules at all, so the sentence was false and the
-      real wall (only the platform can lift it) was hidden until after the mapping. Both now.
+      real wall (only the platform can lift it) was hidden. Mapping cannot open the sale there,
+      so the one true blocker is the platform's (no seat class is asked for where no rule covers
+      the place).
     */
     name: 'an unmapped category in a state with no price rules (Telangana with Standard unmapped)',
     rows: NORTH_ROWS,
     cinema: cinema({ region: 'South', city: 'Southtown' }),
     ticketTypes: [tt('a', 15_000, STANDARD_UNMAPPED)],
-    expected: ['SEAT_CLASS_UNMAPPED', 'NO_PRICING_POLICY'],
+    expected: ['NO_PRICING_POLICY'],
   },
   {
     // Rules that all name a class must not read as "no rules here" to a class-less question.
@@ -347,7 +349,7 @@ describe('saleBlockersFromPolicy - each kind of blocker', () => {
     expect(b.owner).toBe('PLATFORM');
   });
 
-  it('never says a state with no rules caps prices, and names the wall the mapping leaves', async () => {
+  it("gives a state with no rules ONE true blocker, the platform's, even with a class unmapped", async () => {
     const { blockers } = await sessionSaleEligibility(
       resolverFor(NORTH_ROWS),
       cinema({ region: 'South', city: 'Southtown' }),
@@ -355,19 +357,14 @@ describe('saleBlockersFromPolicy - each kind of blocker', () => {
       'India',
       AT,
     );
-    expect(blockers.map((b) => b.code)).toEqual(['SEAT_CLASS_UNMAPPED', 'NO_PRICING_POLICY']);
-    const [unmapped, closed] = blockers;
-    expect(unmapped.organizerMessage).toBe(
-      'Seat category Standard has no seat class yet. Choose it under Seat classes. That alone ' +
-        "will not open sales: online sales in South stay closed until ETicketsGo adds the state's " +
-        'price rules.',
-    );
-    expect(unmapped.organizerMessage).not.toMatch(/caps|highest price/);
-    expect(unmapped.owner).toBe('ORGANIZER');
+    expect(blockers.map((b) => b.code)).toEqual(['NO_PRICING_POLICY']);
+    const [closed] = blockers;
     expect(closed.owner).toBe('PLATFORM');
     expect(closed.fixPath).toBeNull();
-    // The buyer is told nothing about either: the same sentence as every refusal.
-    for (const b of blockers) expect(b.buyerMessage).toBe(BUYER_SALE_NOT_OPEN);
+    // No task the organizer cannot complete, and no claim that the state caps anything.
+    expect(closed.organizerMessage).not.toMatch(/caps|seat class|Seat classes/);
+    expect(closed.organizerMessage).toMatch(/South/);
+    expect(closed.buyerMessage).toBe(BUYER_SALE_NOT_OPEN);
   });
 
   it('names the unmapped category and sends the organizer to Seat classes', async () => {
