@@ -520,6 +520,7 @@ model User {
   invitationReceived         AccountInvitation?          @relation("InvitationsReceived")
   passwordResetTokens        PasswordResetToken[]
   cashCollected              Booking[]                   @relation("CashCollected")
+  cashReturned               Booking[]                   @relation("CashReturned")
   memberships                OrganizationMember[]
   bookings                   Booking[]
   assignedTickets            Ticket[]                    @relation("TicketAttendee")
@@ -1841,6 +1842,15 @@ model Booking {
   cashCollectedAt       DateTime?
   cashCollectedByUserId String?
   cashCollectedBy       User?     @relation("CashCollected", fields: [cashCollectedByUserId], references: [id])
+
+  /// When the cash was handed BACK, and who handed it. Only on a cash booking cancelled after
+  /// the money was taken (its show was cancelled). Null while the money is still owed.
+  ///
+  /// An offline record, and deliberately not a `Refund`: no money moved through a provider,
+  /// so there is nothing for a refund row, a settlement or a reconciliation to match.
+  cashReturnedAt       DateTime?
+  cashReturnedByUserId String?
+  cashReturnedBy       User?     @relation("CashReturned", fields: [cashReturnedByUserId], references: [id])
 
   /// How many times the buyer has asked for more time on this hold.
   ///

@@ -45,8 +45,9 @@ function makeService(opts: {
       return { id: `r-${id}` };
     }),
   };
-  const service = new CancellationRefundsService(prisma as never, refunds as never);
-  return { service, prisma, refunds, calls };
+  const cash = { cancelForCancelledSession: jest.fn().mockResolvedValue({ cancelled: 0 }) };
+  const service = new CancellationRefundsService(prisma as never, refunds as never, cash as never);
+  return { service, prisma, refunds, calls, cash };
 }
 
 describe('every paid booking on a cancelled show gets a refund opened', () => {
@@ -67,6 +68,16 @@ describe('every paid booking on a cancelled show gets a refund opened', () => {
     const where = prisma.booking.findMany.mock.calls[0][0].where;
     expect(where.refunds).toEqual({ none: {} });
     expect(where.status.in).toEqual([BookingStatus.CONFIRMED, BookingStatus.PARTIALLY_REFUNDED]);
+  });
+
+  it('voids the cash bookings first, which the refund path would only skip', async () => {
+    const { service, cash, prisma } = makeService({});
+    await service.openFor('s1');
+    expect(cash.cancelForCancelledSession).toHaveBeenCalledWith('s1');
+    // Before the owed list is read, so a voided cash booking is not offered to refunds.
+    expect(cash.cancelForCancelledSession.mock.invocationCallOrder[0]).toBeLessThan(
+      prisma.booking.findMany.mock.invocationCallOrder[0],
+    );
   });
 
   it('does nothing for a show that is not cancelled', async () => {

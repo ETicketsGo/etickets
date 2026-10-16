@@ -20,6 +20,7 @@ import type {
   UpdateOrganizationProfileInput,
 } from '@eticketsgo/validation';
 import { PrismaService } from '../prisma/prisma.service';
+import { SHOW_ZONE_SELECT, showZone } from '../refunds/cash-returns.service';
 import { AuditService } from '../audit/audit.service';
 import { checkLegalIdentity, findNameCollisions } from './organization-identity';
 import {
@@ -1164,8 +1165,8 @@ export class OrganizationsService {
         cashCollectedAt: true,
         createdAt: true,
         cashCollectedBy: { select: { fullName: true } },
-        event: { select: { title: true } },
-        eventSession: { select: { startsAt: true } },
+        event: { select: { title: true, ...SHOW_ZONE_SELECT.event.select } },
+        eventSession: SHOW_ZONE_SELECT.eventSession,
       },
       orderBy: [{ eventSession: { startsAt: 'asc' } }, { createdAt: 'asc' }],
       take: 200,
@@ -1181,6 +1182,8 @@ export class OrganizationsService {
       status: b.status,
       eventTitle: b.event.title,
       startsAt: b.eventSession.startsAt,
+      // The venue's clock, not the reader's: a 7:00 pm Bengaluru show read 7:30 am in Denver.
+      timezone: showZone(b.event.venue, b.eventSession.screen),
       collectedAt: b.cashCollectedAt,
       collectedBy: b.cashCollectedBy?.fullName ?? null,
     }));

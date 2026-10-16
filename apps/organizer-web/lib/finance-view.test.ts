@@ -2,11 +2,17 @@ import { describe, it, expect } from 'vitest';
 import {
   currencyNotices,
   financeView,
+  overviewBridge,
   providerSections,
   splitFees,
   type FinanceLoad,
 } from './finance-view';
-import type { FinanceCurrencyGroupDto, UnifiedFinanceDto } from '@eticketsgo/web-kit';
+import type {
+  FinanceCurrencyGroupDto,
+  OrganizerAnalytics,
+  PayoutSummaryCurrency,
+  UnifiedFinanceDto,
+} from '@eticketsgo/web-kit';
 
 /**
  * The three situations a money page must never confuse, tested at the rendering boundary.
@@ -334,6 +340,24 @@ describe('provider-settled sections', () => {
     refundsMinor: 9_800,
     ...over,
   });
+  /** A claimed provider route, as the server sends it: in the paths AND as `providerRoute`. */
+  const routed = (route: ReturnType<typeof providerPath>) => ({
+    paths: [route],
+    providerRoute: route,
+  });
+
+  it('shows nothing for settlements that have moved nothing (the ledger above counts them)', () => {
+    /*
+      QA, Bengaluru Live: 14 settlements in HELD/ELIGIBLE with no payment account, all of them
+      events the ladder already shows as held or ready. The server lists them in the PROVIDER
+      path, but sends no `providerRoute`, so no "Settled by your payment provider" appears.
+    */
+    expect(
+      providerSections(
+        loaded({ currencies: [group({ paths: [providerPath({ movement: undefined })] })] }),
+      ),
+    ).toEqual([]);
+  });
 
   it('shows nothing when the organization has no provider route', () => {
     /*
@@ -345,7 +369,7 @@ describe('provider-settled sections', () => {
 
   it('reports four independent figures for a provider route', () => {
     const [section] = providerSections(
-      loaded({ currencies: [group({ paths: [providerPath()] })] }),
+      loaded({ currencies: [group({ ...routed(providerPath()) })] }),
     );
     expect(section.entitlementMinor).toBe(83_250);
     expect(section.transferredOutMinor).toBe(71_000);
@@ -357,7 +381,7 @@ describe('provider-settled sections', () => {
 
   it('keeps refund accounting apart from money taken back', () => {
     const [section] = providerSections(
-      loaded({ currencies: [group({ paths: [providerPath()] })] }),
+      loaded({ currencies: [group({ ...routed(providerPath()) })] }),
     );
     /*
       A refund can be recorded while nothing has come back. Presenting them as one number would
@@ -370,7 +394,7 @@ describe('provider-settled sections', () => {
 
   it('reports a route with no movement as null, never zero', () => {
     const [section] = providerSections(
-      loaded({ currencies: [group({ paths: [providerPath({ movement: undefined })] })] }),
+      loaded({ currencies: [group({ ...routed(providerPath({ movement: undefined })) })] }),
     );
     /*
       Nothing has moved yet. A zero would claim the provider sent nothing AND took nothing back,
@@ -385,7 +409,7 @@ describe('provider-settled sections', () => {
 
   it('reports absent refund accounting as null', () => {
     const [section] = providerSections(
-      loaded({ currencies: [group({ paths: [providerPath({ refundsMinor: undefined })] })] }),
+      loaded({ currencies: [group({ ...routed(providerPath({ refundsMinor: undefined })) })] }),
     );
     expect(section.refundsMinor).toBeNull();
   });
@@ -395,13 +419,13 @@ describe('provider-settled sections', () => {
       loaded({
         currencies: [
           group({
-            paths: [
+            ...routed(
               providerPath({
                 entitlementMinor: 0,
                 refundsMinor: 0,
                 movement: { transferredOutMinor: 0, recoveredMinor: 0, stillOutMinor: 0 },
               }),
-            ],
+            ),
           }),
         ],
       }),
@@ -417,10 +441,10 @@ describe('provider-settled sections', () => {
     const sections = providerSections(
       loaded({
         currencies: [
-          group({ currency: 'INR', paths: [providerPath()] }),
+          group({ currency: 'INR', ...routed(providerPath()) }),
           group({
             currency: 'USD',
-            paths: [providerPath({ entitlementMinor: 42_775, movement: undefined })],
+            ...routed(providerPath({ entitlementMinor: 42_775, movement: undefined })),
           }),
         ],
       }),
@@ -448,7 +472,7 @@ describe('provider-settled sections', () => {
       loaded({
         currencies: [
           group({
-            paths: [providerPath()],
+            ...routed(providerPath()),
             warnings: [
               {
                 category: 'FINANCIAL_INTEGRITY',
@@ -569,5 +593,108 @@ describe('money holds at both extremes', () => {
     const absent = financeView(loaded({ currencies: [group()] }));
     expect(zero.currencies[0].deductedFeesMinor).toBe(0);
     expect(absent.currencies[0].deductedFeesMinor).toBeNull();
+  });
+});
+
+/*
+  ── L6: HOW FINANCE MATCHES THE OVERVIEW ─────────────────────────────────────────────────
+  The QA numbers for the seed organizer, Bengaluru Live, 2026-10-16. Overview gross 23,281;
+  refunds 5,346; platform fee 55.82; held 8,292; ready 6,989.18; in a payout 1,598; and Rs 1,000
+  sold for a cancelled event that no Finance figure reported. The bridge passes each through.
+*/
+describe('overviewBridge', () => {
+  const analytics = {
+    organizationId: 'org',
+    revenue: [
+      {
+        currency: 'INR',
+        grossMinor: 2_328_100,
+        bookingFeesMinor: 31_500,
+        paymentFeesMinor: 44_192,
+        organizerFeesMinor: 5_582,
+        discountMinor: 0,
+        netMinor: 1_787_918,
+        confirmedBookings: 38,
+      },
+    ],
+    refunds: [{ currency: 'INR', count: 5, amountMinor: 534_600, refundRate: 23 }],
+  } as unknown as OrganizerAnalytics;
+  const row: PayoutSummaryCurrency = {
+    currency: 'INR',
+    gross: 884_400,
+    discount: 0,
+    bookingFee: 8_500,
+    paymentFee: 16_958,
+    organizerFee: 5_582,
+    refund: 179_900,
+    net: 698_918,
+    paid: 0,
+    pending: 159_800,
+    held: 829_200,
+    cancelled: 100_000,
+    cash: 0,
+    feeNotDeducted: 0,
+  };
+
+  it('quotes the Overview and the ledger without adding anything up', () => {
+    const b = overviewBridge(analytics, row)!;
+    expect(b.sold.map((l) => l.amountMinor)).toEqual([2_328_100, 534_600, 5_582]);
+    expect(b.afterMinor).toBe(1_787_918);
+    expect(b.where.map((l) => [l.label, l.amountMinor])).toEqual([
+      ['Held until shows finish', 829_200],
+      ['Ready to pay out now', 698_918],
+      ['In a payout, not sent', 159_800],
+      ['Paid to you', 0],
+      ['Sales of cancelled events, to refund to buyers', 100_000],
+    ]);
+    // On QA the lines do add up to the Overview's figure: the reason the bridge exists.
+    expect(b.where.reduce((t, l) => t + l.amountMinor, 0)).toBe(b.afterMinor);
+    expect(b.discountMinor).toBeNull();
+  });
+
+  it('names cash only when there is some', () => {
+    const b = overviewBridge(analytics, { ...row, cancelled: 0, cash: 45_000 })!;
+    expect(b.where.map((l) => l.label)).toEqual([
+      'Held until shows finish',
+      'Ready to pay out now',
+      'In a payout, not sent',
+      'Paid to you',
+      'Cash you took at the venue',
+    ]);
+  });
+
+  it('is left out rather than shown with a gap it cannot explain', () => {
+    // An API too old to send cancelled/cash would bring back the unexplained difference.
+    const { cancelled: _c, cash: _k, ...old } = row;
+    expect(overviewBridge(analytics, old)).toBeNull();
+    expect(overviewBridge(analytics, { ...row, feeNotDeducted: undefined })).toBeNull();
+    // A role that is not shown sales, or nothing sold in this currency.
+    expect(overviewBridge(undefined, row)).toBeNull();
+    expect(overviewBridge(analytics, { ...row, currency: 'USD' })).toBeNull();
+  });
+
+  it('takes off the fee inside held, cancelled and cash, so the lines still add up', () => {
+    // A held show with a 4 018 fee: held is stated before it, the Overview after it.
+    const withFee = {
+      ...analytics,
+      revenue: [{ ...analytics.revenue![0], organizerFeesMinor: 9_600, netMinor: 1_783_900 }],
+    } as OrganizerAnalytics;
+    const b = overviewBridge(withFee, { ...row, feeNotDeducted: 4_018 })!;
+    const last = b.where[b.where.length - 1];
+    expect(last).toEqual({
+      label: 'Less your platform fee on held, cancelled and cash sales',
+      amountMinor: 4_018,
+      negative: true,
+    });
+    const signed = b.where.reduce((t, l) => t + (l.negative ? -l.amountMinor : l.amountMinor), 0);
+    expect(signed).toBe(b.afterMinor);
+  });
+
+  it('mentions discounts, which the ledger takes off at payout', () => {
+    const withDiscount = {
+      ...analytics,
+      revenue: [{ ...analytics.revenue![0], discountMinor: 2_500 }],
+    } as OrganizerAnalytics;
+    expect(overviewBridge(withDiscount, row)!.discountMinor).toBe(2_500);
   });
 });

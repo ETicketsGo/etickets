@@ -476,9 +476,9 @@ export class CinemaComplianceService {
       case 'NOT_REGULATED':
         return 'No cinema pricing order applies to this location. Standard platform pricing is in effect.';
       case 'COMPLIANT':
-        return 'Compliant — ticket prices are within the permitted rates for this classification.';
+        return 'Ticket prices are within the highest prices allowed for this cinema.';
       case 'REQUIRES_APPROVAL':
-        return 'Compliance review required — the online booking fee for this jurisdiction is pending confirmation, so no booking fee is charged.';
+        return 'ETicketsGo has not yet confirmed the online booking fee allowed here, so no booking fee is charged.';
       case 'INVALID_CINEMA_CLASSIFICATION':
         if (why.reasonCode === 'SEAT_CLASS_UNMAPPED') {
           // Named, because the fix is one field on one seat category. Says so too when the
@@ -496,7 +496,16 @@ export class CinemaComplianceService {
           'can set it: use "Ask ETicketsGo to change this" below.'
         );
       case 'POLICY_NOT_FOUND':
-        return `Tickets cannot be sold yet: no pricing order is configured for this location. ${explanation}`;
+        /*
+          In words, and naming who can fix it. The resolver's sentence ("India has active cinema
+          pricing policies but none covers Karnataka / Bengaluru on 2026-10-16") is for the
+          audit; it reached this panel verbatim. Same sentence as the event page's blocker.
+        */
+        return (
+          `Cinema screens in ${why.placeName} cannot sell online yet: there are no state ticket ` +
+          `price rules on record for ${why.placeName}. Only ETicketsGo can add them. Choosing ` +
+          'seat classes will not change this.'
+        );
       case 'POLICY_CONFIGURATION_ERROR':
         return 'Tickets cannot be sold yet: the pricing configuration for this location needs attention from ETicketsGo.';
       default:

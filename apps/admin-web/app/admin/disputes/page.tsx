@@ -11,7 +11,7 @@ import {
   PageHeader,
   Skeleton,
   money,
-  dateTime,
+  recordedAt,
   type Column,
   type DisputeRow,
 } from '@eticketsgo/web-kit';
@@ -77,7 +77,7 @@ export default function DisputesPage() {
             <span className={`block text-sm ${TONE_CLASS[due.tone]}`}>{due.text}</span>
             {d.evidenceDueBy && (
               <span className="block text-caption text-text-muted">
-                {dateTime(d.evidenceDueBy)}
+                {recordedAt(d.evidenceDueBy)}
               </span>
             )}
           </div>

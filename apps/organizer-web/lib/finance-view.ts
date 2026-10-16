@@ -1,6 +1,8 @@
 import type {
   FinanceCurrencyGroupDto,
   FinanceWarningDto,
+  OrganizerAnalytics,
+  PayoutSummaryCurrency,
   UnifiedFinanceDto,
 } from '@eticketsgo/web-kit';
 
@@ -285,12 +287,17 @@ export function currencyNotices(load: FinanceLoad): CurrencyNoticesView[] {
  *
  * Returns empty for LOADING and FAILED too: those are not "no provider money", and a caller must
  * render its own loading or failure state rather than an absence that looks like an answer.
+ *
+ * Reads `providerRoute`, NOT the PROVIDER path. The path also holds settlements that have moved
+ * nothing - one exists for every event with an online payment, payment account or not - and the
+ * ladder above already counts that revenue as held or payable. Showing the path here put the seed
+ * organizer's Rs 14,040 on the page twice, the second time as "not part of the figures above".
  */
 export function providerSections(load: FinanceLoad): ProviderSectionView[] {
   if (load.kind !== 'LOADED') return [];
 
   return load.data.currencies.flatMap((group) => {
-    const provider = group.paths.find((p) => p.path === 'PROVIDER');
+    const provider = group.providerRoute;
     if (provider === undefined) return [];
     return [
       {
@@ -303,4 +310,91 @@ export function providerSections(load: FinanceLoad): ProviderSectionView[] {
       },
     ];
   });
+}
+
+/** One line of the Overview bridge. `negative` lines come off; the sign is drawn, not computed. */
+export interface BridgeLine {
+  label: string;
+  amountMinor: number;
+  negative?: boolean;
+}
+
+/** How one currency's Overview sales reach the buckets on this page. Every figure is a field. */
+export interface OverviewBridgeView {
+  currency: string;
+  /** From the Overview's own source: gross, then what came off it. */
+  sold: BridgeLine[];
+  /** The Overview's sales after refunds and the organizer's platform fee (analytics `netMinor`). */
+  afterMinor: number;
+  /** Where that money is now, from the payout ledger. */
+  where: BridgeLine[];
+  /** Discounts the ledger takes off when a show is paid out. Null when there were none. */
+  discountMinor: number | null;
+}
+
+/**
+ * The bridge from the Overview's "Gross sales" to the figures on Finance.
+ *
+ * ── WHY IT EXISTS ──────────────────────────────────────────────────────────────────
+ * The owner could not reconcile the two screens: Overview said gross Rs 23,281; Finance said held,
+ * ready and in a payout, and the gap had no name. It is three things, each already a server
+ * figure - refunds and the platform fee (on the Overview's side), and sales the payout ledger
+ * never pays out: a cancelled event's sales, owed back to buyers, and cash taken at the venue.
+ *
+ * Nothing is added up here. Each line is a field from `/analytics/organizer` or
+ * `/payouts/summary`, so the bridge cannot become a second opinion about money. A reader who adds
+ * the right-hand lines gets the left-hand result; the page names the cases where they would not
+ * (discounts, and money a payment provider pays directly).
+ *
+ * Null when either side cannot support it: no sales in this currency on the Overview's side (or a
+ * role that is not shown sales), or an API too old to send `cancelled`, `cash` and
+ * `feeNotDeducted` - without them the gap would be back, unexplained.
+ */
+export function overviewBridge(
+  analytics: OrganizerAnalytics | undefined,
+  row: PayoutSummaryCurrency,
+): OverviewBridgeView | null {
+  const revenue = analytics?.revenue?.find((r) => r.currency === row.currency);
+  if (revenue === undefined || revenue.grossMinor === 0) return null;
+  if (row.cancelled === undefined || row.cash === undefined || row.feeNotDeducted === undefined) {
+    return null;
+  }
+  const refunds = analytics?.refunds?.find((r) => r.currency === row.currency)?.amountMinor ?? 0;
+
+  const where: BridgeLine[] = [
+    { label: 'Held until shows finish', amountMinor: row.held },
+    { label: 'Ready to pay out now', amountMinor: row.net },
+    { label: 'In a payout, not sent', amountMinor: row.pending },
+    { label: 'Paid to you', amountMinor: row.paid },
+  ];
+  // Shown only when there is some: a zero line for a situation the organizer is not in is noise.
+  if (row.cancelled !== 0) {
+    where.push({
+      label: 'Sales of cancelled events, to refund to buyers',
+      amountMinor: row.cancelled,
+    });
+  }
+  if (row.cash !== 0) {
+    where.push({ label: 'Cash you took at the venue', amountMinor: row.cash });
+  }
+  // Held, cancelled and cash are stated before the fee; the Overview's figure is after it.
+  if (row.feeNotDeducted !== 0) {
+    where.push({
+      label: 'Less your platform fee on held, cancelled and cash sales',
+      amountMinor: row.feeNotDeducted,
+      negative: true,
+    });
+  }
+
+  return {
+    currency: row.currency,
+    sold: [
+      { label: 'Gross sales on your Overview', amountMinor: revenue.grossMinor },
+      { label: 'Refunded to buyers', amountMinor: refunds, negative: true },
+      { label: 'Your platform fee', amountMinor: revenue.organizerFeesMinor, negative: true },
+    ],
+    afterMinor: revenue.netMinor,
+    where,
+    discountMinor: revenue.discountMinor > 0 ? revenue.discountMinor : null,
+  };
 }

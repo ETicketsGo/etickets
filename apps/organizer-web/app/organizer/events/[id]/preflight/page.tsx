@@ -20,7 +20,8 @@ import {
   ErrorState,
   Select,
   Spinner,
-  dateTime,
+  recordedAt,
+  timeAtVenue,
   errorMessage,
   type BadgeTone,
   type PreflightCheckRow,
@@ -116,7 +117,7 @@ export default function PreflightPage() {
           >
             {event?.sessions.map((s) => (
               <option key={s.id} value={s.id}>
-                {dateTime(s.startsAt)}
+                {timeAtVenue(s.startsAt, event?.venue)}
               </option>
             ))}
           </Select>
@@ -179,7 +180,7 @@ export default function PreflightPage() {
               </div>
               <div className="flex items-center gap-2 print:hidden">
                 <span className="text-caption text-text-muted">
-                  Generated {dateTime(report.generatedAt)}
+                  Generated {recordedAt(report.generatedAt)}
                 </span>
                 <Button variant="outline" size="sm" onClick={() => window.print()}>
                   <Printer className="h-3.5 w-3.5" /> Print

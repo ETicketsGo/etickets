@@ -1,5 +1,6 @@
 import {
   composeFinance,
+  PROVIDER_CLAIMED_STATUSES,
   UNMOVED_SETTLEMENT_STATUSES,
   type ComposeInput,
 } from './unified-finance.composer';
@@ -559,9 +560,14 @@ describe('FIN-1: one event is counted once when a payout and an unmoved settleme
       const g = composeFinance(overlap(status)).currencies[0];
       expect(g.summary.entitlementMinor).toBe(114_800);
       expect(g.summary.pendingMinor).toBe(114_800);
-      // Listed and reported, never hidden.
+      // Listed, never hidden.
       expect(g.entries).toHaveLength(2);
-      expect(g.warnings.map((w) => w.code)).toContain('DOUBLE_CLAIM');
+      /*
+        And not a double claim (L6). A settlement that has moved nothing has claimed nothing: the
+        generator pays the event through the payout and release refuses while the payout stands.
+        QA showed this exact state to the seed organizer as "Needs attention".
+      */
+      expect(g.warnings.map((w) => w.code)).not.toContain('DOUBLE_CLAIM');
       // The parts still add up to the whole.
       expect(g.paths.reduce((t, p) => t + p.entitlementMinor, 0)).toBe(g.summary.entitlementMinor);
     },
@@ -570,6 +576,16 @@ describe('FIN-1: one event is counted once when a payout and an unmoved settleme
   it('still counts a settlement that has started a transfer (it has claimed the event)', () => {
     const g = composeFinance(overlap('TRANSFER_PROCESSING')).currencies[0];
     expect(g.summary.entitlementMinor).toBe(114_800 + 83_250);
+    // A payout AND a started transfer for one event is the real double claim, and is still said.
+    expect(g.warnings.map((w) => w.code)).toContain('DOUBLE_CLAIM');
+  });
+
+  it('still reports a blocked or failed settlement beside a payout as a double claim', () => {
+    // Neither has a clean "moved nothing" story: FAILED may have paid without us learning it.
+    for (const status of ['BLOCKED', 'FAILED']) {
+      const g = composeFinance(overlap(status)).currencies[0];
+      expect(g.warnings.map((w) => w.code)).toContain('DOUBLE_CLAIM');
+    }
   });
 
   it('still counts a blocked or failed settlement, which needs a person', () => {
@@ -610,6 +626,13 @@ describe('FIN-1: one event is counted once when a payout and an unmoved settleme
     expect(g.summary.entitlementMinor).toBe(114_800 + 83_250);
   });
 
+  it('restates the generator claimed statuses exactly', () => {
+    // providerRoute must be the ledger's exclusion read from the other side, or the two drift.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { SETTLEMENT_CLAIMED_STATUSES } = require('../payouts/payouts.service');
+    expect([...PROVIDER_CLAIMED_STATUSES].sort()).toEqual([...SETTLEMENT_CLAIMED_STATUSES].sort());
+  });
+
   it('keeps its list of unmoved statuses disjoint from the statuses that claim an event', () => {
     // The generator's own constant: a status in both lists would mean the settlement is ignored
     // for totals while the generator also refuses to pay its event.
@@ -624,5 +647,67 @@ describe('FIN-1: one event is counted once when a payout and an unmoved settleme
       'HELD',
       'PENDING',
     ]);
+  });
+});
+
+/*
+  ── L6: WHAT "SETTLED BY YOUR PAYMENT PROVIDER" MAY SHOW ────────────────────────────────
+  QA, Bengaluru Live: 14 settlements in HELD/ELIGIBLE, no payment account, Rs 14,040.87 in the
+  PROVIDER path - every rupee of it already in the ledger's held and ready figures. The page showed
+  the path as provider money "not part of the figures above". `providerRoute` is the fix: only
+  settlements a transfer has claimed, which are exactly the events the ledger leaves out.
+*/
+describe('providerRoute holds only money a provider transfer has claimed', () => {
+  const settlement = (id: string, eventId: string, status: string) =>
+    providerFinanceEntry(
+      {
+        ...PROVIDER_SETTLEMENT,
+        id,
+        eventId,
+        status,
+        ...(PROVIDER_CLAIMED_STATUSES.has(status)
+          ? {}
+          : { releasedMinor: 0, transferredMinor: 0, refundsMinor: 0 }),
+      },
+      clean,
+    );
+
+  it.each(['PENDING', 'HELD', 'ELIGIBLE', 'APPROVED', 'BLOCKED', 'FAILED'])(
+    'leaves out a %s settlement, whose revenue the ledger still counts',
+    (status) => {
+      const g = composeFinance({ platform: [], provider: [settlement('s1', 'ev-1', status)] })
+        .currencies[0];
+      // Listed, and in the PROVIDER path as before...
+      expect(g.entries).toHaveLength(1);
+      expect(g.paths.map((p) => p.path)).toEqual(['PROVIDER']);
+      // ...but not provider money.
+      expect(g.providerRoute).toBeUndefined();
+    },
+  );
+
+  it.each([...PROVIDER_CLAIMED_STATUSES])('includes a %s settlement', (status) => {
+    const g = composeFinance({ platform: [], provider: [settlement('s1', 'ev-1', status)] })
+      .currencies[0];
+    expect(g.providerRoute?.path).toBe('PROVIDER');
+    expect(g.providerRoute?.entitlementMinor).toBe(83_250);
+  });
+
+  it('sums only the claimed ones when both kinds are present', () => {
+    const g = composeFinance({
+      platform: [],
+      provider: [
+        settlement('s-moved', 'ev-1', 'PARTIALLY_REFUNDED'),
+        settlement('s-held', 'ev-2', 'HELD'),
+      ],
+    }).currencies[0];
+    // The path still has both (83 250 twice); the route has the moved one only.
+    expect(g.paths.find((p) => p.path === 'PROVIDER')!.entitlementMinor).toBe(2 * 83_250);
+    expect(g.providerRoute!.entitlementMinor).toBe(83_250);
+    expect(g.providerRoute!.counts).toEqual({ platform: 0, provider: 1 });
+    expect(g.providerRoute!.movement).toEqual({
+      transferredOutMinor: 71_000,
+      recoveredMinor: 13_400,
+      stillOutMinor: 57_600,
+    });
   });
 });

@@ -1,24 +1,26 @@
 'use client';
 
+import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
-import { Button, Dialog, Textarea } from '@eticketsgo/web-kit';
+import { api, Button, Dialog, Skeleton, Textarea } from '@eticketsgo/web-kit';
+import { previewLines } from '@/lib/cancel-impact';
 
 /**
- * Cancelling a whole event, confirmed: what happens to whom, why (kept with the record), and
- * a deliberate tick, because it refunds everybody and cannot be undone.
+ * Cancelling a whole event, confirmed: what happens to whom, in counts and totals read from the
+ * server before anything is done, why (kept with the record), and a deliberate tick, because it
+ * refunds everybody and cannot be undone.
  */
 export function CancelEventDialog({
   open,
+  eventId,
   title,
-  bookings,
   busy,
   onClose,
   onConfirm,
 }: {
   open: boolean;
+  eventId: string;
   title: string;
-  /** Bookings on the event, for the sentence about refunds. */
-  bookings: number;
   busy: boolean;
   onClose: () => void;
   onConfirm: (reason: string) => void;
@@ -26,6 +28,17 @@ export function CancelEventDialog({
   const [reason, setReason] = useState('');
   const [sure, setSure] = useState(false);
   const [error, setError] = useState<string | undefined>();
+  /*
+    The impact, asked fresh each time the dialog opens: a counter sale a minute ago changes the
+    cash to give back, and a stale figure here is the one the organizer takes out of the till.
+  */
+  const preview = useQuery({
+    queryKey: ['event-cancel-preview', eventId],
+    queryFn: () => api.events.cancelPreview(eventId),
+    enabled: open,
+    staleTime: 0,
+    gcTime: 0,
+  });
 
   const confirm = () => {
     if (reason.trim().length < 3) {
@@ -56,19 +69,20 @@ export function CancelEventDialog({
           <li>
             Sales of <span className="font-medium text-text-primary">{title}</span> stop now.
           </li>
-          <li>
-            Every date still to come is cancelled. Dates that already happened stay as they are.
-          </li>
-          <li>
-            {bookings > 0
-              ? 'Every paid booking gets a refund request for the full amount. You approve them on Refunds, all at once if you like, and the money goes back the way it was paid.'
-              : 'Nobody has booked yet, so there is nothing to refund.'}
-          </li>
-          <li>
-            Every ticket holder is told by email that the show is cancelled and a refund will
-            follow.
-          </li>
-          <li>Cash taken at the counter is not refunded online: give it back at the counter.</li>
+          {preview.isLoading ? (
+            <li className="list-none">
+              <Skeleton className="h-16 w-full" />
+            </li>
+          ) : preview.data ? (
+            previewLines(preview.data).map((line) => <li key={line}>{line}</li>)
+          ) : (
+            <li>
+              We could not work out the refunds and cash just now. Every paid online booking still
+              gets a refund request, and cash bookings are cancelled for you to pay back at the
+              counter.
+            </li>
+          )}
+          <li>Every ticket holder is told by email that the show is cancelled.</li>
         </ul>
         <Textarea
           id="cancel-event-reason"

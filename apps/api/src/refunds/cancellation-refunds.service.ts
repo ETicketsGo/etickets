@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { BookingStatus, SessionStatus } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 import { RefundsService } from './refunds.service';
+import { CashReturnsService } from './cash-returns.service';
 
 /**
  * Every paid booking on a cancelled show gets a refund opened for it. Without exception.
@@ -56,6 +57,7 @@ export class CancellationRefundsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly refunds: RefundsService,
+    private readonly cash: CashReturnsService,
   ) {}
 
   /**
@@ -80,6 +82,14 @@ export class CancellationRefundsService {
     if (!session || session.status !== SessionStatus.CANCELLED) {
       return { opened: 0, skipped: 0, failed: 0, remaining: 0 };
     }
+
+    /*
+      Cash first. The refund path refuses a cash booking (its money never passed through a
+      provider), so without this it was skipped on every pass and left CONFIRMED, its tickets
+      live, for a show that is not happening. It is voided here instead and the cash is owed
+      back at the counter (CashReturnsService), which also takes it out of the list below.
+    */
+    await this.cash.cancelForCancelledSession(sessionId);
 
     const owed = await this.owedBookings(
       sessionId,

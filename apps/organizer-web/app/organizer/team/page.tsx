@@ -217,7 +217,7 @@ export default function TeamPage() {
             <span className="whitespace-nowrap">
               <BrandStatusPill status="caution">Invitation pending</BrandStatusPill>
             </span>
-            <span className="text-brand-meta text-brand-ink-3">Hasn&rsquo;t joined yet</span>
+            <span className="text-brand-meta text-brand-ink-3">Has not joined yet</span>
             {/* Owner only at the API: re-issuing mints a fresh credential for this person. */}
             {can.ownerActions && (
               <button
@@ -472,7 +472,7 @@ export default function TeamPage() {
                 the team, and a manager who came here to add somebody needs to know who can.
               */
               <p className="text-caption text-text-muted">
-                Only the organization&rsquo;s owner can add people to the team.
+                Only the owner of the organization can add people to the team.
               </p>
             )}
             <Input
