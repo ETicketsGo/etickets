@@ -26,6 +26,7 @@
  *
  * Pure: no database, no clock, no provider. Every rule is exercised by `refund-reconcile.spec.ts`.
  */
+import { PaymentNotCapturedError } from '../payments/domain/payment-errors';
 import type { ProviderRefundRecord } from '../payments/provider/payment-provider.interface';
 
 const PREFIX = 'etg-rf-';
@@ -95,8 +96,40 @@ export type Reconciliation =
   | { kind: 'NONE' }
   /** The provider shows something that may be this refund but cannot be matched. A person. */
   | { kind: 'UNMATCHED'; reason: string }
+  /**
+   * The provider answered, and holds no captured payment for this payment reference: nothing
+   * was paid, so there is nothing to refund and nothing was refunded. No send, ever; the thing
+   * to resolve is the booking.
+   */
+  | { kind: 'NOT_PAID'; reason: string }
   /** The provider could not be asked, or did not answer. A person, or ask again later. */
   | { kind: 'UNAVAILABLE'; reason: string };
+
+/**
+ * What a refund lookup that threw means.
+ *
+ * Almost always "the provider could not be asked" (a timeout, an outage, a lookup the adapter
+ * does not have), and only a person can settle that. One answer arrives as an error but is a
+ * definite answer: the provider holds no captured payment at all (`PaymentNotCapturedError`).
+ * Read as UNAVAILABLE, it let a dashboard tick resend a refund of money nobody paid, and the
+ * console told the admin to retry (QA ETG-IND-2026-000013/14/15). The orchestrator wraps adapter
+ * errors, so the original is looked for on `causeError` too.
+ */
+export function classifyLookupError(err: unknown): Reconciliation {
+  const wrapped = (err as { causeError?: unknown } | null)?.causeError;
+  const notPaid =
+    err instanceof PaymentNotCapturedError
+      ? err
+      : wrapped instanceof PaymentNotCapturedError
+        ? wrapped
+        : null;
+  if (notPaid) return { kind: 'NOT_PAID', reason: notPaid.message.slice(0, 300) };
+  const said = (err instanceof Error ? err.message : String(err)).slice(0, 300);
+  return {
+    kind: 'UNAVAILABLE',
+    reason: `The payment provider could not be asked whether it made this refund: ${said}`,
+  };
+}
 
 export interface ReconcileContext {
   refundId: string;

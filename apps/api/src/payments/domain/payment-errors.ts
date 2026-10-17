@@ -44,3 +44,23 @@ export class PaymentProviderError extends Error {
     return RETRYABLE.has(this.code);
   }
 }
+
+/**
+ * The provider was asked about a payment and holds no captured money for it.
+ *
+ * ── WHY THIS IS NOT "UNAVAILABLE" ─────────────────────────────────────────────────
+ * A refund lookup that throws reads as "the provider could not be asked", and the refund
+ * console then lets an admin who ticked "I checked the dashboard" send the refund again. An
+ * order nobody paid (QA's mock-settled ETG-IND-2026-000013/14/15) is the opposite case: the
+ * provider DID answer, and the answer is that there is nothing to refund. It has its own type so
+ * the refund code can tell the two apart (`classifyLookupError` in `refunds/refund-reconcile.ts`).
+ */
+export class PaymentNotCapturedError extends Error {
+  constructor(
+    readonly paymentRef: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'PaymentNotCapturedError';
+  }
+}

@@ -1,5 +1,6 @@
 import {
   RECHECK_AFTER_MS,
+  classifyLookupError,
   STRANGER_WINDOW_MS,
   isPlatformKey,
   keyGeneration,
@@ -10,6 +11,8 @@ import {
   type ReconcileContext,
 } from './refund-reconcile';
 import type { ProviderRefundRecord } from '../payments/provider/payment-provider.interface';
+import { PaymentNotCapturedError } from '../payments/domain/payment-errors';
+import { normalizeProviderError } from '../payments/orchestration/resilient-executor';
 
 const ASKED = new Date('2026-10-16T10:00:00Z');
 const ctx = (over: Partial<ReconcileContext> = {}): ReconcileContext => ({
@@ -130,5 +133,35 @@ describe('reconcileRefund', () => {
     expect(
       reconcileRefund([rec({ status: 'FAILED' })], ctx({ currentKey: 'etg-rf-r1-2' })),
     ).toEqual({ kind: 'NONE' });
+  });
+});
+
+describe('a refund lookup that threw', () => {
+  const unpaid = new PaymentNotCapturedError(
+    'order_1',
+    'Razorpay holds no captured payment for order order_1: nothing was paid on it, so there is nothing to refund.',
+  );
+
+  // The provider answered: nothing was captured. Not "could not be asked", which a tick unlocks.
+  it('is NOT_PAID when the provider holds no captured payment', () => {
+    const r = classifyLookupError(unpaid);
+    expect(r.kind).toBe('NOT_PAID');
+    expect(r).toMatchObject({ reason: expect.stringMatching(/nothing to refund/) });
+    expect((r as { reason: string }).reason).not.toMatch(/could not be asked/);
+  });
+
+  it('is NOT_PAID when the orchestrator wrapped that answer', () => {
+    // What `executeWithFailover` actually throws for an adapter error.
+    expect(classifyLookupError(normalizeProviderError(unpaid, 'razorpay')).kind).toBe('NOT_PAID');
+  });
+
+  it('is UNAVAILABLE, with what was said, for anything else', () => {
+    expect(classifyLookupError(new Error('Razorpay 503'))).toEqual({
+      kind: 'UNAVAILABLE',
+      reason: 'The payment provider could not be asked whether it made this refund: Razorpay 503',
+    });
+    expect(
+      classifyLookupError(normalizeProviderError(new Error('timed out'), 'razorpay')).kind,
+    ).toBe('UNAVAILABLE');
   });
 });

@@ -21,6 +21,9 @@ import { MockPaymentProvider } from '../payments/provider/mock-payment.provider'
  *   2. An approval whose answer is lost is settled by asking the provider: one create call.
  *   3. An approval whose answer is lost and cannot be looked up is held for a person: the
  *      retry-check says so, and the retry route refuses to send it without the dashboard check.
+ *   4. A refund against an order the provider holds no payment for (QA's ETG-IND-2026-000013/
+ *      14/15, `#refundunpaid`): retry-check refuses it as NOT_PAID, and the retry route refuses
+ *      it even with the dashboard check given. Nothing reaches the provider.
  *
  * Every row is created under a unique suffix and removed afterwards. Skips (never fabricates a
  * pass) when no database is reachable.
@@ -317,5 +320,37 @@ describe('integration-real-postgres: refund retry over HTTP', () => {
     // The detail route carries the reason, which is what the console shows.
     const detail = await http('GET', `/admin/refunds/${f.refundId}`);
     expect(detail.json.manualReviewReason).toMatch(/could not be asked/);
+  });
+
+  maybe('a refund on an order nobody paid is refused, whatever the admin confirms', async () => {
+    // The QA shape: FAILED, no refusal on its history (the call threw), and an ORDER id.
+    const f = await booking(4, `order_${suffix}_4#refundunpaid`, 'FAILED');
+
+    const check = await http('GET', `/admin/refunds/${f.refundId}/retry-check`);
+    expect(check.status).toBe(200);
+    expect(check.json).toMatchObject({
+      allowed: false,
+      refusal: 'NOT_PAID',
+      needsConfirmation: false,
+      action: null,
+      lastAnswer: 'UNKNOWN',
+      providerLookup: { kind: 'NOT_PAID' },
+    });
+    expect(check.json.message).toMatch(/nothing to refund/);
+    expect(check.json.message).not.toMatch(/could not be asked/);
+    expect(check.json.providerLookup.reason).not.toMatch(/could not be asked/);
+
+    // The dashboard tick unlocked this before. It must not now.
+    const refused = await http('POST', `/admin/refunds/${f.refundId}/retry`, {
+      confirmedNoProviderRefund: true,
+    });
+    expect(refused.status).toBe(409);
+    expect(JSON.stringify(refused.json)).toMatch(/nothing to refund/);
+    expect(mockRefund).toHaveBeenCalledTimes(0);
+
+    const row = await db!.refund.findUnique({ where: { id: f.refundId } });
+    expect(row).toMatchObject({ status: 'FAILED', providerCallCount: 0 });
+    expect(await db!.refundProviderAttempt.count({ where: { refundId: f.refundId } })).toBe(0);
+    expect((await db!.ticket.findUnique({ where: { id: f.ticketId } })).status).toBe('ACTIVE');
   });
 });

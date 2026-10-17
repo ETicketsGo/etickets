@@ -1,6 +1,7 @@
 import { createHmac } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
 import { RazorpayPaymentProvider } from './razorpay-payment.provider';
+import { PaymentNotCapturedError } from '../domain/payment-errors';
 
 const mockOrdersCreate = jest.fn();
 const mockPaymentsRefund = jest.fn();
@@ -266,6 +267,10 @@ describe('RazorpayPaymentProvider', () => {
     mockOrdersFetchPayments.mockResolvedValue({ count: 0, items: [] });
     await expect(makeProvider().findPaymentRefunds('order_1')).rejects.toThrow(
       /no captured payment for order order_1/,
+    );
+    // Its own type, so the refund code reads it as "nothing paid", not "could not be asked".
+    await expect(makeProvider().findPaymentRefunds('order_1')).rejects.toBeInstanceOf(
+      PaymentNotCapturedError,
     );
     expect(mockFetchMultipleRefund).not.toHaveBeenCalled();
   });

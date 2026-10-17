@@ -266,6 +266,26 @@ describe('assessRetry: the provider is asked first', () => {
     expect(a).toMatchObject({ allowed: false, refusal: 'UNMATCHED_PROVIDER_REFUND', action: null });
   });
 
+  // QA ETG-IND-2026-000013/14/15: the tick used to unlock a "refund" of an order nobody paid.
+  it('refuses a refund on an order nobody paid, even with the dashboard check given', () => {
+    for (const confirmedNoProviderRefund of [false, true]) {
+      const a = assessRetry(
+        unanswered({
+          providerLookup: { kind: 'NOT_PAID', reason: 'Razorpay holds no captured payment.' },
+          confirmedNoProviderRefund,
+        }),
+      );
+      expect(a).toMatchObject({
+        allowed: false,
+        refusal: 'NOT_PAID',
+        needsConfirmation: false,
+        action: null,
+      });
+      expect(a.message).toMatch(/nothing to refund/);
+      expect(a.message).not.toMatch(/could not be asked/);
+    }
+  });
+
   it('does not let a found refund get past the tickets or the amount paid', () => {
     const found = {
       kind: 'FOUND' as const,

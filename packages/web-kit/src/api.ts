@@ -5280,7 +5280,7 @@ export interface RefundRetryCheck {
   action?: 'SEND' | 'RECORD_PROVIDER_REFUND' | null;
   /** What the provider said when it was asked for the payment's refunds; null if not asked. */
   providerLookup?: {
-    kind: 'FOUND' | 'REFUSED' | 'NONE' | 'UNMATCHED' | 'UNAVAILABLE';
+    kind: 'FOUND' | 'REFUSED' | 'NONE' | 'UNMATCHED' | 'NOT_PAID' | 'UNAVAILABLE';
     providerRef?: string;
     status?: 'COMPLETED' | 'PROCESSING' | 'FAILED';
     amountMinor?: number;

@@ -61,6 +61,7 @@ const LOOKUP_RESULT: Record<string, string> = {
   REFUSED: 'The provider has this refund, refused',
   NONE: 'The provider shows no refund for it',
   UNMATCHED: 'The provider shows a refund that cannot be matched to this one',
+  NOT_PAID: 'The provider holds no payment for it: nothing was paid, so nothing can be refunded',
   UNAVAILABLE: 'The provider could not be asked',
 };
 
@@ -152,11 +153,29 @@ export function failedRefundAdvice(
   entries: HistoryEntry[],
   // Set when the refund is held for a manual check (`Refund.manualReviewReason`).
   manualReviewReason?: string | null,
+  // What the provider said when the retry check asked it (`providerLookup.kind`), if it has.
+  lookupKind?: string | null,
 ): {
   cause: string;
   steps: string[];
 } {
   const actions = new Set(entries.map((e) => e.action));
+  /*
+    The provider was asked and holds no payment at all. Every other branch below ends in "try
+    the refund again"; here there is no money to send, and what is wrong is the booking: it was
+    confirmed without being paid (QA's mock-settled ETG-IND-2026-000013/14/15).
+  */
+  if (lookupKind === 'NOT_PAID') {
+    return {
+      cause:
+        'Nothing was paid on this order at the payment provider, so there is nothing to refund. No money moved.',
+      steps: [
+        'Open the booking and check how it was confirmed. A booking confirmed without a payment was never paid.',
+        'If it is test data, cancel the booking as unpaid. Do not refund it.',
+        'Do not try the refund again, and do not send money from the provider dashboard.',
+      ],
+    };
+  }
   /*
     The case nothing automatic may settle: a call lost its answer and the provider could not be
     asked. First, because the money may already be with the customer.
