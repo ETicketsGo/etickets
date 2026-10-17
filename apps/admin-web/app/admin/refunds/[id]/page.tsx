@@ -19,7 +19,12 @@ import {
   errorMessage,
   type RefundRetryResult,
 } from '@eticketsgo/web-kit';
-import { retryOutcomeText, retrySucceeded } from '@/lib/refund-retry';
+import {
+  lookupSentence,
+  retryOutcomeText,
+  retrySucceeded,
+  showRetryButton,
+} from '@/lib/refund-retry';
 import { accountContactText } from '../../../../components/account-contact';
 import { MoneyStatusPill } from '@/components/money-status';
 import { RecordHistory, useRecordHistory } from '@/components/record-history';
@@ -51,6 +56,16 @@ export default function RefundDetail() {
     returns below, as hooks must be; it waits for the refund to load.
   */
   const history = useRecordHistory(refund ? [`Refund:${refund.id}`] : []);
+  /*
+    What the provider said when asked, for the failure panel's steps. Same key as the retry card's
+    query, so it is one request: the steps must not say "try again" where the card refuses it.
+  */
+  const retryCheck = useQuery({
+    queryKey: ['admin', 'refunds', 'retry-check', id],
+    queryFn: () => api.admin.refundRetryCheck(id),
+    enabled: refund?.status === 'FAILED',
+    retry: false,
+  });
 
   const process = useMutation({
     mutationFn: (decision: 'APPROVE' | 'REJECT') => api.refunds.process(id, decision),
@@ -104,6 +119,7 @@ export default function RefundDetail() {
           refundRef={refund.providerRef ?? null}
           manualReviewReason={refund.manualReviewReason ?? null}
           manualReviewAt={refund.manualReviewAt ?? null}
+          lookupKind={retryCheck.data?.providerLookup?.kind ?? null}
         />
       )}
 
@@ -297,6 +313,7 @@ function FailedRefundPanel({
   refundRef,
   manualReviewReason,
   manualReviewAt,
+  lookupKind,
 }: {
   entries: HistoryEntry[];
   loading: boolean;
@@ -305,9 +322,10 @@ function FailedRefundPanel({
   refundRef: string | null;
   manualReviewReason: string | null;
   manualReviewAt: string | null;
+  lookupKind: string | null;
 }) {
   if (loading) return <Skeleton className="h-24 w-full" />;
-  const advice = failedRefundAdvice(entries, manualReviewReason);
+  const advice = failedRefundAdvice(entries, manualReviewReason, lookupKind);
   return (
     <Card
       title={
@@ -408,13 +426,16 @@ function RetryRefundCard({
     },
   });
   const a = check.data;
-  const canTry = !!a && (a.allowed || a.needsConfirmation);
+  const canTry = showRetryButton(a);
   // The provider already has it: the button records it and sends nothing.
   const records = a?.action === 'RECORD_PROVIDER_REFUND';
   const lookupText = lookupSentence(a?.providerLookup ?? null, provider);
 
   return (
-    <Card title="Try the refund again">
+    // "Try the refund again" over "do not try this again" read as a contradiction.
+    <Card
+      title={a?.refusal === 'NOT_PAID' ? 'Why this refund cannot be sent' : 'Try the refund again'}
+    >
       <div className="space-y-3 text-sm">
         {lastRetry && (
           <div
@@ -515,26 +536,4 @@ function RetryRefundCard({
       </Dialog>
     </Card>
   );
-}
-
-/** What the provider said when it was asked for this payment's refunds, as one sentence. */
-function lookupSentence(
-  lookup: { kind: string; providerRef?: string; reason?: string } | null,
-  provider: string,
-): string | null {
-  const who = provider || 'The payment provider';
-  switch (lookup?.kind) {
-    case 'FOUND':
-      return `${who} was asked: it has this refund (${lookup.providerRef ?? 'no reference given'}).`;
-    case 'REFUSED':
-      return `${who} was asked: it has this refund, and it refused it.`;
-    case 'NONE':
-      return `${who} was asked: it shows no refund for this payment.`;
-    case 'UNMATCHED':
-      return `${who} was asked: it shows a refund on this payment that cannot be matched to this one.`;
-    case 'UNAVAILABLE':
-      return `${who} could not be asked whether it made this refund.`;
-    default:
-      return null;
-  }
 }

@@ -29,6 +29,8 @@
  *   NONE         it answered and shows no such refund - sending again (same key) is safe,
  *                once the lost call is old enough to have finished there (else TOO_SOON).
  *   UNMATCHED    it shows a refund that may be this one but cannot be matched - refuse.
+ *   NOT_PAID     it holds no captured payment at all: nothing was paid, so nothing can be
+ *                refunded - refuse, whatever the admin confirms. The booking is what is wrong.
  *   UNAVAILABLE  it could not be asked - only then is the admin's confirmation needed.
  */
 
@@ -47,7 +49,8 @@ export type RetryRefusal =
   | 'NEEDS_CONFIRMATION'
   | 'UNMATCHED_PROVIDER_REFUND'
   | 'OVER_PAYMENT'
-  | 'TOO_SOON';
+  | 'TOO_SOON'
+  | 'NOT_PAID';
 
 /** One audit entry about this refund, oldest first. */
 export interface RefundHistoryEntry {
@@ -89,7 +92,7 @@ export interface RetryFacts {
 }
 
 export interface ProviderLookupFact {
-  kind: 'FOUND' | 'REFUSED' | 'NONE' | 'UNMATCHED' | 'UNAVAILABLE';
+  kind: 'FOUND' | 'REFUSED' | 'NONE' | 'UNMATCHED' | 'NOT_PAID' | 'UNAVAILABLE';
   providerRef?: string;
   status?: 'COMPLETED' | 'PROCESSING' | 'FAILED';
   amountMinor?: number;
@@ -208,6 +211,18 @@ export function assessRetry(f: RetryFacts): RetryAssessment {
     return refuse(
       'UNMATCHED_PROVIDER_REFUND',
       `${lookup.reason ?? 'The payment provider shows a refund on this payment that cannot be matched to this one.'} Check the provider dashboard before doing anything else.`,
+      stage,
+    );
+  }
+  /*
+    The provider answered that nothing was ever captured on this payment. There is no money to
+    send back, so no dashboard tick unlocks a send: before this, the lookup read as "could not
+    be asked" and the tick let an admin "refund" an order nobody paid.
+  */
+  if (lookup?.kind === 'NOT_PAID') {
+    return refuse(
+      'NOT_PAID',
+      'Nothing was paid on this order, so there is nothing to refund. Do not try this refund again. Resolve the booking instead.',
       stage,
     );
   }

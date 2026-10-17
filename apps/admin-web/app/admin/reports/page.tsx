@@ -48,6 +48,7 @@ import {
 import { DayColumns } from '../../../components/day-columns';
 import { MoneyStatusPill } from '../../../components/money-status';
 import { fillDays } from '../../../lib/day-series';
+import { countWords, noTaxDocuments } from '../../../lib/tax-report';
 
 // ─────────────────────────── Shared helpers ───────────────────────────
 
@@ -825,6 +826,12 @@ function TaxSection({ range }: { range: ReportRange }) {
                 {d.taxModelled ? 'Tax on invoices and credit notes' : 'No tax rule is active'}
               </p>
               <p className="mt-1 text-text-secondary">{d.note}</p>
+              {/* With nothing below, the note's "Any tax below is..." pointed at an empty page. */}
+              {noTaxDocuments(d.byCurrency) && (
+                <p className="mt-1 text-text-primary" data-testid="tax-no-documents">
+                  No tax invoices or credit notes in this range.
+                </p>
+              )}
             </div>
           </div>
           {/*
@@ -847,14 +854,14 @@ function TaxSection({ range }: { range: ReportRange }) {
                   <StatCard
                     label="Tax charged"
                     value={money(c.taxChargedMinor, c.currency)}
-                    hint={`On ${c.invoices.toLocaleString()} invoices and receipts`}
+                    hint={`On ${countWords(c.invoices, 'invoice or receipt', 'invoices and receipts')}`}
                     icon={Receipt}
                     tile="teal"
                   />
                   <StatCard
                     label="Tax given back"
                     value={money(c.taxReversedMinor, c.currency)}
-                    hint={`On ${c.creditNotes.toLocaleString()} credit notes`}
+                    hint={`On ${countWords(c.creditNotes, 'credit note', 'credit notes')}`}
                     icon={Undo2}
                     tile="amber"
                   />

@@ -25,6 +25,7 @@ import type {
   WebhookInput,
 } from './payment-provider.interface';
 import { PaymentMethod, type PaymentProviderCapabilities } from '../domain/payment-capabilities';
+import { PaymentNotCapturedError } from '../domain/payment-errors';
 import { razorpayReversalFailure, razorpayTransferFailure } from './reversal-outcome';
 
 /** Shape of the Razorpay webhook JSON we consume (only the fields we read). */
@@ -248,11 +249,10 @@ export class RazorpayPaymentProvider implements PaymentProvider {
         ['captured', 'refunded'].includes(String(p.status)),
       );
       if (paid.length === 0) {
-        throw new AppException(
-          ErrorCodes.PAYMENT_PROVIDER_UNAVAILABLE,
+        // Its own type, not a generic failure: Razorpay answered, and the answer is "nothing paid".
+        throw new PaymentNotCapturedError(
+          paymentRef,
           `Razorpay holds no captured payment for order ${paymentRef}: nothing was paid on it, so there is nothing to refund. Do not send this refund; check how the booking was confirmed.`,
-          HttpStatus.CONFLICT,
-          { orderId: paymentRef },
         );
       }
       const lists = await Promise.all(paid.map((p) => this.findPaymentRefunds(String(p.id))));

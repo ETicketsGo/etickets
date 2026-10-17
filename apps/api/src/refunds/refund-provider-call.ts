@@ -6,6 +6,7 @@ import type { AuditService } from '../audit/audit.service';
 import type { RefundResult } from '../payments/provider/payment-provider.interface';
 import { AppException, ErrorCodes } from '../common/errors';
 import {
+  classifyLookupError,
   keyGeneration,
   noneTooSoonReason,
   reconcileRefund,
@@ -140,10 +141,8 @@ export class RefundProviderCalls {
     try {
       records = await this.payments.findProviderRefunds(paymentRef, t.payment?.provider);
     } catch (err) {
-      return {
-        kind: 'UNAVAILABLE',
-        reason: `The payment provider could not be asked whether it made this refund: ${messageOf(err)}`,
-      };
+      // "Could not be asked" (UNAVAILABLE), or the provider's answer "nothing was paid" (NOT_PAID).
+      return classifyLookupError(err);
     }
     const siblings = await this.prisma.refund.findMany({
       where: { bookingId: t.refund.bookingId, id: { not: t.refund.id } },

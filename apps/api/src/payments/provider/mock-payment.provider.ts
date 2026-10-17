@@ -16,6 +16,7 @@ import type {
   WebhookInput,
 } from './payment-provider.interface';
 import { PaymentMethod, type PaymentProviderCapabilities } from '../domain/payment-capabilities';
+import { PaymentNotCapturedError } from '../domain/payment-errors';
 
 /**
  * Local mock provider. Simulates a real gateway: payments complete out-of-band
@@ -113,14 +114,19 @@ export class MockPaymentProvider implements PaymentProvider {
    * Refund — DEV/TEST scenarios (ADR-043 P5.3B Phase 6) encoded in the input providerRef via a
    * `#scenario` suffix: `#refundfail` → FAILED, `#refundambiguous` → throws (the executor
    * recovers via getRefund), `#refundlost` → the refund is made and THEN the call throws (the
-   * answer was lost on the way back), `#refundunknown` → throws, and so does the lookup.
-   * Otherwise COMPLETED. Idempotent: repeating a refund with the same key (or with no key)
-   * returns the same COMPLETED result.
+   * answer was lost on the way back), `#refundunknown` → throws, and so does the lookup,
+   * `#refundunpaid` → throws, and the lookup answers that nothing was ever captured (Razorpay's
+   * answer for an order nobody paid). Otherwise COMPLETED. Idempotent: repeating a refund with
+   * the same key (or with no key) returns the same COMPLETED result.
    */
   async refund(input: RefundInput): Promise<RefundResult> {
     const scenario = this.scenario(input.providerRef);
     if (scenario === 'refundfail') return { providerRef: input.providerRef, status: 'FAILED' };
-    if (scenario === 'refundambiguous' || scenario === 'refundunknown') {
+    if (
+      scenario === 'refundambiguous' ||
+      scenario === 'refundunknown' ||
+      scenario === 'refundunpaid'
+    ) {
       throw new AppException(
         ErrorCodes.INTERNAL,
         'mock refund ambiguous',
@@ -153,6 +159,12 @@ export class MockPaymentProvider implements PaymentProvider {
 
   /** The payment's refunds (dev/test). `#refundunknown` → the lookup cannot answer either. */
   async findPaymentRefunds(paymentRef: string): Promise<ProviderRefundRecord[]> {
+    if (this.scenario(paymentRef) === 'refundunpaid') {
+      throw new PaymentNotCapturedError(
+        paymentRef,
+        `The test provider holds no captured payment for ${paymentRef}: nothing was paid on it, so there is nothing to refund.`,
+      );
+    }
     if (this.scenario(paymentRef) === 'refundunknown') {
       throw new AppException(
         ErrorCodes.INTERNAL,

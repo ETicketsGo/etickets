@@ -152,3 +152,24 @@ describe('a refund held for a manual check', () => {
     expect(lines.map((l) => l.problem)).toEqual([false, true, true]);
   });
 });
+
+// QA ETG-IND-2026-000013/14/15: step 2 told the admin to retry a refund of an order nobody paid.
+describe('a failed refund on an order nobody paid', () => {
+  it('says to resolve the booking, never to try again', () => {
+    const advice = failedRefundAdvice([], null, 'NOT_PAID');
+    expect(advice.cause).toMatch(/nothing to refund/);
+    expect(advice.steps.join(' ')).toMatch(/check how it was confirmed/);
+    expect(advice.steps.join(' ')).toMatch(/cancel the booking as unpaid/);
+    expect(advice.steps.join(' ')).not.toMatch(/use Try the refund again/);
+  });
+
+  it('wins over a manual-review hold', () => {
+    expect(failedRefundAdvice([], 'Held', 'NOT_PAID').cause).toMatch(/nothing to refund/);
+  });
+
+  it('leaves the other cases as they were', () => {
+    expect(failedRefundAdvice([], null, 'UNAVAILABLE').steps.join(' ')).toMatch(
+      /Try the refund again/,
+    );
+  });
+});
