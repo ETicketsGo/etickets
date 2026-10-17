@@ -23,8 +23,24 @@
 export interface LegalEntity {
   /** The registered name, exactly as it is written on the registration. */
   legalName: string;
+  /**
+   * The abbreviated form the owner uses in short lines such as the footer copyright, e.g.
+   * "Pvt Ltd" for "Private Limited". The same company, never a different one.
+   */
+  shortName: string;
   /** ISO-3166 alpha-2 of the country the entity is registered in. */
   country: string;
+  /**
+   * Company-record facts, `null` until the owner supplies them from the company's own
+   * records. Pages render a field only when it is set, so a missing value is visibly absent
+   * rather than invented. Do not fill one in from a web search or to make a page look
+   * finished: a wrong CIN on a page a carrier reviews is worse than no CIN.
+   */
+  registeredOffice: string | null;
+  /** India: the Corporate Identification Number from the MCA certificate of incorporation. */
+  companyId: string | null;
+  /** India: the GSTIN. Only where the entity is GST-registered. */
+  taxId: string | null;
 }
 
 /**
@@ -36,9 +52,33 @@ export interface LegalEntity {
  * "Operated by DeepTrics LLC" refers to.
  */
 export const LEGAL_ENTITIES: Readonly<Record<string, LegalEntity>> = Object.freeze({
-  US: { legalName: 'DeepTrics LLC', country: 'US' },
-  IN: { legalName: 'Deeptrics Software Solution Pvt Ltd', country: 'IN' },
+  US: {
+    legalName: 'DeepTrics LLC',
+    shortName: 'DeepTrics LLC',
+    country: 'US',
+    registeredOffice: null,
+    companyId: null,
+    taxId: null,
+  },
+  /*
+    The name as registered on the DLT portal (Principal Entity, docs/notifications/
+    INDIA-DLT-TEMPLATES.md) and as the owner states it: "ETicketsGo is operated in India by
+    DeepTrics Software Solutions Private Limited". This row used to read "Deeptrics Software
+    Solution Pvt Ltd" - a lower-case t and a missing s. A carrier compares the website against
+    the DLT record character for character, so the spelling here is the one on that record.
+  */
+  IN: {
+    legalName: 'DeepTrics Software Solutions Private Limited',
+    shortName: 'DeepTrics Software Solutions Pvt Ltd',
+    country: 'IN',
+    registeredOffice: null,
+    companyId: null,
+    taxId: null,
+  },
 });
+
+/** The company that operates ETicketsGo in India. The footer and the India pages name it. */
+export const INDIA_OPERATOR: LegalEntity = LEGAL_ENTITIES.IN;
 
 /** The entity behind the ETicketsGo brand, and the fallback for any unincorporated market. */
 export const PLATFORM_OPERATOR: LegalEntity = LEGAL_ENTITIES.US;

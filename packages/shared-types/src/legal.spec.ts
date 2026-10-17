@@ -14,7 +14,22 @@ import {
 describe('the operating entity', () => {
   it('names the registered entity for each market we are incorporated in', () => {
     expect(legalEntityFor('US').legalName).toBe('DeepTrics LLC');
-    expect(legalEntityFor('IN').legalName).toBe('Deeptrics Software Solution Pvt Ltd');
+    // As registered on the DLT portal, which a carrier compares against the website.
+    expect(legalEntityFor('IN').legalName).toBe('DeepTrics Software Solutions Private Limited');
+    expect(legalEntityFor('IN').shortName).toBe('DeepTrics Software Solutions Pvt Ltd');
+  });
+
+  it('holds no company-record fact that the owner has not supplied', () => {
+    /*
+      Registered office, CIN and GSTIN are not in any record this project holds. They stay
+      null until the owner supplies them, and the pages render nothing for a null. When the
+      owner supplies one, change this test in the same commit and cite the company record.
+    */
+    for (const entity of Object.values(LEGAL_ENTITIES)) {
+      expect(entity.registeredOffice).toBeNull();
+      expect(entity.companyId).toBeNull();
+      expect(entity.taxId).toBeNull();
+    }
   });
 
   it('accepts a country name as well as a code, because callers hold both', () => {

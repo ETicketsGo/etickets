@@ -170,7 +170,7 @@ export default async function SmsPage({
             <Link href="/terms">Terms and Conditions</Link> cover your use of ETicketsGo.
           </p>
         </Prose>
-        <OperatorLine />
+        <OperatorLine country={country} />
       </LegalDocument>
     </>
   );

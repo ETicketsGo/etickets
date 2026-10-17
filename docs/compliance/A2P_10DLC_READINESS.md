@@ -14,14 +14,14 @@ A copy-paste section for the Twilio form is at the end: [Twilio submission conte
 
 ## Brand
 
-| Field                     | Value                                   | Where it comes from                                         |
-| ------------------------- | --------------------------------------- | ----------------------------------------------------------- |
-| Customer-facing brand     | **ETicketsGo**                          | `BUSINESS_DETAILS`                                          |
-| US legal entity           | **DeepTrics LLC**                       | `LEGAL_ENTITIES.US` in `packages/shared-types/src/legal.ts` |
-| India legal entity        | **Deeptrics Software Solution Pvt Ltd** | `LEGAL_ENTITIES.IN`                                         |
-| Brand line shown publicly | ETicketsGo, operated by DeepTrics LLC   | `PLATFORM_OPERATOR`                                         |
-| Website                   | `https://www.eticketsgo.com`            | production domain                                           |
-| Support email             | `support@eticketsgo.com`                | `BUSINESS_DETAILS.supportEmail`                             |
+| Field                     | Value                                            | Where it comes from                                         |
+| ------------------------- | ------------------------------------------------ | ----------------------------------------------------------- |
+| Customer-facing brand     | **ETicketsGo**                                   | `BUSINESS_DETAILS`                                          |
+| US legal entity           | **DeepTrics LLC**                                | `LEGAL_ENTITIES.US` in `packages/shared-types/src/legal.ts` |
+| India legal entity        | **DeepTrics Software Solutions Private Limited** | `LEGAL_ENTITIES.IN`                                         |
+| Brand line shown publicly | ETicketsGo, operated by DeepTrics LLC            | `PLATFORM_OPERATOR`                                         |
+| Website                   | `https://www.eticketsgo.com`                     | production domain                                           |
+| Support email             | `support@eticketsgo.com`                         | `BUSINESS_DETAILS.supportEmail`                             |
 
 EIN / tax ID, registered address and support phone are **not** in the repository. They are
 required by the brand registration form and must come from the business.
@@ -151,7 +151,7 @@ Every version is one visible click away on every legal page.
 1. `https://www.eticketsgo.com/sms` returns 200 unauthenticated and shows every disclosure.
 2. The footer links Terms, Privacy, Refund policy, Text messages and Cookies on desktop and
    mobile, from the home page.
-3. `/terms?country=IN` names Deeptrics Software Solution Pvt Ltd and `TERMS/IN/v1`;
+3. `/terms?country=IN` names DeepTrics Software Solutions Private Limited and `TERMS/IN/v1`;
    `?country=US` names DeepTrics LLC and `TERMS/US/v1`.
 4. In notification settings, text messages start **off**; turning them on writes a
    `MarketingConsent` row with country, policy version and the verified number.
@@ -208,7 +208,7 @@ Twilio Console are marked **[FROM BUSINESS]** and are deliberately left blank.
 | Registered street address, city, state, postal code | **[FROM BUSINESS]**          |
 | Support phone (E.164)                               | **[FROM BUSINESS]**          |
 
-India operates through a separate entity, `Deeptrics Software Solution Pvt Ltd`. It is **not**
+India operates through a separate entity, `DeepTrics Software Solutions Private Limited`. It is **not**
 part of this US registration and is named here only so the two are not confused.
 
 ## Campaign

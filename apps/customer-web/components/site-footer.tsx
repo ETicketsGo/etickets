@@ -3,6 +3,7 @@
 import { Link } from '@/i18n/navigation';
 import { useTranslations } from 'next-intl';
 import { BRAND_FOCUS, BrandStatusPill } from '@eticketsgo/web-kit';
+import { INDIA_OPERATOR } from '@eticketsgo/shared-types';
 import { Wordmark } from '@/components/wordmark';
 import { LanguageSwitcher } from '@/components/language-switcher';
 import { FeedbackButton } from '@/components/feedback-widget';
@@ -68,6 +69,12 @@ const COLUMNS: {
   {
     title: 'company',
     links: [
+      /*
+        About carries the company behind the brand and the legal and business information
+        section. The marketing footer always linked it; this one, which the home page renders,
+        did not, so a carrier reviewer starting at the front door could not reach it.
+      */
+      { href: '/about', label: 'about' },
       { href: '/terms', label: 'terms' },
       { href: '/privacy', label: 'privacy' },
       { href: '/refunds', label: 'refunds' },
@@ -206,8 +213,14 @@ export function SiteFooter({
             compact ? 'mt-6 lg:mt-10' : 'mt-12'
           }`}
         >
-          {/* The year is read at render rather than typed: a literal is wrong on 1 January. */}
-          <p>{f('rights', { year: new Date().getFullYear() })}</p>
+          {/*
+            The year is read at render rather than typed: a literal is wrong on 1 January.
+            The company is the owner's wording for the footer - "DeepTrics Software Solutions
+            Pvt Ltd" - read from the entity registry so it cannot drift from the legal pages.
+          */}
+          <p data-testid="footer-rights">
+            {f('rights', { year: new Date().getFullYear(), entity: INDIA_OPERATOR.shortName })}
+          </p>
           {buildId && (
             <p data-testid="build-id" className="tabular-nums">
               {f('build', { id: buildId })}

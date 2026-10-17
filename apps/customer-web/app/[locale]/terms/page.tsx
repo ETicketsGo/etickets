@@ -8,6 +8,7 @@ import {
 } from '@/components/legal/policy-chrome';
 import { resolveJurisdiction } from '@/lib/market';
 import { Link } from '@/i18n/navigation';
+import { INDIA_OPERATOR_SENTENCE, LEGAL_INFORMATION_HREF } from '@/lib/legal-entity';
 
 export const metadata: Metadata = {
   title: 'Terms & Conditions',
@@ -56,8 +57,9 @@ export default async function TermsPage({
           </p>
           <h2>4. Refunds & cancellations</h2>
           <p>
-            Refunds follow the <Link href="/refunds">Refund Policy</Link> and the Organizer&apos;s
-            stated policy. If an Organizer cancels an event, refund handling is described there.
+            Refunds follow the <Link href="/refunds">Refund and Cancellation Policy</Link> and the
+            Organizer&apos;s stated policy. If an Organizer cancels an event, refund handling is
+            described there.
           </p>
           <h2>5. Organizers</h2>
           <p>
@@ -117,6 +119,7 @@ export default async function TermsPage({
           </p>
           {country === 'IN' ? (
             <ul>
+              <li>{INDIA_OPERATOR_SENTENCE}</li>
               <li>
                 Prices are shown inclusive of GST. Your receipt itemises the tax charged on the
                 ticket and on each fee.
@@ -159,10 +162,11 @@ export default async function TermsPage({
           <h2>13. Contact</h2>
           <p>
             Use the form on the <Link href="/contact">contact page</Link>. It reaches our support
-            team. We have not published a postal address or phone number yet.
+            team. The company that operates ETicketsGo, and how to reach it, is listed under{' '}
+            <Link href={LEGAL_INFORMATION_HREF}>legal and business information</Link>.
           </p>
         </Prose>
-        <OperatorLine />
+        <OperatorLine country={country} />
       </LegalDocument>
     </>
   );

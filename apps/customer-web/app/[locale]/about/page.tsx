@@ -8,12 +8,14 @@ import {
   Stat,
   CtaBand,
 } from '@/components/marketing/kit';
-import { PageHero, NoticeBanner } from '@/components/marketing/blocks';
+import { PageHero } from '@/components/marketing/blocks';
+import { LegalBusinessInformation } from '@/components/legal/legal-business-information';
+import { INDIA_OPERATOR_SENTENCE } from '@/lib/legal-entity';
 
 export const metadata: Metadata = {
   title: 'About',
   description:
-    'What ETicketsGo is for, how we build it, how we keep tickets and money safe, and what we plan to add next.',
+    'What ETicketsGo is for, who operates it, how we keep tickets and money safe, and what we plan to add next.',
   alternates: { canonical: '/about' },
 };
 
@@ -25,6 +27,20 @@ export default function AboutPage() {
         title="We make ticketing software"
         lead="Organizers use it to sell tickets and check people in. Buyers use it to book a seat and get through the door."
       />
+
+      {/*
+        The owner's sentence, verbatim, near the top: the About page is where somebody checks
+        which company is behind the brand, and a carrier reviewer should not have to scroll
+        past the roadmap to find it. The full company record is further down.
+      */}
+      <Container className="max-w-3xl pt-8 sm:pt-12">
+        <p
+          data-testid="about-operator"
+          className="rounded-2xl border border-border bg-background-surface p-5 text-center text-base font-semibold text-text-primary shadow-sm"
+        >
+          {INDIA_OPERATOR_SENTENCE}
+        </p>
+      </Container>
 
       <Section>
         <Container>
@@ -134,13 +150,19 @@ export default function AboutPage() {
         </Container>
       </Section>
 
-      <Section className="border-t border-border">
+      {/*
+        This section replaced a "Founder, media and careers" banner that called its own content
+        "placeholders in this demo build". There was no content behind it, and a page a carrier
+        reviews for the company's identity is the wrong place to say the company is a demo.
+      */}
+      <Section id="legal-information" className="scroll-mt-20 border-t border-border">
         <Container className="max-w-3xl space-y-6">
-          <SectionHeading eyebrow="Company" title="Founder, media and careers" />
-          <NoticeBanner>
-            Founder bios, press material and open roles are <strong>placeholders</strong> in this
-            demo build. We will publish the real ones later.
-          </NoticeBanner>
+          <SectionHeading
+            eyebrow="Company"
+            title="Legal and business information"
+            lead="The company behind ETicketsGo, and how to reach it."
+          />
+          <LegalBusinessInformation />
         </Container>
       </Section>
 

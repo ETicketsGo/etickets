@@ -10,7 +10,7 @@ import {
 import { resolveJurisdiction } from '@/lib/market';
 
 export const metadata: Metadata = {
-  title: 'Refund Policy',
+  title: 'Refund and Cancellation Policy',
   description:
     'When you can get a refund on ETicketsGo, what comes back, and what happens if an event is cancelled.',
   alternates: { canonical: '/refunds' },
@@ -48,7 +48,7 @@ export default async function RefundsPage({
     <>
       <PageHero
         eyebrow="Legal"
-        title="Refund Policy"
+        title="Refund and Cancellation Policy"
         lead="When you can get a refund, what comes back, and what happens if an event is cancelled."
       />
       <LegalDocument>
@@ -94,7 +94,8 @@ export default async function RefundsPage({
             paid.
           </p>
 
-          <h2>If the organizer cancels the event</h2>
+          {/* Linked as `/refunds#cancellation`: cancellation is part of this policy, not a second one. */}
+          <h2 id="cancellation">If the organizer cancels the event</h2>
           <p>
             <strong>You do not need to ask.</strong> When an organizer cancels a show, we open a
             refund for every paid booking on it.
@@ -144,7 +145,7 @@ export default async function RefundsPage({
             team. Also read our <Link href="/terms">Terms</Link>.
           </p>
         </Prose>
-        <OperatorLine />
+        <OperatorLine country={country} />
       </LegalDocument>
     </>
   );
