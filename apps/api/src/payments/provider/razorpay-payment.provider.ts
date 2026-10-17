@@ -201,18 +201,28 @@ export class RazorpayPaymentProvider implements PaymentProvider {
     /*
       The key goes in `receipt` (Razorpay's "unique identifier provided by you", 40 characters at
       most; ours are shorter) and in `notes`, so `findPaymentRefunds` can tell our refund from any
-      other on the payment after a lost answer. It is NOT relied on to stop a duplicate: Razorpay
-      is not known to refuse a second refund with the same receipt. The caller asks first.
+      other on the payment after a lost answer.
+
+      Observed against the real Razorpay TEST API (2026-10-16): a second create with a receipt
+      already used is refused, `400 BAD_REQUEST_ERROR "Duplicate receipt found for this refund
+      request."`, on the same payment and on any other payment of the account, and of five
+      creates sent at the same instant exactly one succeeded. So a resend under the same key
+      cannot make a second refund. It is still not the only guard: a NEW key (a new refund row,
+      or a new generation) is a new receipt, so the caller asks first and holds what it cannot
+      settle. That refusal reaches the caller as a thrown error, which it treats as "unknown"
+      and settles by asking - the right reading, since it proves a refund under this key exists.
     */
     const key = input.idempotencyKey?.slice(0, 40);
     const notes: Record<string, string> = {};
     if (input.reason) notes.reason = input.reason;
     if (key) notes.etg_refund_key = key;
-    const refund = await this.client.payments.refund(input.providerRef, {
-      amount: input.amountMinor,
-      notes,
-      ...(key ? { receipt: key } : {}),
-    });
+    const refund = await this.client.payments
+      .refund(input.providerRef, {
+        amount: input.amountMinor,
+        notes,
+        ...(key ? { receipt: key } : {}),
+      })
+      .catch(rethrowRazorpay);
     return { providerRef: refund.id, status: razorpayRefundStatus(refund.status) };
   }
 
@@ -222,9 +232,35 @@ export class RazorpayPaymentProvider implements PaymentProvider {
    * `payments.fetchMultipleRefund` pages at 100; a ticket payment with more refunds than that is
    * not one we can make, so one page is the whole answer. Errors are NOT swallowed: "Razorpay
    * did not answer" must stay distinguishable from "Razorpay has no refund".
+   *
+   * ── AN ORDER ID IS NOT A PAYMENT ID ──────────────────────────────────────────────
+   * A payment confirmed without Razorpay's payment id keeps the ORDER id as its reference (QA's
+   * mock-settled bookings ETG-IND-2026-000013/14/15 did). Razorpay answers a refund lookup by
+   * order id with `400 "order_... is not a valid id"`, and the console said the provider "could
+   * not be asked" for ever. So an order id is resolved to the order's payments first. An order
+   * Razorpay holds no captured payment for has nothing to refund and nothing refunded, and that
+   * is said plainly instead of being reported as "no refund", which would invite a resend.
    */
   async findPaymentRefunds(paymentRef: string): Promise<ProviderRefundRecord[]> {
-    const page = await this.client.payments.fetchMultipleRefund(paymentRef, { count: 100 });
+    if (paymentRef.startsWith('order_')) {
+      const payments = await this.client.orders.fetchPayments(paymentRef).catch(rethrowRazorpay);
+      const paid = (payments.items ?? []).filter((p) =>
+        ['captured', 'refunded'].includes(String(p.status)),
+      );
+      if (paid.length === 0) {
+        throw new AppException(
+          ErrorCodes.PAYMENT_PROVIDER_UNAVAILABLE,
+          `Razorpay holds no captured payment for order ${paymentRef}: nothing was paid on it, so there is nothing to refund. Do not send this refund; check how the booking was confirmed.`,
+          HttpStatus.CONFLICT,
+          { orderId: paymentRef },
+        );
+      }
+      const lists = await Promise.all(paid.map((p) => this.findPaymentRefunds(String(p.id))));
+      return lists.flat();
+    }
+    const page = await this.client.payments
+      .fetchMultipleRefund(paymentRef, { count: 100 })
+      .catch(rethrowRazorpay);
     return (page.items ?? []).map((r) => {
       const noteKey = (r.notes as Record<string, unknown> | undefined)?.etg_refund_key;
       return {
@@ -493,6 +529,24 @@ export class RazorpayPaymentProvider implements PaymentProvider {
     const receipt = body.payload?.order?.entity?.receipt;
     return receipt != null ? String(receipt) : undefined;
   }
+}
+
+/**
+ * Rethrow a Razorpay SDK rejection as an Error that says what Razorpay said.
+ *
+ * The SDK rejects with a plain `{ statusCode, error: { code, description } }` object, not an
+ * Error, and on a network failure with a TypeError from reading `err.response.status`. The
+ * orchestrator turns a non-Error into `String(err)`, so every Razorpay refusal reached the
+ * attempt history and the admin console as "[object Object]".
+ */
+function rethrowRazorpay(err: unknown): never {
+  if (err instanceof Error) throw err;
+  const e = err as { statusCode?: unknown; error?: { code?: unknown; description?: unknown } };
+  const status = typeof e?.statusCode === 'number' ? e.statusCode : 'error';
+  const code = typeof e?.error?.code === 'string' ? e.error.code : 'UNKNOWN';
+  const description =
+    typeof e?.error?.description === 'string' ? e.error.description : 'no description';
+  throw new Error(`Razorpay ${status} ${code}: ${description}`);
 }
 
 /*

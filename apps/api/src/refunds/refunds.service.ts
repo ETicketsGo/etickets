@@ -28,7 +28,7 @@ import {
   type RetryFacts,
 } from './refund-retry';
 import { RefundProviderCalls, type CallOutcome } from './refund-provider-call';
-import type { Reconciliation } from './refund-reconcile';
+import { recheckAfter, type Reconciliation } from './refund-reconcile';
 import { ACCEPTED_TRANSFERS, currentHolderUserId, isTransferred } from '../tickets/ticket-holder';
 import type { RequestUser } from '../common/decorators';
 import { MetricsService } from '../metrics/metrics.service';
@@ -1277,24 +1277,6 @@ export class RefundsService {
       trigger: opts.trigger ?? 'APPROVAL',
     });
     if (outcome.kind === 'ANSWERED') return outcome.result;
-    if (outcome.kind === 'NOT_REFUNDED') {
-      // A definite answer: the provider shows no refund. Recorded as a refusal, so a retry is
-      // offered without asking the admin to check the dashboard first (see `lastAnswerOf`).
-      await this.audit.record({
-        actorUserId: user.id,
-        organizationId: refund.organizationId,
-        action: 'REFUND_FAILED',
-        entityType: 'Refund',
-        entityId: refund.id,
-        metadata: { amountMinor: refund.amountMinor, providerOutcome: 'NOT_REFUNDED' },
-      });
-      throw new AppException(
-        ErrorCodes.PAYMENT_PROVIDER_UNAVAILABLE,
-        outcome.message,
-        HttpStatus.BAD_GATEWAY,
-        { providerOutcome: 'NOT_REFUNDED' },
-      );
-    }
     throw new AppException(
       ErrorCodes.PAYMENT_PROVIDER_UNAVAILABLE,
       `The payment provider did not answer, and we could not confirm whether it made this refund. It needs a manual check in the provider dashboard. ${outcome.reason}`,
@@ -1318,7 +1300,14 @@ export class RefundsService {
   private async retryFacts(refundId: string, confirmedNoProviderRefund: boolean) {
     const refund = await this.prisma.refund.findUnique({
       where: { id: refundId },
-      include: { creditNote: { select: { id: true } } },
+      include: {
+        creditNote: { select: { id: true } },
+        providerAttempts: {
+          orderBy: { attemptNo: 'desc' },
+          take: 1,
+          select: { outcome: true, startedAt: true },
+        },
+      },
     });
     if (!refund)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Refund not found.', HttpStatus.NOT_FOUND);
@@ -1381,6 +1370,18 @@ export class RefundsService {
     }
     const foundRef = lookup?.kind === 'FOUND' ? lookup.record.refundRef : null;
 
+    /*
+      An empty lookup is believed only once the last call whose answer was lost is old enough
+      to have finished at the provider (`RECHECK_AFTER_MS`). Before that it may still be in
+      flight there, unlisted, and a resend could be the second refund. See `refund-provider-call.ts`.
+    */
+    const last = refund.providerAttempts?.[0];
+    const unanswered = last && (last.outcome === 'UNKNOWN' || last.outcome === 'SENT');
+    const believeNoneAfter =
+      lookup?.kind === 'NONE' && unanswered ? recheckAfter(last.startedAt) : null;
+    const tooSoonUntil =
+      believeNoneAfter && believeNoneAfter.getTime() > Date.now() ? believeNoneAfter : null;
+
     // Provider refunds reported on this payment (Razorpay's webhooks name the payment id).
     let unmatched = 0;
     const paymentId = booking?.payment?.providerPaymentIntentId;
@@ -1427,6 +1428,7 @@ export class RefundsService {
       confirmedNoProviderRefund,
       providerLookup: lookup ? lookupFact(lookup) : null,
       manualReviewReason: refund.manualReviewReason,
+      noneBelievableAfter: tooSoonUntil,
     };
     return { refund, booking, facts };
   }
@@ -1444,7 +1446,9 @@ export class RefundsService {
    *   · The provider is asked FIRST. If its list of the payment's refunds holds one made with
    *     this refund's key, that refund is recorded and nothing is sent. If it shows no refund,
    *     the refund is sent with the SAME key the lost call carried, so Stripe returns the first
-   *     refund rather than making a second. Only when the provider cannot be asked does the
+   *     refund rather than making a second (Razorpay refuses a reused receipt). An empty answer
+   *     counts only once the lost call is old enough to have finished there (TOO_SOON before
+   *     that, whatever the admin confirms). Only when the provider cannot be asked does the
    *     admin have to confirm the dashboard shows no refund.
    *   · `assessRetry` refuses whenever the money may already have moved in a way nothing here
    *     matches: a provider refund on this payment that no row accounts for stops it outright.
@@ -1536,12 +1540,7 @@ export class RefundsService {
         err instanceof AppException
           ? (err.details as { providerOutcome?: string } | undefined)?.providerOutcome
           : undefined;
-      outcome =
-        said === 'REFUSED' || said === 'NOT_REFUNDED'
-          ? 'FAILED'
-          : said === 'UNRESOLVED'
-            ? 'NEEDS_REVIEW'
-            : 'ERROR';
+      outcome = said === 'REFUSED' ? 'FAILED' : said === 'UNRESOLVED' ? 'NEEDS_REVIEW' : 'ERROR';
       message = err instanceof Error ? err.message : String(err);
       // Every path that throws marks the refund FAILED; make sure nothing is left claimed.
       await this.prisma.refund

@@ -33,6 +33,31 @@ const PREFIX = 'etg-rf-';
 /** How far before the refund was asked for an unkeyed same-amount refund still counts. */
 export const STRANGER_WINDOW_MS = 10 * 60_000;
 
+/**
+ * How long after a call whose answer was lost an empty lookup still proves nothing.
+ *
+ * Measured against the real Razorpay TEST API (2026-10-16, 8 tries): a refund is listed the
+ * instant its create call is answered, but not while the call is in flight, and a create took
+ * 1.5-2.6 s. A call we timed out on (15 s) may be slower than that, and our timer does not stop
+ * the request, so the window is far wider than anything measured. Inside it, "the provider shows
+ * no refund" is treated as "unknown": the refund is held and nothing is sent.
+ */
+export const RECHECK_AFTER_MS = 10 * 60_000;
+
+/** When an empty lookup can be believed, for a call that started at `startedAt`. */
+export function recheckAfter(startedAt: Date): Date {
+  return new Date(startedAt.getTime() + RECHECK_AFTER_MS);
+}
+
+/** Why a refund is held when the provider did not list it right after a lost answer. */
+export function noneTooSoonReason(startedAt: Date): string {
+  return (
+    'The payment provider did not answer, and it does not list this refund yet. The call may ' +
+    'still be in progress there, so nothing was sent again. Ask the provider again after ' +
+    `${recheckAfter(startedAt).toISOString().slice(0, 16).replace('T', ' ')} UTC.`
+  );
+}
+
 /** The stem every key of this refund starts with. */
 export function refundKeyStem(refundId: string): string {
   return `${PREFIX}${refundId}`;

@@ -1,7 +1,10 @@
 import {
+  RECHECK_AFTER_MS,
   STRANGER_WINDOW_MS,
   isPlatformKey,
   keyGeneration,
+  noneTooSoonReason,
+  recheckAfter,
   reconcileRefund,
   refundKey,
   type ReconcileContext,
@@ -24,6 +27,18 @@ const rec = (over: Partial<ProviderRefundRecord> = {}): ProviderRefundRecord => 
   idempotencyKey: 'etg-rf-r1',
   createdAt: new Date(ASKED.getTime() + 1000),
   ...over,
+});
+
+describe('when an empty lookup can be believed', () => {
+  it('only RECHECK_AFTER_MS after the lost call started, and the hold says when', () => {
+    const started = new Date('2026-10-16T12:00:00Z');
+    expect(RECHECK_AFTER_MS).toBeGreaterThanOrEqual(5 * 60_000);
+    expect(recheckAfter(started).getTime() - started.getTime()).toBe(RECHECK_AFTER_MS);
+    const reason = noneTooSoonReason(started);
+    expect(reason).toMatch(/does not list this refund yet/);
+    expect(reason).toMatch(/nothing was sent again/);
+    expect(reason).toContain(recheckAfter(started).toISOString().slice(11, 16));
+  });
 });
 
 describe('refund keys', () => {

@@ -26,7 +26,8 @@
  * Question 1 used to be answered only by the admin ticking "I checked the dashboard". The
  * provider is now asked directly for the payment's refunds (`refund-reconcile.ts`):
  *   FOUND        it holds a refund made with this refund's key - record it, send nothing.
- *   NONE         it answered and shows no such refund - sending again (same key) is safe.
+ *   NONE         it answered and shows no such refund - sending again (same key) is safe,
+ *                once the lost call is old enough to have finished there (else TOO_SOON).
  *   UNMATCHED    it shows a refund that may be this one but cannot be matched - refuse.
  *   UNAVAILABLE  it could not be asked - only then is the admin's confirmation needed.
  */
@@ -45,7 +46,8 @@ export type RetryRefusal =
   | 'TICKETS_GONE'
   | 'NEEDS_CONFIRMATION'
   | 'UNMATCHED_PROVIDER_REFUND'
-  | 'OVER_PAYMENT';
+  | 'OVER_PAYMENT'
+  | 'TOO_SOON';
 
 /** One audit entry about this refund, oldest first. */
 export interface RefundHistoryEntry {
@@ -78,6 +80,12 @@ export interface RetryFacts {
   providerLookup?: ProviderLookupFact | null;
   /** Why the refund is held for a person, when it is (see `Refund.manualReviewReason`). */
   manualReviewReason?: string | null;
+  /**
+   * Set when the provider showed no refund but the last call whose answer was lost is too recent
+   * for that to be believed: the call may still be in flight there (`RECHECK_AFTER_MS`). The
+   * time from which an empty lookup counts. Computed by the caller, which has the clock.
+   */
+  noneBelievableAfter?: Date | null;
 }
 
 export interface ProviderLookupFact {
@@ -251,6 +259,19 @@ export function assessRetry(f: RetryFacts): RetryAssessment {
           ? 'The payment provider already has this refund. Trying again records it here. No money is sent again.'
           : 'The payment provider already has this refund. Trying again records it here, cancels the tickets and tells the customer. No money is sent again.',
     };
+  }
+
+  /*
+    The provider shows no refund, but the call whose answer was lost may still be in flight
+    there, where it is not listed yet. Sending now could be the second refund, so no confirmation
+    unlocks it: the dashboard cannot show an unfinished refund either.
+  */
+  if (lookup?.kind === 'NONE' && f.noneBelievableAfter) {
+    return refuse(
+      'TOO_SOON',
+      `The last call to the payment provider did not come back with an answer, and it may still be in progress there. The provider does not list a refund yet, but that is not proof until ${f.noneBelievableAfter.toISOString().slice(0, 16).replace('T', ' ')} UTC. Check again after that.`,
+      stage,
+    );
   }
 
   // The provider answered the lookup: it shows no refund (or refused this key). Safe to send.

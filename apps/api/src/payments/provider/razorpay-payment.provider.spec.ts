@@ -5,11 +5,12 @@ import { RazorpayPaymentProvider } from './razorpay-payment.provider';
 const mockOrdersCreate = jest.fn();
 const mockPaymentsRefund = jest.fn();
 const mockFetchMultipleRefund = jest.fn();
+const mockOrdersFetchPayments = jest.fn();
 
 // Mock the Razorpay SDK so no network call is ever made.
 jest.mock('razorpay', () =>
   jest.fn().mockImplementation(() => ({
-    orders: { create: mockOrdersCreate },
+    orders: { create: mockOrdersCreate, fetchPayments: mockOrdersFetchPayments },
     payments: { refund: mockPaymentsRefund, fetchMultipleRefund: mockFetchMultipleRefund },
   })),
 );
@@ -40,6 +41,7 @@ beforeEach(() => {
   mockOrdersCreate.mockReset();
   mockPaymentsRefund.mockReset();
   mockFetchMultipleRefund.mockReset();
+  mockOrdersFetchPayments.mockReset();
 });
 
 describe('RazorpayPaymentProvider', () => {
@@ -157,7 +159,8 @@ describe('RazorpayPaymentProvider', () => {
     expect(result).toEqual({ providerRef: 'rfnd_2', status: 'FAILED' });
   });
 
-  // The key lets a later lookup recognise our refund; Razorpay is not relied on to dedupe it.
+  // The key lets a later lookup recognise our refund. Razorpay also refuses a reused receipt
+  // (observed on the TEST API), but a new key is a new receipt, so the caller still asks first.
   it('refund carries our key in receipt and notes', async () => {
     mockPaymentsRefund.mockResolvedValue({ id: 'rfnd_4', status: 'pending' });
     await makeProvider().refund({
@@ -212,5 +215,58 @@ describe('RazorpayPaymentProvider', () => {
   it('a lookup that fails throws rather than answering "no refunds"', async () => {
     mockFetchMultipleRefund.mockRejectedValue(new Error('503'));
     await expect(makeProvider().findPaymentRefunds('pay_1')).rejects.toThrow('503');
+  });
+
+  /*
+    The SDK rejects with a plain object. The orchestrator turned that into "[object Object]",
+    which is what QA's console showed for every Razorpay refusal (ETG-IND-2026-000013/14/15).
+  */
+  it("a Razorpay refusal keeps Razorpay's own words", async () => {
+    const refusal = {
+      statusCode: 400,
+      error: {
+        code: 'BAD_REQUEST_ERROR',
+        description: 'Duplicate receipt found for this refund request.',
+      },
+    };
+    mockPaymentsRefund.mockRejectedValue(refusal);
+    await expect(
+      makeProvider().refund({ providerRef: 'pay_1', amountMinor: 1, idempotencyKey: 'etg-rf-r1' }),
+    ).rejects.toThrow(
+      'Razorpay 400 BAD_REQUEST_ERROR: Duplicate receipt found for this refund request.',
+    );
+    mockFetchMultipleRefund.mockRejectedValue({
+      statusCode: 400,
+      error: { code: 'BAD_REQUEST_ERROR', description: 'order_X is not a valid id' },
+    });
+    await expect(makeProvider().findPaymentRefunds('pay_1')).rejects.toThrow(
+      'Razorpay 400 BAD_REQUEST_ERROR: order_X is not a valid id',
+    );
+  });
+
+  it("an ORDER id is looked up through the order's captured payments", async () => {
+    mockOrdersFetchPayments.mockResolvedValue({
+      items: [
+        { id: 'pay_failed', status: 'failed' },
+        { id: 'pay_ok', status: 'captured' },
+      ],
+    });
+    mockFetchMultipleRefund.mockResolvedValue({
+      items: [{ id: 'rfnd_a', amount: 500, status: 'processed', receipt: 'etg-rf-r1' }],
+    });
+    const list = await makeProvider().findPaymentRefunds('order_1');
+    expect(mockOrdersFetchPayments).toHaveBeenCalledWith('order_1');
+    expect(mockFetchMultipleRefund).toHaveBeenCalledTimes(1);
+    expect(mockFetchMultipleRefund).toHaveBeenCalledWith('pay_ok', { count: 100 });
+    expect(list.map((r) => r.refundRef)).toEqual(['rfnd_a']);
+  });
+
+  // "No refunds" would permit a send; an order nobody paid has nothing to refund at all.
+  it('an order with no captured payment throws instead of answering "no refunds"', async () => {
+    mockOrdersFetchPayments.mockResolvedValue({ count: 0, items: [] });
+    await expect(makeProvider().findPaymentRefunds('order_1')).rejects.toThrow(
+      /no captured payment for order order_1/,
+    );
+    expect(mockFetchMultipleRefund).not.toHaveBeenCalled();
   });
 });
