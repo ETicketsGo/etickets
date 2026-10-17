@@ -1,5 +1,12 @@
 import { test, expect } from '@playwright/test';
-import { ORGANIZER, API, apiLogin, seedBrowserAuth } from './helpers';
+import {
+  ORGANIZER,
+  API,
+  apiLogin,
+  seedBrowserAuth,
+  ensureOfflineDevice,
+  fetchOfflineManifest,
+} from './helpers';
 
 const OWNER = 'owner@eticketsgo.test';
 
@@ -36,12 +43,10 @@ test('offline gate drill: validate, queue durably, dedupe, sync', async ({ page,
     const det = await (
       await request.get(`${API}/events/${e.id}`, { headers: authed(token) })
     ).json();
+    // A ticket list is only issued to an ACTIVE device (H5), so the lookup needs one too.
+    const lookupDevice = await ensureOfflineDevice(request, token, org.id, e.id);
     for (const s of det.sessions ?? []) {
-      const man = await (
-        await request.get(`${API}/checkin/manifest?eventSessionId=${s.id}`, {
-          headers: authed(token),
-        })
-      ).json();
+      const man = await fetchOfflineManifest(request, token, s.id, lookupDevice);
       const active = (man.entries ?? []).find(
         (x: { status: string; eligible: boolean }) => x.status === 'ACTIVE' && x.eligible,
       );
@@ -86,7 +91,9 @@ test('offline gate drill: validate, queue durably, dedupe, sync', async ({ page,
   // Same token again → local duplicate (not re-queued)
   await page.getByLabel('Ticket QR token').fill(t.qr);
   await page.getByRole('button', { name: 'Validate' }).click();
-  await expect(page.getByTestId('offline-result')).toContainText(/ALREADY CHECKED IN LOCAL/i);
+  await expect(page.getByTestId('offline-result')).toContainText(
+    'Already let in on this device. Do not let them in again.',
+  );
   await expect(page.getByTestId('queue-count')).toContainText('1 queued');
 
   // Queue survives a full reload (IndexedDB durability)

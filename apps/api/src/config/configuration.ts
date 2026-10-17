@@ -12,6 +12,11 @@ import {
   OTP_SMS_KIND,
   REJECTED_SENDER_HEADERS,
 } from '../notifications/templates/dlt-sms-templates';
+import {
+  OFFLINE_REVOCATION_WINDOW_MAX_MINUTES,
+  OFFLINE_REVOCATION_WINDOW_MIN_MINUTES,
+  offlineWindowContradictions,
+} from './offline-revocation-window';
 
 /** Validated environment. Fails fast on boot if misconfigured. */
 const envSchema = z.object({
@@ -95,6 +100,15 @@ const envSchema = z.object({
     .optional()
     .transform((v) => v === 'true' || v === '1'),
   MANIFEST_SIGNING_SECRET: z.string().optional(),
+  // How long a signed offline ticket list stays valid, in minutes: the longest a revoked door
+  // phone can keep admitting from its cache. Unset = 45. STAGING/PRODUCTION must set it, at
+  // most 60, before OFFLINE_CHECKIN_ENABLED may be on (see config/offline-revocation-window.ts).
+  OFFLINE_REVOCATION_WINDOW_MINUTES: z.coerce
+    .number()
+    .int()
+    .min(OFFLINE_REVOCATION_WINDOW_MIN_MINUTES)
+    .max(OFFLINE_REVOCATION_WINDOW_MAX_MINUTES)
+    .optional(),
 
   // Inventory sourcing seam (ADR-037). OFF by default: the provider registry still
   // constructs Direct/Manual adapters, but the booking engine keeps its existing
@@ -1093,6 +1107,22 @@ function assertDeliverabilityHardening(cfg: AppConfig): void {
 }
 
 /**
+ * Offline check-in cannot be switched on where real doors are run unless the revocation window
+ * is set on purpose and short enough (H5).
+ *
+ * A door phone that is offline cannot hear that it was suspended or revoked; it stops only
+ * when its saved ticket list expires. So the window is a security setting, not a tuning knob,
+ * and there is deliberately no override: a production that wants offline check-in states how
+ * long a lost phone may keep working, within the allowed maximum, or does not boot.
+ */
+function assertOfflineCheckinWindow(cfg: AppConfig): void {
+  const errors = offlineWindowContradictions(cfg);
+  if (errors.length) {
+    throw new Error(`Offline check-in is not safe to enable here:\n${errors.join('\n')}`);
+  }
+}
+
+/**
  * Razorpay test/live isolation (enforced in EVERY environment — mixing is dangerous
  * anywhere). The declared RAZORPAY_MODE must match the key prefix, and the webhook
  * secret must be distinct from the API key secret.
@@ -1720,6 +1750,7 @@ export function loadConfig(): AppConfig {
   }
   assertProductionHardening(parsed.data);
   assertDeliverabilityHardening(parsed.data);
+  assertOfflineCheckinWindow(parsed.data);
   assertRazorpayConsistency(parsed.data);
   assertPaymentEnvironmentKeySafety(parsed.data);
   assertPaymentActivationPending(parsed.data);

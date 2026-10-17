@@ -1,5 +1,13 @@
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
-import { ORGANIZER, API, apiLogin, seedBrowserAuth } from './helpers';
+import {
+  ORGANIZER,
+  API,
+  apiLogin,
+  seedBrowserAuth,
+  ensureOfflineDevice,
+  fetchOfflineManifest,
+  manifestCitation,
+} from './helpers';
 
 const OWNER = 'owner@eticketsgo.test';
 const CUSTOMER = 'customer1@eticketsgo.test';
@@ -82,12 +90,10 @@ test('preflight: READY → WARNING → NOT_READY, every condition, advisory only
     const det = await (
       await request.get(`${API}/events/${e.id}`, { headers: authed(token) })
     ).json();
+    // A ticket list is only issued to an ACTIVE device (H5), so the lookup needs one too.
+    const lookupDevice = await ensureOfflineDevice(request, token, org.id, e.id);
     for (const s of det.sessions ?? []) {
-      const man = await (
-        await request.get(`${API}/checkin/manifest?eventSessionId=${s.id}`, {
-          headers: authed(token),
-        })
-      ).json();
+      const man = await fetchOfflineManifest(request, token, s.id, lookupDevice);
       if ((man.entries ?? []).some((x: Entry) => x.status === 'ACTIVE' && x.eligible)) {
         target = { eventId: e.id, sessionId: s.id };
         break;
@@ -120,12 +126,10 @@ test('preflight: READY → WARNING → NOT_READY, every condition, advisory only
       },
     });
   }
-  const manifest = await (
-    await request.get(`${API}/checkin/manifest?eventSessionId=${t.sessionId}`, {
-      headers: authed(token),
-    })
-  ).json();
+  // Issued to THIS device: it is the latest list, and the scans below cite it (H5).
+  const manifest = await fetchOfflineManifest(request, token, t.sessionId, dev);
   const V = manifest.meta.version as number;
+  const cite = manifestCitation(manifest);
   const active = (manifest.entries as Entry[]).find((x) => x.status === 'ACTIVE' && x.eligible)!;
   // Reconcile a valid scan so the device has a recent lastSeenAt (deltas current).
   await request.post(`${API}/checkin/reconcile`, {
@@ -141,6 +145,7 @@ test('preflight: READY → WARNING → NOT_READY, every condition, advisory only
           eventSessionId: t.sessionId,
           checkedInAt: Date.now(),
           wasOverride: false,
+          ...cite,
         },
       ],
     },
@@ -236,6 +241,7 @@ test('preflight: READY → WARNING → NOT_READY, every condition, advisory only
           eventSessionId: t.sessionId,
           checkedInAt: Date.now(),
           wasOverride: false,
+          ...cite,
         },
       ],
     },

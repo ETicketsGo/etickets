@@ -120,7 +120,8 @@ test('device lifecycle: register→approve→suspend→resume→revoke, impact, 
       },
     });
   }
-  await request.get(`${API}/checkin/manifest?eventSessionId=${t.sessionId}`, {
+  // The activation gate needs a current list; one is only issued to an ACTIVE device (H5).
+  await request.get(`${API}/checkin/manifest?eventSessionId=${t.sessionId}&deviceId=${dev.id}`, {
     headers: authed(token),
   });
   const rec = await request.post(`${API}/checkin/activation/record`, {

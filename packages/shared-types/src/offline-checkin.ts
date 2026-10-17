@@ -46,11 +46,22 @@ export interface ManifestMeta {
   eventSessionId: string;
   version: number;
   validFrom: number;
+  /**
+   * validFrom + the offline revocation window (H5). Past this the list must not admit anyone:
+   * it is the longest a device that was suspended or revoked while offline can keep working.
+   */
   expiresAt: number;
+  /**
+   * The registered device this list was issued to (H5). Covered by the signature; a list is
+   * never valid on another device, and an upload must cite a list issued to the uploader.
+   */
+  deviceId: string;
 }
 
 /** The device's approved scope (what it may validate offline). */
 export interface DeviceScope {
+  /** The device doing the scan. Must equal the manifest's `deviceId`. */
+  deviceId: string;
   organizationId: string;
   eventId: string | null;
   eventSessionId: string | null;
@@ -103,6 +114,9 @@ export function validateOfflineScan(input: OfflineValidateInput): OfflineCheckIn
   if (device.eventId && device.eventId !== meta.eventId) return 'DEVICE_NOT_AUTHORIZED';
   if (device.eventSessionId && device.eventSessionId !== meta.eventSessionId)
     return 'DEVICE_NOT_AUTHORIZED';
+  // A list issued to another device proves nothing here (H5): copying a list off a phone that
+  // is still trusted must not let a second phone admit with it.
+  if (!meta.deviceId || meta.deviceId !== device.deviceId) return 'DEVICE_NOT_AUTHORIZED';
 
   // 3. Manifest validity window.
   if (now < meta.validFrom || now > meta.expiresAt) return 'MANIFEST_STALE';
@@ -135,9 +149,43 @@ export function validateOfflineScan(input: OfflineValidateInput): OfflineCheckIn
   return 'VALID';
 }
 
-/** States a supervisor may override (never cryptographic/scope failures). */
+/**
+ * Whether a held list may still be used by this device right now (H5). The client checks this
+ * before every offline admission and says plainly why it will not admit; validateOfflineScan
+ * applies the same rules per scan.
+ */
+export type ManifestValidity = 'VALID' | 'EXPIRED' | 'NOT_YET_VALID' | 'OTHER_DEVICE';
+
+export function manifestValidity(
+  meta: Pick<ManifestMeta, 'validFrom' | 'expiresAt' | 'deviceId'>,
+  deviceId: string | null,
+  now: number,
+): ManifestValidity {
+  if (!meta.deviceId || !deviceId || meta.deviceId !== deviceId) return 'OTHER_DEVICE';
+  if (now > meta.expiresAt) return 'EXPIRED';
+  if (now < meta.validFrom) return 'NOT_YET_VALID';
+  return 'VALID';
+}
+
+/**
+ * Whether a list should be replaced while there is signal: once half its life is gone. Fetching
+ * early means an honest door with patchy signal always holds a list with time left on it.
+ */
+export function manifestNeedsRefresh(
+  meta: Pick<ManifestMeta, 'validFrom' | 'expiresAt'>,
+  now: number,
+): boolean {
+  return now >= meta.validFrom + (meta.expiresAt - meta.validFrom) / 2;
+}
+
+/**
+ * States a supervisor may override (never cryptographic/scope failures).
+ *
+ * MANIFEST_STALE is deliberately NOT here (H5). An expired list is the revocation window
+ * doing its job: it is how a phone that was suspended or revoked while offline stops. If a
+ * supervisor could wave a scan through on an expired list, the window would bound nothing.
+ */
 const OVERRIDABLE: OfflineCheckInResult[] = [
-  'MANIFEST_STALE',
   'REQUIRES_ONLINE_VALIDATION',
   'ALREADY_CHECKED_IN_LOCAL',
   'WRONG_SESSION',
@@ -157,7 +205,17 @@ export type ReconcileOutcome =
   | 'TRANSFERRED_AFTER_DOWNLOAD'
   | 'WRONG_SESSION'
   | 'ALREADY_CHECKED_IN_ONLINE'
-  | 'SUPERVISOR_REVIEW_REQUIRED';
+  | 'SUPERVISOR_REVIEW_REQUIRED'
+  /**
+   * H5: uploaded by a device that is SUSPENDED, REVOKED or expired. Held as evidence for a
+   * manager, never applied: the ticket is not spent, whatever the scan claims.
+   */
+  | 'DEVICE_NOT_ACTIVE'
+  /**
+   * H5: the scan does not cite a list issued to this device, or claims a time outside that
+   * list's validity. Held for a manager, never applied.
+   */
+  | 'MANIFEST_NOT_VALID';
 
 // ───────────────── Reconciliation console presentation + rules ─────────────────
 // Pure display metadata + the safe-resolution rules for the operations console.
@@ -223,6 +281,18 @@ export const RECONCILE_META: Record<ReconcileOutcome, ReconcileOutcomeMeta> = {
     admitted: false,
     needsReview: true,
   },
+  DEVICE_NOT_ACTIVE: {
+    label: 'Held: device not active',
+    tone: 'danger',
+    admitted: false,
+    needsReview: true,
+  },
+  MANIFEST_NOT_VALID: {
+    label: 'Held: ticket list not valid',
+    tone: 'danger',
+    admitted: false,
+    needsReview: true,
+  },
 };
 
 export const RECONCILE_OUTCOMES = Object.keys(RECONCILE_META) as ReconcileOutcome[];
@@ -267,6 +337,14 @@ export interface QueuedCheckIn {
   eventSessionId: string;
   checkedInAt: number;
   wasOverride: boolean;
+  /**
+   * H5: the version and signature of the device-bound list this scan was validated against.
+   * Without them the server cannot tell the scan was made inside the revocation window by
+   * this device, so it is held for review instead of applied. Optional only so that a queue
+   * written before H5 still uploads (and is held) rather than failing to parse.
+   */
+  manifestVersion?: number;
+  manifestSignature?: string;
 }
 
 /** The server's CURRENT truth for a ticket at reconciliation time. */
@@ -323,6 +401,8 @@ export interface DeltaChange {
  */
 export interface RevocationDelta {
   eventSessionId: string;
+  /** The device this delta was issued to (H5); covered by the signature. */
+  deviceId: string;
   baseVersion: number;
   toVersion: number;
   changes: DeltaChange[];

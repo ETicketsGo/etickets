@@ -1,5 +1,13 @@
 import { test, expect, type Page } from '@playwright/test';
-import { ORGANIZER, API, apiLogin, seedBrowserAuth, type AuthTokens } from './helpers';
+import {
+  ORGANIZER,
+  API,
+  apiLogin,
+  seedBrowserAuth,
+  ensureOfflineDevice,
+  fetchOfflineManifest,
+  type AuthTokens,
+} from './helpers';
 
 const OWNER = 'owner@eticketsgo.test';
 
@@ -77,12 +85,10 @@ test('offline gate: two devices scan one ticket, exactly one ACCEPTED', async ({
     const det = await (
       await request.get(`${API}/events/${e.id}`, { headers: authed(token) })
     ).json();
+    // A ticket list is only issued to an ACTIVE device (H5), so the lookup needs one too.
+    const lookupDevice = await ensureOfflineDevice(request, token, org.id, e.id);
     for (const s of det.sessions ?? []) {
-      const man = await (
-        await request.get(`${API}/checkin/manifest?eventSessionId=${s.id}`, {
-          headers: authed(token),
-        })
-      ).json();
+      const man = await fetchOfflineManifest(request, token, s.id, lookupDevice);
       const active = (man.entries ?? []).find(
         (x: { status: string; eligible: boolean }) => x.status === 'ACTIVE' && x.eligible,
       );

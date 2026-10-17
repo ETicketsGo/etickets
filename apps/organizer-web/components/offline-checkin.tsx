@@ -17,6 +17,7 @@ import {
   type SignedManifest,
 } from '@eticketsgo/web-kit';
 import {
+  manifestNeedsRefresh,
   validateOfflineScan,
   type ManifestEntry,
   type OfflineCheckInResult,
@@ -25,6 +26,7 @@ import {
   applyFailure,
   applyOutcomes,
   clearAcknowledged,
+  clearManifest,
   decodeQr,
   eligibleCheckIns,
   enqueueCheckIn,
@@ -39,8 +41,20 @@ import {
   type QueueRecord,
 } from '@/lib/offline/checkin-queue';
 import { queueChannel, runAsSyncLeader } from '@/lib/offline/sync-coordinator';
+import {
+  deviceRefusalMessage,
+  listValidUntilMessage,
+  offlineAdmission,
+  offlineResultMessage,
+} from '@/lib/offline/offline-messages';
 
 const OK_RESULTS: OfflineCheckInResult[] = ['VALID'];
+
+/** How often the panel looks at the clock: to stop admitting on time and to refresh early. */
+const LIST_TICK_MS = 15_000;
+
+const clockTime = (ms: number) =>
+  new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
 /**
  * Offline gate operations panel (ADR-035). Register + approve a device, download a
@@ -83,6 +97,17 @@ export function OfflineCheckin({
   const [manifest, setManifest] = useState<SignedManifest | null>(null);
   const [token, setToken] = useState('');
   const [lastResult, setLastResult] = useState<OfflineCheckInResult | null>(null);
+  /*
+    H5: set when the server says this device is no longer ACTIVE (suspended, revoked, expired
+    or never approved). The panel then stops admitting, forgets its list, and says why.
+  */
+  const [deviceProblem, setDeviceProblem] = useState<string | null>(null);
+  // Re-rendered on a timer so an expiring list stops admitting on time, not on the next click.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), LIST_TICK_MS);
+    return () => clearInterval(timer);
+  }, []);
   const [queue, setQueue] = useState<QueueRecord[]>([]);
   // Durable queueing requires IndexedDB; warn (never silently lose scans) if absent.
   const [durable, setDurable] = useState(true);
@@ -117,30 +142,60 @@ export function OfflineCheckin({
     }
   };
 
-  const downloadManifest = async () => {
-    if (!sessionId) return;
-    try {
-      const m = await api.offlineCheckin.manifest(sessionId);
-      setManifest(m);
-      await saveManifest(sessionId, m.meta, m.entries);
-      toast.push(`Manifest downloaded — ${m.entries.length} tickets.`, 'success');
-    } catch (e) {
-      toast.push(errorMessage(e), 'error');
-    }
-  };
+  /** A device the server no longer trusts keeps no list it could admit from (H5). */
+  const stopForDevice = useCallback(
+    async (message: string) => {
+      setDeviceProblem(message);
+      setManifest(null);
+      // A green "Valid" from before the refusal must not stay on screen beside it.
+      setLastResult(null);
+      if (sessionId) await clearManifest(sessionId);
+    },
+    [sessionId],
+  );
 
-  // Hydrate a cached manifest when offline.
+  const downloadManifest = useCallback(
+    async (opts: { silent?: boolean } = {}) => {
+      if (!sessionId || !deviceId) return;
+      try {
+        const m = await api.offlineCheckin.manifest(sessionId, deviceId);
+        setManifest(m);
+        setDeviceProblem(null);
+        await saveManifest(sessionId, m.meta, m.entries, m.signature);
+        if (!opts.silent)
+          toast.push(`Ticket list downloaded: ${m.entries.length} tickets.`, 'success');
+      } catch (e) {
+        const refused = deviceRefusalMessage(e, false);
+        if (refused) await stopForDevice(refused);
+        else if (!opts.silent) toast.push(errorMessage(e), 'error');
+      }
+    },
+    [sessionId, deviceId, toast, stopForDevice],
+  );
+
+  // Hydrate a cached manifest when offline: only one issued to THIS device (H5).
   useEffect(() => {
-    if (manifest || !sessionId) return;
+    if (manifest || !sessionId || !deviceId) return;
     loadManifest(sessionId).then((rec) => {
-      if (rec)
-        setManifest({
-          meta: rec.meta as SignedManifest['meta'],
-          entries: rec.entries,
-          signature: '',
-        });
+      const meta = rec?.meta as SignedManifest['meta'] | undefined;
+      if (rec && meta?.deviceId === deviceId)
+        setManifest({ meta, entries: rec.entries, signature: rec.signature ?? '' });
     });
-  }, [sessionId, manifest]);
+  }, [sessionId, deviceId, manifest]);
+
+  /*
+    Refresh the list early whenever there is signal (H5). A list is valid only for the offline
+    revocation window, so a door that is online now and then always holds one with time left,
+    and only a door with no signal for the whole window stops admitting offline.
+  */
+  useEffect(() => {
+    if (!online || !deviceId || !manifest || deviceProblem) return;
+    if (manifestNeedsRefresh(manifest.meta, now)) void downloadManifest({ silent: true });
+  }, [online, deviceId, manifest, deviceProblem, now, downloadManifest]);
+
+  const admission = deviceProblem
+    ? { canAdmit: false, message: deviceProblem }
+    : offlineAdmission(manifest?.meta ?? null, deviceId, now, clockTime);
 
   const entriesMap = useMemo(() => {
     const map = new Map<string, ManifestEntry>();
@@ -149,8 +204,14 @@ export function OfflineCheckin({
   }, [manifest]);
 
   const scanOffline = async () => {
-    if (!manifest || !deviceId) {
-      toast.push('Set up a device and download the manifest first.', 'info');
+    // Checked again at the moment of the scan: the list may have run out since the last tick.
+    const at = Date.now();
+    const gate = deviceProblem
+      ? { canAdmit: false, message: deviceProblem }
+      : offlineAdmission(manifest?.meta ?? null, deviceId, at, clockTime);
+    if (!manifest || !deviceId || !gate.canAdmit) {
+      setNow(at);
+      toast.push(gate.message ?? 'Set up this device and download the ticket list first.', 'info');
       return;
     }
     const decoded = decodeQr(token.trim());
@@ -159,12 +220,13 @@ export function OfflineCheckin({
       meta: manifest.meta,
       entries: entriesMap,
       device: {
+        deviceId,
         organizationId,
         eventId,
         eventSessionId: manifest.meta.eventSessionId,
         active: true,
       },
-      now: Date.now(),
+      now: at,
       localCheckedIn: await localCheckedIn(),
       expectedSessionId: sessionId || undefined,
     });
@@ -178,7 +240,9 @@ export function OfflineCheckin({
         nonce: decoded.nonce,
         version: decoded.version,
         result,
-        scannedAt: Date.now(),
+        scannedAt: at,
+        manifestVersion: manifest.meta.version,
+        manifestSignature: manifest.signature,
       });
       toast.push('Queued for sync.', 'success');
     }
@@ -210,7 +274,11 @@ export function OfflineCheckin({
           // or a network error. Records are never dropped — they retry or dead-letter.
           const status = e instanceof ApiRequestError ? (e.status ?? 'network') : 'network';
           const failure = await applyFailure(records, status, Date.now());
-          return { ok: false as const, message: failure.message };
+          // A device that is no longer ACTIVE: the scans are held on the server for a manager,
+          // and this device stops admitting (H5).
+          const refused = deviceRefusalMessage(e, true);
+          if (refused) await stopForDevice(refused);
+          return { ok: false as const, message: refused ?? failure.message };
         }
       });
 
@@ -224,7 +292,7 @@ export function OfflineCheckin({
       if (outcome.result?.ok) toast.push('Synced.', 'success');
       else toast.push(outcome.result?.message ?? 'Sync failed — will retry.', 'warning');
     },
-    [deviceId, refreshQueue, toast],
+    [deviceId, refreshQueue, toast, stopForDevice],
   );
 
   const sync = () => doSync();
@@ -310,7 +378,11 @@ export function OfflineCheckin({
             <ShieldCheck className="h-4 w-4" />{' '}
             {deviceId ? 'Device approved' : 'Register + approve device'}
           </Button>
-          <Button variant="outline" onClick={downloadManifest} disabled={!sessionId || !online}>
+          <Button
+            variant="outline"
+            onClick={() => downloadManifest()}
+            disabled={!sessionId || !deviceId || !online}
+          >
             <CloudOff className="h-4 w-4" /> Download manifest
           </Button>
         </div>
@@ -331,10 +403,22 @@ export function OfflineCheckin({
           ))}
         </Select>
 
-        {manifest && (
+        {manifest && admission.canAdmit && (
           <p className="text-caption text-text-muted" data-testid="manifest-status">
-            Manifest ready · {manifest.entries.length} tickets · v{manifest.meta.version}
+            Manifest ready · {manifest.entries.length} tickets · v{manifest.meta.version}.{' '}
+            {listValidUntilMessage(manifest.meta, clockTime)}
           </p>
+        )}
+
+        {/* H5: why this device will not admit offline right now, in plain words. */}
+        {(deviceProblem || (manifest && !admission.canAdmit)) && admission.message && (
+          <div
+            role="alert"
+            data-testid="offline-stopped"
+            className="rounded-md border border-status-error/30 bg-tint-error px-3 py-2 text-caption text-status-error"
+          >
+            {admission.message}
+          </div>
         )}
 
         {/* Offline scan (manual token entry; camera reuses the online scanner) */}
@@ -347,7 +431,7 @@ export function OfflineCheckin({
             onChange={(e) => setToken(e.target.value)}
             className="flex-1"
           />
-          <Button onClick={scanOffline} disabled={!manifest || !deviceId}>
+          <Button onClick={scanOffline} disabled={!admission.canAdmit}>
             Validate
           </Button>
         </div>
@@ -363,7 +447,7 @@ export function OfflineCheckin({
                 : 'border-status-warning/30 bg-tint-warning text-status-warning'
             }`}
           >
-            {lastResult === 'VALID' ? 'Valid — queued offline' : lastResult.replaceAll('_', ' ')}
+            {offlineResultMessage(lastResult)}
           </div>
         )}
 
