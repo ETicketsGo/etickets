@@ -322,6 +322,14 @@ export function VenueMap({
   const gesture = useRef<Gesture | null>(null);
   // A drag or a pinch ends in a click on whatever is under the finger; that click is not a choice.
   const suppressClick = useRef(false);
+  /*
+    A finger's tap while drawing must not also be a click. The browser sends that click after
+    the touch ends, at the same spot, to whatever is there THEN: closing the outline opens the
+    editor's naming dialog under the finger, and on a phone the click pressed its "Add the
+    block" (or "Cancel") before the person saw it. suppressClick cannot help, as the click no
+    longer lands on the map, so the touch's own end is cancelled instead, which sends no click.
+  */
+  const cancelTapClick = useRef(false);
   const [drag, setDrag] = useState<{ id: string; dx: number; dy: number } | null>(null);
   /** While drawing: the rectangle being dragged out, and where a mouse is (for the next edge). */
   const [sketch, setSketch] = useState<{ from: VenuePoint; to: VenuePoint } | null>(null);
@@ -356,6 +364,7 @@ export function VenueMap({
     if (pointers.current.size === 1) {
       // A fresh press: whatever the last gesture left behind no longer applies.
       suppressClick.current = false;
+      cancelTapClick.current = false;
       gesture.current = {
         kind: 'press',
         x: e.clientX,
@@ -452,6 +461,7 @@ export function VenueMap({
     } else if (g?.kind === 'press' && draw && e.type === 'pointerup') {
       // A tap while drawing places a corner, and is never also a click that chooses a block.
       suppressClick.current = true;
+      cancelTapClick.current = e.pointerType === 'touch';
       gesture.current = null;
       const r = svgRef.current?.getBoundingClientRect();
       const first = draw.points[0];
@@ -590,6 +600,12 @@ export function VenueMap({
         onPointerUp={onPointerEnd}
         onPointerCancel={onPointerEnd}
         onPointerLeave={() => setHover(null)}
+        // Read from a ref: by now the tap may have ended drawing, and `draw` is already gone.
+        onTouchEnd={(e) => {
+          if (!cancelTapClick.current) return;
+          cancelTapClick.current = false;
+          if (e.cancelable) e.preventDefault();
+        }}
         onClickCapture={(e) => {
           if (!suppressClick.current) return;
           suppressClick.current = false;
