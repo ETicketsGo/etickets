@@ -41,6 +41,8 @@ import {
   type ReportRange,
   type OrganizerRevenueRow,
   type SettlementOrgRow,
+  type TaxReport,
+  type TaxReportAmounts,
   type TopExperienceRow,
 } from '@eticketsgo/web-kit';
 import { DayColumns } from '../../../components/day-columns';
@@ -678,6 +680,132 @@ function PlatformFeesSection({ range }: { range: ReportRange }) {
   );
 }
 
+type TaxBlock = TaxReport['byCurrency'][number];
+
+/** The three tax columns every tax table shares, in one currency. */
+function taxColumns<T extends TaxReportAmounts>(currency: string): Column<T>[] {
+  return [
+    {
+      key: 'charged',
+      header: 'Tax charged',
+      className: 'whitespace-nowrap tabular-nums',
+      render: (r) => money(r.chargedMinor, currency),
+    },
+    {
+      key: 'reversed',
+      header: 'Tax given back',
+      className: 'whitespace-nowrap tabular-nums',
+      render: (r) => money(r.reversedMinor, currency),
+    },
+    {
+      key: 'net',
+      header: 'Net tax',
+      className: 'whitespace-nowrap tabular-nums',
+      render: (r) => <span className="font-semibold">{money(r.netMinor, currency)}</span>,
+    },
+  ];
+}
+
+function percent(basisPoints: number): string {
+  return `${(basisPoints / 100).toLocaleString(undefined, { maximumFractionDigits: 2 })}%`;
+}
+
+function TaxTables({ c }: { c: TaxBlock }) {
+  const rateColumns: Column<TaxBlock['breakdown'][number]>[] = [
+    {
+      key: 'tax',
+      header: 'Tax',
+      render: (b) => <span className="font-medium text-text-primary">{b.label}</span>,
+    },
+    {
+      key: 'rate',
+      header: 'Rate',
+      className: 'tabular-nums',
+      render: (b) => percent(b.rateBasisPoints),
+    },
+    {
+      key: 'base',
+      header: 'Taxed value',
+      className: 'whitespace-nowrap tabular-nums',
+      render: (b) => money(b.netBaseMinor, c.currency),
+    },
+    ...taxColumns<TaxBlock['breakdown'][number]>(c.currency),
+  ];
+  const placeColumns: Column<TaxBlock['byPlace'][number]>[] = [
+    {
+      key: 'place',
+      header: 'State',
+      render: (p) => (
+        <div className="min-w-0 space-y-0.5">
+          <p className="font-medium text-text-primary">{p.region ?? 'State not set'}</p>
+          <p className="text-caption text-text-muted">{p.country ?? 'Country not set'}</p>
+        </div>
+      ),
+    },
+    ...taxColumns<TaxBlock['byPlace'][number]>(c.currency),
+  ];
+  const monthColumns: Column<TaxBlock['byMonth'][number]>[] = [
+    {
+      key: 'month',
+      header: 'Month',
+      className: 'whitespace-nowrap',
+      render: (m) =>
+        new Date(`${m.month}-01T00:00:00.000Z`).toLocaleDateString(undefined, {
+          month: 'long',
+          year: 'numeric',
+          timeZone: 'UTC',
+        }),
+    },
+    ...taxColumns<TaxBlock['byMonth'][number]>(c.currency),
+  ];
+  if (c.breakdown.length === 0) {
+    return <EmptyState title="No tax on documents issued in this range" compact />;
+  }
+  return (
+    <div className="space-y-4">
+      <Card title={`By tax and rate - ${c.currency}`}>
+        <DataTable
+          caption={`Tax by tax and rate in ${c.currency}`}
+          columns={rateColumns}
+          rows={c.breakdown}
+          rowKey={(b) => `${b.label}|${b.rateBasisPoints}`}
+          density="compact"
+          mobile="cards"
+        />
+      </Card>
+      <div className="space-y-4">
+        <Card title={`By month - ${c.currency}`}>
+          <DataTable
+            caption={`Tax by month in ${c.currency}`}
+            columns={monthColumns}
+            rows={c.byMonth}
+            rowKey={(m) => m.month}
+            density="compact"
+            mobile="cards"
+          />
+        </Card>
+        <Card title={`By state of the venue - ${c.currency}`}>
+          <DataTable
+            caption={`Tax by state of the venue in ${c.currency}`}
+            columns={placeColumns}
+            rows={c.byPlace}
+            rowKey={(p) => `${p.country ?? ''}|${p.region ?? ''}`}
+            density="compact"
+            mobile="cards"
+          />
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+/*
+  ── TAX IS READ FROM THE DOCUMENTS ───────────────────────────────────────────────────
+  "Tax collected" was the tax on every booking confirmed in the range. A refund or a cancelled
+  cash sale gives tax back on a credit note, and that figure never saw it. The API now reads the
+  invoices and credit notes issued in the range, so the page shows the three figures a person
+  checks a return against: charged, given back, and net. Every figure is an API field.
+*/
 function TaxSection({ range }: { range: ReportRange }) {
   const query = useQuery({
     queryKey: ['admin', 'reports', 'tax', range],
@@ -694,43 +822,79 @@ function TaxSection({ range }: { range: ReportRange }) {
             <Landmark className="mt-0.5 h-5 w-5 shrink-0 text-status-warning" aria-hidden />
             <div>
               <p className="font-semibold text-status-warning">
-                {d.taxModelled ? 'Tax as charged' : 'Tax is not modelled'}
+                {d.taxModelled ? 'Tax on invoices and credit notes' : 'No tax rule is active'}
               </p>
               <p className="mt-1 text-text-secondary">{d.note}</p>
             </div>
           </div>
+          {/*
+            An API older than this page sends one "tax collected" figure and none of the
+            documents' figures. Say so rather than draw tables from fields that are not there.
+          */}
+          {d.byCurrency.some((c) => typeof c.netTaxMinor !== 'number') && (
+            <EmptyState
+              title="This report needs a newer server"
+              hint="The server has not been updated to read tax from invoices and credit notes yet."
+            />
+          )}
           {/* One block per currency: GST in rupees and sales tax in dollars are two figures. */}
-          {d.byCurrency.map((c) => (
-            <div key={c.currency} className="space-y-4">
-              <CurrencyHeading currency={c.currency} />
-              <StatGrid>
-                <StatCard
-                  label="Gross sales"
-                  value={money(c.grossMinor, c.currency)}
-                  icon={Ticket}
-                  tile="blue"
-                />
-                <StatCard
-                  label="Platform fees"
-                  value={money(c.platformFeesMinor, c.currency)}
-                  icon={Percent}
-                  tile="purple"
-                />
-                <StatCard
-                  label="Taxable base"
-                  value={money(c.taxableBaseMinor, c.currency)}
-                  icon={Landmark}
-                  tile="amber"
-                />
-                <StatCard
-                  label="Tax collected"
-                  value={money(c.taxCollectedMinor, c.currency)}
-                  icon={Receipt}
-                  tile="teal"
-                />
-              </StatGrid>
-            </div>
-          ))}
+          {d.byCurrency
+            .filter((c) => typeof c.netTaxMinor === 'number')
+            .map((c) => (
+              <div key={c.currency} className="space-y-4">
+                <CurrencyHeading currency={c.currency} />
+                <StatGrid cols={3}>
+                  <StatCard
+                    label="Tax charged"
+                    value={money(c.taxChargedMinor, c.currency)}
+                    hint={`On ${c.invoices.toLocaleString()} invoices and receipts`}
+                    icon={Receipt}
+                    tile="teal"
+                  />
+                  <StatCard
+                    label="Tax given back"
+                    value={money(c.taxReversedMinor, c.currency)}
+                    hint={`On ${c.creditNotes.toLocaleString()} credit notes`}
+                    icon={Undo2}
+                    tile="amber"
+                  />
+                  <StatCard
+                    label="Net tax"
+                    value={money(c.netTaxMinor, c.currency)}
+                    hint="Tax charged minus tax given back"
+                    icon={Landmark}
+                    tile="blue"
+                  />
+                </StatGrid>
+                <TaxTables c={c} />
+                <Card title={`Sales in this range - ${c.currency}`}>
+                  <p className="mb-4 text-ui text-text-secondary">
+                    Bookings confirmed in this range, before refunds. For context only: the tax
+                    above is read from the documents, not from these figures.
+                  </p>
+                  <StatGrid cols={3}>
+                    <StatCard
+                      label="Ticket sales"
+                      value={money(c.grossMinor, c.currency)}
+                      icon={Ticket}
+                      tile="blue"
+                    />
+                    <StatCard
+                      label="Platform fees"
+                      value={money(c.platformFeesMinor, c.currency)}
+                      icon={Percent}
+                      tile="purple"
+                    />
+                    <StatCard
+                      label="Ticket sales plus fees"
+                      value={money(c.taxableBaseMinor, c.currency)}
+                      icon={Banknote}
+                      tile="amber"
+                    />
+                  </StatGrid>
+                </Card>
+              </div>
+            ))}
         </div>
       )}
     </Section>

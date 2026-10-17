@@ -166,6 +166,85 @@ export interface SettlementReport {
   payouts: Awaited<ReturnType<PayoutsService['adminList']>>;
 }
 
+/**
+ * Tax on the documents issued in a period: charged on sale documents, given back on credit
+ * notes, and the difference. `reversedMinor` is a positive amount (credit notes store their
+ * tax negative), so `netMinor = chargedMinor - reversedMinor`.
+ */
+export interface TaxAmounts {
+  chargedMinor: number;
+  reversedMinor: number;
+  netMinor: number;
+}
+
+/** GST components, read from the tax line's label. Null for any other tax. */
+export type GstComponent = 'CGST' | 'SGST' | 'UTGST' | 'IGST';
+
+export interface TaxBreakdownRow extends TaxAmounts {
+  label: string;
+  rateBasisPoints: number;
+  component: GstComponent | null;
+  /** The value this rate was levied on, net of the value credit notes gave back. */
+  netBaseMinor: number;
+}
+
+export interface TaxPlaceRow extends TaxAmounts {
+  /** The venue's country and state: the place of supply for admission. */
+  country: string | null;
+  region: string | null;
+}
+
+export interface TaxMonthRow extends TaxAmounts {
+  /** YYYY-MM, in UTC like every other date on the reports page. */
+  month: string;
+}
+
+export interface CurrencyTaxReport {
+  currency: string;
+  /** Tax on the sale documents (tax invoices and receipts) issued in the range. */
+  taxChargedMinor: number;
+  /** Tax given back by the credit notes issued in the range (refunds and cash cancellations). */
+  taxReversedMinor: number;
+  /** Charged minus reversed. Negative when a period gave back more than it charged. */
+  netTaxMinor: number;
+  /** How many sale documents and credit notes the figures come from. */
+  invoices: number;
+  creditNotes: number;
+  /** One row per label + rate: the granularity a filing needs. */
+  breakdown: TaxBreakdownRow[];
+  byPlace: TaxPlaceRow[];
+  byMonth: TaxMonthRow[];
+  /** Bookings confirmed in the range, before refunds. Unchanged from the old report. */
+  grossMinor: number;
+  platformFeesMinor: number;
+  taxableBaseMinor: number;
+}
+
+export interface TaxReport {
+  from: Date;
+  to: Date;
+  /** Whether any tax rule is configured at all, not whether this period collected any. */
+  taxModelled: boolean;
+  byCurrency: CurrencyTaxReport[];
+  note: string;
+}
+
+const GST_COMPONENTS: readonly GstComponent[] = ['CGST', 'SGST', 'UTGST', 'IGST'];
+
+function gstComponent(label: string): GstComponent | null {
+  const word = label.trim().toUpperCase();
+  return GST_COMPONENTS.find((c) => word === c) ?? null;
+}
+
+const emptyAmounts = (): TaxAmounts => ({ chargedMinor: 0, reversedMinor: 0, netMinor: 0 });
+
+/** Add one document group's tax to a running row. `amount` is signed as stored. */
+function addTax(row: TaxAmounts, credit: boolean, amount: number): void {
+  if (credit) row.reversedMinor -= amount;
+  else row.chargedMinor += amount;
+  row.netMinor += amount;
+}
+
 /** Every report below that carries money is folded per currency by this. */
 function blockFor<T>(blocks: Map<string, T>, currency: string, create: () => T): T {
   const existing = blocks.get(currency);
@@ -714,53 +793,102 @@ export class BusinessReportsService {
     };
   }
 
-  // ─────────────────────── 6. Tax actually charged ───────────────────────
+  // ─────────────────────── 6. Tax charged, reversed and net ───────────────────────
 
   /**
-   * Tax collected in the period, read from what was CHARGED rather than recomputed.
+   * Tax in the period, read from the issued DOCUMENTS: what the sale documents charged, minus
+   * what the credit notes gave back.
    *
-   * ── WHY IT READS THE SNAPSHOT ──────────────────────────────────────────────────────
-   * `BookingTaxLine` records the rate, the base and the amount for every levy at the moment
-   * of sale. Re-deriving those from today's `TaxRule` rows would report last quarter at this
-   * quarter's rates — and rates move: India's whole table changed on 22 September 2025. A
-   * report that silently restates history is worse than no report.
+   * ── WHY IT READS THE DOCUMENTS ─────────────────────────────────────────────────────
+   * This report summed `BookingTaxLine` by the booking's confirmation date. That is the tax on
+   * every sale confirmed in the range and nothing else: a refund gives part of it back on a
+   * credit note, a counter cash sale whose show was cancelled gives all of it back on one
+   * (#415), and the report saw neither. It overstated tax by every reversal, and a refund in a
+   * later month never reached that month at all.
+   *
+   * The sale documents and credit notes are what the organizer's receipts list, the GST lines
+   * on each invoice and the cash-cancellation reversal all read. Each one froze its tax lines
+   * (label, rate, base, amount) when it was issued, so this still never restates history at
+   * today's rates. Credit notes store their tax negative, so the period's net is the plain
+   * sum, and the report reconciles to the documents to the paisa by construction.
+   *
+   * ── WHICH PERIOD ───────────────────────────────────────────────────────────────────
+   * A document's period is its issue date: a sale in March refunded in April is charged in
+   * March and reversed in April, as a credit note is filed. Months are UTC, like every other
+   * date on this page.
    *
    * ── WHAT IT STILL IS NOT ───────────────────────────────────────────────────────────
-   * A record of what was charged. Not a return, not GSTR-anything, not an e-invoice, and
-   * not reconciled against a ledger. `taxModelled` says whether any tax was configured at
-   * all, so a zero here is distinguishable from a platform that never asked the question —
-   * this report used to hardcode `false` and zero, which stayed on screen for the whole
-   * period after tax became real.
+   * Not a return, not GSTR-anything, not an e-invoice. `taxModelled` says whether any tax was
+   * configured at all, so a zero here is distinguishable from a platform that never asked.
+   * The state is the venue's (the place of supply for admission), read from the venue as it
+   * is now; the GST component and rate come from the document itself.
    */
-  async tax(from: Date, to: Date) {
-    const revenue = await this.analytics.revenueByCurrency(this.confirmedRange(from, to));
+  async tax(from: Date, to: Date): Promise<TaxReport> {
+    const [revenue, lineRows, documentRows, activeRules] = await Promise.all([
+      // The sales context beside the tax, unchanged: bookings confirmed in the range.
+      this.analytics.revenueByCurrency(this.confirmedRange(from, to)),
+      this.prisma.$queryRaw<
+        {
+          currency: string;
+          credit: boolean;
+          month: Date;
+          country: string | null;
+          region: string | null;
+          label: string;
+          rate: number;
+          base: bigint | null;
+          amount: bigint | null;
+        }[]
+      >`
+        SELECT r."currency" AS currency,
+               (r."kind" = 'CREDIT_NOTE') AS credit,
+               date_trunc('month', r."issuedAt") AS month,
+               v."country" AS country,
+               v."region" AS region,
+               line->>'label' AS label,
+               (line->>'rateBasisPoints')::int AS rate,
+               SUM((line->>'baseMinor')::bigint)::bigint AS base,
+               SUM((line->>'amountMinor')::bigint)::bigint AS amount
+        FROM "Receipt" r
+        JOIN "Booking" b ON b."id" = r."bookingId"
+        JOIN "Event" e ON e."id" = b."eventId"
+        JOIN "Venue" v ON v."id" = e."venueId"
+        CROSS JOIN LATERAL jsonb_array_elements(
+          COALESCE(r."documentJson"->'taxLines', '[]'::jsonb)
+        ) AS line
+        WHERE r."issuedAt" >= ${from} AND r."issuedAt" <= ${to}
+        GROUP BY 1, 2, 3, 4, 5, 6, 7
+      `,
+      this.prisma.$queryRaw<{ currency: string; credit: boolean; documents: bigint }[]>`
+        SELECT r."currency" AS currency,
+               (r."kind" = 'CREDIT_NOTE') AS credit,
+               COUNT(*)::bigint AS documents
+        FROM "Receipt" r
+        WHERE r."issuedAt" >= ${from} AND r."issuedAt" <= ${to}
+        GROUP BY 1, 2
+      `,
+      this.prisma.taxRule.count({ where: { active: true } }),
+    ]);
 
-    const lines = await this.prisma.bookingTaxLine.findMany({
-      where: { booking: this.confirmedRange(from, to) },
-      select: {
-        label: true,
-        rateBasisPoints: true,
-        baseMinor: true,
-        amountMinor: true,
-        // A tax line is in its booking's currency; GST in rupees and sales tax in dollars are
-        // two figures, never one.
-        booking: { select: { currency: true } },
-      },
-    });
-
-    type TaxRow = {
-      label: string;
-      rateBasisPoints: number;
-      baseMinor: number;
-      amountMinor: number;
+    type Block = {
+      totals: TaxAmounts;
+      invoices: number;
+      creditNotes: number;
+      byRate: Map<string, TaxBreakdownRow>;
+      byPlace: Map<string, TaxPlaceRow>;
+      byMonth: Map<string, TaxMonthRow>;
+      grossMinor: number;
+      platformFeesMinor: number;
     };
-    const blocks = new Map<
-      string,
-      { byRate: Map<string, TaxRow>; grossMinor: number; platformFeesMinor: number }
-    >();
+    const blocks = new Map<string, Block>();
     const block = (currency: string) =>
-      blockFor(blocks, currency, () => ({
-        byRate: new Map<string, TaxRow>(),
+      blockFor<Block>(blocks, currency, () => ({
+        totals: emptyAmounts(),
+        invoices: 0,
+        creditNotes: 0,
+        byRate: new Map(),
+        byPlace: new Map(),
+        byMonth: new Map(),
         grossMinor: 0,
         platformFeesMinor: 0,
       }));
@@ -769,57 +897,84 @@ export class BusinessReportsService {
       b.grossMinor = rev.grossMinor;
       b.platformFeesMinor = rev.bookingFeesMinor + rev.paymentFeesMinor;
     }
+    for (const row of documentRows) {
+      const b = block(row.currency);
+      if (row.credit) b.creditNotes += Number(row.documents);
+      else b.invoices += Number(row.documents);
+    }
 
     /*
       Grouped by label AND rate, because those are different taxes even under one name.
       Cinema at 5% and a concert at 18% are both "CGST"; summing them into one line would
       hide the split a filing has to state.
     */
-    for (const line of lines) {
-      const { byRate } = block(line.booking.currency);
-      const key = `${line.label}|${line.rateBasisPoints}`;
-      const entry = byRate.get(key) ?? {
-        label: line.label,
-        rateBasisPoints: line.rateBasisPoints,
-        baseMinor: 0,
-        amountMinor: 0,
-      };
-      entry.baseMinor += line.baseMinor;
-      entry.amountMinor += line.amountMinor;
-      byRate.set(key, entry);
+    for (const row of lineRows) {
+      const b = block(row.currency);
+      const amount = Number(row.amount ?? 0);
+      const base = Number(row.base ?? 0);
+      addTax(b.totals, row.credit, amount);
+
+      const rate = blockFor<TaxBreakdownRow>(b.byRate, `${row.label}|${row.rate}`, () => ({
+        label: row.label,
+        rateBasisPoints: row.rate,
+        component: gstComponent(row.label),
+        ...emptyAmounts(),
+        netBaseMinor: 0,
+      }));
+      addTax(rate, row.credit, amount);
+      rate.netBaseMinor += base;
+
+      const place = blockFor<TaxPlaceRow>(
+        b.byPlace,
+        `${row.country ?? ''}|${row.region ?? ''}`,
+        () => ({ country: row.country, region: row.region, ...emptyAmounts() }),
+      );
+      addTax(place, row.credit, amount);
+
+      const monthKey = new Date(row.month).toISOString().slice(0, 7);
+      const month = blockFor<TaxMonthRow>(b.byMonth, monthKey, () => ({
+        month: monthKey,
+        ...emptyAmounts(),
+      }));
+      addTax(month, row.credit, amount);
     }
 
-    const byCurrency = [...blocks.entries()]
-      .map(([currency, b]) => {
-        const breakdown = [...b.byRate.values()].sort(
+    const byCurrency: CurrencyTaxReport[] = [...blocks.entries()]
+      .map(([currency, b]) => ({
+        currency,
+        taxChargedMinor: b.totals.chargedMinor,
+        taxReversedMinor: b.totals.reversedMinor,
+        netTaxMinor: b.totals.netMinor,
+        invoices: b.invoices,
+        creditNotes: b.creditNotes,
+        breakdown: [...b.byRate.values()].sort(
           (x, y) => x.label.localeCompare(y.label) || x.rateBasisPoints - y.rateBasisPoints,
-        );
-        return {
-          currency,
-          taxCollectedMinor: breakdown.reduce((sum, row) => sum + row.amountMinor, 0),
-          /** One row per label+rate, which is the granularity a filing needs. */
-          breakdown,
-          taxableBaseMinor: b.grossMinor + b.platformFeesMinor,
-          grossMinor: b.grossMinor,
-          platformFeesMinor: b.platformFeesMinor,
-        };
-      })
+        ),
+        byPlace: [...b.byPlace.values()].sort(
+          (x, y) =>
+            (x.country ?? '').localeCompare(y.country ?? '') ||
+            (x.region ?? '').localeCompare(y.region ?? ''),
+        ),
+        byMonth: [...b.byMonth.values()].sort((x, y) => x.month.localeCompare(y.month)),
+        taxableBaseMinor: b.grossMinor + b.platformFeesMinor,
+        grossMinor: b.grossMinor,
+        platformFeesMinor: b.platformFeesMinor,
+      }))
       .sort((x, y) => y.grossMinor - x.grossMinor || x.currency.localeCompare(y.currency));
-    const activeRules = await this.prisma.taxRule.count({ where: { active: true } });
 
     return {
       from,
       to,
-      /** Whether any tax rule is configured at all — not whether this period collected any. */
       taxModelled: activeRules > 0,
       byCurrency,
       note:
         activeRules > 0
-          ? 'Tax as CHARGED, read from each booking’s snapshot rather than recomputed at ' +
-            'today’s rates. This is a record of what was collected — not a return, not a ' +
-            'GSTR filing, and not reconciled against a ledger.'
-          : 'No tax rule is active, so no tax is being charged. The figures below are the ' +
-            'taxable base for reference only.',
+          ? 'Tax charged on the invoices and receipts issued in this range, minus the tax ' +
+            'given back on the credit notes issued in this range (refunds and cancelled cash ' +
+            'sales). Read from each document as it was issued. This is not a tax return or a ' +
+            'GSTR filing.'
+          : 'No tax rule is active, so no tax is being charged now. Any tax below is from ' +
+            'documents issued while a rule was active, and the credit notes that reverse them.',
     };
   }
 
