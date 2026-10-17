@@ -74,6 +74,10 @@ ETicketsGo: {#var#} on {#var#} is cancelled. Booking {#var#}. Check your email f
 - Variables, in order: `event` (title, up to 30 characters), `when` (`01 Nov 2026, 07:00 PM`
   in the venue's time zone), `reference` (`ETG-IN-2026-000042`).
 - Env: `MSG91_SMS_TEMPLATE_SHOW_CANCELLED`, `DLT_TEMPLATE_ID_SHOW_CANCELLED`
+- **Being replaced.** "Check your email for refund details" is false for a buyer who paid cash
+  at the counter. Two replacement templates (paid online, paid in cash) are ready to register:
+  see [INDIA-DLT-SHOW-CANCELLED-REPLACEMENT.md](INDIA-DLT-SHOW-CANCELLED-REPLACEMENT.md). Until
+  their ids are set, this text stays in use for online buyers and a cash buyer gets no SMS.
 
 ### 2.3 Booking confirmed
 
@@ -124,25 +128,29 @@ parameter; the route is the template's (transactional/service).
 
 ## 4. Configuration (names only - set values out of band)
 
-| Env var                                | What it holds                                                 |
-| -------------------------------------- | ------------------------------------------------------------- |
-| `SMS_PROVIDER_BY_MARKET`               | `IN=msg91` (keep `NOTIFICATION_MARKETS` consistent)           |
-| `SMS_ENABLED`                          | `true` only when the steps on this page are done              |
-| `MSG91_AUTH_KEY`                       | secret; sent as a header, never logged                        |
-| `DLT_SENDER_HEADER`                    | `DPTRCS`                                                      |
-| `MSG91_SENDER_ID`                      | `DPTRCS` (must equal `DLT_SENDER_HEADER`, or boot is refused) |
-| `DLT_PRINCIPAL_ENTITY_ID`              | the 19-digit PE ID                                            |
-| `MSG91_WEBHOOK_SECRET`                 | secret, 32+ random characters, in the DLR URL                 |
-| `MSG91_SMS_TEMPLATE_OTP`               | MSG91 template id for 2.1                                     |
-| `DLT_TEMPLATE_ID_OTP`                  | 19-digit DLT template ID for 2.1                              |
-| `MSG91_SMS_TEMPLATE_SHOW_CANCELLED`    | MSG91 template id for 2.2                                     |
-| `DLT_TEMPLATE_ID_SHOW_CANCELLED`       | 19-digit DLT template ID for 2.2                              |
-| `MSG91_SMS_TEMPLATE_BOOKING_CONFIRMED` | MSG91 template id for 2.3 (optional)                          |
-| `DLT_TEMPLATE_ID_BOOKING_CONFIRMED`    | 19-digit DLT template ID for 2.3 (optional)                   |
-| `MSG91_SMS_TEMPLATE_BOOKING_CANCELLED` | MSG91 template id for 2.4 (optional)                          |
-| `DLT_TEMPLATE_ID_BOOKING_CANCELLED`    | 19-digit DLT template ID for 2.4 (optional)                   |
-| `MSG91_SMS_TEMPLATE_REFUND_COMPLETED`  | MSG91 template id for 2.5 (optional)                          |
-| `DLT_TEMPLATE_ID_REFUND_COMPLETED`     | 19-digit DLT template ID for 2.5 (optional)                   |
+| Env var                                    | What it holds                                                 |
+| ------------------------------------------ | ------------------------------------------------------------- |
+| `SMS_PROVIDER_BY_MARKET`                   | `IN=msg91` (keep `NOTIFICATION_MARKETS` consistent)           |
+| `SMS_ENABLED`                              | `true` only when the steps on this page are done              |
+| `MSG91_AUTH_KEY`                           | secret; sent as a header, never logged                        |
+| `DLT_SENDER_HEADER`                        | `DPTRCS`                                                      |
+| `MSG91_SENDER_ID`                          | `DPTRCS` (must equal `DLT_SENDER_HEADER`, or boot is refused) |
+| `DLT_PRINCIPAL_ENTITY_ID`                  | the 19-digit PE ID                                            |
+| `MSG91_WEBHOOK_SECRET`                     | secret, 32+ random characters, in the DLR URL                 |
+| `MSG91_SMS_TEMPLATE_OTP`                   | MSG91 template id for 2.1                                     |
+| `DLT_TEMPLATE_ID_OTP`                      | 19-digit DLT template ID for 2.1                              |
+| `MSG91_SMS_TEMPLATE_SHOW_CANCELLED`        | MSG91 template id for 2.2                                     |
+| `DLT_TEMPLATE_ID_SHOW_CANCELLED`           | 19-digit DLT template ID for 2.2                              |
+| `MSG91_SMS_TEMPLATE_SHOW_CANCELLED_ONLINE` | MSG91 id, show cancelled for online buyers (replacement pack) |
+| `DLT_TEMPLATE_ID_SHOW_CANCELLED_ONLINE`    | 19-digit DLT id for the same; turns that wording on           |
+| `MSG91_SMS_TEMPLATE_SHOW_CANCELLED_CASH`   | MSG91 id, show cancelled for cash buyers (replacement pack)   |
+| `DLT_TEMPLATE_ID_SHOW_CANCELLED_CASH`      | 19-digit DLT id for the same; turns that wording on           |
+| `MSG91_SMS_TEMPLATE_BOOKING_CONFIRMED`     | MSG91 template id for 2.3 (optional)                          |
+| `DLT_TEMPLATE_ID_BOOKING_CONFIRMED`        | 19-digit DLT template ID for 2.3 (optional)                   |
+| `MSG91_SMS_TEMPLATE_BOOKING_CANCELLED`     | MSG91 template id for 2.4 (optional)                          |
+| `DLT_TEMPLATE_ID_BOOKING_CANCELLED`        | 19-digit DLT template ID for 2.4 (optional)                   |
+| `MSG91_SMS_TEMPLATE_REFUND_COMPLETED`      | MSG91 template id for 2.5 (optional)                          |
+| `DLT_TEMPLATE_ID_REFUND_COMPLETED`         | 19-digit DLT template ID for 2.5 (optional)                   |
 
 Leave unset: `OTP_SMS_TEMPLATE`. **Removed** (boot is refused if set while MSG91 carries SMS):
 `MSG91_SMS_TEMPLATE_ID` (one id for every type) and `MSG91_SMS_BODY_VAR` (the whole message as
