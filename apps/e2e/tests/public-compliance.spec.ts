@@ -185,11 +185,35 @@ test.describe('the public compliance surface', () => {
       await ctx.close();
     });
 
-    test('states one operator, and claims no per-country contracting entity', async ({ page }) => {
+    test('names the India operator, and claims no per-country contracting entity', async ({
+      page,
+    }) => {
       await page.goto(`${CUSTOMER}/terms`);
       const t = await page.locator('body').innerText();
+      // The brand's own entity stays; the owner's India statement sits beside it.
       expect(t).toContain('operated by DeepTrics LLC');
+      expect(t).toContain(
+        'In India, ETicketsGo is operated by DeepTrics Software Solutions Private Limited.',
+      );
+      // The old misspelling must not survive anywhere a carrier compares against DLT.
       expect(t).not.toContain('Deeptrics Software Solution Pvt Ltd');
+      // "Operated by" is the owner's statement; who the CONTRACT is with is still open.
+      expect(t).not.toMatch(/contract(ing)? (is )?with DeepTrics/i);
+    });
+
+    test('an India reader gets the India operator sentence on every document', async ({
+      browser,
+    }) => {
+      const ctx = await browser.newContext();
+      await ctx.addCookies([{ name: 'etg_market', value: 'IN', url: CUSTOMER }]);
+      const page = await ctx.newPage();
+      for (const path of LEGAL_PAGES) {
+        await page.goto(`${CUSTOMER}${path}`);
+        await expect(page.getByTestId('operator-line'), path).toContainText(
+          'ETicketsGo is operated in India by DeepTrics Software Solutions Private Limited.',
+        );
+      }
+      await ctx.close();
     });
 
     test('every document offers a way back to the Legal Center', async ({ page }) => {
@@ -200,6 +224,50 @@ test.describe('the public compliance surface', () => {
           `${path} must link back to the Legal Center`,
         ).toHaveCount(1);
       }
+    });
+  });
+
+  test.describe('the company behind the brand, for DLT (STPL/MSG91) review', () => {
+    /*
+      A carrier verifying a DLT registration checks that the website names the Principal
+      Entity - DeepTrics Software Solutions Private Limited - and connects it to the brand,
+      on pages anybody can open without signing in.
+    */
+    // The owner's line is "© 2026 ETicketsGo, ..."; the year is the current one, as in the app.
+    const FOOTER = `© ${new Date().getFullYear()} ETicketsGo, DeepTrics Software Solutions Pvt Ltd | All rights reserved.`;
+
+    test('both footers carry the owner line exactly', async ({ page }) => {
+      // `/` renders the storefront footer; `/about` renders the marketing one.
+      for (const path of ['/', '/about', '/events']) {
+        await page.goto(`${CUSTOMER}${path}`);
+        await expect(page.getByTestId('footer-rights'), path).toHaveText(FOOTER);
+      }
+    });
+
+    test('About states the operator and lists the company', async ({ page }) => {
+      const res = await page.goto(`${CUSTOMER}/about`);
+      expect(res?.status()).toBe(200);
+      await expect(page.getByTestId('about-operator')).toHaveText(
+        'ETicketsGo is operated in India by DeepTrics Software Solutions Private Limited.',
+      );
+      const info = page.locator('#legal-information');
+      await expect(info).toContainText('Legal and business information');
+      await expect(info).toContainText('DeepTrics Software Solutions Private Limited');
+      await expect(info.locator('a[href="mailto:support@eticketsgo.com"]')).toHaveCount(1);
+      await expect(info).toContainText('DPTRCS');
+    });
+
+    test('Contact names the Indian operating company and the support mailbox', async ({ page }) => {
+      await page.goto(`${CUSTOMER}/contact`);
+      const card = page.getByTestId('contact-operator');
+      await expect(card).toContainText('DeepTrics Software Solutions Private Limited');
+      await expect(card.locator('a[href="mailto:support@eticketsgo.com"]')).toHaveCount(1);
+    });
+
+    test('/cancellation reaches the cancellation policy', async ({ page }) => {
+      await page.goto(`${CUSTOMER}/cancellation`);
+      expect(page.url()).toMatch(/\/refunds(#cancellation)?$/);
+      await expect(page.locator('h1')).toHaveText(/Refund and Cancellation Policy/);
     });
   });
 

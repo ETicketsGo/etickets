@@ -8,8 +8,8 @@ public legal page, so the code states the narrower, defensible thing instead.
 
 ## 1. Which entity contracts with a buyer, and in which markets?
 
-**The question.** Two entities exist: **DeepTrics LLC** (United States) and **Deeptrics
-Software Solution Pvt Ltd** (India). When a customer in India buys a ticket for an event in
+**The question.** Two entities exist: **DeepTrics LLC** (United States) and **DeepTrics
+Software Solutions Private Limited** (India, the DLT Principal Entity). When a customer in India buys a ticket for an event in
 India, which entity is the counterparty to that sale? And does the answer depend on the
 buyer's country, the event's country, the organizer's country, or the entity that receives the
 money?
@@ -19,8 +19,12 @@ names the data controller. GST registration, invoicing and refunds all follow th
 took the money. These are not necessarily the same answer, and "the buyer is in India, so it
 must be the Indian company" is an assumption, not a fact.
 
-**What the pages say today.** Only what is established: _"ETicketsGo is operated by DeepTrics
-LLC."_ No page claims a per-country contracting entity.
+**What the pages say today.** Only what is established. The owner stated on 2026-10-17:
+_"ETicketsGo is operated in India by DeepTrics Software Solutions Private Limited."_ So every
+legal document, the footer, About and Contact now name the Indian operator; outside India the
+line still reads _"ETicketsGo is operated by DeepTrics LLC"_, with the India sentence beside it.
+"Operated in India by" is the owner's statement about the company. No page claims a
+per-country CONTRACTING entity - that is still this question.
 
 **History, so this is not re-litigated.** An earlier version DID resolve an operating entity
 from the reader's market, so an Indian reader was told their contract was with the Indian

@@ -39,7 +39,7 @@ const DOCUMENTS = [
   },
   {
     href: '/refunds',
-    title: 'Ticket purchases, cancellations & refunds',
+    title: 'Refund and Cancellation Policy',
     blurb: 'What happens when you buy a ticket, an event changes, or a refund is issued.',
   },
   {
@@ -56,6 +56,11 @@ const DOCUMENTS = [
     href: '/cookies',
     title: 'Cookies',
     blurb: 'What we store on your device, and why there is no cookie banner.',
+  },
+  {
+    href: '/about#legal-information',
+    title: 'Legal and business information',
+    blurb: 'The company that operates ETicketsGo, and how to reach it.',
   },
   {
     href: '/organizer-agreement',

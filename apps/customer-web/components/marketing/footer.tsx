@@ -1,6 +1,7 @@
 import { Link } from '@/i18n/navigation';
 import { useTranslations } from 'next-intl';
 import { Logo, needsPlaceholderNotice } from '@eticketsgo/web-kit';
+import { INDIA_OPERATOR } from '@eticketsgo/shared-types';
 import { FooterSignInLink } from '@/components/marketing/footer-sign-in-link';
 
 const FOOTER_LINK =
@@ -98,7 +99,14 @@ export function MarketingFooter({ buildId = null }: { buildId?: string | null })
           ))}
         </div>
         <div className="mt-12 flex flex-col items-start justify-between gap-4 border-t border-border pt-6 text-caption text-text-secondary sm:flex-row sm:items-center">
-          <p>© {2026} ETicketsGo. All rights reserved.</p>
+          {/*
+            The same line, from the same catalogue key, as the storefront footer. This one used
+            to be a hardcoded English literal, so the two footers already disagreed and a French
+            reader got English here.
+          */}
+          <p data-testid="footer-rights">
+            {f('rights', { year: new Date().getFullYear(), entity: INDIA_OPERATOR.shortName })}
+          </p>
           {/*
             Derived, not hardcoded. This notice used to be a constant, which meant it would
             still be here long after the details were real - and, worse, could be deleted while

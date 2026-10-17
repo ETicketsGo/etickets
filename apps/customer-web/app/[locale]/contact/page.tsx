@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import {
+  Building2,
   Mail,
   Phone,
   MapPin,
@@ -13,11 +14,13 @@ import { BUSINESS_DETAILS, publishedDetail, canReachSupport } from '@eticketsgo/
 import { Container, Section } from '@/components/marketing/kit';
 import { PageHero, NoticeBanner } from '@/components/marketing/blocks';
 import { ContactForm } from '@/components/marketing/contact-form';
+import { Link } from '@/i18n/navigation';
+import { INDIA_OPERATOR } from '@eticketsgo/shared-types';
+import { INDIA_OPERATOR_SENTENCE, LEGAL_INFORMATION_HREF } from '@/lib/legal-entity';
 
 export const metadata: Metadata = {
   title: 'Contact',
-  description:
-    'Get in touch with ETicketsGo - sales, support, partnerships, media, and general enquiries.',
+  description: `Contact ETicketsGo, operated in India by ${INDIA_OPERATOR.legalName}: support and general enquiries.`,
   alternates: { canonical: '/contact' },
 };
 
@@ -44,6 +47,8 @@ const FACTS = [
   { icon: Mail, label: publishedDetail(BUSINESS_DETAILS.supportEmail) },
 ].filter((r): r is typeof r & { label: string } => r.label !== null);
 
+const SUPPORT_EMAIL = publishedDetail(BUSINESS_DETAILS.supportEmail);
+
 export default function ContactPage() {
   const reachable = canReachSupport();
 
@@ -64,6 +69,46 @@ export default function ContactPage() {
               </NoticeBanner>
             </div>
           )}
+          {/*
+            Who the visitor is writing to. The DLT review (STPL/MSG91) asks that the Contact page
+            name the Indian operating company, and a customer deserves to know the same thing.
+            The address beside it is the support mailbox the form and every legal page use.
+          */}
+          <div
+            data-testid="contact-operator"
+            className="mx-auto mt-10 max-w-5xl rounded-2xl border border-border bg-background-surface p-5 shadow-sm"
+          >
+            <div className="flex items-start gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-tint-primary text-action-primary">
+                <Building2 className="h-5 w-5" />
+              </span>
+              <div className="space-y-1">
+                <h2 className="text-[0.9375rem] font-semibold text-text-primary">
+                  {INDIA_OPERATOR.legalName}
+                </h2>
+                <p className="text-[0.9375rem] text-text-secondary">{INDIA_OPERATOR_SENTENCE}</p>
+                {SUPPORT_EMAIL && (
+                  <p className="text-[0.9375rem] text-text-secondary">
+                    Support email:{' '}
+                    <a
+                      className="font-medium text-action-primary hover:underline"
+                      href={`mailto:${SUPPORT_EMAIL}`}
+                    >
+                      {SUPPORT_EMAIL}
+                    </a>
+                  </p>
+                )}
+                <p className="text-[0.9375rem]">
+                  <Link
+                    className="font-medium text-action-primary hover:underline"
+                    href={LEGAL_INFORMATION_HREF}
+                  >
+                    Legal and business information
+                  </Link>
+                </p>
+              </div>
+            </div>
+          </div>
           <div
             className={`mx-auto mt-10 grid max-w-5xl gap-8 ${
               CHANNELS.length > 0 || FACTS.length > 0 ? 'lg:grid-cols-[1fr_1.2fr]' : 'max-w-2xl'

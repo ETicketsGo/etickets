@@ -125,7 +125,7 @@
       "legal": "Mentions légales"
     },
     "tagline": "Achetez vos billets, gardez-les sur votre téléphone et entrez sans faire la queue.",
-    "rights": "© {year} ETicketsGo. Tous droits réservés.",
+    "rights": "© {year} ETicketsGo, {entity} | Tous droits réservés.",
     "build": "Version {id}",
     "testEnvironment": "Environnement de test - les paiements sont simulés."
   }

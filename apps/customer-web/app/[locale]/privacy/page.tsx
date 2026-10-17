@@ -8,6 +8,7 @@ import {
   BackToLegal,
 } from '@/components/legal/policy-chrome';
 import { resolveJurisdiction } from '@/lib/market';
+import { INDIA_OPERATOR_SENTENCE } from '@/lib/legal-entity';
 
 export const metadata: Metadata = {
   title: 'Privacy Policy',
@@ -91,8 +92,8 @@ export default async function PrivacyPage({
           <h2>8. Your country</h2>
           {country === 'IN' ? (
             <p>
-              Payments for bookings in India are processed by Razorpay, which receives the details
-              needed to take the payment. Prices and receipts show GST.
+              {INDIA_OPERATOR_SENTENCE} Payments for bookings in India are processed by Razorpay,
+              which receives the details needed to take the payment. Prices and receipts show GST.
             </p>
           ) : null}
           {country === 'US' ? (
@@ -121,7 +122,7 @@ export default async function PrivacyPage({
             <Link href="/contact">contact page</Link>.
           </p>
         </Prose>
-        <OperatorLine />
+        <OperatorLine country={country} />
       </LegalDocument>
     </>
   );
