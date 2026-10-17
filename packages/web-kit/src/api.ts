@@ -1799,10 +1799,12 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ reason }),
       }),
-    manifest: (eventSessionId: string) =>
-      request<SignedManifest>(`/checkin/manifest${qs({ eventSessionId })}`),
-    deltas: (eventSessionId: string, sinceMs: number) =>
-      request<RevocationDelta>(`/checkin/deltas${qs({ eventSessionId, sinceMs })}`),
+    // Both are issued to ONE registered device (H5): the device must be ACTIVE, and the list
+    // it gets is signed for it and valid only for the offline revocation window.
+    manifest: (eventSessionId: string, deviceId: string) =>
+      request<SignedManifest>(`/checkin/manifest${qs({ eventSessionId, deviceId })}`),
+    deltas: (eventSessionId: string, sinceMs: number, deviceId: string) =>
+      request<RevocationDelta>(`/checkin/deltas${qs({ eventSessionId, sinceMs, deviceId })}`),
     reconcile: (deviceId: string, checkIns: QueuedCheckIn[]) =>
       request<ReconcileResultItem[]>('/checkin/reconcile', {
         method: 'POST',
@@ -5004,7 +5006,9 @@ export type ReconcileOutcomeName =
   | 'TRANSFERRED_AFTER_DOWNLOAD'
   | 'WRONG_SESSION'
   | 'ALREADY_CHECKED_IN_ONLINE'
-  | 'SUPERVISOR_REVIEW_REQUIRED';
+  | 'SUPERVISOR_REVIEW_REQUIRED'
+  | 'DEVICE_NOT_ACTIVE'
+  | 'MANIFEST_NOT_VALID';
 export type ReconcileReviewStateName = 'NOT_REQUIRED' | 'PENDING' | 'RESOLVED';
 export type ReconcileResolutionAction = 'ACKNOWLEDGED' | 'DISMISSED';
 

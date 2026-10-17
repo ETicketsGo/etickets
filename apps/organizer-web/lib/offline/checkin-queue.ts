@@ -8,6 +8,9 @@ import {
   classifyQueueFailure,
   isSyncEligible,
   planRetry,
+  reconcileNeedsReview,
+  RECONCILE_META,
+  type ReconcileOutcome,
   type ManifestEntry,
   type OfflineCheckInResult,
   type QueueFailure,
@@ -49,6 +52,13 @@ export interface QueueRecord {
   nextAttemptAt: number | null;
   failureCategory: string | null;
   failureMessage: string | null;
+  /**
+   * H5: the device-bound ticket list this scan was validated against. The server applies a
+   * scan only when it cites a list issued to this device and was made inside its validity.
+   * Absent on records queued before H5; the server holds those for a manager.
+   */
+  manifestVersion?: number;
+  manifestSignature?: string;
 }
 
 function hasIdb(): boolean {
@@ -205,6 +215,8 @@ export async function eligibleCheckIns(
     eventSessionId: r.eventSessionId,
     checkedInAt: r.scannedAt,
     wasOverride: false,
+    manifestVersion: r.manifestVersion,
+    manifestSignature: r.manifestSignature,
   }));
   return { records, payload };
 }
@@ -214,10 +226,13 @@ export async function markSyncing(ids: string[]): Promise<void> {
   for (const id of ids) await patchRecord(id, { status: 'SYNCING' });
 }
 
-function outcomeToStatus(outcome: string | undefined): QueueStatus {
+export function outcomeToStatus(outcome: string | undefined): QueueStatus {
   if (outcome === 'ACCEPTED') return 'ACCEPTED';
   if (outcome?.startsWith('DUPLICATE')) return 'DUPLICATE';
-  if (outcome === 'SUPERVISOR_REVIEW_REQUIRED') return 'REVIEW_REQUIRED';
+  // Every outcome a manager must look at (SUPERVISOR_REVIEW_REQUIRED, and the H5 holds
+  // MANIFEST_NOT_VALID / DEVICE_NOT_ACTIVE) reads as "needs review", not as a plain conflict.
+  if (outcome && outcome in RECONCILE_META && reconcileNeedsReview(outcome as ReconcileOutcome))
+    return 'REVIEW_REQUIRED';
   return 'CONFLICT';
 }
 
@@ -342,6 +357,8 @@ interface ManifestRecord {
   eventSessionId: string;
   meta: unknown;
   entries: ManifestEntry[];
+  /** Cited by every scan made against this list (H5). Empty on lists cached before H5. */
+  signature?: string;
   savedAt: number;
 }
 
@@ -349,11 +366,31 @@ export async function saveManifest(
   eventSessionId: string,
   meta: unknown,
   entries: ManifestRecord['entries'],
+  signature?: string,
 ): Promise<void> {
   if (!hasIdb()) return;
   await tx(MANIFEST, 'readwrite', (s) =>
-    s.put({ eventSessionId, meta, entries, savedAt: Date.now() } satisfies ManifestRecord),
+    s.put({
+      eventSessionId,
+      meta,
+      entries,
+      signature,
+      savedAt: Date.now(),
+    } satisfies ManifestRecord),
   );
+}
+
+/**
+ * Forgets the saved list for a session (H5). Used when the server says this device is no
+ * longer ACTIVE: a device that has been switched off must not keep a list it could admit from.
+ */
+export async function clearManifest(eventSessionId: string): Promise<void> {
+  if (!hasIdb()) return;
+  try {
+    await tx(MANIFEST, 'readwrite', (s) => s.delete(eventSessionId));
+  } catch {
+    /* nothing saved */
+  }
 }
 
 export async function loadManifest(eventSessionId: string): Promise<ManifestRecord | null> {

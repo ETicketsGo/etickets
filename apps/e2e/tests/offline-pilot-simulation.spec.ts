@@ -1,5 +1,13 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
-import { ORGANIZER, API, apiLogin, seedBrowserAuth } from './helpers';
+import {
+  ORGANIZER,
+  API,
+  apiLogin,
+  seedBrowserAuth,
+  ensureOfflineDevice,
+  fetchOfflineManifest,
+  manifestCitation,
+} from './helpers';
 
 const OWNER = 'owner@eticketsgo.test';
 const CUSTOMER1 = 'customer1@eticketsgo.test';
@@ -73,19 +81,18 @@ test('controlled offline check-in pilot: full workflow READY → GO → operate 
   expect(pilot, 'pilot fixture present (run: npm run db:pilot)').not.toBeNull();
   const p = pilot!;
 
+  // A ticket list is only issued to an ACTIVE device (H5), so the lookup needs one too.
+  const lookupDevice = await ensureOfflineDevice(request, token, org.id, p.eventId);
   const manifestEntries = async () =>
-    (
-      (
-        await (
-          await request.get(`${API}/checkin/manifest?eventSessionId=${p.sessionId}`, {
-            headers: authed(token),
-          })
-        ).json()
-      ).entries ?? []
-    ).filter((x: Entry) => x.status === 'ACTIVE' && x.eligible) as Entry[];
+    ((await fetchOfflineManifest(request, token, p.sessionId, lookupDevice)).entries ?? []).filter(
+      (x: Entry) => x.status === 'ACTIVE' && x.eligible,
+    ) as Entry[];
   const active = await manifestEntries();
   expect(active.length, 'pilot has enough active tickets').toBeGreaterThanOrEqual(6);
   const [t0, t1, t2, t3, t4] = active;
+  // The list each device holds, cited by every scan it uploads: the server only applies a
+  // scan that cites a list issued to the same device (H5). Filled in as the devices are set up.
+  const cites: Record<string, ReturnType<typeof manifestCitation>> = {};
   const payload = (dev: string, e: Entry, over: Record<string, unknown> = {}) => ({
     deviceId: dev,
     ticketId: e.ticketId,
@@ -94,6 +101,7 @@ test('controlled offline check-in pilot: full workflow READY → GO → operate 
     eventSessionId: p.sessionId,
     checkedInAt: Date.now(),
     wasOverride: false,
+    ...cites[dev],
     ...over,
   });
 
@@ -114,7 +122,13 @@ test('controlled offline check-in pilot: full workflow READY → GO → operate 
   await expect(page.getByRole('button', { name: /Device approved/ })).toBeVisible({
     timeout: 20_000,
   });
-  await page.getByRole('button', { name: 'Download manifest' }).click();
+  const [manifestResp] = await Promise.all([
+    page.waitForResponse(
+      (r) => r.url().includes('/checkin/manifest?') && r.request().method() === 'GET',
+    ),
+    page.getByRole('button', { name: 'Download manifest' }).click(),
+  ]);
+  cites[devA] = manifestCitation(await manifestResp.json());
   await expect(page.getByTestId('manifest-status')).toBeVisible({ timeout: 20_000 });
 
   const devB = (
@@ -126,6 +140,7 @@ test('controlled offline check-in pilot: full workflow READY → GO → operate 
     ).json()
   ).id;
   await request.post(`${API}/checkin/devices/${devB}/approve`, { headers: authed(token) });
+  cites[devB] = manifestCitation(await fetchOfflineManifest(request, token, p.sessionId, devB));
 
   // Record the three certification drills.
   for (const drillKey of ['TWO_DEVICE_CONFLICT', 'DEVICE_LOSS', 'RECONCILIATION']) {
@@ -144,13 +159,7 @@ test('controlled offline check-in pilot: full workflow READY → GO → operate 
   // Current signed-manifest version, re-read immediately before each preflight so the
   // reported version always matches the server's latest (the counter is monotonic).
   const currentVersion = async () =>
-    (
-      await (
-        await request.get(`${API}/checkin/manifest?eventSessionId=${p.sessionId}`, {
-          headers: authed(token),
-        })
-      ).json()
-    ).meta.version as number;
+    (await fetchOfflineManifest(request, token, p.sessionId, devA)).meta.version as number;
   const preflight = async (clientManifestVersion: number) =>
     await (
       await request.post(`${API}/checkin/preflight`, {
@@ -271,7 +280,10 @@ test('controlled offline check-in pilot: full workflow READY → GO → operate 
     headers: authed(token),
     data: { reason: 'Pilot: device reported lost' },
   });
-  expect((await reconcile(request, token, devB, payload(devB, t4))).status()).toBe(403);
+  const lostUpload = await reconcile(request, token, devB, payload(devB, t4));
+  expect(lostUpload.status()).toBe(403);
+  // H5: the refusal names the device state; the scan is held for review, the ticket untouched.
+  expect((await lostUpload.json()).code).toBe('DEVICE_NOT_ACTIVE');
 
   // ── Command Center: metrics reflect the pilot + a critical alert exists ──
   const snap = await (
@@ -282,7 +294,9 @@ test('controlled offline check-in pilot: full workflow READY → GO → operate 
   ).json();
   expect(snap.reconciliation.totalScans).toBeGreaterThanOrEqual(4);
   expect(snap.reconciliation.accepted).toBeGreaterThanOrEqual(2);
-  expect(snap.reconciliation.pendingReviews, 'the review was resolved').toBe(0);
+  // The vanished-ticket review was resolved; the one pending review left is the revoked
+  // device's scan, which H5 now holds as DEVICE_NOT_ACTIVE instead of discarding it.
+  expect(snap.reconciliation.pendingReviews, 'only the lost device scan awaits review').toBe(1);
   const critical = snap.alerts.filter((a: { severity: string }) => a.severity === 'critical');
   expect(critical.length, 'revoked-device activity raises a critical alert').toBeGreaterThanOrEqual(
     1,

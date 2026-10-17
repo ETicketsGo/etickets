@@ -82,17 +82,40 @@ function statefulPrisma(
         return Promise.resolve({});
       },
     },
-    offlineReconciliationRecord: { create: () => Promise.resolve({ id: 'rec' }) },
+    offlineReconciliationRecord: {
+      create: () => Promise.resolve({ id: 'rec' }),
+      findFirst: () => Promise.resolve(null),
+    },
+    // Every drill device holds a list issued to it (H5): version = its position, signature
+    // `sig-<device>`, valid for the hour around now.
+    checkInManifest: {
+      findMany: () =>
+        Promise.resolve(
+          [...devices.keys()].map((id) => ({
+            eventSessionId: 'se1',
+            version: manifestVersionOf(id),
+            deviceId: id,
+            validFrom: new Date(Date.now() - 30 * 60_000),
+            expiresAt: new Date(Date.now() + 30 * 60_000),
+            signature: `sig-${id}`,
+          })),
+        ),
+    },
   } as unknown as PrismaService;
 }
+
+const VERSIONS: Record<string, number> = { devA: 1, devB: 2, devLost: 3 };
+const manifestVersionOf = (deviceId: string) => VERSIONS[deviceId] ?? 99;
 
 const queued = (over: Partial<QueuedCheckIn> & { deviceId: string }): QueuedCheckIn => ({
   ticketId: 'tk1',
   nonce: 'n1',
   version: 1,
   eventSessionId: 'se1',
-  checkedInAt: 1,
+  checkedInAt: Date.now(),
   wasOverride: false,
+  manifestVersion: manifestVersionOf(over.deviceId),
+  manifestSignature: `sig-${over.deviceId}`,
   ...over,
 });
 
@@ -130,7 +153,7 @@ describe('Offline drill: device-loss', () => {
     const svc = new OfflineReconciliationService(statefulPrisma(tickets, devices), access, audit);
     await expect(
       svc.reconcile(STAFF, 'devLost', [queued({ deviceId: 'devLost' })]),
-    ).rejects.toThrow(/revoked/i);
+    ).rejects.toMatchObject({ code: 'DEVICE_NOT_ACTIVE' });
     expect(tickets.get('tk1')!.status).toBe('ACTIVE'); // never admitted
   });
 });

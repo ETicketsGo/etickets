@@ -1,5 +1,13 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
-import { ORGANIZER, API, apiLogin, seedBrowserAuth } from './helpers';
+import {
+  ORGANIZER,
+  API,
+  apiLogin,
+  seedBrowserAuth,
+  ensureOfflineDevice,
+  fetchOfflineManifest,
+  manifestCitation,
+} from './helpers';
 
 const OWNER = 'owner@eticketsgo.test';
 const ADMIN_USER = 'admin@eticketsgo.test';
@@ -14,12 +22,14 @@ interface Entry {
   status: string;
   eligible: boolean;
 }
-async function activeEntries(request: APIRequestContext, token: string, sessionId: string) {
-  const man = await (
-    await request.get(`${API}/checkin/manifest?eventSessionId=${sessionId}`, {
-      headers: authed(token),
-    })
-  ).json();
+async function activeEntries(
+  request: APIRequestContext,
+  token: string,
+  sessionId: string,
+  /** An ACTIVE device in the session's organization: a list is only issued to one (H5). */
+  deviceId: string,
+) {
+  const man = await fetchOfflineManifest(request, token, sessionId, deviceId);
   return (man.entries ?? []).filter((e: Entry) => e.status === 'ACTIVE' && e.eligible) as Entry[];
 }
 function reconcile(
@@ -63,15 +73,20 @@ test('reconciliation console: categories, filter, safe resolve, authz', async ({
   const events = await (
     await request.get(`${API}/events?organizationId=${org.id}`, { headers: authed(token) })
   ).json();
-  let target: { eventId: string; sessionId: string; a: Entry } | null = null;
+  let target: { eventId: string; sessionId: string; other: string | null; a: Entry } | null = null;
   for (const e of events.slice(0, 25)) {
     const det = await (
       await request.get(`${API}/events/${e.id}`, { headers: authed(token) })
     ).json();
+    // A ticket list is only issued to an ACTIVE device (H5), so the lookup needs one too.
+    const lookupDevice = await ensureOfflineDevice(request, token, org.id, e.id);
     for (const s of det.sessions ?? []) {
-      const active = await activeEntries(request, token, s.id);
+      const active = await activeEntries(request, token, s.id, lookupDevice);
       if (active.length >= 1) {
-        target = { eventId: e.id, sessionId: s.id, a: active[0] };
+        const other =
+          (det.sessions ?? []).map((x: { id: string }) => x.id).find((x: string) => x !== s.id) ??
+          null;
+        target = { eventId: e.id, sessionId: s.id, other, a: active[0] };
         break;
       }
     }
@@ -88,6 +103,8 @@ test('reconciliation console: categories, filter, safe resolve, authz', async ({
   ).json();
   await request.post(`${API}/checkin/devices/${device.id}/approve`, { headers: authed(token) });
   const dev = device.id;
+  // Each scan must cite a list issued to THIS device, or it is held as MANIFEST_NOT_VALID.
+  const cite = manifestCitation(await fetchOfflineManifest(request, token, t.sessionId, dev));
   const base = (ticketId: string, over: Record<string, unknown> = {}) => ({
     deviceId: dev,
     ticketId,
@@ -96,8 +113,21 @@ test('reconciliation console: categories, filter, safe resolve, authz', async ({
     eventSessionId: t.sessionId,
     checkedInAt: Date.now(),
     wasOverride: false,
+    ...cite,
     ...over,
   });
+  /*
+    Wrong session. The server finds the cited list by (scan session, version), so the scan
+    must cite a list for the session it claims: with a second real session that is a list for
+    it issued to this device (WRONG_SESSION). With none, the made-up session has no list and
+    the scan is held as MANIFEST_NOT_VALID instead.
+  */
+  const wrongSession = t.other
+    ? {
+        eventSessionId: t.other,
+        ...manifestCitation(await fetchOfflineManifest(request, token, t.other, dev)),
+      }
+    : { eventSessionId: 'other-session' };
 
   // Seed one record of each category through the real reconcile engine, using ONE
   // ticket: the non-consuming cases first (while ACTIVE), then accept + duplicate.
@@ -105,8 +135,8 @@ test('reconciliation console: categories, filter, safe resolve, authz', async ({
     request,
     token,
     dev,
-    base(t.a.ticketId, { nonce: t.a.nonce, version: t.a.version, eventSessionId: 'other-session' }),
-  ); // WRONG_SESSION
+    base(t.a.ticketId, { nonce: t.a.nonce, version: t.a.version, ...wrongSession }),
+  ); // WRONG_SESSION (MANIFEST_NOT_VALID when the event has one session)
   await reconcile(
     request,
     token,
@@ -146,16 +176,17 @@ test('reconciliation console: categories, filter, safe resolve, authz', async ({
   expect(review.data[0].reviewState).toBe('PENDING');
   const reviewId = review.data[0].id as string;
 
-  const wrong = await (
-    await request.get(
-      `${API}/checkin/reconciliation?organizationId=${org.id}&outcome=WRONG_SESSION`,
-      { headers: authed(token) },
-    )
+  // An ACCEPTED record: it never needs review, and this run always seeds one. (A WRONG_SESSION
+  // record exists only when the event has a second session, see above.)
+  const settled = await (
+    await request.get(`${API}/checkin/reconciliation?organizationId=${org.id}&outcome=ACCEPTED`, {
+      headers: authed(token),
+    })
   ).json();
-  const wrongId = wrong.data[0].id as string;
+  const settledId = settled.data[0].id as string;
 
   // Invalid transition: a non-review record cannot be resolved (never admits).
-  const badResolve = await request.post(`${API}/checkin/reconciliation/${wrongId}/resolve`, {
+  const badResolve = await request.post(`${API}/checkin/reconciliation/${settledId}/resolve`, {
     headers: authed(token),
     data: { action: 'ACKNOWLEDGED', reason: 'should fail' },
   });

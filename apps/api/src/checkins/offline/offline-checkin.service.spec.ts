@@ -34,6 +34,7 @@ describe('OfflineManifestService signing', () => {
     version: 1,
     validFrom: 1,
     expiresAt: 2,
+    deviceId: 'dev1',
   };
   const entries = [
     {
@@ -55,6 +56,11 @@ describe('OfflineManifestService signing', () => {
     const signature = svc.sign(meta, entries);
     const tampered = { meta, entries: [{ ...entries[0], nonce: 'forged' }], signature };
     expect(svc.verify(tampered)).toBe(false);
+  });
+
+  it('signs the device: a list issued to one device does not verify for another (H5)', () => {
+    const signature = svc.sign(meta, entries);
+    expect(svc.verify({ meta: { ...meta, deviceId: 'dev2' }, entries, signature })).toBe(false);
   });
 });
 
@@ -172,6 +178,16 @@ describe('OfflineDrillService.drillEvidence (fail-closed)', () => {
   });
 });
 
+/** The stored header of the list the queued scans in these tests cite. */
+const ISSUED = {
+  eventSessionId: 'se1',
+  version: 1,
+  deviceId: 'dev1',
+  validFrom: new Date(Date.now() - 60_000),
+  expiresAt: new Date(Date.now() + 30 * 60_000),
+  signature: 'sig-1',
+};
+
 describe('OfflineReconciliationService', () => {
   it('idempotently accepts a clean check-in and records an audit', async () => {
     const ticket = {
@@ -197,6 +213,7 @@ describe('OfflineReconciliationService', () => {
       },
       checkIn: { create: jest.fn().mockResolvedValue({}) },
       offlineReconciliationRecord: { create: jest.fn().mockResolvedValue({ id: 'rec1' }) },
+      checkInManifest: { findMany: jest.fn().mockResolvedValue([ISSUED]) },
     } as unknown as PrismaService;
     const svc = new OfflineReconciliationService(prisma, access, audit);
 
@@ -209,6 +226,8 @@ describe('OfflineReconciliationService', () => {
         eventSessionId: 'se1',
         checkedInAt: Date.now(),
         wasOverride: false,
+        manifestVersion: 1,
+        manifestSignature: 'sig-1',
       },
     ]);
     expect(res).toEqual([{ ticketId: 'tk1', outcome: 'ACCEPTED' }]);
@@ -237,6 +256,7 @@ describe('OfflineReconciliationService', () => {
       },
       checkIn: { create: jest.fn() },
       offlineReconciliationRecord: { create: jest.fn().mockResolvedValue({ id: 'rec1' }) },
+      checkInManifest: { findMany: jest.fn().mockResolvedValue([ISSUED]) },
     } as unknown as PrismaService;
     const svc = new OfflineReconciliationService(prisma, access, audit);
     const res = await svc.reconcile(USER, 'dev1', [
@@ -248,6 +268,8 @@ describe('OfflineReconciliationService', () => {
         eventSessionId: 'se1',
         checkedInAt: Date.now(),
         wasOverride: false,
+        manifestVersion: 1,
+        manifestSignature: 'sig-1',
       },
     ]);
     expect(res[0].outcome).toBe('TRANSFERRED_AFTER_DOWNLOAD');
@@ -285,6 +307,7 @@ describe('OfflineReconciliationService organization boundary', () => {
       },
       checkIn: { create: checkInCreate },
       offlineReconciliationRecord: { create: jest.fn().mockResolvedValue({ id: 'rec1' }) },
+      checkInManifest: { findMany: jest.fn().mockResolvedValue([ISSUED]) },
     } as unknown as PrismaService;
     const svc = new OfflineReconciliationService(prisma, access, audit);
 
@@ -297,6 +320,8 @@ describe('OfflineReconciliationService organization boundary', () => {
         eventSessionId: 'se1',
         checkedInAt: Date.now(),
         wasOverride: false,
+        manifestVersion: 1,
+        manifestSignature: 'sig-1',
       },
     ]);
 

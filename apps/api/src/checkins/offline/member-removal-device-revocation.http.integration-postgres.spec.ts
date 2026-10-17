@@ -19,8 +19,8 @@ import { AllExceptionsFilter } from '../../common/all-exceptions.filter';
  *     admits a ticket online and uploads a queued offline scan;
  *  2. the owner removes the member: the device reads REVOKED, the member's held session is
  *     refused on sync, scan and upload (401 ACCESS_REMOVED), their refresh token is dead, and
- *     the phone's queue uploaded by somebody still on the team is refused (403 FORBIDDEN) with
- *     the ticket left unspent;
+ *     the phone's queue uploaded by somebody still on the team is refused (403
+ *     DEVICE_NOT_ACTIVE) with the ticket left unspent and the scan held for review (H5);
  *  3. another member's device is untouched and keeps working;
  *  4. inviting the member back does not bring the old device back - not by the invitation, and
  *     not by approving it again (that used to work: `approve` set any status to ACTIVE);
@@ -130,8 +130,25 @@ describe('integration-real-postgres: removing a member revokes their check-in de
     return reg.data.id as string;
   }
 
-  const sync = (token: string) =>
-    http('GET', `/checkin/manifest?eventSessionId=${sessionId}`, token);
+  /*
+    H5: a ticket list is issued to one ACTIVE device, and an uploaded scan cites the list it was
+    made against. `proof` keeps the last list each device synced, as the phone would.
+  */
+  const proof = new Map<string, { manifestVersion: number; manifestSignature: string }>();
+  const sync = async (token: string, deviceId: string) => {
+    const r = await http(
+      'GET',
+      `/checkin/manifest?eventSessionId=${sessionId}&deviceId=${deviceId}`,
+      token,
+    );
+    if (r.status === 200) {
+      proof.set(deviceId, {
+        manifestVersion: r.data.meta.version,
+        manifestSignature: r.data.signature,
+      });
+    }
+    return r;
+  };
   const scanOnline = (token: string, i: number) =>
     http('POST', '/checkins', token, {
       token: qr.sign({
@@ -152,8 +169,9 @@ describe('integration-real-postgres: removing a member revokes their check-in de
           nonce: tickets[i].nonce,
           version: 1,
           eventSessionId: sessionId,
-          checkedInAt: Date.now() - 60_000,
+          checkedInAt: Date.now() - 1_000,
           wasOverride: false,
+          ...proof.get(deviceId),
         },
       ],
     });
@@ -315,8 +333,10 @@ describe('integration-real-postgres: removing a member revokes their check-in de
     Object.assign(other, await inviteAndAccept(otherEmail, 'CHECKIN_STAFF'));
     other.deviceId = await registeredAndApproved(other.access, 'Walk Gate 2 phone');
 
-    const manifest = await sync(door.access);
+    const manifest = await sync(door.access, door.deviceId);
     expect(manifest.status).toBe(200);
+    expect(manifest.data.meta.deviceId).toBe(door.deviceId);
+    expect((await sync(other.access, other.deviceId)).status).toBe(200);
     expect(manifest.data.signature).toMatch(/^[0-9a-f]{64}$/);
     expect(manifest.data.entries.map((e: { ticketId: string }) => e.ticketId)).toContain(
       tickets[0].id,
@@ -360,10 +380,14 @@ describe('integration-real-postgres: removing a member revokes their check-in de
     // The phone's own session is ended: sync, online scan and upload are all refused with the
     // code the console turns into "You no longer have access to ...".
     for (const r of [
-      await sync(door.access),
+      await sync(door.access, door.deviceId),
       await scanOnline(door.access, 2),
       await upload(door.access, door.deviceId, 3),
-      await http('GET', `/checkin/deltas?eventSessionId=${sessionId}&sinceMs=0`, door.access),
+      await http(
+        'GET',
+        `/checkin/deltas?eventSessionId=${sessionId}&sinceMs=0&deviceId=${door.deviceId}`,
+        door.access,
+      ),
     ]) {
       expect(r.status).toBe(401);
       expect(codeOf(r)).toBe('ACCESS_REMOVED');
@@ -373,21 +397,23 @@ describe('integration-real-postgres: removing a member revokes their check-in de
     expect(refresh.status).toBe(401);
 
     // The device id itself is unusable: a teammate who picks the phone up and uploads its queue
-    // under their own still-valid session is refused, and the ticket is not spent.
+    // under their own still-valid session is refused, and the ticket is not spent. The scan is
+    // kept as evidence for a manager (H5), never applied.
     const pickedUp = await upload(other.access, door.deviceId, 3);
     expect(pickedUp.status).toBe(403);
-    expect(codeOf(pickedUp)).toBe('FORBIDDEN');
+    expect(codeOf(pickedUp)).toBe('DEVICE_NOT_ACTIVE');
     expect(await ticketStatus(3)).toBe('ACTIVE');
+    const held = await db!.offlineReconciliationRecord.findMany({
+      where: { deviceId: door.deviceId, ticketId: tickets[3].id },
+    });
     expect(
-      await db!.offlineReconciliationRecord.count({
-        where: { deviceId: door.deviceId, ticketId: tickets[3].id },
-      }),
-    ).toBe(0);
+      held.map((r: { outcome: string; reviewState: string }) => [r.outcome, r.reviewState]),
+    ).toEqual([['DEVICE_NOT_ACTIVE', 'PENDING']]);
 
     // Signing in again starts a fresh session, but with no seat: the door stays shut (403).
     await nextSecond();
     const fresh = await login(doorEmail);
-    expect((await sync(fresh.access)).status).toBe(403);
+    expect((await sync(fresh.access, door.deviceId)).status).toBe(403);
     expect((await upload(fresh.access, door.deviceId, 3)).status).toBe(403);
     expect((await scanOnline(fresh.access, 2)).status).toBe(403);
     expect(await ticketStatus(2)).toBe('ACTIVE');
@@ -399,7 +425,7 @@ describe('integration-real-postgres: removing a member revokes their check-in de
     expect(row.status).toBe('ACTIVE');
     expect(row.expiresAt.getTime()).toBeGreaterThan(Date.now());
 
-    expect((await sync(other.access)).status).toBe(200);
+    expect((await sync(other.access, other.deviceId)).status).toBe(200);
     const queued = await upload(other.access, other.deviceId, 4);
     expect(queued.status).toBeLessThan(300);
     expect(queued.data).toEqual([{ ticketId: tickets[4].id, outcome: 'ACCEPTED' }]);
@@ -422,8 +448,12 @@ describe('integration-real-postgres: removing a member revokes their check-in de
     await nextSecond();
     const back = await login(doorEmail);
 
-    // On the team again: their new session works...
-    expect((await sync(back.access)).status).toBe(200);
+    // On the team again: their new session works (on a teammate's ACTIVE phone)...
+    expect((await sync(back.access, other.deviceId)).status).toBe(200);
+    // ...but not for the old phone, which cannot get a new list (H5).
+    const oldSync = await sync(back.access, door.deviceId);
+    expect(oldSync.status).toBe(403);
+    expect(codeOf(oldSync)).toBe('DEVICE_NOT_ACTIVE');
     // ...but the old phone is still revoked, and its queue is still refused.
     expect((await deviceRow(door.deviceId)).status).toBe('REVOKED');
     const old = await upload(back.access, door.deviceId, 5);
@@ -441,6 +471,7 @@ describe('integration-real-postgres: removing a member revokes their check-in de
 
     const fresh = await registeredAndApproved(back.access, 'Walk Gate 1 new phone');
     expect(fresh).not.toBe(door.deviceId);
+    expect((await sync(back.access, fresh)).status).toBe(200);
     const ok = await upload(back.access, fresh, 5);
     expect(ok.data).toEqual([{ ticketId: tickets[5].id, outcome: 'ACCEPTED' }]);
   });
@@ -464,7 +495,7 @@ describe('integration-real-postgres: removing a member revokes their check-in de
     expect(demoted.data).toMatchObject({ role: 'CHECKIN_STAFF', status: 'ACTIVE' });
 
     expect((await deviceRow(phone)).status).toBe('ACTIVE');
-    expect((await sync(shift.access)).status).toBe(200);
+    expect((await sync(shift.access, phone)).status).toBe(200);
     const ok = await upload(shift.access, phone, 6);
     expect(ok.data).toEqual([{ ticketId: tickets[6].id, outcome: 'ACCEPTED' }]);
 
