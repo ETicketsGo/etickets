@@ -70,7 +70,7 @@ const RETRY_RESULT: Record<string, string> = {
   PROCESSING: 'Tried again: the provider accepted it and is paying it',
   FAILED: 'Tried again: the payment provider refused it',
   NEEDS_REVIEW:
-    'Tried again: the payment provider did not answer and could not be asked. It needs a manual check',
+    'Tried again: the payment provider did not answer, and asking it did not settle it. It needs a manual check',
   ERROR: 'Tried again: the payment provider did not answer, so it may or may not have paid',
 };
 

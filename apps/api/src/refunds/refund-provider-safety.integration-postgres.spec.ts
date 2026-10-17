@@ -23,6 +23,11 @@ import type { RequestUser } from '../common/decorators';
  *   ONCE      throw a timeout on the first call only, having made nothing; answer after that
  *   REFUSE    answer "failed"
  *   OK        make the refund and answer
+ *   INFLIGHT  throw a timeout while the refund is still being made: it is NOT listed by the next
+ *             two lookups, then appears. A resend meanwhile times out too. This is what the real
+ *             Razorpay TEST API did with a create held past our timeout (H2, 2026-10-16): the
+ *             old code resent, saw nothing twice, said "No money moved", and released the
+ *             tickets to a second refund that Razorpay then paid as well.
  * and its lookup of a payment's refunds can be told to fail. Every create call is counted, with
  * the key it carried: "the provider was asked to refund N times" is the assertion that matters.
  *
@@ -49,7 +54,7 @@ function loadDatabaseUrl(): string | undefined {
 const { PrismaClient } = require('@prisma/client');
 type Client = InstanceType<typeof PrismaClient>;
 
-type CreateMode = 'OK' | 'LOST' | 'TIMEOUT' | 'ONCE' | 'REFUSE';
+type CreateMode = 'OK' | 'LOST' | 'TIMEOUT' | 'ONCE' | 'REFUSE' | 'INFLIGHT';
 
 describe('integration-real-postgres: refund calls with a lost answer', () => {
   const url = loadDatabaseUrl();
@@ -73,6 +78,7 @@ describe('integration-real-postgres: refund calls with a lost answer', () => {
     creates: [] as RefundInput[],
     lookups: 0,
     made: new Map<string, ProviderRefundRecord[]>(),
+    inflight: [] as { input: RefundInput; hiddenFor: number }[],
     seq: 0,
   };
   const timeout = () =>
@@ -100,6 +106,10 @@ describe('integration-real-postgres: refund calls with a lost answer', () => {
       const mode = fake.create;
       if (mode === 'TIMEOUT') throw timeout();
       if (mode === 'ONCE' && fake.creates.length === 1) throw timeout();
+      if (mode === 'INFLIGHT') {
+        if (fake.inflight.length === 0) fake.inflight.push({ input, hiddenFor: 2 });
+        throw timeout();
+      }
       if (mode === 'REFUSE')
         return { providerRef: make(input, 'FAILED').refundRef, status: 'FAILED' };
       const rec = make(input);
@@ -109,7 +119,13 @@ describe('integration-real-postgres: refund calls with a lost answer', () => {
     findPaymentRefunds: jest.fn(async (paymentRef: string) => {
       fake.lookups += 1;
       if (fake.lookupFails) throw new Error('Razorpay answered 503');
-      return [...(fake.made.get(paymentRef) ?? [])];
+      const listed = [...(fake.made.get(paymentRef) ?? [])];
+      for (const f of fake.inflight) {
+        f.hiddenFor -= 1;
+        if (f.hiddenFor === 0) make(f.input); // listed from the NEXT lookup on
+      }
+      fake.inflight = fake.inflight.filter((f) => f.hiddenFor > 0);
+      return listed;
     }),
   } as unknown as PaymentProvider;
 
@@ -253,6 +269,7 @@ describe('integration-real-postgres: refund calls with a lost answer', () => {
     fake.lookupFails = false;
     fake.creates = [];
     fake.lookups = 0;
+    fake.inflight = [];
     strategy.refund.mockClear();
     receipts.issueCreditNote.mockClear();
     notifications.sendCritical.mockClear();
@@ -334,28 +351,98 @@ describe('integration-real-postgres: refund calls with a lost answer', () => {
   }, 60_000);
 
   // ── 2 ───────────────────────────────────────────────────────────────────────────────
-  it('timeout, lookup shows no refund: sent once more with the SAME key, and paid', async () => {
+  /** Make the newest attempt look `minutes` old, as if the admin came back later. */
+  const ageLastAttempt = async (refundId: string, minutes: number) => {
+    const last = await db!.refundProviderAttempt.findFirst({
+      where: { refundId },
+      orderBy: { attemptNo: 'desc' },
+    });
+    await db!.refundProviderAttempt.update({
+      where: { id: last.id },
+      data: { startedAt: new Date(Date.now() - minutes * 60_000) },
+    });
+  };
+  const heldRefundsOn = (bookingId: string) =>
+    db!.refund.findMany({
+      where: {
+        bookingId,
+        OR: [
+          { status: { in: ['REQUESTED', 'PROCESSING', 'COMPLETED'] } },
+          { status: 'FAILED', manualReviewReason: { not: null } },
+        ],
+      },
+    });
+
+  it('timeout, lookup shows no refund yet: held, NOT resent, and not resendable until the call is old', async () => {
     if (!available) return;
     const f = await paidBookingWithRefund(2);
     fake.create = 'ONCE';
-    const out = await refunds.process(admin, f.refundId, 'APPROVE');
-
-    expect(fake.creates).toHaveLength(2);
-    expect(fake.creates[0].idempotencyKey).toBe(`etg-rf-${f.refundId}`);
-    expect(fake.creates[1].idempotencyKey).toBe(fake.creates[0].idempotencyKey);
-    expect(fake.lookups).toBe(1);
-    expect(madeFor(f.payId)).toHaveLength(1);
-    expect(out?.status).toBe('COMPLETED');
-    const attempts = await db!.refundProviderAttempt.findMany({
-      where: { refundId: f.refundId },
-      orderBy: { attemptNo: 'asc' },
+    await expect(refunds.process(admin, f.refundId, 'APPROVE')).rejects.toMatchObject({
+      details: { providerOutcome: 'UNRESOLVED' },
     });
-    expect(
-      attempts.map((a: { trigger: string; outcome: string }) => [a.trigger, a.outcome]),
-    ).toEqual([
-      ['APPROVAL', 'UNKNOWN'],
-      ['AUTO_RESEND', 'ACCEPTED'],
-    ]);
+
+    expect(fake.creates).toHaveLength(1); // no automatic resend
+    expect(fake.lookups).toBe(1);
+    const r = await row(f.refundId);
+    expect(r.status).toBe('FAILED');
+    expect(r.manualReviewReason).toMatch(/does not list this refund yet/);
+    expect(await heldRefundsOn(f.bookingId)).toHaveLength(1); // its tickets stay covered
+
+    // Straight after, an empty lookup is not proof: refused even with the dashboard tick.
+    expect(await refunds.retryCheck(f.refundId)).toMatchObject({
+      allowed: false,
+      refusal: 'TOO_SOON',
+      providerLookup: { kind: 'NONE' },
+    });
+    await expect(
+      refunds.retry(admin, f.refundId, { confirmedNoProviderRefund: true }),
+    ).rejects.toMatchObject({ details: { refusal: 'TOO_SOON' } });
+    expect(fake.creates).toHaveLength(1);
+
+    // Once the call is old enough to have finished, the empty answer counts: same key.
+    await ageLastAttempt(f.refundId, 11);
+    expect(await refunds.retryCheck(f.refundId)).toMatchObject({ allowed: true, action: 'SEND' });
+    const out = await refunds.retry(admin, f.refundId, {});
+    expect(out.outcome).toBe('COMPLETED');
+    expect(fake.creates).toHaveLength(2);
+    expect(fake.creates[1].idempotencyKey).toBe(fake.creates[0].idempotencyKey);
+    expect(madeFor(f.payId)).toHaveLength(1);
+  }, 60_000);
+
+  it('a refund still in flight at the provider is never declared "not refunded" or paid twice', async () => {
+    if (!available) return;
+    const f = await paidBookingWithRefund(9);
+    fake.create = 'INFLIGHT';
+    await expect(refunds.process(admin, f.refundId, 'APPROVE')).rejects.toMatchObject({
+      details: { providerOutcome: 'UNRESOLVED' },
+    });
+    expect(fake.creates).toHaveLength(1);
+
+    // Held, so the same tickets cannot go on a second refund (a new key Razorpay would pay).
+    const r = await row(f.refundId);
+    expect(r.status).toBe('FAILED');
+    expect(r.manualReviewReason).not.toBeNull();
+    expect(await heldRefundsOn(f.bookingId)).toHaveLength(1);
+    const audit = await db!.auditLog.findMany({
+      where: { entityType: 'Refund', entityId: f.refundId },
+      select: { action: true },
+    });
+    expect(audit.map((a: { action: string }) => a.action)).not.toContain('REFUND_FAILED');
+
+    // The provider lists it soon after; the admin retry records it and sends nothing.
+    fake.create = 'OK';
+    expect((await refunds.retryCheck(f.refundId)).refusal).toBe('TOO_SOON'); // still unlisted
+    await ageLastAttempt(f.refundId, 11);
+    expect(await refunds.retryCheck(f.refundId)).toMatchObject({
+      allowed: true,
+      action: 'RECORD_PROVIDER_REFUND',
+    });
+    expect(await refunds.retry(admin, f.refundId, {})).toMatchObject({
+      outcome: 'COMPLETED',
+      recorded: true,
+    });
+    expect(fake.creates).toHaveLength(1);
+    expect(madeFor(f.payId)).toHaveLength(1);
   }, 60_000);
 
   // ── 3 ───────────────────────────────────────────────────────────────────────────────
@@ -436,6 +523,9 @@ describe('integration-real-postgres: refund calls with a lost answer', () => {
 
     fake.create = 'OK';
     fake.lookupFails = false;
+    // The lost call is fresh: an empty lookup is not yet proof.
+    expect((await refunds.retryCheck(f.refundId)).refusal).toBe('TOO_SOON');
+    await ageLastAttempt(f.refundId, 11);
     expect(await refunds.retryCheck(f.refundId)).toMatchObject({
       allowed: true,
       action: 'SEND',

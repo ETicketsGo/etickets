@@ -22,7 +22,7 @@ export function retryOutcomeText(r: Pick<RefundRetryResult, 'outcome' | 'recorde
     case 'FAILED':
       return 'The provider refused it, or shows no refund for it. No money moved.';
     case 'NEEDS_REVIEW':
-      return 'The provider did not answer, and it could not be asked whether it made the refund. The money may or may not have moved. It needs a manual check in the provider dashboard.';
+      return 'The provider did not answer, and asking it did not show whether it made the refund. The money may or may not have moved. It needs a manual check in the provider dashboard.';
     default:
       return 'The provider did not answer, so the money may or may not have moved. Check the provider dashboard before trying again.';
   }

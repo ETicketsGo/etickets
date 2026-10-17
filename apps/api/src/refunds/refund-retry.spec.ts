@@ -208,6 +208,39 @@ describe('assessRetry: the provider is asked first', () => {
     expect(a.message).toMatch(/same key/);
   });
 
+  /*
+    Real Razorpay does not list a refund while its create call is in flight. Right after a lost
+    answer "no refund" is therefore not proof, and no tick unlocks it: the dashboard cannot show
+    an unfinished refund either.
+  */
+  it('refuses to send on an empty lookup while the lost call may still be in flight', () => {
+    const until = new Date('2026-10-16T12:10:00Z');
+    for (const confirmedNoProviderRefund of [false, true]) {
+      const a = assessRetry(
+        unanswered({
+          providerLookup: { kind: 'NONE' },
+          noneBelievableAfter: until,
+          confirmedNoProviderRefund,
+        }),
+      );
+      expect(a).toMatchObject({ allowed: false, refusal: 'TOO_SOON', action: null });
+      expect(a.message).toMatch(/2026-10-16 12:10 UTC/);
+    }
+    // A refund the provider DOES list is recorded whatever the clock says.
+    const found = assessRetry(
+      unanswered({
+        providerLookup: {
+          kind: 'FOUND',
+          providerRef: 'rfnd_1',
+          status: 'COMPLETED',
+          amountMinor: 5000,
+        },
+        noneBelievableAfter: until,
+      }),
+    );
+    expect(found).toMatchObject({ allowed: true, action: 'RECORD_PROVIDER_REFUND' });
+  });
+
   it('still needs the dashboard check when the provider could not be asked', () => {
     const a = assessRetry(
       unanswered({
