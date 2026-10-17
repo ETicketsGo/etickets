@@ -7361,17 +7361,41 @@ export interface PlatformFeesReport {
     series: { day: string; feesMinor: number }[];
   }[];
 }
+/** Tax on documents: charged on sale documents, given back on credit notes, and the net. */
+export interface TaxReportAmounts {
+  chargedMinor: number;
+  /** A positive amount: the tax the credit notes gave back. */
+  reversedMinor: number;
+  netMinor: number;
+}
 export interface TaxReport {
   from: string;
   to: string;
   /** Whether any tax rule is configured at all — not whether this period collected any. */
   taxModelled: boolean;
   note: string;
-  /** Tax as charged, per currency: GST in rupees and sales tax in dollars are two figures. */
+  /**
+   * Per currency, read from the documents issued in the range: tax on the sale documents
+   * minus tax on the credit notes (refunds and cancelled cash sales), by issue date.
+   */
   byCurrency: {
     currency: string;
-    taxCollectedMinor: number;
-    breakdown: { label: string; rateBasisPoints: number; baseMinor: number; amountMinor: number }[];
+    taxChargedMinor: number;
+    taxReversedMinor: number;
+    netTaxMinor: number;
+    invoices: number;
+    creditNotes: number;
+    breakdown: (TaxReportAmounts & {
+      label: string;
+      rateBasisPoints: number;
+      component: 'CGST' | 'SGST' | 'UTGST' | 'IGST' | null;
+      netBaseMinor: number;
+    })[];
+    /** The venue's country and state: the place of supply for admission. */
+    byPlace: (TaxReportAmounts & { country: string | null; region: string | null })[];
+    /** YYYY-MM (UTC). */
+    byMonth: (TaxReportAmounts & { month: string })[];
+    /** Bookings confirmed in the range, before refunds. */
     taxableBaseMinor: number;
     grossMinor: number;
     platformFeesMinor: number;

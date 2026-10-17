@@ -131,7 +131,11 @@ export class AdminBusinessReportsController {
   }
 
   @Get('tax')
-  @ApiOperation({ summary: 'Taxable base + honest taxModelled:false flag (GST not implemented).' })
+  @ApiOperation({
+    summary:
+      'Tax charged on sale documents minus tax reversed on credit notes, by issue date: net tax ' +
+      'per currency, GST component and rate, state and month.',
+  })
   tax(@Query(new ZodValidationPipe(rangeQuery)) q: RangeQuery) {
     const range = resolveRange(q.from, q.to);
     return this.reports.tax(range.from, range.to);
