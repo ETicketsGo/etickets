@@ -301,8 +301,17 @@ function CurrencyBlock({
               ))}
             </dl>
           </div>
-          {(bridge.discountMinor !== null || providerSettledEvents > 0) && (
+          {(bridge.discountMinor !== null ||
+            bridge.feesReturnedMinor !== null ||
+            providerSettledEvents > 0) && (
             <p className="mt-3 text-caption text-text-muted">
+              {bridge.feesReturnedMinor !== null && (
+                <>
+                  Buyers also got back {money(bridge.feesReturnedMinor, bridge.currency)} of booking
+                  and payment fees with their refunds. Those fees were never part of your sales, so
+                  they do not come off here.{' '}
+                </>
+              )}
               {bridge.discountMinor !== null && (
                 <>
                   Discounts of {money(bridge.discountMinor, bridge.currency)} come off when a show

@@ -107,15 +107,12 @@ function makeService(
       aggregate: jest.fn().mockResolvedValue({ _sum: { quantityTotal: 200, quantitySold: 50 } }),
     },
     /*
-      Two raw joins run for an organizer with financial access, in this order: refunds by the
-      booking's currency, then the country split. Prisma cannot group by a relation field, so
-      both are hand-written SQL rather than `groupBy`.
+      Raw joins run for an organizer with financial access: refunds by the booking's currency, the
+      country split, payment failures, and what net takes off gross besides the fee. Prisma cannot
+      group by a relation field, so they are hand-written SQL rather than `groupBy`. Answered by
+      the SQL they send, not by call order, because they run concurrently.
     */
-    $queryRaw: jest
-      .fn()
-      .mockResolvedValueOnce([{ currency: 'INR', count: 2n, amount: 10000n }])
-      .mockResolvedValueOnce([{ country: 'India', currency: 'INR', gross: 100000n, bookings: 4n }])
-      .mockResolvedValue([]),
+    $queryRaw: jest.fn((strings: TemplateStringsArray) => rawAnswer(strings.join('?'))),
     ...(opts.prisma ?? {}),
   };
   const access = {
@@ -137,6 +134,23 @@ function makeService(
     reports,
     service: new AnalyticsService(prisma as never, access as never, reports as never),
   };
+}
+
+/**
+ * The default answers to the organizer's raw queries. The two refunds are buyer-requested (no
+ * fees returned), so the organizer's share is the whole 10 000.
+ */
+function rawAnswer(sql: string): Promise<unknown[]> {
+  if (sql.includes('"platformFeeRefundedMinor"')) {
+    return Promise.resolve([{ currency: 'INR', sales: 10000n, outside: 0n, cashback: 0n }]);
+  }
+  if (sql.includes('"Refund"')) {
+    return Promise.resolve([{ currency: 'INR', count: 2n, amount: 10000n }]);
+  }
+  if (sql.includes('"Venue"')) {
+    return Promise.resolve([{ country: 'India', currency: 'INR', gross: 100000n, bookings: 4n }]);
+  }
+  return Promise.resolve([]);
 }
 
 describe('AnalyticsService.organizer', () => {
@@ -172,6 +186,44 @@ describe('AnalyticsService.organizer', () => {
     expect(r.coupons).toEqual([{ currency: 'INR', redemptions: 4, discountMinor: 1000 }]);
   });
 
+  /*
+    G1, QA 2026-10-16: a cancellation refund returns the booking and payment fees too, and those
+    were never in gross. Net took the whole refund off, so the Finance bridge was short by exactly
+    the fees returned (Rs 96.94 on QA). Cash handed back for a cancelled show writes no refund row,
+    so net counted it as kept.
+  */
+  it("takes only the organizer's share of refunds off net, and cash given back", async () => {
+    const $queryRaw = jest.fn((strings: TemplateStringsArray) => {
+      const sql = strings.join('?');
+      if (sql.includes('"platformFeeRefundedMinor"')) {
+        // 10 000 refunded in all: 9 400 ticket money and 600 fees; 2 000 of cash handed back.
+        return Promise.resolve([{ currency: 'INR', sales: 9400n, outside: 600n, cashback: 2000n }]);
+      }
+      return rawAnswer(sql);
+    });
+    const { service } = makeService({ prisma: { $queryRaw } });
+    const r = await service.organizer(owner, 'o1');
+    expect(r.revenue?.[0]).toMatchObject({
+      grossMinor: 100000,
+      organizerFeesMinor: 3000,
+      refundedSalesMinor: 9400,
+      refundedOutsideSalesMinor: 600,
+      cashGivenBackMinor: 2000,
+      // 100 000 - 3 000 fee - 9 400 ticket money refunded - 2 000 cash given back.
+      netMinor: 85600,
+    });
+    // What buyers got back is still reported whole.
+    expect(r.refunds?.[0].amountMinor).toBe(10000);
+    // The share is the calculator's rule, row by row: never below zero.
+    const deductions = $queryRaw.mock.calls.find(([strings]) =>
+      strings.join('?').includes('"platformFeeRefundedMinor"'),
+    ) as unknown as [TemplateStringsArray, ...unknown[]];
+    expect(deductions[0].join('?')).toContain(
+      'GREATEST(0, r."amountMinor" - r."taxAddedMinor" - r."platformFeeRefundedMinor")',
+    );
+    expect(deductions[0].join('?')).toContain(`b."cashReturnedAt" IS NOT NULL`);
+  });
+
   it('gates financial fields: a non-OWNER/MANAGER member sees no money and money queries never run', async () => {
     const { service, prisma } = makeService({ membershipRole: 'CHECKIN_STAFF' });
     const r = await service.organizer(owner, 'o1');
@@ -196,8 +248,8 @@ describe('AnalyticsService.organizer', () => {
   it('lists every market with its payments, including a country that has not sold yet', async () => {
     const $queryRaw = jest.fn((strings: TemplateStringsArray) => {
       const sql = strings.join('?');
-      if (sql.includes('"Refund"')) {
-        return Promise.resolve([{ currency: 'INR', count: 2n, amount: 10000n }]);
+      if (sql.includes('"platformFeeRefundedMinor"') || sql.includes('"Refund"')) {
+        return rawAnswer(sql);
       }
       if (sql.includes('"Venue"')) {
         return Promise.resolve([
