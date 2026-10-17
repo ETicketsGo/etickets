@@ -19,16 +19,47 @@ on:
       - 'turbo.json'
       - '.npmrc'
       - '.github/workflows/mobile-ci.yml'
+  # Every pull request runs this workflow, so the "Mobile CI gate" check below always reports
+  # and can be a REQUIRED merge check. A path filter here would leave the required check
+  # pending forever on a web-only PR. The `changes` job applies the same path list instead,
+  # and the expensive `verify` job runs only when one of those paths changed.
   pull_request:
-    paths: *paths
 
 concurrency:
   group: mobile-ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  # Did this pull request touch anything the mobile app depends on? Keep this list identical
+  # to the push `paths` above. A push to main already passed that filter, so it always counts.
+  changes:
+    name: Detect mobile changes
+    runs-on: ubuntu-latest
+    outputs:
+      mobile: ${{ steps.diff.outputs.mobile }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "$EVENT" != "pull_request" ]; then echo "mobile=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          CHANGED=$(git diff --name-only "$BASE...$HEAD")
+          echo "$CHANGED"
+          if echo "$CHANGED" | grep -qE '^(apps/customer-mobile/|packages/shared-types/|packages/validation/|packages/design-tokens/|package.json$|package-lock.json$|turbo.json$|.npmrc$|.github/workflows/mobile-ci.yml$)'; then
+            echo "mobile=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "mobile=false" >> "$GITHUB_OUTPUT"
+          fi
+
   verify:
     name: Doctor + Typecheck + Lint + Test + Web export
+    needs: changes
+    if: ${{ needs.changes.outputs.mobile == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -89,6 +120,26 @@ jobs:
         run: npm run test:mobile -w @eticketsgo/customer-mobile
       - name: Expo web export (Metro bundle — no native toolchain needed)
         run: npm run export:web -w @eticketsgo/customer-mobile
+
+  # The one check branch protection requires. It always runs and always reports: it passes
+  # when nothing mobile changed, and otherwise only when `verify` succeeded. A skipped,
+  # failed or cancelled verify on a mobile change fails it.
+  gate:
+    name: Mobile CI gate
+    needs: [changes, verify]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          MOBILE: ${{ needs.changes.outputs.mobile }}
+          CHANGES: ${{ needs.changes.result }}
+          VERIFY: ${{ needs.verify.result }}
+        run: |
+          echo "changes=$CHANGES mobile=$MOBILE verify=$VERIFY"
+          if [ "$CHANGES" != "success" ]; then echo "::error::could not tell whether mobile changed"; exit 1; fi
+          if [ "$MOBILE" != "true" ]; then echo "No mobile-affecting change; nothing to verify."; exit 0; fi
+          if [ "$VERIFY" = "success" ]; then exit 0; fi
+          echo "::error::Mobile verify did not succeed ($VERIFY)"; exit 1
 
   # The native build, on EAS, because compiling Android or iOS needs a toolchain this
   # runner does not have. Requires an Expo account token in repo secrets (EXPO_TOKEN), and

@@ -6,6 +6,7 @@ import {
 } from '@eticketsgo/shared-types';
 import {
   DLT_ID_PATTERN,
+  DLT_SMS_REPLACEMENTS,
   DLT_SMS_TEMPLATES,
   DLT_VARIABLE,
   DOCUMENTED_APPROVED_SENDER_HEADER,
@@ -877,6 +878,15 @@ const envSchema = z.object({
   DLT_TEMPLATE_ID_REFUND_COMPLETED: z.string().trim().optional(),
   MSG91_SMS_TEMPLATE_SHOW_CANCELLED: z.string().trim().optional(),
   DLT_TEMPLATE_ID_SHOW_CANCELLED: z.string().trim().optional(),
+  /*
+    Replacement show-cancelled wording (DLT_SMS_REPLACEMENTS), one pair per reader. Unset, the
+    registered SHOW_CANCELLED template above stays in use for online buyers and a cash buyer
+    gets no SMS. Each pair takes effect only when its DLT id is set.
+  */
+  MSG91_SMS_TEMPLATE_SHOW_CANCELLED_ONLINE: z.string().trim().optional(),
+  DLT_TEMPLATE_ID_SHOW_CANCELLED_ONLINE: z.string().trim().optional(),
+  MSG91_SMS_TEMPLATE_SHOW_CANCELLED_CASH: z.string().trim().optional(),
+  DLT_TEMPLATE_ID_SHOW_CANCELLED_CASH: z.string().trim().optional(),
   /** Random path secret embedded in the MSG91 delivery-report URL. */
   MSG91_WEBHOOK_SECRET: z.string().optional(),
   /*
@@ -1527,7 +1537,9 @@ export function dltConfigContradictions(cfg: AppConfig): string[] {
   // Ids the portal issues are 19 digits. A shorter or longer value was mistyped or truncated.
   const ids: (keyof AppConfig)[] = [
     'DLT_PRINCIPAL_ENTITY_ID',
-    ...(Object.values(DLT_SMS_TEMPLATES).map((t) => t.dltTemplateIdEnv) as (keyof AppConfig)[]),
+    ...([...Object.values(DLT_SMS_TEMPLATES), ...DLT_SMS_REPLACEMENTS].map(
+      (t) => t.dltTemplateIdEnv,
+    ) as (keyof AppConfig)[]),
   ];
   for (const key of ids) {
     const value = String(cfg[key] ?? '').trim();

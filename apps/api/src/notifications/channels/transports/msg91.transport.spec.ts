@@ -4,6 +4,13 @@ import { Msg91SmsTransport, parseTemplateIds } from './sms.transport';
 import { Msg91WhatsAppTransport, parseTemplateNames } from './whatsapp.transport';
 import { TransportError } from './transport-http';
 import type { RenderedNotification } from '../notification-channel.interface';
+import {
+  DLT_SMS_REPLACEMENTS,
+  DLT_SMS_TEMPLATES,
+  matchDltSms,
+  renderDltSms,
+  type DltSmsTemplate,
+} from '../../templates/dlt-sms-templates';
 
 /**
  * The MSG91 adapters, against a mocked HTTP layer.
@@ -281,6 +288,133 @@ describe('MSG91 SMS', () => {
       MSG91_SMS_PATH: '/v6/send',
     }).send(cancelled());
     expect(fetchMock.mock.calls[0][0]).toBe('https://api.msg91.example/v6/send');
+  });
+});
+
+/*
+  The show-cancelled text, chosen per reader (owner, 2026-10-16). The registered wording tells
+  the buyer to check their email for refund details, which is false for a cash buyer. Corrected
+  wording waits for DLT approval, and until its ids are set nothing changes for an online buyer.
+*/
+describe('MSG91 SMS: show cancelled, online and cash', () => {
+  const REGISTERED = {
+    MSG91_SENDER_ID: 'DPTRCS',
+    DLT_SENDER_HEADER: 'DPTRCS',
+    MSG91_SMS_TEMPLATE_SHOW_CANCELLED: 'tmpl-show',
+    DLT_TEMPLATE_ID_SHOW_CANCELLED: '1707000000000000010',
+  };
+  const ONLINE_APPROVED = {
+    MSG91_SMS_TEMPLATE_SHOW_CANCELLED_ONLINE: 'tmpl-show-online',
+    DLT_TEMPLATE_ID_SHOW_CANCELLED_ONLINE: '1707000000000000020',
+  };
+  const CASH_APPROVED = {
+    MSG91_SMS_TEMPLATE_SHOW_CANCELLED_CASH: 'tmpl-show-cash',
+    DLT_TEMPLATE_ID_SHOW_CANCELLED_CASH: '1707000000000000021',
+  };
+  const ONLINE = {
+    reference: 'ETG-IN-2026-000042',
+    eventTitle: 'Kalki 2898 AD',
+    startsAt: '2026-11-01T13:30:00.000Z',
+    timeZone: 'Asia/Kolkata',
+  };
+  const CASH = { ...ONLINE, paidInCash: true, amountMinor: 165036, currency: 'INR' };
+  const transport = (over: Record<string, string> = {}) =>
+    new Msg91SmsTransport(config({ ...REGISTERED, ...over }));
+  const show = (payload: Record<string, unknown>) =>
+    msg({ type: NotificationType.SHOW_CANCELLED, payload });
+
+  /** What the operator will read, rebuilt from the request: MSG91 fills the template by name. */
+  function sentText(template: DltSmsTemplate): string {
+    const recipient = JSON.parse(fetchMock.mock.calls[0][1].body).recipients[0];
+    expect(Object.keys(recipient).sort()).toEqual(['mobiles', ...template.variables].sort());
+    const text = renderDltSms(
+      template,
+      template.variables.map((name) => recipient[name]),
+    );
+    // The guard: what goes out is an instance of the registered wording, or it is not sent.
+    expect(matchDltSms(template, text)).not.toBeNull();
+    return text;
+  }
+  const replacement = (key: string) =>
+    DLT_SMS_REPLACEMENTS.find((r) => r.dltTemplateIdEnv === key) as DltSmsTemplate;
+
+  it('with the new ids unset, an online buyer gets the registered template exactly as before', async () => {
+    respond(200, { type: 'success', message: 'req-1' });
+    await transport().send(show(ONLINE));
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.template_id).toBe('tmpl-show');
+    expect(sentText(DLT_SMS_TEMPLATES[NotificationType.SHOW_CANCELLED])).toBe(
+      'ETicketsGo: Kalki 2898 AD on 01 Nov 2026, 07:00 PM is cancelled. Booking ETG-IN-2026-000042. Check your email for refund details. - DeepTrics',
+    );
+  });
+
+  it('with the cash id unset, a cash buyer is sent nothing, and the refusal names the keys', async () => {
+    const err = await transport(ONLINE_APPROVED)
+      .send(show(CASH))
+      .catch((e: unknown) => e as TransportError);
+    expect(err).toBeInstanceOf(TransportError);
+    expect((err as TransportError).failureClass).toBe(FailureClass.TEMPLATE_NOT_FOUND);
+    expect((err as TransportError).retryable).toBe(false);
+    expect((err as TransportError).message).toContain('DLT_TEMPLATE_ID_SHOW_CANCELLED_CASH');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('once the cash wording is approved, a cash buyer gets it, with the amount', async () => {
+    respond(200, { type: 'success', message: 'req-2' });
+    await transport(CASH_APPROVED).send(show(CASH));
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.template_id).toBe('tmpl-show-cash');
+    expect(sentText(replacement('DLT_TEMPLATE_ID_SHOW_CANCELLED_CASH'))).toBe(
+      'ETicketsGo: Kalki 2898 AD on 01 Nov 2026, 07:00 PM is cancelled. Booking ETG-IN-2026-000042. You paid Rs 1650.36 in cash. Show this booking at the venue box office to get your cash back. - DeepTrics',
+    );
+  });
+
+  it('the cash wording does not touch an online buyer', async () => {
+    respond(200, { type: 'success', message: 'req-3' });
+    await transport(CASH_APPROVED).send(show(ONLINE));
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).template_id).toBe('tmpl-show');
+  });
+
+  it('once the online wording is approved, an online buyer gets it', async () => {
+    respond(200, { type: 'success', message: 'req-4' });
+    await transport({ ...ONLINE_APPROVED, ...CASH_APPROVED }).send(show(ONLINE));
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).template_id).toBe('tmpl-show-online');
+    expect(sentText(replacement('DLT_TEMPLATE_ID_SHOW_CANCELLED_ONLINE'))).toBe(
+      'ETicketsGo: Kalki 2898 AD on 01 Nov 2026, 07:00 PM is cancelled. Booking ETG-IN-2026-000042. Your refund will go to the account you paid from. - DeepTrics',
+    );
+  });
+
+  it('an approved DLT id with no MSG91 id refuses; it never borrows the old template id', async () => {
+    /*
+      A binding keyed by type names the OLD template. Sending the cash variables under it would
+      put wording on the wire that nobody approved for this reader.
+    */
+    const err = await transport({
+      DLT_TEMPLATE_ID_SHOW_CANCELLED_CASH: '1707000000000000021',
+      MSG91_SMS_TEMPLATE_IDS: 'SHOW_CANCELLED=tmpl-old',
+    })
+      .send(show(CASH))
+      .catch((e: unknown) => e as TransportError);
+    expect((err as TransportError).failureClass).toBe(FailureClass.TEMPLATE_NOT_FOUND);
+    expect((err as TransportError).message).toContain('MSG91_SMS_TEMPLATE_SHOW_CANCELLED_CASH');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('the organization copy of a walk-up message is never texted', async () => {
+    const err = await transport({ ...ONLINE_APPROVED, ...CASH_APPROVED })
+      .send(show({ ...CASH, cashRecipient: 'ORGANIZER', buyerName: 'Walk Buyer' }))
+      .catch((e: unknown) => e as TransportError);
+    expect((err as TransportError).failureClass).toBe(FailureClass.TEMPLATE_NOT_FOUND);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('a cash booking with no amount is refused rather than sent with a blank', async () => {
+    const err = await transport(CASH_APPROVED)
+      .send(show({ ...ONLINE, paidInCash: true }))
+      .catch((e: unknown) => e as TransportError);
+    expect((err as TransportError).failureClass).toBe(FailureClass.CONFIGURATION_ERROR);
+    expect((err as TransportError).message).toContain('amount');
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 

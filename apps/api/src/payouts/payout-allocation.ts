@@ -44,6 +44,8 @@ export interface AllocationRefundRow {
   currency: string;
   amountMinor: number;
   taxAddedMinor: number | null;
+  /** The fees a cancellation returned; not the organizer's. See `organizerShareOfRefund`. */
+  platformFeeRefundedMinor?: number | null;
 }
 
 /** One booking's contribution, ready to persist. Currency is already case-folded. */

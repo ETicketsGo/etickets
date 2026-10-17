@@ -153,6 +153,135 @@ export function dltTemplateFor(kind: string): DltSmsTemplate | null {
   return (DLT_SMS_TEMPLATES as Record<string, DltSmsTemplate | undefined>)[kind] ?? null;
 }
 
+/**
+ * Who a show-cancelled message is for, as far as its SMS wording is concerned.
+ *
+ * ONLINE paid through a provider and gets a refund. CASH paid at the counter and gets the cash
+ * back at the venue; no refund follows. ORGANIZER_COPY is the copy of a walk-up buyer's message
+ * that goes to the organization, which is never a text to the buyer's phone.
+ */
+export type DltSmsAudience = 'ONLINE' | 'CASH' | 'ORGANIZER_COPY';
+
+export interface DltSmsReplacement extends DltSmsTemplate {
+  /** The registered template this one replaces for its audience, once approved. */
+  replaces: DltSmsKind;
+  audience: Exclude<DltSmsAudience, 'ORGANIZER_COPY'>;
+}
+
+/*
+  ── REPLACEMENT WORDING, WAITING FOR DLT APPROVAL ───────────────────────────────────
+  The registered SHOW_CANCELLED text ends "Check your email for refund details." That is false
+  for a buyer who paid cash at the counter: no refund follows, the cash is given back at the
+  venue, and a walk-up often gave no email at all. It is weak for an online buyer too, because
+  this SMS is the FALLBACK, sent only when email, push and WhatsApp reached nobody, and a phone
+  sign-in account has no real email address to check.
+
+  DLT wording cannot be edited: new wording is a new template with a new id. So each
+  replacement below is inert until its own DLT id is set, and until then the registered text
+  above stays in use exactly as it is (the owner's rule: keep the approved template until the
+  replacement is approved). The registration pack is
+  docs/notifications/INDIA-DLT-SHOW-CANCELLED-REPLACEMENT.md, and a test pins it to this text.
+
+  A replacement's MSG91 id is read from its own key only, never from a binding keyed by
+  notification type: such a binding names the OLD template, and pairing it with the new
+  variables would send wording nobody approved for this reader.
+*/
+export const DLT_SMS_REPLACEMENTS: readonly DltSmsReplacement[] = [
+  {
+    kind: NotificationType.SHOW_CANCELLED,
+    replaces: NotificationType.SHOW_CANCELLED,
+    audience: 'ONLINE',
+    label: 'Show cancelled (paid online)',
+    category: 'SERVICE_IMPLICIT',
+    text: 'ETicketsGo: {#var#} on {#var#} is cancelled. Booking {#var#}. Your refund will go to the account you paid from. - DeepTrics',
+    variables: ['event', 'when', 'reference'],
+    msg91TemplateIdEnv: 'MSG91_SMS_TEMPLATE_SHOW_CANCELLED_ONLINE',
+    dltTemplateIdEnv: 'DLT_TEMPLATE_ID_SHOW_CANCELLED_ONLINE',
+  },
+  {
+    kind: NotificationType.SHOW_CANCELLED,
+    replaces: NotificationType.SHOW_CANCELLED,
+    audience: 'CASH',
+    label: 'Show cancelled (paid in cash)',
+    category: 'SERVICE_IMPLICIT',
+    text: 'ETicketsGo: {#var#} on {#var#} is cancelled. Booking {#var#}. You paid {#var#} in cash. Show this booking at the venue box office to get your cash back. - DeepTrics',
+    variables: ['event', 'when', 'reference', 'amount'],
+    msg91TemplateIdEnv: 'MSG91_SMS_TEMPLATE_SHOW_CANCELLED_CASH',
+    dltTemplateIdEnv: 'DLT_TEMPLATE_ID_SHOW_CANCELLED_CASH',
+  },
+];
+
+/**
+ * The audience of a message, read from the payload the show-cancellation fan-out builds.
+ *
+ * Only SHOW_CANCELLED has audiences today; every other kind is ONLINE and keeps its
+ * registered template.
+ */
+export function dltSmsAudience(kind: string, payload: Record<string, unknown>): DltSmsAudience {
+  if (kind !== NotificationType.SHOW_CANCELLED) return 'ONLINE';
+  const p = payload ?? {};
+  if (p['paidInCash'] !== true) return 'ONLINE';
+  return p['cashRecipient'] === 'ORGANIZER' ? 'ORGANIZER_COPY' : 'CASH';
+}
+
+/** The result of choosing the wording for one SMS. */
+export type DltSmsSelection =
+  | { template: DltSmsTemplate; replacement: boolean }
+  /** No registered wording is true for this reader, so nothing may be sent. */
+  | { refused: string };
+
+/**
+ * The registered wording to send for one message, or why none may be sent.
+ *
+ * `setting(key)` reads configuration. A replacement is chosen only when its DLT id is set:
+ * that id is the evidence the new wording was approved. Without it:
+ *
+ * - ONLINE keeps the registered template, unchanged. Its text is true for that reader.
+ * - CASH gets NO SMS. The registered text tells a cash buyer to check their email for refund
+ *   details, and there is no refund and often no email. A false statement about their money
+ *   is worse than no text: the fan-out has already tried email, and a cash buyer who goes to
+ *   the venue meets the box office that holds their cash. The refusal is permanent and names
+ *   the keys, so it shows in the failure queue rather than as a silent skip.
+ * - ORGANIZER_COPY is always refused. It is addressed to the organization, and no SMS wording
+ *   is registered for it.
+ *
+ * Null when the kind has no registered wording at all (the caller already refuses that).
+ */
+export function selectDltTemplate(
+  kind: string,
+  payload: Record<string, unknown>,
+  setting: (key: string) => string | undefined,
+): DltSmsSelection | null {
+  const registered = dltTemplateFor(kind);
+  if (!registered) return null;
+  const audience = dltSmsAudience(kind, payload);
+  if (audience === 'ORGANIZER_COPY') {
+    return {
+      refused:
+        `${kind} for a walk-up cash buyer is addressed to the organization. No SMS wording ` +
+        `is registered for that copy, so it goes by email only.`,
+    };
+  }
+  const replacement = DLT_SMS_REPLACEMENTS.find(
+    (r) => r.replaces === kind && r.audience === audience,
+  );
+  if (replacement && setting(replacement.dltTemplateIdEnv)?.trim()) {
+    return { template: replacement, replacement: true };
+  }
+  if (audience === 'CASH') {
+    const keys = replacement
+      ? `${replacement.dltTemplateIdEnv} and ${replacement.msg91TemplateIdEnv}`
+      : 'a cash template id';
+    return {
+      refused:
+        `${kind} for a cash buyer has no approved SMS wording yet: the registered text speaks ` +
+        `of a refund, and a cash buyer gets the cash back at the venue. Set ${keys} once ` +
+        `the cash wording is approved.`,
+    };
+  }
+  return { template: registered, replacement: false };
+}
+
 /** Every env key the registry reads, for the config schema and the readiness report. */
 export function dltTemplateEnvKeys(): { msg91: string[]; dlt: string[] } {
   const all = Object.values(DLT_SMS_TEMPLATES);

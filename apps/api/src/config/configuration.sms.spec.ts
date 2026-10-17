@@ -169,6 +169,9 @@ describe('loadConfig: SMS', () => {
       'DLT_TEMPLATE_ID_BOOKING_CONFIRMED',
       'DLT_TEMPLATE_ID_BOOKING_CANCELLED',
       'DLT_TEMPLATE_ID_REFUND_COMPLETED',
+      // The replacement show-cancelled wording, which is inert until its id is set.
+      'DLT_TEMPLATE_ID_SHOW_CANCELLED_ONLINE',
+      'DLT_TEMPLATE_ID_SHOW_CANCELLED_CASH',
     ])('refuses %s that is not 19 digits', (key) => {
       process.env = env({ [key]: '170700000000' });
       expect(() => loadConfig()).toThrow(new RegExp(`${key} must be the 19-digit id`));
