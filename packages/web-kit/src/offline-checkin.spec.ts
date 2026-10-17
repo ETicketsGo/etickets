@@ -3,6 +3,8 @@ import {
   validateOfflineScan,
   classifyReconciliation,
   isOverridable,
+  manifestNeedsRefresh,
+  manifestValidity,
   applyDelta,
   hasDeltaGap,
   deriveActivationVerdict,
@@ -48,6 +50,7 @@ const meta: ManifestMeta = {
   version: 3,
   validFrom: NOW - 3_600_000,
   expiresAt: NOW + 3_600_000,
+  deviceId: 'dev1',
 };
 
 const entry = (over: Partial<ManifestEntry> = {}): ManifestEntry => ({
@@ -69,6 +72,7 @@ const decoded = (over: Partial<DecodedQr> = {}): DecodedQr => ({
 });
 
 const device: DeviceScope = {
+  deviceId: 'dev1',
   organizationId: 'org1',
   eventId: 'ev1',
   eventSessionId: 'se1',
@@ -100,6 +104,11 @@ describe('validateOfflineScan', () => {
     expect(run({ device: { ...device, active: false } })).toBe('DEVICE_NOT_AUTHORIZED');
     expect(run({ device: { ...device, organizationId: 'other' } })).toBe('DEVICE_NOT_AUTHORIZED');
     expect(run({ device: { ...device, eventId: 'other' } })).toBe('DEVICE_NOT_AUTHORIZED');
+  });
+
+  it('rejects a list issued to another device, or to no device (H5)', () => {
+    expect(run({ device: { ...device, deviceId: 'dev2' } })).toBe('DEVICE_NOT_AUTHORIZED');
+    expect(run({ meta: { ...meta, deviceId: '' } })).toBe('DEVICE_NOT_AUTHORIZED');
   });
 
   it('rejects a stale/expired or not-yet-valid manifest', () => {
@@ -151,9 +160,27 @@ describe('validateOfflineScan', () => {
   });
 });
 
+describe('manifestValidity / manifestNeedsRefresh (H5)', () => {
+  it('is VALID only on its own device, inside its window', () => {
+    expect(manifestValidity(meta, 'dev1', NOW)).toBe('VALID');
+    expect(manifestValidity(meta, 'dev2', NOW)).toBe('OTHER_DEVICE');
+    expect(manifestValidity(meta, null, NOW)).toBe('OTHER_DEVICE');
+    expect(manifestValidity(meta, 'dev1', meta.expiresAt + 1)).toBe('EXPIRED');
+    expect(manifestValidity(meta, 'dev1', meta.validFrom - 1)).toBe('NOT_YET_VALID');
+    expect(manifestValidity(meta, 'dev1', meta.expiresAt)).toBe('VALID');
+  });
+
+  it('asks for a new list once half the window is gone', () => {
+    const mid = meta.validFrom + (meta.expiresAt - meta.validFrom) / 2;
+    expect(manifestNeedsRefresh(meta, mid - 1)).toBe(false);
+    expect(manifestNeedsRefresh(meta, mid)).toBe(true);
+  });
+});
+
 describe('isOverridable', () => {
   it('allows overriding soft failures but never crypto/scope failures', () => {
-    expect(isOverridable('MANIFEST_STALE')).toBe(true);
+    // H5: an expired list is the revocation window working; nobody may wave a scan through it.
+    expect(isOverridable('MANIFEST_STALE')).toBe(false);
     expect(isOverridable('REQUIRES_ONLINE_VALIDATION')).toBe(true);
     expect(isOverridable('INVALID_SIGNATURE')).toBe(false);
     expect(isOverridable('DEVICE_NOT_AUTHORIZED')).toBe(false);
@@ -217,6 +244,7 @@ describe('classifyReconciliation', () => {
 describe('revocation deltas', () => {
   const delta = (over: Partial<RevocationDelta> = {}): RevocationDelta => ({
     eventSessionId: 'se1',
+    deviceId: 'dev1',
     baseVersion: 100,
     toVersion: 200,
     changes: [{ ticketId: 'tk1', nonce: 'rotated', version: 2, status: 'ACTIVE', eligible: true }],
@@ -325,9 +353,15 @@ describe('reconciliation console rules (presentation + safe resolution)', () => 
     expect(admitted).toEqual(['ACCEPTED']);
   });
 
-  it('needs review only for SUPERVISOR_REVIEW_REQUIRED', () => {
+  it('needs review only for SUPERVISOR_REVIEW_REQUIRED and the H5 holds', () => {
     const review = RECONCILE_OUTCOMES.filter(reconcileNeedsReview);
-    expect(review).toEqual(['SUPERVISOR_REVIEW_REQUIRED']);
+    expect(review).toEqual([
+      'SUPERVISOR_REVIEW_REQUIRED',
+      'DEVICE_NOT_ACTIVE',
+      'MANIFEST_NOT_VALID',
+    ]);
+    expect(initialReviewState('DEVICE_NOT_ACTIVE')).toBe('PENDING');
+    expect(initialReviewState('MANIFEST_NOT_VALID')).toBe('PENDING');
     expect(initialReviewState('SUPERVISOR_REVIEW_REQUIRED')).toBe('PENDING');
     expect(initialReviewState('ACCEPTED')).toBe('NOT_REQUIRED');
     expect(initialReviewState('WRONG_SESSION')).toBe('NOT_REQUIRED');

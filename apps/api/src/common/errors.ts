@@ -62,6 +62,12 @@ export const ErrorCodes = {
   HOLD_EXPIRED: 'HOLD_EXPIRED',
   PROVIDER_TIMEOUT: 'PROVIDER_TIMEOUT',
   QR_INVALID: 'QR_INVALID',
+  /**
+   * An offline check-in device that is not ACTIVE (pending, suspended, revoked or expired) asked
+   * for a ticket list or uploaded scans. Its own code so the door app can say which, and stop
+   * admitting, instead of reading it as any other refusal.
+   */
+  DEVICE_NOT_ACTIVE: 'DEVICE_NOT_ACTIVE',
   CHECKIN_DUPLICATE: 'CHECKIN_DUPLICATE',
   REFUND_NOT_ELIGIBLE: 'REFUND_NOT_ELIGIBLE',
   REVIEW_NOT_ELIGIBLE: 'REVIEW_NOT_ELIGIBLE',

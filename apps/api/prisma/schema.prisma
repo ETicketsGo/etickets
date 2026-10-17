@@ -2483,10 +2483,15 @@ model CheckInManifest {
   expiresAt       DateTime
   ticketCount     Int
   signature       String
+  // The registered device this manifest was issued to (H5). The signature covers it, and an
+  // offline scan uploaded later must cite a manifest issued to the SAME device. Null only on
+  // rows written before manifests were bound to a device; those prove nothing for any device.
+  deviceId        String?
   createdByUserId String?
   createdAt       DateTime @default(now())
 
   @@unique([eventSessionId, version])
+  @@index([deviceId])
   @@index([organizationId])
   @@index([eventSessionId])
 }

@@ -5,7 +5,14 @@ import {
   type Page,
   type BrowserContext,
 } from '@playwright/test';
-import { ORGANIZER, API, apiLogin, seedBrowserAuth } from './helpers';
+import {
+  ORGANIZER,
+  API,
+  apiLogin,
+  seedBrowserAuth,
+  ensureOfflineDevice,
+  fetchOfflineManifest,
+} from './helpers';
 
 const OWNER = 'owner@eticketsgo.test';
 const authed = (t: string) => ({ authorization: `Bearer ${t}` });
@@ -44,17 +51,25 @@ async function discover(request: APIRequestContext, token: string) {
     const det = await (
       await request.get(`${API}/events/${e.id}`, { headers: authed(token) })
     ).json();
+    // A ticket list is only issued to an ACTIVE device (H5), so the lookup needs one too.
+    // Only once the flag is on: with it off the device endpoints refuse.
+    if (!flagOn) break;
+    const lookupDevice = await ensureOfflineDevice(request, token, org.id, e.id);
     for (const s of det.sessions ?? []) {
-      const man = await (
-        await request.get(`${API}/checkin/manifest?eventSessionId=${s.id}`, {
-          headers: authed(token),
-        })
-      ).json();
+      const man = await fetchOfflineManifest(request, token, s.id, lookupDevice);
       const active = (man.entries ?? []).find((x: Entry) => x.status === 'ACTIVE' && x.eligible);
-      if (active) return { org, flagOn, eventId: e.id, sessionId: s.id, a: active as Entry };
+      if (active)
+        return {
+          org,
+          flagOn,
+          eventId: e.id,
+          sessionId: s.id,
+          a: active as Entry,
+          lookupDevice,
+        };
     }
   }
-  return { org, flagOn, eventId: null, sessionId: null, a: null };
+  return { org, flagOn, eventId: null, sessionId: null, a: null, lookupDevice: null };
 }
 async function setupPanel(page: Page, eventId: string, sessionId: string) {
   await page.goto(`${ORGANIZER}/organizer/events/${eventId}/checkin`);
@@ -100,6 +115,8 @@ test('offline queue: dead-letter → reload → manual retry → RETRYING → au
         contentType: 'application/json',
         body: JSON.stringify({ message: 'server error' }),
       });
+    // A generic authoritative refusal. Not DEVICE_NOT_ACTIVE on purpose: that one also turns
+    // offline check-in off on the panel (H5), and this drill needs the device to recover.
     if (mode === '403')
       return route.fulfill({
         status: 403,
@@ -137,11 +154,7 @@ test('offline queue: dead-letter → reload → manual retry → RETRYING → au
   await expect(page.getByTestId('queue-count')).toContainText('0 queued', { timeout: 30_000 });
 
   // Server truth: the ticket was admitted exactly once (no longer ACTIVE).
-  const man = await (
-    await request.get(`${API}/checkin/manifest?eventSessionId=${d.sessionId}`, {
-      headers: authed(owner.accessToken),
-    })
-  ).json();
+  const man = await fetchOfflineManifest(request, owner.accessToken, d.sessionId!, d.lookupDevice!);
   const entry = (man.entries as Entry[]).find((e) => e.ticketId === d.a!.ticketId);
   expect(entry?.status, 'ticket admitted (not stuck ACTIVE)').not.toBe('ACTIVE');
 });

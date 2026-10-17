@@ -6,12 +6,18 @@ import {
 } from '@eticketsgo/shared-types';
 import {
   DLT_ID_PATTERN,
+  DLT_SMS_REPLACEMENTS,
   DLT_SMS_TEMPLATES,
   DLT_VARIABLE,
   DOCUMENTED_APPROVED_SENDER_HEADER,
   OTP_SMS_KIND,
   REJECTED_SENDER_HEADERS,
 } from '../notifications/templates/dlt-sms-templates';
+import {
+  OFFLINE_REVOCATION_WINDOW_MAX_MINUTES,
+  OFFLINE_REVOCATION_WINDOW_MIN_MINUTES,
+  offlineWindowContradictions,
+} from './offline-revocation-window';
 
 /** Validated environment. Fails fast on boot if misconfigured. */
 const envSchema = z.object({
@@ -95,6 +101,15 @@ const envSchema = z.object({
     .optional()
     .transform((v) => v === 'true' || v === '1'),
   MANIFEST_SIGNING_SECRET: z.string().optional(),
+  // How long a signed offline ticket list stays valid, in minutes: the longest a revoked door
+  // phone can keep admitting from its cache. Unset = 45. STAGING/PRODUCTION must set it, at
+  // most 60, before OFFLINE_CHECKIN_ENABLED may be on (see config/offline-revocation-window.ts).
+  OFFLINE_REVOCATION_WINDOW_MINUTES: z.coerce
+    .number()
+    .int()
+    .min(OFFLINE_REVOCATION_WINDOW_MIN_MINUTES)
+    .max(OFFLINE_REVOCATION_WINDOW_MAX_MINUTES)
+    .optional(),
 
   // Inventory sourcing seam (ADR-037). OFF by default: the provider registry still
   // constructs Direct/Manual adapters, but the booking engine keeps its existing
@@ -863,6 +878,15 @@ const envSchema = z.object({
   DLT_TEMPLATE_ID_REFUND_COMPLETED: z.string().trim().optional(),
   MSG91_SMS_TEMPLATE_SHOW_CANCELLED: z.string().trim().optional(),
   DLT_TEMPLATE_ID_SHOW_CANCELLED: z.string().trim().optional(),
+  /*
+    Replacement show-cancelled wording (DLT_SMS_REPLACEMENTS), one pair per reader. Unset, the
+    registered SHOW_CANCELLED template above stays in use for online buyers and a cash buyer
+    gets no SMS. Each pair takes effect only when its DLT id is set.
+  */
+  MSG91_SMS_TEMPLATE_SHOW_CANCELLED_ONLINE: z.string().trim().optional(),
+  DLT_TEMPLATE_ID_SHOW_CANCELLED_ONLINE: z.string().trim().optional(),
+  MSG91_SMS_TEMPLATE_SHOW_CANCELLED_CASH: z.string().trim().optional(),
+  DLT_TEMPLATE_ID_SHOW_CANCELLED_CASH: z.string().trim().optional(),
   /** Random path secret embedded in the MSG91 delivery-report URL. */
   MSG91_WEBHOOK_SECRET: z.string().optional(),
   /*
@@ -1089,6 +1113,22 @@ function assertDeliverabilityHardening(cfg: AppConfig): void {
         `  Set ALLOW_UNDELIVERABLE_NOTIFICATIONS=true only to boot deliberately without ` +
         `mail or text messages (migrations, smoke checks) — never to serve customers.`,
     );
+  }
+}
+
+/**
+ * Offline check-in cannot be switched on where real doors are run unless the revocation window
+ * is set on purpose and short enough (H5).
+ *
+ * A door phone that is offline cannot hear that it was suspended or revoked; it stops only
+ * when its saved ticket list expires. So the window is a security setting, not a tuning knob,
+ * and there is deliberately no override: a production that wants offline check-in states how
+ * long a lost phone may keep working, within the allowed maximum, or does not boot.
+ */
+function assertOfflineCheckinWindow(cfg: AppConfig): void {
+  const errors = offlineWindowContradictions(cfg);
+  if (errors.length) {
+    throw new Error(`Offline check-in is not safe to enable here:\n${errors.join('\n')}`);
   }
 }
 
@@ -1497,7 +1537,9 @@ export function dltConfigContradictions(cfg: AppConfig): string[] {
   // Ids the portal issues are 19 digits. A shorter or longer value was mistyped or truncated.
   const ids: (keyof AppConfig)[] = [
     'DLT_PRINCIPAL_ENTITY_ID',
-    ...(Object.values(DLT_SMS_TEMPLATES).map((t) => t.dltTemplateIdEnv) as (keyof AppConfig)[]),
+    ...([...Object.values(DLT_SMS_TEMPLATES), ...DLT_SMS_REPLACEMENTS].map(
+      (t) => t.dltTemplateIdEnv,
+    ) as (keyof AppConfig)[]),
   ];
   for (const key of ids) {
     const value = String(cfg[key] ?? '').trim();
@@ -1720,6 +1762,7 @@ export function loadConfig(): AppConfig {
   }
   assertProductionHardening(parsed.data);
   assertDeliverabilityHardening(parsed.data);
+  assertOfflineCheckinWindow(parsed.data);
   assertRazorpayConsistency(parsed.data);
   assertPaymentEnvironmentKeySafety(parsed.data);
   assertPaymentActivationPending(parsed.data);

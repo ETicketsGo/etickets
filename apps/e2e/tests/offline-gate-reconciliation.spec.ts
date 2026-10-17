@@ -1,5 +1,13 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
-import { ORGANIZER, API, apiLogin, seedBrowserAuth } from './helpers';
+import {
+  ORGANIZER,
+  API,
+  apiLogin,
+  seedBrowserAuth,
+  ensureOfflineDevice,
+  fetchOfflineManifest,
+  manifestCitation,
+} from './helpers';
 
 const OWNER = 'owner@eticketsgo.test';
 const ADMIN_USER = 'admin@eticketsgo.test';
@@ -18,12 +26,10 @@ async function sessionEntries(
   request: APIRequestContext,
   token: string,
   sessionId: string,
+  /** An ACTIVE device in the session's organization: a list is only issued to one (H5). */
+  deviceId: string,
 ): Promise<Entry[]> {
-  const man = await (
-    await request.get(`${API}/checkin/manifest?eventSessionId=${sessionId}`, {
-      headers: authed(token),
-    })
-  ).json();
+  const man = await fetchOfflineManifest(request, token, sessionId, deviceId);
   return (man.entries ?? []) as Entry[];
 }
 
@@ -76,17 +82,27 @@ test('offline gate: reconciliation surfaces conflicts, never a bad admission', a
   const events = await (
     await request.get(`${API}/events?organizationId=${org.id}`, { headers: authed(token) })
   ).json();
-  let found: { eventId: string; sessionId: string; ticket: Entry } | null = null;
+  let found: {
+    eventId: string;
+    sessionId: string;
+    otherSessionId: string | null;
+    ticket: Entry;
+  } | null = null;
   for (const e of events.slice(0, 25)) {
     const det = await (
       await request.get(`${API}/events/${e.id}`, { headers: authed(token) })
     ).json();
+    // A ticket list is only issued to an ACTIVE device (H5), so the lookup needs one too.
+    const lookupDevice = await ensureOfflineDevice(request, token, org.id, e.id);
     for (const s of det.sessions ?? []) {
-      const active = (await sessionEntries(request, token, s.id)).find(
+      const active = (await sessionEntries(request, token, s.id, lookupDevice)).find(
         (x) => x.status === 'ACTIVE' && x.eligible,
       );
       if (active) {
-        found = { eventId: e.id, sessionId: s.id, ticket: active };
+        const otherSessionId =
+          (det.sessions ?? []).map((x: { id: string }) => x.id).find((x: string) => x !== s.id) ??
+          null;
+        found = { eventId: e.id, sessionId: s.id, otherSessionId, ticket: active };
         break;
       }
     }
@@ -121,14 +137,35 @@ test('offline gate: reconciliation surfaces conflicts, never a bad admission', a
   await expect(page.getByRole('button', { name: /Device approved/ })).toBeVisible({
     timeout: 20_000,
   });
-  await page.getByRole('button', { name: 'Download manifest' }).click();
+  // Keep the list the panel downloaded: the matrix scans cite it, as the panel's own do (H5).
+  const [manifestResp] = await Promise.all([
+    page.waitForResponse(
+      (r) => r.url().includes('/checkin/manifest?') && r.request().method() === 'GET',
+    ),
+    page.getByRole('button', { name: 'Download manifest' }).click(),
+  ]);
+  const cite = manifestCitation(await manifestResp.json());
   await expect(page.getByTestId('manifest-status')).toBeVisible({ timeout: 20_000 });
 
   // ── Divergence matrix (server wins) — run WHILE the ticket is still ACTIVE ──
-  const base = { deviceId, ticketId: m.ticketId, version: m.version, nonce: m.nonce };
+  const base = { deviceId, ticketId: m.ticketId, version: m.version, nonce: m.nonce, ...cite };
+  /*
+    Wrong session. The server finds the cited list by (scan session, version), so the scan
+    must cite a list for the session it claims. With a second real session we get a list for
+    it issued to this same device, and the ticket's own session decides: WRONG_SESSION. With
+    no second session the claimed session is made up, no list belongs to it, and the scan is
+    held as MANIFEST_NOT_VALID - still never ACCEPTED.
+  */
+  const wrong = f.otherSessionId
+    ? {
+        eventSessionId: f.otherSessionId,
+        ...manifestCitation(await fetchOfflineManifest(request, token, f.otherSessionId, deviceId)),
+      }
+    : { eventSessionId: 'not-the-real-session' };
+  const expectedWrongSession = f.otherSessionId ? 'WRONG_SESSION' : 'MANIFEST_NOT_VALID';
   const wrongSession = await reconcileOne(request, token, deviceId, {
     ...base,
-    eventSessionId: 'not-the-real-session',
+    ...wrong,
     checkedInAt: Date.now(),
     wasOverride: false,
   });
@@ -147,13 +184,14 @@ test('offline gate: reconciliation surfaces conflicts, never a bad admission', a
     eventSessionId: f.sessionId,
     checkedInAt: Date.now(),
     wasOverride: false,
+    ...cite,
   });
-  expect(wrongSession).toBe('WRONG_SESSION');
+  expect(wrongSession).toBe(expectedWrongSession);
   expect(transferred).toBe('TRANSFERRED_AFTER_DOWNLOAD');
   expect(vanished).toBe('SUPERVISOR_REVIEW_REQUIRED');
 
   // The contended ticket was never admitted by any of the rejected cases.
-  const afterReject = (await sessionEntries(request, token, f.sessionId)).find(
+  const afterReject = (await sessionEntries(request, token, f.sessionId, deviceId)).find(
     (x) => x.ticketId === m.ticketId,
   );
   expect(afterReject?.status, 'ticket untouched by rejected reconciles').toBe('ACTIVE');
@@ -161,11 +199,11 @@ test('offline gate: reconciliation surfaces conflicts, never a bad admission', a
   // Determinism: the same invalid input yields the same outcome.
   const wrongSessionAgain = await reconcileOne(request, token, deviceId, {
     ...base,
-    eventSessionId: 'not-the-real-session',
+    ...wrong,
     checkedInAt: Date.now(),
     wasOverride: false,
   });
-  expect(wrongSessionAgain).toBe('WRONG_SESSION');
+  expect(wrongSessionAgain).toBe(expectedWrongSession);
 
   // ── Browser valid path: offline VALID → queued → sync → ACCEPTED (admits the ticket) ──
   await page.getByLabel('Ticket QR token').fill(qr);
@@ -185,7 +223,7 @@ test('offline gate: reconciliation surfaces conflicts, never a bad admission', a
   });
   expect(replay).toBe('DUPLICATE_SAME_DEVICE');
 
-  const afterAccept = (await sessionEntries(request, token, f.sessionId)).find(
+  const afterAccept = (await sessionEntries(request, token, f.sessionId, deviceId)).find(
     (x) => x.ticketId === m.ticketId,
   );
   expect(afterAccept?.status, 'ticket admitted exactly once').toBe('CHECKED_IN');

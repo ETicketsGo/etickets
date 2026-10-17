@@ -81,3 +81,63 @@ export async function chooseEmailSignUp(page: Page): Promise<void> {
   await tab.or(page.getByTestId('phone-signin-off')).first().waitFor({ timeout: 20_000 });
   if (await tab.count()) await tab.click();
 }
+
+/*
+  Offline check-in devices (H5).
+
+  A ticket list (manifest) is now issued to one registered, ACTIVE device, so even a spec that
+  only reads the manifest to find a session with an ACTIVE ticket needs a device first. These
+  helpers register and approve one through the API and remember it per event for the run, so a
+  lookup loop over many sessions does not register a device per session.
+*/
+const offlineDeviceCache = new Map<string, string>();
+
+/** Registers + approves an offline device for an event; returns its id (cached per event). */
+export async function ensureOfflineDevice(
+  request: APIRequestContext,
+  token: string,
+  organizationId: string,
+  eventId: string,
+  name = 'E2E lookup device',
+): Promise<string> {
+  const key = `${organizationId}|${eventId}`;
+  const cached = offlineDeviceCache.get(key);
+  if (cached) return cached;
+  const headers = { authorization: `Bearer ${token}` };
+  const device = await (
+    await request.post(`${API}/checkin/devices`, {
+      headers,
+      data: { organizationId, eventId, name },
+    })
+  ).json();
+  const approved = await request.post(`${API}/checkin/devices/${device.id}/approve`, { headers });
+  expect(approved.ok(), 'offline device approved').toBeTruthy();
+  offlineDeviceCache.set(key, device.id);
+  return device.id;
+}
+
+/** GET /checkin/manifest for a session, issued to `deviceId` (the parsed JSON body). */
+export async function fetchOfflineManifest(
+  request: APIRequestContext,
+  token: string,
+  eventSessionId: string,
+  deviceId: string,
+) {
+  return (
+    await request.get(
+      `${API}/checkin/manifest?eventSessionId=${eventSessionId}&deviceId=${deviceId}`,
+      { headers: { authorization: `Bearer ${token}` } },
+    )
+  ).json();
+}
+
+/**
+ * The fields a queued scan uses to cite the list it was checked against. The server only
+ * applies a scan that cites a list issued to the same device, made inside its validity.
+ */
+export function manifestCitation(manifest: { meta: { version: number }; signature: string }): {
+  manifestVersion: number;
+  manifestSignature: string;
+} {
+  return { manifestVersion: manifest.meta.version, manifestSignature: manifest.signature };
+}
