@@ -415,30 +415,54 @@ describe('BusinessReportsService.platformFees', () => {
 
 describe('BusinessReportsService.tax', () => {
   /*
-    This report used to hardcode `taxModelled: false` and zero, and kept saying so for the
-    whole period after tax became real — a true statement that quietly became a false one.
-    It now reads what was actually CHARGED, and `taxModelled` answers a different question:
-    whether any rule is configured at all, so an honest zero is distinguishable from a
-    platform that never asked.
+    This report used to hardcode `taxModelled: false` and zero, then summed each booking's tax
+    lines by confirmation date, which never saw a refund or a cancelled cash sale. It now reads
+    the issued documents: tax charged on the sale documents minus tax given back on the credit
+    notes, each in the period it was issued. `taxModelled` answers a different question:
+    whether any rule is configured at all.
   */
+  type LineRow = {
+    currency?: string;
+    credit?: boolean;
+    month?: string;
+    country?: string | null;
+    region?: string | null;
+    label: string;
+    rate: number;
+    base: number;
+    amount: number;
+  };
   const taxPrisma = (
-    lines: {
-      label: string;
-      rateBasisPoints: number;
-      baseMinor: number;
-      amountMinor: number;
-      currency?: string;
-    }[],
+    lines: LineRow[],
     activeRules: number,
+    documents: { currency?: string; credit: boolean; documents: number }[] = [],
   ) => ({
-    bookingTaxLine: {
-      findMany: jest.fn().mockResolvedValue(
-        lines.map(({ currency, ...line }) => ({
-          ...line,
-          booking: { currency: currency ?? 'INR' },
+    // Answer by the SQL asked, not by call order: the two queries run in parallel.
+    $queryRaw: jest.fn((strings: TemplateStringsArray) => {
+      const sql = strings.join('?');
+      if (sql.includes('jsonb_array_elements')) {
+        return Promise.resolve(
+          lines.map((l) => ({
+            currency: l.currency ?? 'INR',
+            credit: l.credit ?? false,
+            month: new Date(`${l.month ?? '2026-07'}-01T00:00:00.000Z`),
+            country: l.country === undefined ? 'India' : l.country,
+            region: l.region === undefined ? 'Karnataka' : l.region,
+            label: l.label,
+            rate: l.rate,
+            base: BigInt(l.base),
+            amount: BigInt(l.amount),
+          })),
+        );
+      }
+      return Promise.resolve(
+        documents.map((d) => ({
+          currency: d.currency ?? 'INR',
+          credit: d.credit,
+          documents: BigInt(d.documents),
         })),
-      ),
-    },
+      );
+    }),
     taxRule: { count: jest.fn().mockResolvedValue(activeRules) },
   });
 
@@ -446,7 +470,7 @@ describe('BusinessReportsService.tax', () => {
     const { service } = makeService({ prisma: taxPrisma([], 0) });
     const r = await service.tax(FROM, TO);
     expect(r.taxModelled).toBe(false);
-    expect(r.byCurrency[0].taxCollectedMinor).toBe(0);
+    expect(r.byCurrency[0].netTaxMinor).toBe(0);
     expect(r.byCurrency[0].breakdown).toEqual([]);
     expect(r.note).toMatch(/no tax rule is active/i);
     // The taxable base is still reported, which is what it was always for.
@@ -457,13 +481,15 @@ describe('BusinessReportsService.tax', () => {
     const { service } = makeService({
       prisma: taxPrisma(
         [
-          { label: 'CGST', rateBasisPoints: 900, baseMinor: 10000, amountMinor: 900 },
+          { label: 'CGST', rate: 900, base: 10000, amount: 900 },
           {
             label: 'Sales tax',
-            rateBasisPoints: 800,
-            baseMinor: 5000,
-            amountMinor: 400,
+            rate: 800,
+            base: 5000,
+            amount: 400,
             currency: 'USD',
+            country: 'United States',
+            region: 'Texas',
           },
         ],
         2,
@@ -471,10 +497,64 @@ describe('BusinessReportsService.tax', () => {
     });
     const r = await service.tax(FROM, TO);
     const byCurrency = Object.fromEntries(r.byCurrency.map((c) => [c.currency, c]));
-    expect(byCurrency.INR.taxCollectedMinor).toBe(900);
-    expect(byCurrency.USD.taxCollectedMinor).toBe(400);
+    expect(byCurrency.INR.netTaxMinor).toBe(900);
+    expect(byCurrency.USD.netTaxMinor).toBe(400);
     expect(byCurrency.USD.breakdown).toEqual([
-      { label: 'Sales tax', rateBasisPoints: 800, baseMinor: 5000, amountMinor: 400 },
+      {
+        label: 'Sales tax',
+        rateBasisPoints: 800,
+        component: null,
+        chargedMinor: 400,
+        reversedMinor: 0,
+        netMinor: 400,
+        netBaseMinor: 5000,
+      },
+    ]);
+  });
+
+  it('takes credit-note tax off the tax charged, per rate, state and month', async () => {
+    /*
+      A March sale with CGST + SGST, refunded in part in April. Credit notes store their tax
+      negative; the report shows it as "reversed" and nets it, in the month it was issued.
+    */
+    const { service } = makeService({
+      prisma: taxPrisma(
+        [
+          { label: 'CGST', rate: 900, base: 10000, amount: 900, month: '2026-03' },
+          { label: 'SGST', rate: 900, base: 10000, amount: 900, month: '2026-03' },
+          { label: 'CGST', rate: 900, base: -4000, amount: -360, month: '2026-04', credit: true },
+          { label: 'SGST', rate: 900, base: -4000, amount: -360, month: '2026-04', credit: true },
+          { label: 'IGST', rate: 1800, base: 2000, amount: 360, region: 'Maharashtra' },
+        ],
+        6,
+        [
+          { credit: false, documents: 2 },
+          { credit: true, documents: 1 },
+        ],
+      ),
+    });
+    const r = await service.tax(FROM, TO);
+    const inr = r.byCurrency[0];
+
+    expect(inr.taxChargedMinor).toBe(2160);
+    expect(inr.taxReversedMinor).toBe(720);
+    expect(inr.netTaxMinor).toBe(1440);
+    expect(inr.invoices).toBe(2);
+    expect(inr.creditNotes).toBe(1);
+    expect(inr.breakdown.map((b) => [b.component, b.rateBasisPoints, b.netMinor])).toEqual([
+      ['CGST', 900, 540],
+      ['IGST', 1800, 360],
+      ['SGST', 900, 540],
+    ]);
+    expect(inr.breakdown[0].netBaseMinor).toBe(6000);
+    expect(inr.byMonth).toEqual([
+      { month: '2026-03', chargedMinor: 1800, reversedMinor: 0, netMinor: 1800 },
+      { month: '2026-04', chargedMinor: 0, reversedMinor: 720, netMinor: -720 },
+      { month: '2026-07', chargedMinor: 360, reversedMinor: 0, netMinor: 360 },
+    ]);
+    expect(inr.byPlace.map((p) => [p.region, p.netMinor])).toEqual([
+      ['Karnataka', 1080],
+      ['Maharashtra', 360],
     ]);
   });
 
@@ -486,10 +566,10 @@ describe('BusinessReportsService.tax', () => {
     const { service } = makeService({
       prisma: taxPrisma(
         [
-          { label: 'CGST', rateBasisPoints: 250, baseMinor: 1000, amountMinor: 25 },
-          { label: 'CGST', rateBasisPoints: 250, baseMinor: 2000, amountMinor: 50 },
-          { label: 'CGST', rateBasisPoints: 900, baseMinor: 10000, amountMinor: 900 },
-          { label: 'SGST', rateBasisPoints: 900, baseMinor: 10000, amountMinor: 900 },
+          { label: 'CGST', rate: 250, base: 1000, amount: 25 },
+          { label: 'CGST', rate: 250, base: 2000, amount: 50, region: 'Kerala' },
+          { label: 'CGST', rate: 900, base: 10000, amount: 900 },
+          { label: 'SGST', rate: 900, base: 10000, amount: 900 },
         ],
         6,
       ),
@@ -497,20 +577,27 @@ describe('BusinessReportsService.tax', () => {
     const r = await service.tax(FROM, TO);
 
     expect(r.taxModelled).toBe(true);
-    expect(r.byCurrency[0].taxCollectedMinor).toBe(1875);
-    expect(r.byCurrency[0].breakdown).toEqual([
-      { label: 'CGST', rateBasisPoints: 250, baseMinor: 3000, amountMinor: 75 },
-      { label: 'CGST', rateBasisPoints: 900, baseMinor: 10000, amountMinor: 900 },
-      { label: 'SGST', rateBasisPoints: 900, baseMinor: 10000, amountMinor: 900 },
+    expect(r.byCurrency[0].netTaxMinor).toBe(1875);
+    expect(
+      r.byCurrency[0].breakdown.map((b) => [
+        b.label,
+        b.rateBasisPoints,
+        b.netBaseMinor,
+        b.netMinor,
+      ]),
+    ).toEqual([
+      ['CGST', 250, 3000, 75],
+      ['CGST', 900, 10000, 900],
+      ['SGST', 900, 10000, 900],
     ]);
-    expect(r.note).toMatch(/as CHARGED|not a return/i);
+    expect(r.note).toMatch(/credit notes/i);
   });
 
   it('does not claim to be a filing', async () => {
     // The line between "what we collected" and "what you owe" is the one worth keeping.
     const { service } = makeService({ prisma: taxPrisma([], 3) });
     const r = await service.tax(FROM, TO);
-    expect(r.note).toMatch(/not a return|reference only/i);
+    expect(r.note).toMatch(/not a tax return/i);
   });
 });
 

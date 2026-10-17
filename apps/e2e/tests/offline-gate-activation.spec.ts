@@ -84,8 +84,9 @@ test('offline gate: controlled activation — NO_GO → scoped GO → revoke →
     })
   ).json();
 
-  // Build a fresh manifest for the session.
-  await request.get(`${API}/checkin/manifest?eventSessionId=${t.sessionId}`, {
+  // Build a fresh manifest for the session, issued to the approved device (H5: a list is
+  // only issued to an ACTIVE device).
+  await request.get(`${API}/checkin/manifest?eventSessionId=${t.sessionId}&deviceId=${device.id}`, {
     headers: authed(token),
   });
 

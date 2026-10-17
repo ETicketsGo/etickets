@@ -110,10 +110,16 @@ export class OfflineCheckinController {
   }
 
   @Get('manifest')
-  @ApiOperation({ summary: 'Build + sign the offline manifest for a session.' })
-  build(@CurrentUser() user: RequestUser, @Query('eventSessionId') eventSessionId: string) {
+  @ApiOperation({
+    summary: 'Build + sign the offline manifest for a session, issued to one ACTIVE device.',
+  })
+  build(
+    @CurrentUser() user: RequestUser,
+    @Query('eventSessionId') eventSessionId: string,
+    @Query('deviceId') deviceId?: string,
+  ) {
     this.assertEnabled();
-    return this.manifest.build(user, eventSessionId);
+    return this.manifest.build(user, eventSessionId, deviceId);
   }
 
   @Post('reconcile')
@@ -132,9 +138,10 @@ export class OfflineCheckinController {
     @CurrentUser() user: RequestUser,
     @Query('eventSessionId') eventSessionId: string,
     @Query('sinceMs') sinceMs?: string,
+    @Query('deviceId') deviceId?: string,
   ) {
     this.assertEnabled();
-    return this.manifest.buildDelta(user, eventSessionId, Number(sinceMs ?? 0) || 0);
+    return this.manifest.buildDelta(user, eventSessionId, Number(sinceMs ?? 0) || 0, deviceId);
   }
 
   @Post('drills')

@@ -585,6 +585,15 @@ export class PayoutsService {
           amountMinor: true,
           taxAddedMinor: true,
           /*
+            The booking and payment fees a cancellation gave back to the buyer. They were never in
+            the organizer's gross, so `organizerShareOfRefund` takes them off the deduction. Left
+            out of this select, the payout charged the organizer the whole refund, fees included,
+            while every read model (`heldRevenue`, `notPaidOut`, the Overview) charged only their
+            share - a cancelled DATE of an event that later completes paid the buyer's fees out of
+            the organizer's money (#417).
+          */
+          platformFeeRefundedMinor: true,
+          /*
             The booking's id and event, not only its currency: a refund has to be attributable to
             the booking it returns, or the allocation sum cannot account for it. Note the refund
             window is NOT the booking window - refunds are selected on `updatedAt` and revenue on
@@ -609,6 +618,7 @@ export class PayoutsService {
       currency: row.booking.currency,
       amountMinor: row.amountMinor,
       taxAddedMinor: row.taxAddedMinor ?? 0,
+      platformFeeRefundedMinor: row.platformFeeRefundedMinor ?? 0,
     }));
 
     return {

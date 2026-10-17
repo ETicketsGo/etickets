@@ -13,9 +13,9 @@ import {
   DLT_VARIABLE_MAX_LENGTH,
   OTP_SMS_KIND,
   REJECTED_SENDER_HEADERS,
-  dltTemplateFor,
   dltVariablesFromPayload,
   matchDltSms,
+  selectDltTemplate,
   type DltSmsTemplate,
 } from '../../templates/dlt-sms-templates';
 
@@ -275,8 +275,16 @@ export class Msg91SmsTransport implements SmsTransport {
     const to = resolveDestination(msg);
     if (!to) return noRecipient(msg, this.logger, this.name);
 
-    const template = dltTemplateFor(msg.type);
-    if (!template) {
+    /*
+      The wording is chosen per reader, not only per type: a show-cancelled text for a buyer
+      who paid cash must not speak of a refund. A replacement wording is used only once its own
+      DLT id is set; until then the registered template is sent exactly as before, or, where
+      its text is false for the reader, nothing is (see selectDltTemplate).
+    */
+    const selection = selectDltTemplate(msg.type, msg.payload, (key) =>
+      this.config.get<string>(key),
+    );
+    if (!selection) {
       throw new TransportError(
         `${msg.type} has no registered DLT wording, so it cannot be sent by SMS in India. ` +
           `Register it in templates/dlt-sms-templates.ts and on the DLT portal first.`,
@@ -284,6 +292,10 @@ export class Msg91SmsTransport implements SmsTransport {
         FailureClass.TEMPLATE_NOT_FOUND,
       );
     }
+    if ('refused' in selection) {
+      throw new TransportError(selection.refused, this.name, FailureClass.TEMPLATE_NOT_FOUND);
+    }
+    const { template, replacement } = selection;
 
     if (!this.senderHeader) {
       throw new TransportError(
@@ -301,15 +313,20 @@ export class Msg91SmsTransport implements SmsTransport {
       );
     }
 
-    const templateId =
-      this.config.get<string>(template.msg91TemplateIdEnv)?.trim() ||
-      this.bindings?.resolve({
-        provider: this.name,
-        channel: 'sms',
-        type: msg.type,
-        locale: msg.locale,
-      })?.externalId ||
-      this.legacyTemplateIds[msg.type];
+    /*
+      A replacement takes its MSG91 id from its own key only. The bindings and the legacy map
+      are keyed by notification type, so for SHOW_CANCELLED they name the OLD template.
+    */
+    const templateId = replacement
+      ? this.config.get<string>(template.msg91TemplateIdEnv)?.trim()
+      : this.config.get<string>(template.msg91TemplateIdEnv)?.trim() ||
+        this.bindings?.resolve({
+          provider: this.name,
+          channel: 'sms',
+          type: msg.type,
+          locale: msg.locale,
+        })?.externalId ||
+        this.legacyTemplateIds[msg.type];
     const dltTemplateId = this.config.get<string>(template.dltTemplateIdEnv)?.trim();
     if (!templateId || !dltTemplateId || !DLT_ID_PATTERN.test(dltTemplateId)) {
       /*

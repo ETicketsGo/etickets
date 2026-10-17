@@ -1,5 +1,13 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
-import { ORGANIZER, API, apiLogin, seedBrowserAuth } from './helpers';
+import {
+  ORGANIZER,
+  API,
+  apiLogin,
+  seedBrowserAuth,
+  ensureOfflineDevice,
+  fetchOfflineManifest,
+  manifestCitation,
+} from './helpers';
 
 const OWNER = 'owner@eticketsgo.test';
 const ADMIN_USER = 'admin@eticketsgo.test';
@@ -67,12 +75,10 @@ test('command center: metrics, one alert, no dup on poll, audited ack, condition
     const det = await (
       await request.get(`${API}/events/${e.id}`, { headers: authed(token) })
     ).json();
+    // A ticket list is only issued to an ACTIVE device (H5), so the lookup needs one too.
+    const lookupDevice = await ensureOfflineDevice(request, token, org.id, e.id);
     for (const s of det.sessions ?? []) {
-      const man = await (
-        await request.get(`${API}/checkin/manifest?eventSessionId=${s.id}`, {
-          headers: authed(token),
-        })
-      ).json();
+      const man = await fetchOfflineManifest(request, token, s.id, lookupDevice);
       const active = (man.entries ?? []).find((x: Entry) => x.status === 'ACTIVE' && x.eligible);
       if (active) {
         const other =
@@ -97,6 +103,8 @@ test('command center: metrics, one alert, no dup on poll, audited ack, condition
   ).json();
   await request.post(`${API}/checkin/devices/${device.id}/approve`, { headers: authed(token) });
   const dev = device.id;
+  // Each scan must cite a list issued to THIS device, or it is held as MANIFEST_NOT_VALID.
+  const cite = manifestCitation(await fetchOfflineManifest(request, token, t.sessionId, dev));
   const base = (ticketId: string, over: Record<string, unknown> = {}) => ({
     deviceId: dev,
     ticketId,
@@ -105,6 +113,7 @@ test('command center: metrics, one alert, no dup on poll, audited ack, condition
     eventSessionId: t.sessionId,
     checkedInAt: Date.now(),
     wasOverride: false,
+    ...cite,
     ...over,
   });
   await reconcile(

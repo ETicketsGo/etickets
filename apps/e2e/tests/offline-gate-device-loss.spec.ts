@@ -1,5 +1,12 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
-import { ORGANIZER, API, apiLogin, seedBrowserAuth } from './helpers';
+import {
+  ORGANIZER,
+  API,
+  apiLogin,
+  seedBrowserAuth,
+  ensureOfflineDevice,
+  fetchOfflineManifest,
+} from './helpers';
 
 const OWNER = 'owner@eticketsgo.test';
 
@@ -11,12 +18,10 @@ async function manifestEntry(
   token: string,
   sessionId: string,
   ticketId: string,
+  /** An ACTIVE device: a list is only issued to one (H5), and the lost device is revoked. */
+  deviceId: string,
 ) {
-  const man = await (
-    await request.get(`${API}/checkin/manifest?eventSessionId=${sessionId}`, {
-      headers: authed(token),
-    })
-  ).json();
+  const man = await fetchOfflineManifest(request, token, sessionId, deviceId);
   return (man.entries ?? []).find((x: { ticketId: string }) => x.ticketId === ticketId) as
     { status: string; eligible: boolean } | undefined;
 }
@@ -51,17 +56,21 @@ test('offline gate: a revoked device cannot check anyone in (fail-closed)', asyn
   const events = await (
     await request.get(`${API}/events?organizationId=${org.id}`, { headers: authed(token) })
   ).json();
-  let target: { eventId: string; sessionId: string; ticketId: string; qr: string } | null = null;
+  let target: {
+    eventId: string;
+    sessionId: string;
+    ticketId: string;
+    qr: string;
+    lookupDevice: string;
+  } | null = null;
   for (const e of events.slice(0, 25)) {
     const det = await (
       await request.get(`${API}/events/${e.id}`, { headers: authed(token) })
     ).json();
+    // A ticket list is only issued to an ACTIVE device (H5), so the lookup needs one too.
+    const lookupDevice = await ensureOfflineDevice(request, token, org.id, e.id);
     for (const s of det.sessions ?? []) {
-      const entry = await (
-        await request.get(`${API}/checkin/manifest?eventSessionId=${s.id}`, {
-          headers: authed(token),
-        })
-      ).json();
+      const entry = await fetchOfflineManifest(request, token, s.id, lookupDevice);
       const active = (entry.entries ?? []).find(
         (x: { status: string; eligible: boolean }) => x.status === 'ACTIVE' && x.eligible,
       );
@@ -74,7 +83,7 @@ test('offline gate: a revoked device cannot check anyone in (fail-closed)', asyn
             version: active.version,
           }),
         ).toString('base64url');
-        target = { eventId: e.id, sessionId: s.id, ticketId: active.ticketId, qr };
+        target = { eventId: e.id, sessionId: s.id, ticketId: active.ticketId, qr, lookupDevice };
         break;
       }
     }
@@ -122,13 +131,15 @@ test('offline gate: a revoked device cannot check anyone in (fail-closed)', asyn
     page.getByRole('button', { name: 'Sync now' }).click(),
   ]);
   expect(reconcileResp.status(), 'revoked device reconcile is forbidden').toBe(403);
+  // H5: the refusal names the device state, and the scan is held on the server for review.
+  expect(((await reconcileResp.json()) as { code?: string }).code).toBe('DEVICE_NOT_ACTIVE');
 
   // The scan was neither accepted nor silently dropped — a 403 is a non-retryable
   // failure so it is held as a dead-letter (BLOCKED), not lost, not admitted.
   await expect(page.getByTestId('queue-count')).toContainText('1 blocked');
 
   // Server truth: the ticket was never admitted — still ACTIVE + eligible.
-  const entry = await manifestEntry(request, token, t.sessionId, t.ticketId);
+  const entry = await manifestEntry(request, token, t.sessionId, t.ticketId, t.lookupDevice);
   expect(entry?.status, 'ticket never checked in by the lost device').toBe('ACTIVE');
   expect(entry?.eligible).toBe(true);
 
