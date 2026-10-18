@@ -15,6 +15,7 @@ import {
 import { Container, Section, SectionHeading } from '@/components/marketing/kit';
 import { PageHero } from '@/components/marketing/blocks';
 import { Link } from '@/i18n/navigation';
+import { BrandPage } from '@/components/storefront-brand';
 
 export const metadata: Metadata = {
   title: 'Documentation',
@@ -95,7 +96,7 @@ const SECTIONS = [
 
 export default function DocsPage() {
   return (
-    <>
+    <BrandPage>
       <PageHero
         eyebrow="Documentation"
         title="Everything you need to build with ETicketsGo"
@@ -111,32 +112,32 @@ export default function DocsPage() {
               <Link
                 key={s.title}
                 href={s.href}
-                className="group flex flex-col rounded-2xl border border-border bg-background-surface p-6 shadow-sm transition-all hover:-translate-y-0.5 hover:border-action-primary/30 hover:shadow-md"
+                className="group flex flex-col rounded-brand-card border border-brand-line bg-brand-surface p-6 transition-colors hover:border-brand-ink-3"
               >
-                <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-tint-primary text-action-primary transition-colors group-hover:bg-action-primary group-hover:text-action-primary-foreground">
+                <span className="flex h-11 w-11 items-center justify-center rounded-brand-control bg-brand-sunken text-brand-ink transition-colors">
                   <s.icon className="h-5 w-5" />
                 </span>
-                <h3 className="mt-4 text-base font-semibold text-text-primary">{s.title}</h3>
-                <p className="mt-2 flex-1 text-[0.9375rem] leading-relaxed text-text-secondary">
+                <h3 className="mt-4 font-brand-display text-brand-card text-brand-ink">
+                  {s.title}
+                </h3>
+                <p className="mt-2 flex-1 text-brand-ui leading-relaxed text-brand-ink-2">
                   {s.body}
                 </p>
-                <span className="mt-4 inline-flex items-center gap-1.5 text-caption font-semibold text-action-primary">
+                <span className="mt-4 inline-flex items-center gap-1.5 text-brand-meta font-semibold text-brand-ink">
                   Read more{' '}
                   <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
                 </span>
               </Link>
             ))}
           </div>
-          <p className="mt-10 text-center text-caption text-text-muted">
+          <p className="mt-10 text-center text-brand-meta text-brand-ink-3">
             Full engineering guides, runbooks, and ADRs are maintained in the product
             repository&apos;s{' '}
-            <code className="rounded bg-background-subtle px-1.5 py-0.5 text-text-secondary">
-              docs/
-            </code>{' '}
+            <code className="rounded bg-brand-sunken px-1.5 py-0.5 text-brand-ink-2">docs/</code>{' '}
             directory.
           </p>
         </Container>
       </Section>
-    </>
+    </BrandPage>
   );
 }

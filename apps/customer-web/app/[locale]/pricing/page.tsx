@@ -1,7 +1,16 @@
 import type { Metadata } from 'next';
 import { Check, Minus } from 'lucide-react';
-import { Container, Section, SectionHeading, CheckItem, CtaBand } from '@/components/marketing/kit';
+import {
+  Container,
+  Section,
+  SectionHeading,
+  CheckItem,
+  CtaBand,
+  MK_PRIMARY,
+  MK_SECONDARY,
+} from '@/components/marketing/kit';
 import { PageHero, NoticeBanner } from '@/components/marketing/blocks';
+import { BrandPage } from '@/components/storefront-brand';
 
 export const metadata: Metadata = {
   title: 'Pricing',
@@ -77,15 +86,15 @@ const MATRIX: {
 
 function Cell({ v }: { v: boolean | string }) {
   if (v === true)
-    return <Check className="mx-auto h-4 w-4 text-status-success" aria-label="Included" />;
+    return <Check className="mx-auto h-4 w-4 text-brand-positive" aria-label="Included" />;
   if (v === false)
-    return <Minus className="mx-auto h-4 w-4 text-text-muted" aria-label="Not included" />;
-  return <span className="text-caption font-medium text-text-secondary">{v}</span>;
+    return <Minus className="mx-auto h-4 w-4 text-brand-ink-3" aria-label="Not included" />;
+  return <span className="text-brand-meta font-medium text-brand-ink-2">{v}</span>;
 }
 
 export default function PricingPage() {
   return (
-    <>
+    <BrandPage>
       <PageHero
         eyebrow="Pricing"
         title="Plans and prices"
@@ -104,38 +113,31 @@ export default function PricingPage() {
             {PLANS.map((p) => (
               <div
                 key={p.name}
-                className={`relative flex flex-col rounded-2xl border p-7 shadow-sm ${
+                className={`relative flex flex-col rounded-brand-card border p-7 ${
                   p.featured
-                    ? 'border-action-primary/40 bg-background-surface ring-1 ring-action-primary/20'
-                    : 'border-border bg-background-surface'
+                    ? 'border-brand-ink bg-brand-surface ring-1 ring-brand-ink'
+                    : 'border-brand-line bg-brand-surface'
                 }`}
               >
                 {p.featured && (
-                  <span className="absolute -top-3 left-7 rounded-full bg-action-primary px-3 py-1 text-caption font-semibold text-action-primary-foreground">
+                  <span className="absolute -top-3 left-7 rounded-full bg-brand-action px-3 py-1 text-brand-meta font-semibold text-brand-on-action">
                     Most popular
                   </span>
                 )}
-                <h2 className="text-lg font-bold text-text-primary">{p.name}</h2>
+                <h2 className="font-brand-display text-brand-d3 text-brand-ink">{p.name}</h2>
                 <div className="mt-3 flex items-baseline gap-1.5">
-                  <span className="text-4xl font-bold tracking-tight text-text-primary">
+                  <span className="font-brand-display text-brand-figure text-brand-ink">
                     {p.price}
                   </span>
-                  <span className="text-caption text-text-muted">{p.note}</span>
+                  <span className="text-brand-meta text-brand-ink-3">{p.note}</span>
                 </div>
-                <p className="mt-2 text-[0.9375rem] text-text-secondary">{p.blurb}</p>
+                <p className="mt-2 text-brand-ui text-brand-ink-2">{p.blurb}</p>
                 <ul className="mt-6 flex-1 space-y-2.5">
                   {p.features.map((f) => (
                     <CheckItem key={f}>{f}</CheckItem>
                   ))}
                 </ul>
-                <a
-                  href={p.cta.href}
-                  className={`mt-7 inline-flex items-center justify-center rounded-xl px-4 py-2.5 text-[0.9375rem] font-semibold transition-all ${
-                    p.featured
-                      ? 'bg-action-primary text-action-primary-foreground hover:bg-action-primary-hover'
-                      : 'border border-border bg-background-surface text-text-primary hover:bg-background-subtle'
-                  }`}
-                >
+                <a href={p.cta.href} className={`mt-7 ${p.featured ? MK_PRIMARY : MK_SECONDARY}`}>
                   {p.cta.label}
                 </a>
               </div>
@@ -144,31 +146,39 @@ export default function PricingPage() {
         </Container>
       </Section>
 
-      <Section className="border-t border-border bg-background-subtle/30">
+      <Section className="border-t border-brand-line bg-brand-sunken">
         <Container>
           <SectionHeading eyebrow="Compare" title="Compare plans" />
-          <div className="mx-auto mt-10 max-w-4xl overflow-x-auto">
+          {/*
+            Focusable and named, because on a phone the table scrolls sideways inside this box
+            and a keyboard user could not reach the columns past the edge (axe
+            scrollable-region-focusable).
+          */}
+          <div
+            className="mx-auto mt-10 max-w-4xl overflow-x-auto rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-focus"
+            tabIndex={0}
+            role="region"
+            aria-label="Compare plans"
+          >
             <table className="w-full min-w-[560px] border-collapse text-left">
               <thead>
-                <tr className="border-b border-border">
-                  <th className="py-3 pr-4 text-[0.9375rem] font-semibold text-text-primary">
-                    Feature
-                  </th>
-                  <th className="px-4 py-3 text-center text-[0.9375rem] font-semibold text-text-primary">
+                <tr className="border-b border-brand-line">
+                  <th className="py-3 pr-4 text-brand-ui font-semibold text-brand-ink">Feature</th>
+                  <th className="px-4 py-3 text-center text-brand-ui font-semibold text-brand-ink">
                     Starter
                   </th>
-                  <th className="px-4 py-3 text-center text-[0.9375rem] font-semibold text-action-primary">
+                  <th className="px-4 py-3 text-center text-brand-ui font-semibold text-brand-ink">
                     Professional
                   </th>
-                  <th className="px-4 py-3 text-center text-[0.9375rem] font-semibold text-text-primary">
+                  <th className="px-4 py-3 text-center text-brand-ui font-semibold text-brand-ink">
                     Enterprise
                   </th>
                 </tr>
               </thead>
               <tbody>
                 {MATRIX.map((row) => (
-                  <tr key={row.label} className="border-b border-border">
-                    <td className="py-3 pr-4 text-[0.9375rem] text-text-secondary">{row.label}</td>
+                  <tr key={row.label} className="border-b border-brand-line">
+                    <td className="py-3 pr-4 text-brand-ui text-brand-ink-2">{row.label}</td>
                     <td className="px-4 py-3 text-center">
                       <Cell v={row.starter} />
                     </td>
@@ -186,10 +196,10 @@ export default function PricingPage() {
         </Container>
       </Section>
 
-      <Section className="border-t border-border">
+      <Section className="border-t border-brand-line">
         <Container className="max-w-3xl">
           <SectionHeading eyebrow="Pricing FAQ" title="Common questions" />
-          <div className="mt-10 divide-y divide-border rounded-2xl border border-border bg-background-surface">
+          <div className="mt-10 divide-y divide-brand-line rounded-brand-card border border-brand-line bg-brand-surface">
             {[
               [
                 'How are fees charged?',
@@ -212,23 +222,23 @@ export default function PricingPage() {
                 key={q}
                 className="group px-5 py-4 [&_summary::-webkit-details-marker]:hidden"
               >
-                <summary className="flex cursor-pointer items-center justify-between gap-4 text-[0.9375rem] font-semibold text-text-primary">
+                <summary className="flex cursor-pointer items-center justify-between gap-4 text-brand-ui font-semibold text-brand-ink">
                   {q}
                   <span
-                    className="text-text-muted transition-transform group-open:rotate-45"
+                    className="text-brand-ink-3 transition-transform group-open:rotate-45"
                     aria-hidden
                   >
                     +
                   </span>
                 </summary>
-                <p className="mt-3 text-[0.9375rem] leading-relaxed text-text-secondary">{a}</p>
+                <p className="mt-3 text-brand-ui leading-relaxed text-brand-ink-2">{a}</p>
               </details>
             ))}
           </div>
         </Container>
       </Section>
 
-      <Section className="border-t border-border">
+      <Section className="border-t border-brand-line">
         <CtaBand
           title="Start free, upgrade when you're ready"
           lead="You do not need a card to look around."
@@ -238,6 +248,6 @@ export default function PricingPage() {
           secondaryLabel="Talk to sales"
         />
       </Section>
-    </>
+    </BrandPage>
   );
 }

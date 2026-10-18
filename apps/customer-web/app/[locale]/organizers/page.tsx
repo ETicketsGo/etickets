@@ -21,6 +21,7 @@ import {
   CtaBand,
 } from '@/components/marketing/kit';
 import { PageHero } from '@/components/marketing/blocks';
+import { BrandPage } from '@/components/storefront-brand';
 
 export const metadata: Metadata = {
   title: 'For organizers',
@@ -112,7 +113,7 @@ const CAPS = [
 
 export default function OrganizersPage() {
   return (
-    <>
+    <BrandPage>
       <PageHero
         eyebrow="For organizers"
         title="Run a professional box office"
@@ -128,22 +129,22 @@ export default function OrganizersPage() {
             {STEPS.map((s) => (
               <div
                 key={s.n}
-                className="rounded-2xl border border-border bg-background-surface p-6 shadow-sm"
+                className="rounded-brand-card border border-brand-line bg-brand-surface p-6"
               >
-                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-action-primary text-action-primary-foreground font-bold shadow-sm">
+                <span className="flex h-10 w-10 items-center justify-center rounded-brand-control bg-brand-action font-semibold text-brand-on-action">
                   {s.n}
                 </span>
-                <h3 className="mt-4 text-base font-semibold text-text-primary">{s.title}</h3>
-                <p className="mt-2 text-[0.9375rem] leading-relaxed text-text-secondary">
-                  {s.body}
-                </p>
+                <h3 className="mt-4 font-brand-display text-brand-card text-brand-ink">
+                  {s.title}
+                </h3>
+                <p className="mt-2 text-brand-ui leading-relaxed text-brand-ink-2">{s.body}</p>
               </div>
             ))}
           </div>
         </Container>
       </Section>
 
-      <Section className="border-t border-border bg-background-subtle/30">
+      <Section className="border-t border-brand-line bg-brand-sunken">
         <Container>
           <SectionHeading eyebrow="Your tools" title="What you can do" />
           <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
@@ -156,12 +157,10 @@ export default function OrganizersPage() {
         </Container>
       </Section>
 
-      <Section className="border-t border-border">
+      <Section className="border-t border-brand-line">
         <Container>
-          <div className="mx-auto max-w-2xl rounded-3xl border border-border bg-background-surface p-8 shadow-sm">
-            <h3 className="text-xl font-bold tracking-tight text-text-primary">
-              Why use ETicketsGo
-            </h3>
+          <div className="mx-auto max-w-2xl rounded-brand-card border border-brand-line bg-brand-surface p-8">
+            <h3 className="font-brand-display text-brand-d3 text-brand-ink">Why use ETicketsGo</h3>
             <ul className="mt-6 space-y-3.5">
               <CheckItem>One place for tickets, seating, payments and the door</CheckItem>
               <CheckItem>The gate keeps scanning when the network drops</CheckItem>
@@ -172,7 +171,7 @@ export default function OrganizersPage() {
         </Container>
       </Section>
 
-      <Section className="border-t border-border">
+      <Section className="border-t border-brand-line">
         <CtaBand
           title="Ready to sell your next event?"
           lead="Create an organizer account and publish your first event."
@@ -182,6 +181,6 @@ export default function OrganizersPage() {
           secondaryLabel="Book a demo"
         />
       </Section>
-    </>
+    </BrandPage>
   );
 }

@@ -1,7 +1,54 @@
 import type { LucideIcon } from 'lucide-react';
 import { Link } from '@/i18n/navigation';
 
-/** Wide, responsive content container for marketing pages. */
+/*
+  ── THE MARKETING PAGES ON THE BRAND LAYER (docs/design/DESIGN-SYSTEM.md) ──────────────────
+  About, the legal pages, pricing, the organizer pitch and the rest were the last storefront
+  pages drawn in the old system: a blue header with "Go to app", blue buttons, pastel gradient
+  washes and a shadow on every card. A visitor who clicked "Terms" in the home page's footer
+  crossed into a second product. These pieces now draw with the `brand-*` tokens, so every page
+  built from them moved at once. Every page also sits inside `BrandPage`, which supplies the
+  `data-brand` scope these colours need.
+
+  The blurred blue and cyan "GradientBackdrop" circles are gone rather than recoloured: the
+  brand layer's contrast is paper against the stage band, not a wash behind the text.
+
+  ── WHY THE CLASS STRINGS ARE SPELLED OUT HERE ──────────────────────────────────────────────
+  `BRAND_FOCUS` and `brandButtonClasses` live in web-kit's `brand.tsx`, a 'use client' module.
+  Most of these pages are server components, and a server component that CALLS a function from
+  a client module gets a client reference, not a string. So the same classes are written out
+  here; they are pinned against the preset by `storefront-brand-pages.test.ts`.
+*/
+
+/** One focus treatment, the same ring as web-kit's `BRAND_FOCUS`. */
+export const MK_FOCUS =
+  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-focus focus-visible:ring-offset-2 focus-visible:ring-offset-brand-canvas';
+
+const MK_BUTTON = `inline-flex min-h-11 items-center justify-center gap-2 rounded-brand-control px-5 py-2.5 text-center font-brand-text text-brand-ui font-semibold transition-colors duration-150 disabled:pointer-events-none disabled:opacity-50 ${MK_FOCUS}`;
+
+/** Ink on paper (marigold on a stage band): the page's one main action. */
+export const MK_PRIMARY = `${MK_BUTTON} bg-brand-action text-brand-on-action hover:bg-brand-action-hover`;
+
+/** A hairline button for the second choice beside a primary one. */
+export const MK_SECONDARY = `${MK_BUTTON} border border-brand-line-strong bg-brand-surface text-brand-ink hover:border-brand-ink-3`;
+
+/** An inline text link in running copy: ink, underlined, so it never depends on colour alone. */
+export const MK_LINK = `rounded-sm font-medium text-brand-ink underline decoration-brand-line-strong underline-offset-4 hover:decoration-brand-ink ${MK_FOCUS}`;
+
+/** A white card with a hairline, no shadow: the brand's panel. */
+export const MK_PANEL = 'rounded-brand-card border border-brand-line bg-brand-surface';
+
+/** A form field on paper, matching the booking flow's `BRAND_FIELD`. */
+export const MK_FIELD = `w-full rounded-brand-control border border-brand-field bg-brand-surface px-3 py-2.5 text-brand-ui text-brand-ink placeholder:text-brand-ink-3 ${MK_FOCUS}`;
+
+/** The small uppercase label over a heading or a column. */
+export const MK_EYEBROW = 'text-brand-eyebrow uppercase text-brand-ink-3';
+
+/** An icon in a quiet square, for a feature or a contact row. */
+export const MK_ICON_TILE =
+  'flex h-11 w-11 shrink-0 items-center justify-center rounded-brand-control bg-brand-sunken text-brand-ink';
+
+/** Wide, responsive content container, with the same gutters as the header. */
 export function Container({
   children,
   className = '',
@@ -10,7 +57,9 @@ export function Container({
   className?: string;
 }) {
   return (
-    <div className={`mx-auto w-full max-w-shell px-4 sm:px-6 lg:px-8 ${className}`}>{children}</div>
+    <div className={`mx-auto w-full max-w-shell px-4 sm:px-6 lg:px-10 ${className}`}>
+      {children}
+    </div>
   );
 }
 
@@ -26,26 +75,20 @@ export function Section({
 }) {
   // 64px of air above and below every section is a desktop rhythm on a phone.
   return (
-    <section id={id} className={`py-10 sm:py-24 ${className}`}>
+    <section id={id} className={`py-10 sm:py-20 ${className}`}>
       {children}
     </section>
   );
 }
 
 /**
- * Small uppercase accent label above a heading.
+ * Small uppercase label above a heading.
  *
- * `bg-tint-primary` is opaque on purpose. As a 10% wash this measured 4.83:1 on a white card
- * and 3.78:1 on the tinted hero sections these headings actually sit in — a single component
- * failing WCAG AA on nineteen storefront pages, because its contrast depended on a background
- * chosen somewhere else entirely.
+ * It used to be a tinted pill whose contrast depended on the backdrop behind it (it failed AA
+ * on the gradient heroes). On paper it is plain secondary ink, as on Explore and the home page.
  */
 export function Eyebrow({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="inline-flex items-center gap-2 rounded-full border border-action-primary/20 bg-tint-primary px-3 py-1 text-caption font-semibold uppercase tracking-wide text-action-primary">
-      {children}
-    </span>
-  );
+  return <span className={MK_EYEBROW}>{children}</span>;
 }
 
 /** Centered (or left) section heading with optional eyebrow + lead paragraph. */
@@ -68,25 +111,8 @@ export function SectionHeading({
           {<Eyebrow>{eyebrow}</Eyebrow>}
         </div>
       )}
-      <h2 className="mt-4 text-balance text-2xl font-bold tracking-tight text-text-primary sm:text-4xl">
-        {title}
-      </h2>
-      {lead && (
-        <p className="mt-4 text-pretty text-lg leading-relaxed text-text-secondary">{lead}</p>
-      )}
-    </div>
-  );
-}
-
-/** A soft, decorative gradient blob for hero/CTA backdrops (purely aesthetic). */
-export function GradientBackdrop({ className = '' }: { className?: string }) {
-  return (
-    <div
-      aria-hidden
-      className={`pointer-events-none absolute inset-0 -z-10 overflow-hidden ${className}`}
-    >
-      <div className="absolute left-1/2 top-[-10%] h-[40rem] w-[60rem] -translate-x-1/2 rounded-full bg-action-primary/15 blur-[120px]" />
-      <div className="absolute right-[-10%] top-[20%] h-[30rem] w-[30rem] rounded-full bg-status-info/10 blur-[120px]" />
+      <h2 className="mt-3 text-balance font-brand-display text-brand-d2 text-brand-ink">{title}</h2>
+      {lead && <p className="mt-4 text-pretty text-brand-lead text-brand-ink-2">{lead}</p>}
     </div>
   );
 }
@@ -102,12 +128,12 @@ export function FeatureCard({
   children: React.ReactNode;
 }) {
   return (
-    <div className="group rounded-2xl border border-border bg-background-surface p-6 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-action-primary/30 hover:shadow-md">
-      <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-tint-primary text-action-primary transition-colors group-hover:bg-action-primary group-hover:text-action-primary-foreground">
-        <Icon className="h-5 w-5" />
+    <div className={`${MK_PANEL} p-6`}>
+      <span className={MK_ICON_TILE}>
+        <Icon className="h-5 w-5" aria-hidden />
       </span>
-      <h3 className="mt-4 text-base font-semibold text-text-primary">{title}</h3>
-      <p className="mt-2 text-[0.9375rem] leading-relaxed text-text-secondary">{children}</p>
+      <h3 className="mt-4 font-brand-display text-brand-card text-brand-ink">{title}</h3>
+      <p className="mt-2 text-brand-ui text-brand-ink-2">{children}</p>
     </div>
   );
 }
@@ -116,15 +142,18 @@ export function FeatureCard({
 export function Stat({ value, label }: { value: string; label: string }) {
   return (
     <div className="text-center">
-      <div className="text-2xl font-bold tracking-tight text-text-primary sm:text-4xl">{value}</div>
-      <div className="mt-1 text-caption font-medium uppercase tracking-wide text-text-muted">
-        {label}
-      </div>
+      <div className="font-brand-display text-brand-d3 text-brand-ink">{value}</div>
+      <div className={`mt-1 ${MK_EYEBROW}`}>{label}</div>
     </div>
   );
 }
 
-/** Full-width call-to-action band with a gradient surface. */
+/**
+ * Full-width call-to-action band on the stage tone, like the home page's "Now showing" band.
+ *
+ * On a stage the action colour swaps to the marigold light (brand.css), so the same
+ * `MK_PRIMARY` class reads correctly on it without a second variant.
+ */
 export function CtaBand({
   title,
   lead,
@@ -142,12 +171,12 @@ export function CtaBand({
 }) {
   return (
     <Container>
-      <div className="relative overflow-hidden rounded-3xl border border-action-primary/20 bg-gradient-to-br from-action-primary/10 via-background-surface to-status-info/10 px-6 py-10 text-center shadow-sm sm:px-16 sm:py-14">
-        <GradientBackdrop />
-        <h2 className="text-balance text-2xl font-bold tracking-tight text-text-primary sm:text-4xl">
-          {title}
-        </h2>
-        <p className="mx-auto mt-4 max-w-xl text-lg text-text-secondary">{lead}</p>
+      <div
+        data-brand-tone="stage"
+        className="rounded-brand-card bg-brand-canvas px-6 py-10 text-center sm:px-16 sm:py-14"
+      >
+        <h2 className="text-balance font-brand-display text-brand-d2 text-brand-ink">{title}</h2>
+        <p className="mx-auto mt-4 max-w-xl text-brand-lead text-brand-ink-2">{lead}</p>
         <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
           <PrimaryLink href={primaryHref}>{primaryLabel}</PrimaryLink>
           {secondaryHref && secondaryLabel && (
@@ -170,10 +199,7 @@ export function PrimaryLink({
   className?: string;
 }) {
   return (
-    <Link
-      href={href}
-      className={`inline-flex items-center justify-center gap-2 rounded-xl bg-action-primary px-5 py-3 text-[0.9375rem] font-semibold text-action-primary-foreground shadow-sm transition-all duration-200 hover:bg-action-primary-hover hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas ${className}`}
-    >
+    <Link href={href} className={`${MK_PRIMARY} ${className}`}>
       {children}
     </Link>
   );
@@ -190,10 +216,7 @@ export function SecondaryLink({
   className?: string;
 }) {
   return (
-    <Link
-      href={href}
-      className={`inline-flex items-center justify-center gap-2 rounded-xl border border-border bg-background-surface px-5 py-3 text-[0.9375rem] font-semibold text-text-primary shadow-xs transition-all duration-200 hover:border-border-strong hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas ${className}`}
-    >
+    <Link href={href} className={`${MK_SECONDARY} ${className}`}>
       {children}
     </Link>
   );
@@ -205,7 +228,7 @@ export function CheckItem({ children }: { children: React.ReactNode }) {
     <li className="flex items-start gap-3">
       <span
         aria-hidden
-        className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-tint-success text-status-success"
+        className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand-positive-tint text-brand-positive"
       >
         <svg viewBox="0 0 20 20" fill="currentColor" className="h-3 w-3">
           <path
@@ -215,7 +238,7 @@ export function CheckItem({ children }: { children: React.ReactNode }) {
           />
         </svg>
       </span>
-      <span className="text-[0.9375rem] leading-relaxed text-text-secondary">{children}</span>
+      <span className="text-brand-ui text-brand-ink-2">{children}</span>
     </li>
   );
 }
