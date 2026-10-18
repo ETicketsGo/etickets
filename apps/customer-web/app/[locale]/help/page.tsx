@@ -1,7 +1,10 @@
 'use client';
 
 import { ChevronRight, Mail, Bug, Lightbulb, MessageSquareWarning, Star } from 'lucide-react';
-import { Card, ButtonLink, RatingStars } from '@/components/ui';
+import { RatingStars } from '@/components/ui';
+import { Panel } from '@/components/marketing/blocks';
+import { MK_SECONDARY } from '@/components/marketing/kit';
+import { BRAND_WRAP, BrandPage } from '@/components/storefront-brand';
 import { FeedbackForm } from '@/components/feedback-form';
 import { Link } from '@/i18n/navigation';
 import { useTranslations } from 'next-intl';
@@ -89,157 +92,169 @@ const FAQ_SECTIONS: { heading: string; items: { q: string; a: string }[] }[] = [
 export default function HelpCenterPage() {
   const m = useTranslations('common.marketing');
   return (
-    <div className="mx-auto max-w-4xl space-y-6">
-      <div>
-        <h1 className="text-h2 font-bold tracking-tight text-text-primary">Help center</h1>
-        <p className="mt-1 text-[0.9375rem] text-text-muted">
-          Common questions, and how to reach us.
-        </p>
-      </div>
+    <BrandPage>
+      <div className={`${BRAND_WRAP} space-y-6 pt-8 lg:pt-14`}>
+        <div className="mx-auto max-w-4xl space-y-6">
+          <div>
+            <h1 className="font-brand-display text-brand-d1 text-brand-ink">Help center</h1>
+            <p className="mt-3 text-brand-lead text-brand-ink-2">
+              Common questions, and how to reach us.
+            </p>
+          </div>
 
-      {/* Quick actions */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Link
-          href="/help/contact"
-          className="flex flex-col rounded-lg border border-border bg-background-surface p-5 shadow-sm transition-all duration-200 ease-premium hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-        >
-          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-tint-primary text-action-primary">
-            <Mail className="h-4 w-4" />
-          </span>
-          <p className="mt-3 font-semibold text-text-primary">Contact us</p>
-          <p className="mt-1 text-caption text-text-muted">Get help from our support team.</p>
-        </Link>
-        <Link
-          href="/help/bug"
-          className="flex flex-col rounded-lg border border-border bg-background-surface p-5 shadow-sm transition-all duration-200 ease-premium hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-        >
-          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-status-error/10 text-status-error">
-            <Bug className="h-4 w-4" />
-          </span>
-          <p className="mt-3 font-semibold text-text-primary">Report a bug</p>
-          <p className="mt-1 text-caption text-text-muted">Something not working? Let us know.</p>
-        </Link>
-        <Link
-          href="/help/feature"
-          className="flex flex-col rounded-lg border border-border bg-background-surface p-5 shadow-sm transition-all duration-200 ease-premium hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-        >
-          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-tint-primary text-action-primary">
-            <Lightbulb className="h-4 w-4" />
-          </span>
-          <p className="mt-3 font-semibold text-text-primary">Request a feature</p>
-          <p className="mt-1 text-caption text-text-muted">
-            Tell us what you would like us to add.
-          </p>
-        </Link>
-        {/*
+          {/* Quick actions */}
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <Link
+              href="/help/contact"
+              className="flex flex-col rounded-brand-card border border-brand-line bg-brand-surface p-5 transition-colors hover:border-brand-ink-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-focus focus-visible:ring-offset-2 focus-visible:ring-offset-brand-canvas"
+            >
+              <span className="flex h-9 w-9 items-center justify-center rounded-full bg-brand-sunken text-brand-ink">
+                <Mail className="h-4 w-4" />
+              </span>
+              <p className="mt-3 font-brand-display text-brand-card text-brand-ink">Contact us</p>
+              <p className="mt-1 text-brand-meta text-brand-ink-2">
+                Get help from our support team.
+              </p>
+            </Link>
+            <Link
+              href="/help/bug"
+              className="flex flex-col rounded-brand-card border border-brand-line bg-brand-surface p-5 transition-colors hover:border-brand-ink-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-focus focus-visible:ring-offset-2 focus-visible:ring-offset-brand-canvas"
+            >
+              <span className="flex h-9 w-9 items-center justify-center rounded-full bg-brand-critical-tint text-brand-critical">
+                <Bug className="h-4 w-4" />
+              </span>
+              <p className="mt-3 font-brand-display text-brand-card text-brand-ink">Report a bug</p>
+              <p className="mt-1 text-brand-meta text-brand-ink-2">
+                Something not working? Let us know.
+              </p>
+            </Link>
+            <Link
+              href="/help/feature"
+              className="flex flex-col rounded-brand-card border border-brand-line bg-brand-surface p-5 transition-colors hover:border-brand-ink-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-focus focus-visible:ring-offset-2 focus-visible:ring-offset-brand-canvas"
+            >
+              <span className="flex h-9 w-9 items-center justify-center rounded-full bg-brand-sunken text-brand-ink">
+                <Lightbulb className="h-4 w-4" />
+              </span>
+              <p className="mt-3 font-brand-display text-brand-card text-brand-ink">
+                Request a feature
+              </p>
+              <p className="mt-1 text-brand-meta text-brand-ink-2">
+                Tell us what you would like us to add.
+              </p>
+            </Link>
+            {/*
           A complaint is not a contact message, and it needs its own door.
 
           Every grievance used to arrive as "Contact us", with nothing attaching it to the
           organizer it was about - so nobody could answer how many were open against a seller,
           which is the question that decides whether that seller keeps selling.
         */}
-        <Link
-          href="/help/complaint"
-          className="flex flex-col rounded-lg border border-border bg-background-surface p-5 shadow-sm transition-all duration-200 ease-premium hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-        >
-          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-status-warning/10 text-status-warning">
-            <MessageSquareWarning className="h-4 w-4" />
-          </span>
-          <p className="mt-3 font-semibold text-text-primary">Make a complaint</p>
-          <p className="mt-1 text-caption text-text-muted">
-            Something was wrong with an event you booked.
-          </p>
-        </Link>
-      </div>
+            <Link
+              href="/help/complaint"
+              className="flex flex-col rounded-brand-card border border-brand-line bg-brand-surface p-5 transition-colors hover:border-brand-ink-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-focus focus-visible:ring-offset-2 focus-visible:ring-offset-brand-canvas"
+            >
+              <span className="flex h-9 w-9 items-center justify-center rounded-full bg-brand-caution-tint text-brand-caution">
+                <MessageSquareWarning className="h-4 w-4" />
+              </span>
+              <p className="mt-3 font-brand-display text-brand-card text-brand-ink">
+                Make a complaint
+              </p>
+              <p className="mt-1 text-brand-meta text-brand-ink-2">
+                Something was wrong with an event you booked.
+              </p>
+            </Link>
+          </div>
 
-      {/* FAQ */}
-      <Card title="Frequently asked questions">
-        <div className="space-y-6">
-          {FAQ_SECTIONS.map((section) => (
-            <div key={section.heading}>
-              <h3 className="mb-1 text-caption font-semibold uppercase tracking-wide text-text-muted">
-                {section.heading}
-              </h3>
-              <div className="divide-y divide-border">
-                {section.items.map((f) => (
-                  <details key={f.q} className="group py-3">
-                    <summary className="flex cursor-pointer list-none items-center justify-between gap-3 font-medium text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50">
-                      {f.q}
-                      <ChevronRight className="h-4 w-4 shrink-0 text-text-muted transition-transform group-open:rotate-90" />
-                    </summary>
-                    <p className="mt-2 text-[0.9375rem] text-text-secondary">{f.a}</p>
-                  </details>
-                ))}
+          {/* FAQ */}
+          <Panel title="Frequently asked questions">
+            <div className="space-y-6">
+              {FAQ_SECTIONS.map((section) => (
+                <div key={section.heading}>
+                  <h3 className="mb-1 text-brand-eyebrow uppercase text-brand-ink-3">
+                    {section.heading}
+                  </h3>
+                  <div className="divide-y divide-brand-line">
+                    {section.items.map((f) => (
+                      <details key={f.q} className="group py-3">
+                        <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 rounded-sm text-brand-ui font-semibold text-brand-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-focus focus-visible:ring-offset-2 focus-visible:ring-offset-brand-canvas">
+                          {f.q}
+                          <ChevronRight className="h-4 w-4 shrink-0 text-brand-ink-3 transition-transform group-open:rotate-90" />
+                        </summary>
+                        <p className="mt-2 text-brand-ui text-brand-ink-2">{f.a}</p>
+                      </details>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Panel>
+
+          {/* Contact section */}
+          <Panel
+            title="Contact us"
+            action={
+              <span className="flex items-center gap-1.5 text-brand-meta text-brand-ink-2">
+                <Mail className="h-4 w-4" />
+                We usually reply within a day
+              </span>
+            }
+          >
+            <p className="mb-4 text-brand-ui text-brand-ink-2">
+              Not here? Send us a message and we will reply.
+            </p>
+            <FeedbackForm
+              kind="CONTACT"
+              showSubject
+              submitLabel="Send message"
+              successMessage="Thanks. We will get back to you soon."
+              messageLabel="How can we help?"
+              messagePlaceholder="Describe your question or issue"
+            />
+          </Panel>
+
+          {/* CSAT survey */}
+          <Panel
+            title="How are we doing?"
+            action={
+              <span className="flex items-center gap-1.5 text-brand-meta text-brand-ink-2">
+                <Star className="h-4 w-4" />
+                Satisfaction survey
+              </span>
+            }
+          >
+            <p className="mb-4 text-brand-ui text-brand-ink-2">
+              Tell us how ETicketsGo is working for you. We read every rating.
+            </p>
+            <FeedbackForm
+              kind="CSAT"
+              showRating
+              submitLabel="Submit rating"
+              successMessage="Thanks for rating your experience!"
+              messageLabel="Anything you'd like to add? (optional)"
+              messagePlaceholder="Tell us more"
+            />
+          </Panel>
+
+          <Panel>
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <RatingStars value={5} size="sm" label="ETicketsGo" />
+                <p className="text-brand-ui text-brand-ink-2">
+                  Prefer to browse? Have a look at the events and films.
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Link href="/events" className={MK_SECONDARY}>
+                  {m('browseEvents')}
+                </Link>
+                <Link href="/movies" className={MK_SECONDARY}>
+                  Browse movies
+                </Link>
               </div>
             </div>
-          ))}
+          </Panel>
         </div>
-      </Card>
-
-      {/* Contact section */}
-      <Card
-        title="Contact us"
-        action={
-          <span className="flex items-center gap-1.5 text-caption text-text-muted">
-            <Mail className="h-4 w-4" />
-            We usually reply within a day
-          </span>
-        }
-      >
-        <p className="mb-4 text-[0.9375rem] text-text-muted">
-          Not here? Send us a message and we will reply.
-        </p>
-        <FeedbackForm
-          kind="CONTACT"
-          showSubject
-          submitLabel="Send message"
-          successMessage="Thanks. We will get back to you soon."
-          messageLabel="How can we help?"
-          messagePlaceholder="Describe your question or issue"
-        />
-      </Card>
-
-      {/* CSAT survey */}
-      <Card
-        title="How are we doing?"
-        action={
-          <span className="flex items-center gap-1.5 text-caption text-text-muted">
-            <Star className="h-4 w-4" />
-            Satisfaction survey
-          </span>
-        }
-      >
-        <p className="mb-4 text-[0.9375rem] text-text-muted">
-          Tell us how ETicketsGo is working for you. We read every rating.
-        </p>
-        <FeedbackForm
-          kind="CSAT"
-          showRating
-          submitLabel="Submit rating"
-          successMessage="Thanks for rating your experience!"
-          messageLabel="Anything you'd like to add? (optional)"
-          messagePlaceholder="Tell us more"
-        />
-      </Card>
-
-      <Card>
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <RatingStars value={5} size="sm" label="ETicketsGo" />
-            <p className="text-[0.9375rem] text-text-muted">
-              Prefer to browse? Have a look at the events and films.
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <ButtonLink href="/events" variant="outline" size="sm">
-              {m('browseEvents')}
-            </ButtonLink>
-            <ButtonLink href="/movies" variant="outline" size="sm">
-              Browse movies
-            </ButtonLink>
-          </div>
-        </div>
-      </Card>
-    </div>
+      </div>
+    </BrandPage>
   );
 }

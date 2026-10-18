@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { Container, Section } from '@/components/marketing/kit';
 import { PageHero, Prose } from '@/components/marketing/blocks';
+import { BrandPage } from '@/components/storefront-brand';
 
 export const metadata: Metadata = {
   title: 'API reference',
@@ -21,7 +22,7 @@ export const metadata: Metadata = {
 
 export default function ApiDocsPage() {
   return (
-    <>
+    <BrandPage>
       <PageHero
         eyebrow="Documentation - API"
         title="ETicketsGo API"
@@ -77,6 +78,6 @@ export default function ApiDocsPage() {
           </Prose>
         </Container>
       </Section>
-    </>
+    </BrandPage>
   );
 }

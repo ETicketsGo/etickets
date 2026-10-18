@@ -19,6 +19,7 @@ import {
   CtaBand,
 } from '@/components/marketing/kit';
 import { PageHero } from '@/components/marketing/blocks';
+import { BrandPage } from '@/components/storefront-brand';
 
 export const metadata: Metadata = {
   title: 'For attendees',
@@ -82,7 +83,7 @@ const ITEMS = [
 
 export default function CustomersPage() {
   return (
-    <>
+    <BrandPage>
       <PageHero
         eyebrow="For attendees"
         title="Book in seconds. Get in fast."
@@ -102,7 +103,7 @@ export default function CustomersPage() {
           </div>
         </Container>
       </Section>
-      <Section className="border-t border-border">
+      <Section className="border-t border-brand-line">
         <CtaBand
           title="Find something to do this weekend"
           lead="See what is on near you."
@@ -112,6 +113,6 @@ export default function CustomersPage() {
           secondaryLabel="Read the FAQ"
         />
       </Section>
-    </>
+    </BrandPage>
   );
 }

@@ -8,6 +8,22 @@ import { display } from '@eticketsgo/web-kit/fonts/display';
 export const metadata: Metadata = {
   title: 'ETicketsGo — Admin',
   description: 'Platform administration: organizers, events, refunds, payouts, and audit.',
+  manifest: '/manifest.webmanifest',
+  /*
+    Drawn by scripts/brand/generate-favicons.mjs. The admin tile is marigold, the loudest of the
+    three, because a click in the wrong tab costs most here.
+    The SVG is what current browsers pick; the ICO and PNGs are for the ones that ask for
+    /favicon.ico or a fixed size, and the apple icon is what iOS puts on a home screen.
+  */
+  icons: {
+    icon: [
+      { url: '/favicon.ico', sizes: '16x16 32x32 48x48' },
+      { url: '/icon.svg', type: 'image/svg+xml' },
+      { url: '/icon-32.png', sizes: '32x32', type: 'image/png' },
+      { url: '/icon-16.png', sizes: '16x16', type: 'image/png' },
+    ],
+    apple: '/apple-touch-icon.png',
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

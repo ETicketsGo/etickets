@@ -345,16 +345,26 @@ test('6b: the event hero is the priority image and has a reserved box', async ({
   expect(await hero.getAttribute('fetchpriority')).toBe('high');
 });
 
-test('8: the build identifier is in the meta tag and the footer, and /api/health agrees', async ({
+test('8: the build identifier is in the meta tag (and the footer on a test environment), and /api/health agrees', async ({
   page,
   request,
 }) => {
   const health = await (await request.get(`${CUSTOMER}/api/health`)).json();
   await page.goto(`${CUSTOMER}/events`);
   const tag = page.locator('meta[name="build-id"]');
+  /*
+    The visible line is for testers, so it follows the same rule as the "payments are
+    simulated" notice: drawn on QA and UAT, never on the live shop. The meta tag and
+    /api/health carry the commit everywhere, which is how production is verified.
+  */
+  const testEnvironment = (await page.getByText('payments are simulated').count()) > 0;
   if (health.build) {
     await expect(tag).toHaveAttribute('content', health.build);
-    await expect(page.getByTestId('build-id').first()).toContainText(health.build);
+    if (testEnvironment) {
+      await expect(page.getByTestId('build-id').first()).toContainText(health.build);
+    } else {
+      await expect(page.getByTestId('build-id')).toHaveCount(0);
+    }
   } else {
     // Local development and CI: the platform sets no commit, so nothing is claimed.
     await expect(tag).toHaveCount(0);

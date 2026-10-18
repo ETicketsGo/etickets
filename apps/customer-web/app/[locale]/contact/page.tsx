@@ -17,6 +17,7 @@ import { ContactForm } from '@/components/marketing/contact-form';
 import { Link } from '@/i18n/navigation';
 import { INDIA_OPERATOR } from '@eticketsgo/shared-types';
 import { INDIA_OPERATOR_SENTENCE, LEGAL_INFORMATION_HREF } from '@/lib/legal-entity';
+import { BrandPage } from '@/components/storefront-brand';
 
 export const metadata: Metadata = {
   title: 'Contact',
@@ -53,7 +54,7 @@ export default function ContactPage() {
   const reachable = canReachSupport();
 
   return (
-    <>
+    <BrandPage>
       <PageHero
         eyebrow="Contact"
         title="Let's talk"
@@ -76,31 +77,31 @@ export default function ContactPage() {
           */}
           <div
             data-testid="contact-operator"
-            className="mx-auto mt-10 max-w-5xl rounded-2xl border border-border bg-background-surface p-5 shadow-sm"
+            className="mx-auto mt-10 max-w-5xl rounded-brand-card border border-brand-line bg-brand-surface p-5"
           >
             <div className="flex items-start gap-3">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-tint-primary text-action-primary">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-brand-control bg-brand-sunken text-brand-ink">
                 <Building2 className="h-5 w-5" />
               </span>
               <div className="space-y-1">
-                <h2 className="text-[0.9375rem] font-semibold text-text-primary">
+                <h2 className="text-brand-ui font-semibold text-brand-ink">
                   {INDIA_OPERATOR.legalName}
                 </h2>
-                <p className="text-[0.9375rem] text-text-secondary">{INDIA_OPERATOR_SENTENCE}</p>
+                <p className="text-brand-ui text-brand-ink-2">{INDIA_OPERATOR_SENTENCE}</p>
                 {SUPPORT_EMAIL && (
-                  <p className="text-[0.9375rem] text-text-secondary">
+                  <p className="text-brand-ui text-brand-ink-2">
                     Support email:{' '}
                     <a
-                      className="font-medium text-action-primary hover:underline"
+                      className="font-medium text-brand-ink underline decoration-brand-line-strong underline-offset-4 hover:decoration-brand-ink"
                       href={`mailto:${SUPPORT_EMAIL}`}
                     >
                       {SUPPORT_EMAIL}
                     </a>
                   </p>
                 )}
-                <p className="text-[0.9375rem]">
+                <p className="text-brand-ui">
                   <Link
-                    className="font-medium text-action-primary hover:underline"
+                    className="font-medium text-brand-ink underline decoration-brand-line-strong underline-offset-4 hover:decoration-brand-ink"
                     href={LEGAL_INFORMATION_HREF}
                   >
                     Legal and business information
@@ -121,27 +122,27 @@ export default function ContactPage() {
                     {CHANNELS.map((c) => (
                       <div
                         key={c.title}
-                        className="rounded-2xl border border-border bg-background-surface p-5 shadow-sm"
+                        className="rounded-brand-card border border-brand-line bg-brand-surface p-5"
                       >
-                        <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-tint-primary text-action-primary">
+                        <span className="flex h-10 w-10 items-center justify-center rounded-brand-control bg-brand-sunken text-brand-ink">
                           <c.icon className="h-5 w-5" />
                         </span>
-                        <h3 className="mt-3 text-[0.9375rem] font-semibold text-text-primary">
+                        <h3 className="mt-3 text-brand-ui font-semibold text-brand-ink">
                           {c.title}
                         </h3>
-                        <p className="mt-1 text-caption text-text-muted">{c.detail}</p>
+                        <p className="mt-1 text-brand-meta text-brand-ink-3">{c.detail}</p>
                       </div>
                     ))}
                   </div>
                 )}
                 {FACTS.length > 0 && (
-                  <div className="space-y-3 rounded-2xl border border-border bg-background-surface p-5 shadow-sm">
+                  <div className="space-y-3 rounded-brand-card border border-brand-line bg-brand-surface p-5">
                     {FACTS.map((r) => (
                       <div
                         key={r.label}
-                        className="flex items-center gap-3 text-[0.9375rem] text-text-secondary"
+                        className="flex items-center gap-3 text-brand-ui text-brand-ink-2"
                       >
-                        <r.icon className="h-4 w-4 text-action-primary" />
+                        <r.icon className="h-4 w-4 text-brand-ink" />
                         {r.label}
                       </div>
                     ))}
@@ -153,6 +154,6 @@ export default function ContactPage() {
           </div>
         </Container>
       </Section>
-    </>
+    </BrandPage>
   );
 }

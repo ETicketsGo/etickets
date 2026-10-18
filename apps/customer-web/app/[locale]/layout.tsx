@@ -47,7 +47,21 @@ const metadata: Metadata = {
   authors: [{ name: 'ETicketsGo' }],
   manifest: '/manifest.webmanifest',
   appleWebApp: { capable: true, title: 'ETicketsGo', statusBarStyle: 'default' },
-  icons: { icon: '/icon.svg', apple: '/icon.svg' },
+  /*
+    Drawn by scripts/brand/generate-favicons.mjs. The storefront's mark is the wordmark's own
+    ending: an ink E and the marigold full stop, on paper.
+    The SVG is what current browsers pick; the ICO and PNGs are for the ones that ask for
+    /favicon.ico or a fixed size, and the apple icon is what iOS puts on a home screen.
+  */
+  icons: {
+    icon: [
+      { url: '/favicon.ico', sizes: '16x16 32x32 48x48' },
+      { url: '/icon.svg', type: 'image/svg+xml' },
+      { url: '/icon-32.png', sizes: '32x32', type: 'image/png' },
+      { url: '/icon-16.png', sizes: '16x16', type: 'image/png' },
+    ],
+    apple: '/apple-touch-icon.png',
+  },
   alternates: { canonical: '/' },
   openGraph: {
     type: 'website',

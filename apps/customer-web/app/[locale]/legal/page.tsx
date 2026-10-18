@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Link } from '@/i18n/navigation';
 import { PageHero } from '@/components/marketing/blocks';
 import { OperatorLine } from '@/components/legal/policy-chrome';
+import { BrandPage } from '@/components/storefront-brand';
 
 /**
  * One place that lists what ETicketsGo publishes, so the documents are a set rather than
@@ -71,33 +72,31 @@ const DOCUMENTS = [
 
 export default function LegalCenterPage() {
   return (
-    <>
+    <BrandPage>
       <PageHero
         eyebrow="Legal"
         title="Legal & Policies"
         lead="Everything that governs your use of ETicketsGo, in one place."
       />
-      <section className="bg-background-canvas pb-20 pt-8 sm:pb-28 sm:pt-10">
-        <div className="mx-auto w-full max-w-shell px-4 sm:px-6 lg:px-8">
+      <section className="pb-4 pt-8 sm:pt-10">
+        <div className="mx-auto w-full max-w-shell px-4 sm:px-6 lg:px-10">
           <div className="mx-auto max-w-[46rem] space-y-8">
-            <ul className="divide-y divide-border border-y border-border">
+            <ul className="divide-y divide-brand-line border-y border-brand-line">
               {DOCUMENTS.map((doc) => (
                 <li key={doc.href}>
                   <Link
                     href={doc.href}
-                    className="group flex items-start justify-between gap-4 py-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+                    className="group flex items-start justify-between gap-4 py-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-focus focus-visible:ring-offset-2 focus-visible:ring-offset-brand-canvas"
                   >
                     <span>
-                      <span className="block text-base font-semibold text-text-primary group-hover:text-action-primary">
+                      <span className="block font-brand-display text-brand-card text-brand-ink decoration-brand-line-strong underline-offset-4 group-hover:underline">
                         {doc.title}
                       </span>
-                      <span className="mt-1 block text-[0.9375rem] leading-relaxed text-text-secondary">
-                        {doc.blurb}
-                      </span>
+                      <span className="mt-1 block text-brand-ui text-brand-ink-2">{doc.blurb}</span>
                     </span>
                     <span
                       aria-hidden
-                      className="mt-1 shrink-0 text-text-muted transition-transform group-hover:translate-x-0.5 group-hover:text-action-primary"
+                      className="mt-1 shrink-0 text-brand-ink-3 transition-transform group-hover:translate-x-0.5 group-hover:text-brand-ink"
                     >
                       &rarr;
                     </span>
@@ -106,12 +105,12 @@ export default function LegalCenterPage() {
               ))}
             </ul>
 
-            <p className="text-[0.9375rem] leading-relaxed text-text-secondary">
+            <p className="text-brand-ui text-brand-ink-2">
               We publish a version of these documents for each country we operate in, and you are
               shown the one that applies to the market you are browsing. If you need another
               country&apos;s version, or have a question about any of this, write to us at{' '}
               <a
-                className="font-medium text-action-primary hover:underline"
+                className="font-medium text-brand-ink underline decoration-brand-line-strong underline-offset-4 hover:decoration-brand-ink"
                 href="mailto:support@eticketsgo.com"
               >
                 support@eticketsgo.com
@@ -123,6 +122,6 @@ export default function LegalCenterPage() {
           </div>
         </div>
       </section>
-    </>
+    </BrandPage>
   );
 }
