@@ -5,8 +5,13 @@ import {
   Role,
   TicketStatus,
   SessionStatus,
-  venueZone,
 } from '@eticketsgo/shared-types';
+import {
+  SHOW_ZONE_SCREEN_SELECT,
+  showTimezone,
+  type ShowZoneScreen,
+  type ShowZoneVenue,
+} from '../spaces/space-owner';
 import { PrismaService } from '../prisma/prisma.service';
 import { QrService } from '../tickets/qr.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
@@ -303,6 +308,7 @@ export class CheckinsService {
       select: {
         id: true,
         startsAt: true,
+        screen: { select: SHOW_ZONE_SCREEN_SELECT },
         event: {
           select: { title: true, venue: { select: { name: true, timezone: true, country: true } } },
         },
@@ -324,7 +330,7 @@ export class CheckinsService {
         weekday: 'short',
         hour: '2-digit',
         minute: '2-digit',
-        timeZone: venueZone(s.event.venue?.timezone, s.event.venue?.country) ?? 'UTC',
+        timeZone: showTimezone(s.screen, s.event.venue) ?? 'UTC',
       }).format(s.startsAt),
     }));
   }
@@ -444,7 +450,7 @@ export class CheckinsService {
               select: {
                 name: true,
                 venue: { select: { timezone: true, country: true } },
-                cinema: { select: { name: true, timezone: true } },
+                cinema: { select: { name: true, timezone: true, country: true } },
               },
             },
           },
@@ -564,26 +570,14 @@ export class CheckinsService {
 /**
  * The zone a booking's show runs in, so the counter reads the time the way the ticket prints it.
  *
- * The space's venue first, then its cinema, then the event's venue; each place's own zone, else
- * the only zone its country has. It used to read the CINEMA alone, so every show in a space that
+ * `showTimezone` owns the order (the venues first), the same one the ticket uses. It used to read
+ * the CINEMA alone, so every show in a space that
  * is not a cinema screen - a lawn, a hall - came back with no zone and the console printed it in
  * the reader's own clock: a 7:00 pm Bengaluru concert read "6:30 am" in Denver.
  */
 export function bookingZone(
-  eventVenue: { timezone: string | null; country: string | null } | null | undefined,
-  screen:
-    | {
-        venue?: { timezone: string | null; country: string | null } | null;
-        cinema?: { timezone: string | null } | null;
-      }
-    | null
-    | undefined,
+  eventVenue: ShowZoneVenue | null | undefined,
+  screen: ShowZoneScreen | null | undefined,
 ): string | null {
-  return (
-    screen?.venue?.timezone?.trim() ||
-    screen?.cinema?.timezone?.trim() ||
-    venueZone(eventVenue?.timezone, eventVenue?.country) ||
-    venueZone(null, screen?.venue?.country) ||
-    null
-  );
+  return showTimezone(screen, eventVenue);
 }

@@ -1,4 +1,4 @@
-import { venueZone } from '@eticketsgo/shared-types';
+import { marketFor, unambiguousZoneFor } from '@eticketsgo/shared-types';
 
 /**
  * Who owns a space, where it is, and what it is called - asked in ONE place.
@@ -96,30 +96,89 @@ export function spaceTimezone(space: SpacePlacement): string | null {
 }
 
 /**
- * The zone a SHOW's time is printed in for a buyer: "7:00 pm GMT+5:30".
+ * The zone `Cinema.timezone` holds when nobody chose one: the column's schema default.
  *
- * The cinema's zone when the show is in a cinema's screen, else the event's venue's, else the
- * one zone the venue's country has. This is the order the booking, the ticket, the guest
- * booking view, the share card and the reminders already use, written down once so the
- * storefront's event page and seat page ask the same question and get the same answer.
+ * Exported so the resolver below and its tests name the same value. It is not a fallback and
+ * must never be used as one.
+ */
+export const CINEMA_DEFAULT_TIMEZONE = 'Asia/Kolkata';
+
+/** What `showTimezone` needs selected. Spread `SHOW_ZONE_SCREEN_SELECT` to get it. */
+export interface ShowZoneScreen {
+  venue?: { timezone?: string | null; country?: string | null } | null;
+  cinema?: { timezone?: string | null; country?: string | null } | null;
+}
+
+export interface ShowZoneVenue {
+  timezone?: string | null;
+  country?: string | null;
+}
+
+/**
+ * The zone a SHOW's time is printed in for a buyer: "9:59 am MDT".
+ *
+ * ONE answer for the booking, the ticket, the guest booking view, the share card, the
+ * reminder and change emails, and the storefront. Each of them used to write its own
+ * `cinema?.timezone ?? venue` chain.
+ *
+ * -- ORDER ----------------------------------------------------------------------------------
+ *   1. the space's venue zone, then the event's venue zone. The venue is where the show IS,
+ *      and the organizer and admin consoles already treat it as the source of truth (#410);
+ *   2. the cinema's zone, only when no venue has one and it was really chosen (see below);
+ *   3. the one zone the country has (India, UK, UAE, Singapore);
+ *   4. null. The caller then shows the reader's clock AND says so; it never guesses.
  *
  * -- THE DEFECT THIS EXISTS FOR -------------------------------------------------------------
- * On QA, in a browser set to America/Denver, the event page showed a show as "Wed 28 Oct 2026,
- * 10:04 pm" while its booking confirmation showed "Thu 29 Oct 2026, 9:34 am GMT+5:30". The
- * event page read only `event.venue.timezone`; the confirmation read this chain. The seat
- * page's summary read `spaceTimezone` over a screen selected without its venue, so a room in a
- * venue (no cinema) had no zone at all and the header fell to the reader's clock.
+ * The ticket chain read the cinema first. `Cinema.timezone` has a schema default of
+ * Asia/Kolkata, so a US cinema created without a zone answered IST. On QA "Move Hall" sits in
+ * a Boise venue (America/Boise) and its ticket and emails printed a 9:59 am show as
+ * "10:29 pm GMT+5:30".
  *
- * Not `spaceTimezone`: that one answers where a space IS, for scheduling. A show's printed time
- * must agree with the ticket the buyer already holds, and changing the ticket's order would be
- * a booking-path change this does not make.
+ * -- WHY THE DEFAULT IS NOT TRUSTED OUTSIDE INDIA ---------------------------------------------
+ * A stored Asia/Kolkata cannot tell "chosen" from "defaulted". Where the place's country is
+ * known and is a market other than India, Asia/Kolkata can only be the default, so it is
+ * treated as unset. Anywhere else the cinema's zone is kept: an Indian cinema, or a cinema
+ * whose country nobody recorded, prints what it printed before.
  */
 export function showTimezone(
-  screen: { cinema?: { timezone: string | null } | null } | null | undefined,
-  eventVenue: { timezone: string | null; country?: string | null } | null | undefined,
+  screen: ShowZoneScreen | null | undefined,
+  eventVenue: ShowZoneVenue | null | undefined,
 ): string | null {
-  return screen?.cinema?.timezone ?? venueZone(eventVenue?.timezone, eventVenue?.country);
+  const country =
+    screen?.venue?.country?.trim() ||
+    eventVenue?.country?.trim() ||
+    screen?.cinema?.country?.trim();
+  return (
+    screen?.venue?.timezone?.trim() ||
+    eventVenue?.timezone?.trim() ||
+    chosenCinemaZone(screen?.cinema?.timezone, country) ||
+    unambiguousZoneFor(country) ||
+    null
+  );
 }
+
+/** The cinema's zone, unless it is the schema default on a place known to be outside India. */
+function chosenCinemaZone(
+  zone: string | null | undefined,
+  country: string | undefined,
+): string | null {
+  const z = zone?.trim();
+  if (!z) return null;
+  if (z === CINEMA_DEFAULT_TIMEZONE) {
+    const market = marketFor(country);
+    if (market && market.code !== 'IN') return null;
+  }
+  return z;
+}
+
+/**
+ * The Prisma `select` on a `Screen` that `showTimezone` needs. Spread into the screen's select;
+ * a caller that also needs other cinema or venue fields lists them next to these instead.
+ */
+export const SHOW_ZONE_SCREEN_SELECT = {
+  venue: { select: { timezone: true, country: true } },
+  cinema: { select: { timezone: true, country: true } },
+} as const;
 
 /** What to call the place this space is in. The venue is the place; a cinema is a tenant of one. */
 export function spaceVenueName(space: SpaceNaming): string | null {

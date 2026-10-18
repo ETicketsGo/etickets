@@ -48,7 +48,13 @@ export class ShareableResourceRegistry {
           select: {
             startsAt: true,
             endsAt: true,
-            screen: { select: { name: true, cinema: { select: { name: true, timezone: true } } } },
+            screen: {
+              select: {
+                name: true,
+                venue: { select: { timezone: true, country: true } },
+                cinema: { select: { name: true, timezone: true, country: true } },
+              },
+            },
             event: {
               select: {
                 title: true,

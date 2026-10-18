@@ -1,5 +1,7 @@
 import {
+  CINEMA_DEFAULT_TIMEZONE,
   requireSpaceOrganizationId,
+  showTimezone,
   spaceOrganizationId,
   spaceTimezone,
   spaceVenueName,
@@ -103,5 +105,75 @@ describe('resolving a space to its owner, its zone and its place', () => {
     it('falls back to the cinema when a space has no venue yet', () => {
       expect(spaceVenueName({ venue: null, cinema })).toBe('PVR Whitefield');
     });
+  });
+});
+
+/**
+ * `showTimezone`: the ONE answer to "whose clock is this show printed on" for a buyer.
+ *
+ * T2, QA 2026-10-17: the ticket, booking, guest view, share card, reminders and emails read the
+ * CINEMA first. `Cinema.timezone` defaults to Asia/Kolkata, so "Move Hall" - a cinema in a Boise
+ * venue - printed a 9:59 am show as "10:29 pm GMT+5:30" on its ticket and in its emails.
+ */
+describe('showTimezone', () => {
+  const boise = { timezone: 'America/Boise', country: 'United States' };
+
+  it('prefers the space venue over a cinema left at the default', () => {
+    expect(
+      showTimezone({ venue: boise, cinema: { timezone: CINEMA_DEFAULT_TIMEZONE } }, boise),
+    ).toBe('America/Boise');
+  });
+
+  it('prefers the event venue when the space has no venue row yet', () => {
+    expect(showTimezone({ venue: null, cinema: { timezone: 'Asia/Kolkata' } }, boise)).toBe(
+      'America/Boise',
+    );
+  });
+
+  it('prefers the venue even over a cinema zone that was chosen', () => {
+    expect(showTimezone({ venue: boise, cinema: { timezone: 'America/Chicago' } }, null)).toBe(
+      'America/Boise',
+    );
+  });
+
+  it('uses the cinema zone when no venue has one', () => {
+    const noZone = { timezone: null, country: 'United States' };
+    expect(showTimezone({ venue: noZone, cinema: { timezone: 'America/Chicago' } }, noZone)).toBe(
+      'America/Chicago',
+    );
+  });
+
+  it('treats the Kolkata default as unset on a place known to be outside India', () => {
+    // Unknown, so the page shows the reader's clock and says so. Never a confident wrong zone.
+    const noZone = { timezone: null, country: 'United States' };
+    expect(
+      showTimezone({ venue: noZone, cinema: { timezone: CINEMA_DEFAULT_TIMEZONE } }, noZone),
+    ).toBeNull();
+    // A one-zone country still answers.
+    const uk = { timezone: null, country: 'United Kingdom' };
+    expect(showTimezone({ venue: uk, cinema: { timezone: 'Asia/Kolkata' } }, uk)).toBe(
+      'Europe/London',
+    );
+  });
+
+  it('leaves an Indian cinema exactly as it was', () => {
+    const india = { timezone: null, country: 'India' };
+    expect(showTimezone({ venue: india, cinema: { timezone: 'Asia/Kolkata' } }, india)).toBe(
+      'Asia/Kolkata',
+    );
+    const kolkata = { timezone: 'Asia/Kolkata', country: 'India' };
+    expect(showTimezone({ venue: kolkata, cinema: { timezone: 'Asia/Kolkata' } }, kolkata)).toBe(
+      'Asia/Kolkata',
+    );
+  });
+
+  it('keeps a cinema zone when nobody recorded a country', () => {
+    expect(showTimezone({ cinema: { timezone: 'Asia/Kolkata' } }, null)).toBe('Asia/Kolkata');
+  });
+
+  it("falls back to the country's only zone, else null", () => {
+    expect(showTimezone(null, { timezone: null, country: 'IN' })).toBe('Asia/Kolkata');
+    expect(showTimezone(null, { timezone: null, country: 'US' })).toBeNull();
+    expect(showTimezone(null, null)).toBeNull();
   });
 });

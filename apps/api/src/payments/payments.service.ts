@@ -9,8 +9,8 @@ import {
   TicketStatus,
   computeMarketplaceSplit,
   routeProviderForBooking,
-  venueZone,
 } from '@eticketsgo/shared-types';
+import { SHOW_ZONE_SCREEN_SELECT, showTimezone } from '../spaces/space-owner';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { NotificationService } from '../notifications/notification.service';
@@ -696,14 +696,13 @@ export class PaymentsService {
             venue: { select: { country: true, timezone: true } },
           },
         },
-        // The screen's cinema carries the timezone. A showtime means the time AT THE
-        // CINEMA, so that is what a confirmation has to quote — not the server's zone and
-        // not the reader's.
+        // A showtime means the time AT THE VENUE, so that is what a confirmation has to
+        // quote - not the server's zone and not the reader's. `showTimezone` reads these.
         eventSession: {
           select: {
             startsAt: true,
             status: true,
-            screen: { select: { cinema: { select: { timezone: true } } } },
+            screen: { select: SHOW_ZONE_SCREEN_SELECT },
           },
         },
       },
@@ -1048,12 +1047,9 @@ export class PaymentsService {
           link: guestLink,
           eventTitle: booking.event?.title ?? '',
           startsAt: booking.eventSession?.startsAt?.toISOString() ?? '',
-          // Cinema first, then the venue. Without the fallback every non-cinema event fell
-          // back to UTC in the confirmation while the page showed the reader's own zone.
-          timeZone:
-            booking.eventSession?.screen?.cinema?.timezone ??
-            venueZone(booking.event?.venue?.timezone, booking.event?.venue?.country) ??
-            '',
+          // The venue's clock (`showTimezone`), the same answer the ticket gives. Empty only
+          // when nobody knows; the template then says UTC rather than guessing.
+          timeZone: showTimezone(booking.eventSession?.screen, booking.event?.venue) ?? '',
           seats: issuedSeatLabels.join(', '),
           tickets: ticketCount,
         },
@@ -1240,7 +1236,7 @@ export class PaymentsService {
         eventSession: {
           select: {
             startsAt: true,
-            screen: { select: { cinema: { select: { timezone: true } } } },
+            screen: { select: SHOW_ZONE_SCREEN_SELECT },
           },
         },
       },
@@ -1293,10 +1289,7 @@ export class PaymentsService {
           reference: booking.reference ?? '',
           eventTitle: booking.event?.title ?? '',
           startsAt: booking.eventSession?.startsAt?.toISOString() ?? '',
-          timeZone:
-            booking.eventSession?.screen?.cinema?.timezone ??
-            venueZone(booking.event?.venue?.timezone, booking.event?.venue?.country) ??
-            '',
+          timeZone: showTimezone(booking.eventSession?.screen, booking.event?.venue) ?? '',
           amountMinor: booking.totalMinor,
           currency: booking.currency,
           reason: event.failure?.reason ?? '',

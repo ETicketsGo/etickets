@@ -8,6 +8,7 @@ import { placePosition, unmappedSeatClassMessage } from '../pricing/cinema-polic
 import { admissionClassificationGaps, selectTaxRules } from '../pricing/tax-calculator';
 import { taxRuleFromRow } from '../tax/tax-rule-row';
 import { ticketTaxCategory } from '../bookings/sale-tax-place';
+import { showTimezone } from '../spaces/space-owner';
 
 /**
  * Could somebody actually buy a ticket for this, right now?
@@ -117,7 +118,7 @@ export interface SellabilityIssue {
 export interface SellabilitySession {
   id: string;
   startsAt: string;
-  /** The cinema's zone, else the venue's. Null when neither is known. */
+  /** The show's zone by `showTimezone` (the venue's first). Null when nobody knows. */
   timeZone: string | null;
 }
 
@@ -271,6 +272,8 @@ export class EventSellabilityService {
             screenId: true,
             screen: {
               select: {
+                // The space's own venue, for the show's zone (`showTimezone`).
+                venue: { select: { timezone: true, country: true } },
                 cinema: {
                   select: {
                     id: true,
@@ -329,7 +332,7 @@ export class EventSellabilityService {
       const shown: SellabilitySession = {
         id: session.id,
         startsAt: session.startsAt.toISOString(),
-        timeZone: session.screen?.cinema?.timezone ?? event.venue?.timezone ?? null,
+        timeZone: showTimezone(session.screen, event.venue),
       };
       if (session.ticketTypes.length === 0) {
         blockers.push({

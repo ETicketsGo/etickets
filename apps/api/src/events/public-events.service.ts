@@ -14,7 +14,7 @@ import { AppException, ErrorCodes } from '../common/errors';
 import { availableUnits } from '../inventory/inventory-strategy.interface';
 import { countryAliases } from '../common/country';
 import { contentLabelFor, contentLabelPolicy } from '../common/content-label';
-import { showTimezone } from '../spaces/space-owner';
+import { SHOW_ZONE_SCREEN_SELECT, showTimezone } from '../spaces/space-owner';
 import {
   EVENT_IMAGE_URL_SELECT,
   coverImagePath,
@@ -415,7 +415,7 @@ export class PublicEventsService {
             },
             showZones: true,
             // Only for the session's zone: a show in a cinema's screen is on the cinema's clock.
-            screen: { select: { cinema: { select: { timezone: true } } } },
+            screen: { select: SHOW_ZONE_SCREEN_SELECT },
           },
         },
       },

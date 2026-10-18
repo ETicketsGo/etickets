@@ -376,7 +376,8 @@ describe('PublicEventsService.getBySlug', () => {
       showZones: [],
     });
 
-    it('gives a show in a cinema screen the cinema clock, as its booking does', async () => {
+    it("gives a show in a cinema screen the venue's clock, as its booking does (T2)", async () => {
+      // The cinema row kept the schema default Asia/Kolkata; the venue is where the show is.
       const findUnique = detail(
         { name: 'Hall', city: 'Meridian', country: 'United States', timezone: 'America/Denver' },
         [session({ cinema: { timezone: 'Asia/Kolkata' } })],
@@ -384,10 +385,23 @@ describe('PublicEventsService.getBySlug', () => {
       const service = new PublicEventsService({ event: { findUnique } } as never, advertised);
       const event = await service.getBySlug('e1');
       expect(findUnique.mock.calls[0][0].include.sessions.include.screen).toEqual({
-        select: { cinema: { select: { timezone: true } } },
+        select: {
+          venue: { select: { timezone: true, country: true } },
+          cinema: { select: { timezone: true, country: true } },
+        },
       });
-      expect(event.sessions[0].timeZone).toBe('Asia/Kolkata');
+      expect(event.sessions[0].timeZone).toBe('America/Denver');
       expect(event.timeZone).toBe('America/Denver');
+    });
+
+    it('uses a chosen cinema zone when the venue has none', async () => {
+      const findUnique = detail(
+        { name: 'Hall', city: 'Chicago', country: 'United States', timezone: null },
+        [session({ cinema: { timezone: 'America/Chicago' } })],
+      );
+      const service = new PublicEventsService({ event: { findUnique } } as never, advertised);
+      const event = await service.getBySlug('e1');
+      expect(event.sessions[0].timeZone).toBe('America/Chicago');
     });
 
     it('falls back to the venue country when the venue row has no zone', async () => {

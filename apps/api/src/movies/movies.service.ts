@@ -19,6 +19,7 @@ import { CacheService } from '../cache/cache.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import { availableUnits } from '../inventory/inventory-strategy.interface';
 import { movieRatingsFor } from '../reviews/movie-ratings';
+import { showTimezone } from '../spaces/space-owner';
 import type { RequestUser } from '../common/decorators';
 import { contentLabelFor, contentLabelPolicy, demoFirst } from '../common/content-label';
 
@@ -562,7 +563,10 @@ export class PublicMoviesService {
         take: limit,
         include: {
           event: { include: { venue: true } },
-          screen: { include: { cinema: true } },
+          // The space's venue too: the show's zone is the venue's first (`showTimezone`).
+          screen: {
+            include: { cinema: true, venue: { select: { timezone: true, country: true } } },
+          },
           ticketTypes: {
             where: { status: 'ACTIVE' },
             orderBy: { priceMinor: 'asc' },
@@ -639,6 +643,16 @@ export class PublicMoviesService {
       const cheapest = session.ticketTypes[0] ?? null;
       const seatsAvailable = reserved ? (availableBySession.get(session.id) ?? 0) : null;
       const seatsTotal = reserved ? (totalBySession.get(session.id) ?? 0) : null;
+      /*
+        The show's zone, the same answer its ticket gives (`showTimezone`: the venue first).
+        This used to be the cinema's column, which defaults to Asia/Kolkata, so a Boise cinema
+        created without a zone listed its shows on IST. The stored cinema zone is kept only
+        when nothing else knows, because `cinema.timezone` is a non-null field clients read.
+      */
+      const zone =
+        showTimezone(session.screen, session.event.venue) ??
+        session.screen?.cinema?.timezone ??
+        null;
 
       // General admission has no seat rows; capacity is what the ticket types still hold.
       const remaining = reserved
@@ -673,12 +687,10 @@ export class PublicMoviesService {
               id: session.screen.cinema.id,
               name: session.screen.cinema.name,
               brand: session.screen.cinema.brand,
-              timezone: session.screen.cinema.timezone,
+              timezone: zone ?? session.screen.cinema.timezone,
             }
           : null,
-        localDate: session.screen?.cinema
-          ? localDateIn(session.startsAt, session.screen.cinema.timezone)
-          : null,
+        localDate: session.screen?.cinema && zone ? localDateIn(session.startsAt, zone) : null,
         screen: session.screen ? { id: session.screen.id, name: session.screen.name } : null,
         format: session.screen?.screenType ?? null,
         language: movie.language,

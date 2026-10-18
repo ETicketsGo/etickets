@@ -5,7 +5,7 @@ import { TicketShareableResource, type ShareableTicketRow } from './ticket-share
 
   The share page rendered `startsAt` in the viewer's device zone, because the share view carried
   no zone: a friend in Dubai opening a link to a Hyderabad show saw 18:30 for an 20:00 start.
-  The view now states the zone — the cinema's for a screening, else the venue's.
+  The view now states the zone, by the ticket's own rule (`showTimezone`): the venue first.
 */
 const row = (over: Partial<ShareableTicketRow['eventSession']> = {}): ShareableTicketRow => ({
   id: 'tk1',
@@ -38,15 +38,30 @@ describe('TicketShareableResource.toShareView', () => {
     expect(view.timeZone).toBe('Asia/Kolkata');
   });
 
-  it("prefers the cinema's zone for a screening", () => {
+  it("prefers the venue's zone over a cinema left at the default (T2)", () => {
     const view = new TicketShareableResource(
       row({
-        screen: { name: 'Audi 1', cinema: { name: 'PVR', timezone: 'America/Boise' } },
+        screen: {
+          name: 'Audi 1',
+          venue: { timezone: 'America/Boise', country: 'United States' },
+          cinema: { name: 'Move Hall', timezone: 'Asia/Kolkata' },
+        },
         event: {
           title: 'Film',
           experienceType: 'MOVIE',
-          venue: { name: 'Mall', timezone: 'Asia/Kolkata' },
+          venue: { name: 'Mall', timezone: 'America/Boise', country: 'United States' },
         },
+      }),
+      {} as never,
+    ).toShareView();
+    expect(view.timeZone).toBe('America/Boise');
+  });
+
+  it("uses the cinema's zone for a screening when no venue has one", () => {
+    const view = new TicketShareableResource(
+      row({
+        screen: { name: 'Audi 1', cinema: { name: 'PVR', timezone: 'America/Boise' } },
+        event: { title: 'Film', experienceType: 'MOVIE', venue: { name: 'Mall', timezone: null } },
       }),
       {} as never,
     ).toShareView();

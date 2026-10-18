@@ -1,10 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import {
-  BookingStatus,
-  NotificationType,
-  SessionStatus,
-  venueZone,
-} from '@eticketsgo/shared-types';
+import { BookingStatus, NotificationType, SessionStatus } from '@eticketsgo/shared-types';
+import { SHOW_ZONE_SCREEN_SELECT, showTimezone } from '../../spaces/space-owner';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationService } from '../notification.service';
@@ -109,7 +105,7 @@ export class ShowCancellationFanoutService {
         id: true,
         status: true,
         startsAt: true,
-        screen: { select: { cinema: { select: { timezone: true } } } },
+        screen: { select: SHOW_ZONE_SCREEN_SELECT },
         event: {
           select: {
             id: true,
@@ -172,9 +168,8 @@ export class ShowCancellationFanoutService {
     });
 
     const timeZone =
-      session.screen?.cinema?.timezone ??
-      venueZone(session.event?.venue?.timezone, session.event?.venue?.country) ??
-      '';
+      // The venue's clock, the same answer the ticket gives (`showTimezone`).
+      showTimezone(session.screen, session.event?.venue) ?? '';
 
     let notified = 0;
     for (const booking of pending) {

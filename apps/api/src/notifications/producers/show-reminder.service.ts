@@ -1,11 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { BookingStatus, NotificationType, SessionStatus } from '@eticketsgo/shared-types';
 import {
-  BookingStatus,
-  NotificationType,
-  SessionStatus,
-  venueZone,
-} from '@eticketsgo/shared-types';
+  SHOW_ZONE_SCREEN_SELECT,
+  showTimezone,
+  type ShowZoneScreen,
+} from '../../spaces/space-owner';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationService } from '../notification.service';
 
@@ -29,7 +29,7 @@ export interface ReminderSummary {
  * yesterday" in local terms is what produces a reminder an hour early twice a year.
  *
  * The RENDERING is a different matter and does convert: the message says when the show starts
- * in the cinema's own zone, because a customer in Kolkata reading about a Kolkata show wants
+ * in the venue's own zone, because a customer in Kolkata reading about a Kolkata show wants
  * IST and not UTC. That conversion belongs to the template, and it already happens there.
  *
  * ── WHY ELIGIBILITY IS CHECKED WHEN IT FIRES, NOT WHEN IT IS PLANNED ───────────────
@@ -111,7 +111,7 @@ export class ShowReminderService {
       select: {
         id: true,
         startsAt: true,
-        screen: { select: { cinema: { select: { timezone: true } } } },
+        screen: { select: SHOW_ZONE_SCREEN_SELECT },
         event: { select: { title: true, venue: { select: { timezone: true, country: true } } } },
       },
     });
@@ -131,7 +131,7 @@ export class ShowReminderService {
     session: {
       id: string;
       startsAt: Date;
-      screen: { cinema: { timezone: string | null } | null } | null;
+      screen: ShowZoneScreen | null;
       event: {
         title: string | null;
         venue: { timezone: string | null; country?: string | null } | null;
@@ -166,9 +166,8 @@ export class ShowReminderService {
     });
 
     const timeZone =
-      session.screen?.cinema?.timezone ??
-      venueZone(session.event?.venue?.timezone, session.event?.venue?.country) ??
-      '';
+      // The venue's clock, the same answer the ticket gives (`showTimezone`).
+      showTimezone(session.screen, session.event?.venue) ?? '';
     let sent = 0;
 
     for (const booking of bookings) {

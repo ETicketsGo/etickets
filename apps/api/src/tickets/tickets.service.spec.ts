@@ -134,11 +134,33 @@ describe('TicketsService — the ticket’s timezone', () => {
     expect(t.timezone).toBe('America/Chicago');
   });
 
-  it('still prefers the cinema’s zone when there is one', async () => {
-    const screen = { name: 'Screen 1', cinema: { name: 'PVR', timezone: 'Asia/Kolkata' } };
-    const { svc } = setup([row({ eventSession: session(screen, 'America/Chicago') })]);
+  /*
+    T2: the ticket read the cinema first, and `Cinema.timezone` defaults to Asia/Kolkata, so a
+    US cinema created without a zone printed IST on every ticket (QA "Move Hall", Boise).
+  */
+  it('prefers the venue’s zone over a cinema left at the default', async () => {
+    const screen = {
+      name: 'Screen 1',
+      venue: { timezone: 'America/Boise', country: 'United States' },
+      cinema: { name: 'Move Hall', timezone: 'Asia/Kolkata' },
+    };
+    const { svc } = setup([row({ eventSession: session(screen, 'America/Boise') })]);
     const [t] = await svc.wallet(USER);
-    expect(t.timezone).toBe('Asia/Kolkata');
+    expect(t.timezone).toBe('America/Boise');
+  });
+
+  it('uses the cinema’s zone when no venue has one', async () => {
+    const screen = { name: 'Screen 1', cinema: { name: 'PVR', timezone: 'America/Chicago' } };
+    const { svc } = setup([row({ eventSession: session(screen, null) })]);
+    const [t] = await svc.wallet(USER);
+    expect(t.timezone).toBe('America/Chicago');
+  });
+
+  it('asks the database for the space’s venue zone', async () => {
+    const { svc, findMany } = setup([]);
+    await svc.wallet(USER);
+    const screen = findMany.mock.calls[0][0].include.eventSession.select.screen.select;
+    expect(screen.venue).toEqual({ select: { timezone: true, country: true } });
   });
 
   it('asks the database for the venue’s zone, so the fallback has something to read', async () => {
