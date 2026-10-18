@@ -25,6 +25,9 @@ import {
   WifiOff,
 } from 'lucide-react';
 import {
+  BRAND_FOCUS,
+  BrandStatusPill,
+  brandButtonClasses,
   eventTiming,
   googleDirectionsUrl,
   googleMapsUrl,
@@ -35,18 +38,48 @@ import {
   useConnectivity,
   useToast,
   type BookingGroup,
+  type BrandStatus,
   type WalletTicket,
 } from '@eticketsgo/web-kit';
 import { tokenStore } from '@/lib/api';
 import { useFormat } from '@/lib/format';
 import { ReferenceCode } from '@/components/reference-code';
-import { EmptyState, ErrorState, Skeleton, StatusBadge, ButtonLink } from '@/components/ui';
 import { EventDayMode } from '@/components/event-day-mode';
+import { BRAND_EYEBROW, BRAND_LINK, BRAND_PANEL } from '@/components/booking-brand';
+import { BrandError } from '@/components/account-brand';
+import { Placeholder as LoadingBlock } from '@/components/home/parts';
+import { BrandEmpty, BrandPage } from '@/components/storefront-brand';
 import { fetchWalletWithOffline, lastSyncedAt } from '@/lib/offline/sync';
 import { Link } from '@/i18n/navigation';
 import { useLocale, useTranslations } from 'next-intl';
 import { useMounted } from '@/lib/use-mounted';
 import { useStatusLabel } from '@/lib/status-label';
+
+/*
+  ── A BOOKING'S TICKETS ON THE BRAND LAYER (docs/design/DESIGN-SYSTEM.md) ─────────────
+  The page a buyer opens from My tickets and from the confirmation's "View tickets". The single
+  ticket page (/account/tickets/<id>) moved to the stage and paper in #400; this one still had
+  the old grey canvas, a blue Event Day button, blue chips and shadowed tiles, so the owner saw
+  two different products side by side. It now follows that page: the booking on a stage band,
+  the QR on white paper with its state as a word in a pill, and the actions as hairline buttons.
+  The same tickets, the same order, the same actions and the same keyboard and swipe controls.
+*/
+
+/** A ticket's state as the brand's pill, as on the single ticket page. Words always. */
+const TICKET_TONE: Record<string, BrandStatus> = {
+  ACTIVE: 'positive',
+  CHECKED_IN: 'info',
+  TRANSFERRED: 'neutral',
+  REFUNDED: 'neutral',
+  CANCELLED: 'critical',
+  VOID: 'critical',
+};
+
+/** The page's column: narrow, like a ticket, with the shell's gutters. */
+const COLUMN = 'mx-auto max-w-2xl px-4 sm:px-6';
+
+/** A quiet text control in the top row and under the actions: 44px tall, ink on hover. */
+const QUIET_LINK = `inline-flex min-h-11 items-center gap-1.5 rounded-brand-control px-2 text-brand-ui font-medium text-brand-ink-2 transition-colors duration-150 hover:text-brand-ink ${BRAND_FOCUS}`;
 
 /** This page's translator, in the shape the helpers below take it. */
 type Translate = (key: string, values?: Record<string, string | number>) => string;
@@ -222,49 +255,58 @@ export default function BookingTicketsViewer() {
   */
   const printHref = `/account/bookings/${bookingId}/tickets/print`;
   const printLink = (
-    <Link
-      href={printHref}
-      className="flex items-center gap-1.5 rounded-md text-[0.9375rem] text-text-secondary transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-    >
+    <Link href={printHref} className={QUIET_LINK}>
       <Printer className="h-4 w-4" aria-hidden /> {b('print')}
     </Link>
   );
 
   const backLink = (
     <button
+      type="button"
       onClick={() => router.push('/account/tickets')}
-      className="flex items-center gap-1.5 rounded-md text-[0.9375rem] text-text-secondary transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
+      className={`-ml-2 ${QUIET_LINK}`}
     >
-      <ArrowLeft className="h-4 w-4" /> {b('allTickets')}
+      <ArrowLeft className="h-4 w-4" aria-hidden /> {b('allTickets')}
     </button>
   );
 
   if (isError && !data)
     return (
-      <div className="mx-auto max-w-2xl space-y-6">
-        {backLink}
-        <ErrorState message={b('loadError')} onRetry={() => refetch()} />
-      </div>
+      <BrandPage>
+        <div className={`${COLUMN} space-y-6 pt-4 sm:pt-8`}>
+          {backLink}
+          <BrandError message={b('loadError')} onRetry={() => refetch()} />
+        </div>
+      </BrandPage>
     );
 
   if ((!mounted || isLoading) && !data)
     return (
-      <div className="mx-auto max-w-2xl space-y-6">
-        {backLink}
-        <Skeleton className="h-[28rem] w-full" />
-      </div>
+      <BrandPage>
+        <div className={`${COLUMN} space-y-6 pt-4 sm:pt-8`} aria-busy="true">
+          {backLink}
+          <LoadingBlock className="h-40 w-full" />
+          <LoadingBlock className="h-[28rem] w-full" />
+        </div>
+      </BrandPage>
     );
 
   if (!group || !current)
     return (
-      <div className="mx-auto max-w-2xl space-y-6">
-        {backLink}
-        <EmptyState
-          title={b('notFoundTitle')}
-          hint={b('notFoundHint')}
-          action={<ButtonLink href="/account/tickets">{b('backToMyTickets')}</ButtonLink>}
-        />
-      </div>
+      <BrandPage>
+        <div className={`${COLUMN} space-y-6 pt-4 sm:pt-8`}>
+          {backLink}
+          <BrandEmpty
+            title={b('notFoundTitle')}
+            hint={b('notFoundHint')}
+            action={
+              <Link href="/account/tickets" className={brandButtonClasses('primary', 'md')}>
+                {b('backToMyTickets')}
+              </Link>
+            }
+          />
+        </div>
+      </BrandPage>
     );
 
   const timing = eventTiming(current.startsAt, Date.now());
@@ -288,39 +330,40 @@ export default function BookingTicketsViewer() {
     : group.venueName || group.title;
 
   return (
-    <>
+    <BrandPage>
       <section
-        className="mx-auto max-w-2xl space-y-6"
+        className={`${COLUMN} space-y-6 pt-4 sm:pt-8`}
         aria-label={b('sectionLabel', { title: group.title })}
       >
-        <div className="flex items-center justify-between gap-3">
-          <span className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+          <span className="flex flex-wrap items-center gap-x-2">
             {backLink}
             {printLink}
           </span>
           {!online && (
-            <span className="inline-flex items-center gap-1.5 text-caption font-medium text-status-warning">
-              <WifiOff className="h-3.5 w-3.5" /> {b('offlineSaved')}
+            <span className="inline-flex h-6 items-center gap-1.5 rounded-full bg-brand-caution-tint px-2.5 text-brand-meta font-semibold text-brand-caution">
+              <WifiOff className="h-3.5 w-3.5" aria-hidden /> {b('offlineSaved')}
             </span>
           )}
         </div>
 
-        {/* Group header */}
+        {/* The booking, on a stage band: what these tickets are for and how many are in. */}
         <GroupHeader group={group} />
 
         {/* Event Day Mode entry — prominent on event day, always available below */}
         {timing.isEventDay && (
           <button
+            type="button"
             onClick={() => setEventDayOpen(true)}
-            className="flex w-full items-center justify-center gap-2 rounded-lg bg-action-primary px-5 py-3.5 font-semibold text-action-primary-foreground shadow-sm transition-colors hover:bg-action-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
+            className={`${brandButtonClasses('primary', 'lg')} w-full`}
           >
-            <Maximize2 className="h-4 w-4" /> {b('enterEventDayMode')}
+            <Maximize2 className="h-4 w-4" aria-hidden /> {b('enterEventDayMode')}
           </button>
         )}
 
-        {/* Ticket viewer: one ticket at a time */}
+        {/* Ticket viewer: one ticket at a time. The QR on white, for the scanner, never tinted. */}
         <div
-          className="rounded-lg border border-border bg-background-surface shadow-sm"
+          className={BRAND_PANEL}
           style={{ touchAction: 'pan-y' }}
           onTouchStart={onTouchStart}
           onTouchEnd={onTouchEnd}
@@ -331,7 +374,7 @@ export default function BookingTicketsViewer() {
             aria-live="polite"
             className="flex flex-col items-center p-6 text-center"
           >
-            <p className="text-caption font-medium uppercase tracking-wide text-text-muted">
+            <p className={BRAND_EYEBROW}>
               {b('ticketOf', { index: index + 1, total: tickets.length })}
             </p>
 
@@ -346,13 +389,15 @@ export default function BookingTicketsViewer() {
                   const img = e.currentTarget;
                   if (img.src !== qrFallbackUrl) img.src = qrFallbackUrl;
                 }}
-                className={`h-56 w-56 rounded-2xl bg-white p-2 shadow-sm ${inactive ? 'opacity-40 grayscale' : ''}`}
+                className={`h-56 w-56 rounded-brand-control border border-brand-line bg-white p-2 ${inactive ? 'opacity-40 grayscale' : ''}`}
               />
             </div>
 
             <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-              <StatusBadge status={current.status} label={statusLabel('ticket', current.status)} />
-              <span className="font-mono text-caption text-text-muted">{current.serial}</span>
+              <BrandStatusPill status={TICKET_TONE[current.status] ?? 'neutral'}>
+                {statusLabel('ticket', current.status)}
+              </BrandStatusPill>
+              <span className="font-mono text-brand-meta text-brand-ink-3">{current.serial}</span>
             </div>
 
             {/*
@@ -366,29 +411,25 @@ export default function BookingTicketsViewer() {
               send this person, and are they here for the right show. Everything else stays
               small, because it is for the customer rather than the doorperson.
             */}
-            <dl className="mt-4 grid grid-cols-2 gap-3 border-y border-border/70 py-3 text-left">
+            <dl className="mt-5 grid w-full max-w-md grid-cols-2 gap-x-4 gap-y-3 border-y border-brand-line py-4 text-left">
               {group.screenName && (
                 <div>
-                  <dt className="text-caption uppercase tracking-wide text-text-muted">
-                    {b('screen')}
-                  </dt>
-                  <dd className="text-[1.0625rem] font-semibold text-text-primary">
+                  <dt className={BRAND_EYEBROW}>{b('screen')}</dt>
+                  <dd className="mt-0.5 font-brand-display text-brand-card text-brand-ink">
                     {group.screenName}
                   </dd>
                 </div>
               )}
               {seat && (
                 <div>
-                  <dt className="text-caption uppercase tracking-wide text-text-muted">
-                    {b('seat')}
-                  </dt>
-                  <dd className="text-[1.0625rem] font-semibold tabular-nums text-text-primary">
+                  <dt className={BRAND_EYEBROW}>{b('seat')}</dt>
+                  <dd className="mt-0.5 font-brand-display text-brand-card tabular-nums text-brand-ink">
                     {seat}
                   </dd>
                 </div>
               )}
               <div className={group.screenName && seat ? 'col-span-2' : ''}>
-                <dt className="text-caption uppercase tracking-wide text-text-muted">
+                <dt className={BRAND_EYEBROW}>
                   {zoneLabel ? b('showTimeWithZone', { zone: zoneLabel }) : b('showTime')}
                 </dt>
                 {/*
@@ -396,38 +437,32 @@ export default function BookingTicketsViewer() {
                   zone previously showed a time that was not when the show starts — on the one
                   screen where being wrong sends somebody to the wrong screening.
                 */}
-                <dd className="text-[1.0625rem] font-semibold text-text-primary">
+                <dd className="mt-0.5 font-brand-display text-brand-card tabular-nums text-brand-ink">
                   {dateTime(current.startsAt, undefined, current.timezone ?? undefined)}
                 </dd>
               </div>
               <div>
-                <dt className="text-caption uppercase tracking-wide text-text-muted">
-                  {b('ticket')}
-                </dt>
-                <dd className="text-[0.9375rem] text-text-primary">{current.ticketType}</dd>
+                <dt className={BRAND_EYEBROW}>{b('ticket')}</dt>
+                <dd className="mt-0.5 text-brand-ui text-brand-ink">{current.ticketType}</dd>
               </div>
               {current.bookingRef && (
                 <div>
-                  <dt className="text-caption uppercase tracking-wide text-text-muted">
-                    {b('booking')}
-                  </dt>
+                  <dt className={BRAND_EYEBROW}>{b('booking')}</dt>
                   {/* Quoted to staff and to support far more often than the serial is. */}
-                  <dd className="text-[0.9375rem]">
+                  <dd className="mt-0.5 text-brand-ui">
                     <ReferenceCode value={current.bookingRef} label={b('bookingReference')} />
                   </dd>
                 </div>
               )}
               {current.holderName && (
                 <div className="col-span-2">
-                  <dt className="text-caption uppercase tracking-wide text-text-muted">
-                    {b('attendee')}
-                  </dt>
-                  <dd className="text-[0.9375rem] text-text-primary">{current.holderName}</dd>
+                  <dt className={BRAND_EYEBROW}>{b('attendee')}</dt>
+                  <dd className="mt-0.5 text-brand-ui text-brand-ink">{current.holderName}</dd>
                 </div>
               )}
               {place && (
-                <div className="col-span-2 flex items-center gap-1.5 text-caption text-text-muted">
-                  <MapPin className="h-3.5 w-3.5" aria-hidden />
+                <div className="col-span-2 flex items-center gap-1.5 text-brand-meta text-brand-ink-2">
+                  <MapPin className="h-3.5 w-3.5 shrink-0" aria-hidden />
                   <dt className="sr-only">{b('location')}</dt>
                   <dd>{place}</dd>
                 </div>
@@ -435,48 +470,51 @@ export default function BookingTicketsViewer() {
             </dl>
 
             {assignmentLine && (
-              <p className="mt-2 text-caption font-medium text-text-secondary">{assignmentLine}</p>
+              <p className="mt-3 text-brand-meta font-medium text-brand-ink-2">{assignmentLine}</p>
             )}
 
             {inactive && (
-              <p className="mt-3 max-w-xs text-caption text-text-muted">
+              <p className="mt-3 max-w-xs text-brand-meta text-brand-ink-2">
                 {b('inactive', { status: statusLabel('ticket', current.status).toLowerCase() })}
               </p>
             )}
 
             <Link
               href={`/account/tickets/${current.id}`}
-              className="mt-4 inline-flex min-h-6 items-center text-caption font-medium text-action-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+              className={`mt-4 inline-flex min-h-11 items-center text-brand-ui ${BRAND_LINK}`}
             >
               {b('fullDetails')}
             </Link>
           </div>
 
           {tickets.length > 1 && (
-            <div className="flex items-center justify-between border-t border-border p-3">
+            <div className="flex items-center justify-between gap-2 border-t border-brand-line p-2 sm:p-3">
               <button
+                type="button"
                 onClick={() => goTo(index - 1)}
                 disabled={index === 0}
                 aria-label={b('previousTicket')}
-                className="inline-flex items-center gap-1 rounded-md px-3 py-2 text-[0.9375rem] font-medium text-text-secondary transition-colors hover:bg-background-subtle hover:text-text-primary disabled:pointer-events-none disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                className={brandButtonClasses('quiet', 'md')}
               >
-                <ChevronLeft className="h-4 w-4" /> {b('prev')}
+                <ChevronLeft className="h-4 w-4" aria-hidden /> {b('prev')}
               </button>
               {showNextActive && (
                 <button
+                  type="button"
                   onClick={jumpNextActive}
-                  className="inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-caption font-semibold text-action-primary transition-colors hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                  className={`${brandButtonClasses('secondary', 'md')} px-3`}
                 >
-                  <ScanLine className="h-4 w-4" /> {b('nextActiveQr')}
+                  <ScanLine className="h-4 w-4" aria-hidden /> {b('nextActiveQr')}
                 </button>
               )}
               <button
+                type="button"
                 onClick={() => goTo(index + 1)}
                 disabled={index === tickets.length - 1}
                 aria-label={b('nextTicket')}
-                className="inline-flex items-center gap-1 rounded-md px-3 py-2 text-[0.9375rem] font-medium text-text-secondary transition-colors hover:bg-background-subtle hover:text-text-primary disabled:pointer-events-none disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                className={brandButtonClasses('quiet', 'md')}
               >
-                {b('next')} <ChevronRight className="h-4 w-4" />
+                {b('next')} <ChevronRight className="h-4 w-4" aria-hidden />
               </button>
             </div>
           )}
@@ -523,34 +561,30 @@ export default function BookingTicketsViewer() {
             href={googleMapsUrl(`parking near ${mapsQuery}`)}
           />
         </div>
-        <div className="flex items-center justify-between gap-3">
+        <div className="-mt-2 flex items-center justify-between gap-3">
           <button
+            type="button"
             onClick={() => setEventDayOpen(true)}
-            className="inline-flex min-h-6 items-center gap-1.5 text-caption font-medium text-text-secondary hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            className={`-ml-2 ${QUIET_LINK}`}
           >
-            <Maximize2 className="h-3.5 w-3.5" /> {b('eventDayMode')}
+            <Maximize2 className="h-4 w-4" aria-hidden /> {b('eventDayMode')}
           </button>
-          <Link
-            href="/help"
-            className="inline-flex min-h-6 items-center gap-1.5 text-caption font-medium text-text-secondary hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-          >
-            <LifeBuoy className="h-3.5 w-3.5" /> {b('support')}
+          <Link href="/help" className={`-mr-2 ${QUIET_LINK}`}>
+            <LifeBuoy className="h-4 w-4" aria-hidden /> {b('support')}
           </Link>
         </div>
 
         {/* Ticket strip + auto-advance */}
         {tickets.length > 1 && (
           <div>
-            <div className="mb-2 flex items-center justify-between">
-              <p className="text-caption font-medium uppercase tracking-wide text-text-muted">
-                {b('allInBooking')}
-              </p>
-              <label className="flex cursor-pointer items-center gap-1.5 text-caption text-text-secondary">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+              <p className={BRAND_EYEBROW}>{b('allInBooking')}</p>
+              <label className="flex min-h-11 cursor-pointer items-center gap-2 text-brand-ui text-brand-ink-2">
                 <input
                   type="checkbox"
                   checked={autoAdvance}
                   onChange={toggleAutoAdvance}
-                  className="h-6 w-6 rounded border-border text-action-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                  className={`h-5 w-5 rounded accent-brand-ink ${BRAND_FOCUS}`}
                 />
                 {b('autoAdvance')}
               </label>
@@ -579,7 +613,7 @@ export default function BookingTicketsViewer() {
       />
 
       <ShareDialog ticket={current} open={shareOpen} onClose={() => setShareOpen(false)} />
-    </>
+    </BrandPage>
   );
 }
 
@@ -597,7 +631,10 @@ function attendeeLine(t: WalletTicket, b: Translate): string | null {
   return null;
 }
 
-/** Group header: title, count, reference, check-in progress dots + status summary. */
+/**
+ * The booking on a stage band, as the single ticket page opens: the title in the display
+ * face, how many tickets and the reference, then check-in progress and a count per state.
+ */
 function GroupHeader({ group }: { group: BookingGroup }) {
   const b = useTranslations('storefront.bookingTickets');
   const locale = useLocale();
@@ -610,63 +647,76 @@ function GroupHeader({ group }: { group: BookingGroup }) {
   const plural = new Intl.PluralRules(locale);
   const form = (n: number) => (plural.select(n) === 'one' ? 'one' : 'other');
   const segments: { key: string; n: number; tone: string }[] = [
-    { key: 'active', n: counts.active, tone: 'text-status-success' },
-    { key: 'checkedIn', n: counts.checkedIn, tone: 'text-status-info' },
-    { key: 'transferred', n: counts.transferred, tone: 'text-text-secondary' },
-    { key: 'refunded', n: counts.refunded, tone: 'text-status-error' },
-    { key: 'cancelled', n: counts.cancelled, tone: 'text-status-error' },
+    { key: 'active', n: counts.active, tone: 'text-brand-positive' },
+    { key: 'checkedIn', n: counts.checkedIn, tone: 'text-brand-info' },
+    { key: 'transferred', n: counts.transferred, tone: 'text-brand-ink-2' },
+    { key: 'refunded', n: counts.refunded, tone: 'text-brand-critical' },
+    { key: 'cancelled', n: counts.cancelled, tone: 'text-brand-critical' },
   ].filter((s) => s.n > 0);
   // Composed here: web-kit's `checkInProgress` is an English sentence.
   const progress = b('checkInProgress', { checkedIn: counts.checkedIn, total: counts.total });
+  const showProgress = counts.total > 1;
 
   return (
-    <header>
-      <h1 className="text-h3 font-bold tracking-tight text-text-primary" tabIndex={-1}>
-        {group.title}
-      </h1>
-      <p className="mt-1 flex flex-wrap items-center gap-x-2 text-[0.9375rem] text-text-muted">
-        <span>{b('ticketCount', { count: counts.total })}</span>
-        <span aria-hidden>-</span>
-        <span className="font-mono">{group.bookingRef}</span>
-      </p>
+    <header
+      data-brand-tone="stage"
+      className="overflow-hidden rounded-brand-card bg-brand-canvas text-brand-ink"
+    >
+      <div className="p-5 sm:p-6">
+        <p className="flex flex-wrap items-center gap-x-2 text-brand-eyebrow uppercase text-brand-ink-2">
+          <span>{b('ticketCount', { count: counts.total })}</span>
+          <span aria-hidden>-</span>
+          <span className="font-mono normal-case tracking-normal">{group.bookingRef}</span>
+        </p>
+        <h1
+          className="mt-2 text-balance font-brand-display text-brand-d3 text-brand-ink focus:outline-none"
+          tabIndex={-1}
+        >
+          {group.title}
+        </h1>
+      </div>
 
-      {/* Check-in progress: dots (never colour alone — filled ✓ vs hollow) */}
-      {counts.total > 1 && (
-        <div className="mt-3">
-          <div className="mb-1.5 flex items-center justify-between text-caption text-text-muted">
-            <span>{progress}</span>
-            <span>{b('remaining', { count: counts.total - counts.checkedIn })}</span>
-          </div>
-          <div className="flex flex-wrap gap-1" role="img" aria-label={progress}>
-            {group.tickets.map((t) => (
-              <span
-                key={t.id}
-                className={`h-2.5 w-2.5 rounded-full ${
-                  t.status === 'CHECKED_IN'
-                    ? 'bg-status-info'
-                    : t.status === 'ACTIVE'
-                      ? 'bg-status-success'
-                      : 'border border-border-strong bg-transparent'
-                }`}
-              />
-            ))}
-          </div>
+      {(showProgress || segments.length > 0) && (
+        <div className="space-y-3 border-t border-brand-line px-5 py-4 sm:px-6">
+          {/* Check-in progress: dots (never colour alone — filled vs hollow) */}
+          {showProgress && (
+            <div>
+              <div className="mb-2 flex items-center justify-between gap-3 text-brand-meta text-brand-ink-2">
+                <span>{progress}</span>
+                <span>{b('remaining', { count: counts.total - counts.checkedIn })}</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5" role="img" aria-label={progress}>
+                {group.tickets.map((t) => (
+                  <span
+                    key={t.id}
+                    className={`h-2.5 w-2.5 rounded-full ${
+                      t.status === 'CHECKED_IN'
+                        ? 'bg-brand-info'
+                        : t.status === 'ACTIVE'
+                          ? 'bg-brand-positive'
+                          : 'border border-brand-line-strong bg-transparent'
+                    }`}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Status summary — text + count, icon-independent (never hide any bucket) */}
+          {segments.length > 0 && (
+            <ul className="flex flex-wrap gap-2">
+              {segments.map((s) => (
+                <li
+                  key={s.key}
+                  className="inline-flex h-7 items-center gap-1.5 rounded-full border border-brand-line-strong px-3 text-brand-meta font-medium"
+                >
+                  <span className={`font-semibold tabular-nums ${s.tone}`}>{s.n}</span>
+                  <span className="text-brand-ink-2">{b(`segment.${s.key}.${form(s.n)}`)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
-      )}
-
-      {/* Status summary — text + count, icon-independent (never hide any bucket) */}
-      {segments.length > 0 && (
-        <ul className="mt-3 flex flex-wrap gap-2">
-          {segments.map((s) => (
-            <li
-              key={s.key}
-              className="inline-flex items-center gap-1.5 rounded-full border border-border px-2.5 py-0.5 text-caption font-medium"
-            >
-              <span className={s.tone}>{s.n}</span>
-              <span className="text-text-secondary">{b(`segment.${s.key}.${form(s.n)}`)}</span>
-            </li>
-          ))}
-        </ul>
       )}
     </header>
   );
@@ -696,6 +746,7 @@ function TicketStrip({
         return (
           <li key={t.id}>
             <button
+              type="button"
               onClick={() => onSelect(i)}
               aria-current={selected ? 'true' : undefined}
               aria-label={[
@@ -706,10 +757,11 @@ function TicketStrip({
               ]
                 .filter(Boolean)
                 .join(', ')}
-              className={`flex min-w-[3rem] items-center justify-center gap-1 rounded-md border px-3 py-2 text-caption font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${
+              // 44px tall for a thumb; selected is ink with paper text, so it reads in greyscale.
+              className={`inline-flex h-11 min-w-[3rem] items-center justify-center gap-1 rounded-full px-4 text-brand-ui font-medium tabular-nums transition-colors duration-150 ${BRAND_FOCUS} ${
                 selected
-                  ? 'border-action-primary bg-tint-primary text-action-primary'
-                  : 'border-border text-text-secondary hover:bg-background-subtle'
+                  ? 'bg-brand-action text-brand-on-action'
+                  : 'border border-brand-line-strong bg-brand-surface text-brand-ink hover:border-brand-ink-3'
               } ${dim ? 'opacity-50' : ''}`}
             >
               {/* An icon, not a check-mark character: some devices have no glyph for it. */}
@@ -723,6 +775,7 @@ function TicketStrip({
   );
 }
 
+/** One of the six actions: a hairline tile, icon over word, the whole tile the target. */
 function QuickAction({
   icon: Icon,
   label,
@@ -734,11 +787,10 @@ function QuickAction({
   onClick?: () => void;
   href?: string;
 }) {
-  const cls =
-    'flex flex-col items-center gap-1 rounded-lg border border-border bg-background-surface px-2 py-3 text-caption font-medium text-text-secondary shadow-sm transition-colors hover:bg-background-subtle hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50';
+  const cls = `flex min-h-[4.5rem] flex-col items-center justify-center gap-1.5 rounded-brand-control border border-brand-line-strong bg-brand-surface px-2 py-3 text-center text-brand-meta font-semibold text-brand-ink transition-colors duration-150 hover:border-brand-ink-3 hover:bg-brand-sunken ${BRAND_FOCUS}`;
   const inner = (
     <>
-      <Icon className="h-4 w-4" />
+      <Icon className="h-4 w-4" aria-hidden />
       {label}
     </>
   );
@@ -747,7 +799,7 @@ function QuickAction({
       {inner}
     </a>
   ) : (
-    <button onClick={onClick} className={cls}>
+    <button type="button" onClick={onClick} className={cls}>
       {inner}
     </button>
   );

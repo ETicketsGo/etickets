@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { PrintableTickets } from '@eticketsgo/web-kit';
+import { BRAND_FOCUS, PrintableTickets, brandButtonClasses } from '@eticketsgo/web-kit';
 import { useParams } from 'next/navigation';
 import { ArrowLeft, Printer } from 'lucide-react';
 import { Link } from '@/i18n/navigation';
@@ -32,13 +32,31 @@ import { fetchWalletWithOffline } from '@/lib/offline/sync';
  * out. It did not: once the print dialog closed, the only control was a "Print again" button
  * whose colour class did not exist, white text on a white page. Reported from QA as "there is
  * no way to come back". The toolbar is hidden when printing and always shown on screen.
+ *
+ * ── ON SCREEN, THE BRAND'S PAPER ───────────────────────────────────────────────────
+ * The toolbar and the page around the sheet are on the brand layer (warm paper, an ink button),
+ * like the ticket page it came from; it was the old grey with a blue button. The sheet itself
+ * is unchanged and stays black on white, and when printing the paper colour is dropped so the
+ * printer sees white and nothing else (`print:bg-white`, and no minimum height to spill a
+ * blank page).
  */
+function Paper({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      data-brand="customer"
+      className="min-h-screen bg-brand-canvas font-brand-text text-brand-ink print:min-h-0 print:bg-white"
+    >
+      {children}
+    </div>
+  );
+}
+
 function Toolbar({ bookingId, canPrint }: { bookingId: string; canPrint: boolean }) {
   return (
     <div className="no-print mx-auto flex max-w-2xl flex-wrap items-center justify-between gap-3 p-6">
       <Link
         href={`/account/bookings/${bookingId}/tickets`}
-        className="inline-flex items-center gap-1.5 rounded-md text-[0.9375rem] font-medium text-text-secondary transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        className={`-ml-2 inline-flex min-h-11 items-center gap-1.5 rounded-brand-control px-2 text-brand-ui font-medium text-brand-ink-2 transition-colors duration-150 hover:text-brand-ink ${BRAND_FOCUS}`}
       >
         <ArrowLeft className="h-4 w-4" aria-hidden /> Back to tickets
       </Link>
@@ -46,7 +64,7 @@ function Toolbar({ bookingId, canPrint }: { bookingId: string; canPrint: boolean
         <button
           type="button"
           onClick={() => window.print()}
-          className="inline-flex items-center gap-2 rounded-md bg-action-primary px-4 py-2 text-[0.9375rem] font-medium text-action-primary-foreground transition-colors hover:bg-action-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2"
+          className={brandButtonClasses('primary', 'md')}
         >
           <Printer className="h-4 w-4" aria-hidden /> Print or save as PDF
         </button>
@@ -71,24 +89,28 @@ export default function PrintTicketsPage() {
 
   if (isLoading)
     return (
-      <>
+      <Paper>
         <Toolbar bookingId={bookingId} canPrint={false} />
-        <p className="mx-auto max-w-2xl px-6 text-sm">Preparing your tickets...</p>
-      </>
+        <p className="mx-auto max-w-2xl px-6 text-brand-ui text-brand-ink-2">
+          Preparing your tickets...
+        </p>
+      </Paper>
     );
   if (isError || tickets.length === 0)
     return (
-      <>
+      <Paper>
         <Toolbar bookingId={bookingId} canPrint={false} />
-        <p className="mx-auto max-w-2xl px-6 text-sm">These tickets could not be loaded.</p>
-      </>
+        <p className="mx-auto max-w-2xl px-6 text-brand-ui text-brand-critical">
+          These tickets could not be loaded.
+        </p>
+      </Paper>
     );
 
   return (
-    <>
+    <Paper>
       <Toolbar bookingId={bookingId} canPrint />
       {/* The same sheet the box office prints — see PrintableTickets for why it is shared. */}
       <PrintableTickets tickets={tickets} autoPrint />
-    </>
+    </Paper>
   );
 }

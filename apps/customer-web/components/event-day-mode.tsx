@@ -4,14 +4,17 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { ChevronLeft, ChevronRight, Lock, Sun, WifiOff, X } from 'lucide-react';
 import {
+  BRAND_FOCUS,
+  BrandStatusPill,
+  brandButtonClasses,
   eventTiming,
   useCountdown,
   useWakeLock,
   type BookingGroup,
+  type BrandStatus,
   type WalletTicket,
 } from '@eticketsgo/web-kit';
 import { useFormat } from '@/lib/format';
-import { StatusBadge } from '@/components/ui';
 import { useStatusLabel } from '@/lib/status-label';
 
 /** The placeholder drawn when a QR image fails, in the reader's language. */
@@ -26,11 +29,23 @@ function qrFallback(title: string, hint: string): string {
   );
 }
 
+/** A ticket's state as the brand's pill, as on the ticket pages. Words always. */
+const TICKET_TONE: Record<string, BrandStatus> = {
+  ACTIVE: 'positive',
+  CHECKED_IN: 'info',
+  TRANSFERRED: 'neutral',
+  REFUNDED: 'neutral',
+  CANCELLED: 'critical',
+  VOID: 'critical',
+};
+
 const BRIGHTNESS_KEY = 'etg_brightness_tip_dismissed';
 const SWIPE = 48;
 
 /**
- * Full-screen, boarding-pass style Event Day Mode. Reuses the same tickets/QRs as
+ * Full-screen, boarding-pass style Event Day Mode, on the brand's paper (it opens from the
+ * booking's ticket page, which is on the brand layer, and takes its tokens from there).
+ * The QR stays on pure white for the scanner. Reuses the same tickets/QRs as
  * the viewer — it's a presentation layer, not new data. State-driven (not a route)
  * so there's no accidental navigation away; Escape or the close button exits.
  */
@@ -130,23 +145,26 @@ export function EventDayMode({
         total: tickets.length,
       })}
       tabIndex={-1}
-      className="fixed inset-0 z-[60] flex flex-col bg-background-canvas focus:outline-none"
+      className="fixed inset-0 z-[60] flex flex-col bg-brand-canvas font-brand-text text-brand-ink focus:outline-none"
       style={{ touchAction: 'pan-y' }}
       onTouchStart={onTouchStart}
       onTouchEnd={onTouchEnd}
     >
       {/* Top bar */}
-      <header className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
+      <header className="flex items-center justify-between gap-3 border-b border-brand-line px-4 py-3">
         <div className="min-w-0">
-          <p className="truncate text-[0.9375rem] font-semibold text-text-primary">{group.title}</p>
-          <p className="font-mono text-caption text-text-muted">{group.bookingRef}</p>
+          <p className="truncate font-brand-display text-brand-card text-brand-ink">
+            {group.title}
+          </p>
+          <p className="font-mono text-brand-meta text-brand-ink-3">{group.bookingRef}</p>
         </div>
         <button
           onClick={onExit}
+          type="button"
           aria-label={e('exit')}
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-text-secondary transition-colors hover:bg-background-subtle hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-brand-ink-2 transition-colors duration-150 hover:bg-brand-sunken hover:text-brand-ink ${BRAND_FOCUS}`}
         >
-          <X className="h-5 w-5" />
+          <X className="h-5 w-5" aria-hidden />
         </button>
       </header>
 
@@ -156,26 +174,27 @@ export function EventDayMode({
           <div
             role="status"
             aria-live="polite"
-            className="flex flex-col items-center gap-0.5 bg-tint-warning px-4 py-1.5 text-center text-caption font-medium text-status-warning"
+            className="flex flex-col items-center gap-0.5 bg-brand-caution-tint px-4 py-1.5 text-center text-brand-meta font-semibold text-brand-caution"
           >
             <span className="flex items-center gap-2">
-              <WifiOff className="h-3.5 w-3.5" />{' '}
+              <WifiOff className="h-3.5 w-3.5" aria-hidden />{' '}
               {e('offlineVerified', {
                 when: syncedAt ? dateTime(new Date(syncedAt)) : e('offlineEarlier'),
               })}
             </span>
-            <span className="font-normal text-status-warning/80">{e('offlineNote')}</span>
+            <span className="font-normal">{e('offlineNote')}</span>
           </div>
         )}
         {showBrightnessTip && (
-          <div className="flex items-center justify-between gap-3 bg-background-subtle px-4 py-2 text-caption text-text-secondary">
+          <div className="flex items-center justify-between gap-3 bg-brand-sunken px-4 py-2 text-brand-meta text-brand-ink-2">
             <span className="flex items-center gap-2">
-              <Sun className="h-4 w-4 shrink-0 text-status-warning" />
+              <Sun className="h-4 w-4 shrink-0 text-brand-caution" aria-hidden />
               {e('brightnessTip')}
             </span>
             <button
+              type="button"
               onClick={dismissBrightnessTip}
-              className="shrink-0 rounded-md px-2 py-1 font-semibold text-action-primary hover:bg-background-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+              className={`${brandButtonClasses('quiet', 'sm')} shrink-0`}
             >
               {e('gotIt')}
             </button>
@@ -197,30 +216,30 @@ export function EventDayMode({
               const img = ev.currentTarget;
               if (img.src !== fallback) img.src = fallback;
             }}
-            className="rounded-3xl bg-white p-3 shadow-md"
+            className="rounded-brand-card border border-brand-line bg-white p-3"
             style={{ width: 'min(78vw, 58vh)', height: 'min(78vw, 58vh)' }}
           />
-          <p className="mt-3 font-mono text-[0.9375rem] text-text-secondary">{current.serial}</p>
+          <p className="mt-3 font-mono text-brand-ui text-brand-ink-2">{current.serial}</p>
         </div>
 
         {/* Details */}
         <div className="w-full max-w-sm text-center landscape:text-left">
-          <p className="text-caption font-medium uppercase tracking-wide text-text-muted">
+          <p className="text-brand-eyebrow uppercase text-brand-ink-3">
             {b('ticketOf', { index: index + 1, total: tickets.length })}
           </p>
 
           {/* Countdown */}
           <div className="mt-2">
             {timing.phase === 'ended' ? (
-              <p className="text-title font-semibold text-text-muted">{e('ended')}</p>
+              <p className="font-brand-display text-brand-d3 text-brand-ink-2">{e('ended')}</p>
             ) : timing.phase === 'live' ? (
-              <p className="text-title font-semibold text-status-success">{e('live')}</p>
+              <p className="font-brand-display text-brand-d3 text-brand-positive">{e('live')}</p>
             ) : (
               <div>
-                <p className="text-caption uppercase tracking-wide text-text-muted">
+                <p className="text-brand-eyebrow uppercase text-brand-ink-3">
                   {e(`phase.${timing.phase}`)}
                 </p>
-                <p className="mt-0.5 text-h3 font-bold tabular-nums text-text-primary">
+                <p className="mt-1 text-brand-figure tabular-nums text-brand-ink">
                   {countdown.days > 0 && `${e('days', { count: countdown.days })} `}
                   {String(countdown.hours).padStart(2, '0')}:
                   {String(countdown.minutes).padStart(2, '0')}:
@@ -230,7 +249,7 @@ export function EventDayMode({
             )}
           </div>
 
-          <dl className="mt-4 space-y-1.5 text-[0.9375rem]">
+          <dl className="mt-4 space-y-1.5 text-brand-ui">
             {current.holderName && <Row label={b('attendee')} value={current.holderName} />}
             {seat && <Row label={b('seat')} value={seat} />}
             <Row label={group.isMovie ? b('ticket') : e('type')} value={current.ticketType} />
@@ -242,14 +261,16 @@ export function EventDayMode({
           </dl>
 
           <div className="mt-4 flex items-center justify-center gap-2 landscape:justify-start">
-            <StatusBadge status={current.status} label={statusLabel('ticket', current.status)} />
+            <BrandStatusPill status={TICKET_TONE[current.status] ?? 'neutral'}>
+              {statusLabel('ticket', current.status)}
+            </BrandStatusPill>
             {wake.engaged ? (
-              <span className="inline-flex items-center gap-1 text-caption text-text-muted">
-                <Lock className="h-3 w-3" /> {e('screenOn')}
+              <span className="inline-flex items-center gap-1 text-brand-meta text-brand-ink-3">
+                <Lock className="h-3 w-3" aria-hidden /> {e('screenOn')}
               </span>
             ) : (
               !wake.supported && (
-                <span className="text-caption text-text-muted">{e('keepScreenOn')}</span>
+                <span className="text-brand-meta text-brand-ink-3">{e('keepScreenOn')}</span>
               )
             )}
           </div>
@@ -258,36 +279,38 @@ export function EventDayMode({
 
       {/* Bottom nav: dots + prev/next */}
       {tickets.length > 1 && (
-        <footer className="border-t border-border p-3">
+        <footer className="border-t border-brand-line p-3">
           <div className="mb-2 flex justify-center gap-1.5" aria-hidden>
             {tickets.map((t, i) => (
               <span
                 key={t.id}
                 className={`h-2 rounded-full transition-all ${
-                  i === index ? 'w-5 bg-action-primary' : 'w-2 bg-border-strong'
+                  i === index ? 'w-5 bg-brand-action' : 'w-2 bg-brand-line-strong'
                 } ${t.status === 'CHECKED_IN' ? 'opacity-40' : ''}`}
               />
             ))}
           </div>
           <div className="flex items-center justify-between">
             <button
+              type="button"
               onClick={() => onNavigate(index - 1)}
               disabled={index === 0}
               aria-label={b('previousTicket')}
-              className="flex h-12 items-center gap-1 rounded-md px-5 font-medium text-text-secondary transition-colors hover:bg-background-subtle hover:text-text-primary disabled:pointer-events-none disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+              className={`${brandButtonClasses('quiet', 'lg')} disabled:opacity-40`}
             >
-              <ChevronLeft className="h-5 w-5" /> {b('prev')}
+              <ChevronLeft className="h-5 w-5" aria-hidden /> {b('prev')}
             </button>
-            <span className="text-caption text-text-muted">
+            <span className="text-brand-meta tabular-nums text-brand-ink-2">
               {index + 1} / {tickets.length}
             </span>
             <button
+              type="button"
               onClick={() => onNavigate(index + 1)}
               disabled={index === tickets.length - 1}
               aria-label={b('nextTicket')}
-              className="flex h-12 items-center gap-1 rounded-md px-5 font-medium text-text-secondary transition-colors hover:bg-background-subtle hover:text-text-primary disabled:pointer-events-none disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+              className={`${brandButtonClasses('quiet', 'lg')} disabled:opacity-40`}
             >
-              {b('next')} <ChevronRight className="h-5 w-5" />
+              {b('next')} <ChevronRight className="h-5 w-5" aria-hidden />
             </button>
           </div>
         </footer>
@@ -299,8 +322,8 @@ export function EventDayMode({
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-baseline justify-between gap-4 landscape:gap-8">
-      <dt className="text-caption uppercase tracking-wide text-text-muted">{label}</dt>
-      <dd className="min-w-0 truncate font-medium text-text-primary">{value}</dd>
+      <dt className="text-brand-eyebrow uppercase text-brand-ink-3">{label}</dt>
+      <dd className="min-w-0 truncate font-medium text-brand-ink">{value}</dd>
     </div>
   );
 }

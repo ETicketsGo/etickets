@@ -3,9 +3,10 @@
 import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { LogIn } from 'lucide-react';
+import { brandButtonClasses } from '@eticketsgo/web-kit';
 import { Link } from '@/i18n/navigation';
 import { isSignedIn } from '@/lib/auth-flag';
-import { Card, ButtonLink } from '@/components/ui';
+import { BRAND_LINK } from '@/components/booking-brand';
 
 /**
  * Whether this visitor has a session, answered safely for a client component.
@@ -53,28 +54,31 @@ export function isAuthFailure(error: unknown): boolean {
  * text-message consent lives, and it is linked from the public SMS page, so the one route a
  * person follows to turn messages ON was a red error unless they happened to be signed in
  * already.
+ *
+ * Drawn on the brand layer: it is shown only inside the account pages (receipts and the
+ * notification settings), which are brand pages, so it is a flat panel with an ink button.
  */
 export function SignInRequired({ title, description }: { title: string; description: string }) {
   const pathname = usePathname();
   const next = encodeURIComponent(pathname || '/account');
   return (
-    <Card className="mx-auto max-w-lg p-8 text-center">
-      <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-tint-primary">
-        <LogIn className="h-5 w-5 text-action-primary" aria-hidden />
+    <div className="mx-auto max-w-lg rounded-brand-card border border-brand-line bg-brand-surface p-8 text-center">
+      <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-brand-sunken">
+        <LogIn className="h-5 w-5 text-brand-ink" aria-hidden />
       </div>
-      <h2 className="mt-4 text-lg font-semibold text-text-primary">{title}</h2>
-      <p className="mx-auto mt-2 max-w-sm text-[0.9375rem] leading-relaxed text-text-secondary">
-        {description}
-      </p>
+      <h2 className="mt-4 font-brand-display text-brand-d3 text-brand-ink">{title}</h2>
+      <p className="mx-auto mt-2 max-w-sm text-brand-ui text-brand-ink-2">{description}</p>
       <div className="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
-        <ButtonLink href={`/login?next=${next}`}>Sign in</ButtonLink>
+        <Link href={`/login?next=${next}`} className={brandButtonClasses('primary', 'md')}>
+          Sign in
+        </Link>
         <Link
           href={`/register?next=${next}`}
-          className="rounded-sm text-[0.9375rem] font-medium text-action-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+          className={`inline-flex min-h-11 items-center text-brand-ui ${BRAND_LINK}`}
         >
           Create an account
         </Link>
       </div>
-    </Card>
+    </div>
   );
 }
