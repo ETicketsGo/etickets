@@ -4,8 +4,22 @@ import { useSearchParams } from 'next/navigation';
 import { useRouter } from '@/i18n/navigation';
 import { Suspense, useId, useState } from 'react';
 import { api, tokenStore, ApiRequestError } from '@/lib/api';
-import { Button, Card, Input } from '@/components/ui';
-import { PasswordField, passwordAcceptable } from '@eticketsgo/web-kit';
+import { passwordAcceptable } from '@eticketsgo/web-kit';
+import {
+  BRAND_ALERT,
+  BRAND_INSET,
+  BRAND_LEAD,
+  BRAND_NOTE,
+  BRAND_PAGE_TITLE,
+  BrandActionButton,
+  BrandCenteredPage,
+  BrandFormPanel,
+  BrandInput,
+  BrandPasswordField,
+  BrandTabs,
+  BrandTabsPlaceholder,
+} from '@/components/brand-forms';
+import { BRAND_LINK } from '@/components/booking-brand';
 import { afterSignIn } from '@/lib/sign-in-return';
 import { useSmsCapability, type SignInMode } from '@/lib/sign-in-modes';
 import { usePhoneCountryGuess } from '@/components/phone-number-field';
@@ -153,153 +167,146 @@ function RegisterForm() {
   const plainSignInHref = hasNext ? `/login?next=${encodeURIComponent(next)}` : '/login';
 
   return (
-    <Card className="mx-auto max-w-sm space-y-4">
-      <div>
-        <h1 className="text-h2 font-bold text-text-primary">
-          {organizerIntent ? a('createYourOrganizerAccount') : a('createYourAccount')}
-        </h1>
-        <p className="mt-1 text-caption text-text-muted">
-          {organizerIntent
-            ? a('organizerLead')
-            : a.rich('customerLead', {
-                link: (chunks) => (
-                  <Link href="/register?intent=organizer" className="text-action-primary underline">
-                    {chunks}
-                  </Link>
-                ),
-              })}
-        </p>
-      </div>
-
-      {organizerIntent ? (
-        <p className="text-caption text-text-muted" data-testid="organizer-email-only">
-          {a('organizerEmailOnly')}
-        </p>
-      ) : !capsLoaded ? (
-        <div className="h-[3.25rem] rounded-md bg-background-subtle" aria-hidden="true" />
-      ) : (
-        <div className="flex gap-1 rounded-md bg-background-subtle p-1" role="tablist">
-          {modes.map((m) => (
-            <button
-              key={m}
-              type="button"
-              role="tab"
-              aria-selected={mode === m}
-              onClick={() => {
-                setChosen(m);
-                setError(null);
-              }}
-              className={`min-h-11 flex-1 rounded px-3 py-1.5 text-[0.9375rem] transition-colors ${
-                mode === m
-                  ? 'bg-background-surface font-medium text-text-primary shadow-sm'
-                  : 'text-text-secondary hover:text-text-primary'
-              }`}
-            >
-              {m === 'phone' ? a('phoneTab') : a('emailTab')}
-            </button>
-          ))}
+    <BrandCenteredPage>
+      <BrandFormPanel className="space-y-5">
+        <div>
+          <h1 className={BRAND_PAGE_TITLE}>
+            {organizerIntent ? a('createYourOrganizerAccount') : a('createYourAccount')}
+          </h1>
+          <p className={`mt-2 ${BRAND_LEAD}`}>
+            {organizerIntent
+              ? a('organizerLead')
+              : a.rich('customerLead', {
+                  link: (chunks) => (
+                    <Link href="/register?intent=organizer" className={BRAND_LINK}>
+                      {chunks}
+                    </Link>
+                  ),
+                })}
+          </p>
         </div>
-      )}
 
-      {/* Room for the form while the options load, as on sign-in (no layout jump). */}
-      {!organizerIntent && !capsLoaded ? (
-        <div className="min-h-60" aria-hidden="true" />
-      ) : mode === 'phone' ? (
-        <PhoneSignIn
-          signUp
-          next={next}
-          smsCountries={smsCountries}
-          // One name for both tabs: pressing either tab, or "Use email instead", keeps it.
-          fullName={fullName}
-          onFullNameChange={setFullName}
-          onUseEmail={() => {
-            setChosen('email');
-            setError(null);
-          }}
-        />
-      ) : (
-        <form className="space-y-4" onSubmit={submit}>
-          <Input
-            id={ids.name}
-            label={a('fullName')}
-            autoFocus={chosen === null}
-            value={fullName}
-            onChange={(e) => setFullName(e.target.value)}
-            required
-          />
-          <Input
-            id={ids.email}
-            label={a('email')}
-            type="email"
-            value={email}
-            onChange={(e) => {
-              setEmail(e.target.value);
-              // The warning is about the address they had typed; clear it as they edit.
-              if (emailTaken) setEmailTaken(false);
+        {organizerIntent ? (
+          <p className={BRAND_NOTE} data-testid="organizer-email-only">
+            {a('organizerEmailOnly')}
+          </p>
+        ) : !capsLoaded ? (
+          <BrandTabsPlaceholder />
+        ) : (
+          <BrandTabs
+            tabs={modes.map((m) => ({
+              value: m,
+              label: m === 'phone' ? a('phoneTab') : a('emailTab'),
+            }))}
+            value={mode}
+            onChange={(m) => {
+              setChosen(m);
+              setError(null);
             }}
-            required
           />
-          <PasswordField
-            id={ids.password}
-            value={password}
-            onChange={(nextPassword) => {
-              setPassword(nextPassword);
-              if (passwordError) setPasswordError(null);
-            }}
-            context={{ email, name: fullName }}
-            copy={passwordCopy}
-            serverError={passwordError ?? undefined}
-            required
-          />
+        )}
 
-          {emailTaken && (
-            <div
-              role="alert"
-              className="space-y-2 rounded-md border border-status-error/30 bg-status-error/5 p-3"
-            >
-              <p className="text-caption font-medium text-text-primary">
-                {a('accountExists', { email })}
+        {/* Room for the form while the options load, as on sign-in (no layout jump). */}
+        {!organizerIntent && !capsLoaded ? (
+          <div className="min-h-60" aria-hidden="true" />
+        ) : mode === 'phone' ? (
+          <PhoneSignIn
+            signUp
+            next={next}
+            smsCountries={smsCountries}
+            // One name for both tabs: pressing either tab, or "Use email instead", keeps it.
+            fullName={fullName}
+            onFullNameChange={setFullName}
+            onUseEmail={() => {
+              setChosen('email');
+              setError(null);
+            }}
+          />
+        ) : (
+          <form className="space-y-4" onSubmit={submit}>
+            <BrandInput
+              id={ids.name}
+              label={a('fullName')}
+              autoFocus={chosen === null}
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              required
+            />
+            <BrandInput
+              id={ids.email}
+              label={a('email')}
+              type="email"
+              value={email}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                // The warning is about the address they had typed; clear it as they edit.
+                if (emailTaken) setEmailTaken(false);
+              }}
+              required
+            />
+            <BrandPasswordField
+              id={ids.password}
+              value={password}
+              onChange={(nextPassword) => {
+                setPassword(nextPassword);
+                if (passwordError) setPasswordError(null);
+              }}
+              context={{ email, name: fullName }}
+              copy={passwordCopy}
+              serverError={passwordError ?? undefined}
+              required
+            />
+
+            {emailTaken && (
+              <div role="alert" className={`space-y-2 ${BRAND_INSET}`}>
+                <p className="text-brand-ui font-semibold text-brand-ink">
+                  {a('accountExists', { email })}
+                </p>
+                <p className="text-brand-meta text-brand-ink-2">{a('signInInstead')}</p>
+                <Link href={signInHref} className={`inline-block text-brand-meta ${BRAND_LINK}`}>
+                  {a('signInAs', { email })}
+                </Link>
+              </div>
+            )}
+
+            {error && (
+              <p role="alert" className={BRAND_ALERT}>
+                {error}
               </p>
-              <p className="text-caption text-text-muted">{a('signInInstead')}</p>
-              <Link
-                href={signInHref}
-                className="inline-block text-caption font-medium text-action-primary"
-              >
-                {a('signInAs', { email })}
-              </Link>
-            </div>
-          )}
+            )}
 
-          {error && (
-            <p role="alert" className="text-caption text-status-error">
-              {error}
-            </p>
-          )}
+            <BrandActionButton
+              type="submit"
+              size="lg"
+              className="w-full"
+              loading={loading}
+              disabled={!passwordAcceptable(password, { email, name: fullName })}
+            >
+              {organizerIntent ? a('createOrganizerAccount') : a('createAccount')}
+            </BrandActionButton>
+          </form>
+        )}
 
-          <Button
-            type="submit"
-            className="w-full"
-            loading={loading}
-            disabled={!passwordAcceptable(password, { email, name: fullName })}
-          >
-            {organizerIntent ? a('createOrganizerAccount') : a('createAccount')}
-          </Button>
-        </form>
-      )}
-
-      <p className="text-caption text-text-muted">
-        {a('haveAccount')}{' '}
-        <Link href={plainSignInHref} className="text-action-primary underline">
-          {a('signIn')}
-        </Link>
-      </p>
-    </Card>
+        <p className={`border-t border-brand-line pt-5 ${BRAND_NOTE}`}>
+          {a('haveAccount')}{' '}
+          <Link href={plainSignInHref} className={BRAND_LINK}>
+            {a('signIn')}
+          </Link>
+        </p>
+      </BrandFormPanel>
+    </BrandCenteredPage>
   );
 }
 
 function RegisterFallback() {
   const a = useTranslations('storefront.auth');
-  return <Card className="mx-auto max-w-sm">{a('loading')}</Card>;
+  return (
+    <BrandCenteredPage>
+      <BrandFormPanel>
+        <p className="text-brand-body text-brand-ink-2">{a('loading')}</p>
+      </BrandFormPanel>
+    </BrandCenteredPage>
+  );
 }
 
 export default function RegisterPage() {

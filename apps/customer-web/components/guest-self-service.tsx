@@ -7,7 +7,16 @@ import { useTranslations } from 'next-intl';
 import { errorMessage, isFreeCancellation, useIsAuthenticated } from '@eticketsgo/web-kit';
 import { api, ApiRequestError } from '@/lib/api';
 import { useFormat } from '@/lib/format';
-import { Button, ButtonLink, Card, Input, Textarea } from '@/components/ui';
+import { brandButtonClasses } from '@eticketsgo/web-kit';
+import { Link } from '@/i18n/navigation';
+import { BRAND_EYEBROW, BRAND_PANEL } from '@/components/booking-brand';
+import {
+  BRAND_ALERT,
+  BRAND_INSET,
+  BrandActionButton,
+  BrandInput,
+  BrandTextarea,
+} from '@/components/brand-forms';
 import { useRouter, usePathname } from '@/i18n/navigation';
 import { useStatusLabel } from '@/lib/status-label';
 
@@ -32,6 +41,10 @@ import { useStatusLabel } from '@/lib/status-label';
  * refund shows the server's own explanation, because "something went wrong" sends a person to
  * support to be told what the API had already said.
  */
+
+/** The three cards on the brand layer, as the panels beside them on the same pages. */
+const PANEL = `${BRAND_PANEL} space-y-3 p-4 sm:p-6`;
+const PANEL_TITLE = 'font-brand-display text-brand-card text-brand-ink';
 
 /** Anything that looks like an address. The same loose test the guest checkout form uses. */
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
@@ -138,26 +151,24 @@ export function GuestInvoiceCard({ token, emailMasked }: { token: string; emailM
   };
 
   return (
-    <Card className="space-y-3">
-      <h2 className="flex items-center gap-2 text-title font-semibold text-text-primary">
+    <section className={PANEL}>
+      <h2 className={`flex items-center gap-2 ${PANEL_TITLE}`}>
         <FileText className="h-4 w-4 shrink-0" aria-hidden />
         {g('invoiceTitle')}
       </h2>
-      <p className="text-[0.9375rem] text-text-secondary">{g('invoiceBody')}</p>
+      <p className="text-brand-ui text-brand-ink-2">{g('invoiceBody')}</p>
 
       {invoice.isSuccess ? (
         <div className="space-y-3">
           {nothingIssued ? (
-            <p className="text-[0.9375rem] text-text-secondary">{g('invoiceNone')}</p>
+            <p className="text-brand-ui text-brand-ink-2">{g('invoiceNone')}</p>
           ) : (
             <>
-              <div className="space-y-1.5 border-t border-border pt-3">
-                <p className="text-caption font-medium uppercase tracking-wide text-text-muted">
-                  {g('invoiceHeading')}
-                </p>
+              <div className="space-y-2 border-t border-brand-line pt-4">
+                <p className={BRAND_EYEBROW}>{g('invoiceHeading')}</p>
                 {documents.map((doc) => (
-                  <div key={doc.id} className="flex justify-between gap-4 text-[0.9375rem]">
-                    <span className="text-text-primary">
+                  <div key={doc.id} className="flex justify-between gap-4 text-brand-ui">
+                    <span className="text-brand-ink">
                       {g('invoiceLine', {
                         kind: d.has(`kind.${doc.kind}`)
                           ? d(`kind.${doc.kind}`)
@@ -165,13 +176,13 @@ export function GuestInvoiceCard({ token, emailMasked }: { token: string; emailM
                         number: doc.number,
                       })}
                     </span>
-                    <span className="tabular-nums text-text-secondary">
+                    <span className="tabular-nums text-brand-ink-2">
                       {money(doc.totalMinor, doc.currency)}
                     </span>
                   </div>
                 ))}
                 {documents[0]?.issuedAt ? (
-                  <p className="text-caption text-text-muted">
+                  <p className="text-brand-meta text-brand-ink-3">
                     {g('invoiceIssued', { when: dateTime(documents[0].issuedAt) })}
                   </p>
                 ) : null}
@@ -180,22 +191,22 @@ export function GuestInvoiceCard({ token, emailMasked }: { token: string; emailM
                 title={g('invoiceFrameTitle')}
                 srcDoc={html}
                 sandbox=""
-                className="h-[60vh] w-full rounded-md border border-border bg-white"
+                className="h-[60vh] w-full rounded-brand-control border border-brand-line bg-white"
               />
-              <Button variant="outline" className="w-full" onClick={openInNewTab}>
+              <BrandActionButton variant="secondary" className="w-full" onClick={openInNewTab}>
                 {g('invoiceOpenTab')}
-              </Button>
+              </BrandActionButton>
             </>
           )}
-          <Button variant="ghost" className="w-full" onClick={reset}>
+          <BrandActionButton variant="quiet" className="w-full" onClick={reset}>
             <RotateCcw className="h-4 w-4" aria-hidden />
             {g('invoiceRedo')}
-          </Button>
+          </BrandActionButton>
         </div>
       ) : (
         <form className="space-y-3" onSubmit={submit}>
-          <p className="text-caption text-text-muted">{g('whyEmail')}</p>
-          <Input
+          <p className="text-brand-meta text-brand-ink-3">{g('whyEmail')}</p>
+          <BrandInput
             id="guest-invoice-email"
             label={g('payerEmailLabel')}
             type="email"
@@ -210,16 +221,16 @@ export function GuestInvoiceCard({ token, emailMasked }: { token: string; emailM
             }}
           />
           {otherError ? (
-            <p role="alert" className="text-caption text-status-error">
+            <p role="alert" className={BRAND_ALERT}>
               {otherError}
             </p>
           ) : null}
-          <Button type="submit" className="w-full" loading={invoice.isPending}>
+          <BrandActionButton type="submit" className="w-full" loading={invoice.isPending}>
             {g('invoiceSubmit')}
-          </Button>
+          </BrandActionButton>
         </form>
       )}
-    </Card>
+    </section>
   );
 }
 
@@ -271,44 +282,44 @@ export function GuestRefundCard({ token, emailMasked }: { token: string; emailMa
   // Nothing was paid, so nothing is being decided: the tickets are already gone.
   if (refund.isSuccess && !requested)
     return (
-      <Card className="space-y-2">
-        <h2 className="text-title font-semibold text-text-primary">{g('refundFreeTitle')}</h2>
-        <p className="text-[0.9375rem] text-text-secondary">{g('refundFreeBody')}</p>
-      </Card>
+      <section className={PANEL}>
+        <h2 className={PANEL_TITLE}>{g('refundFreeTitle')}</h2>
+        <p className="text-brand-ui text-brand-ink-2">{g('refundFreeBody')}</p>
+      </section>
     );
 
   if (refund.isSuccess && requested)
     return (
-      <Card className="space-y-2">
-        <h2 className="text-title font-semibold text-text-primary">{g('refundSentTitle')}</h2>
-        <p className="text-[0.9375rem] text-text-secondary">{g('refundSentBody')}</p>
-        <p className="text-caption text-text-muted">
+      <section className={PANEL}>
+        <h2 className={PANEL_TITLE}>{g('refundSentTitle')}</h2>
+        <p className="text-brand-ui text-brand-ink-2">{g('refundSentBody')}</p>
+        <p className="text-brand-meta text-brand-ink-3">
           {g('refundStatusLine', { status: statusLabel('refund', requested.status) })}
         </p>
         {/* The amount, only when the API named one: a free cancellation returns no money. */}
         {typeof amountMinor === 'number' && currency ? (
-          <p className="text-caption text-text-muted">
+          <p className="text-brand-meta text-brand-ink-3">
             {g('refundAmountLine', { amount: money(amountMinor, currency) })}
           </p>
         ) : null}
-      </Card>
+      </section>
     );
 
   return (
-    <Card className="space-y-3">
-      <h2 className="text-title font-semibold text-text-primary">{g('refundTitle')}</h2>
-      <p className="text-[0.9375rem] text-text-secondary">{g('refundBody')}</p>
+    <section className={PANEL}>
+      <h2 className={PANEL_TITLE}>{g('refundTitle')}</h2>
+      <p className="text-brand-ui text-brand-ink-2">{g('refundBody')}</p>
 
       {refused ? (
-        <div className="rounded-lg border border-border bg-background-subtle/50 p-4">
-          <p className="font-medium text-text-primary">{g('refundRefusedTitle')}</p>
+        <div className={BRAND_INSET}>
+          <p className="text-brand-ui font-semibold text-brand-ink">{g('refundRefusedTitle')}</p>
           {/* The server's own sentence. It names the rule, and this page cannot. */}
-          <p className="mt-1 text-caption text-text-muted">{errorMessage(refund.error)}</p>
+          <p className="mt-1 text-brand-meta text-brand-ink-2">{errorMessage(refund.error)}</p>
         </div>
       ) : (
         <form className="space-y-3" onSubmit={submit}>
-          <p className="text-caption text-text-muted">{g('whyEmail')}</p>
-          <Input
+          <p className="text-brand-meta text-brand-ink-3">{g('whyEmail')}</p>
+          <BrandInput
             id="guest-refund-email"
             label={g('payerEmailLabel')}
             type="email"
@@ -322,7 +333,7 @@ export function GuestRefundCard({ token, emailMasked }: { token: string; emailMa
               setInvalid(null);
             }}
           />
-          <Textarea
+          <BrandTextarea
             id="guest-refund-reason"
             label={g('refundReasonLabel')}
             rows={3}
@@ -331,16 +342,16 @@ export function GuestRefundCard({ token, emailMasked }: { token: string; emailMa
             onChange={(e) => setReason(e.target.value)}
           />
           {otherError ? (
-            <p role="alert" className="text-caption text-status-error">
+            <p role="alert" className={BRAND_ALERT}>
               {otherError}
             </p>
           ) : null}
-          <Button type="submit" className="w-full" loading={refund.isPending}>
+          <BrandActionButton type="submit" className="w-full" loading={refund.isPending}>
             {g('refundSubmit')}
-          </Button>
+          </BrandActionButton>
         </form>
       )}
-    </Card>
+    </section>
   );
 }
 
@@ -408,52 +419,59 @@ export function GuestClaimCard({
 
   if (claim.isSuccess)
     return (
-      <Card className="space-y-3">
-        <h2 className="text-title font-semibold text-text-primary">{g('claimSavedTitle')}</h2>
-        <p className="text-[0.9375rem] text-text-secondary">{g('claimSavedBody')}</p>
-        <ButtonLink href="/account/bookings" variant="outline" className="w-full">
+      <section className={PANEL}>
+        <h2 className={PANEL_TITLE}>{g('claimSavedTitle')}</h2>
+        <p className="text-brand-ui text-brand-ink-2">{g('claimSavedBody')}</p>
+        <Link
+          href="/account/bookings"
+          className={`${brandButtonClasses('secondary', 'md')} w-full`}
+        >
           {g('claimMyBookings')}
-        </ButtonLink>
-      </Card>
+        </Link>
+      </section>
     );
 
   if (statusOf(claim.error) === 409)
     return (
-      <Card className="space-y-2">
-        <h2 className="text-title font-semibold text-text-primary">{g('claimTakenTitle')}</h2>
-        <p className="text-[0.9375rem] text-text-secondary">{g('claimTakenBody')}</p>
-      </Card>
+      <section className={PANEL}>
+        <h2 className={PANEL_TITLE}>{g('claimTakenTitle')}</h2>
+        <p className="text-brand-ui text-brand-ink-2">{g('claimTakenBody')}</p>
+      </section>
     );
 
   return (
-    <Card className="space-y-3">
-      <h2 className="flex items-center gap-2 text-title font-semibold text-text-primary">
+    <section className={PANEL}>
+      <h2 className={`flex items-center gap-2 ${PANEL_TITLE}`}>
         <UserPlus className="h-4 w-4 shrink-0" aria-hidden />
         {g('claimTitle')}
       </h2>
-      <p className="text-[0.9375rem] text-text-secondary">{g('claimBody')}</p>
+      <p className="text-brand-ui text-brand-ink-2">{g('claimBody')}</p>
       {claim.error ? (
-        <p role="alert" className="text-caption text-status-error">
+        <p role="alert" className={BRAND_ALERT}>
           {errorMessage(claim.error)}
         </p>
       ) : null}
       {authed ? (
         <>
           {claim.isPending ? (
-            <p className="text-caption text-text-muted">{g('claimWorking')}</p>
+            <p className="text-brand-meta text-brand-ink-3">{g('claimWorking')}</p>
           ) : null}
-          <Button className="w-full" loading={claim.isPending} onClick={() => claim.mutate()}>
+          <BrandActionButton
+            className="w-full"
+            loading={claim.isPending}
+            onClick={() => claim.mutate()}
+          >
             {g('claimSubmit')}
-          </Button>
+          </BrandActionButton>
         </>
       ) : (
         <>
-          <p className="text-caption text-text-muted">{g('claimSignInNote')}</p>
-          <Button className="w-full" onClick={signInAndReturn}>
+          <p className="text-brand-meta text-brand-ink-3">{g('claimSignInNote')}</p>
+          <BrandActionButton className="w-full" onClick={signInAndReturn}>
             {g('claimSignIn')}
-          </Button>
+          </BrandActionButton>
         </>
       )}
-    </Card>
+    </section>
   );
 }

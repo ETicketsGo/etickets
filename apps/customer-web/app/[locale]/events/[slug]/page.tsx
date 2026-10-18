@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'next/navigation';
 import { Link, useRouter } from '@/i18n/navigation';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { CalendarDays, ChevronLeft, ChevronRight, Images, MapPin, Share2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Images, MapPin, Share2 } from 'lucide-react';
 import { ImageLightbox } from '@/components/image-lightbox';
 import { heroState } from '@/lib/event-hero';
 import { eventIsSoldOut, showIsSoldOut } from '@/lib/event-availability';
@@ -29,8 +29,14 @@ import {
 import { api, tokenStore, ApiRequestError } from '@/lib/api';
 import { useFormat } from '@/lib/format';
 import { pushRecent } from '@/lib/recent';
-import { EmptyState, ErrorState, Skeleton, Textarea } from '@/components/ui';
-import { EventCard } from '@/components/event-card';
+import { BrandEmpty } from '@/components/storefront-brand';
+import {
+  BrandLoadError,
+  BrandSkeleton,
+  BrandStatePage,
+  BrandTextarea,
+} from '@/components/brand-forms';
+import { BrandEventCard } from '@/components/brand-event-card';
 import { ContentLabelBadge } from '@/components/content-label-badge';
 import { PriceBreakdown } from '@/components/price-breakdown';
 import { nextStepAfterBooking } from '@/lib/after-booking';
@@ -468,7 +474,11 @@ export default function EventDetailPage() {
     until the page is there removes the shift without changing what loads.
   */
   if (isLoading)
-    return <div className="min-h-[100svh] animate-pulse rounded-lg bg-background-subtle" />;
+    return (
+      <BrandStatePage>
+        <BrandSkeleton className="min-h-[100svh] w-full" />
+      </BrandStatePage>
+    );
   if (isError) {
     /*
       ── WHY TWO CODES AND NOT ONE ──────────────────────────────────────────────────
@@ -481,23 +491,29 @@ export default function EventDetailPage() {
     const gone =
       eventError instanceof ApiRequestError &&
       (eventError.code === 'NOT_FOUND' || eventError.code === 'EVENT_NOT_PUBLISHED');
-    return gone ? (
-      <EmptyState
-        title={sf('event.notFoundTitle')}
-        hint={sf('event.notFoundHint')}
-        icon={CalendarDays}
-      />
-    ) : (
-      <ErrorState message={sf('event.loadError')} onRetry={() => refetch()} />
+    return (
+      <BrandStatePage>
+        {gone ? (
+          <BrandEmpty
+            headingLevel="h2"
+            title={sf('event.notFoundTitle')}
+            hint={sf('event.notFoundHint')}
+          />
+        ) : (
+          <BrandLoadError message={sf('event.loadError')} onRetry={() => refetch()} />
+        )}
+      </BrandStatePage>
     );
   }
   if (!event)
     return (
-      <EmptyState
-        title={sf('event.notFoundTitle')}
-        hint={sf('event.notFoundHint')}
-        icon={CalendarDays}
-      />
+      <BrandStatePage>
+        <BrandEmpty
+          headingLevel="h2"
+          title={sf('event.notFoundTitle')}
+          hint={sf('event.notFoundHint')}
+        />
+      </BrandStatePage>
     );
 
   const continueLabel =
@@ -1408,8 +1424,8 @@ export default function EventDetailPage() {
             <div className="mt-4">
               {reviews.isLoading ? (
                 <div className="space-y-3">
-                  <Skeleton className="h-16 w-40" />
-                  <Skeleton className="h-10 w-full" />
+                  <BrandSkeleton className="h-16 w-40" />
+                  <BrandSkeleton className="h-10 w-full" />
                 </div>
               ) : reviews.data && reviews.data.count > 0 ? (
                 <div className="space-y-5">
@@ -1472,7 +1488,7 @@ export default function EventDetailPage() {
                   <div className="mt-2">
                     <RatingStars value={rating} onChange={setRating} size="lg" />
                   </div>
-                  <Textarea
+                  <BrandTextarea
                     id="review-comment"
                     aria-label={sf('event.yourReview')}
                     className="mt-3"
@@ -1559,7 +1575,7 @@ export default function EventDetailPage() {
           </h2>
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} className="h-64 w-full rounded-lg" />
+              <BrandSkeleton key={i} className="h-64 w-full" />
             ))}
           </div>
         </section>
@@ -1568,9 +1584,9 @@ export default function EventDetailPage() {
           <h2 className="font-brand-display text-brand-d2 text-brand-ink">
             {sf('event.recommendations')}
           </h2>
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-x-6 gap-y-10 sm:grid-cols-2 lg:grid-cols-4">
             {recommendations.data.map((rec) => (
-              <EventCard key={rec.id} event={rec} />
+              <BrandEventCard key={rec.id} event={rec} />
             ))}
           </div>
         </section>

@@ -4,11 +4,19 @@ import { useId, useState } from 'react';
 import { useRouter } from '@/i18n/navigation';
 import { Link } from '@/i18n/navigation';
 import { api, tokenStore, ApiRequestError } from '@/lib/api';
-import { Button, Input } from '@/components/ui';
+import {
+  BRAND_ALERT,
+  BRAND_INSET,
+  BRAND_NOTE,
+  BrandActionButton,
+  BrandInput,
+} from '@/components/brand-forms';
+import { BRAND_LINK } from '@/components/booking-brand';
 import { afterSignIn } from '@/lib/sign-in-return';
 import { PHONE_COUNTRIES } from '@/lib/phone-number';
 import { PhoneNumberField, usePhoneNumber } from '@/components/phone-number-field';
 import { useTranslations } from 'next-intl';
+import { BRAND_FOCUS } from '@eticketsgo/web-kit';
 
 /**
  * Signing in - or signing up - with a mobile number and a code.
@@ -174,7 +182,7 @@ export function PhoneSignIn({
     return (
       <form className="space-y-4" onSubmit={sendCode} noValidate={noSms}>
         {signUp && (
-          <Input
+          <BrandInput
             id={ids.name}
             label={a('fullName')}
             autoComplete="name"
@@ -199,6 +207,7 @@ export function PhoneSignIn({
           // Known in advance that no code can go: the country stays changeable, the number box
           // does not invite typing into a form that cannot be sent.
           countryOnly={blocked}
+          brand
           onEdit={() => {
             // A different country may be one we can text; let them try again.
             setUnavailable(false);
@@ -210,9 +219,9 @@ export function PhoneSignIn({
           <div
             role="status"
             data-testid="phone-sms-unavailable"
-            className="space-y-3 rounded-md border border-border bg-background-subtle p-4"
+            className={`space-y-3 ${BRAND_INSET}`}
           >
-            <p className="text-[0.9375rem] font-medium text-text-primary">
+            <p className="text-brand-ui font-semibold text-brand-ink">
               {blocked && market && smsCountries && smsCountries.length > 0
                 ? a('smsUnavailableFor', { country: market.name })
                 : blocked
@@ -220,28 +229,26 @@ export function PhoneSignIn({
                     a('smsNotAvailableYet')
                   : a('smsUnavailableNow')}
             </p>
-            <p className="text-caption text-text-secondary">
+            <p className="text-brand-meta text-brand-ink-2">
               {signUp ? a('smsUseEmailSignUp') : a('smsUseEmailSignIn')}
             </p>
             {showDisabledConsent && (
               <>
-                <p className="text-caption text-text-secondary" data-testid="sms-opens-later">
+                <p className="text-brand-meta text-brand-ink-2" data-testid="sms-opens-later">
                   {a('smsSignUpOpensLater')}
                 </p>
                 <SmsConsentDisclosure id={ids.consent} checked={false} disabled />
               </>
             )}
             {onUseEmail && (
-              <Button type="button" className="w-full" onClick={() => onUseEmail(fullName)}>
+              <BrandActionButton className="w-full" onClick={() => onUseEmail(fullName)}>
                 {a('useEmailInstead')}
-              </Button>
+              </BrandActionButton>
             )}
           </div>
         ) : (
           <>
-            <p className="text-caption text-text-muted">
-              {signUp ? a('signUpPhoneHint') : a('phoneHint')}
-            </p>
+            <p className={BRAND_NOTE}>{signUp ? a('signUpPhoneHint') : a('phoneHint')}</p>
 
             {askConsent && (
               /*
@@ -260,18 +267,19 @@ export function PhoneSignIn({
             )}
 
             {error && (
-              <p role="alert" className="text-caption text-status-error">
+              <p role="alert" className={BRAND_ALERT}>
                 {error}
               </p>
             )}
-            <Button
+            <BrandActionButton
               type="submit"
+              size="lg"
               className="w-full"
               loading={loading}
               disabled={!market || phone.national.length < 6}
             >
               {a('sendCode')}
-            </Button>
+            </BrandActionButton>
           </>
         )}
       </form>
@@ -280,8 +288,8 @@ export function PhoneSignIn({
 
   return (
     <form className="space-y-4" onSubmit={verify}>
-      <p className="text-[0.9375rem] text-text-secondary">{a('codeSentTo', { phone: sentTo })}</p>
-      <Input
+      <p className="text-brand-body text-brand-ink-2">{a('codeSentTo', { phone: sentTo })}</p>
+      <BrandInput
         id="code"
         label={a('codeLabel')}
         // `one-time-code` lets iOS and Android offer the code straight from the SMS, which
@@ -295,19 +303,25 @@ export function PhoneSignIn({
         required
       />
       {error && (
-        <p role="alert" className="text-caption text-status-error">
+        <p role="alert" className={BRAND_ALERT}>
           {error}
         </p>
       )}
-      <Button type="submit" className="w-full" loading={loading} disabled={code.length !== 6}>
+      <BrandActionButton
+        type="submit"
+        size="lg"
+        className="w-full"
+        loading={loading}
+        disabled={code.length !== 6}
+      >
         {signUp ? a('createAccount') : a('verifyAndSignIn')}
-      </Button>
+      </BrandActionButton>
       {/*
         Both ways out of a stuck state. A code that never arrived and a number typed wrong are
         different problems with different fixes, and somebody staring at an empty inbox should
         not have to guess which one they have.
       */}
-      <div className="flex justify-between text-caption">
+      <div className="flex justify-between gap-4 text-brand-meta">
         <button
           type="button"
           onClick={() => {
@@ -315,7 +329,7 @@ export function PhoneSignIn({
             setError(null);
             void sendCode();
           }}
-          className="text-action-primary underline-offset-2 hover:underline"
+          className={`min-h-11 ${BRAND_LINK}`}
         >
           {a('resendCode')}
         </button>
@@ -326,7 +340,7 @@ export function PhoneSignIn({
             setCode('');
             setError(null);
           }}
-          className="text-text-muted underline-offset-2 hover:underline"
+          className={`min-h-11 ${BRAND_LINK}`}
         >
           {a('changeNumber')}
         </button>
@@ -353,7 +367,7 @@ function SmsConsentDisclosure({
   disabled?: boolean;
 }) {
   return (
-    <div className="space-y-3 rounded-lg border border-border bg-background-surface p-4">
+    <div className="space-y-3 rounded-brand-control border border-brand-line bg-brand-surface p-4">
       <label className={`flex items-start gap-3 ${disabled ? '' : 'cursor-pointer'}`}>
         <input
           type="checkbox"
@@ -361,24 +375,24 @@ function SmsConsentDisclosure({
           checked={checked}
           disabled={disabled}
           onChange={(e) => onChange?.(e.target.checked)}
-          className="mt-1 h-4 w-4 shrink-0 rounded border-border-input text-action-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 disabled:cursor-not-allowed"
+          className={`mt-1 h-4 w-4 shrink-0 cursor-pointer accent-brand-ink disabled:cursor-not-allowed ${BRAND_FOCUS}`}
         />
-        <span className="text-[0.875rem] leading-relaxed text-text-secondary">
+        <span className="text-brand-ui leading-relaxed text-brand-ink-2">
           Send me transactional text messages from ETicketsGo about my bookings, tickets, event
           updates, cancellations, refunds, and account or service notifications. Message frequency
           varies. Message and data rates may apply. Reply{' '}
-          <strong className="font-semibold text-text-primary">STOP</strong> to opt out or{' '}
-          <strong className="font-semibold text-text-primary">HELP</strong> for help. Consent is not
-          a condition of purchase.
+          <strong className="font-semibold text-brand-ink">STOP</strong> to opt out or{' '}
+          <strong className="font-semibold text-brand-ink">HELP</strong> for help. Consent is not a
+          condition of purchase.
         </span>
       </label>
-      <p className="text-[0.875rem] text-text-secondary">
+      <p className="text-brand-ui text-brand-ink-2">
         See our{' '}
-        <Link href="/terms" className="font-medium text-action-primary hover:underline">
+        <Link href="/terms" className={BRAND_LINK}>
           Terms &amp; Conditions
         </Link>{' '}
         and{' '}
-        <Link href="/privacy" className="font-medium text-action-primary hover:underline">
+        <Link href="/privacy" className={BRAND_LINK}>
           Privacy Policy
         </Link>
         .

@@ -3,7 +3,16 @@
 import { useQuery } from '@tanstack/react-query';
 import { useParams } from 'next/navigation';
 import { api, tokenStore } from '@/lib/api';
-import { Card, ErrorState, Spinner } from '@/components/ui';
+import { BRAND_EYEBROW, BRAND_LINK } from '@/components/booking-brand';
+import {
+  BRAND_LEAD,
+  BRAND_NOTE,
+  BRAND_PAGE_TITLE,
+  BrandCenteredPage,
+  BrandFormPanel,
+  BrandLoadError,
+  BrandSkeleton,
+} from '@/components/brand-forms';
 import { GuestBookingNotHere } from '@/components/guest-booking-view';
 import { guestTokenFor } from '@/lib/guest-session';
 import { useMounted } from '@/lib/use-mounted';
@@ -35,9 +44,9 @@ export default function ReservedPage() {
 
   if (!mounted)
     return (
-      <main className="grid min-h-[50vh] place-items-center">
-        <Spinner />
-      </main>
+      <BrandCenteredPage wide>
+        <BrandSkeleton className="h-72 w-full" />
+      </BrandCenteredPage>
     );
   if (guestToken) return <GuestReserved id={id} anonSession={guestToken} />;
   if (!tokenStore.access) return <GuestBookingNotHere bookingId={id} />;
@@ -57,9 +66,9 @@ function AccountReserved() {
 
   if (isLoading) {
     return (
-      <main className="grid min-h-[50vh] place-items-center">
-        <Spinner />
-      </main>
+      <BrandCenteredPage wide>
+        <BrandSkeleton className="h-72 w-full" />
+      </BrandCenteredPage>
     );
   }
   /*
@@ -70,51 +79,57 @@ function AccountReserved() {
     reservation still exists or how to get it back.
   */
   if (isError || !data) {
-    return <ErrorState message={b('loadError')} onRetry={() => refetch()} />;
+    return (
+      <BrandCenteredPage wide>
+        <BrandLoadError message={b('loadError')} onRetry={() => refetch()} />
+      </BrandCenteredPage>
+    );
   }
 
   return (
-    <Card className="mx-auto mt-8 max-w-lg space-y-4">
-      <h1 className="text-title font-semibold text-text-primary">{b('cashTitle')}</h1>
+    <BrandCenteredPage wide>
+      <BrandFormPanel className="space-y-5">
+        <h1 className={BRAND_PAGE_TITLE}>{b('cashTitle')}</h1>
 
-      <p className="text-[0.9375rem] text-text-secondary">
-        {b('cashLead', { amount: money(data.totalMinor, data.currency) })}
-      </p>
+        <p className={BRAND_LEAD}>
+          {b('cashLead', { amount: money(data.totalMinor, data.currency) })}
+        </p>
 
-      {/*
+        {/*
         The reference, large. This is what the person at the counter asks for, and a booking
         id buried in body text is one somebody reads out wrongly over a queue.
       */}
-      <div className="rounded-md border border-border bg-background-canvas p-4 text-center">
-        <p className="text-caption uppercase tracking-wide text-text-muted">{b('cashRef')}</p>
-        <p className="mt-1 font-mono text-title font-semibold text-text-primary">
-          {data.reference ?? data.id.slice(-8).toUpperCase()}
-        </p>
-      </div>
-
-      <dl className="space-y-1 text-[0.9375rem]">
-        <div className="flex justify-between">
-          <dt className="text-text-muted">{data.event.title}</dt>
-          {/* The venue's clock, named — the time the counter will be open, not the phone's. */}
-          <dd className="text-text-primary">
-            {dateTime(data.eventSession.startsAt, undefined, data.timeZone ?? undefined)}
-            {data.timeZone ? (
-              <span className="text-text-muted">
-                {' '}
-                ({zoneAbbrev(data.eventSession.startsAt, data.timeZone)})
-              </span>
-            ) : null}
-          </dd>
+        <div className="rounded-brand-control bg-brand-sunken p-4 text-center">
+          <p className={BRAND_EYEBROW}>{b('cashRef')}</p>
+          <p className="mt-1 font-mono text-brand-d3 font-semibold text-brand-ink">
+            {data.reference ?? data.id.slice(-8).toUpperCase()}
+          </p>
         </div>
-      </dl>
 
-      {/* Said plainly: no card has been charged, so nobody waits for a refund that is not owed. */}
-      <p className="text-caption text-text-muted">{b('cashNote')}</p>
+        <dl className="space-y-1 text-brand-ui">
+          <div className="flex justify-between">
+            <dt className="text-brand-ink-2">{data.event.title}</dt>
+            {/* The venue's clock, named — the time the counter will be open, not the phone's. */}
+            <dd className="text-right font-semibold text-brand-ink">
+              {dateTime(data.eventSession.startsAt, undefined, data.timeZone ?? undefined)}
+              {data.timeZone ? (
+                <span className="font-normal text-brand-ink-3">
+                  {' '}
+                  ({zoneAbbrev(data.eventSession.startsAt, data.timeZone)})
+                </span>
+              ) : null}
+            </dd>
+          </div>
+        </dl>
 
-      <Link href="/account/bookings" className="text-caption text-action-primary underline">
-        {a('bookingsHeading')}
-      </Link>
-    </Card>
+        {/* Said plainly: no card has been charged, so nobody waits for a refund that is not owed. */}
+        <p className={BRAND_NOTE}>{b('cashNote')}</p>
+
+        <Link href="/account/bookings" className={`inline-block text-brand-meta ${BRAND_LINK}`}>
+          {a('bookingsHeading')}
+        </Link>
+      </BrandFormPanel>
+    </BrandCenteredPage>
   );
 }
 
@@ -131,51 +146,55 @@ function GuestReserved({ id, anonSession }: { id: string; anonSession: string })
 
   if (isLoading) {
     return (
-      <main className="grid min-h-[50vh] place-items-center">
-        <Spinner />
-      </main>
+      <BrandCenteredPage wide>
+        <BrandSkeleton className="h-72 w-full" />
+      </BrandCenteredPage>
     );
   }
   if (isError || !data) {
-    return <ErrorState message={b('loadError')} onRetry={() => refetch()} />;
+    return (
+      <BrandCenteredPage wide>
+        <BrandLoadError message={b('loadError')} onRetry={() => refetch()} />
+      </BrandCenteredPage>
+    );
   }
 
   return (
-    <Card className="mx-auto mt-8 max-w-lg space-y-4">
-      <h1 className="text-title font-semibold text-text-primary">{b('cashTitle')}</h1>
+    <BrandCenteredPage wide>
+      <BrandFormPanel className="space-y-5">
+        <h1 className={BRAND_PAGE_TITLE}>{b('cashTitle')}</h1>
 
-      <p className="text-[0.9375rem] text-text-secondary">
-        {b('cashLead', { amount: money(data.totals.totalMinor, data.currency) })}
-      </p>
-
-      <div className="rounded-md border border-border bg-background-canvas p-4 text-center">
-        <p className="text-caption uppercase tracking-wide text-text-muted">{b('cashRef')}</p>
-        <p className="mt-1 font-mono text-title font-semibold text-text-primary">
-          {data.reference}
+        <p className={BRAND_LEAD}>
+          {b('cashLead', { amount: money(data.totals.totalMinor, data.currency) })}
         </p>
-      </div>
 
-      <dl className="space-y-1 text-[0.9375rem]">
-        <div className="flex justify-between">
-          <dt className="text-text-muted">{data.event.title}</dt>
-          {/* The venue's clock, named: the time the counter will be open, not the phone's. */}
-          <dd className="text-text-primary">
-            {dateTime(data.event.startsAt, undefined, data.event.timeZone ?? undefined)}
-            {data.event.timeZone ? (
-              <span className="text-text-muted">
-                {' '}
-                ({zoneAbbrev(data.event.startsAt, data.event.timeZone)})
-              </span>
-            ) : null}
-          </dd>
+        <div className="rounded-brand-control bg-brand-sunken p-4 text-center">
+          <p className={BRAND_EYEBROW}>{b('cashRef')}</p>
+          <p className="mt-1 font-mono text-brand-d3 font-semibold text-brand-ink">
+            {data.reference}
+          </p>
         </div>
-      </dl>
 
-      <p className="text-caption text-text-muted">{b('cashNote')}</p>
-      {/* How a guest finds this again: the emailed link, because there is no bookings list. */}
-      <p className="text-caption text-text-muted">
-        {g('keepTicketsBody', { email: data.buyer.emailMasked })}
-      </p>
-    </Card>
+        <dl className="space-y-1 text-brand-ui">
+          <div className="flex justify-between">
+            <dt className="text-brand-ink-2">{data.event.title}</dt>
+            {/* The venue's clock, named: the time the counter will be open, not the phone's. */}
+            <dd className="text-right font-semibold text-brand-ink">
+              {dateTime(data.event.startsAt, undefined, data.event.timeZone ?? undefined)}
+              {data.event.timeZone ? (
+                <span className="font-normal text-brand-ink-3">
+                  {' '}
+                  ({zoneAbbrev(data.event.startsAt, data.event.timeZone)})
+                </span>
+              ) : null}
+            </dd>
+          </div>
+        </dl>
+
+        <p className={BRAND_NOTE}>{b('cashNote')}</p>
+        {/* How a guest finds this again: the emailed link, because there is no bookings list. */}
+        <p className={BRAND_NOTE}>{g('keepTicketsBody', { email: data.buyer.emailMasked })}</p>
+      </BrandFormPanel>
+    </BrandCenteredPage>
   );
 }

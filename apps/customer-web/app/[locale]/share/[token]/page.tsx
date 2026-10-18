@@ -8,7 +8,20 @@ import { CalendarDays, CheckCircle2, MapPin, ShieldCheck, Ticket } from 'lucide-
 import { errorMessage } from '@eticketsgo/web-kit';
 import { api, tokenStore } from '@/lib/api';
 import { useFormat } from '@/lib/format';
-import { Button, ButtonLink, Card, Skeleton } from '@/components/ui';
+import { brandButtonClasses } from '@eticketsgo/web-kit';
+import { Link } from '@/i18n/navigation';
+import {
+  BRAND_ALERT,
+  BRAND_INSET,
+  BRAND_LEAD,
+  BRAND_NOTE,
+  BRAND_PAGE_TITLE,
+  BrandActionButton,
+  BrandCenteredPage,
+  BrandFormPanel,
+  BrandSkeleton,
+} from '@/components/brand-forms';
+import { BRAND_EYEBROW } from '@/components/booking-brand';
 
 /** The placeholder drawn when a QR image fails, in the reader's language. */
 function shareQrFallback(text: string): string {
@@ -47,22 +60,22 @@ export default function SharePage() {
   if (share.isLoading)
     return (
       <Wrapper>
-        <Skeleton className="h-72 w-full" />
+        <BrandSkeleton className="h-72 w-full" />
       </Wrapper>
     );
 
   if (share.isError)
     return (
       <Wrapper>
-        <Card className="text-center">
-          <h1 className="text-h3 font-bold text-text-primary">{t('unavailableTitle')}</h1>
-          <p className="mt-1.5 text-[0.9375rem] text-text-secondary">{errorMessage(share.error)}</p>
+        <BrandFormPanel className="text-center">
+          <h1 className={BRAND_PAGE_TITLE}>{t('unavailableTitle')}</h1>
+          <p className={`mt-2 ${BRAND_LEAD}`}>{errorMessage(share.error)}</p>
           <div className="mt-6">
-            <ButtonLink href="/events" variant="outline">
+            <Link href="/events" className={brandButtonClasses('secondary', 'lg')}>
               {w('browseEvents')}
-            </ButtonLink>
+            </Link>
           </div>
-        </Card>
+        </BrandFormPanel>
       </Wrapper>
     );
 
@@ -76,13 +89,13 @@ export default function SharePage() {
 
   return (
     <Wrapper>
-      <Card className="space-y-4">
-        <div className="flex items-center justify-between">
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-background-subtle px-2.5 py-1 text-caption font-medium text-text-secondary">
-            <Ticket className="h-3.5 w-3.5" />
+      <BrandFormPanel className="space-y-5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="inline-flex h-6 items-center gap-1.5 rounded-full bg-brand-sunken px-2.5 text-brand-meta font-semibold text-brand-ink-2">
+            <Ticket className="h-3.5 w-3.5" aria-hidden />
             {t('sharedWithYou')}
           </span>
-          <span className="inline-flex items-center gap-1.5 text-caption font-medium text-text-muted">
+          <span className="inline-flex items-center gap-1.5 text-brand-meta font-medium text-brand-ink-3">
             <ShieldCheck className="h-3.5 w-3.5" />
             {data.permission === 'GUEST'
               ? t('permission.GUEST')
@@ -93,10 +106,8 @@ export default function SharePage() {
         </div>
 
         <div>
-          <h1 className="text-h3 font-bold tracking-tight text-text-primary">{r.title}</h1>
-          {r.subtitle && (
-            <p className="mt-0.5 text-[0.9375rem] text-text-secondary">{r.subtitle}</p>
-          )}
+          <h1 className={BRAND_PAGE_TITLE}>{r.title}</h1>
+          {r.subtitle && <p className={`mt-1 ${BRAND_LEAD}`}>{r.subtitle}</p>}
         </div>
 
         {/* Guest access shows the single live QR */}
@@ -110,58 +121,60 @@ export default function SharePage() {
                 const img = e.currentTarget;
                 if (img.src !== fallback) img.src = fallback;
               }}
-              className="h-52 w-52 rounded-2xl bg-white p-2 shadow-sm"
+              className="h-52 w-52 rounded-brand-card border border-brand-line bg-white p-2"
             />
-            <p className="mt-2 text-caption text-text-muted">{t('showAtGate')}</p>
+            <p className={`mt-2 ${BRAND_NOTE}`}>{t('showAtGate')}</p>
           </div>
         ) : (
           data.permission === 'VIEW' && (
-            <div className="rounded-lg border border-dashed border-border p-6 text-center text-caption text-text-muted">
+            <div className={`${BRAND_INSET} text-center text-brand-meta text-brand-ink-2`}>
               {t('qrHidden')}
             </div>
           )
         )}
 
-        <dl className="space-y-1.5 text-[0.9375rem] text-text-secondary">
+        <dl className="space-y-2 border-t border-brand-line pt-4 text-brand-ui text-brand-ink-2">
           {r.seatLabel && (
             <Row label={t('seat')}>
-              <span className="font-medium text-text-primary">{r.seatLabel}</span>
+              <span className="font-semibold text-brand-ink">{r.seatLabel}</span>
             </Row>
           )}
           {place && (
             <Row label={t('where')}>
               <span className="inline-flex items-center gap-1.5">
-                <MapPin className="h-3.5 w-3.5 text-text-muted" /> {place}
+                <MapPin className="h-3.5 w-3.5 text-brand-ink-3" aria-hidden /> {place}
               </span>
             </Row>
           )}
           {r.startsAt && (
             <Row label={t('when')}>
               <span className="inline-flex items-center gap-1.5">
-                <CalendarDays className="h-3.5 w-3.5 text-text-muted" />{' '}
+                <CalendarDays className="h-3.5 w-3.5 text-brand-ink-3" aria-hidden />{' '}
                 {dateTime(r.startsAt, undefined, r.timeZone ?? undefined)}
               </span>
             </Row>
           )}
           {r.reference && (
             <Row label={t('reference')}>
-              <span className="font-mono text-caption">{r.reference}</span>
+              <span className="font-mono text-brand-meta text-brand-ink">{r.reference}</span>
             </Row>
           )}
         </dl>
 
         {data.canTransfer && (
-          <div className="rounded-lg border border-border bg-background-subtle/50 p-4">
-            <p className="flex items-center gap-1.5 font-medium text-text-primary">
-              <CheckCircle2 className="h-4 w-4 text-status-success" /> {t('takeOwnership')}
+          <div className={BRAND_INSET}>
+            <p className="flex items-center gap-1.5 text-brand-ui font-semibold text-brand-ink">
+              <CheckCircle2 className="h-4 w-4 text-brand-positive" aria-hidden />{' '}
+              {t('takeOwnership')}
             </p>
-            <p className="mt-1 text-caption text-text-muted">{t('acceptHint')}</p>
+            <p className={`mt-1 ${BRAND_NOTE}`}>{t('acceptHint')}</p>
             {accept.isError && (
-              <p role="alert" className="mt-2 text-caption text-status-error">
+              <p role="alert" className={`mt-2 ${BRAND_ALERT}`}>
                 {errorMessage(accept.error)}
               </p>
             )}
-            <Button
+            <BrandActionButton
+              size="lg"
               className="mt-3 w-full"
               loading={accept.isPending}
               onClick={() =>
@@ -171,22 +184,22 @@ export default function SharePage() {
               }
             >
               {tokenStore.access ? t('accept') : t('signInToAccept')}
-            </Button>
+            </BrandActionButton>
           </div>
         )}
-      </Card>
+      </BrandFormPanel>
     </Wrapper>
   );
 }
 
 function Wrapper({ children }: { children: React.ReactNode }) {
-  return <div className="mx-auto max-w-md py-8">{children}</div>;
+  return <BrandCenteredPage>{children}</BrandCenteredPage>;
 }
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex items-baseline justify-between gap-4">
-      <dt className="text-caption uppercase tracking-wide text-text-muted">{label}</dt>
+      <dt className={BRAND_EYEBROW}>{label}</dt>
       <dd className="min-w-0 truncate">{children}</dd>
     </div>
   );

@@ -5,7 +5,18 @@ import { useRouter } from '@/i18n/navigation';
 import { Suspense, useEffect, useState } from 'react';
 import { signInModes, useSmsCapability, type SignInMode } from '@/lib/sign-in-modes';
 import { api, tokenStore, ApiRequestError } from '@/lib/api';
-import { Button, Card, Input } from '@/components/ui';
+import {
+  BRAND_ALERT,
+  BRAND_NOTE,
+  BRAND_PAGE_TITLE,
+  BrandActionButton,
+  BrandCenteredPage,
+  BrandFormPanel,
+  BrandInput,
+  BrandTabs,
+  BrandTabsPlaceholder,
+} from '@/components/brand-forms';
+import { BRAND_LINK } from '@/components/booking-brand';
 import { Link } from '@/i18n/navigation';
 import { useTranslations } from 'next-intl';
 import { PhoneSignIn } from '@/components/phone-sign-in';
@@ -73,126 +84,120 @@ function LoginForm() {
   };
 
   return (
-    <Card className="mx-auto max-w-sm space-y-4">
-      <h1 className="text-h2 font-bold text-text-primary">{a('signIn')}</h1>
+    <BrandCenteredPage>
+      <BrandFormPanel className="space-y-5">
+        <h1 className={BRAND_PAGE_TITLE}>{a('signIn')}</h1>
 
-      {!capsLoaded ? (
-        <div className="h-[3.25rem] rounded-md bg-background-subtle" aria-hidden="true" />
-      ) : modes.length === 1 ? (
-        <p className="text-caption text-text-muted" data-testid="phone-signin-off">
-          {a('phoneUnavailable')}
-        </p>
-      ) : (
-        <div className="flex gap-1 rounded-md bg-background-subtle p-1" role="tablist">
-          {modes.map((m) => (
-            <button
-              key={m}
-              type="button"
-              role="tab"
-              aria-selected={mode === m}
-              onClick={() => {
-                setChosen(m);
-                setError(null);
-              }}
-              className={`min-h-11 flex-1 rounded px-3 py-1.5 text-[0.9375rem] transition-colors ${
-                mode === m
-                  ? 'bg-background-surface font-medium text-text-primary shadow-sm'
-                  : 'text-text-secondary hover:text-text-primary'
-              }`}
-            >
-              {m === 'phone' ? a('phoneTab') : a('emailTab')}
-            </button>
-          ))}
-        </div>
-      )}
+        {!capsLoaded ? (
+          <BrandTabsPlaceholder />
+        ) : modes.length === 1 ? (
+          <p className={BRAND_NOTE} data-testid="phone-signin-off">
+            {a('phoneUnavailable')}
+          </p>
+        ) : (
+          <BrandTabs
+            tabs={modes.map((m) => ({
+              value: m,
+              label: m === 'phone' ? a('phoneTab') : a('emailTab'),
+            }))}
+            value={mode}
+            onChange={(m) => {
+              setChosen(m);
+              setError(null);
+            }}
+          />
+        )}
 
-      {/*
+        {/*
         Room for the form while the sign-in options are fetched. Without it the page was one
         card tall, then grew when they arrived, pushing the footer down the screen (CLS 0.19).
       */}
-      {!capsLoaded ? (
-        <div className="min-h-60" aria-hidden="true" />
-      ) : mode === 'phone' ? (
-        <PhoneSignIn
-          next={next}
-          smsCountries={smsCountries}
-          onUseEmail={() => {
-            setChosen('email');
-            setError(null);
-          }}
-        />
-      ) : (
-        <>
-          <form className="space-y-4" onSubmit={submit}>
-            <Input
-              id="email"
-              label={a('email')}
-              type="email"
-              autoFocus
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-            />
-            <Input
-              id="password"
-              label={a('password')}
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
-            {error && (
-              <p role="alert" className="text-caption text-status-error">
-                {error}
-              </p>
-            )}
-            {backOffice && (
-              <div role="alert" className="space-y-2 text-caption text-text-secondary">
-                <p>{a('backOfficeSignIn')}</p>
-                {adminOrigin && (
-                  <a
-                    href={`${adminOrigin}/login?email=${encodeURIComponent(email)}`}
-                    className="font-medium text-action-primary underline"
-                  >
-                    {a('backOfficeOpenConsole')}
-                  </a>
-                )}
-              </div>
-            )}
-            <Button type="submit" className="w-full" loading={loading}>
-              {a('signIn')}
-            </Button>
-          </form>
-          {/*
+        {!capsLoaded ? (
+          <div className="min-h-60" aria-hidden="true" />
+        ) : mode === 'phone' ? (
+          <PhoneSignIn
+            next={next}
+            smsCountries={smsCountries}
+            onUseEmail={() => {
+              setChosen('email');
+              setError(null);
+            }}
+          />
+        ) : (
+          <>
+            <form className="space-y-4" onSubmit={submit}>
+              <BrandInput
+                id="email"
+                label={a('email')}
+                type="email"
+                autoFocus
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+              />
+              <BrandInput
+                id="password"
+                label={a('password')}
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+              {error && (
+                <p role="alert" className={BRAND_ALERT}>
+                  {error}
+                </p>
+              )}
+              {backOffice && (
+                <div role="alert" className="space-y-2 text-brand-meta text-brand-ink-2">
+                  <p>{a('backOfficeSignIn')}</p>
+                  {adminOrigin && (
+                    <a
+                      href={`${adminOrigin}/login?email=${encodeURIComponent(email)}`}
+                      className={BRAND_LINK}
+                    >
+                      {a('backOfficeOpenConsole')}
+                    </a>
+                  )}
+                </div>
+              )}
+              <BrandActionButton type="submit" size="lg" className="w-full" loading={loading}>
+                {a('signIn')}
+              </BrandActionButton>
+            </form>
+            {/*
         The way back in, and it belongs here rather than only on an error. Somebody who has
         forgotten their password does not first try one and read the failure — they look for
         the link before typing anything.
       */}
-          <Link href="/forgot-password" className="text-caption text-action-primary underline">
-            {a('forgotPassword')}
-          </Link>
-        </>
-      )}
-      <p className="text-caption text-text-muted">
-        {a('noAccount')}{' '}
-        <Link href={registerHref} className="text-action-primary underline">
-          {a('createOne')}
-        </Link>
-      </p>
-      {/*
+            <Link href="/forgot-password" className={`inline-block text-brand-meta ${BRAND_LINK}`}>
+              {a('forgotPassword')}
+            </Link>
+          </>
+        )}
+        <div className="space-y-2 border-t border-brand-line pt-5">
+          <p className={BRAND_NOTE}>
+            {a('noAccount')}{' '}
+            <Link href={registerHref} className={BRAND_LINK}>
+              {a('createOne')}
+            </Link>
+          </p>
+          {/*
         The way in for somebody who never made an account.
 
         A guest has no password to reset and nothing to sign in to, so every link on this page
         was a dead end for them -- and this is the page they land on when they go looking for a
         ticket they have already bought.
       */}
-      <p className="text-caption text-text-muted">
-        {g('findFromSignIn')}{' '}
-        <Link href="/booking/find" className="text-action-primary underline">
-          {g('findTitle')}
-        </Link>
-      </p>
-    </Card>
+          <p className={BRAND_NOTE}>
+            {g('findFromSignIn')}{' '}
+            <Link href="/booking/find" className={BRAND_LINK}>
+              {g('findTitle')}
+            </Link>
+          </p>
+        </div>
+      </BrandFormPanel>
+    </BrandCenteredPage>
   );
 }
 

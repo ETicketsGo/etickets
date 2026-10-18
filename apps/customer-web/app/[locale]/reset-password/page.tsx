@@ -4,9 +4,18 @@ import { Suspense, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { api, ApiRequestError } from '@/lib/api';
 import { useRouter, Link } from '@/i18n/navigation';
-import { Button, Card } from '@/components/ui';
+import {
+  BRAND_ALERT,
+  BRAND_LEAD,
+  BRAND_PAGE_TITLE,
+  BrandActionButton,
+  BrandCenteredPage,
+  BrandFormPanel,
+  BrandPasswordField,
+} from '@/components/brand-forms';
+import { BRAND_LINK } from '@/components/booking-brand';
 import { useTranslations } from 'next-intl';
-import { PasswordField, passwordAcceptable } from '@eticketsgo/web-kit';
+import { passwordAcceptable } from '@eticketsgo/web-kit';
 import { usePasswordCopy } from '@/lib/use-password-copy';
 
 /**
@@ -63,49 +72,54 @@ function ResetForm() {
 
   if (!token) {
     return (
-      <Card className="mx-auto mt-10 max-w-md space-y-3">
-        <h1 className="text-title font-semibold text-text-primary">{a('newPasswordTitle')}</h1>
-        <p className="text-[0.9375rem] text-text-secondary">{a('resetLinkBad')}</p>
-        <Link href="/forgot-password" className="text-caption text-action-primary underline">
-          {a('forgotPassword')}
-        </Link>
-      </Card>
+      <BrandCenteredPage>
+        <BrandFormPanel className="space-y-4">
+          <h1 className={BRAND_PAGE_TITLE}>{a('newPasswordTitle')}</h1>
+          <p className={BRAND_LEAD}>{a('resetLinkBad')}</p>
+          <Link href="/forgot-password" className={`inline-block text-brand-meta ${BRAND_LINK}`}>
+            {a('forgotPassword')}
+          </Link>
+        </BrandFormPanel>
+      </BrandCenteredPage>
     );
   }
 
   return (
-    <Card className="mx-auto mt-10 max-w-md space-y-4">
-      <h1 className="text-title font-semibold text-text-primary">{a('newPasswordTitle')}</h1>
-      <form onSubmit={submit} className="space-y-4">
-        <PasswordField
-          id="password"
-          value={password}
-          onChange={(next) => {
-            setPassword(next);
-            if (passwordError) setPasswordError(null);
-          }}
-          copy={{ ...passwordCopy, label: a('newPassword') }}
-          serverError={passwordError ?? undefined}
-          required
-        />
-        {error && (
-          <p role="alert" className="text-caption text-status-error">
-            {error}
-          </p>
-        )}
-        <Button
-          type="submit"
-          className="w-full"
-          loading={loading}
-          disabled={!passwordAcceptable(password)}
-        >
-          {a('newPasswordSave')}
-        </Button>
-      </form>
-      <Link href="/login" className="block text-caption text-action-primary underline">
-        {a('backToSignIn')}
-      </Link>
-    </Card>
+    <BrandCenteredPage>
+      <BrandFormPanel className="space-y-5">
+        <h1 className={BRAND_PAGE_TITLE}>{a('newPasswordTitle')}</h1>
+        <form onSubmit={submit} className="space-y-5">
+          <BrandPasswordField
+            id="password"
+            value={password}
+            onChange={(next) => {
+              setPassword(next);
+              if (passwordError) setPasswordError(null);
+            }}
+            copy={{ ...passwordCopy, label: a('newPassword') }}
+            serverError={passwordError ?? undefined}
+            required
+          />
+          {error && (
+            <p role="alert" className={BRAND_ALERT}>
+              {error}
+            </p>
+          )}
+          <BrandActionButton
+            type="submit"
+            size="lg"
+            className="w-full"
+            loading={loading}
+            disabled={!passwordAcceptable(password)}
+          >
+            {a('newPasswordSave')}
+          </BrandActionButton>
+        </form>
+        <Link href="/login" className={`inline-block text-brand-meta ${BRAND_LINK}`}>
+          {a('backToSignIn')}
+        </Link>
+      </BrandFormPanel>
+    </BrandCenteredPage>
   );
 }
 

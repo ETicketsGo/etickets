@@ -4,7 +4,15 @@ import { useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
 import { XCircle } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-import { ButtonLink, Card } from '@/components/ui';
+import { brandButtonClasses } from '@eticketsgo/web-kit';
+import { Link } from '@/i18n/navigation';
+import {
+  BRAND_LEAD,
+  BRAND_PAGE_TITLE,
+  BrandCenteredPage,
+  BrandFormPanel,
+  BrandSkeleton,
+} from '@/components/brand-forms';
 
 /**
  * Buyer landed here after cancelling / abandoning the hosted Stripe Checkout.
@@ -18,30 +26,36 @@ function CheckoutCancel() {
   const bookingId = params.get('booking');
 
   return (
-    <Card className="mx-auto max-w-md space-y-5 text-center">
-      <div
-        className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-tint-warning text-status-warning"
-        aria-hidden
-      >
-        <XCircle className="h-8 w-8" />
-      </div>
-      <div className="space-y-1.5">
-        <h1 className="text-h2 font-bold tracking-tight text-text-primary">
-          {r('cancelledTitle')}
-        </h1>
-        <p className="text-[0.9375rem] text-text-secondary">{r('cancelledBody')}</p>
-      </div>
-      <div className="flex flex-col gap-3">
-        {bookingId && (
-          <ButtonLink href={`/booking/${bookingId}/payment`} className="w-full">
-            {r('returnToPayment')}
-          </ButtonLink>
-        )}
-        <ButtonLink href="/events" variant={bookingId ? 'outline' : 'primary'} className="w-full">
-          {n('browseEvents')}
-        </ButtonLink>
-      </div>
-    </Card>
+    <BrandCenteredPage>
+      <BrandFormPanel className="space-y-5 text-center">
+        <span
+          className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-brand-caution-tint text-brand-caution"
+          aria-hidden
+        >
+          <XCircle className="h-7 w-7" />
+        </span>
+        <div className="space-y-2">
+          <h1 className={BRAND_PAGE_TITLE}>{r('cancelledTitle')}</h1>
+          <p className={BRAND_LEAD}>{r('cancelledBody')}</p>
+        </div>
+        <div className="flex flex-col gap-3">
+          {bookingId && (
+            <Link
+              href={`/booking/${bookingId}/payment`}
+              className={`${brandButtonClasses('primary', 'lg')} w-full`}
+            >
+              {r('returnToPayment')}
+            </Link>
+          )}
+          <Link
+            href="/events"
+            className={`${brandButtonClasses(bookingId ? 'secondary' : 'primary', 'lg')} w-full`}
+          >
+            {n('browseEvents')}
+          </Link>
+        </div>
+      </BrandFormPanel>
+    </BrandCenteredPage>
   );
 }
 
@@ -49,7 +63,9 @@ export default function CheckoutCancelPage() {
   return (
     <Suspense
       fallback={
-        <div className="mx-auto h-48 max-w-md animate-pulse rounded-lg bg-background-subtle" />
+        <BrandCenteredPage>
+          <BrandSkeleton className="h-48 w-full" />
+        </BrandCenteredPage>
       }
     >
       <CheckoutCancel />

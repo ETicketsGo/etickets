@@ -11,7 +11,13 @@ import { api, ApiRequestError, tokenStore } from '@/lib/api';
 import { loadRazorpay } from '@/lib/razorpay';
 import { useFormat } from '@/lib/format';
 import { bookingAmounts } from '@/lib/booking-amounts';
-import { Button, Dialog, ErrorState, useToast } from '@/components/ui';
+import { Dialog, useToast } from '@/components/ui';
+import {
+  BrandActionButton,
+  BrandLoadError,
+  BrandSkeleton,
+  BrandStatePage,
+} from '@/components/brand-forms';
 import {
   BRAND_EYEBROW,
   BRAND_FIELD,
@@ -160,7 +166,12 @@ export default function PaymentPage() {
   // localStorage does not exist while the server renders, so this is read after mounting.
   const guestToken = mounted ? guestTokenFor(id) : null;
 
-  if (!mounted) return <div className="h-72 animate-pulse rounded-lg bg-background-subtle" />;
+  if (!mounted)
+    return (
+      <BrandStatePage>
+        <BrandSkeleton className="h-72 w-full" />
+      </BrandStatePage>
+    );
   if (guestToken) return <GuestPayment id={id} anonSession={guestToken} />;
   if (!tokenStore.access) return <GuestBookingNotHere bookingId={id} />;
   return <AccountPayment />;
@@ -402,9 +413,18 @@ function AccountPayment() {
     },
   });
 
-  if (isError) return <ErrorState message={k('loadError')} onRetry={() => refetch()} />;
+  if (isError)
+    return (
+      <BrandStatePage>
+        <BrandLoadError message={k('loadError')} onRetry={() => refetch()} />
+      </BrandStatePage>
+    );
   if (isLoading || !booking)
-    return <div className="h-72 animate-pulse rounded-lg bg-background-subtle" />;
+    return (
+      <BrandStatePage>
+        <BrandSkeleton className="h-72 w-full" />
+      </BrandStatePage>
+    );
 
   if (booking.status !== 'PENDING_PAYMENT') {
     // The status in the reader's language where the catalogue names it; a status it does
@@ -714,22 +734,22 @@ function AccountPayment() {
                 title={k('cancelBookingTitle')}
               >
                 <div className="space-y-4">
-                  <p className="text-[0.9375rem] text-text-secondary">{k('cancelBookingBody')}</p>
+                  <p className="text-brand-body text-brand-ink-2">{k('cancelBookingBody')}</p>
                   <div className="flex flex-wrap justify-end gap-2">
-                    <Button
-                      variant="outline"
+                    <BrandActionButton
+                      variant="secondary"
                       disabled={cancelBooking.isPending}
                       onClick={() => setConfirmingCancel(false)}
                     >
                       {k('keepBooking')}
-                    </Button>
-                    <Button
+                    </BrandActionButton>
+                    <BrandActionButton
                       variant="danger"
                       loading={cancelBooking.isPending}
                       onClick={() => cancelBooking.mutate()}
                     >
                       {k('confirmCancelBooking')}
-                    </Button>
+                    </BrandActionButton>
                   </div>
                 </div>
               </Dialog>
@@ -928,9 +948,18 @@ function GuestPayment({ id, anonSession }: { id: string; anonSession: string }) 
     },
   });
 
-  if (isError) return <ErrorState message={k('loadError')} onRetry={() => refetch()} />;
+  if (isError)
+    return (
+      <BrandStatePage>
+        <BrandLoadError message={k('loadError')} onRetry={() => refetch()} />
+      </BrandStatePage>
+    );
   if (isLoading || !view)
-    return <div className="h-72 animate-pulse rounded-lg bg-background-subtle" />;
+    return (
+      <BrandStatePage>
+        <BrandSkeleton className="h-72 w-full" />
+      </BrandStatePage>
+    );
 
   if (view.status !== 'PENDING_PAYMENT') {
     const statusKey = `status.${view.status}`;
@@ -1062,22 +1091,22 @@ function GuestPayment({ id, anonSession }: { id: string; anonSession: string }) 
                 title={k('cancelBookingTitle')}
               >
                 <div className="space-y-4">
-                  <p className="text-[0.9375rem] text-text-secondary">{k('cancelBookingBody')}</p>
+                  <p className="text-brand-body text-brand-ink-2">{k('cancelBookingBody')}</p>
                   <div className="flex flex-wrap justify-end gap-2">
-                    <Button
-                      variant="outline"
+                    <BrandActionButton
+                      variant="secondary"
                       disabled={cancelBooking.isPending}
                       onClick={() => setConfirmingCancel(false)}
                     >
                       {k('keepBooking')}
-                    </Button>
-                    <Button
+                    </BrandActionButton>
+                    <BrandActionButton
                       variant="danger"
                       loading={cancelBooking.isPending}
                       onClick={() => cancelBooking.mutate()}
                     >
                       {k('confirmCancelBooking')}
-                    </Button>
+                    </BrandActionButton>
                   </div>
                 </div>
               </Dialog>

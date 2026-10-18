@@ -5,7 +5,18 @@ import { useParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { useFormat } from '@/lib/format';
-import { Button, ButtonLink, Card, Skeleton } from '@/components/ui';
+import { brandButtonClasses } from '@eticketsgo/web-kit';
+import { Link } from '@/i18n/navigation';
+import { BRAND_PANEL } from '@/components/booking-brand';
+import {
+  BRAND_LEAD,
+  BRAND_NOTE,
+  BRAND_PAGE_TITLE,
+  BrandActionButton,
+  BrandCenteredPage,
+  BrandFormPanel,
+  BrandSkeleton,
+} from '@/components/brand-forms';
 import { GuestBookingSummary, GuestTickets } from '@/components/guest-booking-view';
 import { GuestClaimCard, GuestInvoiceCard, GuestRefundCard } from '@/components/guest-self-service';
 import { guestTokenFor, isGuestBooking } from '@/lib/guest-session';
@@ -53,9 +64,9 @@ export default function BookingAccessPage() {
 
   if (isLoading)
     return (
-      <div className="mx-auto max-w-lg space-y-6">
-        <Skeleton className="h-72 w-full rounded-lg" />
-      </div>
+      <BrandCenteredPage wide>
+        <BrandSkeleton className="h-72 w-full" />
+      </BrandCenteredPage>
     );
 
   if (isError || !view) {
@@ -64,21 +75,29 @@ export default function BookingAccessPage() {
       so the way forward is to ask for a fresh link, which is what /booking/find does.
     */
     return (
-      <div className="mx-auto max-w-lg">
-        <Card className="space-y-3 text-center">
-          <h1 className="text-title font-semibold text-text-primary">{g('linkDeadTitle')}</h1>
-          <p className="text-[0.9375rem] text-text-secondary">{g('linkDeadBody')}</p>
+      <BrandCenteredPage wide>
+        <BrandFormPanel className="space-y-4 text-center">
+          <h1 className={BRAND_PAGE_TITLE}>{g('linkDeadTitle')}</h1>
+          <p className={BRAND_LEAD}>{g('linkDeadBody')}</p>
           <div className="flex flex-col gap-3 pt-1 sm:flex-row">
-            <ButtonLink href="/booking/find" className="w-full sm:flex-1">
+            <Link
+              href="/booking/find"
+              className={`${brandButtonClasses('primary', 'lg')} w-full sm:flex-1`}
+            >
               {g('findTitle')}
-            </ButtonLink>
+            </Link>
             {/* A dropped connection looks the same from here, so the retry stays offered. */}
-            <Button variant="outline" className="w-full sm:flex-1" onClick={() => refetch()}>
+            <BrandActionButton
+              variant="secondary"
+              size="lg"
+              className="w-full sm:flex-1"
+              onClick={() => refetch()}
+            >
               {tx('action.retry')}
-            </Button>
+            </BrandActionButton>
           </div>
-        </Card>
-      </div>
+        </BrandFormPanel>
+      </BrandCenteredPage>
     );
   }
 
@@ -88,15 +107,16 @@ export default function BookingAccessPage() {
   const canPayHere = mounted && pending && isGuestBooking(view.id);
 
   return (
-    <div className="mx-auto max-w-lg space-y-6">
-      <h1 className="text-h2 font-bold tracking-tight text-text-primary">{g('yourBooking')}</h1>
+    <BrandCenteredPage wide>
+      <div className="space-y-6">
+        <h1 className={BRAND_PAGE_TITLE}>{g('yourBooking')}</h1>
 
-      <GuestBookingSummary view={view} />
+        <GuestBookingSummary view={view} />
 
-      {confirmed ? (
-        <>
-          <GuestTickets view={view} printHref={`/booking/access/${token}/print`} />
-          {/*
+        {confirmed ? (
+          <>
+            <GuestTickets view={view} printHref={`/booking/access/${token}/print`} />
+            {/*
             Everything else a booking needs after the tickets themselves, and only for a booking
             that is paid for: an unpaid one has no invoice to issue, nothing to refund, and
             nothing worth putting in an account.
@@ -105,46 +125,54 @@ export default function BookingAccessPage() {
             a refund is the uncommon one; keeping the booking is the thing they had not thought
             of until the page offered it.
           */}
-          <GuestInvoiceCard token={token} emailMasked={view.buyer.emailMasked} />
-          <GuestRefundCard token={token} emailMasked={view.buyer.emailMasked} />
-          {/*
+            <GuestInvoiceCard token={token} emailMasked={view.buyer.emailMasked} />
+            <GuestRefundCard token={token} emailMasked={view.buyer.emailMasked} />
+            {/*
             The access token proves the claim here. This booking's own anonymous session goes
             with it when this browser is the one that bought it, which costs nothing and is what
             makes the same card work on the confirmation screen, where there is no access token.
           */}
-          <GuestClaimCard
-            bookingId={view.id}
-            accessToken={token}
-            anonSession={mounted ? guestTokenFor(view.id) : null}
-          />
-        </>
-      ) : pending ? (
-        <Card className="space-y-3">
-          <p className="text-[0.9375rem] text-text-secondary">{g('notPaidYet')}</p>
-          {canPayHere ? (
-            <ButtonLink href={`/booking/${view.id}/payment`} className="w-full">
-              {c('returnToPayment')}
-            </ButtonLink>
-          ) : (
-            <ButtonLink href={`/events/${view.event.slug}`} variant="outline" className="w-full">
+            <GuestClaimCard
+              bookingId={view.id}
+              accessToken={token}
+              anonSession={mounted ? guestTokenFor(view.id) : null}
+            />
+          </>
+        ) : pending ? (
+          <section className={`${BRAND_PANEL} space-y-3 p-4 sm:p-6`}>
+            <p className="text-brand-ui text-brand-ink-2">{g('notPaidYet')}</p>
+            {canPayHere ? (
+              <Link
+                href={`/booking/${view.id}/payment`}
+                className={`${brandButtonClasses('primary', 'lg')} w-full`}
+              >
+                {c('returnToPayment')}
+              </Link>
+            ) : (
+              <Link
+                href={`/events/${view.event.slug}`}
+                className={`${brandButtonClasses('secondary', 'lg')} w-full`}
+              >
+                {c('backToEvent')}
+              </Link>
+            )}
+          </section>
+        ) : (
+          <section className={`${BRAND_PANEL} space-y-3 p-4 sm:p-6`}>
+            <p className="text-brand-ui text-brand-ink-2">{g('noTicketsOnBooking')}</p>
+            <Link
+              href={`/events/${view.event.slug}`}
+              className={`${brandButtonClasses('secondary', 'lg')} w-full`}
+            >
               {c('backToEvent')}
-            </ButtonLink>
-          )}
-        </Card>
-      ) : (
-        <Card className="space-y-3">
-          <p className="text-[0.9375rem] text-text-secondary">{g('noTicketsOnBooking')}</p>
-          <ButtonLink href={`/events/${view.event.slug}`} variant="outline" className="w-full">
-            {c('backToEvent')}
-          </ButtonLink>
-        </Card>
-      )}
+            </Link>
+          </section>
+        )}
 
-      {view.accessExpiresAt ? (
-        <p className="text-caption text-text-muted">
-          {g('linkExpires', { when: dateTime(view.accessExpiresAt) })}
-        </p>
-      ) : null}
-    </div>
+        {view.accessExpiresAt ? (
+          <p className={BRAND_NOTE}>{g('linkExpires', { when: dateTime(view.accessExpiresAt) })}</p>
+        ) : null}
+      </div>
+    </BrandCenteredPage>
   );
 }

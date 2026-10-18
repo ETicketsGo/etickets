@@ -28,9 +28,9 @@ import { api, tokenStore } from '@/lib/api';
 import { useFormat } from '@/lib/format';
 import { bookingAmounts } from '@/lib/booking-amounts';
 import { Link, getPathname } from '@/i18n/navigation';
-import { EventCard } from '@/components/event-card';
+import { BrandEventCard } from '@/components/brand-event-card';
 import { PriceBreakdown } from '@/components/price-breakdown';
-import { ErrorState } from '@/components/ui';
+import { BrandLoadError, BrandSkeleton, BrandStatePage } from '@/components/brand-forms';
 import {
   BRAND_EYEBROW,
   BRAND_LINK,
@@ -155,7 +155,12 @@ export default function ConfirmationPage() {
   const { id } = useParams<{ id: string }>();
   const guestToken = mounted ? guestTokenFor(id) : null;
 
-  if (!mounted) return <div className="h-64 animate-pulse rounded-lg bg-background-subtle" />;
+  if (!mounted)
+    return (
+      <BrandStatePage>
+        <BrandSkeleton className="h-64 w-full" />
+      </BrandStatePage>
+    );
   if (guestToken) return <GuestConfirmation id={id} anonSession={guestToken} />;
   // Signed out with no guest token: the account read can only 401, so say what to do instead.
   if (!tokenStore.access) return <GuestBookingNotHere bookingId={id} />;
@@ -243,9 +248,18 @@ function AccountConfirmation() {
     enabled: booking?.status === 'CONFIRMED',
   });
 
-  if (isError) return <ErrorState message={c('loadError')} onRetry={() => refetch()} />;
+  if (isError)
+    return (
+      <BrandStatePage>
+        <BrandLoadError message={c('loadError')} onRetry={() => refetch()} />
+      </BrandStatePage>
+    );
   if (isLoading || !booking)
-    return <div className="h-64 animate-pulse rounded-lg bg-background-subtle" />;
+    return (
+      <BrandStatePage>
+        <BrandSkeleton className="h-64 w-full" />
+      </BrandStatePage>
+    );
 
   const confirmed = booking.status === 'CONFIRMED';
   const pending = booking.status === AWAITING_PAYMENT;
@@ -520,7 +534,7 @@ function AccountConfirmation() {
           {booking.reference && (
             <div className="flex items-center justify-between gap-3 border-t border-brand-line pt-4 text-brand-ui">
               <span className="text-brand-ink-2">{c('bookingReference')}</span>
-              <ReferenceCode value={booking.reference} label={c('bookingReference')} />
+              <ReferenceCode brand value={booking.reference} label={c('bookingReference')} />
             </div>
           )}
 
@@ -629,9 +643,9 @@ function AccountConfirmation() {
           <h2 className="font-brand-display text-brand-d2 text-brand-ink">
             {e('recommendations')}
           </h2>
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-x-6 gap-y-10 sm:grid-cols-2 lg:grid-cols-4">
             {suggestions.map((ev) => (
-              <EventCard key={ev.id} event={ev} />
+              <BrandEventCard key={ev.id} event={ev} />
             ))}
           </div>
         </section>
@@ -671,9 +685,18 @@ function GuestConfirmation({ id, anonSession }: { id: string; anonSession: strin
     },
   });
 
-  if (isError) return <ErrorState message={c('loadError')} onRetry={() => refetch()} />;
+  if (isError)
+    return (
+      <BrandStatePage>
+        <BrandLoadError message={c('loadError')} onRetry={() => refetch()} />
+      </BrandStatePage>
+    );
   if (isLoading || !view)
-    return <div className="h-64 animate-pulse rounded-lg bg-background-subtle" />;
+    return (
+      <BrandStatePage>
+        <BrandSkeleton className="h-64 w-full" />
+      </BrandStatePage>
+    );
 
   const confirmed = view.status === 'CONFIRMED';
   const pending = view.status === AWAITING_PAYMENT;
@@ -726,9 +749,8 @@ function GuestConfirmation({ id, anonSession }: { id: string; anonSession: strin
       )}
 
       {/*
-        The guest summary and tickets are shared with the emailed booking link
-        (/booking/access), which has not moved to the brand layer yet; they keep their own cards
-        here until that page does, so the two never drift apart.
+        The guest summary and tickets are shared with the emailed booking link (/booking/access),
+        and both pages are on the brand layer, so the two draw them identically.
       */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_24rem] lg:gap-8">
         <div className="min-w-0 space-y-6">

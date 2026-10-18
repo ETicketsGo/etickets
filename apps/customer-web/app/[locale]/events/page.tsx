@@ -16,11 +16,19 @@ import {
   type SellableCity,
 } from '@eticketsgo/web-kit';
 import { api } from '@/lib/api';
-import { EventCard } from '@/components/event-card';
-import { MovieCard } from '@/components/movie-card';
+import { BRAND_FOCUS } from '@eticketsgo/web-kit';
+import { BrandEventCard } from '@/components/brand-event-card';
 import { EmptyPlace, PlaceSections } from '@/components/place-sections';
+import { BRAND_WRAP, BrandEmpty, BrandPage, FilmCard } from '@/components/storefront-brand';
+import { BRAND_LINK, BRAND_PANEL } from '@/components/booking-brand';
+import {
+  BrandActionButton,
+  BrandInput,
+  BrandLoadError,
+  BrandSelect,
+  BrandSkeleton,
+} from '@/components/brand-forms';
 import { usePlaceGroups } from '@/lib/use-place-groups';
-import { Button, EmptyState, ErrorState, Input, Select } from '@/components/ui';
 import { useTranslations } from 'next-intl';
 
 const PAGE_SIZE = 24;
@@ -97,16 +105,16 @@ function FilterChip({
   onRemove: () => void;
 }) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background-surface py-1 pl-2.5 pr-1 text-caption text-text-secondary">
-      <Icon className="h-3.5 w-3.5 shrink-0 text-text-muted" />
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-brand-line-strong bg-brand-surface py-1 pl-3 pr-1 text-brand-meta font-medium text-brand-ink">
+      <Icon className="h-3.5 w-3.5 shrink-0 text-brand-ink-3" aria-hidden />
       {label}
       <button
         type="button"
         onClick={onRemove}
         aria-label={`Remove filter: ${label}`}
-        className="-my-1 inline-flex h-6 w-6 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-background-subtle hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        className={`-my-1 inline-flex h-7 w-7 items-center justify-center rounded-full text-brand-ink-2 transition-colors hover:bg-brand-sunken hover:text-brand-ink ${BRAND_FOCUS}`}
       >
-        <X className="h-3.5 w-3.5" />
+        <X className="h-3.5 w-3.5" aria-hidden />
       </button>
     </span>
   );
@@ -121,7 +129,7 @@ export default function EventsPage() {
   const [applied, setApplied] = useState<AppliedFilters>({});
   const [page, setPage] = useState(1);
   // Accumulate loaded pages so "Load more" appends rather than replaces.
-  const [items, setItems] = useState<ComponentProps<typeof EventCard>['event'][]>([]);
+  const [items, setItems] = useState<ComponentProps<typeof BrandEventCard>['event'][]>([]);
   // Smart-search (WS6): deterministic interpretation of the free-text query.
   const [intent, setIntent] = useState<SearchIntent | null>(null);
 
@@ -406,51 +414,53 @@ export default function EventsPage() {
   const narrowingCount = [applied.city, applied.category, applied.dateFrom].filter(Boolean).length;
 
   return (
-    <div className="space-y-8">
-      <div>
-        <h1 className="text-h2 font-bold tracking-tight text-text-primary">{n('browseEvents')}</h1>
-        <p className="mt-1.5 text-[0.9375rem] text-text-muted">
-          Search by title, city, category or date.
-        </p>
-      </div>
-
-      <form
-        className="grid gap-3 rounded-lg border border-border bg-background-surface p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_1fr_auto]"
-        onSubmit={(e) => {
-          e.preventDefault();
-          setFiltersOpen(false);
-          void applyFilters();
-        }}
-      >
-        <Input
-          id="q"
-          label="Search"
-          icon={Search}
-          placeholder="Artist, event or venue..."
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-        />
-
-        {/* The way into the other three on a phone. It is a row, not a screenful. */}
-        <div className="flex items-center gap-2 sm:hidden">
-          <Button
-            type="button"
-            variant="secondary"
-            className="flex-1"
-            aria-expanded={filtersOpen}
-            onClick={() => setFiltersOpen((v) => !v)}
-          >
-            {filtersOpen ? 'Hide filters' : 'Filters'}
-            {narrowingCount > 0 ? ` (${narrowingCount})` : ''}
-          </Button>
-          <Button type="submit" className="flex-1">
-            Search
-          </Button>
+    <BrandPage>
+      <div className={`${BRAND_WRAP} space-y-8 pt-8 lg:pt-12`}>
+        <div>
+          <h1 className="text-balance font-brand-display text-brand-d1 text-brand-ink">
+            {n('browseEvents')}
+          </h1>
+          <p className="mt-2 text-brand-body text-brand-ink-2">
+            Search by title, city, category or date.
+          </p>
         </div>
 
-        <div className={`${filtersOpen ? 'grid' : 'hidden'} gap-3 sm:contents`}>
-          <CityField value={city} onChange={setCity} search={preference.searchCities} />
-          {/*
+        <form
+          className={`${BRAND_PANEL} grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_1fr_auto] lg:p-5`}
+          onSubmit={(e) => {
+            e.preventDefault();
+            setFiltersOpen(false);
+            void applyFilters();
+          }}
+        >
+          <BrandInput
+            id="q"
+            label="Search"
+            icon={Search}
+            placeholder="Artist, event or venue..."
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+
+          {/* The way into the other three on a phone. It is a row, not a screenful. */}
+          <div className="flex items-center gap-2 sm:hidden">
+            <BrandActionButton
+              variant="secondary"
+              className="flex-1"
+              aria-expanded={filtersOpen}
+              onClick={() => setFiltersOpen((v) => !v)}
+            >
+              {filtersOpen ? 'Hide filters' : 'Filters'}
+              {narrowingCount > 0 ? ` (${narrowingCount})` : ''}
+            </BrandActionButton>
+            <BrandActionButton type="submit" className="flex-1">
+              Search
+            </BrandActionButton>
+          </div>
+
+          <div className={`${filtersOpen ? 'grid' : 'hidden'} gap-3 sm:contents`}>
+            <CityField value={city} onChange={setCity} search={preference.searchCities} />
+            {/*
           A list, not a text box.
 
           City and category were both free-text inputs matched with `equals` at the API, so
@@ -459,159 +469,168 @@ export default function EventsPage() {
           set is small, known, and comes with counts — there is no reason to make anyone
           guess at it.
         */}
-          <Select
-            id="category"
-            label="Category"
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-          >
-            <option value="">Any category</option>
-            {(catQ.data ?? []).map((c) => (
-              <option key={c.category} value={c.category}>
-                {c.category} ({c.count})
-              </option>
-            ))}
-          </Select>
-          <Select
-            id="dates"
-            label="When"
-            value={dateWindow}
-            onChange={(e) => setDateWindow(e.target.value as DateWindow)}
-          >
-            {DATE_WINDOWS.map((w) => (
-              <option key={w.value} value={w.value}>
-                {w.label}
-              </option>
-            ))}
-          </Select>
-        </div>
-        {/* The wide layout keeps its own Search button in the last column. */}
-        <div className="hidden items-end sm:flex">
-          <Button type="submit" className="w-full">
-            Search
-          </Button>
-        </div>
-      </form>
+            <BrandSelect
+              id="category"
+              label="Category"
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+            >
+              <option value="">Any category</option>
+              {(catQ.data ?? []).map((c) => (
+                <option key={c.category} value={c.category}>
+                  {c.category} ({c.count})
+                </option>
+              ))}
+            </BrandSelect>
+            <BrandSelect
+              id="dates"
+              label="When"
+              value={dateWindow}
+              onChange={(e) => setDateWindow(e.target.value as DateWindow)}
+            >
+              {DATE_WINDOWS.map((w) => (
+                <option key={w.value} value={w.value}>
+                  {w.label}
+                </option>
+              ))}
+            </BrandSelect>
+          </div>
+          {/* The wide layout keeps its own Search button in the last column. */}
+          <div className="hidden items-end sm:flex">
+            <BrandActionButton type="submit" className="w-full">
+              Search
+            </BrandActionButton>
+          </div>
+        </form>
 
-      {/*
+        {/*
         What is actually narrowing the results, and how to undo each part.
 
         This replaces an "Interpreted your search as:" line that was read-only — and, worse,
         listed things the request did not contain. Every chip here corresponds to a
         parameter that was sent, and removing one re-runs the search without it.
       */}
-      {hasFilters && (
-        <div className="flex flex-wrap items-center gap-2" role="status">
-          <span className="text-caption text-text-muted">Filtered by</span>
-          {applied.q && (
-            <FilterChip icon={Search} label={`"${applied.q}"`} onRemove={() => removeFilter('q')} />
-          )}
-          {applied.city && (
-            <FilterChip icon={MapPin} label={applied.city} onRemove={() => removeFilter('city')} />
-          )}
-          {applied.category && (
-            <FilterChip
-              icon={Tag}
-              label={applied.category}
-              onRemove={() => removeFilter('category')}
-            />
-          )}
-          {applied.dateFrom && (
-            <FilterChip
-              icon={CalendarDays}
-              label={dateWindow === 'any' ? 'Selected dates' : dateLabel}
-              onRemove={() => removeFilter('dateFrom')}
-            />
-          )}
-          {applied.freeOnly && (
-            <FilterChip icon={Ticket} label="Free only" onRemove={() => removeFilter('freeOnly')} />
-          )}
-          <button
-            type="button"
-            onClick={clearFilters}
-            className="inline-flex min-h-6 items-center rounded-md px-2 text-caption text-text-muted underline-offset-2 hover:text-text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-          >
-            Clear all
-          </button>
-        </div>
-      )}
+        {hasFilters && (
+          <div className="flex flex-wrap items-center gap-2" role="status">
+            <span className="text-brand-meta text-brand-ink-3">Filtered by</span>
+            {applied.q && (
+              <FilterChip
+                icon={Search}
+                label={`"${applied.q}"`}
+                onRemove={() => removeFilter('q')}
+              />
+            )}
+            {applied.city && (
+              <FilterChip
+                icon={MapPin}
+                label={applied.city}
+                onRemove={() => removeFilter('city')}
+              />
+            )}
+            {applied.category && (
+              <FilterChip
+                icon={Tag}
+                label={applied.category}
+                onRemove={() => removeFilter('category')}
+              />
+            )}
+            {applied.dateFrom && (
+              <FilterChip
+                icon={CalendarDays}
+                label={dateWindow === 'any' ? 'Selected dates' : dateLabel}
+                onRemove={() => removeFilter('dateFrom')}
+              />
+            )}
+            {applied.freeOnly && (
+              <FilterChip
+                icon={Ticket}
+                label="Free only"
+                onRemove={() => removeFilter('freeOnly')}
+              />
+            )}
+            <button
+              type="button"
+              onClick={clearFilters}
+              className={`inline-flex min-h-6 items-center px-2 text-brand-meta ${BRAND_LINK}`}
+            >
+              Clear all
+            </button>
+          </div>
+        )}
 
-      {/*
+        {/*
         Naming the wider scope, since it narrows the results and nobody asked for it.
 
         It offers the PICKER, not "show everywhere". Somewhere else means a particular
         somewhere else, so the useful thing to hand them is the box they can name it in; a
         link that dumped every country on them would answer a question nobody asked.
       */}
-      {!applied.city && preference.country && (
-        <p className="text-caption text-text-muted">
-          Showing events in {countryPhrase(preference.country)}.{' '}
-          <button
-            type="button"
-            onClick={() => preference.requestPicker()}
-            className="-my-3 inline-flex min-h-11 items-center px-1 font-medium text-action-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 lg:my-0 lg:min-h-0"
-          >
-            Change location
-          </button>
-        </p>
-      )}
-
-      {films.length > 0 ? (
-        <section aria-labelledby="film-results" className="space-y-3">
-          <div>
-            <h2 id="film-results" className="text-title font-semibold text-text-primary">
-              {ts('filmsHeading')}
-            </h2>
-            <p className="text-caption text-text-muted">{ts('filmsHint')}</p>
-          </div>
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-            {films.map((m) => (
-              <MovieCard key={m.id} movie={m} />
-            ))}
-          </div>
-        </section>
-      ) : null}
-
-      {isError ? (
-        <ErrorState
-          message="We couldn't load events. Please try again."
-          onRetry={() => refetch()}
-        />
-      ) : isLoading ? (
-        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div
-              key={i}
-              className="h-72 animate-pulse rounded-lg border border-border bg-background-subtle"
-            />
-          ))}
-        </div>
-      ) : items.length > 0 ? (
-        <>
-          <p className="text-caption text-text-muted">
-            {/* Not "event(s)". A reader gets one number and one word for it. */}
-            {items.length === (data?.meta.total ?? items.length)
-              ? `${items.length} ${items.length === 1 ? 'event' : 'events'}`
-              : `Showing ${items.length} of ${data?.meta.total ?? items.length} events`}
+        {!applied.city && preference.country && (
+          <p className="text-brand-meta text-brand-ink-2">
+            Showing events in {countryPhrase(preference.country)}.{' '}
+            <button
+              type="button"
+              onClick={() => preference.requestPicker()}
+              className={`-my-3 inline-flex min-h-11 items-center px-1 lg:my-0 lg:min-h-0 ${BRAND_LINK}`}
+            >
+              Change location
+            </button>
           </p>
+        )}
+
+        {films.length > 0 ? (
+          <section aria-labelledby="film-results" className="space-y-4">
+            <div>
+              <h2 id="film-results" className="font-brand-display text-brand-d2 text-brand-ink">
+                {ts('filmsHeading')}
+              </h2>
+              <p className="mt-2 text-brand-meta text-brand-ink-3">{ts('filmsHint')}</p>
+            </div>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 lg:grid-cols-5 lg:gap-x-6">
+              {films.map((m) => (
+                <FilmCard key={m.id} movie={m} />
+              ))}
+            </div>
+          </section>
+        ) : null}
+
+        {isError ? (
+          <BrandLoadError
+            message="We couldn't load events. Please try again."
+            onRetry={() => refetch()}
+          />
+        ) : isLoading ? (
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {items.map((e, index) => (
-              <EventCard key={e.id} event={e} priority={index < 2} />
+            {Array.from({ length: 6 }).map((_, i) => (
+              <BrandSkeleton key={i} className="h-72 w-full" />
             ))}
           </div>
-          {data && items.length < data.meta.total && (
-            <div className="flex justify-center pt-2">
-              <Button
-                variant="secondary"
-                disabled={isFetching}
-                onClick={() => setPage((p) => p + 1)}
-              >
-                {isFetching ? 'Loading...' : 'Load more'}
-              </Button>
+        ) : items.length > 0 ? (
+          <>
+            <p className="text-brand-meta text-brand-ink-3">
+              {/* Not "event(s)". A reader gets one number and one word for it. */}
+              {items.length === (data?.meta.total ?? items.length)
+                ? `${items.length} ${items.length === 1 ? 'event' : 'events'}`
+                : `Showing ${items.length} of ${data?.meta.total ?? items.length} events`}
+            </p>
+            <div className="grid gap-x-6 gap-y-10 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {items.map((e, index) => (
+                <BrandEventCard key={e.id} event={e} priority={index < 2} />
+              ))}
             </div>
-          )}
-        </>
-      ) : /*
+            {data && items.length < data.meta.total && (
+              <div className="flex justify-center pt-2">
+                <BrandActionButton
+                  variant="secondary"
+                  disabled={isFetching}
+                  onClick={() => setPage((p) => p + 1)}
+                >
+                  {isFetching ? 'Loading...' : 'Load more'}
+                </BrandActionButton>
+              </div>
+            )}
+          </>
+        ) : /*
           An empty page has to name its cause, and the place is the cause the customer is
           least likely to guess.
 
@@ -621,46 +640,47 @@ export default function EventsPage() {
           has nothing", when the truth is "nothing in Bengaluru": a real state on this
           platform today, where the events are in Mumbai and the films are in Bengaluru.
         */
-      placeOnly ? (
-        <EmptyPlace place={placeOnly} />
-      ) : films.length > 0 ? null : (
-        <EmptyState
-          title="No events match your search"
-          hint={
-            hasFilters
-              ? intent
-                ? emptyResultSuggestions(intent, categoryNames).slice(0, 3).join(' - ')
-                : 'Try removing a filter above.'
-              : 'Check back soon for new events.'
-          }
-          icon={Search}
-          action={
-            hasFilters ? (
-              <Button variant="secondary" onClick={clearFilters}>
-                Clear filters
-              </Button>
-            ) : undefined
-          }
-        />
-      )}
-
-      {/* Beyond this search's city: the rest of its country, then the world, by country. */}
-      {!isLoading && !isError && (
-        <div className="space-y-12" data-testid="place-groups">
-          <PlaceSections
-            buckets={placeGroups}
-            currencyOf={(e) => e.currency}
-            render={(group) => (
-              <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                {group.map((e) => (
-                  <EventCard key={e.id} event={e} />
-                ))}
-              </div>
-            )}
+        placeOnly ? (
+          <EmptyPlace place={placeOnly} variant="brand" />
+        ) : films.length > 0 ? null : (
+          <BrandEmpty
+            title="No events match your search"
+            hint={
+              hasFilters
+                ? intent
+                  ? emptyResultSuggestions(intent, categoryNames).slice(0, 3).join(' - ')
+                  : 'Try removing a filter above.'
+                : 'Check back soon for new events.'
+            }
+            action={
+              hasFilters ? (
+                <BrandActionButton variant="secondary" onClick={clearFilters}>
+                  Clear filters
+                </BrandActionButton>
+              ) : undefined
+            }
           />
-        </div>
-      )}
-    </div>
+        )}
+
+        {/* Beyond this search's city: the rest of its country, then the world, by country. */}
+        {!isLoading && !isError && (
+          <div className="space-y-12 pt-4 lg:space-y-16" data-testid="place-groups">
+            <PlaceSections
+              variant="brand"
+              buckets={placeGroups}
+              currencyOf={(e) => e.currency}
+              render={(group) => (
+                <div className="grid gap-x-6 gap-y-10 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                  {group.map((e) => (
+                    <BrandEventCard key={e.id} event={e} />
+                  ))}
+                </div>
+              )}
+            />
+          </div>
+        )}
+      </div>
+    </BrandPage>
   );
 }
 
@@ -704,7 +724,7 @@ function CityField({
 
   return (
     <div>
-      <Input
+      <BrandInput
         id="city"
         label="City"
         icon={MapPin}
