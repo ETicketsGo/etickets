@@ -206,9 +206,7 @@ test.describe('printing tickets', () => {
     // own printout. Asserted on the DOM, which can be read exactly - inside the tickets only:
     // the sheet's <title> carries the label too, and Next's route announcer (an aria-live
     // region) can repeat the title, which made a one-ticket sheet count two.
-    await expect(page.locator('article').getByText(/Box office copy/)).toHaveCount(
-      tickets.length,
-    );
+    await expect(page.locator('article').getByText(/Box office copy/)).toHaveCount(tickets.length);
 
     await context.close();
   });
