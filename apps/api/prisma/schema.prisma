@@ -409,6 +409,12 @@ enum NotificationType {
   /// and the organizer found out from a buyer, or from a dashboard they happened to open.
   EVENT_PAUSED_BY_ADMIN
   EVENT_RESUMED_BY_ADMIN
+
+  /// A message from a public Contact/Help form, copied to the support mailbox (Reply-To is the
+  /// sender), and the plain acknowledgement sent back to the sender. Until these existed a
+  /// form message was a row only the admin console could show, and nobody was told.
+  SUPPORT_REQUEST_RECEIVED
+  SUPPORT_REQUEST_ACKNOWLEDGED
 }
 
 // Assignment lifecycle of a ticket to an attendee (identity layer, ADR-031).

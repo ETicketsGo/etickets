@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useLocale } from 'next-intl';
 import { CheckCircle2 } from 'lucide-react';
 import { api, BUSINESS_DETAILS, publishedDetail } from '@eticketsgo/web-kit';
 import { MK_FIELD, MK_PANEL, MK_PRIMARY } from './kit';
@@ -33,6 +34,8 @@ export function ContactForm() {
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The acknowledgement email is written in the language this page was read in.
+  const locale = useLocale();
 
   const inbox = publishedDetail(BUSINESS_DETAILS.supportEmail);
 
@@ -56,6 +59,9 @@ export function ContactForm() {
       await api.support.submit({
         kind: 'CONTACT',
         email: email.trim(),
+        // Also sent on its own, so the support mailbox's copy can say who wrote.
+        name: name.trim(),
+        locale,
         subject: `[${topic}] Website enquiry`,
         message: `From: ${name.trim()}\n\n${message.trim()}`,
       });

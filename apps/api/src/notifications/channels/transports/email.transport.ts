@@ -29,8 +29,10 @@ export class EmailLogTransport implements EmailTransport {
   private readonly logger = new Logger('Notification');
 
   async send(msg: RenderedNotification): Promise<DeliveryOutcome> {
+    // The Reply-To is appended only when there is one, so every other line reads as it did.
     this.logger.log(
-      `[email:${msg.type}] -> ${msg.toEmail ?? 'n/a'} :: ${JSON.stringify(msg.payload)}`,
+      `[email:${msg.type}] -> ${msg.toEmail ?? 'n/a'}` +
+        `${msg.replyTo ? ` (reply-to ${msg.replyTo})` : ''} :: ${JSON.stringify(msg.payload)}`,
     );
     return { provider: 'log' };
   }
@@ -54,6 +56,8 @@ export class SendGridEmailTransport implements EmailTransport {
     const [res] = await sgMail.send({
       to: msg.toEmail,
       from: this.from,
+      // Set by the email channel for the few types allowed one, after checking the address.
+      ...(msg.replyTo ? { replyTo: msg.replyTo } : {}),
       subject: msg.subject,
       // Both parts, always in this order: a reader whose client prefers text still gets the
       // message, and the HTML is an alternative to it rather than a replacement for it.
@@ -119,6 +123,8 @@ export class SesEmailTransport implements EmailTransport {
       new SendEmailCommand({
         FromEmailAddress: this.from,
         Destination: { ToAddresses: [msg.toEmail] },
+        // Set by the email channel for the few types allowed one, after checking the address.
+        ...(msg.replyTo ? { ReplyToAddresses: [msg.replyTo] } : {}),
         // Without this, SES publishes no events for the message and no callback ever arrives.
         ...(this.configurationSet ? { ConfigurationSetName: this.configurationSet } : {}),
         Content: {

@@ -405,6 +405,23 @@ export const NotificationType = {
    */
   EVENT_PAUSED_BY_ADMIN: 'EVENT_PAUSED_BY_ADMIN',
   EVENT_RESUMED_BY_ADMIN: 'EVENT_RESUMED_BY_ADMIN',
+  /**
+   * Somebody wrote to support through a form, and the support MAILBOX is told.
+   *
+   * The Contact and Help forms used to store a row that only the admin console could show, and
+   * nobody watches a console all day. The mailbox is where the support team reads and replies,
+   * so each message is copied there, with Reply-To set to the sender so a reply from Outlook
+   * goes straight back to them. Addressed to staff, never to a customer.
+   */
+  SUPPORT_REQUEST_RECEIVED: 'SUPPORT_REQUEST_RECEIVED',
+  /**
+   * The plain "we have your message" sent back to the person who wrote, with a reference.
+   *
+   * Its own type because its reader and its abuse risk differ from the copy above: the address
+   * is whatever somebody typed into a public form, so it carries none of the message text and
+   * is capped per address.
+   */
+  SUPPORT_REQUEST_ACKNOWLEDGED: 'SUPPORT_REQUEST_ACKNOWLEDGED',
 } as const;
 export type NotificationType = (typeof NotificationType)[keyof typeof NotificationType];
 

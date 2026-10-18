@@ -116,6 +116,38 @@
     "subject": "« {event} » est de nouveau en vente",
     "body": "ETicketsGo a levé la suspension de « {event} ». Les billets sont de nouveau en vente."
   },
+  "SUPPORT_REQUEST_RECEIVED": {
+    "subject": "Nouveau message ({kind}) : {topic}",
+    "subjectNoTopic": "Nouveau message ({kind}) de {sender}",
+    "intro": "Nouveau message ({kind}) de {sender}.",
+    "lead": "Un message est arrivé par un formulaire de soutien.",
+    "replyHint": "Répondez à ce courriel pour répondre à l'expéditeur. Votre réponse ira à {email}.",
+    "noReplyAddress": "L'expéditeur n'a pas donné d'adresse courriel : une réponse à ce courriel ne lui parviendra pas.",
+    "truncated": "Ce message a été raccourci pour le courriel. Lisez-le en entier dans la console d'administration.",
+    "adminLink": "Ouvrez-le dans la console d'administration : {link}",
+    "unnamed": "une personne",
+    "notSignedIn": "non connecté",
+    "kinds": {
+      "CONTACT": "contact",
+      "COMPLAINT": "plainte",
+      "BUG": "signalement de bogue",
+      "FEATURE": "demande de fonctionnalité"
+    },
+    "labels": {
+      "kind": "Type",
+      "from": "De",
+      "email": "Répondre à",
+      "account": "Connecté en tant que",
+      "organization": "Organisateur",
+      "booking": "Réservation",
+      "subject": "Objet",
+      "reference": "Référence"
+    }
+  },
+  "SUPPORT_REQUEST_ACKNOWLEDGED": {
+    "subject": "Nous avons bien reçu votre message",
+    "body": "Merci d'avoir écrit à ETicketsGo. Nous avons bien reçu votre message et nous répondrons à {email}. Votre référence est {reference}. Si vous nous écrivez de nouveau à ce sujet, indiquez cette référence."
+  },
   "PAYOUT_ACCOUNT_UPDATED": {
     "saved": {
       "subject": "Votre compte bancaire de versement en {currency} a été modifié",
@@ -192,11 +224,14 @@
     "completePayment": "Terminer le paiement",
     "openConsole": "Ouvrir la console",
     "openInvitation": "Ouvrir l'invitation",
-    "openLink": "Ouvrir ETicketsGo"
+    "openLink": "Ouvrir ETicketsGo",
+    "openSupportItem": "Ouvrir dans la console d'administration"
   },
   "layout": {
     "whyTransactional": "Vous recevez ce courriel en raison d'une réservation ou d'une action sur votre compte ETicketsGo.",
     "whyMarketing": "Vous recevez ce courriel parce que vous avez accepté de recevoir des nouvelles d'ETicketsGo.",
+    "whySupport": "Vous recevez ce courriel parce que vous avez écrit au soutien ETicketsGo.",
+    "whySupportInbox": "Ceci est une copie d'un message envoyé au soutien ETicketsGo par un formulaire.",
     "helpPrompt": "Besoin d'aide ?",
     "helpLabel": "Consulter le centre d'aide",
     "legal": "ETicketsGo {year}"

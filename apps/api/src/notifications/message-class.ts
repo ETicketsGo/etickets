@@ -111,6 +111,11 @@ export const MESSAGE_CLASS: Record<NotificationType, MessageClass> = {
   [NotificationType.PAYMENT_DISPUTE_OPENED]: 'TRANSACTIONAL',
   [NotificationType.PAYMENT_DISPUTE_CLOSED]: 'TRANSACTIONAL',
   [NotificationType.TRANSFER_FAILED]: 'TRANSACTIONAL',
+
+  // ── Somebody wrote to support ───────────────────────────────────────────────────
+  // A reply to a message the person just sent, and the staff copy of it. Neither sells anything.
+  [NotificationType.SUPPORT_REQUEST_RECEIVED]: 'TRANSACTIONAL',
+  [NotificationType.SUPPORT_REQUEST_ACKNOWLEDGED]: 'TRANSACTIONAL',
 };
 
 export function messageClassOf(type: NotificationType): MessageClass {
@@ -203,6 +208,10 @@ export const MESSAGE_AUDIENCE: Record<NotificationType, MessageAudience> = {
   // ── The platform's own moderation queue ─────────────────────────────────────────
   [NotificationType.ORGANIZATION_REGISTERED]: 'ADMIN',
   [NotificationType.EVENT_SUBMITTED]: 'ADMIN',
+  // The copy for the support mailbox. It has no account behind it and goes to email only.
+  [NotificationType.SUPPORT_REQUEST_RECEIVED]: 'ADMIN',
+  // The acknowledgement goes back to whoever wrote, in whatever role they wrote.
+  [NotificationType.SUPPORT_REQUEST_ACKNOWLEDGED]: 'CUSTOMER',
 };
 
 /**

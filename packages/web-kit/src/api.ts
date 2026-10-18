@@ -7076,6 +7076,10 @@ export type FeedbackStatusValue = 'OPEN' | 'TRIAGED' | 'CLOSED';
 export interface FeedbackSubmission {
   kind: FeedbackKindValue;
   email?: string;
+  /** What the sender calls themselves, shown to the support team. */
+  name?: string;
+  /** The language the form was shown in, so the acknowledgement email is written in it. */
+  locale?: string;
   subject?: string;
   message: string;
   rating?: number;

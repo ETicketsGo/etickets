@@ -67,6 +67,11 @@ describe('SendGridEmailTransport', () => {
     });
   });
 
+  it('passes a Reply-To through when the channel gave one', async () => {
+    await new SendGridEmailTransport(config).send(msg({ replyTo: 'asha@gmail.com' }));
+    expect(mockSgSend).toHaveBeenCalledWith(expect.objectContaining({ replyTo: 'asha@gmail.com' }));
+  });
+
   it('propagates a provider error so retry/FAILED handling runs', async () => {
     mockSgSend.mockRejectedValueOnce(new Error('sendgrid 401'));
     await expect(new SendGridEmailTransport(config).send(msg())).rejects.toThrow('sendgrid 401');
@@ -96,6 +101,18 @@ describe('SesEmailTransport', () => {
         },
       },
     });
+  });
+
+  it('sets ReplyToAddresses only when the channel gave a Reply-To', async () => {
+    // A support-form copy: "Reply" in Outlook must answer the person who wrote.
+    await new SesEmailTransport(config).send(msg({ replyTo: 'asha@gmail.com' }));
+    const withReply = mockSesSend.mock.calls[0][0] as { __command: Record<string, unknown> };
+    expect(withReply.__command.ReplyToAddresses).toEqual(['asha@gmail.com']);
+
+    // Every other message keeps replies on the From address, exactly as before.
+    await new SesEmailTransport(config).send(msg());
+    const plain = mockSesSend.mock.calls[1][0] as { __command: Record<string, unknown> };
+    expect(plain.__command).not.toHaveProperty('ReplyToAddresses');
   });
 
   it('propagates a provider error so retry/FAILED handling runs', async () => {

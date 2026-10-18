@@ -116,6 +116,38 @@
     "subject": "'{event}' is on sale again",
     "body": "ETicketsGo lifted the pause on '{event}'. Tickets are on sale again."
   },
+  "SUPPORT_REQUEST_RECEIVED": {
+    "subject": "New {kind} message: {topic}",
+    "subjectNoTopic": "New {kind} message from {sender}",
+    "intro": "New {kind} message from {sender}.",
+    "lead": "A message came in through a support form.",
+    "replyHint": "Reply to this email to answer the sender. Your reply goes to {email}.",
+    "noReplyAddress": "The sender gave no email address, so a reply to this email will not reach them.",
+    "truncated": "This message was shortened for email. Read all of it in the admin console.",
+    "adminLink": "Open it in the admin console: {link}",
+    "unnamed": "someone",
+    "notSignedIn": "not signed in",
+    "kinds": {
+      "CONTACT": "contact",
+      "COMPLAINT": "complaint",
+      "BUG": "bug report",
+      "FEATURE": "feature request"
+    },
+    "labels": {
+      "kind": "Kind",
+      "from": "From",
+      "email": "Reply to",
+      "account": "Signed in as",
+      "organization": "Organizer",
+      "booking": "Booking",
+      "subject": "Subject",
+      "reference": "Reference"
+    }
+  },
+  "SUPPORT_REQUEST_ACKNOWLEDGED": {
+    "subject": "We have your message",
+    "body": "Thank you for writing to ETicketsGo. We have your message and we will reply to {email}. Your reference is {reference}. If you write to us again about this, please give this reference."
+  },
   "PAYOUT_ACCOUNT_UPDATED": {
     "saved": {
       "subject": "Your {currency} payout bank account was changed",
@@ -192,11 +224,14 @@
     "completePayment": "Complete the payment",
     "openConsole": "Open the console",
     "openInvitation": "Open the invitation",
-    "openLink": "Open ETicketsGo"
+    "openLink": "Open ETicketsGo",
+    "openSupportItem": "Open in the admin console"
   },
   "layout": {
     "whyTransactional": "You are getting this email because of a booking or an account action on ETicketsGo.",
     "whyMarketing": "You are getting this email because you agreed to hear from ETicketsGo.",
+    "whySupport": "You are getting this email because you wrote to ETicketsGo support.",
+    "whySupportInbox": "This is a copy of a message sent to ETicketsGo support through a form.",
     "helpPrompt": "Need help?",
     "helpLabel": "Visit the help centre",
     "legal": "ETicketsGo {year}"

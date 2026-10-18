@@ -245,6 +245,25 @@ export const EVENT_POLICY: Partial<Record<NotificationType, EventPolicy>> = {
     urgency: 'IMPORTANT',
     guaranteed: [E, A],
   },
+
+  /*
+    A message from a Contact or Help form, and the reply that says it arrived. Email only.
+
+    The copy goes to the support MAILBOX, which has no account, no inbox and no device. The
+    acknowledgement goes to an address somebody typed into a public form; a push or an in-app
+    card for it would reach an account that may not be the one who wrote. The sender always
+    asks for `email` explicitly, so the inbox the policy layer adds is never written either.
+  */
+  [NotificationType.SUPPORT_REQUEST_RECEIVED]: {
+    channels: [E],
+    urgency: 'IMPORTANT',
+    guaranteed: [E],
+  },
+  [NotificationType.SUPPORT_REQUEST_ACKNOWLEDGED]: {
+    channels: [E],
+    urgency: 'ROUTINE',
+    guaranteed: [E],
+  },
 };
 
 /** Email + inbox + push, and never a paid channel. What an unlisted type gets. */

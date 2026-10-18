@@ -16,11 +16,20 @@ function setup() {
       update: jest
         .fn()
         .mockImplementation(({ data }) => Promise.resolve({ id: 'fb-1', status: data.status })),
+      findFirst: jest.fn().mockResolvedValue(null),
     },
     organizationMember: {
       findUnique: jest.fn().mockResolvedValue(null),
     },
-    $transaction: jest.fn().mockImplementation((ops: Promise<unknown>[]) => Promise.all(ops)),
+    $executeRaw: jest.fn().mockResolvedValue(1),
+    // submit() runs in an interactive transaction (handed this same client); list() in a batch.
+    $transaction: jest
+      .fn()
+      .mockImplementation((arg: unknown) =>
+        typeof arg === 'function'
+          ? (arg as (tx: unknown) => unknown)(prisma)
+          : Promise.all(arg as Promise<unknown>[]),
+      ),
   };
   const service = new SupportService(prisma as never);
   return { service, prisma };
@@ -162,6 +171,8 @@ describe('SupportService.list', () => {
     expect(findArgs.where.kind).toBe(FeedbackKind.BUG);
     expect(findArgs.where.status).toBe('OPEN');
     expect(findArgs.where.OR).toEqual([
+      // The reference a sender is given, and the support mail's admin link, match by id.
+      { id: 'crash' },
       { message: { contains: 'crash', mode: 'insensitive' } },
       { subject: { contains: 'crash', mode: 'insensitive' } },
       { email: { contains: 'crash', mode: 'insensitive' } },

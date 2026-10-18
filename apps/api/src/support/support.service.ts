@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { HttpStatus, Injectable, Optional } from '@nestjs/common';
 import { FeedbackKind } from '@eticketsgo/shared-types';
 import type {
@@ -12,6 +13,7 @@ import { AppException, ErrorCodes } from '../common/errors';
 import type { RequestUser } from '../common/decorators';
 import { organizationIdsInCountry } from '../admin/country-filter';
 import { allOf, dayRangeWhere, type ListFilters } from '../admin/list-filters';
+import { SupportMailService } from './support-mail.service';
 
 /** A support submission as surfaced to the admin triage inbox. */
 export interface FeedbackRow {
@@ -35,6 +37,9 @@ export interface FeedbackRow {
   updatedAt: Date;
 }
 
+/** How long the same message from the same sender counts as a resend of the first one. */
+export const RESUBMIT_WINDOW_MS = 10 * 60_000;
+
 function paginate(page: number, pageSize: number, total: number) {
   return { page, pageSize, total, totalPages: Math.ceil(total / pageSize) };
 }
@@ -45,6 +50,8 @@ export class SupportService {
     private readonly prisma: PrismaService,
     // Optional so a service built by hand in a unit test needs no audit double.
     @Optional() private readonly audit?: AuditService,
+    // Optional for the same reason: without it a message is stored and mailed to nobody.
+    @Optional() private readonly mail?: SupportMailService,
   ) {}
 
   /**
@@ -108,22 +115,98 @@ export class SupportService {
       if (seat?.status === 'ACTIVE') organizationId = claimedOrg;
     }
 
-    const created = await this.prisma.feedback.create({
-      data: {
-        kind: input.kind,
-        userId: user?.id ?? null,
-        email: email ?? null,
-        subject: input.subject ?? null,
-        message: input.message,
-        rating: input.rating ?? null,
-        metadata: input.metadata ?? undefined,
-        organizationId,
-        bookingId,
-        status: 'OPEN',
-      },
-      select: { id: true, status: true },
+    /*
+      ── ONE MESSAGE, ONE ROW, ONE PAIR OF MAILS ───────────────────────────────────────
+      A form submitted twice - a double click, a retry after a dropped response, a phone that
+      resent on reconnect - used to store two rows, and now would also mail support twice and
+      the sender twice. So the same sender sending the same words within a few minutes gets
+      the FIRST submission back instead of a second one.
+
+      Same words means the same kind, subject, message and booking from the same account or
+      address. A genuinely new message differs in at least one of those. The check and the
+      insert are serialised on a lock named after the message itself, so two copies arriving
+      at the same moment cannot both see "nothing yet" and both insert.
+    */
+    const subject = input.subject ?? null;
+    const fingerprint = createHash('sha256')
+      .update(
+        JSON.stringify([
+          input.kind,
+          user?.id ?? null,
+          email ?? null,
+          subject,
+          input.message,
+          bookingId,
+        ]),
+      )
+      .digest('hex');
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`support-submit:${fingerprint}`}))`;
+      const repeat = await tx.feedback.findFirst({
+        where: {
+          kind: input.kind,
+          userId: user?.id ?? null,
+          email: email ?? null,
+          subject,
+          message: input.message,
+          bookingId,
+          createdAt: { gte: new Date(Date.now() - RESUBMIT_WINDOW_MS) },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, status: true },
+      });
+      if (repeat) return repeat;
+
+      const created = await tx.feedback.create({
+        data: {
+          kind: input.kind,
+          userId: user?.id ?? null,
+          email: email ?? null,
+          subject,
+          message: input.message,
+          rating: input.rating ?? null,
+          metadata: input.metadata ?? undefined,
+          organizationId,
+          bookingId,
+          status: 'OPEN',
+        },
+        select: { id: true, status: true },
+      });
+
+      /*
+        The mails are queued in this transaction, so the message and the mail about it commit
+        together. Nothing here calls a mail provider: the worker sends, so a provider outage
+        cannot turn into a failed form.
+      */
+      if (this.mail) {
+        const [organization, booking] = await Promise.all([
+          organizationId
+            ? tx.organization.findUnique({
+                where: { id: organizationId },
+                select: { name: true },
+              })
+            : Promise.resolve(null),
+          bookingId
+            ? tx.booking.findUnique({ where: { id: bookingId }, select: { reference: true } })
+            : Promise.resolve(null),
+        ]);
+        await this.mail.queue(tx, {
+          feedbackId: created.id,
+          kind: input.kind,
+          replyTo: email ?? null,
+          senderName: input.name?.trim() || user?.fullName?.trim() || null,
+          accountEmail: user?.email ?? null,
+          userId: user?.id ?? null,
+          organizationName: organization?.name ?? null,
+          bookingReference: booking?.reference ?? null,
+          topic: subject,
+          message: input.message,
+          locale: input.locale ?? null,
+        });
+      }
+      return created;
     });
-    return created;
   }
 
   /**
@@ -178,6 +261,11 @@ export class SupportService {
       ...(params.q
         ? {
             OR: [
+              /*
+                The reference the sender was given, and the one the support mailbox's copy
+                links to (`?q=<id>`), finds exactly that message.
+              */
+              { id: params.q },
               { message: { contains: params.q, mode: 'insensitive' as const } },
               { subject: { contains: params.q, mode: 'insensitive' as const } },
               { email: { contains: params.q, mode: 'insensitive' as const } },

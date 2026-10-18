@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, type FormEvent } from 'react';
+import { useLocale } from 'next-intl';
 import { BrandButton, useAuthUser } from '@eticketsgo/web-kit';
 import { api, ApiRequestError, type FeedbackSubmission } from '@/lib/api';
 import { RatingStars, useToast } from '@/components/ui';
@@ -46,6 +47,7 @@ export function FeedbackForm({
   const [message, setMessage] = useState('');
   const [rating, setRating] = useState(0);
   const [submitting, setSubmitting] = useState(false);
+  const locale = useLocale();
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [done, setDone] = useState(false);
 
@@ -69,6 +71,8 @@ export function FeedbackForm({
       await api.submitFeedback({
         kind,
         message,
+        // So the acknowledgement email is in the language the form was shown in.
+        locale,
         ...(email ? { email } : {}),
         ...(showSubject && subject ? { subject } : {}),
         ...(showRating ? { rating } : {}),

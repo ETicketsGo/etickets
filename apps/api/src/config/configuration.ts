@@ -625,6 +625,14 @@ const envSchema = z.object({
    */
   SMS_ENABLED: z.enum(['true', 'false']).default('true'),
   EMAIL_FROM: z.string().optional(),
+  /*
+    Where Contact and Help form messages are mailed. Production defaults to the published
+    support address (PUBLISHED_SUPPORT_EMAIL) and needs nothing set. Every other environment
+    mails NOTHING to a support inbox unless this names one, so a QA test message never lands
+    in the real support mailbox. Checked when used: a malformed value is logged and skipped,
+    never a reason to refuse a form.
+  */
+  SUPPORT_INBOX_EMAIL: z.string().optional(),
   // SendGrid (EMAIL_PROVIDER=sendgrid)
   SENDGRID_API_KEY: z.string().optional(),
   // AWS SES v2 (EMAIL_PROVIDER=ses). Credentials fall back to the default AWS
