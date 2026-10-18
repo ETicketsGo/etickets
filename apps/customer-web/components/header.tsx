@@ -1,20 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { usePathname, useRouter } from '@/i18n/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { Bell, Search } from 'lucide-react';
-import { api, tokenStore } from '@/lib/api';
-import {
-  BRAND_FOCUS,
-  CityPicker,
-  brandButtonClasses,
-  useCity,
-  useIsAuthenticated,
-} from '@eticketsgo/web-kit';
+import { api } from '@/lib/api';
+import { BRAND_FOCUS, CityPicker, brandButtonClasses, useCity } from '@eticketsgo/web-kit';
 import { AccountMenu } from '@/components/account-menu';
-import { currentUserId } from '@/lib/offline/identity';
-import { purgeUser } from '@/lib/offline/wallet-store';
+import { useShellAuth, useSignOut } from '@/lib/use-shell-auth';
 import { Link } from '@/i18n/navigation';
 import { useTranslations } from 'next-intl';
 import { Wordmark } from '@/components/wordmark';
@@ -77,16 +70,11 @@ export function Header({
   const pathname = usePathname();
   // Back to this page after signing in, not to "My tickets" (lib/sign-in-return).
   const signInHref = useSignInHref();
-  // Subscribed, not read-once: Next keeps this layout mounted across client navigation.
-  const live = useIsAuthenticated();
   /*
     The hint is used ONLY until this component has mounted, and the token decides for ever
-    after: the server and the first client paint read the same prop, so hydration has nothing
-    to reconcile, and a stale cookie is corrected rather than believed.
+    after. The same hook drives the marketing header and footer, so every bar agrees.
   */
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
-  const authed = mounted ? live : initialSignedIn;
+  const { authed } = useShellAuth(initialSignedIn);
 
   const { data: unread } = useQuery({
     queryKey: ['notifications', 'unread-count'],
@@ -111,14 +99,8 @@ export function Header({
     router.push(query ? `/events?${query}` : '/events');
   };
 
-  const logout = () => {
-    // Shared-device safety: remove this user's cached wallet + QR payloads before clearing the
-    // session, so nothing private survives logout on the device.
-    const uid = currentUserId();
-    if (uid) void purgeUser(uid);
-    tokenStore.clear();
-    router.push('/');
-  };
+  // Clears this user's cached wallet before the session (lib/use-shell-auth).
+  const logout = useSignOut();
 
   const t = useTranslations('common.nav');
   const a = useTranslations('common.action');

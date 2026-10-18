@@ -101,6 +101,8 @@ const BRAND_FILES = [
   'components/marketing/faq.tsx',
   'components/marketing/contact-form.tsx',
   'components/marketing/footer.tsx',
+  'components/marketing/header.tsx',
+  'components/marketing/footer-sign-in-link.tsx',
   'components/legal/policy-chrome.tsx',
   'components/legal/legal-business-information.tsx',
   'components/feedback-form.tsx',
@@ -154,12 +156,14 @@ describe('Explore, Movies, the film page and My tickets are on the brand layer',
     expect(read('components/account-brand.tsx')).toMatch(/<BrandPage>/);
   });
 
-  it('gives the marketing routes the storefront header, not the old blue one', () => {
-    // The old MarketingNav ("Go to app", blue "Get started") is gone; every route renders the
-    // same Header, and only the footer's link columns differ on the marketing routes.
+  it('gives the marketing routes a brand marketing header, not the old blue one', () => {
+    // The old blue MarketingNav is gone. The marketing routes take MarketingHeader, drawn on
+    // the brand layer like the storefront Header (N1: one design, two navigations); the
+    // behaviour is pinned in lib/audience-navigation.test.ts.
     const chrome = read('components/site-chrome.tsx');
     expect(chrome).not.toMatch(/MarketingNav/);
     expect(chrome.match(/<Header\s/g)).toHaveLength(1);
+    expect(chrome.match(/<MarketingHeader\s/g)).toHaveLength(1);
     expect(chrome).toMatch(/<MarketingFooter\s/);
   });
 

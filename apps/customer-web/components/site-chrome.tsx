@@ -8,17 +8,28 @@ import { Header } from '@/components/header';
 import { BottomNav } from '@/components/bottom-nav';
 import { InstallPrompt } from '@/components/install-prompt';
 import { MarketingFooter } from '@/components/marketing/footer';
+import { MarketingHeader } from '@/components/marketing/header';
 import { SiteFooter } from '@/components/site-footer';
 import { useTranslations } from 'next-intl';
 import { isTestEnvironment } from '@/lib/build-id';
 
 /*
-  The public marketing and legal routes. They used to get a shell of their own: a blue header
-  with "Go to app" and a grey four-column footer, so a visitor who clicked "Terms" in the home
-  page's footer walked into a second product. They now take the storefront chrome every other
-  page has (the same header, city bar and bottom navigation as the home page and Explore), and
-  only the FOOTER differs: the marketing footer keeps its platform links, the organizer
-  agreement among them, drawn in the same stage band as the storefront footer.
+  The public marketing and legal routes: ONE visual design, TWO navigations (owner, N1).
+
+  They used to get a shell of their own in the old blue system, so a visitor who clicked "Terms"
+  in the home page's footer walked into a second product. PR #427 fixed the look by giving them
+  the storefront header - and with it the ticket shop's navigation (city, search, Explore,
+  Movies, Tickets, the bottom bar), which took Features, Pricing and the rest away from somebody
+  reading the pitch.
+
+  Now both audiences get the same paper bar, wordmark, type and stage-band footer, and only the
+  destinations differ:
+    - these routes: `MarketingHeader` (Features, Solutions, Pricing, For organizers, For
+      attendees; Sign in / Get started, or Go to app and the account menu when signed in) and
+      `MarketingFooter`. No city bar and no bottom bar: those are the shop's navigation.
+    - every other route, the home page included: the storefront `Header`, the city bar, the
+      bottom bar and `SiteFooter`.
+  Both headers and the footer read the session from one hook (`useShellAuth`).
 */
 const MARKETING_EXACT = new Set([
   /*
@@ -121,7 +132,7 @@ export function SiteChrome({
     backfillSessionHint();
   }, [pathname]);
 
-  const useMarketingFooter = isMarketing(pathname);
+  const marketing = isMarketing(pathname);
   /*
     One answer for both footers and both environment markers. The literal
     `process.env.NEXT_PUBLIC_APP_ENV` is what Next inlines; read through a variable it would
@@ -142,8 +153,14 @@ export function SiteChrome({
       the middle of the screen with grey below it.
     */
     <div className="flex min-h-screen flex-col">
-      <Header initialSignedIn={initialSignedIn} />
-      <CitySuggestionBar />
+      {marketing ? (
+        <MarketingHeader initialSignedIn={initialSignedIn} />
+      ) : (
+        <>
+          <Header initialSignedIn={initialSignedIn} />
+          <CitySuggestionBar />
+        </>
+      )}
       {/* Bottom padding on mobile clears the fixed BottomNav (WS2). */}
       {/* 40px top and bottom is a desktop rhythm; a phone gets 24 and keeps the rest. */}
       {/*
@@ -183,9 +200,13 @@ export function SiteChrome({
         the environment notice and the feedback button entirely. A fixed bar has to be paid for
         by everything in the column, not by the one element that remembered.
       */}
-      <div className="pb-[calc(3.5rem+env(safe-area-inset-bottom))] lg:pb-0">
-        {useMarketingFooter ? (
-          <MarketingFooter buildId={footerBuildId} environmentNotice={environmentNotice} />
+      <div className={marketing ? '' : 'pb-[calc(3.5rem+env(safe-area-inset-bottom))] lg:pb-0'}>
+        {marketing ? (
+          <MarketingFooter
+            buildId={footerBuildId}
+            environmentNotice={environmentNotice}
+            initialSignedIn={initialSignedIn}
+          />
         ) : (
           <SiteFooter
             buildId={footerBuildId}
@@ -194,7 +215,7 @@ export function SiteChrome({
           />
         )}
       </div>
-      <BottomNav />
+      {!marketing && <BottomNav />}
       <InstallPrompt />
     </div>
   );
