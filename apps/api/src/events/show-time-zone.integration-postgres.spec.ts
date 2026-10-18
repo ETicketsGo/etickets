@@ -171,12 +171,15 @@ describe('integration-real-postgres: whose clock a show is on', () => {
     expect(summary.localDate).toBe(startsAt.toISOString().slice(0, 10));
   });
 
-  maybe('a cinema screen: both pages say the cinema clock, as the booking does', async () => {
-    const event = await publicEvents.getBySlug(ids.cinemaEvent);
-    const summary = await shows.getPublicShowSummary(ids.cinemaSession);
-    // The event's own default stays the venue's; THIS session is on the cinema's clock.
-    expect(event.timeZone).toBe('America/Denver');
-    expect(event.sessions[0].timeZone).toBe('Asia/Kolkata');
-    expect(summary.timeZone).toBe('Asia/Kolkata');
-  });
+  maybe(
+    "a cinema screen at the Kolkata default: both pages say the venue's clock (T2)",
+    async () => {
+      const event = await publicEvents.getBySlug(ids.cinemaEvent);
+      const summary = await shows.getPublicShowSummary(ids.cinemaSession);
+      // The cinema row kept the schema default; the session is on its venue's clock, as its ticket.
+      expect(event.timeZone).toBe('America/Denver');
+      expect(event.sessions[0].timeZone).toBe('America/Denver');
+      expect(summary.timeZone).toBe('America/Denver');
+    },
+  );
 });

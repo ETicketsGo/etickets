@@ -9,7 +9,6 @@ import {
   Role,
   SessionStatus,
   currencyForCountry,
-  venueZone,
 } from '@eticketsgo/shared-types';
 import type {
   BulkScheduleShowsInput,
@@ -57,6 +56,7 @@ import {
   type ShowState,
 } from './show-operations';
 import {
+  SHOW_ZONE_SCREEN_SELECT,
   requireSpaceOrganizationId,
   showTimezone,
   spaceOrganizationId,
@@ -2483,7 +2483,7 @@ export class ShowsService {
     const zone = await tx.eventSession.findUnique({
       where: { id: sessionId },
       select: {
-        screen: { select: { cinema: { select: { timezone: true } } } },
+        screen: { select: SHOW_ZONE_SCREEN_SELECT },
         event: { select: { title: true, venue: { select: { timezone: true, country: true } } } },
       },
     });
@@ -2500,10 +2500,7 @@ export class ShowsService {
           // Part of the dedupe subject as well as the message: a show rescheduled twice is
           // two pieces of news, and only the second one is still true.
           startsAt: startsAt.toISOString(),
-          timeZone:
-            zone?.screen?.cinema?.timezone ??
-            venueZone(zone?.event?.venue?.timezone, zone?.event?.venue?.country) ??
-            '',
+          timeZone: showTimezone(zone?.screen, zone?.event?.venue) ?? '',
         },
       })),
     });
@@ -2779,7 +2776,9 @@ export class ShowsService {
           select: {
             name: true,
             screenType: true,
-            cinema: { select: { id: true, name: true, timezone: true } },
+            // The space's venue: the show's zone is the venue's first (`showTimezone`).
+            venue: { select: { timezone: true, country: true } },
+            cinema: { select: { id: true, name: true, timezone: true, country: true } },
           },
         },
       },
@@ -2794,8 +2793,8 @@ export class ShowsService {
       This read `spaceTimezone(screen)` over a screen selected without its venue, so a room in
       a venue (no cinema) answered null and the seat page header fell to the READER's clock:
       on QA a Hyderabad 11:01 pm show read "10:31 am" in a Denver browser, while its booking
-      said 11:01 pm GMT+5:30. The ticket's own order - cinema, then the event's venue, then
-      the venue's country - is what a buyer checks this page against.
+      said 11:01 pm GMT+5:30. The ticket's own order (the venue first, see `showTimezone`)
+      is what a buyer checks this page against.
     */
     const zone = showTimezone(session.screen, session.event.venue);
     let localDate: string;

@@ -54,9 +54,45 @@ const booking = (over: {
 });
 
 describe('booking timezone resolution', () => {
-  it('prefers the cinema, which is the most specific fact about where it plays', async () => {
-    const svc = serviceWith(booking({ cinemaTz: 'America/Chicago', venueTz: 'Asia/Kolkata' }));
+  /*
+    T2, QA 2026-10-17: "Move Hall" sits in a Boise venue, but its cinema row kept the schema
+    default Asia/Kolkata, and the booking read the cinema first: a 9:59 am show printed as
+    "10:29 pm GMT+5:30". The venue is where the show is.
+  */
+  it('prefers the venue over a cinema left at the default zone', async () => {
+    const svc = serviceWith(
+      booking({ cinemaTz: 'Asia/Kolkata', venueTz: 'America/Boise', country: 'United States' }),
+    );
+    expect((await svc.getForUser(USER, 'bk-1')).timeZone).toBe('America/Boise');
+  });
+
+  it('prefers the venue even over a cinema zone somebody chose', async () => {
+    const svc = serviceWith(booking({ cinemaTz: 'America/Chicago', venueTz: 'America/Denver' }));
+    expect((await svc.getForUser(USER, 'bk-1')).timeZone).toBe('America/Denver');
+  });
+
+  it('uses the cinema zone when the venue has none', async () => {
+    const svc = serviceWith(
+      booking({ cinemaTz: 'America/Chicago', venueTz: null, country: 'United States' }),
+    );
     expect((await svc.getForUser(USER, 'bk-1')).timeZone).toBe('America/Chicago');
+  });
+
+  it('does not print IST for a US cinema left at the default when the venue has no zone', async () => {
+    // Asia/Kolkata on a place known to be in the US can only be the default. Unknown beats wrong.
+    const svc = serviceWith(
+      booking({ cinemaTz: 'Asia/Kolkata', venueTz: null, country: 'United States' }),
+    );
+    expect((await svc.getForUser(USER, 'bk-1')).timeZone).toBeNull();
+  });
+
+  it('leaves an Indian cinema exactly as it was', async () => {
+    const svc = serviceWith(booking({ cinemaTz: 'Asia/Kolkata', venueTz: null, country: 'India' }));
+    expect((await svc.getForUser(USER, 'bk-1')).timeZone).toBe('Asia/Kolkata');
+    const both = serviceWith(
+      booking({ cinemaTz: 'Asia/Kolkata', venueTz: 'Asia/Kolkata', country: 'India' }),
+    );
+    expect((await both.getForUser(USER, 'bk-1')).timeZone).toBe('Asia/Kolkata');
   });
 
   it('falls back to the venue for an event that is not a cinema showing', async () => {
@@ -110,14 +146,20 @@ describe('booking list timezone resolution', () => {
     return { svc, findMany };
   }
 
-  it('gives every row the same zone its detail would: cinema, then venue, else null', async () => {
+  it('gives every row the same zone its detail would: venue, then cinema, else null', async () => {
     const { svc } = listServiceWith([
-      booking({ cinemaTz: 'America/Chicago', venueTz: 'Asia/Kolkata' }),
+      booking({ cinemaTz: 'Asia/Kolkata', venueTz: 'America/Boise', country: 'United States' }),
+      booking({ cinemaTz: 'America/Chicago', venueTz: null }),
       booking({ venueTz: 'America/New_York' }),
       booking({ venueTz: null }),
     ]);
     const { data } = await svc.listForUser(USER, 1, 10);
-    expect(data.map((row) => row.timeZone)).toEqual(['America/Chicago', 'America/New_York', null]);
+    expect(data.map((row) => row.timeZone)).toEqual([
+      'America/Boise',
+      'America/Chicago',
+      'America/New_York',
+      null,
+    ]);
   });
 
   it('reads both zones from the database', async () => {
@@ -127,7 +169,10 @@ describe('booking list timezone resolution', () => {
     // The country too: it is what supplies the zone when the venue was never given one.
     expect(include.event.select.venue).toEqual({ select: { timezone: true, country: true } });
     expect(include.eventSession.select.screen).toEqual({
-      select: { cinema: { select: { timezone: true } } },
+      select: {
+        venue: { select: { timezone: true, country: true } },
+        cinema: { select: { timezone: true, country: true } },
+      },
     });
   });
 });

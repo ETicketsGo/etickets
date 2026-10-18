@@ -1,5 +1,6 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
-import { isReservedEmail, Role, venueZone } from '@eticketsgo/shared-types';
+import { isReservedEmail, Role } from '@eticketsgo/shared-types';
+import { SHOW_ZONE_SCREEN_SELECT, showTimezone } from '../spaces/space-owner';
 import { PrismaService } from '../prisma/prisma.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
 import { AuditService } from '../audit/audit.service';
@@ -202,7 +203,7 @@ export class EventAttendeesService {
         isFree: true,
         venue: { select: { timezone: true, country: true } },
         sessions: {
-          select: { id: true, screen: { select: { cinema: { select: { timezone: true } } } } },
+          select: { id: true, screen: { select: SHOW_ZONE_SCREEN_SELECT } },
         },
       },
     });
@@ -223,9 +224,8 @@ export class EventAttendeesService {
     for (const s of event.sessions) {
       zones.set(
         s.id,
-        safeZone(
-          s.screen?.cinema?.timezone ?? venueZone(event.venue?.timezone, event.venue?.country),
-        ),
+        // The same clock the attendee's own ticket prints (`showTimezone`).
+        safeZone(showTimezone(s.screen, event.venue)),
       );
     }
     return {

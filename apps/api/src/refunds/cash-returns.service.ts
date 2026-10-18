@@ -1,12 +1,7 @@
 import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
-import {
-  BookingStatus,
-  Role,
-  SessionStatus,
-  TicketStatus,
-  venueZone,
-} from '@eticketsgo/shared-types';
+import { BookingStatus, Role, SessionStatus, TicketStatus } from '@eticketsgo/shared-types';
+import { showTimezone, type ShowZoneScreen, type ShowZoneVenue } from '../spaces/space-owner';
 import { PrismaService } from '../prisma/prisma.service';
 import { InventoryService } from '../inventory/inventory.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
@@ -22,7 +17,7 @@ const COUNTER_ROLES = [Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER, Role.CHECKI
 const LIVE_BOOKING = [BookingStatus.CONFIRMED, BookingStatus.PARTIALLY_REFUNDED];
 const LIVE_TICKET = [TicketStatus.ACTIVE, TicketStatus.CHECKED_IN];
 
-/** What the show's zone is read from: the space's venue, its cinema, the event's venue. */
+/** What the show's zone is read from (`showTimezone`): the venues, then the cinema. */
 export const SHOW_ZONE_SELECT = {
   event: { select: { venue: { select: { timezone: true, country: true } } } },
   eventSession: {
@@ -31,7 +26,7 @@ export const SHOW_ZONE_SELECT = {
       screen: {
         select: {
           venue: { select: { timezone: true, country: true } },
-          cinema: { select: { timezone: true } },
+          cinema: { select: { timezone: true, country: true } },
         },
       },
     },
@@ -40,28 +35,15 @@ export const SHOW_ZONE_SELECT = {
 
 /**
  * The zone a show runs in, so the counter reads its time on the venue's clock, the way the
- * ticket prints it, and not the reader's. The space's venue first, then its cinema, then the
- * event's venue; each place's own zone, else the only zone its country has. The same order as
- * the check-in counter's `bookingZone` (#410); a null means no place says, and the console
- * then labels the time as the reader's own.
+ * ticket prints it, and not the reader's. `showTimezone` owns the order, so the counter, the
+ * check-in console's `bookingZone` and the buyer's ticket give one answer; a null means no
+ * place says, and the console then labels the time as the reader's own.
  */
 export function showZone(
-  eventVenue: { timezone: string | null; country: string | null } | null | undefined,
-  screen:
-    | {
-        venue?: { timezone: string | null; country: string | null } | null;
-        cinema?: { timezone: string | null } | null;
-      }
-    | null
-    | undefined,
+  eventVenue: ShowZoneVenue | null | undefined,
+  screen: ShowZoneScreen | null | undefined,
 ): string | null {
-  return (
-    screen?.venue?.timezone?.trim() ||
-    screen?.cinema?.timezone?.trim() ||
-    venueZone(eventVenue?.timezone, eventVenue?.country) ||
-    venueZone(null, screen?.venue?.country) ||
-    null
-  );
+  return showTimezone(screen, eventVenue);
 }
 
 /** One cash booking whose money is owed back, or was handed back. */

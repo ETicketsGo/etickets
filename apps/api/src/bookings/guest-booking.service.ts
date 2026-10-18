@@ -7,8 +7,8 @@ import {
   type GuestBookingClaim,
   type GuestBookingView,
   type GuestReceiptsView,
-  venueZone,
 } from '@eticketsgo/shared-types';
+import { showTimezone } from '../spaces/space-owner';
 import { resolveLocale } from '@eticketsgo/i18n';
 import { feeTaxSummary } from '../pricing/fee-tax';
 import { PrismaService } from '../prisma/prisma.service';
@@ -148,7 +148,13 @@ const VIEW_SELECT = {
   eventSession: {
     select: {
       startsAt: true,
-      screen: { select: { name: true, cinema: { select: { name: true, timezone: true } } } },
+      screen: {
+        select: {
+          name: true,
+          venue: { select: { timezone: true, country: true } },
+          cinema: { select: { name: true, timezone: true, country: true } },
+        },
+      },
     },
   },
   tickets: {
@@ -845,12 +851,9 @@ export class GuestBookingService {
         refundCutoffHours: booking.event.refundCutoffHours,
         refundPolicy: booking.event.refundPolicy,
         startsAt: iso(startsAt) ?? '',
-        // Cinema first — a screen's own zone is the most specific fact about where it plays —
-        // then the venue, by the same rule the confirmation email and the ticket face use, so
-        // the three cannot disagree about when the show starts.
-        timeZone:
-          screen?.cinema?.timezone ??
-          venueZone(booking.event.venue?.timezone, booking.event.venue?.country),
+        // The venue's clock, by the same rule (`showTimezone`) the confirmation email and the
+        // ticket face use, so the three cannot disagree about when the show starts.
+        timeZone: showTimezone(screen, booking.event.venue),
         venueName: booking.event.venue?.name ?? null,
         cinemaName: screen?.cinema?.name ?? null,
         screenName: screen?.name ?? null,

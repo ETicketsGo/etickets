@@ -247,12 +247,48 @@ describe('GET /public/movies/:slug/shows — the response', () => {
 
     expect(show.startsAt).toBe('2026-09-01T14:00:00.000Z');
     expect(show.venue.city).toBe('Bengaluru');
-    expect(show.cinema).toEqual({ id: 'cin_1', name: 'Phoenix Cinemas', brand: 'Phoenix' });
+    // The fixture's cinema has no zone; India has one, so the show is on it.
+    expect(show.cinema).toEqual({
+      id: 'cin_1',
+      name: 'Phoenix Cinemas',
+      brand: 'Phoenix',
+      timezone: 'Asia/Kolkata',
+    });
     expect(show.format).toBe('IMAX');
     expect(show.language).toBe('English');
     // The two identifiers the rest of the journey needs.
     expect(show.eventSlug).toBe('skyfront-protocol-show-598484');
     expect(show.sessionId).toBe('sess_1');
+  });
+
+  /*
+    T2, QA 2026-10-17: a Boise cinema whose row kept the schema default Asia/Kolkata listed its
+    shows on IST and filed them under IST dates. The venue is where the show is.
+  */
+  it("lists a show on its venue's clock, not a cinema zone left at the default", async () => {
+    const { service } = makeService({
+      sessions: [
+        session({
+          // 03:59Z is 9:59 pm the previous day in Boise, and 9:29 am the same day in Kolkata.
+          startsAt: new Date('2026-10-20T03:59:00.000Z'),
+          event: {
+            id: 'ev_1',
+            slug: 'move-show',
+            venue: { id: 'v_b', name: 'Move Venue', city: 'Boise', country: 'United States' },
+          },
+          screen: {
+            id: 'scr_1',
+            name: 'Screen 1',
+            screenType: 'IMAX',
+            venue: { timezone: 'America/Boise', country: 'United States' },
+            cinema: { id: 'cin_1', name: 'Move Hall', brand: null, timezone: 'Asia/Kolkata' },
+          },
+        }),
+      ],
+    });
+    const [show] = (await service.shows('skyfront-protocol', { limit: 50 })).shows;
+    expect(show.cinema?.timezone).toBe('America/Boise');
+    expect(show.localDate).toBe('2026-10-19');
   });
 
   it('reports a reserved-seating show with real seat counts', async () => {

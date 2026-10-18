@@ -124,8 +124,9 @@ describe('ShowsService.getPublicShowSummary', () => {
     expect((await service.getPublicShowSummary('sess1')).timeZone).toBe('Asia/Kolkata');
   });
 
-  it('gives a cinema screen the cinema clock, as the ticket does', async () => {
-    // The booking, the ticket and the reminder all print a cinema's show on the cinema's clock.
+  it("gives a cinema screen the venue's clock, as the ticket does (T2)", async () => {
+    // The booking, the ticket and the reminder print the show on the venue's clock; this cinema
+    // row kept the schema default Asia/Kolkata, which on a Boise venue can only be the default.
     const { service } = makeService(
       screening({
         event: {
@@ -139,7 +140,7 @@ describe('ShowsService.getPublicShowSummary', () => {
         },
       }),
     );
-    expect((await service.getPublicShowSummary('sess1')).timeZone).toBe('Asia/Kolkata');
+    expect((await service.getPublicShowSummary('sess1')).timeZone).toBe('America/Boise');
   });
 
   it('gives no projection format for a space that is not a cinema screen', async () => {
@@ -184,6 +185,8 @@ describe('ShowsService.getPublicShowSummary', () => {
       screening({
         screen: {
           ...screening().screen,
+          // On the space's venue, which is read first (`showTimezone`).
+          venue: { timezone: 'Mars/Olympus', country: null },
           cinema: { id: 'cin1', name: 'X', timezone: 'Mars/Olympus' },
         },
       }),

@@ -159,6 +159,8 @@ describe('integration-real-postgres: show cancellation and reminders', () => {
     await db.booking.deleteMany({ where: { organizationId: orgId } });
     await db.eventSession.deleteMany({ where: { eventId } });
     await db.event.deleteMany({ where: { id: eventId } });
+    await db.screen.deleteMany({ where: { venueId } });
+    await db.cinema.deleteMany({ where: { organizationId: orgId } });
     await db.venue.deleteMany({ where: { id: venueId } });
     await db.organization.deleteMany({ where: { id: orgId } });
     await db.user.deleteMany({ where: { email: { contains: suffix } } });
@@ -448,6 +450,8 @@ describe('integration-real-postgres: reminders', () => {
     await db.booking.deleteMany({ where: { organizationId: orgId } });
     await db.eventSession.deleteMany({ where: { eventId } });
     await db.event.deleteMany({ where: { id: eventId } });
+    await db.screen.deleteMany({ where: { venueId } });
+    await db.cinema.deleteMany({ where: { organizationId: orgId } });
     await db.venue.deleteMany({ where: { id: venueId } });
     await db.organization.deleteMany({ where: { id: orgId } });
     await db.user.deleteMany({ where: { email: { contains: suffix } } });
@@ -574,6 +578,32 @@ describe('integration-real-postgres: reminders', () => {
     // The absolute instant, and the venue's own zone for rendering it.
     expect(new Date(payload.startsAt).getTime()).toBe(s.startsAt.getTime());
     expect(payload.timeZone).toBe('America/Boise');
+  });
+
+  maybe("names the venue's zone for a cinema whose row kept the default (T2)", async () => {
+    /*
+      QA 2026-10-17: "Move Hall" is a cinema in a Boise venue, created without a zone, so its
+      row holds the schema default Asia/Kolkata. The reminder read the cinema first and told
+      the buyer a 9:59 am show was at "10:29 pm GMT+5:30".
+    */
+    const cinema = await db!.cinema.create({
+      // No timezone: the column default is what a cinema created without one gets.
+      data: { organizationId: orgId, venueId, name: `Move Hall ${suffix}`, city: 'Boise' },
+    });
+    expect(cinema.timezone).toBe('Asia/Kolkata');
+    const screen = await db!.screen.create({
+      data: { cinemaId: cinema.id, venueId, name: 'Screen 1', screenType: '2D', capacity: 10 },
+    });
+    const s = await show(24, 'tz-cinema');
+    await db!.eventSession.update({ where: { id: s.sessionId }, data: { screenId: screen.id } });
+
+    await reminders.runDue(new Date(), { toleranceMinutes: 90 });
+
+    const row = await db!.notification.findFirst({
+      where: { bookingId: s.bookingId, type: NotificationType.EVENT_REMINDER },
+      select: { payload: true },
+    });
+    expect((row.payload as { timeZone: string }).timeZone).toBe('America/Boise');
   });
 
   maybe('a reminder is never sent by email', async () => {

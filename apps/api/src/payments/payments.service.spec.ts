@@ -403,6 +403,63 @@ describe('PaymentsService.confirm (via handleWebhook)', () => {
     expect(recorded.payload).not.toHaveProperty('buyerEmail');
   });
 
+  /*
+    T2, QA 2026-10-17: "Move Hall" is a cinema in a Boise venue whose row kept the schema default
+    Asia/Kolkata. The confirmation email read the cinema first and printed a 9:59 am show as
+    "10:29 pm GMT+5:30". The email names the venue's clock, the one the ticket prints.
+  */
+  it("tells the buyer the show time on the venue's clock, not a cinema left at the default", async () => {
+    const { service, notifications } = setup({
+      booking: pendingBooking({
+        event: {
+          experienceType: ExperienceType.MOVIE,
+          title: 'Move',
+          venue: { country: 'United States', timezone: 'America/Boise' },
+        },
+        eventSession: {
+          startsAt: new Date('2026-10-20T15:59:00.000Z'),
+          status: 'SCHEDULED',
+          screen: {
+            venue: { timezone: 'America/Boise', country: 'United States' },
+            cinema: { timezone: 'Asia/Kolkata', country: null },
+          },
+        },
+      } as never),
+      claimCount: 1,
+      specs: [{ ticketTypeId: 't1' }, { ticketTypeId: 't1' }],
+    });
+    await service.handleWebhook(webhook);
+    const sent = notifications.sendCritical.mock.calls[0][1];
+    expect(sent.payload).toMatchObject({
+      startsAt: '2026-10-20T15:59:00.000Z',
+      timeZone: 'America/Boise',
+    });
+  });
+
+  it("keeps an Indian cinema's confirmation on IST", async () => {
+    const { service, notifications } = setup({
+      booking: pendingBooking({
+        event: {
+          experienceType: ExperienceType.MOVIE,
+          title: 'Kantara',
+          venue: { country: 'India', timezone: 'Asia/Kolkata' },
+        },
+        eventSession: {
+          startsAt: new Date('2026-10-20T15:59:00.000Z'),
+          status: 'SCHEDULED',
+          screen: {
+            venue: { timezone: 'Asia/Kolkata', country: 'India' },
+            cinema: { timezone: 'Asia/Kolkata', country: 'India' },
+          },
+        },
+      } as never),
+      claimCount: 1,
+      specs: [{ ticketTypeId: 't1' }, { ticketTypeId: 't1' }],
+    });
+    await service.handleWebhook(webhook);
+    expect(notifications.sendCritical.mock.calls[0][1].payload.timeZone).toBe('Asia/Kolkata');
+  });
+
   it('increments the coupon redemption count when the booking used a coupon', async () => {
     const { service, tx } = setup({
       booking: pendingBooking({ couponId: 'cpn-1' }),

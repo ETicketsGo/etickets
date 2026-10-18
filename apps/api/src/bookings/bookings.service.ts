@@ -11,8 +11,13 @@ import {
   SessionStatus,
   priceBundle,
   OrganizationStatus,
-  venueZone,
 } from '@eticketsgo/shared-types';
+import {
+  SHOW_ZONE_SCREEN_SELECT,
+  showTimezone,
+  type ShowZoneScreen,
+  type ShowZoneVenue,
+} from '../spaces/space-owner';
 import type { InventoryLine } from '../inventory/inventory-strategy.interface';
 import type { CreateBookingInput, QuoteBookingInput } from '@eticketsgo/validation';
 import { PrismaService } from '../prisma/prisma.service';
@@ -2275,10 +2280,15 @@ export class BookingsService {
             // exists, the API will honour it, and nowhere tells the buyer it is there.
             id: true,
             startsAt: true,
-            // A showtime means the time AT THE CINEMA. Without this the page renders it in
+            // A showtime means the time AT THE VENUE. Without this the page renders it in
             // the reader's own zone, which is how a ticket and its confirmation email came
-            // to disagree by eleven and a half hours.
-            screen: { select: { cinema: { select: { timezone: true, name: true, city: true } } } },
+            // to disagree by eleven and a half hours. `showTimezone` reads these.
+            screen: {
+              select: {
+                venue: { select: { timezone: true, country: true } },
+                cinema: { select: { timezone: true, country: true, name: true, city: true } },
+              },
+            },
           },
         },
       },
@@ -2319,7 +2329,7 @@ export class BookingsService {
       */
       ...feeTaxSummary(booking.taxLines, booking.customerFeeMinor),
       seatLabels,
-      // Cinema first (a screen's own zone is the most specific fact), then the venue.
+      // The venue's clock first; see `showTimezone` for why the cinema's comes after it.
       timeZone: bookingTimeZone(booking),
       /*
         Where the show is, by the same precedence as the zone: the cinema a buyer walks into,
@@ -2356,7 +2366,7 @@ export class BookingsService {
           eventSession: {
             select: {
               startsAt: true,
-              screen: { select: { cinema: { select: { timezone: true } } } },
+              screen: { select: SHOW_ZONE_SCREEN_SELECT },
             },
           },
           _count: { select: { tickets: true } },
@@ -2393,12 +2403,13 @@ function bookingPlace(booking: {
   return { name, city: venue?.city ?? cinema?.city ?? null };
 }
 
+/**
+ * The zone a booking's show time is displayed in. `showTimezone` owns the order (venue first,
+ * then a cinema zone somebody chose, then the country's only zone); null rather than a guess.
+ */
 function bookingTimeZone(booking: {
-  event?: { venue?: { timezone: string | null; country: string | null } | null } | null;
-  eventSession?: { screen?: { cinema?: { timezone: string | null } | null } | null } | null;
+  event?: { venue?: ShowZoneVenue | null } | null;
+  eventSession?: { screen?: ShowZoneScreen | null } | null;
 }): string | null {
-  return (
-    booking.eventSession?.screen?.cinema?.timezone ??
-    venueZone(booking.event?.venue?.timezone, booking.event?.venue?.country)
-  );
+  return showTimezone(booking.eventSession?.screen, booking.event?.venue);
 }

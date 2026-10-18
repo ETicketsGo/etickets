@@ -1,7 +1,8 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { OrgAccessService } from '../tenancy/org-access.service';
 import { AuditService } from '../audit/audit.service';
-import { Role, TicketInviteKind, TicketInviteStatus, venueZone } from '@eticketsgo/shared-types';
+import { Role, TicketInviteKind, TicketInviteStatus } from '@eticketsgo/shared-types';
+import { showTimezone } from '../spaces/space-owner';
 import * as QRCode from 'qrcode';
 import { BookingStatus, TicketStatus } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
@@ -26,7 +27,13 @@ const TICKET_INCLUDE = {
   eventSession: {
     select: {
       startsAt: true,
-      screen: { select: { name: true, cinema: { select: { name: true, timezone: true } } } },
+      screen: {
+        select: {
+          name: true,
+          venue: { select: { timezone: true, country: true } },
+          cinema: { select: { name: true, timezone: true, country: true } },
+        },
+      },
       event: {
         select: {
           title: true,
@@ -331,15 +338,13 @@ export class TicketsService {
         abroad for family at home — showed a time that was not when the show starts, on the
         one screen where being wrong sends somebody to the wrong screening.
 
-        The cinema's zone is authoritative and already stored. Sent so the client can render
-        the venue's time and SAY which zone it is, rather than silently using its own.
-
-        An event that is not in a cinema has no screen, so this was null for every concert,
-        conference and match, and those tickets went back to the device's zone. The venue has
-        carried its own zone since then; it is the fallback, in the same order the booking
-        confirmation already uses, so a ticket and its confirmation cannot disagree.
+        Sent so the client can render the venue's time and SAY which zone it is, rather than
+        silently using its own. `showTimezone` owns the order (the venue first), the same one
+        the booking confirmation and the emails use, so a ticket and its confirmation cannot
+        disagree. It used to read the cinema first, and a US cinema left at the schema default
+        printed its tickets in IST.
       */
-      timezone: screen?.cinema?.timezone ?? venueZone(event.venue?.timezone, event.venue?.country),
+      timezone: showTimezone(screen, event.venue),
       // Attendee identity (ADR-031): assignment lifecycle + whether the viewer is
       // the ticket's owner (vs an attendee this ticket was assigned to).
       assignmentStatus: ticket.assignmentStatus,
