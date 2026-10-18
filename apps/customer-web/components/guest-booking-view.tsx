@@ -2,13 +2,20 @@
 
 import { ArrowLeft, CalendarDays, MapPin, Printer } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-import { PrintableTickets, moneyFractionDigits, type WalletTicket } from '@eticketsgo/web-kit';
+import {
+  BrandStatusPill,
+  PrintableTickets,
+  brandButtonClasses,
+  moneyFractionDigits,
+  type BrandStatus,
+  type WalletTicket,
+} from '@eticketsgo/web-kit';
 import type { GuestBookingView } from '@/lib/api';
 import { PriceBreakdown } from '@/components/price-breakdown';
 import { Link } from '@/i18n/navigation';
 import { useFormat } from '@/lib/format';
 import { wasCancelledInThisBrowser } from '@/lib/guest-session';
-import { ButtonLink, Card, StatusBadge } from '@/components/ui';
+import { BRAND_EYEBROW, BRAND_PANEL } from '@/components/booking-brand';
 import { ReferenceCode } from '@/components/reference-code';
 import { useStatusLabel } from '@/lib/status-label';
 
@@ -28,6 +35,23 @@ function showTime(
   const abbreviation = zoneAbbrev(iso, zone ?? undefined);
   return `${dateTime(iso, undefined, zone ?? undefined)}${abbreviation ? ` ${abbreviation}` : ''}`;
 }
+
+/*
+  ── ON THE BRAND LAYER ─────────────────────────────────────────────────────────────
+  The summary, the tickets and the "not in this browser" card are drawn with `brand-*` classes:
+  every page that shows them (the emailed link, Review & pay, the confirmation, the reservation)
+  is on the brand layer. The print sheet below is NOT - it is built for a bare page and paper.
+*/
+
+/** A booking's status as a brand pill, with the same tones the account confirmation uses. */
+const STATUS_TONE: Record<string, BrandStatus> = {
+  CONFIRMED: 'positive',
+  PENDING_PAYMENT: 'info',
+  REFUNDED: 'info',
+  PARTIALLY_REFUNDED: 'info',
+  EXPIRED: 'neutral',
+  CANCELLED: 'neutral',
+};
 
 /**
  * A booking as a guest sees it, and the tickets that came with it.
@@ -87,18 +111,23 @@ export function GuestBookingSummary({ view }: { view: GuestBookingView }) {
     .filter((label): label is string => Boolean(label));
 
   return (
-    <Card className="space-y-4">
+    <section className={`${BRAND_PANEL} space-y-4 p-4 sm:p-6`}>
       <div className="space-y-1">
         <div className="flex items-start justify-between gap-3">
-          <p className="font-semibold text-text-primary">{view.event.title}</p>
-          <StatusBadge status={view.status} label={statusLabel('booking', view.status)} />
+          <p className="font-brand-display text-brand-d3 text-brand-ink">{view.event.title}</p>
+          {/* Never squeezed by a long title: a pill's fixed height cannot take two lines. */}
+          <span className="shrink-0 whitespace-nowrap">
+            <BrandStatusPill status={STATUS_TONE[view.status] ?? 'neutral'}>
+              {statusLabel('booking', view.status)}
+            </BrandStatusPill>
+          </span>
         </div>
-        <p className="flex items-center gap-1.5 text-[0.9375rem] text-text-muted">
+        <p className="flex items-center gap-1.5 text-brand-ui text-brand-ink-2">
           <CalendarDays className="h-4 w-4 shrink-0" aria-hidden />
           {showTime(dateTime, zoneAbbrev, view.event.startsAt, view.event.timeZone)}
         </p>
         {place ? (
-          <p className="flex items-center gap-1.5 text-[0.9375rem] text-text-muted">
+          <p className="flex items-center gap-1.5 text-brand-ui text-brand-ink-2">
             <MapPin className="h-4 w-4 shrink-0" aria-hidden />
             {place}
           </p>
@@ -111,26 +140,24 @@ export function GuestBookingSummary({ view }: { view: GuestBookingView }) {
         value that failed to load, and this one is asked for at a counter.
       */}
       {view.reference ? (
-        <div className="flex items-center justify-between text-[0.9375rem]">
-          <span className="text-text-secondary">{c('bookingReference')}</span>
-          <ReferenceCode value={view.reference} label={c('bookingReference')} />
+        <div className="flex items-center justify-between gap-3 border-t border-brand-line pt-4 text-brand-ui">
+          <span className="text-brand-ink-2">{c('bookingReference')}</span>
+          <ReferenceCode brand value={view.reference} label={c('bookingReference')} />
         </div>
       ) : null}
 
       {items.length > 0 || seatLabels.length > 0 ? (
-        <div className="space-y-1.5 border-t border-border pt-3">
-          <p className="text-caption font-medium uppercase tracking-wide text-text-muted">
-            {c('yourOrder')}
-          </p>
+        <div className="space-y-2 border-t border-brand-line pt-4">
+          <p className={BRAND_EYEBROW}>{c('yourOrder')}</p>
           {items.map((item, index) => (
             <div
               key={`${item.label}-${index}`}
-              className="flex justify-between gap-4 text-[0.9375rem]"
+              className="flex justify-between gap-4 text-brand-ui"
             >
-              <span className="text-text-primary">
+              <span className="text-brand-ink">
                 {c('itemLine', { name: item.label, quantity: item.quantity })}
               </span>
-              <span className="tabular-nums text-text-secondary">
+              <span className="tabular-nums text-brand-ink-2">
                 {money(
                   item.unitPriceMinor * item.quantity,
                   view.currency,
@@ -141,11 +168,11 @@ export function GuestBookingSummary({ view }: { view: GuestBookingView }) {
             </div>
           ))}
           {seatLabels.length > 0 ? (
-            <div className="flex justify-between gap-4 text-[0.9375rem]">
-              <span className="text-text-secondary">
+            <div className="flex justify-between gap-4 text-brand-ui">
+              <span className="text-brand-ink-2">
                 {seatLabels.length === 1 ? c('seat') : c('seats')}
               </span>
-              <span className="text-right font-medium text-text-primary">
+              <span className="text-right font-semibold text-brand-ink">
                 {seatLabels.join(', ')}
               </span>
             </div>
@@ -155,10 +182,10 @@ export function GuestBookingSummary({ view }: { view: GuestBookingView }) {
 
       <GuestTotals view={view} fractionDigits={fractionDigits} />
 
-      <p className="border-t border-border pt-3 text-caption text-text-muted">
+      <p className="border-t border-brand-line pt-4 text-brand-meta text-brand-ink-3">
         {g('bookedBy', { name: view.buyer.name, email: view.buyer.emailMasked })}
       </p>
-    </Card>
+    </section>
   );
 }
 
@@ -186,8 +213,9 @@ export function GuestTotals({
 }) {
   const t = view.totals;
   return (
-    <div className="border-t border-border pt-3">
+    <div className="border-t border-brand-line pt-4">
       <PriceBreakdown
+        brand
         quote={{
           currency: view.currency,
           subtotalMinor: t.subtotalMinor,
@@ -242,48 +270,48 @@ export function GuestTickets({
   return (
     <div className="space-y-3">
       {view.tickets.map((ticket, index) => (
-        <Card key={ticket.id} className="flex items-center gap-4">
+        <div key={ticket.id} className={`${BRAND_PANEL} flex items-center gap-4 p-4`}>
           {/* A barcode the server cannot draw has no image. Say so in the space it would take. */}
           {ticket.qrDataUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={ticket.qrDataUrl}
               alt={g('ticketQrAlt', { number: index + 1 })}
-              className="h-28 w-28 shrink-0 rounded-md bg-white p-1"
+              className="h-28 w-28 shrink-0 rounded-brand-control border border-brand-line bg-white p-1"
             />
           ) : (
-            <div className="flex h-28 w-28 shrink-0 items-center justify-center rounded-md border border-dashed border-border bg-background-subtle p-2 text-center text-caption text-text-muted">
+            <div className="flex h-28 w-28 shrink-0 items-center justify-center rounded-brand-control bg-brand-sunken p-2 text-center text-brand-meta text-brand-ink-2">
               {w('qrUnavailable')}
             </div>
           )}
           <div className="min-w-0 flex-1 space-y-1">
-            <p className="font-semibold text-text-primary">{view.event.title}</p>
-            <p className="text-[0.9375rem] text-text-muted">
+            <p className="font-brand-display text-brand-card text-brand-ink">{view.event.title}</p>
+            <p className="text-brand-ui text-brand-ink-2">
               {showTime(dateTime, zoneAbbrev, view.event.startsAt, view.event.timeZone)}
             </p>
             {ticket.ticketTypeName ? (
-              <p className="text-[0.9375rem] text-text-secondary">{ticket.ticketTypeName}</p>
+              <p className="text-brand-ui text-brand-ink-2">{ticket.ticketTypeName}</p>
             ) : null}
             {ticket.seatLabel ? (
-              <p className="text-[0.9375rem] text-text-primary">
+              <p className="text-brand-ui text-brand-ink">
                 {c('seat')} <strong>{ticket.seatLabel}</strong>
               </p>
             ) : null}
             {ticket.checkedInAt ? (
-              <p className="text-caption text-text-muted">
+              <p className="text-brand-meta text-brand-ink-3">
                 {g('checkedIn', { when: dateTime(ticket.checkedInAt) })}
               </p>
             ) : null}
           </div>
-        </Card>
+        </div>
       ))}
       {printHref ? (
-        <ButtonLink href={printHref} className="w-full">
+        <Link href={printHref} className={`${brandButtonClasses('primary', 'lg')} w-full`}>
           <Printer className="h-4 w-4" aria-hidden />
           {g('openTickets')}
-        </ButtonLink>
+        </Link>
       ) : null}
-      <p className="text-caption text-text-muted">{g('showAtDoor')}</p>
+      <p className="text-brand-meta text-brand-ink-3">{g('showAtDoor')}</p>
     </div>
   );
 }
@@ -386,35 +414,57 @@ export function GuestBookingNotHere({ bookingId }: { bookingId?: string }) {
   */
   if (wasCancelledInThisBrowser(bookingId)) {
     return (
-      <Card className="mx-auto max-w-md space-y-3 text-center">
-        <h1 className="text-title font-semibold text-text-primary">{g('cancelledHereTitle')}</h1>
-        <p className="text-[0.9375rem] text-text-secondary">{g('cancelledHereBody')}</p>
+      <NotHerePanel>
+        <h1 className={NOT_HERE_TITLE}>{g('cancelledHereTitle')}</h1>
+        <p className="text-brand-body text-brand-ink-2">{g('cancelledHereBody')}</p>
         <div className="flex flex-col gap-3 pt-1 sm:flex-row">
-          <ButtonLink href="/events" className="w-full sm:flex-1">
+          <Link
+            href="/events"
+            className={`${brandButtonClasses('primary', 'lg')} w-full sm:flex-1`}
+          >
             {g('browseEvents')}
-          </ButtonLink>
+          </Link>
         </div>
-      </Card>
+      </NotHerePanel>
     );
   }
 
   return (
-    <Card className="mx-auto max-w-md space-y-3 text-center">
-      <h1 className="text-title font-semibold text-text-primary">{g('noAccessTitle')}</h1>
-      <p className="text-[0.9375rem] text-text-secondary">{g('noAccessBody')}</p>
+    <NotHerePanel>
+      <h1 className={NOT_HERE_TITLE}>{g('noAccessTitle')}</h1>
+      <p className="text-brand-body text-brand-ink-2">{g('noAccessBody')}</p>
       <div className="flex flex-col gap-3 pt-1 sm:flex-row">
-        <ButtonLink href="/booking/find" className="w-full sm:flex-1">
+        <Link
+          href="/booking/find"
+          className={`${brandButtonClasses('primary', 'lg')} w-full sm:flex-1`}
+        >
           {g('findTitle')}
-        </ButtonLink>
+        </Link>
         {/* Signing in here is to see the tickets: sign-in alone now ends on the home page. */}
-        <ButtonLink
+        <Link
           href={`/login?next=${encodeURIComponent('/account/tickets')}`}
-          variant="outline"
-          className="w-full sm:flex-1"
+          className={`${brandButtonClasses('secondary', 'lg')} w-full sm:flex-1`}
         >
           {g('signIn')}
-        </ButtonLink>
+        </Link>
       </div>
-    </Card>
+    </NotHerePanel>
+  );
+}
+
+const NOT_HERE_TITLE = 'text-balance font-brand-display text-brand-d2 text-brand-ink';
+
+/**
+ * The card, carrying its own `data-brand`: it is shown by the booking pages before their own
+ * brand shell renders, and by the bare print route, which has no shell at all. Without the
+ * attribute every `brand-*` class here would resolve to nothing on those two.
+ */
+function NotHerePanel({ children }: { children: React.ReactNode }) {
+  return (
+    <div data-brand="customer" className="px-4 pt-8 font-brand-text text-brand-ink sm:pt-12">
+      <div className={`${BRAND_PANEL} mx-auto max-w-md space-y-4 p-5 text-center sm:p-8`}>
+        {children}
+      </div>
+    </div>
   );
 }

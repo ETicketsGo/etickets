@@ -5,7 +5,16 @@ import { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { MailCheck } from 'lucide-react';
 import { api } from '@/lib/api';
-import { Button, Card, Input } from '@/components/ui';
+import {
+  BRAND_LEAD,
+  BRAND_NOTE,
+  BRAND_PAGE_TITLE,
+  BrandActionButton,
+  BrandCenteredPage,
+  BrandFormPanel,
+  BrandInput,
+} from '@/components/brand-forms';
+import { BRAND_LINK } from '@/components/booking-brand';
 import { Link } from '@/i18n/navigation';
 
 /**
@@ -55,61 +64,70 @@ export default function FindBookingPage() {
   */
   if (lookup.isSuccess || lookup.isError) {
     return (
-      <Card className="mx-auto max-w-sm space-y-3 text-center">
-        <MailCheck className="mx-auto h-8 w-8 text-status-success" aria-hidden />
-        <h1 className="text-title font-semibold text-text-primary">{g('findSentTitle')}</h1>
-        <p className="text-[0.9375rem] text-text-secondary">{g('findSentBody')}</p>
-        <p className="text-caption text-text-muted">{g('findSentHint')}</p>
-        <Button variant="outline" className="w-full" onClick={() => lookup.reset()}>
-          {g('findAgain')}
-        </Button>
-      </Card>
+      <BrandCenteredPage>
+        <BrandFormPanel className="space-y-4 text-center">
+          <span
+            aria-hidden
+            className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-brand-positive-tint text-brand-positive"
+          >
+            <MailCheck className="h-7 w-7" />
+          </span>
+          <h1 className={BRAND_PAGE_TITLE}>{g('findSentTitle')}</h1>
+          <p className={BRAND_LEAD}>{g('findSentBody')}</p>
+          <p className={BRAND_NOTE}>{g('findSentHint')}</p>
+          <BrandActionButton variant="secondary" className="w-full" onClick={() => lookup.reset()}>
+            {g('findAgain')}
+          </BrandActionButton>
+        </BrandFormPanel>
+      </BrandCenteredPage>
     );
   }
 
   return (
-    <Card className="mx-auto max-w-sm space-y-4">
-      <div>
-        <h1 className="text-h2 font-bold text-text-primary">{g('findTitle')}</h1>
-        <p className="mt-1.5 text-[0.9375rem] text-text-secondary">{g('findLead')}</p>
-      </div>
+    <BrandCenteredPage>
+      <BrandFormPanel className="space-y-5">
+        <div>
+          <h1 className={BRAND_PAGE_TITLE}>{g('findTitle')}</h1>
+          <p className={`mt-2 ${BRAND_LEAD}`}>{g('findLead')}</p>
+        </div>
 
-      <form className="space-y-4" onSubmit={submit}>
-        <Input
-          id="booking-reference"
-          label={g('findReferenceLabel')}
-          hint={g('findReferenceHint')}
-          autoComplete="off"
-          autoCapitalize="characters"
-          value={reference}
-          error={errors.reference}
-          onChange={(e) => setReference(e.target.value.toUpperCase())}
-        />
-        <Input
-          id="booking-email"
-          label={g('emailLabel')}
-          type="email"
-          inputMode="email"
-          autoComplete="email"
-          value={email}
-          error={errors.email}
-          onChange={(e) => setEmail(e.target.value)}
-        />
-        <Button type="submit" className="w-full" loading={lookup.isPending}>
-          {g('findSubmit')}
-        </Button>
-      </form>
+        <form className="space-y-5" onSubmit={submit}>
+          <BrandInput
+            id="booking-reference"
+            label={g('findReferenceLabel')}
+            hint={g('findReferenceHint')}
+            autoComplete="off"
+            autoCapitalize="characters"
+            value={reference}
+            error={errors.reference}
+            onChange={(e) => setReference(e.target.value.toUpperCase())}
+          />
+          <BrandInput
+            id="booking-email"
+            label={g('emailLabel')}
+            type="email"
+            inputMode="email"
+            autoComplete="email"
+            value={email}
+            error={errors.email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+          <BrandActionButton type="submit" size="lg" className="w-full" loading={lookup.isPending}>
+            {g('findSubmit')}
+          </BrandActionButton>
+        </form>
 
-      <p className="text-caption text-text-muted">
-        {g('findHaveAccount')}{' '}
-        {/* Somebody looking for a booking who has an account wants their tickets. */}
-        <Link
-          href={`/login?next=${encodeURIComponent('/account/tickets')}`}
-          className="text-action-primary underline"
-        >
-          {a('signIn')}
-        </Link>
-      </p>
-    </Card>
+        <p className={`border-t border-brand-line pt-5 ${BRAND_NOTE}`}>
+          {g('findHaveAccount')}{' '}
+          {/* Somebody looking for a booking who has an account wants their tickets. */}
+          <Link
+            href={`/login?next=${encodeURIComponent('/account/tickets')}`}
+            className={BRAND_LINK}
+          >
+            {a('signIn')}
+          </Link>
+        </p>
+      </BrandFormPanel>
+    </BrandCenteredPage>
   );
 }

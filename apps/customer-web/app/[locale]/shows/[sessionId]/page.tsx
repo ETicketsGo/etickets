@@ -22,7 +22,8 @@ import {
 } from '@eticketsgo/web-kit';
 import { api, ApiRequestError, type SeatLayout, type SeatLayoutResponse } from '@/lib/api';
 import { useFormat } from '@/lib/format';
-import { EmptyState, ErrorState } from '@/components/ui';
+import { BrandEmpty } from '@/components/storefront-brand';
+import { BrandLoadError, BrandSkeleton, BrandStatePage } from '@/components/brand-forms';
 import { BRAND_FIELD, BRAND_LINK, BRAND_PANEL } from '@/components/booking-brand';
 import { nextStepAfterBooking } from '@/lib/after-booking';
 import { GuestBuyerFields, useGuestBuyer } from '@/components/guest-buyer';
@@ -618,11 +619,27 @@ export default function SeatSelectionPage() {
   // Heading levels: the show's title is the page's h1 when we know it; otherwise the map's is.
   const MapHeading = summary ? 'h2' : 'h1';
 
-  if (isLoading) return <div className="h-96 animate-pulse rounded-lg bg-background-subtle" />;
-  if (isError) return <ErrorState message={s('loadError')} onRetry={() => refetch()} />;
+  if (isLoading)
+    return (
+      <BrandStatePage>
+        <BrandSkeleton className="h-96 w-full" />
+      </BrandStatePage>
+    );
+  if (isError)
+    return (
+      <BrandStatePage>
+        <BrandLoadError message={s('loadError')} onRetry={() => refetch()} />
+      </BrandStatePage>
+    );
   if (!layout)
     return (
-      <EmptyState title={s('mapUnavailableTitle')} hint={s('mapUnavailableHint')} icon={Armchair} />
+      <BrandStatePage>
+        <BrandEmpty
+          headingLevel="h2"
+          title={s('mapUnavailableTitle')}
+          hint={s('mapUnavailableHint')}
+        />
+      </BrandStatePage>
     );
 
   const header = summary ? <ShowHeader summary={summary} /> : null;

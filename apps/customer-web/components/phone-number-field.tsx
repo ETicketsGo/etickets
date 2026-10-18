@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useCity, visitorCountry } from '@eticketsgo/web-kit';
 import { Input, Select } from '@/components/ui';
+import { BrandInput, BrandSelect } from '@/components/brand-forms';
 import {
   PHONE_COUNTRIES,
   isPhoneCountry,
@@ -88,6 +89,7 @@ export function PhoneNumberField({
   error,
   onEdit,
   countryOnly = false,
+  brand = false,
 }: {
   phone: PhoneNumberState;
   ids: { country: string; number: string };
@@ -101,7 +103,14 @@ export function PhoneNumberField({
   onEdit?: () => void;
   /** Only the country select, for a moment when no number can be used. */
   countryOnly?: boolean;
+  /**
+   * Drawn on the brand layer (sign-in and sign-up). Only the two fields' look changes; the
+   * profile and the attendee dialog are still on the old system and keep the default.
+   */
+  brand?: boolean;
 }) {
+  const SelectField = brand ? BrandSelect : Select;
+  const InputField = brand ? BrandInput : Input;
   return (
     <div
       className={
@@ -110,7 +119,7 @@ export function PhoneNumberField({
           : 'grid grid-cols-1 gap-3 sm:grid-cols-[11rem_minmax(0,1fr)]'
       }
     >
-      <Select
+      <SelectField
         id={ids.country}
         label={countryLabel}
         value={phone.country}
@@ -126,9 +135,9 @@ export function PhoneNumberField({
             {c.name} +{c.callingCode}
           </option>
         ))}
-      </Select>
+      </SelectField>
       {!countryOnly && (
-        <Input
+        <InputField
           id={ids.number}
           label={label}
           type="tel"

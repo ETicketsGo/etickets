@@ -109,3 +109,101 @@ describe('Explore, Movies, the film page and My tickets are on the brand layer',
     expect(offenders).toEqual([]);
   });
 });
+
+/*
+  ── SIGN-IN, THE SHORT PAGES AROUND A PURCHASE, BROWSE AND THE BOOKING FLOW'S LEFTOVERS ─────
+  The owner, 2026-10-18: "still lot of pages having old UI". Sign-in and sign-up, the two
+  password pages, Browse, Find my booking, the emailed booking link, the cash reservation, the
+  checkout returns, a shared ticket and an attendee invitation moved onto the brand layer, with
+  the shared pieces they draw (the forms kit, the grid card, the phone sign-in, the guest cards).
+  The booking flow's four pages had already moved but still drew their loading and error states,
+  a review box and the "you might also like" cards in the old system; those moved too.
+
+  The same two checks as above. These pages put themselves on the brand layer through one of
+  three wrappers - `BrandPage`, or the forms kit's `BrandCenteredPage` / `BrandStatePage`, which
+  are BrandPage - or, for the flow's own shells, `data-brand="customer"` directly.
+*/
+const MOVED_PAGES = [
+  'app/[locale]/login/page.tsx',
+  'app/[locale]/register/page.tsx',
+  'app/[locale]/forgot-password/page.tsx',
+  'app/[locale]/reset-password/page.tsx',
+  'app/[locale]/events/page.tsx',
+  'app/[locale]/booking/find/page.tsx',
+  'app/[locale]/booking/access/[token]/page.tsx',
+  'app/[locale]/booking/[id]/reserved/page.tsx',
+  'app/[locale]/booking/[id]/confirmation/page.tsx',
+  'app/[locale]/booking/[id]/payment/page.tsx',
+  'app/[locale]/shows/[sessionId]/page.tsx',
+  'app/[locale]/events/[slug]/page.tsx',
+  'app/[locale]/checkout/success/page.tsx',
+  'app/[locale]/checkout/cancel/page.tsx',
+  'app/[locale]/share/[token]/page.tsx',
+  'app/[locale]/invite/[token]/page.tsx',
+];
+
+const MOVED_FILES = [
+  ...MOVED_PAGES,
+  'components/brand-forms.tsx',
+  'components/brand-event-card.tsx',
+  'components/phone-sign-in.tsx',
+  'components/guest-self-service.tsx',
+];
+
+/**
+ * Files that are only PARTLY on the brand layer, each with what stays and why. Checked for
+ * unknown brand classes only.
+ *   guest-booking-view: the print sheet is built for a bare page and paper (no brand shell).
+ *   phone-number-field, reference-code: `brand` is opt-in; the account pages still use the old look.
+ */
+const PARTLY_MOVED = [
+  'components/guest-booking-view.tsx',
+  'components/phone-number-field.tsx',
+  'components/reference-code.tsx',
+];
+
+describe('sign-in, Browse, the short booking pages and the flow leftovers are on the brand layer', () => {
+  it.each(MOVED_PAGES)('%s puts itself on the brand layer', (file) => {
+    expect(read(file)).toMatch(/<Brand(?:Page|CenteredPage|StatePage)\b|data-brand="customer"/);
+  });
+
+  it.each(MOVED_FILES)('%s uses none of the old system', (file) => {
+    const source = read(file);
+    const found = LEGACY.flatMap((pattern) => source.match(pattern) ?? []);
+    expect(found).toEqual([]);
+  });
+
+  it.each(MOVED_PAGES)('%s draws no old kit button, card, field or state', (file) => {
+    // The old kit's pieces paint themselves in the old tokens wherever they are put.
+    const source = read(file);
+    const kit = source.match(
+      /<(?:Button|ButtonLink|Card|Input|Select|Textarea|PasswordField|ErrorState|EmptyState|Skeleton|Spinner|StatusBadge|EventCard|MovieCard)\b/g,
+    );
+    expect(kit ?? []).toEqual([]);
+  });
+
+  it('keeps the old print sheet out of the brand layer, and the rest of the guest view in it', () => {
+    const source = read('components/guest-booking-view.tsx');
+    const sheet = source.slice(source.indexOf('export function GuestPrintSheet'));
+    const rest = source.slice(0, source.indexOf('export function GuestPrintSheet'));
+    const legacyIn = (text: string) => LEGACY.flatMap((pattern) => text.match(pattern) ?? []);
+    expect(legacyIn(rest)).toEqual([]);
+    // The card shown before any shell (and on the bare print route) scopes itself.
+    expect(sheet).toMatch(/data-brand="customer"/);
+  });
+
+  it.each([...MOVED_FILES, ...PARTLY_MOVED])(
+    '%s names only brand colours and sizes that exist',
+    (file) => {
+      const { colours, sizes } = brandNames();
+      const offenders: string[] = [];
+      const pattern =
+        /(?:^|[\s'"`:!])(?:[a-z0-9[\]=-]+:)*!?(bg|text|border|ring|fill|divide|decoration|from|via|to|ring-offset|accent)-brand-([a-z0-9-]+?)(?:\/\d+)?(?=[\s'"`]|$)/g;
+      for (const [, prefix, name] of read(file).matchAll(pattern)) {
+        const ok = prefix === 'text' ? colours.has(name) || sizes.has(name) : colours.has(name);
+        if (!ok) offenders.push(`${prefix}-brand-${name}`);
+      }
+      expect(offenders).toEqual([]);
+    },
+  );
+});

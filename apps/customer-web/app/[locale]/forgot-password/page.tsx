@@ -2,7 +2,15 @@
 
 import { useState } from 'react';
 import { api } from '@/lib/api';
-import { Button, Card, Input } from '@/components/ui';
+import {
+  BRAND_LEAD,
+  BRAND_PAGE_TITLE,
+  BrandActionButton,
+  BrandCenteredPage,
+  BrandFormPanel,
+  BrandInput,
+} from '@/components/brand-forms';
+import { BRAND_LINK } from '@/components/booking-brand';
 import { Link } from '@/i18n/navigation';
 import { useTranslations } from 'next-intl';
 
@@ -42,36 +50,40 @@ export default function ForgotPasswordPage() {
   };
 
   return (
-    <Card className="mx-auto mt-10 max-w-md space-y-4">
-      <h1 className="text-title font-semibold text-text-primary">{a('resetTitle')}</h1>
+    <BrandCenteredPage>
+      <BrandFormPanel className="space-y-5">
+        <h1 className={BRAND_PAGE_TITLE}>{a('resetTitle')}</h1>
 
-      {sent ? (
-        <>
-          <p className="text-[0.9375rem] text-text-secondary">{a('resetSent')}</p>
-          <Link href="/login" className="text-caption text-action-primary underline">
-            {a('backToSignIn')}
-          </Link>
-        </>
-      ) : (
-        <form onSubmit={submit} className="space-y-4">
-          <p className="text-[0.9375rem] text-text-secondary">{a('resetLead')}</p>
-          <Input
-            id="email"
-            label={a('email')}
-            type="email"
-            autoComplete="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-          />
-          <Button type="submit" className="w-full" loading={loading}>
-            {a('resetSend')}
-          </Button>
-          <Link href="/login" className="block text-caption text-action-primary underline">
-            {a('backToSignIn')}
-          </Link>
-        </form>
-      )}
-    </Card>
+        {sent ? (
+          <>
+            <p role="status" className={BRAND_LEAD}>
+              {a('resetSent')}
+            </p>
+            <Link href="/login" className={`inline-block text-brand-meta ${BRAND_LINK}`}>
+              {a('backToSignIn')}
+            </Link>
+          </>
+        ) : (
+          <form onSubmit={submit} className="space-y-5">
+            <p className={BRAND_LEAD}>{a('resetLead')}</p>
+            <BrandInput
+              id="email"
+              label={a('email')}
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+            />
+            <BrandActionButton type="submit" size="lg" className="w-full" loading={loading}>
+              {a('resetSend')}
+            </BrandActionButton>
+            <Link href="/login" className={`inline-block text-brand-meta ${BRAND_LINK}`}>
+              {a('backToSignIn')}
+            </Link>
+          </form>
+        )}
+      </BrandFormPanel>
+    </BrandCenteredPage>
   );
 }

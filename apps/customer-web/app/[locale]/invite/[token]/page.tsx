@@ -7,7 +7,17 @@ import { useEffect, useState } from 'react';
 import { Ticket, CheckCircle2 } from 'lucide-react';
 import { errorMessage } from '@eticketsgo/web-kit';
 import { api, tokenStore } from '@/lib/api';
-import { Button, ButtonLink, Card } from '@/components/ui';
+import { brandButtonClasses } from '@eticketsgo/web-kit';
+import { Link } from '@/i18n/navigation';
+import {
+  BRAND_ALERT,
+  BRAND_LEAD,
+  BRAND_NOTE,
+  BRAND_PAGE_TITLE,
+  BrandActionButton,
+  BrandCenteredPage,
+  BrandFormPanel,
+} from '@/components/brand-forms';
 
 /**
  * Public-facing claim page for an attendee invitation. The recipient must be
@@ -38,13 +48,20 @@ export default function InviteClaimPage() {
   if (done === 'accepted')
     return (
       <Wrapper>
-        <CheckCircle2 className="mx-auto h-12 w-12 text-status-success" />
-        <h1 className="mt-4 text-h3 font-bold text-text-primary">Ticket added to your wallet</h1>
-        <p className="mt-1.5 text-[0.9375rem] text-text-secondary">
+        <span
+          aria-hidden
+          className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-brand-positive-tint text-brand-positive"
+        >
+          <CheckCircle2 className="h-7 w-7" />
+        </span>
+        <h1 className={`mt-4 ${BRAND_PAGE_TITLE}`}>Ticket added to your wallet</h1>
+        <p className={`mt-2 ${BRAND_LEAD}`}>
           A fresh QR has been issued to you. The previous code no longer works.
         </p>
         <div className="mt-6">
-          <ButtonLink href="/account/tickets">Go to my tickets</ButtonLink>
+          <Link href="/account/tickets" className={brandButtonClasses('primary', 'lg')}>
+            Go to my tickets
+          </Link>
         </div>
       </Wrapper>
     );
@@ -52,47 +69,55 @@ export default function InviteClaimPage() {
   if (done === 'declined')
     return (
       <Wrapper>
-        <h1 className="text-h3 font-bold text-text-primary">Invitation declined</h1>
-        <p className="mt-1.5 text-[0.9375rem] text-text-secondary">
-          No problem - we&apos;ve let the sender know.
-        </p>
+        <h1 className={BRAND_PAGE_TITLE}>Invitation declined</h1>
+        <p className={`mt-2 ${BRAND_LEAD}`}>No problem - we&apos;ve let the sender know.</p>
         <div className="mt-6">
-          <ButtonLink href="/events" variant="outline">
+          <Link href="/events" className={brandButtonClasses('secondary', 'lg')}>
             Browse events
-          </ButtonLink>
+          </Link>
         </div>
       </Wrapper>
     );
 
   return (
     <Wrapper>
-      <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-tint-primary text-action-primary">
-        <Ticket className="h-6 w-6" />
-      </div>
-      <h1 className="mt-4 text-h3 font-bold text-text-primary">You&apos;ve been given a ticket</h1>
-      <p className="mt-1.5 text-[0.9375rem] text-text-secondary">
+      <span
+        aria-hidden
+        className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-brand-marigold text-brand-on-marigold"
+      >
+        <Ticket className="h-7 w-7" />
+      </span>
+      <h1 className={`mt-4 ${BRAND_PAGE_TITLE}`}>You&apos;ve been given a ticket</h1>
+      <p className={`mt-2 ${BRAND_LEAD}`}>
         Accept it to add the ticket to your ETicketsGo wallet with your own QR code.
       </p>
 
       {(accept.isError || decline.isError) && (
-        <p role="alert" className="mt-4 text-caption text-status-error">
+        <p role="alert" className={`mt-4 ${BRAND_ALERT}`}>
           {errorMessage(accept.error ?? decline.error)}
         </p>
       )}
 
       {signedIn ? (
         <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:justify-center">
-          <Button loading={accept.isPending} onClick={() => accept.mutate()}>
+          <BrandActionButton size="lg" loading={accept.isPending} onClick={() => accept.mutate()}>
             Accept ticket
-          </Button>
-          <Button variant="outline" loading={decline.isPending} onClick={() => decline.mutate()}>
+          </BrandActionButton>
+          <BrandActionButton
+            variant="secondary"
+            size="lg"
+            loading={decline.isPending}
+            onClick={() => decline.mutate()}
+          >
             Decline
-          </Button>
+          </BrandActionButton>
         </div>
       ) : (
         <div className="mt-6 space-y-2">
-          <p className="text-caption text-text-muted">Sign in or create an account to claim it.</p>
-          <Button onClick={() => router.push(loginHref)}>Sign in to claim</Button>
+          <p className={BRAND_NOTE}>Sign in or create an account to claim it.</p>
+          <BrandActionButton size="lg" onClick={() => router.push(loginHref)}>
+            Sign in to claim
+          </BrandActionButton>
         </div>
       )}
     </Wrapper>
@@ -101,8 +126,8 @@ export default function InviteClaimPage() {
 
 function Wrapper({ children }: { children: React.ReactNode }) {
   return (
-    <div className="mx-auto max-w-md py-8">
-      <Card className="text-center">{children}</Card>
-    </div>
+    <BrandCenteredPage>
+      <BrandFormPanel className="text-center">{children}</BrandFormPanel>
+    </BrandCenteredPage>
   );
 }
