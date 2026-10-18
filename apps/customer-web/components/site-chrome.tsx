@@ -10,6 +10,7 @@ import { InstallPrompt } from '@/components/install-prompt';
 import { MarketingFooter } from '@/components/marketing/footer';
 import { SiteFooter } from '@/components/site-footer';
 import { useTranslations } from 'next-intl';
+import { isTestEnvironment } from '@/lib/build-id';
 
 /*
   The public marketing and legal routes. They used to get a shell of their own: a blue header
@@ -99,7 +100,10 @@ export function SiteChrome({
     localStorage is the truth - but being right to begin with is what removes the flash.
   */
   initialSignedIn = false,
-  /** The short commit of the running server, for the footer; null in local development. */
+  /**
+    The short commit of the running server; null in local development. Drawn in the footer
+    only on a test environment - see `isTestEnvironment`.
+  */
   buildId = null,
 }: {
   children: React.ReactNode;
@@ -118,15 +122,18 @@ export function SiteChrome({
   }, [pathname]);
 
   const useMarketingFooter = isMarketing(pathname);
+  /*
+    One answer for both footers and both environment markers. The literal
+    `process.env.NEXT_PUBLIC_APP_ENV` is what Next inlines; read through a variable it would
+    be undefined in the browser and every environment would look like production.
+  */
+  const testEnvironment = isTestEnvironment(process.env.NEXT_PUBLIC_APP_ENV);
+  const footerBuildId = testEnvironment ? buildId : null;
 
   // No header, no footer, no city bar — just the sheet.
   if (isPrintRoute(pathname)) return <main id="main">{children}</main>;
 
-  const environmentNotice =
-    (process.env.NEXT_PUBLIC_APP_ENV ?? '').toUpperCase() === 'PRODUCTION' ||
-    !process.env.NEXT_PUBLIC_APP_ENV
-      ? null
-      : f('testEnvironment');
+  const environmentNotice = testEnvironment ? f('testEnvironment') : null;
 
   return (
     /*
@@ -178,10 +185,10 @@ export function SiteChrome({
       */}
       <div className="pb-[calc(3.5rem+env(safe-area-inset-bottom))] lg:pb-0">
         {useMarketingFooter ? (
-          <MarketingFooter buildId={buildId} environmentNotice={environmentNotice} />
+          <MarketingFooter buildId={footerBuildId} environmentNotice={environmentNotice} />
         ) : (
           <SiteFooter
-            buildId={buildId}
+            buildId={footerBuildId}
             compact={isCheckoutRoute(pathname)}
             environmentNotice={environmentNotice}
           />
