@@ -86,49 +86,32 @@ const GST_NAMES = {
 } as const;
 
 /*
-  ── TWO APPEARANCES, ONE SET OF NUMBERS ──────────────────────────────────────────────
-  The booking flow (event page, seat page, Review & pay, confirmation) has moved to the brand
-  layer (docs/design/DESIGN-SYSTEM.md); the account pages that also show this breakdown have not
-  yet. `brand` only swaps class names - every row, every amount and the order they are drawn in
-  are the same code either way, so the two can never print different money.
+  ── ONE APPEARANCE ───────────────────────────────────────────────────────────────────
+  The breakdown had two: the old system's classes and a `brand` opt-in for the booking flow.
+  Every page that shows it (the event and seat pages, Review & pay, the confirmation, the guest
+  booking and the account's booking details) is on the brand layer now, and each one passed
+  `brand`, so the old look had no caller left and went. Class names only - every row, every
+  amount and the order they are drawn in are the code they always were.
 
-  Brand classes resolve only inside `data-brand`, which is why this is opt-in rather than a new
-  default: on a page without it they would paint nothing.
+  Brand classes resolve only inside `data-brand`; every caller is inside one.
 */
 const STYLES = {
-  classic: {
-    text: 'text-[0.9375rem]',
-    small: 'text-caption',
-    label: 'text-text-secondary',
-    muted: 'text-text-muted',
-    value: 'text-text-primary',
-    valueMuted: 'text-text-secondary',
-    toggle:
-      'inline-flex min-h-6 items-center rounded text-caption text-action-primary underline underline-offset-2 hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-action-primary',
-    groupToggle:
-      'inline-flex items-center gap-1 rounded text-left text-text-secondary hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-action-primary',
-    panel: 'mt-1 space-y-1 border-l-2 border-border pl-3',
-    rule: 'border-border',
-    total: 'text-title font-bold tabular-nums text-text-primary',
-  },
-  brand: {
-    text: 'text-brand-ui',
-    small: 'text-brand-meta',
-    label: 'text-brand-ink-2',
-    muted: 'text-brand-ink-3',
-    value: 'text-brand-ink',
-    valueMuted: 'text-brand-ink-2',
-    toggle:
-      'inline-flex min-h-6 items-center rounded-sm text-brand-meta font-medium text-brand-ink underline decoration-brand-line-strong underline-offset-4 hover:decoration-brand-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-focus focus-visible:ring-offset-2',
-    groupToggle:
-      'inline-flex items-center gap-1 rounded-sm text-left text-brand-ink-2 hover:text-brand-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-focus focus-visible:ring-offset-2',
-    panel: 'mt-1 space-y-1 border-l-2 border-brand-line pl-3',
-    rule: 'border-brand-line',
-    total: 'font-brand-text text-brand-figure-sm tabular-nums text-brand-ink',
-  },
+  text: 'text-brand-ui',
+  small: 'text-brand-meta',
+  label: 'text-brand-ink-2',
+  muted: 'text-brand-ink-3',
+  value: 'text-brand-ink',
+  valueMuted: 'text-brand-ink-2',
+  toggle:
+    'inline-flex min-h-6 items-center rounded-sm text-brand-meta font-medium text-brand-ink underline decoration-brand-line-strong underline-offset-4 hover:decoration-brand-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-focus focus-visible:ring-offset-2',
+  groupToggle:
+    'inline-flex items-center gap-1 rounded-sm text-left text-brand-ink-2 hover:text-brand-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-focus focus-visible:ring-offset-2',
+  panel: 'mt-1 space-y-1 border-l-2 border-brand-line pl-3',
+  rule: 'border-brand-line',
+  total: 'font-brand-text text-brand-figure-sm tabular-nums text-brand-ink',
 } as const;
-type Styles = (typeof STYLES)[keyof typeof STYLES];
-const StyleContext = createContext<Styles>(STYLES.classic);
+type Styles = typeof STYLES;
+const StyleContext = createContext<Styles>(STYLES);
 
 function Line({
   label,
@@ -384,8 +367,6 @@ export function PriceBreakdown({
    * `moneyFractionDigits` over everything the card shows, and both halves use that answer.
    */
   fractionDigits,
-  /** Draw on the brand layer (inside `data-brand="customer"`). Changes classes, never amounts. */
-  brand = false,
 }: {
   quote?: QuotedFees | null;
   loading?: boolean;
@@ -396,9 +377,8 @@ export function PriceBreakdown({
   fallbackCurrency?: string;
   note?: string | null;
   fractionDigits?: number;
-  brand?: boolean;
 }) {
-  const s = brand ? STYLES.brand : STYLES.classic;
+  const s = STYLES;
   return (
     <StyleContext.Provider value={s}>
       <Breakdown

@@ -1063,7 +1063,6 @@ export default function EventDetailPage() {
                   {zoneTicketTypes.length > 0 && (
                     <>
                       <PriceBreakdown
-                        brand
                         free={event.isFree}
                         quote={quoteQ.data?.fees}
                         loading={quoteQ.isFetching}
@@ -1236,7 +1235,6 @@ export default function EventDetailPage() {
                 {!dateSoldOut && (
                   <div className="mt-6">
                     <PriceBreakdown
-                      brand
                       free={event.isFree}
                       quote={quoteQ.data?.fees}
                       loading={quoteQ.isFetching}

@@ -2,7 +2,8 @@
 
 import { useEffect, useState, type Dispatch, type SetStateAction } from 'react';
 import { useTranslations } from 'next-intl';
-import { Input } from '@/components/ui';
+import { BrandInput } from '@/components/brand-forms';
+import { BRAND_LINK } from '@/components/booking-brand';
 import { Link, usePathname } from '@/i18n/navigation';
 import { tokenStore } from '@/lib/api';
 import { useMounted } from '@/lib/use-mounted';
@@ -48,8 +49,8 @@ const EMAIL_ID = 'guest-email';
 /*
   Focus the field that is wrong.
 
-  By id rather than by ref: the shared `Input` is a plain function component and does not
-  forward one, and a page-level focus helper is not a reason to change a component every app
+  By id rather than by ref: the brand `BrandInput`, like the kit `Input` before it, is a plain
+  function component and does not forward one, and a page-level focus helper is not a reason to change a component every app
   uses. Focusing also scrolls the field into view, which is what makes the mobile pay bar
   usable -- the button is at the bottom of the screen and the form is above the fold.
 */
@@ -132,6 +133,9 @@ export function useGuestBuyer(
  * Guest first, sign-in second, because that is the order of what the buyer wants. Signing in
  * comes back to this page with `next`, and both screens that use this keep the selection in
  * the browser, so the tickets are still chosen on return.
+ *
+ * On the brand layer, inside the event and seat pages' panels: a sunken inset rather than a
+ * grey box, the brand fields (same ids, labels, hints and errors), and an ink link to sign in.
  */
 export function GuestBuyerFields({
   state,
@@ -146,16 +150,16 @@ export function GuestBuyerFields({
   const forAccount = variant === 'account';
 
   return (
-    <div className="mt-4 space-y-3 rounded-lg border border-border bg-background-subtle/50 p-4">
+    <div className="mt-4 space-y-3 rounded-brand-control bg-brand-sunken p-4">
       <div>
-        <h3 className="text-[0.9375rem] font-semibold text-text-primary">
+        <h3 className="text-brand-body font-semibold text-brand-ink">
           {g(forAccount ? 'accountTitle' : 'title')}
         </h3>
-        <p className="mt-1 text-caption text-text-muted">
+        <p className="mt-1 text-brand-meta text-brand-ink-2">
           {g(forAccount ? 'accountLead' : 'lead')}
         </p>
       </div>
-      <Input
+      <BrandInput
         id={NAME_ID}
         label={g('nameLabel')}
         autoComplete="name"
@@ -163,7 +167,7 @@ export function GuestBuyerFields({
         error={state.errors.name}
         onChange={(e) => state.setBuyer((p) => ({ ...p, name: e.target.value }))}
       />
-      <Input
+      <BrandInput
         id={EMAIL_ID}
         label={g('emailLabel')}
         type="email"
@@ -181,16 +185,13 @@ export function GuestBuyerFields({
       */}
       {forAccount ? null : (
         <>
-          <p className="text-caption text-text-muted">
+          <p className="text-brand-meta text-brand-ink-2">
             {g('haveAccount')}{' '}
-            <Link
-              href={`/login?next=${encodeURIComponent(pathname)}`}
-              className="text-action-primary underline"
-            >
+            <Link href={`/login?next=${encodeURIComponent(pathname)}`} className={BRAND_LINK}>
               {g('signInInstead')}
             </Link>
           </p>
-          <p className="text-caption text-text-muted">{g('selectionKept')}</p>
+          <p className="text-brand-meta text-brand-ink-2">{g('selectionKept')}</p>
         </>
       )}
     </div>

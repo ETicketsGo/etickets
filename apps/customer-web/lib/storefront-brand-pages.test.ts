@@ -232,14 +232,10 @@ const MOVED_FILES = [
 /**
  * Files that are only PARTLY on the brand layer, each with what stays and why. Checked for
  * unknown brand classes only.
- *   guest-booking-view: the print sheet is built for a bare page and paper (no brand shell).
- *   phone-number-field, reference-code: `brand` is opt-in; the account pages still use the old look.
+ *   phone-number-field: `brand` is opt-in; it is still drawn in the old look somewhere.
+ * (guest-booking-view and reference-code moved fully; see the leftovers suite below.)
  */
-const PARTLY_MOVED = [
-  'components/guest-booking-view.tsx',
-  'components/phone-number-field.tsx',
-  'components/reference-code.tsx',
-];
+const PARTLY_MOVED = ['components/phone-number-field.tsx'];
 
 describe('sign-in, Browse, the short booking pages and the flow leftovers are on the brand layer', () => {
   it.each(MOVED_PAGES)('%s puts itself on the brand layer', (file) => {
@@ -261,14 +257,11 @@ describe('sign-in, Browse, the short booking pages and the flow leftovers are on
     expect(kit ?? []).toEqual([]);
   });
 
-  it('keeps the old print sheet out of the brand layer, and the rest of the guest view in it', () => {
+  it('scopes the print route itself: its toolbar and its empty state open the brand layer', () => {
+    // The print route has no shell (site-chrome draws only <main>), so nothing above it does.
     const source = read('components/guest-booking-view.tsx');
     const sheet = source.slice(source.indexOf('export function GuestPrintSheet'));
-    const rest = source.slice(0, source.indexOf('export function GuestPrintSheet'));
-    const legacyIn = (text: string) => LEGACY.flatMap((pattern) => text.match(pattern) ?? []);
-    expect(legacyIn(rest)).toEqual([]);
-    // The card shown before any shell (and on the bare print route) scopes itself.
-    expect(sheet).toMatch(/data-brand="customer"/);
+    expect(sheet.match(/data-brand="customer"/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
   });
 
   it.each([...MOVED_FILES, ...PARTLY_MOVED])(
@@ -285,4 +278,152 @@ describe('sign-in, Browse, the short booking pages and the flow leftovers are on
       expect(offenders).toEqual([]);
     },
   );
+});
+
+/*
+  ── THE LAST LEFTOVERS: THE 404, THE FEEDBACK DIALOG, THE GUEST PANEL, AND WHAT EVERY PAGE SHARES ─
+  A sweep of all 64 storefront routes on 7fc654a found the old system in the pieces the earlier
+  rounds did not own: the 404 (a bare grey page with no header, no footer and so no legal line),
+  the "Send feedback" dialog every footer opens, the "Buy as a guest" panel on the main signed-out
+  purchase path, the Sample/Test badge, the skip link, the help forms' fields, the install and
+  update toasts, the kit dialog and drawer frames, and old-system variants nobody called any more.
+
+  The variants with no caller were DELETED rather than restyled (event-card, movie-card, and the
+  classic branches of price-breakdown, place-sections, reference-code and language-switcher), so
+  the check here is simply that none of the old system is left in the files that remain.
+*/
+const LEFTOVER_FILES = [
+  'app/[locale]/not-found.tsx',
+  'app/[locale]/[...rest]/page.tsx',
+  'app/not-found.tsx',
+  'components/not-found-view.tsx',
+  'components/not-found-shell.tsx',
+  'components/feedback-widget.tsx',
+  'components/guest-buyer.tsx',
+  'components/content-label-badge.tsx',
+  'components/skip-to-content.tsx',
+  'components/install-prompt.tsx',
+  'components/sw-register.tsx',
+  'components/reference-code.tsx',
+  'components/guest-booking-view.tsx',
+  'components/price-breakdown.tsx',
+  'components/place-sections.tsx',
+  'components/language-switcher.tsx',
+  'components/event-details.tsx',
+  'components/localized-ui.tsx',
+  'components/ui.tsx',
+  'components/site-footer.tsx',
+  'app/[locale]/booking/access/[token]/print/page.tsx',
+  'app/[locale]/booking/[id]/tickets/print/page.tsx',
+];
+
+/** Pieces that sit outside any page's brand scope, so each must open one of its own. */
+const SELF_SCOPED = [
+  'components/skip-to-content.tsx',
+  'components/install-prompt.tsx',
+  'components/sw-register.tsx',
+];
+
+/** Components that drew the old kit's fields and buttons, which paint themselves in the old tokens. */
+const NO_OLD_KIT = [
+  'components/not-found-view.tsx',
+  'components/feedback-widget.tsx',
+  'components/feedback-form.tsx',
+  'components/guest-buyer.tsx',
+  'components/event-details.tsx',
+  'components/place-sections.tsx',
+];
+
+/** The shared kit, whose dialog, drawer and stars gained an opt-in brand frame. */
+const WEB_KIT = join(ROOT, '..', '..', 'packages', 'web-kit', 'src');
+
+describe('the 404, the feedback dialog, the guest panel and the shared leftovers', () => {
+  it.each(LEFTOVER_FILES)('%s uses none of the old system', (file) => {
+    const source = read(file);
+    const found = LEGACY.flatMap((pattern) => source.match(pattern) ?? []);
+    // The class names the sweep looks for, spelled however a variant might write them.
+    const swept = source.match(/action-primary|\btext-text-|\bbg-background-/g) ?? [];
+    expect([...found, ...swept]).toEqual([]);
+  });
+
+  it.each([...LEFTOVER_FILES, ...NO_OLD_KIT])(
+    '%s names only brand colours and sizes that exist',
+    (file) => {
+      const { colours, sizes } = brandNames();
+      const offenders: string[] = [];
+      const pattern =
+        /(?:^|[\s'"`:!])(?:[a-z0-9[\]=-]+:)*!?(bg|text|border|ring|fill|divide|decoration|from|via|to|ring-offset|accent)-brand-([a-z0-9-]+?)(?:\/\d+)?(?=[\s'"`]|$)/g;
+      for (const [, prefix, name] of read(file).matchAll(pattern)) {
+        const ok = prefix === 'text' ? colours.has(name) || sizes.has(name) : colours.has(name);
+        if (!ok) offenders.push(`${prefix}-brand-${name}`);
+      }
+      expect(offenders).toEqual([]);
+    },
+  );
+
+  it.each(NO_OLD_KIT)('%s draws no old kit field or button', (file) => {
+    const kit = read(file).match(/<(?:Button|ButtonLink|Card|Input|Select|Textarea|EmptyState)\b/g);
+    expect(kit ?? []).toEqual([]);
+  });
+
+  it.each(SELF_SCOPED)('%s opens the brand layer itself', (file) => {
+    expect(read(file)).toMatch(/data-brand="customer"/);
+  });
+
+  it('draws both 404s on the brand page, and reaches the one inside the shell', () => {
+    expect(read('components/not-found-view.tsx')).toMatch(/<BrandPage>/);
+    expect(read('app/[locale]/not-found.tsx')).toMatch(/<NotFoundView\s*\/>/);
+    expect(read('app/not-found.tsx')).toMatch(/<NotFoundInShell\b/);
+    expect(read('components/not-found-shell.tsx')).toMatch(/<SiteChrome\b[\s\S]*<NotFoundView/);
+    expect(read('app/[locale]/[...rest]/page.tsx')).toMatch(/notFound\(\)/);
+  });
+
+  it('gives every storefront dialog, drawer and star rating the brand frame', () => {
+    const wrappers = read('components/localized-ui.tsx');
+    expect(wrappers).toMatch(/<KitDialog brand\b/);
+    expect(wrappers).toMatch(/<KitDrawer brand\b/);
+    expect(wrappers).toMatch(/<KitRatingStars\s+brand\b/);
+    // And the app takes them from there, never straight from the kit.
+    const ui = read('components/ui.tsx');
+    expect(ui).toMatch(
+      /export \{ Dialog, Drawer, ErrorState, RatingStars, Stepper \} from '\.\/localized-ui'/,
+    );
+    expect(ui.slice(ui.indexOf("from './localized-ui'"))).not.toMatch(/\bDialog\b/);
+  });
+
+  it('scopes the kit frame itself, so a dialog opened from the dark footer is still paper', () => {
+    const kit = codeOnly(readFileSync(join(WEB_KIT, 'components.tsx'), 'utf8'));
+    expect(kit.match(/data-brand=\{brand \? 'customer' : undefined\}/g)).toHaveLength(2);
+  });
+
+  it("names only brand colours that exist in the kit's brand frame", () => {
+    const { colours, sizes } = brandNames();
+    const kit = codeOnly(readFileSync(join(WEB_KIT, 'components.tsx'), 'utf8'));
+    const offenders: string[] = [];
+    for (const [, prefix, name] of kit.matchAll(
+      /(?:^|[\s'"`:])(?:[a-z0-9-]+:)*(bg|text|border|ring|fill|ring-offset)-brand-([a-z0-9-]+?)(?=[\s'"`]|$)/g,
+    )) {
+      const ok = prefix === 'text' ? colours.has(name) || sizes.has(name) : colours.has(name);
+      if (!ok) offenders.push(`${prefix}-brand-${name}`);
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it('deleted the old cards rather than keeping a second look-alike', () => {
+    for (const file of ['components/event-card.tsx', 'components/movie-card.tsx']) {
+      expect(() => readFileSync(join(ROOT, file))).toThrow();
+    }
+  });
+
+  it("draws the admin console's header mark from its own favicon", () => {
+    // Not a storefront file, but the same round: the header showed the old gradient ticket next
+    // to a tab showing the new mark. The shell takes the mark; admin hands it public/icon.svg.
+    const admin = codeOnly(
+      readFileSync(join(ROOT, '..', 'admin-web', 'components', 'admin-shell.tsx'), 'utf8'),
+    );
+    expect(admin).toMatch(/renderMark=\{adminMark\}/);
+    expect(admin).toMatch(/src="\/icon\.svg"/);
+    const shell = codeOnly(readFileSync(join(WEB_KIT, 'shell.tsx'), 'utf8'));
+    expect(shell.match(/renderMark \?/g)).toHaveLength(3);
+  });
 });

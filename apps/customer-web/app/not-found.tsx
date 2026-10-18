@@ -1,7 +1,9 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
 import { inter } from '@eticketsgo/web-kit/fonts/inter';
 import { brandDisplay } from '@eticketsgo/web-kit/fonts/brand-display';
+import { NotFoundInShell } from '@/components/not-found-shell';
+import { serverSessionHint } from '@/lib/session-hint';
+import { buildId } from '@/lib/build-id';
 
 export const metadata: Metadata = {
   title: 'Page not found',
@@ -9,17 +11,22 @@ export const metadata: Metadata = {
 };
 
 /**
- * The 404 for a URL that no locale can claim ("/zzz", "/xx/events").
+ * The 404 for a URL that no locale can claim (a path the locale middleware never sees, such as
+ * one with a dot in it).
  *
  * The locale layout owns `<html>` and refuses an unknown locale with `notFound()` BEFORE it
  * renders one, so the page that answered was Next's bare error shell: `<html>` with no `lang`
  * (WCAG 3.1.1, axe `html-has-lang`). A 404 outside any locale has no language to take, so it
- * is English - the default locale - and says so. A 404 INSIDE a locale still renders in the
- * layout, with the site chrome, from `[locale]/not-found.tsx`.
+ * is English - the default locale - and says so.
  *
- * Next's own Link, not the localized one: there is no intl provider out here to read a locale from.
+ * ── THE SAME SHELL AS EVERY OTHER PAGE ─────────────────────────────────────────────
+ * It used to be a bare page in the old system: no header, no footer, so no search and no legal
+ * line. It now sets up what the locale layout sets up - the English messages, the providers,
+ * the site chrome - and draws the same 404 as `[locale]/not-found.tsx` inside it
+ * (`NotFoundInShell`).
  */
-export default function RootNotFound() {
+export default async function RootNotFound() {
+  const signedInHint = await serverSessionHint();
   return (
     <html lang="en" className={`${inter.variable} ${brandDisplay.variable}`}>
       <body
@@ -27,28 +34,7 @@ export default function RootNotFound() {
         // variable drops the whole declaration to the browser's serif. Named stack instead.
         style={{ fontFamily: 'Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif' }}
       >
-        <main className="mx-auto flex min-h-[60vh] max-w-xl flex-col items-center justify-center px-4 py-24 text-center">
-          <h1 className="text-3xl font-bold tracking-tight text-text-primary">
-            This page took a different exit
-          </h1>
-          <p className="mt-3 text-[0.9375rem] leading-relaxed text-text-secondary">
-            The page you are looking for does not exist or may have moved.
-          </p>
-          <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-            <Link
-              href="/"
-              className="inline-flex min-h-11 items-center justify-center rounded-md bg-action-primary px-5 text-[0.9375rem] font-semibold text-action-primary-foreground"
-            >
-              Back to home
-            </Link>
-            <Link
-              href="/events"
-              className="inline-flex min-h-11 items-center justify-center rounded-md border border-border px-5 text-[0.9375rem] font-semibold text-text-primary"
-            >
-              Browse events
-            </Link>
-          </div>
-        </main>
+        <NotFoundInShell initialSignedIn={signedInHint} buildId={buildId()} />
       </body>
     </html>
   );

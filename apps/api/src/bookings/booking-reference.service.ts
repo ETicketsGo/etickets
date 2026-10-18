@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
+import { marketFor } from '@eticketsgo/shared-types';
 
 /**
  * Generates human-readable, globally-unique, immutable booking references of the
@@ -17,7 +18,27 @@ import type { Prisma } from '@prisma/client';
 export class BookingReferenceService {
   static readonly BRAND = 'ETG';
 
-  /** Country name (as stored on Venue) → ISO-3166 alpha-3. Extend per new market. */
+  /**
+   * Market (ISO-3166 alpha-2, as in `MARKETS`) -> ISO-3166 alpha-3.
+   *
+   * Keyed by the market rather than by spelling because `Venue.country` holds whatever the
+   * venue was saved with: "India" on one row, "IN" on the next. `marketFor` already reads
+   * every spelling of a market, and a lookup of our own that only knew the names printed
+   * ETG-INT- on tickets for an Indian venue stored as "IN". A spec fails if a market is added
+   * without its code here.
+   */
+  private static readonly MARKET_ALPHA3: Record<string, string> = {
+    IN: 'IND',
+    US: 'USA',
+    CA: 'CAN',
+    GB: 'GBR',
+    AE: 'ARE',
+    SG: 'SGP',
+    AU: 'AUS',
+    NZ: 'NZL',
+  };
+
+  /** The spellings this service knew before markets existed; kept so no reference changes code. */
   private static readonly COUNTRY_ALPHA3: Record<string, string> = {
     india: 'IND',
     'united states': 'USA',
@@ -37,6 +58,9 @@ export class BookingReferenceService {
   /** Maps a free-text country to a 3-letter code; `INT` when unknown. */
   countryCode(country?: string | null): string {
     if (!country) return 'INT';
+    const market = marketFor(country);
+    const fromMarket = market ? BookingReferenceService.MARKET_ALPHA3[market.code] : undefined;
+    if (fromMarket) return fromMarket;
     return BookingReferenceService.COUNTRY_ALPHA3[country.trim().toLowerCase()] ?? 'INT';
   }
 

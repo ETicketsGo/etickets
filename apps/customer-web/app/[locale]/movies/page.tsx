@@ -234,7 +234,7 @@ export default function MoviesPage() {
             films, and the groups below still show the rest of the country and the world.
           */
         cityOnly && place ? (
-          <EmptyPlace place={place} noun="films" variant="brand" />
+          <EmptyPlace place={place} noun="films" />
         ) : (
           <BrandEmpty title={t('noMatch')} hint={t('noMatchHint')} />
         )}
@@ -251,7 +251,6 @@ export default function MoviesPage() {
           data-testid="place-groups"
         >
           <PlaceSections
-            variant="brand"
             buckets={{ ...buckets, sameCountry: placeInfo.city ? buckets.sameCountry : [] }}
             render={(items) => (
               <Rail cols={5} phone="poster" label={t('listLabel')}>

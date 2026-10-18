@@ -2,11 +2,14 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
+import { brandButtonClasses } from '@eticketsgo/web-kit';
 
 /**
  * Registers the service worker (production only — dev is opted out so it never
  * interferes with hot reload). Surfaces an accessible "update available" banner
  * and reloads once the new worker takes control.
+ *
+ * Rendered by the layout outside every shell, so the banner scopes the brand layer itself.
  */
 export function SwRegister() {
   const [waiting, setWaiting] = useState<ServiceWorker | null>(null);
@@ -69,14 +72,12 @@ export function SwRegister() {
     <div
       role="status"
       aria-live="polite"
-      className="fixed inset-x-0 bottom-0 z-[70] flex items-center justify-center gap-3 border-t border-border bg-background-elevated px-4 py-2.5 text-caption text-text-primary shadow-lg"
+      data-brand="customer"
+      className="fixed inset-x-0 bottom-0 z-[70] flex items-center justify-center gap-3 border-t border-brand-line bg-brand-surface px-4 py-2.5 font-brand-text text-brand-ui text-brand-ink shadow-brand-overlay"
     >
       A new version of ETicketsGo is available.
-      <button
-        onClick={applyUpdate}
-        className="inline-flex items-center gap-1.5 rounded-md bg-action-primary px-3 py-1.5 font-semibold text-action-primary-foreground hover:bg-action-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-      >
-        <RefreshCw className="h-3.5 w-3.5" /> Reload
+      <button type="button" onClick={applyUpdate} className={brandButtonClasses('primary', 'sm')}>
+        <RefreshCw className="h-3.5 w-3.5" aria-hidden /> Reload
       </button>
     </div>
   );

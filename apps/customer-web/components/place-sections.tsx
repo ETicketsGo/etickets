@@ -1,7 +1,6 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { Compass, MapPin } from 'lucide-react';
 import { useLocale, useTranslations } from 'next-intl';
 import {
   api as webKitApi,
@@ -10,7 +9,6 @@ import {
   countryKey,
   useCity,
 } from '@eticketsgo/web-kit';
-import { Button, EmptyState } from '@/components/ui';
 import { useCountryWords } from '@/lib/country-words';
 import { BrandEmpty } from './storefront-brand';
 
@@ -22,6 +20,9 @@ import { BrandEmpty } from './storefront-brand';
   Every word comes from the `storefront.placeGroups` messages, so a French visitor reads these
   groups in French on Explore, Browse and Movies alike. The home page has its own version of the
   same groups under `home.sections`.
+
+  Drawn on the brand layer only. There was an old-system `legacy` variant beside `brand`; Explore,
+  Browse and Movies all pass through here on the brand layer now, so it had no caller and went.
 */
 
 /** At most this many in each group: a taste of what is on, with "See all" as the way further. */
@@ -41,7 +42,6 @@ export function PlaceSections<T>({
   currencyOf,
   limit = PER_GROUP,
   level = 2,
-  variant = 'legacy',
 }: {
   buckets: PlaceGroupsView<T>;
   render: (items: T[]) => React.ReactNode;
@@ -49,25 +49,15 @@ export function PlaceSections<T>({
   currencyOf?: (item: T) => string | undefined;
   limit?: number;
   level?: 2 | 3;
-  /**
-   * `brand` for a page on the brand layer (Explore, Movies): the display-face section heading
-   * and the brand's quiet note. Browse still draws the old system and keeps `legacy`.
-   */
-  variant?: 'legacy' | 'brand';
 }) {
   const t = useTranslations('storefront.placeGroups');
   const english = useLocale().startsWith('en');
   const words = useCountryWords();
   const Heading = (level === 2 ? 'h2' : 'h3') as 'h2';
   const country = buckets.homeCountry;
-  const brand = variant === 'brand';
-  const headingClass = brand
-    ? 'text-balance font-brand-display text-brand-d2 text-brand-ink'
-    : 'text-h3 font-bold tracking-tight text-text-primary';
-  const noteClass = brand
-    ? 'mt-2 text-brand-meta text-brand-ink-3'
-    : 'mt-1 text-[0.9375rem] text-text-muted';
-  const sectionClass = brand ? 'space-y-6' : 'space-y-5';
+  const headingClass = 'text-balance font-brand-display text-brand-d2 text-brand-ink';
+  const noteClass = 'mt-2 text-brand-meta text-brand-ink-3';
+  const sectionClass = 'space-y-6';
   return (
     <>
       {buckets.sameCountry.length > 0 && (
@@ -126,14 +116,9 @@ export function PlaceSections<T>({
 export function EmptyPlace({
   place,
   noun = 'events',
-  icon = Compass,
-  variant = 'legacy',
 }: {
   place: string;
   noun?: 'events' | 'films';
-  icon?: typeof Compass;
-  /** `brand` draws the same words and choices on the brand layer; see `PlaceSections`. */
-  variant?: 'legacy' | 'brand';
 }) {
   const t = useTranslations('storefront.placeGroups');
   const words = useCountryWords();
@@ -161,55 +146,27 @@ export function EmptyPlace({
       country: c.countryCode ?? c.country,
     });
 
-  if (variant === 'brand') {
-    return (
-      <BrandEmpty
-        title={title}
-        hint={hint}
-        action={
-          <>
-            {suggestions.map((c) => (
-              <button
-                key={`${c.countryCode ?? c.country}-${c.city}`}
-                type="button"
-                onClick={() => choose(c)}
-                className={`${brandChipClasses(false)} h-11`}
-              >
-                {c.city}
-                <span className="tabular-nums text-brand-ink-3">{c.eventCount}</span>
-              </button>
-            ))}
-            <BrandButton variant="secondary" onClick={() => preference.requestPicker()}>
-              {t('searchCity')}
-            </BrandButton>
-          </>
-        }
-      />
-    );
-  }
-
   return (
-    <EmptyState
+    <BrandEmpty
       title={title}
       hint={hint}
-      icon={icon}
       action={
-        <div className="flex flex-wrap items-center justify-center gap-2">
+        <>
           {suggestions.map((c) => (
-            <Button
+            <button
               key={`${c.countryCode ?? c.country}-${c.city}`}
-              variant="outline"
+              type="button"
               onClick={() => choose(c)}
+              className={`${brandChipClasses(false)} h-11`}
             >
-              <MapPin className="h-4 w-4" aria-hidden="true" />
               {c.city}
-              <span className="text-text-muted">{c.eventCount}</span>
-            </Button>
+              <span className="tabular-nums text-brand-ink-3">{c.eventCount}</span>
+            </button>
           ))}
-          <Button variant="secondary" onClick={() => preference.requestPicker()}>
+          <BrandButton variant="secondary" onClick={() => preference.requestPicker()}>
             {t('searchCity')}
-          </Button>
-        </div>
+          </BrandButton>
+        </>
       }
     />
   );

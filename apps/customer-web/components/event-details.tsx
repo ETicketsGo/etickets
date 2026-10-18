@@ -22,7 +22,8 @@ import {
   type PublicEvent,
 } from '@eticketsgo/web-kit';
 import { Link } from '@/i18n/navigation';
-import { Button, Dialog } from '@/components/ui';
+import { Dialog } from '@/components/ui';
+import { BrandActionButton } from '@/components/brand-forms';
 import { BRAND_EYEBROW, BRAND_LINK, BRAND_PANEL } from '@/components/booking-brand';
 
 /**
@@ -274,18 +275,18 @@ export function useTermsDialog(event: PublicEvent | undefined) {
 
   const dialog = terms.length ? (
     <Dialog open={open} onClose={() => setOpen(false)} title={t('termsHeading')}>
-      <p className="text-caption text-text-muted">
+      <p className="text-brand-meta text-brand-ink-3">
         {t('termsSetBy', { organizer: event?.organizer.name ?? '' })}
       </p>
-      <ol className="mt-3 list-decimal space-y-2 pl-5 text-[0.9375rem] text-text-secondary">
+      <ol className="mt-3 list-decimal space-y-2 pl-5 text-brand-ui text-brand-ink-2">
         {terms.map((line, index) => (
           <li key={index}>{line}</li>
         ))}
       </ol>
       <div className="mt-5 flex justify-end">
-        <Button variant="secondary" onClick={() => setOpen(false)}>
+        <BrandActionButton variant="secondary" onClick={() => setOpen(false)}>
           {tx('action.close')}
-        </Button>
+        </BrandActionButton>
       </div>
     </Dialog>
   ) : null;
