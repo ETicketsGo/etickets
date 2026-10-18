@@ -17,8 +17,8 @@ import { FeedbackButton } from '@/components/feedback-widget';
   platform pages (features, pricing, the organizer agreement and the rest), the sign-in link
   that returns to this page, and the placeholder notice.
 
-  The language switcher moved here from the old marketing header. These pages now take the
-  storefront header, which has none (it lives in the footer, EXPERIENCE-AUDIT.md C2), and
+  The language switcher moved here from the old marketing header. Neither the storefront header
+  nor the marketing header has one (it lives in the footer, EXPERIENCE-AUDIT.md C2), and
   without it a French reader of the terms had no way to French.
 */
 
@@ -76,9 +76,12 @@ const COLUMNS: { title: string; links: { href: string; label: string; external?:
 export function MarketingFooter({
   buildId = null,
   environmentNotice = null,
+  initialSignedIn = false,
 }: {
   buildId?: string | null;
   environmentNotice?: string | null;
+  /** The server's session hint, so a signed-in reader is not offered "Sign in" (N1). */
+  initialSignedIn?: boolean;
 }) {
   const f = useTranslations('common.footer');
   const h = useTranslations('home.footer');
@@ -120,9 +123,12 @@ export function MarketingFooter({
                 {col.links.map((l) => (
                   <li key={l.href + l.label}>
                     {l.href === '/login' ? (
-                      <FooterSignInLink className={FOOTER_LINK}>
-                        {f(`links.${l.label}`)}
-                      </FooterSignInLink>
+                      <FooterSignInLink
+                        className={FOOTER_LINK}
+                        initialSignedIn={initialSignedIn}
+                        signInLabel={f(`links.${l.label}`)}
+                        signedInLabel={f('links.myTickets')}
+                      />
                     ) : (
                       <Link href={l.href} className={FOOTER_LINK}>
                         {f(`links.${l.label}`)}

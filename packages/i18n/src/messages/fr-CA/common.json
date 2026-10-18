@@ -81,12 +81,14 @@
     "quantityOf": "Quantité de {name}",
     "loadingWallet": "Chargement du portefeuille",
     "openMenu": "Ouvrir le menu",
+    "closeMenu": "Fermer le menu",
     "accountMenuFor": "Menu du compte de {name}",
     "progress": "Progression",
     "ratingOutOf5": "{value} sur 5",
     "stars": "{count, plural, one {# étoile} other {# étoiles}}"
   },
   "marketing": {
+    "navLabel": "Plateforme",
     "features": "Fonctionnalités",
     "solutions": "Solutions",
     "pricing": "Tarifs",
