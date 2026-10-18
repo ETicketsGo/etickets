@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { CalendarDays, MapPin } from 'lucide-react';
 import { BRAND_FOCUS, EventArtwork, eventImageSource } from '@eticketsgo/web-kit';
 import type { PaginatedEvents } from '@/lib/api';
@@ -37,6 +38,7 @@ export function BrandEventCard({
   const { dateTime, zoneAbbrev } = useFormat();
   const image = eventImageSource({ variants: event.imageVariants, path: event.imagePath }, 'card');
   const zone = event.venue.timezone ?? undefined;
+  const [broken, setBroken] = useState(false);
   return (
     <div className="relative h-full">
       <Link
@@ -45,16 +47,40 @@ export function BrandEventCard({
       >
         <div className="overflow-hidden rounded-brand-card">
           <div className="transition-transform duration-150 motion-safe:group-hover:scale-[1.02]">
-            <EventArtwork
-              src={image?.src}
-              srcSet={image?.srcSet}
-              sizes="(min-width: 1280px) 25vw, (min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw"
-              alt=""
-              title={event.title}
-              eyebrow={event.category}
-              ratio="4:3"
-              priority={priority}
-            />
+            {image && !broken ? (
+              /*
+                The picture drawn here rather than by EventArtwork, for the two things a grid
+                needs that the artwork does not say: the box's size up front (width and height,
+                so the page does not jump as pictures arrive) and which pictures to fetch first
+                (`fetchpriority` on the first cards only, the rest lazy). The no-photo and
+                broken-photo case is still EventArtwork's typographic fallback.
+              */
+              <div className="relative aspect-[4/3] w-full overflow-hidden rounded-brand-card bg-brand-sunken">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={image.src}
+                  srcSet={image.srcSet}
+                  sizes="(min-width: 1280px) 25vw, (min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw"
+                  alt=""
+                  width={800}
+                  height={600}
+                  loading={priority ? 'eager' : 'lazy'}
+                  // Camel case, as the home page's hero: React 19 writes it as `fetchpriority`.
+                  fetchPriority={priority ? 'high' : undefined}
+                  decoding="async"
+                  onError={() => setBroken(true)}
+                  className="absolute inset-0 h-full w-full object-cover"
+                />
+              </div>
+            ) : (
+              <EventArtwork
+                src={null}
+                alt=""
+                title={event.title}
+                eyebrow={event.category}
+                ratio="4:3"
+              />
+            )}
           </div>
         </div>
         <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-brand-eyebrow uppercase text-brand-ink-3">
