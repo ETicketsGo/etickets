@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { Container, Section, SectionHeading, CtaBand } from '@/components/marketing/kit';
 import { PageHero } from '@/components/marketing/blocks';
+import { BrandPage } from '@/components/storefront-brand';
 
 export const metadata: Metadata = {
   title: 'Solutions',
@@ -72,7 +73,7 @@ const INDUSTRIES = [
 
 export default function SolutionsPage() {
   return (
-    <>
+    <BrandPage>
       <PageHero
         eyebrow="Solutions"
         title="Event types we support"
@@ -87,23 +88,21 @@ export default function SolutionsPage() {
             {INDUSTRIES.map((i) => (
               <div
                 key={i.title}
-                className="group rounded-2xl border border-border bg-background-surface p-6 shadow-sm transition-all hover:-translate-y-0.5 hover:border-action-primary/30 hover:shadow-md"
+                className="group rounded-brand-card border border-brand-line bg-brand-surface p-6"
               >
                 <div className="flex items-center gap-3">
-                  <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-tint-primary text-action-primary transition-colors group-hover:bg-action-primary group-hover:text-action-primary-foreground">
+                  <span className="flex h-11 w-11 items-center justify-center rounded-brand-control bg-brand-sunken text-brand-ink">
                     <i.icon className="h-5 w-5" />
                   </span>
-                  <h3 className="text-base font-semibold text-text-primary">{i.title}</h3>
+                  <h3 className="font-brand-display text-brand-card text-brand-ink">{i.title}</h3>
                 </div>
-                <p className="mt-3 text-[0.9375rem] leading-relaxed text-text-secondary">
-                  {i.body}
-                </p>
+                <p className="mt-3 text-brand-ui leading-relaxed text-brand-ink-2">{i.body}</p>
               </div>
             ))}
           </div>
         </Container>
       </Section>
-      <Section className="border-t border-border">
+      <Section className="border-t border-brand-line">
         <CtaBand
           title="Don't see your category?"
           lead="Tell us what you run and we will look at it."
@@ -113,6 +112,6 @@ export default function SolutionsPage() {
           secondaryLabel="Get started"
         />
       </Section>
-    </>
+    </BrandPage>
   );
 }

@@ -24,11 +24,14 @@ import {
   Eyebrow,
   FeatureCard,
   Stat,
-  GradientBackdrop,
   CtaBand,
   PrimaryLink,
   SecondaryLink,
   CheckItem,
+  MK_FOCUS,
+  MK_LINK,
+  MK_PRIMARY,
+  MK_SECONDARY,
 } from '@/components/marketing/kit';
 import { Link } from '@/i18n/navigation';
 
@@ -45,27 +48,16 @@ export function MarketingLanding() {
   return (
     <>
       {/* ── Hero ── */}
-      <div className="relative overflow-hidden border-b border-border">
-        <GradientBackdrop />
+      <div className="relative overflow-hidden border-b border-brand-line">
         {/* Tighter above and below the fold on a phone; unchanged from `sm` up. */}
         <Container className="pb-10 pt-10 sm:pb-24 sm:pt-24">
           <div className="grid items-center gap-12 lg:grid-cols-[1.05fr_0.95fr]">
             <div>
               <Eyebrow>Ticketing platform</Eyebrow>
-              <h1 className="mt-5 text-balance text-3xl font-bold leading-[1.08] tracking-tight text-text-primary sm:text-5xl lg:text-6xl">
-                Sell tickets. Check in guests.{' '}
-                <span className="text-action-primary">Grow every event.</span>
+              <h1 className="mt-3 text-balance font-brand-display text-brand-hero text-brand-ink">
+                Sell tickets. Check in guests. Grow every event.
               </h1>
-              {/*
-                `sm:text-lg` keeps the 18px lead from 640px up; only the phone step drops.
-
-                `sm:leading-relaxed` is not decoration. A Tailwind `text-*` utility sets a
-                line-height as well as a size, and the responsive variant is emitted AFTER the
-                plain `leading-relaxed` - so adding `sm:text-lg` silently took the desktop lead
-                from 29.25px leading to 28px and moved the whole page up 4px. Re-asserting the
-                leading at the same breakpoint keeps the desktop rendering exactly as it was.
-              */}
-              <p className="mt-6 max-w-xl text-pretty text-base leading-relaxed text-text-secondary sm:text-lg sm:leading-relaxed">
+              <p className="mt-6 max-w-xl text-pretty text-brand-lead text-brand-ink-2">
                 ETicketsGo runs your box office. Sell tickets, reserve seats, take payments, and
                 scan people in at the gate. Buyers get a clear checkout and a QR ticket on their
                 phone.
@@ -83,11 +75,11 @@ export function MarketingLanding() {
                 gateway's reviewer reads on the page they were given. What IS true about payments
                 is said where it matters, on the payment step.
               */}
-              <p className="mt-5 text-caption text-text-muted">No setup fee. Cancel anytime.</p>
+              <p className="mt-5 text-brand-meta text-brand-ink-3">No setup fee. Cancel anytime.</p>
             </div>
             <HeroPreview />
           </div>
-          <div className="mt-10 grid grid-cols-2 gap-6 border-t border-border pt-8 sm:mt-16 sm:grid-cols-4 sm:pt-10">
+          <div className="mt-10 grid grid-cols-2 gap-6 border-t border-brand-line pt-8 sm:mt-16 sm:grid-cols-4 sm:pt-10">
             <Stat value="Seat maps" label="Reserved seating" />
             <Stat value="4 providers" label="Payment gateways" />
             <Stat value="Offline" label="Check-in at the gate" />
@@ -97,7 +89,7 @@ export function MarketingLanding() {
       </div>
 
       {/* ── Categories ── */}
-      <Section className="border-b border-border">
+      <Section className="border-b border-brand-line">
         <Container>
           <SectionHeading
             eyebrow="Event types"
@@ -108,9 +100,9 @@ export function MarketingLanding() {
             {CATEGORIES.map((c) => (
               <span
                 key={c.label}
-                className="inline-flex items-center gap-2 rounded-full border border-border bg-background-surface px-4 py-2 text-[0.9375rem] font-medium text-text-secondary shadow-xs transition-colors hover:border-action-primary/30 hover:text-text-primary"
+                className="inline-flex items-center gap-2 rounded-full border border-brand-line bg-brand-surface px-4 py-2 text-brand-ui font-medium text-brand-ink-2"
               >
-                <c.icon className="h-4 w-4 text-action-primary" />
+                <c.icon aria-hidden className="h-4 w-4 text-brand-ink" />
                 {c.label}
               </span>
             ))}
@@ -119,7 +111,7 @@ export function MarketingLanding() {
       </Section>
 
       {/* ── Capabilities ── */}
-      <Section id="capabilities" className="border-b border-border bg-background-subtle/30">
+      <Section id="capabilities" className="border-b border-brand-line bg-brand-sunken">
         <Container>
           <SectionHeading
             eyebrow="What you get"
@@ -156,12 +148,12 @@ export function MarketingLanding() {
       </Section>
 
       {/* ── Organizer + Customer benefits ── */}
-      <Section className="border-b border-border">
+      <Section className="border-b border-brand-line">
         <Container>
           <div className="grid gap-12 lg:grid-cols-2">
-            <div className="rounded-3xl border border-border bg-background-surface p-8 shadow-sm">
+            <div className="rounded-brand-card border border-brand-line bg-brand-surface p-8">
               <Eyebrow>For organizers</Eyebrow>
-              <h3 className="mt-4 text-2xl font-bold tracking-tight text-text-primary">
+              <h3 className="mt-4 font-brand-display text-brand-d3 text-brand-ink">
                 Run your box office
               </h3>
               <ul className="mt-6 space-y-3.5">
@@ -175,9 +167,9 @@ export function MarketingLanding() {
                 See what organizers get <ArrowRight className="h-4 w-4" />
               </PrimaryLink>
             </div>
-            <div className="rounded-3xl border border-border bg-background-surface p-8 shadow-sm">
+            <div className="rounded-brand-card border border-brand-line bg-brand-surface p-8">
               <Eyebrow>For attendees</Eyebrow>
-              <h3 className="mt-4 text-2xl font-bold tracking-tight text-text-primary">
+              <h3 className="mt-4 font-brand-display text-brand-d3 text-brand-ink">
                 Book on a phone, get in fast
               </h3>
               <ul className="mt-6 space-y-3.5">
@@ -196,15 +188,15 @@ export function MarketingLanding() {
       </Section>
 
       {/* ── Offline highlight ── */}
-      <Section className="border-b border-border bg-background-subtle/30">
+      <Section className="border-b border-brand-line bg-brand-sunken">
         <Container>
           <div className="grid items-center gap-12 lg:grid-cols-2">
             <div>
               <Eyebrow>Never miss a scan</Eyebrow>
-              <h2 className="mt-4 text-2xl font-bold tracking-tight text-text-primary sm:text-4xl">
+              <h2 className="mt-3 font-brand-display text-brand-d2 text-brand-ink">
                 Check people in without a network
               </h2>
-              <p className="mt-4 text-lg leading-relaxed text-text-secondary">
+              <p className="mt-4 text-brand-lead text-brand-ink-2">
                 Venue networks fail at the worst moment. Each approved device carries a signed list
                 of tickets and keeps its scans on the device. The server checks every scan when the
                 device reconnects. A scan the device rejected can never become an admission.
@@ -216,23 +208,23 @@ export function MarketingLanding() {
               </ul>
             </div>
             <div className="flex justify-center">
-              <div className="relative w-full max-w-sm rounded-3xl border border-border bg-background-surface p-6 shadow-lg">
+              <div className="relative w-full max-w-sm rounded-brand-card border border-brand-line bg-brand-surface p-6">
                 <div className="flex items-center justify-between">
-                  <span className="inline-flex items-center gap-2 rounded-full bg-tint-warning px-3 py-1 text-caption font-semibold text-status-warning">
+                  <span className="inline-flex items-center gap-2 rounded-full bg-brand-caution-tint px-3 py-1 text-brand-meta font-semibold text-brand-caution">
                     <WifiOff className="h-3.5 w-3.5" /> Offline
                   </span>
-                  <span className="text-caption text-text-muted">Gate A</span>
+                  <span className="text-brand-meta text-brand-ink-3">Gate A</span>
                 </div>
-                <div className="mt-5 flex items-center justify-center rounded-2xl border border-border bg-background-subtle py-8">
-                  <QrCode className="h-24 w-24 text-text-primary" strokeWidth={1.2} />
+                <div className="mt-5 flex items-center justify-center rounded-brand-card border border-brand-line bg-brand-sunken py-8">
+                  <QrCode className="h-24 w-24 text-brand-ink" strokeWidth={1.2} />
                 </div>
                 <div className="mt-5 space-y-2">
-                  <div className="flex items-center justify-between rounded-lg bg-status-success/10 px-3 py-2 text-caption">
-                    <span className="font-medium text-status-success">Accepted, queued</span>
-                    <span className="text-text-muted">A-101</span>
+                  <div className="flex items-center justify-between rounded-lg bg-brand-positive-tint px-3 py-2 text-brand-meta">
+                    <span className="font-medium text-brand-positive">Accepted, queued</span>
+                    <span className="text-brand-ink-3">A-101</span>
                   </div>
-                  <div className="flex items-center justify-between rounded-lg bg-background-subtle px-3 py-2 text-caption">
-                    <span className="text-text-secondary">12 queued, syncing on reconnect</span>
+                  <div className="flex items-center justify-between rounded-lg bg-brand-sunken px-3 py-2 text-brand-meta">
+                    <span className="text-brand-ink-2">12 queued, syncing on reconnect</span>
                   </div>
                 </div>
               </div>
@@ -242,7 +234,7 @@ export function MarketingLanding() {
       </Section>
 
       {/* ── Trust / security ── */}
-      <Section className="border-b border-border">
+      <Section className="border-b border-brand-line">
         <Container>
           <SectionHeading
             eyebrow="Security and money"
@@ -270,7 +262,7 @@ export function MarketingLanding() {
       </Section>
 
       {/* ── Pricing preview ── */}
-      <Section id="pricing" className="border-b border-border bg-background-subtle/30">
+      <Section id="pricing" className="border-b border-brand-line bg-brand-sunken">
         <Container>
           <SectionHeading
             eyebrow="Simple pricing"
@@ -311,9 +303,9 @@ export function MarketingLanding() {
               href="/contact"
             />
           </div>
-          <p className="mt-6 text-center text-caption text-text-muted">
+          <p className="mt-6 text-center text-brand-meta text-brand-ink-3">
             These prices are placeholders. See the{' '}
-            <Link href="/pricing" className="font-medium text-action-primary hover:underline">
+            <Link href="/pricing" className={MK_LINK}>
               full pricing page
             </Link>
             .
@@ -322,10 +314,10 @@ export function MarketingLanding() {
       </Section>
 
       {/* ── FAQ (zero-JS accordion) ── */}
-      <Section className="border-b border-border">
+      <Section className="border-b border-brand-line">
         <Container className="max-w-3xl">
           <SectionHeading eyebrow="Questions" title="Frequently asked" />
-          <div className="mt-10 divide-y divide-border rounded-2xl border border-border bg-background-surface">
+          <div className="mt-10 divide-y divide-brand-line rounded-brand-card border border-brand-line bg-brand-surface">
             {[
               [
                 'Is ETicketsGo free to start?',
@@ -348,22 +340,24 @@ export function MarketingLanding() {
                 key={q}
                 className="group px-5 py-4 [&_summary::-webkit-details-marker]:hidden"
               >
-                <summary className="flex cursor-pointer items-center justify-between gap-4 text-[0.9375rem] font-semibold text-text-primary">
+                <summary
+                  className={`flex min-h-11 cursor-pointer items-center justify-between gap-4 rounded-sm text-brand-ui font-semibold text-brand-ink ${MK_FOCUS}`}
+                >
                   {q}
                   <span
-                    className="text-text-muted transition-transform group-open:rotate-45"
+                    className="text-brand-ink-3 transition-transform group-open:rotate-45"
                     aria-hidden
                   >
                     +
                   </span>
                 </summary>
-                <p className="mt-3 text-[0.9375rem] leading-relaxed text-text-secondary">{a}</p>
+                <p className="mt-3 text-brand-ui leading-relaxed text-brand-ink-2">{a}</p>
               </details>
             ))}
           </div>
-          <p className="mt-6 text-center text-caption text-text-muted">
+          <p className="mt-6 text-center text-brand-meta text-brand-ink-3">
             More in the{' '}
-            <Link href="/faq" className="font-medium text-action-primary hover:underline">
+            <Link href="/faq" className={MK_LINK}>
               full FAQ
             </Link>
             .
@@ -391,11 +385,11 @@ export function MarketingLanding() {
 function HeroPreview() {
   return (
     <div className="relative">
-      <div className="rounded-3xl border border-border bg-background-surface p-5 shadow-lg">
-        <div className="flex items-center justify-between border-b border-border pb-3">
-          <span className="text-caption font-semibold text-text-primary">Sales dashboard</span>
-          <span className="inline-flex items-center gap-1.5 text-caption text-status-success">
-            <span className="h-1.5 w-1.5 rounded-full bg-status-success" /> Live
+      <div className="rounded-brand-card border border-brand-line bg-brand-surface p-5">
+        <div className="flex items-center justify-between border-b border-brand-line pb-3">
+          <span className="text-brand-meta font-semibold text-brand-ink">Sales dashboard</span>
+          <span className="inline-flex items-center gap-1.5 text-brand-meta text-brand-positive">
+            <span className="h-1.5 w-1.5 rounded-full bg-brand-positive" /> Live
           </span>
         </div>
         <div className="mt-4 grid grid-cols-3 gap-3">
@@ -404,17 +398,20 @@ function HeroPreview() {
             ['Tickets', '1,284'],
             ['Check-in', '92%'],
           ].map(([l, v]) => (
-            <div key={l} className="rounded-xl border border-border bg-background-subtle/60 p-3">
-              <div className="text-caption text-text-muted">{l}</div>
-              <div className="mt-1 text-lg font-bold text-text-primary">{v}</div>
+            <div
+              key={l}
+              className="rounded-brand-control border border-brand-line bg-brand-sunken p-3"
+            >
+              <div className="text-brand-meta text-brand-ink-3">{l}</div>
+              <div className="mt-1 font-brand-display text-brand-d3 text-brand-ink">{v}</div>
             </div>
           ))}
         </div>
-        <div className="mt-4 flex h-28 items-end gap-2 rounded-xl border border-border bg-background-subtle/40 p-3">
+        <div className="mt-4 flex h-28 items-end gap-2 rounded-brand-control border border-brand-line bg-brand-sunken p-3">
           {[40, 65, 52, 78, 60, 88, 72, 95].map((h, i) => (
             <div
               key={i}
-              className="flex-1 rounded-t-md bg-action-primary/70"
+              className="flex-1 rounded-t-md bg-brand-marigold"
               style={{ height: `${h}%` }}
             />
           ))}
@@ -423,22 +420,22 @@ function HeroPreview() {
           {['General - ₹799', 'Gold - ₹1,499'].map((row) => (
             <div
               key={row}
-              className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-caption"
+              className="flex items-center justify-between rounded-lg border border-brand-line px-3 py-2 text-brand-meta"
             >
-              <span className="font-medium text-text-primary">{row}</span>
-              <span className="text-text-muted">On sale</span>
+              <span className="font-medium text-brand-ink">{row}</span>
+              <span className="text-brand-ink-3">On sale</span>
             </div>
           ))}
         </div>
       </div>
-      <div className="absolute -bottom-5 -left-5 hidden rounded-2xl border border-border bg-background-surface p-3 shadow-md sm:block">
+      <div className="absolute -bottom-5 -left-5 hidden rounded-brand-card border border-brand-line bg-brand-surface p-3 sm:block">
         <div className="flex items-center gap-2">
-          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-tint-success text-status-success">
+          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-positive-tint text-brand-positive">
             <QrCode className="h-5 w-5" />
           </span>
-          <div className="text-caption">
-            <div className="font-semibold text-text-primary">Checked in</div>
-            <div className="text-text-muted">Seat A-101</div>
+          <div className="text-brand-meta">
+            <div className="font-semibold text-brand-ink">Checked in</div>
+            <div className="text-brand-ink-3">Seat A-101</div>
           </div>
         </div>
       </div>
@@ -463,33 +460,26 @@ function PlanCard({
 }) {
   return (
     <div
-      className={`relative flex flex-col rounded-2xl border p-6 shadow-sm ${
+      className={`relative flex flex-col rounded-brand-card border p-6 ${
         featured
-          ? 'border-action-primary/40 bg-background-surface ring-1 ring-action-primary/20'
-          : 'border-border bg-background-surface'
+          ? 'border-brand-ink bg-brand-surface ring-1 ring-brand-ink'
+          : 'border-brand-line bg-brand-surface'
       }`}
     >
       {featured && (
-        <span className="absolute -top-3 left-6 rounded-full bg-action-primary px-3 py-1 text-caption font-semibold text-action-primary-foreground">
+        <span className="absolute -top-3 left-6 rounded-full bg-brand-action px-3 py-1 text-brand-meta font-semibold text-brand-on-action">
           Most popular
         </span>
       )}
-      <h3 className="text-lg font-bold text-text-primary">{name}</h3>
-      <div className="mt-2 text-3xl font-bold tracking-tight text-text-primary">{price}</div>
-      <p className="mt-2 text-[0.9375rem] text-text-secondary">{blurb}</p>
+      <h3 className="font-brand-display text-brand-d3 text-brand-ink">{name}</h3>
+      <div className="mt-2 font-brand-display text-brand-figure text-brand-ink">{price}</div>
+      <p className="mt-2 text-brand-ui text-brand-ink-2">{blurb}</p>
       <ul className="mt-5 flex-1 space-y-2.5">
         {features.map((f) => (
           <CheckItem key={f}>{f}</CheckItem>
         ))}
       </ul>
-      <Link
-        href={href}
-        className={`mt-6 inline-flex items-center justify-center rounded-xl px-4 py-2.5 text-[0.9375rem] font-semibold transition-all ${
-          featured
-            ? 'bg-action-primary text-action-primary-foreground hover:bg-action-primary-hover'
-            : 'border border-border bg-background-surface text-text-primary hover:bg-background-subtle'
-        }`}
-      >
+      <Link href={href} className={`mt-6 ${featured ? MK_PRIMARY : MK_SECONDARY}`}>
         {name === 'Enterprise' ? 'Contact sales' : 'Choose ' + name}
       </Link>
     </div>

@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { CheckCircle2 } from 'lucide-react';
 import { api, BUSINESS_DETAILS, publishedDetail } from '@eticketsgo/web-kit';
+import { MK_FIELD, MK_PANEL, MK_PRIMARY } from './kit';
 
 const TOPICS = ['Sales', 'Support', 'Partnerships', 'Media', 'General enquiry'];
 
@@ -71,33 +72,29 @@ export function ContactForm() {
     }
   };
 
-  const field =
-    'w-full rounded-xl border border-border bg-background-surface px-3.5 py-2.5 text-[0.9375rem] text-text-primary shadow-xs transition-colors placeholder:text-text-muted focus:border-action-primary focus:outline-none focus:ring-2 focus:ring-ring/40';
+  const field = MK_FIELD;
 
   if (sent) {
     return (
-      <div className="rounded-2xl border border-status-success/30 bg-status-success/5 p-8 text-center">
-        <CheckCircle2 className="mx-auto h-10 w-10 text-status-success" />
-        <h3 className="mt-4 text-lg font-semibold text-text-primary">
+      <div role="status" className="rounded-brand-card bg-brand-positive-tint p-8 text-center">
+        <CheckCircle2 aria-hidden className="mx-auto h-10 w-10 text-brand-positive" />
+        <h3 className="mt-4 font-brand-display text-brand-card text-brand-ink">
           Thanks - we have your message
         </h3>
-        <p className="mt-2 text-[0.9375rem] text-text-secondary">
+        <p className="mt-2 text-brand-ui text-brand-ink-2">
           It is with our support team and we will reply to{' '}
-          <span className="font-medium text-text-primary">{email.trim()}</span>.
+          <span className="font-medium text-brand-ink">{email.trim()}</span>.
         </p>
       </div>
     );
   }
 
   return (
-    <form
-      onSubmit={submit}
-      className="space-y-4 rounded-2xl border border-border bg-background-surface p-6 shadow-sm sm:p-8"
-    >
+    <form onSubmit={submit} className={`space-y-4 p-6 sm:p-8 ${MK_PANEL}`}>
       <div>
         <label
           htmlFor="topic"
-          className="mb-1.5 block text-caption font-medium text-text-secondary"
+          className="mb-1.5 block text-brand-meta font-semibold text-brand-ink"
         >
           Topic
         </label>
@@ -118,7 +115,7 @@ export function ContactForm() {
         <div>
           <label
             htmlFor="name"
-            className="mb-1.5 block text-caption font-medium text-text-secondary"
+            className="mb-1.5 block text-brand-meta font-semibold text-brand-ink"
           >
             Name
           </label>
@@ -133,7 +130,7 @@ export function ContactForm() {
         <div>
           <label
             htmlFor="email"
-            className="mb-1.5 block text-caption font-medium text-text-secondary"
+            className="mb-1.5 block text-brand-meta font-semibold text-brand-ink"
           >
             Email
           </label>
@@ -150,7 +147,7 @@ export function ContactForm() {
       <div>
         <label
           htmlFor="message"
-          className="mb-1.5 block text-caption font-medium text-text-secondary"
+          className="mb-1.5 block text-brand-meta font-semibold text-brand-ink"
         >
           Message
         </label>
@@ -163,15 +160,11 @@ export function ContactForm() {
         />
       </div>
       {error && (
-        <p role="alert" className="text-caption text-status-error">
+        <p role="alert" className="text-brand-meta font-medium text-brand-critical">
           {error}
         </p>
       )}
-      <button
-        type="submit"
-        disabled={sending}
-        className="inline-flex w-full items-center justify-center rounded-xl bg-action-primary px-5 py-3 text-[0.9375rem] font-semibold text-action-primary-foreground shadow-sm transition-all hover:bg-action-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas disabled:opacity-60 sm:w-auto"
-      >
+      <button type="submit" disabled={sending} className={`${MK_PRIMARY} w-full sm:w-auto`}>
         {sending ? 'Sending...' : 'Send message'}
       </button>
     </form>

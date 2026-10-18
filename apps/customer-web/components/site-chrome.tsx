@@ -7,14 +7,18 @@ import { CitySuggestionBar } from '@eticketsgo/web-kit';
 import { Header } from '@/components/header';
 import { BottomNav } from '@/components/bottom-nav';
 import { InstallPrompt } from '@/components/install-prompt';
-import { MarketingNav } from '@/components/marketing/nav';
 import { MarketingFooter } from '@/components/marketing/footer';
 import { SiteFooter } from '@/components/site-footer';
 import { useTranslations } from 'next-intl';
 
-// Public marketing routes get the full-bleed marketing shell; everything else keeps
-// the existing app chrome (header + constrained main + feedback widget). Kept as a
-// pathname switch so no existing app route had to move.
+/*
+  The public marketing and legal routes. They used to get a shell of their own: a blue header
+  with "Go to app" and a grey four-column footer, so a visitor who clicked "Terms" in the home
+  page's footer walked into a second product. They now take the storefront chrome every other
+  page has (the same header, city bar and bottom navigation as the home page and Explore), and
+  only the FOOTER differs: the marketing footer keeps its platform links, the organizer
+  agreement among them, drawn in the same stage band as the storefront footer.
+*/
 const MARKETING_EXACT = new Set([
   /*
     `/` is deliberately NOT here any more.
@@ -113,20 +117,16 @@ export function SiteChrome({
     backfillSessionHint();
   }, [pathname]);
 
-  const useMarketingShell = isMarketing(pathname);
+  const useMarketingFooter = isMarketing(pathname);
 
   // No header, no footer, no city bar — just the sheet.
   if (isPrintRoute(pathname)) return <main id="main">{children}</main>;
 
-  if (useMarketingShell) {
-    return (
-      <>
-        <MarketingNav />
-        <main id="main">{children}</main>
-        <MarketingFooter buildId={buildId} />
-      </>
-    );
-  }
+  const environmentNotice =
+    (process.env.NEXT_PUBLIC_APP_ENV ?? '').toUpperCase() === 'PRODUCTION' ||
+    !process.env.NEXT_PUBLIC_APP_ENV
+      ? null
+      : f('testEnvironment');
 
   return (
     /*
@@ -177,16 +177,15 @@ export function SiteChrome({
         by everything in the column, not by the one element that remembered.
       */}
       <div className="pb-[calc(3.5rem+env(safe-area-inset-bottom))] lg:pb-0">
-        <SiteFooter
-          buildId={buildId}
-          compact={isCheckoutRoute(pathname)}
-          environmentNotice={
-            (process.env.NEXT_PUBLIC_APP_ENV ?? '').toUpperCase() === 'PRODUCTION' ||
-            !process.env.NEXT_PUBLIC_APP_ENV
-              ? null
-              : f('testEnvironment')
-          }
-        />
+        {useMarketingFooter ? (
+          <MarketingFooter buildId={buildId} environmentNotice={environmentNotice} />
+        ) : (
+          <SiteFooter
+            buildId={buildId}
+            compact={isCheckoutRoute(pathname)}
+            environmentNotice={environmentNotice}
+          />
+        )}
       </div>
       <BottomNav />
       <InstallPrompt />

@@ -9,6 +9,7 @@ import {
 } from '@/components/legal/policy-chrome';
 import { resolveJurisdiction } from '@/lib/market';
 import { INDIA_OPERATOR_SENTENCE } from '@/lib/legal-entity';
+import { BrandPage } from '@/components/storefront-brand';
 
 export const metadata: Metadata = {
   title: 'Privacy Policy',
@@ -26,7 +27,7 @@ export default async function PrivacyPage({
   const country = await resolveJurisdiction((await searchParams).country);
 
   return (
-    <>
+    <BrandPage>
       <PageHero
         eyebrow="Legal"
         title="Privacy Policy"
@@ -124,6 +125,6 @@ export default async function PrivacyPage({
         </Prose>
         <OperatorLine country={country} />
       </LegalDocument>
-    </>
+    </BrandPage>
   );
 }

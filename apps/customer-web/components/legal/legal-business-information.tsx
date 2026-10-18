@@ -19,7 +19,7 @@ export function LegalBusinessInformation() {
   return (
     <dl
       data-testid="legal-business-information"
-      className="divide-y divide-border rounded-2xl border border-border bg-background-surface shadow-sm"
+      className="divide-y divide-brand-line rounded-brand-card border border-brand-line bg-brand-surface"
     >
       {facts.map((fact) => (
         <div
@@ -27,10 +27,13 @@ export function LegalBusinessInformation() {
           data-fact={fact.key}
           className="grid gap-1 px-5 py-4 sm:grid-cols-[12rem_1fr] sm:gap-6"
         >
-          <dt className="text-[0.875rem] font-semibold text-text-primary">{fact.label}</dt>
-          <dd className="text-[0.9375rem] leading-relaxed text-text-secondary">
+          <dt className="text-[0.875rem] font-semibold text-brand-ink">{fact.label}</dt>
+          <dd className="text-brand-ui leading-relaxed text-brand-ink-2">
             {fact.href ? (
-              <a className="font-medium text-action-primary hover:underline" href={fact.href}>
+              <a
+                className="font-medium text-brand-ink underline decoration-brand-line-strong underline-offset-4 hover:decoration-brand-ink"
+                href={fact.href}
+              >
                 {fact.value}
               </a>
             ) : (

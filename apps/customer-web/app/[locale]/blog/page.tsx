@@ -4,6 +4,7 @@ import { Container, Section } from '@/components/marketing/kit';
 import { PageHero, NoticeBanner } from '@/components/marketing/blocks';
 import { POSTS, CATEGORIES, formatDate } from '@/lib/blog';
 import { Link } from '@/i18n/navigation';
+import { BrandPage } from '@/components/storefront-brand';
 
 export const metadata: Metadata = {
   title: 'Blog',
@@ -16,7 +17,7 @@ export default function BlogPage() {
   const rest = POSTS.filter((p) => p.slug !== featured.slug);
 
   return (
-    <>
+    <BrandPage>
       <PageHero
         eyebrow="Blog"
         title="Ideas for running better events"
@@ -35,7 +36,7 @@ export default function BlogPage() {
             {CATEGORIES.map((c) => (
               <span
                 key={c}
-                className="rounded-full border border-border bg-background-surface px-3 py-1 text-caption font-medium text-text-secondary"
+                className="rounded-full border border-brand-line bg-brand-surface px-3 py-1 text-brand-meta font-medium text-brand-ink-2"
               >
                 {c}
               </span>
@@ -45,28 +46,31 @@ export default function BlogPage() {
           {/* Featured */}
           <Link
             href={`/blog/${featured.slug}`}
-            className="mx-auto mt-8 block max-w-5xl overflow-hidden rounded-3xl border border-border bg-background-surface shadow-sm transition-all hover:border-action-primary/30 hover:shadow-md"
+            className="mx-auto mt-8 block max-w-5xl overflow-hidden rounded-brand-card border border-brand-line bg-brand-surface transition-all hover:border-brand-ink-3"
           >
             <div className="grid gap-6 p-7 sm:grid-cols-2 sm:items-center sm:p-9">
               <div>
-                <span className="inline-flex items-center rounded-full bg-tint-primary px-3 py-1 text-caption font-semibold text-action-primary">
+                <span className="inline-flex items-center rounded-full bg-brand-sunken px-3 py-1 text-brand-meta font-semibold text-brand-ink">
                   Featured - {featured.category}
                 </span>
-                <h2 className="mt-4 text-2xl font-bold tracking-tight text-text-primary">
+                <h2 className="mt-4 font-brand-display text-brand-d3 text-brand-ink">
                   {featured.title}
                 </h2>
-                <p className="mt-3 text-[0.9375rem] leading-relaxed text-text-secondary">
+                <p className="mt-3 text-brand-ui leading-relaxed text-brand-ink-2">
                   {featured.excerpt}
                 </p>
-                <div className="mt-5 flex items-center gap-3 text-caption text-text-muted">
+                <div className="mt-5 flex items-center gap-3 text-brand-meta text-brand-ink-3">
                   <span>{formatDate(featured.date)}</span>
                   <span className="inline-flex items-center gap-1">
                     <Clock className="h-3.5 w-3.5" /> {featured.readingMinutes} min
                   </span>
                 </div>
               </div>
-              <div className="hidden aspect-[4/3] items-center justify-center rounded-2xl bg-gradient-to-br from-action-primary/15 via-background-subtle to-status-info/10 sm:flex">
-                <span className="text-5xl font-bold text-action-primary/40">ETG</span>
+              <div
+                className="hidden aspect-[4/3] items-center justify-center rounded-brand-card bg-brand-canvas sm:flex"
+                data-brand-tone="stage"
+              >
+                <span className="font-brand-display text-brand-hero text-brand-ink">ETG</span>
               </div>
             </div>
           </Link>
@@ -77,18 +81,20 @@ export default function BlogPage() {
               <Link
                 key={p.slug}
                 href={`/blog/${p.slug}`}
-                className="group flex flex-col rounded-2xl border border-border bg-background-surface p-6 shadow-sm transition-all hover:-translate-y-0.5 hover:border-action-primary/30 hover:shadow-md"
+                className="group flex flex-col rounded-brand-card border border-brand-line bg-brand-surface p-6 transition-colors hover:border-brand-ink-3"
               >
-                <span className="text-caption font-semibold text-action-primary">{p.category}</span>
-                <h3 className="mt-2 text-base font-bold text-text-primary">{p.title}</h3>
-                <p className="mt-2 flex-1 text-[0.9375rem] leading-relaxed text-text-secondary">
+                <span className="text-brand-meta font-semibold text-brand-ink">{p.category}</span>
+                <h3 className="mt-2 font-brand-display text-brand-card text-brand-ink">
+                  {p.title}
+                </h3>
+                <p className="mt-2 flex-1 text-brand-ui leading-relaxed text-brand-ink-2">
                   {p.excerpt}
                 </p>
-                <div className="mt-4 flex items-center justify-between text-caption text-text-muted">
+                <div className="mt-4 flex items-center justify-between text-brand-meta text-brand-ink-3">
                   <span className="inline-flex items-center gap-1">
                     <Clock className="h-3.5 w-3.5" /> {p.readingMinutes} min
                   </span>
-                  <span className="inline-flex items-center gap-1 font-semibold text-action-primary">
+                  <span className="inline-flex items-center gap-1 font-semibold text-brand-ink">
                     Read{' '}
                     <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
                   </span>
@@ -98,6 +104,6 @@ export default function BlogPage() {
           </div>
         </Container>
       </Section>
-    </>
+    </BrandPage>
   );
 }

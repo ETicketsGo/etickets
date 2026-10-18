@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Container, Section } from '@/components/marketing/kit';
 import { PageHero } from '@/components/marketing/blocks';
 import { FaqSearch, type FaqGroup } from '@/components/marketing/faq';
+import { BrandPage } from '@/components/storefront-brand';
 
 export const metadata: Metadata = {
   title: 'FAQ',
@@ -144,7 +145,7 @@ const GROUPS: FaqGroup[] = [
 
 export default function FaqPage() {
   return (
-    <>
+    <BrandPage>
       <PageHero
         eyebrow="Help center"
         title="Frequently asked questions"
@@ -155,6 +156,6 @@ export default function FaqPage() {
           <FaqSearch groups={GROUPS} />
         </Container>
       </Section>
-    </>
+    </BrandPage>
   );
 }

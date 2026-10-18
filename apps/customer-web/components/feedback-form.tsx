@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useState, type FormEvent } from 'react';
-import { useAuthUser } from '@eticketsgo/web-kit';
+import { BrandButton, useAuthUser } from '@eticketsgo/web-kit';
 import { api, ApiRequestError, type FeedbackSubmission } from '@/lib/api';
-import { Button, Input, Textarea, RatingStars, useToast } from '@/components/ui';
+import { Input, Textarea, RatingStars, useToast } from '@/components/ui';
 
 type Kind = FeedbackSubmission['kind'];
 
@@ -92,17 +92,14 @@ export function FeedbackForm({
 
   if (done) {
     return (
-      <div
-        role="status"
-        className="rounded-lg border border-status-success/30 bg-status-success/5 p-6 text-center"
-      >
-        <p className="font-semibold text-status-success">{successMessage}</p>
-        <p className="mt-1 text-[0.9375rem] text-text-muted">
+      <div role="status" className="rounded-brand-card bg-brand-positive-tint p-6 text-center">
+        <p className="font-semibold text-brand-positive">{successMessage}</p>
+        <p className="mt-1 text-brand-ui text-brand-ink-2">
           We appreciate you taking the time to reach out.
         </p>
-        <Button variant="outline" className="mt-4" onClick={() => setDone(false)}>
+        <BrandButton variant="secondary" className="mt-4" onClick={() => setDone(false)}>
           Send another
-        </Button>
+        </BrandButton>
       </div>
     );
   }
@@ -111,12 +108,12 @@ export function FeedbackForm({
     <form onSubmit={onSubmit} className="space-y-4" noValidate>
       {showRating && (
         <div>
-          <p className="mb-1.5 text-[0.8125rem] font-medium text-text-secondary">
+          <p className="mb-1.5 text-brand-meta font-semibold text-brand-ink">
             How satisfied are you?
           </p>
           <RatingStars value={rating} onChange={setRating} size="lg" label="Your rating" />
           {errors.rating && (
-            <p role="alert" className="mt-1.5 text-caption text-status-error">
+            <p role="alert" className="mt-1.5 text-brand-meta font-medium text-brand-critical">
               {errors.rating}
             </p>
           )}
@@ -158,9 +155,10 @@ export function FeedbackForm({
         required
         maxLength={4000}
       />
-      <Button type="submit" loading={submitting} disabled={submitting}>
+      {/* The brand button, as everywhere else on the storefront; busy while it sends. */}
+      <BrandButton type="submit" disabled={submitting} aria-busy={submitting}>
         {submitLabel}
-      </Button>
+      </BrandButton>
     </form>
   );
 }

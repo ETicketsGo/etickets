@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Container, Section } from '@/components/marketing/kit';
 import { PageHero, Prose } from '@/components/marketing/blocks';
 import { Link } from '@/i18n/navigation';
+import { BrandPage } from '@/components/storefront-brand';
 
 export const metadata: Metadata = {
   title: 'Organizer Agreement',
@@ -12,27 +13,18 @@ export const metadata: Metadata = {
 
 export default function OrganizerAgreementPage() {
   return (
-    <>
+    <BrandPage>
       <PageHero
         eyebrow="Legal"
         title="Organizer Agreement"
         lead="The terms for organizers selling tickets and operating events on ETicketsGo."
       />
       {/*
-        An EXPLICIT surface, not decoration.
-
-        `GradientBackdrop`'s blurred circles are `h-[40rem]` at `top-[-10%]`, so their bounding
-        boxes reach well past the hero even though the hero's `overflow-hidden` clips what is
-        painted. Contrast tooling composites by geometry, not by clipping, so body text below
-        the hero was measured against a blue tint it is never actually drawn on - and the only
-        thing keeping these pages passing was a notice banner padding the text downwards. When
-        the banner went, `/organizer-agreement` failed AA at 1280px on its first link.
-
-        Naming the surface fixes the measurement and the ambiguity together, and costs nothing
-        visually: this is the colour the page already was. Done per page rather than by
-        changing the token or the shared backdrop, both of which reach the whole product.
+        The surface used to be named here because the old hero's blurred backdrop reached past
+        it and contrast tools measured the text against a tint it was never drawn on. The
+        backdrop is gone; `BrandPage` paints the paper the whole page sits on.
       */}
-      <Section className="bg-background-canvas">
+      <Section>
         <Container className="max-w-3xl space-y-8">
           <Prose>
             <p>
@@ -83,6 +75,6 @@ export default function OrganizerAgreementPage() {
           </Prose>
         </Container>
       </Section>
-    </>
+    </BrandPage>
   );
 }

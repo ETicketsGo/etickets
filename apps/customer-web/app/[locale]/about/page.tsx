@@ -11,6 +11,7 @@ import {
 import { PageHero } from '@/components/marketing/blocks';
 import { LegalBusinessInformation } from '@/components/legal/legal-business-information';
 import { INDIA_OPERATOR_SENTENCE } from '@/lib/legal-entity';
+import { BrandPage } from '@/components/storefront-brand';
 
 export const metadata: Metadata = {
   title: 'About',
@@ -21,7 +22,7 @@ export const metadata: Metadata = {
 
 export default function AboutPage() {
   return (
-    <>
+    <BrandPage>
       <PageHero
         eyebrow="About ETicketsGo"
         title="We make ticketing software"
@@ -36,7 +37,7 @@ export default function AboutPage() {
       <Container className="max-w-3xl pt-8 sm:pt-12">
         <p
           data-testid="about-operator"
-          className="rounded-2xl border border-border bg-background-surface p-5 text-center text-base font-semibold text-text-primary shadow-sm"
+          className="rounded-brand-card border border-brand-line bg-brand-surface p-5 text-center text-brand-body font-semibold text-brand-ink"
         >
           {INDIA_OPERATOR_SENTENCE}
         </p>
@@ -45,26 +46,22 @@ export default function AboutPage() {
       <Section>
         <Container>
           <div className="grid gap-6 lg:grid-cols-2">
-            <div className="rounded-3xl border border-border bg-background-surface p-8 shadow-sm">
-              <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-tint-primary text-action-primary">
+            <div className="rounded-brand-card border border-brand-line bg-brand-surface p-8">
+              <span className="flex h-11 w-11 items-center justify-center rounded-brand-control bg-brand-sunken text-brand-ink">
                 <Target className="h-5 w-5" />
               </span>
-              <h2 className="mt-4 text-xl font-bold tracking-tight text-text-primary">
-                Our mission
-              </h2>
-              <p className="mt-3 text-[0.9375rem] leading-relaxed text-text-secondary">
+              <h2 className="mt-4 font-brand-display text-brand-d3 text-brand-ink">Our mission</h2>
+              <p className="mt-3 text-brand-ui leading-relaxed text-brand-ink-2">
                 Make it easy to sell tickets and run an event. An organizer should be able to check
                 every payment. A buyer should see the total before they pay.
               </p>
             </div>
-            <div className="rounded-3xl border border-border bg-background-surface p-8 shadow-sm">
-              <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-tint-primary text-action-primary">
+            <div className="rounded-brand-card border border-brand-line bg-brand-surface p-8">
+              <span className="flex h-11 w-11 items-center justify-center rounded-brand-control bg-brand-sunken text-brand-ink">
                 <Eye className="h-5 w-5" />
               </span>
-              <h2 className="mt-4 text-xl font-bold tracking-tight text-text-primary">
-                Our vision
-              </h2>
-              <p className="mt-3 text-[0.9375rem] leading-relaxed text-text-secondary">
+              <h2 className="mt-4 font-brand-display text-brand-d3 text-brand-ink">Our vision</h2>
+              <p className="mt-3 text-brand-ui leading-relaxed text-brand-ink-2">
                 One platform for every kind of event, in every market we support. A local meetup and
                 a national tour use the same tools.
               </p>
@@ -73,7 +70,7 @@ export default function AboutPage() {
         </Container>
       </Section>
 
-      <Section className="border-t border-border bg-background-subtle/30">
+      <Section className="border-t border-brand-line bg-brand-sunken">
         <Container>
           <SectionHeading
             eyebrow="Our approach"
@@ -99,7 +96,7 @@ export default function AboutPage() {
         </Container>
       </Section>
 
-      <Section className="border-t border-border">
+      <Section className="border-t border-brand-line">
         <Container>
           <div className="grid grid-cols-2 gap-6 sm:grid-cols-4">
             <Stat value="Seat maps" label="Reserved seating" />
@@ -110,7 +107,7 @@ export default function AboutPage() {
         </Container>
       </Section>
 
-      <Section className="border-t border-border">
+      <Section className="border-t border-brand-line">
         <Container>
           <SectionHeading
             eyebrow="What's next"
@@ -135,14 +132,14 @@ export default function AboutPage() {
             ].map(([t, b], i) => (
               <li
                 key={t}
-                className="flex gap-4 rounded-2xl border border-border bg-background-surface p-5 shadow-sm"
+                className="flex gap-4 rounded-brand-card border border-brand-line bg-brand-surface p-5"
               >
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-action-primary text-action-primary-foreground text-caption font-bold">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-action text-brand-meta font-semibold text-brand-on-action">
                   {i + 1}
                 </span>
                 <div>
-                  <div className="font-semibold text-text-primary">{t}</div>
-                  <p className="mt-1 text-[0.9375rem] text-text-secondary">{b}</p>
+                  <div className="font-semibold text-brand-ink">{t}</div>
+                  <p className="mt-1 text-brand-ui text-brand-ink-2">{b}</p>
                 </div>
               </li>
             ))}
@@ -155,7 +152,7 @@ export default function AboutPage() {
         "placeholders in this demo build". There was no content behind it, and a page a carrier
         reviews for the company's identity is the wrong place to say the company is a demo.
       */}
-      <Section id="legal-information" className="scroll-mt-20 border-t border-border">
+      <Section id="legal-information" className="scroll-mt-20 border-t border-brand-line">
         <Container className="max-w-3xl space-y-6">
           <SectionHeading
             eyebrow="Company"
@@ -166,7 +163,7 @@ export default function AboutPage() {
         </Container>
       </Section>
 
-      <Section className="border-t border-border">
+      <Section className="border-t border-brand-line">
         <CtaBand
           title="Sell your next event here"
           lead="Create an account, or ask us a question first."
@@ -176,6 +173,6 @@ export default function AboutPage() {
           secondaryLabel="Contact us"
         />
       </Section>
-    </>
+    </BrandPage>
   );
 }
