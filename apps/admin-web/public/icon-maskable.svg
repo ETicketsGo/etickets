@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="ETicketsGo">
+<title>ETicketsGo</title>
+<rect width="512" height="512" fill="#FFB81A"/>
+<g transform="translate(256 256) scale(0.64) translate(-256 -256)">
+<path fill="#17140F" d="M80 96H304V160H144V224H272V288H144V352H304V416H80Z"/>
+<circle cx="384" cy="368" r="48" fill="#17140F"/>
+</g>
+</svg>

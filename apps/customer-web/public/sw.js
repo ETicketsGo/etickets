@@ -4,11 +4,14 @@
  * requests and all non-GET (mutations) are passed straight through to the
  * network, so offline access can never bypass server authorization. */
 
-const VERSION = 'v2';
+// v3: the brand icons changed (scripts/brand/generate-favicons.mjs). The manifest and the icon
+// are served cache-first, so an installed app keeps the old ones until this name changes and
+// `activate` below drops the old caches.
+const VERSION = 'v3';
 const APP_CACHE = `etg-app-${VERSION}`;
 const STATIC_CACHE = `etg-static-${VERSION}`;
 const OFFLINE_URL = '/offline.html';
-const PRECACHE = [OFFLINE_URL, '/manifest.webmanifest', '/icon.svg'];
+const PRECACHE = [OFFLINE_URL, '/manifest.webmanifest', '/icon.svg', '/icon-192.png'];
 const ALLOWED = [APP_CACHE, STATIC_CACHE];
 
 self.addEventListener('install', (event) => {
@@ -48,8 +51,9 @@ self.addEventListener('push', (event) => {
   event.waitUntil(
     self.registration.showNotification(title, {
       body: data.body || '',
-      icon: '/icon.svg',
-      badge: '/icon.svg',
+      // PNG, not SVG: Android does not draw an SVG notification icon.
+      icon: '/icon-192.png',
+      badge: '/icon-192.png',
       tag: data.tag,
       data: { url: data.url || '/account/tickets' },
     }),
