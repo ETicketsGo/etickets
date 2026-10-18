@@ -150,11 +150,79 @@ describe('the marketing header', () => {
   });
 });
 
+describe('the home page header (owner, 2026-10-18: "Combined")', () => {
+  it('signed out: the whole shop header AND the platform links, Sign in and Get started', async () => {
+    const { host, header } = await mount('/', false);
+    expect(header.dataset.nav).not.toBe('marketing');
+    const seen = labels(header);
+    for (const link of APP_LINKS) expect(seen).toContain(link);
+    for (const link of MARKETING_LINKS) expect(seen).toContain(link);
+    expect(seen).toContain('Sign in');
+    expect(seen).toContain('Get started');
+    const getStarted = [...header.querySelectorAll('a')].find(
+      (a) => a.textContent === 'Get started',
+    );
+    expect(getStarted?.getAttribute('href')).toBe('/register?intent=organizer');
+    // The buyer keeps search, the city and the bottom bar.
+    expect(header.querySelector('input[type="search"]')).not.toBeNull();
+    expect(header.querySelector('[aria-label^="Location:"]')).not.toBeNull();
+    expect(host.querySelector('nav[aria-label="Primary"]')).not.toBeNull();
+    // A phone reaches the platform pages through a menu button.
+    expect(header.querySelector('button[aria-controls="home-platform-menu"]')).not.toBeNull();
+  });
+
+  it('signed out, phone menu: the five platform links, Sign in and Get started', async () => {
+    const { header } = await mount('/', false);
+    const button = header.querySelector(
+      'button[aria-controls="home-platform-menu"]',
+    ) as HTMLButtonElement;
+    await act(async () => button.click());
+    const menu = header.querySelector('#home-platform-menu') as HTMLElement;
+    expect(menu).not.toBeNull();
+    const seen = labels(menu);
+    for (const link of MARKETING_LINKS) expect(seen).toContain(link);
+    expect(seen).toContain('Sign in');
+    expect(seen).toContain('Get started');
+  });
+
+  it('signed in: the pure shop header, no platform links, no Sign in, no Get started', async () => {
+    const { host, header } = await mount('/', true);
+    const seen = labels(header);
+    for (const link of APP_LINKS) expect(seen).toContain(link);
+    for (const link of MARKETING_LINKS) expect(seen).not.toContain(link);
+    expect(seen).not.toContain('Sign in');
+    expect(seen).not.toContain('Get started');
+    expect(header.querySelector('button[aria-controls="home-platform-menu"]')).toBeNull();
+    expect(header.querySelector('input[type="search"]')).not.toBeNull();
+    expect(host.querySelector('nav[aria-label="Primary"]')).not.toBeNull();
+  });
+
+  it('before the session is known: no platform links and no Sign in, not even on the server', () => {
+    path = '/';
+    const html = renderToStaticMarkup(tree(false));
+    const header = html.slice(html.indexOf('<header'), html.indexOf('</header>'));
+    expect(header).toContain('data-auth="pending"');
+    expect(header).not.toContain('>Sign in<');
+    expect(header).not.toContain('>Get started<');
+    expect(header).not.toContain('>Features<');
+  });
+
+  it('another app route signed out keeps only Sign in: no platform links', async () => {
+    const { header } = await mount('/explore', false);
+    const seen = labels(header);
+    for (const link of APP_LINKS) expect(seen).toContain(link);
+    for (const link of MARKETING_LINKS) expect(seen).not.toContain(link);
+    expect(seen).toContain('Sign in');
+    expect(seen).not.toContain('Get started');
+    expect(header.querySelector('button[aria-controls="home-platform-menu"]')).toBeNull();
+  });
+});
+
 describe('the app header', () => {
   it.each([
-    ['/', false],
     ['/', true],
     ['/explore', true],
+    ['/explore', false],
     ['/movies', true],
     ['/account/tickets', true],
     ['/account/profile', true],
