@@ -11,6 +11,7 @@ import { MarketingNav } from '@/components/marketing/nav';
 import { MarketingFooter } from '@/components/marketing/footer';
 import { SiteFooter } from '@/components/site-footer';
 import { useTranslations } from 'next-intl';
+import { isTestEnvironment } from '@/lib/build-id';
 
 // Public marketing routes get the full-bleed marketing shell; everything else keeps
 // the existing app chrome (header + constrained main + feedback widget). Kept as a
@@ -95,7 +96,10 @@ export function SiteChrome({
     localStorage is the truth - but being right to begin with is what removes the flash.
   */
   initialSignedIn = false,
-  /** The short commit of the running server, for the footer; null in local development. */
+  /**
+    The short commit of the running server; null in local development. Drawn in the footer
+    only on a test environment - see `isTestEnvironment`.
+  */
   buildId = null,
 }: {
   children: React.ReactNode;
@@ -114,6 +118,13 @@ export function SiteChrome({
   }, [pathname]);
 
   const useMarketingShell = isMarketing(pathname);
+  /*
+    One answer for both footers and both environment markers. The literal
+    `process.env.NEXT_PUBLIC_APP_ENV` is what Next inlines; read through a variable it would
+    be undefined in the browser and every environment would look like production.
+  */
+  const testEnvironment = isTestEnvironment(process.env.NEXT_PUBLIC_APP_ENV);
+  const footerBuildId = testEnvironment ? buildId : null;
 
   // No header, no footer, no city bar — just the sheet.
   if (isPrintRoute(pathname)) return <main id="main">{children}</main>;
@@ -123,7 +134,7 @@ export function SiteChrome({
       <>
         <MarketingNav />
         <main id="main">{children}</main>
-        <MarketingFooter buildId={buildId} />
+        <MarketingFooter buildId={footerBuildId} />
       </>
     );
   }
@@ -178,14 +189,9 @@ export function SiteChrome({
       */}
       <div className="pb-[calc(3.5rem+env(safe-area-inset-bottom))] lg:pb-0">
         <SiteFooter
-          buildId={buildId}
+          buildId={footerBuildId}
           compact={isCheckoutRoute(pathname)}
-          environmentNotice={
-            (process.env.NEXT_PUBLIC_APP_ENV ?? '').toUpperCase() === 'PRODUCTION' ||
-            !process.env.NEXT_PUBLIC_APP_ENV
-              ? null
-              : f('testEnvironment')
-          }
+          environmentNotice={testEnvironment ? f('testEnvironment') : null}
         />
       </div>
       <BottomNav />

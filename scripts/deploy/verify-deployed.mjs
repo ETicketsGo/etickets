@@ -133,11 +133,22 @@ const PROBES = [
   },
   {
     service: 'customer-web',
-    what: 'the storefront answers as itself',
-    run: async (base) => {
+    what: 'the storefront answers as itself, from the deployed commit',
+    /*
+      The process that ANSWERS, not just the deployment record. The footer's "Build abc1234"
+      line used to be how a person checked this, and it is drawn on test environments only
+      now (the live shop's customers have no use for it), so production is checked here: the
+      same short commit `/api/health` reports and `<meta name="build-id">` carries.
+    */
+    run: async (base, { deployedCommit }) => {
       const r = await fetch(`${base}/api/health`);
       const j = await r.json().catch(() => ({}));
-      return j?.app === 'customer-web' || `health said ${JSON.stringify(j).slice(0, 60)}`;
+      if (j?.app !== 'customer-web') return `health said ${JSON.stringify(j).slice(0, 60)}`;
+      if (!deployedCommit || !j.build) return true;
+      return (
+        deployedCommit.startsWith(j.build) ||
+        `serving ${j.build}, deployed ${short(deployedCommit)}`
+      );
     },
   },
 ];
@@ -208,7 +219,8 @@ async function main() {
     let ok = false;
     let detail = '';
     try {
-      const result = await probe.run(base);
+      const deployedCommit = rows.find((r) => r.service === probe.service)?.commit ?? null;
+      const result = await probe.run(base, { deployedCommit });
       ok = result === true;
       if (!ok) detail = typeof result === 'string' ? result : 'probe returned false';
     } catch (err) {

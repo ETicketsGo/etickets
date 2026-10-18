@@ -56,6 +56,9 @@ WORKDIR /app
 
 COPY --from=build /app/apps/organizer-web/.next/standalone ./
 COPY --from=build /app/apps/organizer-web/.next/static ./apps/organizer-web/.next/static
+# public/ is not in standalone either: the favicon, the apple icon and the web manifest live
+# there (scripts/brand/generate-favicons.mjs), and without this line every one of them 404s.
+COPY --from=build /app/apps/organizer-web/public ./apps/organizer-web/public
 
 USER node
 
