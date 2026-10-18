@@ -20,6 +20,19 @@ import { ColorSchemeSwitch } from './color-scheme-switch';
  */
 const NAV = adminNavItems();
 
+/*
+  The admin mark: the console's own favicon (`public/icon.svg`, drawn by
+  scripts/brand/generate-favicons.mjs) - an ink E and the marigold full stop on a marigold tile.
+  The header still drew the old purple-to-blue gradient ticket, so the browser tab and the
+  console's own header showed two different logos. The same file is used, not a copy of it, so
+  they cannot drift apart again. Decorative here: the words beside it already say ETicketsGo.
+*/
+function adminMark(className: string) {
+  // A static SVG from this app's public folder; next/image adds nothing for a 32px vector.
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src="/icon.svg" alt="" aria-hidden className={className} />;
+}
+
 export function AdminShell({ children }: { children: ReactNode }) {
   return (
     <AppShell
@@ -28,6 +41,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
       navLabel="Admin"
       drawerLabel="Admin menu"
       width="fluid"
+      renderMark={adminMark}
       /*
         From `sm` up only. At 320-390px the brand, the menu button, three appearance buttons
         and Sign out do not fit on one line; on a phone the switch is in the drawer instead.

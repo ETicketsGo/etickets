@@ -29,6 +29,12 @@
     "from": "À partir de",
     "notFound": "Introuvable"
   },
+  "notFoundPage": {
+    "title": "Nous ne trouvons pas cette page",
+    "lead": "Le lien est peut-être erroné, ou la page a été déplacée. Cherchez un événement ou retournez à la page d'accueil.",
+    "home": "Retour à l'accueil",
+    "browse": "Parcourir les événements"
+  },
   "status": {
     "CONFIRMED": "Confirmée",
     "PENDING_PAYMENT": "En attente de paiement",

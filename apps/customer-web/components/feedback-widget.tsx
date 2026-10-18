@@ -3,7 +3,8 @@
 import { useState } from 'react';
 import { MessageSquarePlus } from 'lucide-react';
 import { api, ApiRequestError } from '@/lib/api';
-import { Button, Dialog, Textarea, RatingStars, useToast } from '@/components/ui';
+import { Dialog, RatingStars, useToast } from '@/components/ui';
+import { BrandActionButton, BrandTextarea } from '@/components/brand-forms';
 
 /**
  * "Send feedback": a quiet button that opens a dialog for a short message and an optional star
@@ -15,6 +16,9 @@ import { Button, Dialog, Textarea, RatingStars, useToast } from '@/components/ui
  * PRICE ("From Rs 49_"); on a desktop it sat over the first card of every list and over
  * Review & pay (EXPERIENCE-AUDIT.md, C5). It is a utility, so it lives where utilities live: in
  * the footer, on every page, covering nothing.
+ *
+ * Drawn on the brand layer like the footer that opens it: the storefront's `Dialog` is the
+ * paper frame, and the field and buttons are the brand ones. The submission is unchanged.
  */
 export function FeedbackButton({ label, className = '' }: { label: string; className?: string }) {
   const toast = useToast();
@@ -75,23 +79,23 @@ export function FeedbackButton({ label, className = '' }: { label: string; class
         title="Share your feedback"
         footer={
           <>
-            <Button variant="ghost" onClick={close} disabled={submitting}>
+            <BrandActionButton variant="quiet" onClick={close} disabled={submitting}>
               Cancel
-            </Button>
-            <Button onClick={submit} loading={submitting} disabled={submitting}>
+            </BrandActionButton>
+            <BrandActionButton onClick={submit} loading={submitting}>
               Send feedback
-            </Button>
+            </BrandActionButton>
           </>
         }
       >
         <div className="space-y-4">
           <div>
-            <p className="mb-1.5 text-[0.8125rem] font-medium text-text-secondary">
+            <p className="mb-1.5 text-brand-ui font-medium text-brand-ink">
               Rate your experience (optional)
             </p>
             <RatingStars value={rating} onChange={setRating} size="lg" label="Your rating" />
           </div>
-          <Textarea
+          <BrandTextarea
             id="widget-message"
             label="What's on your mind?"
             value={message}

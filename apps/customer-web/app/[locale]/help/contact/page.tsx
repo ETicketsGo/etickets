@@ -32,9 +32,9 @@ export default function ContactPage() {
               kind="CONTACT"
               showSubject
               submitLabel="Send message"
-              successMessage="Thanks — we’ll get back to you soon."
+              successMessage="Thanks - we will get back to you soon."
               messageLabel="How can we help?"
-              messagePlaceholder="Describe your question or issue…"
+              messagePlaceholder="Describe your question or issue..."
             />
           </Panel>
         </div>

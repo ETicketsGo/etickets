@@ -3,7 +3,8 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { BrandButton, useAuthUser } from '@eticketsgo/web-kit';
 import { api, ApiRequestError, type FeedbackSubmission } from '@/lib/api';
-import { Input, Textarea, RatingStars, useToast } from '@/components/ui';
+import { RatingStars, useToast } from '@/components/ui';
+import { BrandInput, BrandTextarea } from '@/components/brand-forms';
 
 type Kind = FeedbackSubmission['kind'];
 
@@ -122,10 +123,10 @@ export function FeedbackForm({
       {/*
         No fixed ids on these fields. /help renders this form twice (contact us, and the
         how-are-we-doing rating), and a hard-coded `fb-email` gave the page two elements with
-        one id, so the second form's label pointed at the first form's field. The kit's fields
-        generate a unique id per instance when none is passed.
+        one id, so the second form's label pointed at the first form's field. The brand fields
+        generate a unique id per instance when none is passed, as the kit's did.
       */}
-      <Input
+      <BrandInput
         type="email"
         label={user ? 'Reply-to email' : 'Your email'}
         value={email}
@@ -136,7 +137,7 @@ export function FeedbackForm({
         autoComplete="email"
       />
       {showSubject && (
-        <Input
+        <BrandInput
           label="Subject"
           value={subject}
           onChange={(e) => setSubject(e.target.value)}
@@ -145,7 +146,7 @@ export function FeedbackForm({
           maxLength={160}
         />
       )}
-      <Textarea
+      <BrandTextarea
         label={messageLabel}
         value={message}
         onChange={(e) => setMessage(e.target.value)}

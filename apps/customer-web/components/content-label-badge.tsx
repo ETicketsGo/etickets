@@ -9,9 +9,12 @@ import type { ContentLabel } from '@eticketsgo/web-kit';
  * QA keeps its certification fixtures AND carries a curated demo catalogue, so a reader
  * (and a screenshot) needs to tell them apart without anything being deleted. The word is the
  * signal; the dashed outline on TEST is a second cue for anyone who cannot rely on the text
- * alone. Uses the global tokens, not the brand layer: those resolve only inside `data-brand`,
- * and this badge also sits on pages that have not opted in. Renders nothing when the API
- * sent no label, which is always the case in production.
+ * alone. Renders nothing when the API sent no label, which is always the case in production.
+ *
+ * On the brand layer. It used the global tokens while some of the pages it sits on had not
+ * opted in; every one of them now has (the home page, Explore, Movies, Browse, the film and
+ * event pages), so it takes the paper and ink of the page around it - and on a stage band (the
+ * film page's header) the stage's, which the global tokens could not follow.
  */
 export function ContentLabelBadge({
   label,
@@ -25,8 +28,8 @@ export function ContentLabelBadge({
   return (
     <span
       data-content-label={label}
-      className={`inline-flex h-5 items-center whitespace-nowrap rounded border bg-background-surface px-1.5 text-[0.6875rem] font-semibold text-text-secondary ${
-        label === 'TEST' ? 'border-dashed border-text-muted' : 'border-border'
+      className={`inline-flex h-5 items-center whitespace-nowrap rounded border bg-brand-surface px-1.5 text-[0.6875rem] font-semibold text-brand-ink-2 ${
+        label === 'TEST' ? 'border-dashed border-brand-field' : 'border-brand-line-strong'
       } ${className}`}
     >
       {t(label)}

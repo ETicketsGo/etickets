@@ -534,7 +534,7 @@ function AccountConfirmation() {
           {booking.reference && (
             <div className="flex items-center justify-between gap-3 border-t border-brand-line pt-4 text-brand-ui">
               <span className="text-brand-ink-2">{c('bookingReference')}</span>
-              <ReferenceCode brand value={booking.reference} label={c('bookingReference')} />
+              <ReferenceCode value={booking.reference} label={c('bookingReference')} />
             </div>
           )}
 
@@ -599,7 +599,6 @@ function AccountConfirmation() {
             </div>
           ) : (
             <PriceBreakdown
-              brand
               quote={{
                 currency: booking.currency,
                 subtotalMinor: booking.subtotalMinor,

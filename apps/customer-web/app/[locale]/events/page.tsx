@@ -641,7 +641,7 @@ export default function EventsPage() {
           platform today, where the events are in Mumbai and the films are in Bengaluru.
         */
         placeOnly ? (
-          <EmptyPlace place={placeOnly} variant="brand" />
+          <EmptyPlace place={placeOnly} />
         ) : films.length > 0 ? null : (
           <BrandEmpty
             title="No events match your search"
@@ -666,7 +666,6 @@ export default function EventsPage() {
         {!isLoading && !isError && (
           <div className="space-y-12 pt-4 lg:space-y-16" data-testid="place-groups">
             <PlaceSections
-              variant="brand"
               buckets={placeGroups}
               currencyOf={(e) => e.currency}
               render={(group) => (

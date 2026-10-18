@@ -24,19 +24,20 @@ import { BRAND_FOCUS } from '@eticketsgo/web-kit';
  * `select-all` on the text itself covers the case where the clipboard API is unavailable,
  * which happens on insecure origins and in some embedded browsers. The copy button hides
  * itself there rather than sitting inert.
+ *
+ * On the brand layer only. It had an old-system default and a `brand` opt-in for the booking
+ * flow; the account pages that used the default have moved to the brand layer too, so there is
+ * one look and no switch to forget.
  */
 export function ReferenceCode({
   value,
   label,
   className = '',
-  brand = false,
 }: {
   value: string;
   /** What this identifies, for screen readers: "Booking reference", "Receipt number". */
   label: string;
   className?: string;
-  /** Drawn on the brand layer: the booking flow's pages. Only class names change. */
-  brand?: boolean;
 }) {
   const t = useTranslations('storefront.common');
   const [copied, setCopied] = useState(false);
@@ -57,7 +58,7 @@ export function ReferenceCode({
   return (
     <span className={`inline-flex items-center gap-1.5 ${className}`}>
       <span
-        className={`select-all font-mono tracking-tight ${brand ? 'font-semibold text-brand-ink' : 'text-text-primary'}`}
+        className="select-all font-mono font-semibold tracking-tight text-brand-ink"
         aria-label={label}
       >
         {value}
@@ -69,17 +70,10 @@ export function ReferenceCode({
           aria-label={`${label}: ${copied ? t('copied') : t('copy')}`}
           // -m-1.5 + p-2 keeps the 14px icon where it was and makes the target 30px, over the 24px minimum
           // (WCAG 2.5.8); it was 18px.
-          className={
-            brand
-              ? `-m-1.5 rounded p-2 text-brand-ink-3 transition-colors hover:text-brand-ink ${BRAND_FOCUS}`
-              : '-m-1.5 rounded p-2 text-text-muted transition-colors hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring'
-          }
+          className={`-m-1.5 rounded p-2 text-brand-ink-3 transition-colors hover:text-brand-ink ${BRAND_FOCUS}`}
         >
           {copied ? (
-            <Check
-              className={`h-3.5 w-3.5 ${brand ? 'text-brand-positive' : 'text-status-success'}`}
-              aria-hidden
-            />
+            <Check className="h-3.5 w-3.5 text-brand-positive" aria-hidden />
           ) : (
             <Copy className="h-3.5 w-3.5" aria-hidden />
           )}

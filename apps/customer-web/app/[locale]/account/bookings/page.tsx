@@ -334,7 +334,6 @@ export default function BookingsPage() {
             */}
             <div className={`${ACCOUNT_PANEL} p-4 [&>div]:border-t-0 [&>div]:pt-0`}>
               <PriceBreakdown
-                brand
                 quote={{
                   currency: b.currency,
                   subtotalMinor: b.subtotalMinor,

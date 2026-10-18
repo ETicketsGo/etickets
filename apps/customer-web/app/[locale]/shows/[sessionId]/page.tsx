@@ -1030,7 +1030,6 @@ export default function SeatSelectionPage() {
             */}
             <div className="mt-5">
               <PriceBreakdown
-                brand
                 quote={quote}
                 loading={quoteQ.isFetching}
                 fallbackTotalMinor={total}

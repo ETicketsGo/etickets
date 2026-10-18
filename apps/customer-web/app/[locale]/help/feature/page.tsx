@@ -24,7 +24,7 @@ export default function FeatureRequestPage() {
               Request a feature
             </h1>
             <p className="mt-3 text-brand-ui text-brand-ink-2">
-              Have an idea that would make ETicketsGo better? We’d love to hear it.
+              Have an idea that would make ETicketsGo better? We would love to hear it.
             </p>
           </div>
           <Panel>
@@ -32,9 +32,9 @@ export default function FeatureRequestPage() {
               kind="FEATURE"
               showSubject
               submitLabel="Submit idea"
-              successMessage="Thanks — your idea has been shared with the team."
+              successMessage="Thanks - your idea has been shared with the team."
               messageLabel="Your idea"
-              messagePlaceholder="Describe the feature and how it would help you…"
+              messagePlaceholder="Describe the feature and how it would help you..."
             />
           </Panel>
         </div>
