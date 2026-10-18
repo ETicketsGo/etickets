@@ -32,6 +32,7 @@ import {
 import { api, tokenStore } from '@/lib/api';
 import { fetchTicketWithOffline } from '@/lib/offline/sync';
 import { useFormat } from '@/lib/format';
+import { eventZone } from '@/lib/event-when';
 import { isSaved, toggleSaved } from '@/lib/saved';
 import dynamic from 'next/dynamic';
 import { useTranslations } from 'next-intl';
@@ -181,7 +182,7 @@ export default function TicketDetailPage() {
       </BrandPage>
     );
 
-  const zone = ticket.timezone ?? event?.venue.timezone ?? undefined;
+  const zone = ticket.timezone ?? (event ? eventZone(event) : undefined);
   const venueName = event?.venue.name ?? '';
   const venueLine = event
     ? // Same composer as the event page, so the ticket and the listing agree and neither

@@ -29,6 +29,7 @@ import {
 import { api, tokenStore, ApiRequestError } from '@/lib/api';
 import { useFormat } from '@/lib/format';
 import { pushRecent } from '@/lib/recent';
+import { eventZone, sessionZone } from '@/lib/event-when';
 import { BrandEmpty } from '@/components/storefront-brand';
 import {
   BrandLoadError,
@@ -341,7 +342,7 @@ export default function EventDetailPage() {
         city: event.venue.city,
         country: event.venue.country,
         // So the "Recently viewed" card shows the date at the venue, like every other card.
-        timezone: event.venue.timezone ?? null,
+        timezone: eventZone(event) ?? null,
       },
       organizer: event.organizer.name,
       nextSessionAt: event.sessions[0]?.startsAt ?? null,
@@ -533,8 +534,12 @@ export default function EventDetailPage() {
   /*
     The venue's clock. A session is at the time printed at the venue, and a buyer planning a
     trip from another zone must see that time, named — not their phone's conversion of it.
+
+    The SHOWN session's zone, asked the way the booking asks it (`sessionZone`). This read only
+    `event.venue.timezone`: a venue row with no zone, or a show in a cinema's screen on another
+    clock, printed the reader's own time here and the venue's on the confirmation.
   */
-  const zone = event.venue.timezone ?? undefined;
+  const zone = sessionZone(session, event);
 
   /*
     Every image the organizer gave, cover first — or just the cover from an API that predates
@@ -685,8 +690,16 @@ export default function EventDetailPage() {
                 {' '}
                 -{' '}
                 {sf('event.dateRange', {
-                  from: dateOnly(futureSessions[0].startsAt, undefined, zone),
-                  to: dateOnly(futureSessions[futureSessions.length - 1].startsAt, undefined, zone),
+                  from: dateOnly(
+                    futureSessions[0].startsAt,
+                    undefined,
+                    sessionZone(futureSessions[0], event),
+                  ),
+                  to: dateOnly(
+                    futureSessions[futureSessions.length - 1].startsAt,
+                    undefined,
+                    sessionZone(futureSessions[futureSessions.length - 1], event),
+                  ),
                 })}
               </span>
             ) : null}
@@ -945,7 +958,7 @@ export default function EventDetailPage() {
                     const active = session?.id === s.id;
                     // Only from a page left open past the start: the API no longer sends these.
                     const started = new Date(s.startsAt).getTime() <= Date.now();
-                    const when = venueWhen(s.startsAt, zone);
+                    const when = venueWhen(s.startsAt, sessionZone(s, event));
                     return (
                       <button
                         key={s.id}

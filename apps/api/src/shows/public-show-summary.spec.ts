@@ -94,6 +94,54 @@ describe('ShowsService.getPublicShowSummary', () => {
     });
   });
 
+  it('puts a room in a venue (no cinema) on the venue clock, not on no clock', async () => {
+    /*
+      Found on QA: every seated room that is not a cinema screen answered `timeZone: null`, so
+      the seat page header printed the READER's clock - an 11:01 pm Hyderabad show read
+      "10:31 am" in a Denver browser while its booking said 11:01 pm GMT+5:30.
+    */
+    const { service } = makeService(
+      screening({
+        startsAt: new Date('2026-11-12T17:31:00Z'),
+        event: { ...screening().event, experienceType: 'EVENT', movie: null },
+        screen: { name: 'Main Auditorium', screenType: '2D', cinema: null },
+      }),
+    );
+    const summary = await service.getPublicShowSummary('sess1');
+    expect(summary).toMatchObject({ timeZone: 'Asia/Kolkata', localDate: '2026-11-12' });
+  });
+
+  it('falls back to the only zone the venue country has when the venue has none', async () => {
+    const { service } = makeService(
+      screening({
+        event: {
+          ...screening().event,
+          venue: { name: 'Hall', city: 'Hyderabad', country: 'India', timezone: null },
+        },
+        screen: { name: 'Main Auditorium', screenType: '2D', cinema: null },
+      }),
+    );
+    expect((await service.getPublicShowSummary('sess1')).timeZone).toBe('Asia/Kolkata');
+  });
+
+  it('gives a cinema screen the cinema clock, as the ticket does', async () => {
+    // The booking, the ticket and the reminder all print a cinema's show on the cinema's clock.
+    const { service } = makeService(
+      screening({
+        event: {
+          ...screening().event,
+          venue: {
+            name: 'Hall',
+            city: 'Boise',
+            country: 'United States',
+            timezone: 'America/Boise',
+          },
+        },
+      }),
+    );
+    expect((await service.getPublicShowSummary('sess1')).timeZone).toBe('Asia/Kolkata');
+  });
+
   it('gives no projection format for a space that is not a cinema screen', async () => {
     /*
       Every space has a screenType, defaulting to "2D". A basketball game in an arena was

@@ -4,6 +4,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import { Check, Minus, Plus } from 'lucide-react';
 import { BRAND_FOCUS, BrandStatusPill, formatFor } from '@eticketsgo/web-kit';
 import { useFormat } from '@/lib/format';
+import { venueWhenParts } from '@/lib/event-when';
 
 /*
   ── THE BOOKING FLOW'S OWN PIECES ON THE BRAND LAYER ──────────────────────────────────
@@ -152,38 +153,15 @@ export function TicketAvailability({
  *
  * The parts are laid out by the caller (the hero sets the day bold and the time beside it). The
  * zone is always the venue's and is always named: a buyer planning a trip from another zone must
- * see whose 6:30 it is (DESIGN-SYSTEM.md section 9).
+ * see whose 6:30 it is (DESIGN-SYSTEM.md section 9). Pass the zone from `eventZone`,
+ * `sessionZone` or `summaryZone`; an unknown zone is shown as the reader's own, named.
  */
 export function useVenueWhen() {
   // The storefront's English is en-IN (as dateTime's default), never the browser's own locale.
   const locale = formatFor(useLocale()).locale ?? 'en-IN';
   const { zoneAbbrev } = useFormat();
-  return (iso: string, zone: string | undefined) => {
-    const at = new Date(iso);
-    const opts = zone ? { timeZone: zone } : {};
-    let day: string;
-    let time: string;
-    try {
-      day = new Intl.DateTimeFormat(locale, {
-        weekday: 'short',
-        day: 'numeric',
-        month: 'short',
-        year: 'numeric',
-        ...opts,
-      })
-        .format(at)
-        .replace(/,/g, '');
-      time = new Intl.DateTimeFormat(locale, {
-        hour: 'numeric',
-        minute: '2-digit',
-        ...opts,
-      }).format(at);
-    } catch {
-      day = at.toDateString();
-      time = at.toTimeString().slice(0, 5);
-    }
-    return { day, time, zone: zone ? zoneAbbrev(iso, zone) : '' };
-  };
+  // The formatting itself lives in `venueWhenParts`, so it can be tested in any reader's zone.
+  return (iso: string, zone: string | undefined) => venueWhenParts(iso, zone, locale, zoneAbbrev);
 }
 
 /**

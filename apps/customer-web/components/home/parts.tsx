@@ -15,6 +15,7 @@ import {
 import { Link } from '@/i18n/navigation';
 import { ContentLabelBadge } from '../content-label-badge';
 import { useFormat } from '@/lib/format';
+import { eventZone } from '@/lib/event-when';
 import { priceSlot, type Buyability } from '@/lib/home-feed';
 
 /*
@@ -235,7 +236,7 @@ function RowThumb({ event }: { event: PublicEventCard }) {
 
 /** The 16:9 lead of an editorial section. */
 export function FeatureCard({ event, state }: { event: PublicEventCard; state?: Buyability }) {
-  const when = useVenueWhen()(event.nextSessionAt, event.venue.timezone);
+  const when = useVenueWhen()(event.nextSessionAt, eventZone(event));
   const image = cardImage(event, 'banner');
   return (
     <Link
@@ -282,7 +283,7 @@ export function FeatureCard({ event, state }: { event: PublicEventCard; state?: 
 
 /** One row of the 4:3 list beside the feature. */
 export function EventRow({ event, state }: { event: PublicEventCard; state?: Buyability }) {
-  const when = useVenueWhen()(event.nextSessionAt, event.venue.timezone);
+  const when = useVenueWhen()(event.nextSessionAt, eventZone(event));
   return (
     <Link
       href={`/events/${event.slug}`}
@@ -326,7 +327,7 @@ export function EventTile({
   showCity?: boolean;
   state?: Buyability;
 }) {
-  const when = useVenueWhen()(event.nextSessionAt, event.venue.timezone);
+  const when = useVenueWhen()(event.nextSessionAt, eventZone(event));
   const image = cardImage(event, 'card');
   return (
     <Link
@@ -456,10 +457,10 @@ export function RailItem({ children }: { children: ReactNode }) {
 export function StageHero({ event }: { event: PublicEventCard }) {
   const h = useTranslations('home.hero');
   const nav = useTranslations('home.chips');
-  const when = useVenueWhen()(event.nextSessionAt, event.venue.timezone);
+  const when = useVenueWhen()(event.nextSessionAt, eventZone(event));
   const image = cardImage(event, 'banner');
   const [failed, setFailed] = useState(false);
-  const today = isTodayAt(event.nextSessionAt, event.venue.timezone);
+  const today = isTodayAt(event.nextSessionAt, eventZone(event));
   return (
     <section
       data-brand-tone="stage"

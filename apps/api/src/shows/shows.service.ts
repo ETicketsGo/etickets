@@ -58,6 +58,7 @@ import {
 } from './show-operations';
 import {
   requireSpaceOrganizationId,
+  showTimezone,
   spaceOrganizationId,
   spaceTimezone,
   spaceVenueName,
@@ -2788,13 +2789,15 @@ export class ShowsService {
     }
 
     /*
-      One rule for where a space is, asked in one place.
+      The zone the buyer's ticket prints, asked in one place (`showTimezone`).
 
-      This read its own `cinema?.timezone ?? venue.timezone` chain, which is how two call
-      sites drift apart - and the venue half of it was unsafe while the column defaulted to
-      Asia/Kolkata. `spaceTimezone` now owns the precedence; a null means nobody has said.
+      This read `spaceTimezone(screen)` over a screen selected without its venue, so a room in
+      a venue (no cinema) answered null and the seat page header fell to the READER's clock:
+      on QA a Hyderabad 11:01 pm show read "10:31 am" in a Denver browser, while its booking
+      said 11:01 pm GMT+5:30. The ticket's own order - cinema, then the event's venue, then
+      the venue's country - is what a buyer checks this page against.
     */
-    const zone = session.screen ? spaceTimezone(session.screen) : session.event.venue.timezone;
+    const zone = showTimezone(session.screen, session.event.venue);
     let localDate: string;
     try {
       // en-CA formats as YYYY-MM-DD, the shape every date filter here already uses. An
