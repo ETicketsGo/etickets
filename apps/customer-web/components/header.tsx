@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from '@/i18n/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { Bell, Search } from 'lucide-react';
@@ -12,6 +12,12 @@ import { Link } from '@/i18n/navigation';
 import { useTranslations } from 'next-intl';
 import { Wordmark } from '@/components/wordmark';
 import { useSignInHref } from '@/lib/use-sign-in-href';
+import {
+  PlatformLinks,
+  PlatformMenu,
+  PlatformMenuButton,
+  VisitorActions,
+} from '@/components/marketing/header';
 
 /*
   ── THE STOREFRONT TOP BAR (docs/design/DESIGN-SYSTEM.md, section 5) ───────────────────
@@ -29,6 +35,19 @@ import { useSignInHref } from '@/lib/use-sign-in-href';
     bottom bar carries the rest on a phone.
   - No blur. The bar is opaque paper, which also keeps `position: fixed` inside it meaning the
     screen (see the portal comment in CityPicker).
+
+  ── THE SIGNED-OUT HOME PAGE (owner, 2026-10-18, "Combined") ───────────────────────────
+  The front door serves two strangers: somebody buying a ticket and somebody deciding whether
+  to sell with us. So on `/`, and only for a visitor who is signed out, this bar keeps every
+  shop control (city, search, Explore, Movies, Tickets; the city bar and the bottom bar below)
+  AND offers the platform pages (Features, Solutions, Pricing, For organizers, For attendees)
+  with "Sign in" and "Get started", the same five links and buttons as the marketing header.
+    - desktop: a slim second row under the shop bar, so the first row is exactly the shop's
+      and nothing overflows at 1024;
+    - phone: a menu button beside the city, opening the marketing header's own phone menu.
+  A signed-in customer gets the pure shop bar there. Until the session is known nothing on the
+  right is drawn, so a signed-in customer never sees "Sign in" or the platform links flash.
+  Every other route is unchanged.
 */
 
 const navLink = `inline-flex h-11 items-center rounded-brand-control px-3 text-brand-ui font-semibold transition-colors hover:text-brand-ink ${BRAND_FOCUS}`;
@@ -74,7 +93,12 @@ export function Header({
     The hint is used ONLY until this component has mounted, and the token decides for ever
     after. The same hook drives the marketing header and footer, so every bar agrees.
   */
-  const { authed } = useShellAuth(initialSignedIn);
+  const { authed, known } = useShellAuth(initialSignedIn);
+  const home = pathname === '/';
+  // The combined front door: shop controls plus the platform pages, for a visitor only.
+  const visitorHome = home && known && !authed;
+  const [menuOpen, setMenuOpen] = useState(false);
+  useEffect(() => setMenuOpen(false), [pathname, visitorHome]);
 
   const { data: unread } = useQuery({
     queryKey: ['notifications', 'unread-count'],
@@ -105,6 +129,7 @@ export function Header({
   const t = useTranslations('common.nav');
   const a = useTranslations('common.action');
   const h = useTranslations('home.header');
+  const m = useTranslations('common.marketing');
   const showSearch = !hasOwnSearch(pathname);
 
   return (
@@ -214,21 +239,59 @@ export function Header({
               */}
               <AccountMenu onSignOut={logout} />
             </>
+          ) : home && !known ? (
+            // The home page's answer is not known yet: hold the space, draw nothing.
+            <span aria-hidden data-auth="pending" className="inline-block h-11 w-11" />
           ) : (
-            /*
-              Not below 360px: at 320 the wordmark, the city and this button do not fit one
-              row, and a row of its own for "Sign in" pushed the search and the hero down. The
-              bottom bar's Account tab leads to the same sign-in at that width.
-            */
-            <Link
-              href={signInHref}
-              className={`${brandButtonClasses('secondary', 'md')} max-[359px]:hidden`}
-            >
-              {a('signIn')}
-            </Link>
+            <>
+              {/*
+                Not below 360px: at 320 the wordmark, the city and this button do not fit one
+                row, and a row of its own for "Sign in" pushed the search and the hero down. The
+                bottom bar's Account tab leads to the same sign-in at that width.
+
+                On the signed-out home page "Sign in" sits beside "Get started" instead: in the
+                second row on a desktop, in the menu on a phone (a phone bar with the wordmark,
+                the city, "Sign in" and a menu button does not fit one row at 390).
+              */}
+              {!visitorHome && (
+                <Link
+                  href={signInHref}
+                  className={`${brandButtonClasses('secondary', 'md')} max-[359px]:hidden`}
+                >
+                  {a('signIn')}
+                </Link>
+              )}
+              {visitorHome && (
+                <PlatformMenuButton
+                  open={menuOpen}
+                  controls="home-platform-menu"
+                  onToggle={() => setMenuOpen((o) => !o)}
+                />
+              )}
+            </>
           )}
         </div>
       </div>
+
+      {visitorHome && (
+        <div data-nav-row="platform" className="hidden border-t border-brand-line lg:block">
+          <div className="mx-auto flex h-[52px] max-w-shell items-center gap-x-6 px-10">
+            <nav aria-label={m('navLabel')} className="-ml-3 flex items-center gap-1">
+              <PlatformLinks pathname={pathname} />
+            </nav>
+            <div className="ml-auto flex shrink-0 items-center gap-2">
+              <VisitorActions signInHref={signInHref} />
+            </div>
+          </div>
+        </div>
+      )}
+      {visitorHome && menuOpen && (
+        <PlatformMenu
+          id="home-platform-menu"
+          pathname={pathname}
+          actions={<VisitorActions signInHref={signInHref} wide />}
+        />
+      )}
     </header>
   );
 }

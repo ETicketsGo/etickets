@@ -28,7 +28,11 @@ import { useSignInHref } from '@/lib/use-sign-in-href';
   in reads as being signed out.
 */
 
-const LINKS = [
+/**
+ * The five platform destinations, in order. One list: the storefront header offers the same five
+ * to a signed-out visitor on the home page (N2), and draws them from here.
+ */
+export const PLATFORM_LINKS = [
   { href: '/features', key: 'features' },
   { href: '/solutions', key: 'solutions' },
   { href: '/pricing', key: 'pricing' },
@@ -38,10 +42,129 @@ const LINKS = [
 
 const navLink = `inline-flex h-11 items-center rounded-brand-control px-3 text-brand-ui font-semibold transition-colors hover:text-brand-ink ${BRAND_FOCUS}`;
 
-export function MarketingHeader({ initialSignedIn = false }: { initialSignedIn?: boolean }) {
+/** The platform links as a row of bar links, for a desktop bar. */
+export function PlatformLinks({ pathname }: { pathname: string }) {
+  const m = useTranslations('common.marketing');
+  return (
+    <>
+      {PLATFORM_LINKS.map((l) => {
+        const active = pathname === l.href;
+        return (
+          <Link
+            key={l.href}
+            href={l.href}
+            aria-current={active ? 'page' : undefined}
+            className={`${navLink} ${
+              active
+                ? 'text-brand-ink underline decoration-2 underline-offset-[10px]'
+                : 'text-brand-ink-2'
+            }`}
+          >
+            {m(l.key)}
+          </Link>
+        );
+      })}
+    </>
+  );
+}
+
+/**
+ * The phone menu: the platform links in a column, then the bar's actions. Shared by the marketing
+ * header and the storefront header's signed-out home page, so the two phone menus are one menu.
+ */
+export function PlatformMenu({
+  id,
+  pathname,
+  actions,
+}: {
+  id: string;
+  pathname: string;
+  actions: React.ReactNode;
+}) {
+  const m = useTranslations('common.marketing');
+  return (
+    <div id={id} className="border-t border-brand-line bg-brand-canvas lg:hidden">
+      <nav aria-label={m('navLabel')} className="mx-auto max-w-shell px-4 py-3 sm:px-6">
+        <ul>
+          {PLATFORM_LINKS.map((l) => (
+            <li key={l.href}>
+              <Link
+                href={l.href}
+                aria-current={pathname === l.href ? 'page' : undefined}
+                className={`${navLink} w-full ${
+                  pathname === l.href ? 'text-brand-ink' : 'text-brand-ink-2'
+                }`}
+              >
+                {m(l.key)}
+              </Link>
+            </li>
+          ))}
+        </ul>
+        <div className="mt-3 grid grid-cols-2 gap-2 border-t border-brand-line pt-4">{actions}</div>
+      </nav>
+    </div>
+  );
+}
+
+/**
+ * "Sign in" (back to this page) and "Get started" for a signed-out visitor.
+ *
+ * "Get started" asks for an ORGANIZER account: it sits beside the platform pages, which pitch
+ * selling tickets, and the customer form says "This is a customer account for buying tickets" to
+ * somebody who came to sell them.
+ */
+export function VisitorActions({
+  signInHref,
+  wide = false,
+}: {
+  signInHref: string;
+  wide?: boolean;
+}) {
   const m = useTranslations('common.marketing');
   const a = useTranslations('common.action');
+  const width = wide ? 'w-full' : '';
+  return (
+    <>
+      <Link href={signInHref} className={`${brandButtonClasses('secondary', 'md')} ${width}`}>
+        {a('signIn')}
+      </Link>
+      <Link
+        href="/register?intent=organizer"
+        className={`${brandButtonClasses('primary', 'md')} ${width}`}
+      >
+        {m('getStarted')}
+      </Link>
+    </>
+  );
+}
+
+/** The menu button that opens `PlatformMenu`; phone widths only. */
+export function PlatformMenuButton({
+  open,
+  controls,
+  onToggle,
+}: {
+  open: boolean;
+  controls: string;
+  onToggle: () => void;
+}) {
   const a11y = useTranslations('common.a11y');
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={open}
+      aria-controls={controls}
+      aria-label={open ? a11y('closeMenu') : a11y('openMenu')}
+      className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-brand-control text-brand-ink-2 transition-colors hover:text-brand-ink lg:hidden ${BRAND_FOCUS}`}
+    >
+      {open ? <X className="h-5 w-5" aria-hidden /> : <Menu className="h-5 w-5" aria-hidden />}
+    </button>
+  );
+}
+
+export function MarketingHeader({ initialSignedIn = false }: { initialSignedIn?: boolean }) {
+  const m = useTranslations('common.marketing');
   const h = useTranslations('home.header');
   const pathname = usePathname();
   const signInHref = useSignInHref();
@@ -52,11 +175,6 @@ export function MarketingHeader({ initialSignedIn = false }: { initialSignedIn?:
   // Close the phone menu whenever the route changes.
   useEffect(() => setOpen(false), [pathname]);
 
-  /*
-    "Get started" asks for an ORGANIZER account: these are the pages that pitch selling tickets,
-    and the customer form says "This is a customer account for buying tickets" to somebody who
-    came to sell them. Kept from the marketing nav this replaces.
-  */
   const actions = (layout: 'bar' | 'menu') => {
     const width = layout === 'menu' ? 'w-full' : '';
     if (!known) {
@@ -73,19 +191,7 @@ export function MarketingHeader({ initialSignedIn = false }: { initialSignedIn?:
         </Link>
       );
     }
-    return (
-      <>
-        <Link href={signInHref} className={`${brandButtonClasses('secondary', 'md')} ${width}`}>
-          {a('signIn')}
-        </Link>
-        <Link
-          href="/register?intent=organizer"
-          className={`${brandButtonClasses('primary', 'md')} ${width}`}
-        >
-          {m('getStarted')}
-        </Link>
-      </>
-    );
+    return <VisitorActions signInHref={signInHref} wide={layout === 'menu'} />;
   };
 
   return (
@@ -104,70 +210,22 @@ export function MarketingHeader({ initialSignedIn = false }: { initialSignedIn?:
         </Link>
 
         <nav aria-label={m('navLabel')} className="hidden items-center gap-1 lg:flex">
-          {LINKS.map((l) => {
-            const active = pathname === l.href;
-            return (
-              <Link
-                key={l.href}
-                href={l.href}
-                aria-current={active ? 'page' : undefined}
-                className={`${navLink} ${
-                  active
-                    ? 'text-brand-ink underline decoration-2 underline-offset-[10px]'
-                    : 'text-brand-ink-2'
-                }`}
-              >
-                {m(l.key)}
-              </Link>
-            );
-          })}
+          <PlatformLinks pathname={pathname} />
         </nav>
 
         <div className="ml-auto flex shrink-0 items-center gap-2">
           <div className="hidden items-center gap-2 lg:flex">{actions('bar')}</div>
           {/* The account menu is in the bar at every width: who you are is not a menu item. */}
           {known && authed && <AccountMenu onSignOut={signOut} />}
-          <button
-            type="button"
-            onClick={() => setOpen((o) => !o)}
-            aria-expanded={open}
-            aria-controls="marketing-menu"
-            aria-label={open ? a11y('closeMenu') : a11y('openMenu')}
-            className={`inline-flex h-11 w-11 items-center justify-center rounded-brand-control text-brand-ink-2 transition-colors hover:text-brand-ink lg:hidden ${BRAND_FOCUS}`}
-          >
-            {open ? (
-              <X className="h-5 w-5" aria-hidden />
-            ) : (
-              <Menu className="h-5 w-5" aria-hidden />
-            )}
-          </button>
+          <PlatformMenuButton
+            open={open}
+            controls="marketing-menu"
+            onToggle={() => setOpen((o) => !o)}
+          />
         </div>
       </div>
 
-      {open && (
-        <div id="marketing-menu" className="border-t border-brand-line bg-brand-canvas lg:hidden">
-          <nav aria-label={m('navLabel')} className="mx-auto max-w-shell px-4 py-3 sm:px-6">
-            <ul>
-              {LINKS.map((l) => (
-                <li key={l.href}>
-                  <Link
-                    href={l.href}
-                    aria-current={pathname === l.href ? 'page' : undefined}
-                    className={`${navLink} w-full ${
-                      pathname === l.href ? 'text-brand-ink' : 'text-brand-ink-2'
-                    }`}
-                  >
-                    {m(l.key)}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-            <div className="mt-3 grid grid-cols-2 gap-2 border-t border-brand-line pt-4">
-              {actions('menu')}
-            </div>
-          </nav>
-        </div>
-      )}
+      {open && <PlatformMenu id="marketing-menu" pathname={pathname} actions={actions('menu')} />}
     </header>
   );
 }

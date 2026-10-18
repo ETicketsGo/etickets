@@ -139,29 +139,82 @@ describe('the marketing header', () => {
     expect(header).not.toContain('>Sign in<');
   });
 
-  it('has no bottom bar or city bar under it; the signed-in home page keeps its bottom bar', async () => {
+  it('has no bottom bar or city bar under it; the home page keeps its bottom bar', async () => {
     const bottomBar = 'nav[aria-label="Primary"]';
     const features = await mount('/features', false);
     expect(features.host.querySelector(bottomBar)).toBeNull();
     expect(features.host.querySelectorAll('header')).toHaveLength(1);
     cleanup?.();
-    const anonHome = await mount('/', false);
-    expect(anonHome.host.querySelector(bottomBar)).toBeNull();
-    cleanup?.();
-    const home = await mount('/', true);
+    const home = await mount('/', false);
     expect(home.host.querySelector(bottomBar)).not.toBeNull();
   });
+});
 
-  it('is what an anonymous visitor sees on the home page', async () => {
-    // Owner, 2026-10-18: "Public visitor: Should see Features, Solutions, Pricing, For
-    // Organizers, For Attendees, and Sign in." The front door is public.
-    const { header } = await mount('/', false);
-    expect(header.dataset.nav).toBe('marketing');
+describe('the home page header (owner, 2026-10-18: "Combined")', () => {
+  it('signed out: the whole shop header AND the platform links, Sign in and Get started', async () => {
+    const { host, header } = await mount('/', false);
+    expect(header.dataset.nav).not.toBe('marketing');
     const seen = labels(header);
+    for (const link of APP_LINKS) expect(seen).toContain(link);
     for (const link of MARKETING_LINKS) expect(seen).toContain(link);
     expect(seen).toContain('Sign in');
     expect(seen).toContain('Get started');
-    for (const link of APP_LINKS) expect(seen).not.toContain(link);
+    const getStarted = [...header.querySelectorAll('a')].find(
+      (a) => a.textContent === 'Get started',
+    );
+    expect(getStarted?.getAttribute('href')).toBe('/register?intent=organizer');
+    // The buyer keeps search, the city and the bottom bar.
+    expect(header.querySelector('input[type="search"]')).not.toBeNull();
+    expect(header.querySelector('[aria-label^="Location:"]')).not.toBeNull();
+    expect(host.querySelector('nav[aria-label="Primary"]')).not.toBeNull();
+    // A phone reaches the platform pages through a menu button.
+    expect(header.querySelector('button[aria-controls="home-platform-menu"]')).not.toBeNull();
+  });
+
+  it('signed out, phone menu: the five platform links, Sign in and Get started', async () => {
+    const { header } = await mount('/', false);
+    const button = header.querySelector(
+      'button[aria-controls="home-platform-menu"]',
+    ) as HTMLButtonElement;
+    await act(async () => button.click());
+    const menu = header.querySelector('#home-platform-menu') as HTMLElement;
+    expect(menu).not.toBeNull();
+    const seen = labels(menu);
+    for (const link of MARKETING_LINKS) expect(seen).toContain(link);
+    expect(seen).toContain('Sign in');
+    expect(seen).toContain('Get started');
+  });
+
+  it('signed in: the pure shop header, no platform links, no Sign in, no Get started', async () => {
+    const { host, header } = await mount('/', true);
+    const seen = labels(header);
+    for (const link of APP_LINKS) expect(seen).toContain(link);
+    for (const link of MARKETING_LINKS) expect(seen).not.toContain(link);
+    expect(seen).not.toContain('Sign in');
+    expect(seen).not.toContain('Get started');
+    expect(header.querySelector('button[aria-controls="home-platform-menu"]')).toBeNull();
+    expect(header.querySelector('input[type="search"]')).not.toBeNull();
+    expect(host.querySelector('nav[aria-label="Primary"]')).not.toBeNull();
+  });
+
+  it('before the session is known: no platform links and no Sign in, not even on the server', () => {
+    path = '/';
+    const html = renderToStaticMarkup(tree(false));
+    const header = html.slice(html.indexOf('<header'), html.indexOf('</header>'));
+    expect(header).toContain('data-auth="pending"');
+    expect(header).not.toContain('>Sign in<');
+    expect(header).not.toContain('>Get started<');
+    expect(header).not.toContain('>Features<');
+  });
+
+  it('another app route signed out keeps only Sign in: no platform links', async () => {
+    const { header } = await mount('/explore', false);
+    const seen = labels(header);
+    for (const link of APP_LINKS) expect(seen).toContain(link);
+    for (const link of MARKETING_LINKS) expect(seen).not.toContain(link);
+    expect(seen).toContain('Sign in');
+    expect(seen).not.toContain('Get started');
+    expect(header.querySelector('button[aria-controls="home-platform-menu"]')).toBeNull();
   });
 });
 
@@ -169,6 +222,7 @@ describe('the app header', () => {
   it.each([
     ['/', true],
     ['/explore', true],
+    ['/explore', false],
     ['/movies', true],
     ['/account/tickets', true],
     ['/account/profile', true],
@@ -187,7 +241,7 @@ describe('the app header', () => {
 
 describe('the storefront footer', () => {
   it('links the shop to the platform pages, since its header does not', async () => {
-    const { footer } = await mount('/events', false);
+    const { footer } = await mount('/', false);
     expect(footer.querySelector('a[href="/features"]')).not.toBeNull();
     expect(footer.querySelector('a[href="/organizers"]')).not.toBeNull();
     expect(footer.textContent).toContain(LEGAL_LINE);
