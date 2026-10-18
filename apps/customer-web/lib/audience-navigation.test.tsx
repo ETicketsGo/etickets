@@ -139,20 +139,34 @@ describe('the marketing header', () => {
     expect(header).not.toContain('>Sign in<');
   });
 
-  it('has no bottom bar or city bar under it; the home page keeps its bottom bar', async () => {
+  it('has no bottom bar or city bar under it; the signed-in home page keeps its bottom bar', async () => {
     const bottomBar = 'nav[aria-label="Primary"]';
     const features = await mount('/features', false);
     expect(features.host.querySelector(bottomBar)).toBeNull();
     expect(features.host.querySelectorAll('header')).toHaveLength(1);
     cleanup?.();
-    const home = await mount('/', false);
+    const anonHome = await mount('/', false);
+    expect(anonHome.host.querySelector(bottomBar)).toBeNull();
+    cleanup?.();
+    const home = await mount('/', true);
     expect(home.host.querySelector(bottomBar)).not.toBeNull();
+  });
+
+  it('is what an anonymous visitor sees on the home page', async () => {
+    // Owner, 2026-10-18: "Public visitor: Should see Features, Solutions, Pricing, For
+    // Organizers, For Attendees, and Sign in." The front door is public.
+    const { header } = await mount('/', false);
+    expect(header.dataset.nav).toBe('marketing');
+    const seen = labels(header);
+    for (const link of MARKETING_LINKS) expect(seen).toContain(link);
+    expect(seen).toContain('Sign in');
+    expect(seen).toContain('Get started');
+    for (const link of APP_LINKS) expect(seen).not.toContain(link);
   });
 });
 
 describe('the app header', () => {
   it.each([
-    ['/', false],
     ['/', true],
     ['/explore', true],
     ['/movies', true],
@@ -173,7 +187,7 @@ describe('the app header', () => {
 
 describe('the storefront footer', () => {
   it('links the shop to the platform pages, since its header does not', async () => {
-    const { footer } = await mount('/', false);
+    const { footer } = await mount('/events', false);
     expect(footer.querySelector('a[href="/features"]')).not.toBeNull();
     expect(footer.querySelector('a[href="/organizers"]')).not.toBeNull();
     expect(footer.textContent).toContain(LEGAL_LINE);

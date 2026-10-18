@@ -9,6 +9,7 @@ import { BottomNav } from '@/components/bottom-nav';
 import { InstallPrompt } from '@/components/install-prompt';
 import { MarketingFooter } from '@/components/marketing/footer';
 import { MarketingHeader } from '@/components/marketing/header';
+import { useShellAuth } from '@/lib/use-shell-auth';
 import { SiteFooter } from '@/components/site-footer';
 import { useTranslations } from 'next-intl';
 import { isTestEnvironment } from '@/lib/build-id';
@@ -27,17 +28,16 @@ import { isTestEnvironment } from '@/lib/build-id';
     - these routes: `MarketingHeader` (Features, Solutions, Pricing, For organizers, For
       attendees; Sign in / Get started, or Go to app and the account menu when signed in) and
       `MarketingFooter`. No city bar and no bottom bar: those are the shop's navigation.
-    - every other route, the home page included: the storefront `Header`, the city bar, the
-      bottom bar and `SiteFooter`.
+    - the home page: the marketing shell for an anonymous visitor, the app chrome once signed in.
+    - every other route: the storefront `Header`, the city bar, the bottom bar and `SiteFooter`.
   Both headers and the footer read the session from one hook (`useShellAuth`).
 */
 const MARKETING_EXACT = new Set([
   /*
-    `/` is deliberately NOT here any more.
-
-    The home page is the ticket shop, so it takes the app chrome everybody else gets: the
-    buyer header with its city context, the city suggestion bar, the bottom navigation on a
-    phone. The organizer pitch moved to `/sell` and keeps the marketing shell below.
+    `/` is not in this list because its shell depends on WHO is looking (see `marketing`
+    below): an anonymous visitor gets the marketing navigation (owner, 2026-10-18: "Public
+    visitor: Should see Features, Solutions, Pricing, For Organizers, For Attendees, and Sign
+    in"); a signed-in customer gets the ticket shop's navigation.
   */
   '/sell',
   '/features',
@@ -132,7 +132,13 @@ export function SiteChrome({
     backfillSessionHint();
   }, [pathname]);
 
-  const marketing = isMarketing(pathname);
+  const { authed } = useShellAuth(initialSignedIn);
+  /*
+    The home page is the one route whose navigation follows the audience, not the path: the
+    public front door for a visitor, the ticket shop for a signed-in customer. Read from the
+    same hook as both headers and the footer, so the four can never disagree.
+  */
+  const marketing = isMarketing(pathname) || (pathname === '/' && !authed);
   /*
     One answer for both footers and both environment markers. The literal
     `process.env.NEXT_PUBLIC_APP_ENV` is what Next inlines; read through a variable it would
