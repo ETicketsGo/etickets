@@ -3,7 +3,8 @@
 import { Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { ChevronLeft, MessageSquareWarning } from 'lucide-react';
-import { Card } from '@/components/ui';
+import { Panel } from '@/components/marketing/blocks';
+import { BRAND_WRAP, BrandPage } from '@/components/storefront-brand';
 import { FeedbackForm } from '@/components/feedback-form';
 import { Link } from '@/i18n/navigation';
 
@@ -27,40 +28,45 @@ import { Link } from '@/i18n/navigation';
  */
 export default function ComplaintPage() {
   return (
-    <div className="mx-auto max-w-xl space-y-5">
-      <Link
-        href="/help"
-        className="inline-flex items-center gap-1 text-caption text-text-muted transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-      >
-        <ChevronLeft className="h-4 w-4" />
-        Back to help center
-      </Link>
-      <div>
-        <h1 className="flex items-center gap-2 text-h2 font-bold tracking-tight text-text-primary">
-          <MessageSquareWarning className="h-6 w-6 text-status-warning" />
-          Make a complaint
-        </h1>
-        <p className="mt-1 text-[0.9375rem] text-text-muted">
-          Tell us what went wrong with an event you booked. We record it against the organizer, pass
-          it to the person they have named to answer complaints, and follow it up ourselves.
-        </p>
-      </div>
-      {/*
+    <BrandPage>
+      <div className={`${BRAND_WRAP} pt-8 lg:pt-14`}>
+        <div className="mx-auto max-w-xl space-y-5">
+          <Link
+            href="/help"
+            className="inline-flex min-h-11 items-center gap-1 rounded-sm text-brand-meta font-medium text-brand-ink-2 transition-colors hover:text-brand-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-focus focus-visible:ring-offset-2 focus-visible:ring-offset-brand-canvas"
+          >
+            <ChevronLeft aria-hidden className="h-4 w-4" />
+            Back to help center
+          </Link>
+          <div>
+            <h1 className="flex items-center gap-2 font-brand-display text-brand-d2 text-brand-ink">
+              <MessageSquareWarning className="h-6 w-6 text-brand-caution" />
+              Make a complaint
+            </h1>
+            <p className="mt-3 text-brand-ui text-brand-ink-2">
+              Tell us what went wrong with an event you booked. We record it against the organizer,
+              pass it to the person they have named to answer complaints, and follow it up
+              ourselves.
+            </p>
+          </div>
+          {/*
         The query string is read inside a boundary, not at the top of the page.
 
         `useSearchParams` opts a page out of being rendered ahead of time, and Next refuses to
         build one that reads it with nothing to show meanwhile. Everything above is the same for
         every visitor and is still prerendered; only the form waits for the URL.
       */}
-      <Suspense fallback={<Card>Loading the form...</Card>}>
-        <ComplaintFormCard />
-      </Suspense>
-      <p className="text-caption text-text-muted">
-        If your complaint is about money you are owed, ask for a refund from the booking instead -
-        that reaches the organizer straight away. A complaint is for when something was wrong with
-        the event itself, or when a refund has not been dealt with.
-      </p>
-    </div>
+          <Suspense fallback={<Panel>Loading the form...</Panel>}>
+            <ComplaintFormCard />
+          </Suspense>
+          <p className="text-brand-meta text-brand-ink-2">
+            If your complaint is about money you are owed, ask for a refund from the booking instead
+            - that reaches the organizer straight away. A complaint is for when something was wrong
+            with the event itself, or when a refund has not been dealt with.
+          </p>
+        </div>
+      </div>
+    </BrandPage>
   );
 }
 
@@ -69,9 +75,9 @@ function ComplaintFormCard() {
   const bookingId = params.get('booking') ?? undefined;
 
   return (
-    <Card>
+    <Panel>
       {bookingId && (
-        <p className="mb-4 text-caption text-text-muted">
+        <p className="mb-4 text-brand-meta text-brand-ink-2">
           This complaint is about the booking you came from, so you do not have to find its
           reference.
         </p>
@@ -85,6 +91,6 @@ function ComplaintFormCard() {
         messageLabel="What went wrong?"
         messagePlaceholder="Say what happened, when, and what you would like done about it."
       />
-    </Card>
+    </Panel>
   );
 }

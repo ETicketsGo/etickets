@@ -51,7 +51,7 @@ export function PolicyUpdated({
 }) {
   const policy = getApplicablePolicy(type, country);
   return (
-    <p className="text-[0.9375rem] text-text-secondary">
+    <p className="text-brand-ui text-brand-ink-2">
       Last updated {readableDate(policy.effectiveDate)}
     </p>
   );
@@ -62,7 +62,7 @@ export function BackToLegal() {
   return (
     <Link
       href="/legal"
-      className="inline-flex items-center gap-1.5 rounded-sm text-[0.9375rem] font-medium text-action-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+      className="inline-flex items-center gap-1.5 rounded-sm text-brand-ui font-medium text-brand-ink underline decoration-brand-line-strong underline-offset-4 hover:decoration-brand-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-focus focus-visible:ring-offset-2 focus-visible:ring-offset-brand-canvas"
     >
       <span aria-hidden>&larr;</span> Legal &amp; Policies
     </Link>
@@ -88,11 +88,11 @@ export function OperatorLine({ country }: { country?: PolicyJurisdiction | null 
   return (
     <p
       data-testid="operator-line"
-      className="border-t border-border pt-6 text-[0.875rem] text-text-secondary"
+      className="border-t border-brand-line pt-6 text-[0.875rem] text-brand-ink-2"
     >
       {operatorSentences(country).join(' ')}{' '}
       <Link
-        className="font-medium text-action-primary hover:underline"
+        className="font-medium text-brand-ink underline decoration-brand-line-strong underline-offset-4 hover:decoration-brand-ink"
         href={LEGAL_INFORMATION_HREF}
       >
         Company information
@@ -102,7 +102,10 @@ export function OperatorLine({ country }: { country?: PolicyJurisdiction | null 
         <>
           {' '}
           Questions about this document:{' '}
-          <a className="font-medium text-action-primary hover:underline" href={`mailto:${support}`}>
+          <a
+            className="font-medium text-brand-ink underline decoration-brand-line-strong underline-offset-4 hover:decoration-brand-ink"
+            href={`mailto:${support}`}
+          >
             {support}
           </a>
           .
@@ -122,14 +125,13 @@ export function OperatorLine({ country }: { country?: PolicyJurisdiction | null 
  * `max-w-[46rem]` is a reading measure, narrower than the marketing `max-w-3xl`: these pages
  * are long prose, and prose that runs the full width of a laptop is tiring to read.
  *
- * The background is explicit for the reason the contrast gate found earlier: the hero's
- * blurred backdrop has a bounding box that reaches past it, so text below needs a named
- * surface rather than an inherited one.
+ * No background of its own: the page sits in `BrandPage`, which paints the paper. (It used to
+ * name one because the old hero's blurred backdrop reached past it; that backdrop is gone.)
  */
 export function LegalDocument({ children }: { children: React.ReactNode }) {
   return (
-    <section className="bg-background-canvas pb-20 pt-8 sm:pb-28 sm:pt-10">
-      <div className="mx-auto w-full max-w-shell px-4 sm:px-6 lg:px-8">
+    <section className="pb-4 pt-8 sm:pt-10">
+      <div className="mx-auto w-full max-w-shell px-4 sm:px-6 lg:px-10">
         <div className="mx-auto max-w-[46rem] space-y-6">{children}</div>
       </div>
     </section>

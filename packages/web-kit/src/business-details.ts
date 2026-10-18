@@ -93,7 +93,11 @@ export function missingBusinessDetails(
  * problem it describes - and, more importantly, cannot be deleted while the problem remains.
  */
 export function needsPlaceholderNotice(details: BusinessDetails = BUSINESS_DETAILS): boolean {
-  return missingBusinessDetails(details).length > 0;
+  // Only the essentials decide it. The notice says the contact details AND legal terms are not
+  // published; once the operating company and a support address that receives mail are public
+  // (PR #425, for STPL/MSG91 DLT review), that sentence is false. Optional details that are
+  // still empty (phone, postal address, hours) are simply not shown, never invented.
+  return !canReachSupport(details);
 }
 
 /** Whether a customer could get help if a payment went wrong. */

@@ -8,6 +8,7 @@ import {
   BackToLegal,
 } from '@/components/legal/policy-chrome';
 import { resolveJurisdiction } from '@/lib/market';
+import { BrandPage } from '@/components/storefront-brand';
 
 /**
  * What this site stores on your device.
@@ -38,7 +39,7 @@ export default async function CookiesPage({
   const country = await resolveJurisdiction((await searchParams).country);
 
   return (
-    <>
+    <BrandPage>
       <PageHero eyebrow="Legal" title="Cookies" lead="What we store on your device, and why." />
       <LegalDocument>
         <BackToLegal />
@@ -87,6 +88,6 @@ export default async function CookiesPage({
         </Prose>
         <OperatorLine country={country} />
       </LegalDocument>
-    </>
+    </BrandPage>
   );
 }
