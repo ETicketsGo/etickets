@@ -6,20 +6,28 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useRouter } from '@/i18n/navigation';
 import { CalendarDays, MessageSquareWarning, Receipt } from 'lucide-react';
 import {
-  Button,
-  Card,
-  EmptyState,
-  Skeleton,
-  StatusBadge,
-  Textarea,
+  BRAND_FOCUS,
+  BrandButton,
   api as webKit,
+  brandButtonClasses,
   errorMessage,
   useToast,
 } from '@eticketsgo/web-kit';
 import { api, tokenStore } from '@/lib/api';
 import { useFormat } from '@/lib/format';
 import { PriceBreakdown } from '@/components/price-breakdown';
-import { ButtonLink, Drawer, ErrorState } from '@/components/ui';
+import { Drawer } from '@/components/ui';
+import {
+  ACCOUNT_PANEL,
+  AccountHeading,
+  AccountPage,
+  AccountStatusPill,
+  BrandError,
+  BrandTextareaField,
+} from '@/components/account-brand';
+import { BRAND_EYEBROW, BRAND_LINK } from '@/components/booking-brand';
+import { Placeholder } from '@/components/home/parts';
+import { BrandEmpty } from '@/components/storefront-brand';
 import { useTranslations } from 'next-intl';
 import { useMounted } from '@/lib/use-mounted';
 import { useStatusLabel } from '@/lib/status-label';
@@ -44,6 +52,19 @@ const OPEN_REFUND_STATUSES = ['REQUESTED', 'APPROVED', 'PROCESSING'];
   nothing shows it to the buyer or the organizer.
 */
 const FREE_CANCEL_REASON = 'Free tickets cancelled by the buyer';
+
+/** A quiet sunken box inside the drawer: an offer, or a request already on its way. */
+const DRAWER_NOTE = 'rounded-brand-card bg-brand-sunken p-4';
+
+/** A danger action in brand tokens: critical on its tint, words always. */
+const DANGER_BUTTON = `inline-flex h-11 items-center justify-center gap-2 rounded-brand-control bg-brand-critical px-5 text-brand-ui font-semibold text-brand-surface transition-opacity duration-150 hover:opacity-90 disabled:pointer-events-none disabled:opacity-50 ${BRAND_FOCUS}`;
+
+/*
+  My bookings on the brand layer (docs/design/DESIGN-SYSTEM.md): each booking as a flat white
+  panel on paper with its state as a word in a pill, and the drawer's insides in brand tokens.
+  It was grey with shadowed cards that lifted on hover, blue outline buttons and the kit's
+  coloured badges. The same list, paging, past toggle, drawer, refund and cancel rules.
+*/
 
 export default function BookingsPage() {
   const n = useTranslations('common.nav');
@@ -158,21 +179,16 @@ export default function BookingsPage() {
   const b = detail.data;
 
   return (
-    <>
+    <AccountPage spaced={false}>
       <div className="space-y-8">
-        <div>
-          <h1 className="text-h2 font-bold tracking-tight text-text-primary">
-            {a('bookingsHeading')}
-          </h1>
-          <p className="mt-1.5 text-[0.9375rem] text-text-muted">{a('bookingsLead')}</p>
-        </div>
+        <AccountHeading title={a('bookingsHeading')} lead={a('bookingsLead')} />
 
         {list.isError ? (
-          <ErrorState message={a('bookingsLoadError')} onRetry={() => list.refetch()} />
+          <BrandError message={a('bookingsLoadError')} onRetry={() => list.refetch()} />
         ) : !mounted || list.isLoading ? (
-          <div className="space-y-3">
+          <div className="space-y-3" aria-busy="true">
             {Array.from({ length: 3 }).map((_, i) => (
-              <Skeleton key={i} className="h-20 w-full" />
+              <Placeholder key={i} className="h-24 w-full" />
             ))}
           </div>
         ) : rows.length > 0 ? (
@@ -183,20 +199,20 @@ export default function BookingsPage() {
           */}
             {past.length > 0 && (
               <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-                <p className="text-caption text-text-muted" role="status">
+                <p className="text-brand-meta text-brand-ink-2" role="status">
                   {showPast ? '' : a('pastBookingsHidden', { count: past.length })}
                 </p>
-                <Button
-                  variant="outline"
+                <BrandButton
+                  variant="secondary"
                   aria-pressed={showPast}
                   onClick={() => setShowPast((v) => !v)}
                 >
                   {showPast ? a('hidePastBookings') : a('showPastBookings')}
-                </Button>
+                </BrandButton>
               </div>
             )}
             {visible.length === 0 && (
-              <p className="text-text-secondary">{a('noCurrentBookings')}</p>
+              <p className="text-brand-ui text-brand-ink-2">{a('noCurrentBookings')}</p>
             )}
             {/*
             A card with one control that opens it, not a button wrapping the whole card.
@@ -210,20 +226,20 @@ export default function BookingsPage() {
             {visible.map((row) => (
               <div
                 key={row.id}
-                className="relative flex w-full items-center justify-between gap-4 rounded-lg border border-border bg-background-surface p-5 text-left shadow-sm transition-all focus-within:ring-2 focus-within:ring-ring/50 hover:-translate-y-0.5 hover:shadow-md"
+                className={`relative flex w-full items-center justify-between gap-4 ${ACCOUNT_PANEL} p-5 text-left transition-colors duration-150 focus-within:ring-2 focus-within:ring-brand-focus focus-within:ring-offset-2 focus-within:ring-offset-brand-canvas hover:border-brand-ink-3`}
               >
                 <div className="min-w-0">
-                  <p className="font-semibold text-text-primary">
+                  <p className="font-brand-display text-brand-card text-brand-ink">
                     <button
                       type="button"
                       onClick={() => setSelectedId(row.id)}
-                      className="block w-full truncate text-left after:absolute after:inset-0 after:rounded-lg after:content-[''] focus-visible:outline-none"
+                      className="block w-full truncate text-left after:absolute after:inset-0 after:rounded-brand-card after:content-[''] focus-visible:outline-none"
                     >
                       {row.event.title}
                     </button>
                   </p>
-                  <p className="mt-1 flex items-center gap-1.5 text-caption text-text-muted">
-                    <CalendarDays className="h-3.5 w-3.5" aria-hidden />
+                  <p className="mt-1 flex items-center gap-1.5 text-brand-meta tabular-nums text-brand-ink-2">
+                    <CalendarDays className="h-3.5 w-3.5 shrink-0" aria-hidden />
                     {/*
                     The venue's clock, named, as in the drawer. This row used the reader's browser
                     zone, so on QA it printed a different time from the drawer it opens.
@@ -235,31 +251,42 @@ export default function BookingsPage() {
                     {ticketCount(row) && ` - ${ticketCount(row)}`}
                   </p>
                   {row.reference && (
-                    <p className="relative z-10 mt-1 w-fit text-caption text-text-muted">
+                    <p className="relative z-10 mt-1 w-fit text-brand-meta text-brand-ink-2">
                       <ReferenceCode value={row.reference} label={c('bookingReference')} />
                     </p>
                   )}
                 </div>
-                <StatusBadge status={row.status} label={statusLabel('booking', row.status)} />
+                <span className="shrink-0">
+                  <AccountStatusPill
+                    status={row.status}
+                    label={statusLabel('booking', row.status)}
+                  />
+                </span>
               </div>
             ))}
             {list.hasNextPage && (
-              <Button
-                variant="outline"
+              <BrandButton
+                variant="secondary"
                 className="w-full"
-                loading={list.isFetchingNextPage}
+                aria-busy={list.isFetchingNextPage || undefined}
+                disabled={list.isFetchingNextPage}
                 onClick={() => void list.fetchNextPage()}
               >
                 {a('loadOlderBookings')}
-              </Button>
+              </BrandButton>
             )}
           </div>
         ) : (
-          <EmptyState
+          <BrandEmpty
             title={a('noBookingsTitle')}
             hint={a('noBookingsHint')}
-            icon={Receipt}
-            action={<ButtonLink href="/events">{n('browseEvents')}</ButtonLink>}
+            headingLevel="h2"
+            action={
+              <Link href="/events" className={brandButtonClasses('primary', 'md')}>
+                <Receipt className="h-4 w-4" aria-hidden />
+                {n('browseEvents')}
+              </Link>
+            }
           />
         )}
       </div>
@@ -271,28 +298,28 @@ export default function BookingsPage() {
       */}
       <Drawer open={!!selectedId} onClose={closeDrawer} title={a('bookingDetails')}>
         {detail.isError ? (
-          <ErrorState message={a('detailsLoadError')} onRetry={() => detail.refetch()} />
+          <BrandError message={a('detailsLoadError')} onRetry={() => detail.refetch()} />
         ) : detail.isLoading || !b ? (
-          <Skeleton className="h-64 w-full" />
+          <Placeholder className="h-64 w-full" />
         ) : (
-          <div className="space-y-5">
+          <div className="space-y-5 font-brand-text text-brand-ink">
             <div>
               <div className="flex items-center justify-between gap-2">
-                <p className="font-semibold text-text-primary">{b.event.title}</p>
-                <StatusBadge status={b.status} label={statusLabel('booking', b.status)} />
+                <p className="font-brand-display text-brand-card text-brand-ink">{b.event.title}</p>
+                <AccountStatusPill status={b.status} label={statusLabel('booking', b.status)} />
               </div>
-              <p className="mt-1 text-[0.9375rem] text-text-muted">
+              <p className="mt-1 text-brand-ui tabular-nums text-brand-ink-2">
                 {/* The cinema's clock, named — see the API comment on `timeZone`. */}
                 {dateTime(b.eventSession.startsAt, undefined, b.timeZone ?? undefined)}
                 {b.timeZone ? (
-                  <span className="text-text-muted">
+                  <span className="text-brand-ink-2">
                     {' '}
                     ({zoneAbbrev(b.eventSession.startsAt, b.timeZone)})
                   </span>
                 ) : null}
               </p>
               {b.reference && (
-                <p className="mt-1 font-mono text-caption text-text-muted">
+                <p className="mt-1 font-mono text-brand-meta text-brand-ink-2">
                   {a('reference', { reference: b.reference })}
                 </p>
               )}
@@ -305,8 +332,9 @@ export default function BookingsPage() {
               GST on them: ₹499 + ₹20.18 under "Total paid ₹522.82". Two numbers that do not add
               up to the third, on the screen where somebody checks what they were charged.
             */}
-            <Card className="p-4 [&>div]:border-t-0 [&>div]:pt-0">
+            <div className={`${ACCOUNT_PANEL} p-4 [&>div]:border-t-0 [&>div]:pt-0`}>
               <PriceBreakdown
+                brand
                 quote={{
                   currency: b.currency,
                   subtotalMinor: b.subtotalMinor,
@@ -326,10 +354,10 @@ export default function BookingsPage() {
                 totalLabel={c('totalPaid')}
                 note={null}
               />
-            </Card>
+            </div>
 
             <div>
-              <p className="mb-2 text-caption font-semibold uppercase tracking-wide text-text-muted">
+              <p className={`mb-2 ${BRAND_EYEBROW}`}>
                 {a('ticketsList', { count: b.tickets.length })}
               </p>
               <ul className="space-y-1.5">
@@ -344,9 +372,9 @@ export default function BookingsPage() {
                 {b.tickets.map((t) => (
                   <li
                     key={t.id}
-                    className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2 text-[0.9375rem]"
+                    className="flex items-center justify-between gap-3 rounded-brand-control border border-brand-line bg-brand-surface px-3 py-2 text-brand-ui"
                   >
-                    <span className="min-w-0 text-text-primary">
+                    <span className="min-w-0 text-brand-ink">
                       {t.seatLabel ? (
                         <>
                           {w('seat')} <strong>{t.seatLabel}</strong>
@@ -355,10 +383,10 @@ export default function BookingsPage() {
                         (t.ticketTypeName ?? w('generalAdmission'))
                       )}
                       {t.seatLabel && t.ticketTypeName ? (
-                        <span className="text-text-muted"> - {t.ticketTypeName}</span>
+                        <span className="text-brand-ink-2"> - {t.ticketTypeName}</span>
                       ) : null}
                     </span>
-                    <StatusBadge status={t.status} label={statusLabel('ticket', t.status)} />
+                    <AccountStatusPill status={t.status} label={statusLabel('ticket', t.status)} />
                   </li>
                 ))}
               </ul>
@@ -367,17 +395,20 @@ export default function BookingsPage() {
             {/* Existing refunds */}
             {refunds.data && refunds.data.length > 0 && (
               <div>
-                <p className="mb-2 text-caption font-semibold uppercase tracking-wide text-text-muted">
-                  {a('refundsHeading')}
-                </p>
+                <p className={`mb-2 ${BRAND_EYEBROW}`}>{a('refundsHeading')}</p>
                 <ul className="space-y-1.5">
                   {refunds.data.map((r) => (
                     <li
                       key={r.id}
-                      className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-[0.9375rem]"
+                      className="flex items-center justify-between gap-3 rounded-brand-control border border-brand-line bg-brand-surface px-3 py-2 text-brand-ui"
                     >
-                      <span className="text-text-primary">{money(r.amountMinor, b.currency)}</span>
-                      <StatusBadge status={r.status} label={statusLabel('refund', r.status)} />
+                      <span className="tabular-nums text-brand-ink">
+                        {money(r.amountMinor, b.currency)}
+                      </span>
+                      <AccountStatusPill
+                        status={r.status}
+                        label={statusLabel('refund', r.status)}
+                      />
                     </li>
                   ))}
                 </ul>
@@ -409,41 +440,42 @@ export default function BookingsPage() {
                   and a modal over a modal fights it for focus and for Escape.
                 */
                 return (
-                  <div className="rounded-lg border border-border bg-background-subtle/50 p-4">
-                    <p className="font-medium text-text-primary">{a('unpaidTitle')}</p>
-                    <p className="mt-1 text-caption text-text-muted">{a('unpaidBody')}</p>
+                  <div className={DRAWER_NOTE}>
+                    <p className="font-semibold text-brand-ink">{a('unpaidTitle')}</p>
+                    <p className="mt-1 text-brand-meta text-brand-ink-2">{a('unpaidBody')}</p>
                     {confirmingCancel ? (
                       <div className="mt-3 space-y-2">
-                        <p className="text-[0.9375rem] text-text-primary">
+                        <p className="text-brand-ui text-brand-ink">
                           {a('confirmCancelBookingTitle')}
                         </p>
                         <div className="flex flex-wrap gap-2">
-                          <Button
-                            variant="outline"
+                          <BrandButton
+                            variant="secondary"
                             className="flex-1"
                             disabled={cancelBooking.isPending}
                             onClick={() => setConfirmingCancel(false)}
                           >
                             {a('keepBooking')}
-                          </Button>
-                          <Button
-                            variant="danger"
-                            className="flex-1"
-                            loading={cancelBooking.isPending}
+                          </BrandButton>
+                          <button
+                            type="button"
+                            className={`${DANGER_BUTTON} flex-1`}
+                            aria-busy={cancelBooking.isPending || undefined}
+                            disabled={cancelBooking.isPending}
                             onClick={() => cancelBooking.mutate()}
                           >
                             {a('confirmCancelBooking')}
-                          </Button>
+                          </button>
                         </div>
                       </div>
                     ) : (
-                      <Button
-                        variant="outline"
+                      <BrandButton
+                        variant="secondary"
                         className="mt-3 w-full"
                         onClick={() => setConfirmingCancel(true)}
                       >
                         {a('cancelBooking')}
-                      </Button>
+                      </BrandButton>
                     )}
                   </div>
                 );
@@ -459,9 +491,9 @@ export default function BookingsPage() {
 
               if (openRefund) {
                 return (
-                  <div className="rounded-lg border border-border bg-background-subtle/50 p-4">
-                    <p className="font-medium text-text-primary">{a('refundRequestedTitle')}</p>
-                    <p className="mt-1 text-caption text-text-muted">
+                  <div className={DRAWER_NOTE}>
+                    <p className="font-semibold text-brand-ink">{a('refundRequestedTitle')}</p>
+                    <p className="mt-1 text-brand-meta text-brand-ink-2">
                       {a('refundRequestedBody', {
                         amount: money(openRefund.amountMinor, b.currency),
                       })}
@@ -471,9 +503,9 @@ export default function BookingsPage() {
               }
               if (!offered && REFUNDABLE.includes(b.status) && hasActive) {
                 return (
-                  <div className="rounded-lg border border-border bg-background-subtle/50 p-4">
-                    <p className="font-medium text-text-primary">{a('refundsNotOffered')}</p>
-                    <p className="mt-1 text-caption text-text-muted">
+                  <div className={DRAWER_NOTE}>
+                    <p className="font-semibold text-brand-ink">{a('refundsNotOffered')}</p>
+                    <p className="mt-1 text-brand-meta text-brand-ink-2">
                       {a('refundsNotOfferedBody')}
                       {b.event.title ? ` ${a('contactOrganizer')}` : ''}
                     </p>
@@ -482,32 +514,35 @@ export default function BookingsPage() {
               }
               if (!canAsk) return null;
               return (
-                <div className="rounded-lg border border-border bg-background-subtle/50 p-4">
-                  <p className="font-medium text-text-primary">
+                <div className={DRAWER_NOTE}>
+                  <p className="font-semibold text-brand-ink">
                     {free ? a('cancelTickets') : a('requestRefund')}
                   </p>
-                  <p className="mt-1 text-caption text-text-muted">
+                  <p className="mt-1 text-brand-meta text-brand-ink-2">
                     {free ? a('cancelTicketsBody') : a('refundEligibility')}
                   </p>
-                  <Textarea
-                    id="reason"
-                    // The placeholder is not a name: it vanishes once somebody types.
-                    aria-label={a('refundReasonLabel')}
-                    className="mt-3"
-                    rows={3}
-                    placeholder={free ? a('cancelReasonPlaceholder') : a('refundReasonPlaceholder')}
-                    value={reason}
-                    onChange={(e) => setReason(e.target.value)}
-                  />
-                  <Button
-                    variant="danger"
-                    className="mt-3 w-full"
-                    loading={requestRefund.isPending}
-                    disabled={!free && reason.trim().length < 3}
+                  <div className="mt-3">
+                    <BrandTextareaField
+                      id="reason"
+                      // The placeholder is not a name: it vanishes once somebody types.
+                      aria-label={a('refundReasonLabel')}
+                      rows={3}
+                      placeholder={
+                        free ? a('cancelReasonPlaceholder') : a('refundReasonPlaceholder')
+                      }
+                      value={reason}
+                      onChange={(e) => setReason(e.target.value)}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    className={`${DANGER_BUTTON} mt-3 w-full`}
+                    aria-busy={requestRefund.isPending || undefined}
+                    disabled={requestRefund.isPending || (!free && reason.trim().length < 3)}
                     onClick={() => requestRefund.mutate({ free })}
                   >
                     {free ? a('cancelTickets') : a('requestRefundButton')}
-                  </Button>
+                  </button>
                 </div>
               );
             })()}
@@ -526,7 +561,7 @@ export default function BookingsPage() {
             */}
             <Link
               href={`/help/complaint?booking=${b.id}`}
-              className="inline-flex items-center gap-1.5 text-[0.9375rem] text-text-muted underline-offset-4 transition-colors hover:text-text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+              className={`inline-flex min-h-11 items-center gap-1.5 text-brand-ui ${BRAND_LINK}`}
             >
               <MessageSquareWarning className="h-4 w-4" aria-hidden />
               {a('reportProblem')}
@@ -534,6 +569,6 @@ export default function BookingsPage() {
           </div>
         )}
       </Drawer>
-    </>
+    </AccountPage>
   );
 }

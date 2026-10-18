@@ -1,11 +1,14 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { FileText } from 'lucide-react';
 import { useState } from 'react';
 import { api } from '@/lib/api';
 import { useFormat } from '@/lib/format';
-import { Button, Card, EmptyState, ErrorState, Skeleton, useToast } from '@/components/ui';
+import { useToast } from '@/components/ui';
+import { BrandButton } from '@eticketsgo/web-kit';
+import { ACCOUNT_PANEL, AccountHeading, AccountPage, BrandError } from '@/components/account-brand';
+import { Placeholder } from '@/components/home/parts';
+import { BrandEmpty } from '@/components/storefront-brand';
 import { SignInRequired, isAuthFailure, useSignedIn } from '@/components/sign-in-required';
 
 /**
@@ -20,6 +23,9 @@ import { SignInRequired, isAuthFailure, useSignedIn } from '@/components/sign-in
  * People need these after the fact and for unglamorous reasons: an expense claim weeks later,
  * a reimbursement, an accountant asking in April. "Find the email" is not an answer when the
  * email is the thing that was lost.
+ *
+ * On the brand layer (docs/design/DESIGN-SYSTEM.md): each document is a flat white panel on
+ * paper with its amount in tabular figures and a hairline Open button. Same list, same words.
  */
 const KIND_LABEL: Record<string, string> = {
   RECEIPT: 'Receipt',
@@ -66,13 +72,11 @@ export default function ReceiptsPage() {
   const rows = data?.items ?? [];
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-h3 font-bold tracking-tight text-text-primary">Receipts</h1>
-        <p className="mt-1 text-[0.9375rem] text-text-muted">
-          Every receipt and invoice for your bookings. Open one to print it or save it as a PDF.
-        </p>
-      </div>
+    <AccountPage>
+      <AccountHeading
+        title="Receipts"
+        lead="Every receipt and invoice for your bookings. Open one to print it or save it as a PDF."
+      />
 
       {signedIn === false || isAuthFailure(error) ? (
         /* Same correction as the notification settings: no session is not a broken page. */
@@ -81,52 +85,57 @@ export default function ReceiptsPage() {
           description="Your receipts and invoices are part of your ETicketsGo account."
         />
       ) : isError ? (
-        <ErrorState message="We couldn't load your receipts. Please try again." onRetry={refetch} />
+        <BrandError
+          message="We couldn't load your receipts. Please try again."
+          onRetry={() => void refetch()}
+        />
       ) : isLoading ? (
-        <div className="space-y-3">
+        <div className="space-y-3" aria-busy="true">
           {Array.from({ length: 3 }).map((_unused, i) => (
-            <Skeleton key={i} className="h-24 w-full" />
+            <Placeholder key={i} className="h-24 w-full" />
           ))}
         </div>
       ) : rows.length === 0 ? (
-        <EmptyState
+        <BrandEmpty
           title="No receipts yet"
           hint="A receipt is issued when a booking is confirmed, and it will appear here."
-          icon={FileText}
+          headingLevel="h2"
         />
       ) : (
         <ul className="space-y-3">
           {rows.map((r) => (
             <li key={r.id}>
-              <Card className="flex flex-wrap items-center justify-between gap-4 p-4">
+              <div
+                className={`flex flex-wrap items-center justify-between gap-4 ${ACCOUNT_PANEL} p-4 sm:p-5`}
+              >
                 <div className="min-w-0">
-                  <p className="truncate font-semibold text-text-primary">
+                  <p className="truncate font-brand-display text-brand-card text-brand-ink">
                     {r.booking.event.title}
                   </p>
-                  <p className="mt-1 text-caption text-text-muted">
+                  <p className="mt-1 text-brand-meta text-brand-ink-2">
                     {KIND_LABEL[r.kind] ?? r.kind} {r.number} - {dateOnly(r.issuedAt)}
                     {r.booking.reference && ` - ${r.booking.reference}`}
                   </p>
                 </div>
                 <div className="flex items-center gap-3">
                   {/* The currency is the booking's, never a default — see `money`. */}
-                  <span className="tabular-nums font-semibold text-text-primary">
+                  <span className="text-brand-ui font-semibold tabular-nums text-brand-ink">
                     {money(r.totalMinor, r.currency)}
                   </span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    loading={opening === r.id}
+                  <BrandButton
+                    variant="secondary"
+                    aria-busy={opening === r.id || undefined}
+                    disabled={opening === r.id}
                     onClick={() => open(r.id)}
                   >
                     Open
-                  </Button>
+                  </BrandButton>
                 </div>
-              </Card>
+              </div>
             </li>
           ))}
         </ul>
       )}
-    </div>
+    </AccountPage>
   );
 }

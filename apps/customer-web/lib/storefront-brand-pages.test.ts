@@ -43,6 +43,25 @@ const BRAND_FILES = [
   'components/reviews/rate-movie-panel.tsx',
   'components/reviews/rating-summary.tsx',
   'components/reviews/recent-reviews.tsx',
+  // The rest of the account (workstream U2): the owner saw a booking's tickets page in the old
+  // design next to the single ticket page #400 had already moved.
+  'app/[locale]/account/page.tsx',
+  'app/[locale]/account/profile/page.tsx',
+  'app/[locale]/account/bookings/page.tsx',
+  'app/[locale]/account/bookings/[bookingId]/tickets/page.tsx',
+  'app/[locale]/account/bookings/[bookingId]/tickets/print/page.tsx',
+  'app/[locale]/account/receipts/page.tsx',
+  'app/[locale]/account/saved/page.tsx',
+  'app/[locale]/account/following/page.tsx',
+  'app/[locale]/account/notifications/page.tsx',
+  'app/[locale]/account/notification-settings/page.tsx',
+  'app/[locale]/account/become-organizer/page.tsx',
+  'components/account-brand.tsx',
+  'components/event-day-mode.tsx',
+  'components/share-dialog.tsx',
+  'components/assign-attendee-dialog.tsx',
+  'components/push-toggle.tsx',
+  'components/sign-in-required.tsx',
 ];
 
 /** The pages themselves, which must each put themselves on the brand layer. */
@@ -80,8 +99,17 @@ function brandNames(): { colours: Set<string>; sizes: Set<string> } {
 }
 
 describe('Explore, Movies, the film page and My tickets are on the brand layer', () => {
+  /*
+    A page is on the layer when it renders BrandPage, or the account pages' AccountPage (which
+    is BrandPage with the account column inside), or - for the print sheet, which has no app
+    shell to take padding back from - sets `data-brand="customer"` itself.
+  */
   it.each(PAGES)('%s puts itself on the brand layer', (file) => {
-    expect(read(file)).toMatch(/<BrandPage>/);
+    expect(read(file)).toMatch(/<BrandPage>|<AccountPage[\s>]|data-brand="customer"/);
+  });
+
+  it('AccountPage is BrandPage underneath', () => {
+    expect(read('components/account-brand.tsx')).toMatch(/<BrandPage>/);
   });
 
   it.each(BRAND_FILES)('%s uses none of the old system', (file) => {

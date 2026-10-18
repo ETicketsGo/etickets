@@ -4,10 +4,18 @@ import { useQueries } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { BadgeCheck, ChevronRight, Users } from 'lucide-react';
+import { BRAND_FOCUS, brandButtonClasses } from '@eticketsgo/web-kit';
 import { api, type OrganizerProfile } from '@/lib/api';
 import { useFormat } from '@/lib/format';
-import { ButtonLink, EmptyState, ErrorState } from '@/components/ui';
 import { Link } from '@/i18n/navigation';
+import { ACCOUNT_PANEL, AccountHeading, AccountPage, BrandError } from '@/components/account-brand';
+import { Placeholder } from '@/components/home/parts';
+import { BrandEmpty } from '@/components/storefront-brand';
+
+/*
+  Followed organizers on the brand layer: each a flat white panel on paper with the
+  organizer's initial on an ink disc. It was a shadowed card with a blue tile. Same list.
+*/
 
 const FOLLOW_KEY = 'etg_following';
 
@@ -26,25 +34,31 @@ function OrganizerCard({ org }: { org: OrganizerProfile }) {
   return (
     <Link
       href={`/organizers/${org.id}`}
-      className="group flex items-center gap-4 rounded-lg border border-border bg-background-surface p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
+      className={`group flex items-center gap-4 ${ACCOUNT_PANEL} p-5 transition-colors duration-150 hover:border-brand-ink-3 ${BRAND_FOCUS}`}
     >
-      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-action-primary text-title font-bold text-action-primary-foreground shadow-sm">
+      <div
+        aria-hidden
+        className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-brand-action font-brand-display text-brand-d3 text-brand-on-action"
+      >
         {org.name.charAt(0)}
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
-          <p className="truncate font-semibold text-text-primary group-hover:text-action-primary">
+          <p className="truncate font-brand-display text-brand-card text-brand-ink group-hover:underline group-hover:underline-offset-4">
             {org.name}
           </p>
           {org.verified && (
-            <BadgeCheck className="h-4 w-4 shrink-0 text-status-info" aria-label={t('verified')} />
+            <BadgeCheck className="h-4 w-4 shrink-0 text-brand-info" aria-label={t('verified')} />
           )}
         </div>
-        <p className="mt-0.5 truncate text-caption text-text-muted">
+        <p className="mt-0.5 truncate text-brand-meta text-brand-ink-2">
           {t('since', { date: dateOnly(org.memberSince), count: org.eventCount })}
         </p>
       </div>
-      <ChevronRight className="h-4 w-4 shrink-0 text-text-muted transition-transform group-hover:translate-x-0.5" />
+      <ChevronRight
+        aria-hidden
+        className="h-4 w-4 shrink-0 text-brand-ink-3 transition-transform duration-150 motion-safe:group-hover:translate-x-0.5"
+      />
     </Link>
   );
 }
@@ -68,32 +82,31 @@ export default function FollowingPage() {
   const organizers = results.map((r) => r.data).filter((o): o is OrganizerProfile => Boolean(o));
 
   const empty = (
-    <EmptyState
+    <BrandEmpty
       title={t('emptyTitle')}
       hint={t('emptyHint')}
-      icon={Users}
-      action={<ButtonLink href="/events">{w('browseEvents')}</ButtonLink>}
+      headingLevel="h2"
+      action={
+        <Link href="/events" className={brandButtonClasses('primary', 'md')}>
+          <Users className="h-4 w-4" aria-hidden />
+          {w('browseEvents')}
+        </Link>
+      }
     />
   );
 
   return (
-    <div className="space-y-8">
-      <div>
-        <h1 className="text-h2 font-bold tracking-tight text-text-primary">{t('heading')}</h1>
-        <p className="mt-1.5 text-[0.9375rem] text-text-muted">{t('lead')}</p>
-      </div>
+    <AccountPage>
+      <AccountHeading title={t('heading')} lead={t('lead')} />
 
       {ids !== null && ids.length === 0 ? (
         empty
       ) : allErrored ? (
-        <ErrorState message={t('loadError')} onRetry={() => results.forEach((r) => r.refetch())} />
+        <BrandError message={t('loadError')} onRetry={() => results.forEach((r) => r.refetch())} />
       ) : loading ? (
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-2" aria-busy="true">
           {Array.from({ length: ids?.length || 4 }).map((_, i) => (
-            <div
-              key={i}
-              className="h-24 animate-pulse rounded-lg border border-border bg-background-subtle"
-            />
+            <Placeholder key={i} className="h-24 w-full" />
           ))}
         </div>
       ) : organizers.length > 0 ? (
@@ -105,6 +118,6 @@ export default function FollowingPage() {
       ) : (
         empty
       )}
-    </div>
+    </AccountPage>
   );
 }

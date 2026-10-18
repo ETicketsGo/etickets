@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useCity, visitorCountry } from '@eticketsgo/web-kit';
 import { Input, Select } from '@/components/ui';
+import { BrandSelectField, BrandTextField } from '@/components/account-brand';
 import {
   PHONE_COUNTRIES,
   isPhoneCountry,
@@ -88,6 +89,7 @@ export function PhoneNumberField({
   error,
   onEdit,
   countryOnly = false,
+  brand = false,
 }: {
   phone: PhoneNumberState;
   ids: { country: string; number: string };
@@ -101,7 +103,15 @@ export function PhoneNumberField({
   onEdit?: () => void;
   /** Only the country select, for a moment when no number can be used. */
   countryOnly?: boolean;
+  /**
+   * Draw the two fields in brand tokens, for a page inside `data-brand="customer"` (the account
+   * pages). The same fields, ids, labels and behaviour; only the classes differ. Sign-in keeps
+   * the kit's fields until the auth pages move.
+   */
+  brand?: boolean;
 }) {
+  const CountrySelect = brand ? BrandSelectField : Select;
+  const NumberInput = brand ? BrandTextField : Input;
   return (
     <div
       className={
@@ -110,7 +120,7 @@ export function PhoneNumberField({
           : 'grid grid-cols-1 gap-3 sm:grid-cols-[11rem_minmax(0,1fr)]'
       }
     >
-      <Select
+      <CountrySelect
         id={ids.country}
         label={countryLabel}
         value={phone.country}
@@ -126,9 +136,9 @@ export function PhoneNumberField({
             {c.name} +{c.callingCode}
           </option>
         ))}
-      </Select>
+      </CountrySelect>
       {!countryOnly && (
-        <Input
+        <NumberInput
           id={ids.number}
           label={label}
           type="tel"

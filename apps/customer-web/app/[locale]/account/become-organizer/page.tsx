@@ -4,10 +4,23 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useRouter } from '@/i18n/navigation';
-import { MARKETS, api as wk, marketFor, tokenStore, useAuthUser } from '@eticketsgo/web-kit';
-import { Select } from '@/components/ui';
-import { Button, Card, Input } from '@/components/ui';
+import {
+  BrandButton,
+  MARKETS,
+  api as wk,
+  brandButtonClasses,
+  marketFor,
+  tokenStore,
+  useAuthUser,
+} from '@eticketsgo/web-kit';
 import { ApiRequestError } from '@/lib/api';
+import {
+  ACCOUNT_PANEL,
+  AccountPage,
+  BrandSelectField,
+  BrandTextField,
+} from '@/components/account-brand';
+import { BRAND_LINK } from '@/components/booking-brand';
 import { Link } from '@/i18n/navigation';
 import { useMounted } from '@/lib/use-mounted';
 
@@ -30,6 +43,9 @@ const ORGANIZER_URL = process.env.NEXT_PUBLIC_ORGANIZER_URL ?? 'http://localhost
  * Creating the organization on the side that actually holds the session breaks that. The one
  * remaining step is a genuine sign-in on the other origin — which now succeeds, because by
  * then the account really is an organizer.
+ *
+ * On the brand layer: one flat white panel on paper with the brand's fields and an ink button.
+ * Same fields, same ids, same order, same rules and the same link out to the console.
  */
 export default function BecomeOrganizerPage() {
   const t = useTranslations('storefront.becomeOrganizer');
@@ -101,134 +117,140 @@ export default function BecomeOrganizerPage() {
 
   if (created || (mine.data && mine.data.length > 0)) {
     return (
-      <Card className="mx-auto max-w-sm space-y-4">
-        <h1 className="text-h2 font-bold text-text-primary">
-          {created ? t('readyTitle') : t('alreadyTitle')}
-        </h1>
-        <p className="text-caption text-text-muted">{t('separateSignIn')}</p>
-        {/* A plain anchor, not next/link: this leaves the app for a different origin, and a
+      <AccountPage width="narrow">
+        <div className={`${ACCOUNT_PANEL} space-y-4 p-6 sm:p-8`}>
+          <h1 className="text-balance font-brand-display text-brand-d2 text-brand-ink">
+            {created ? t('readyTitle') : t('alreadyTitle')}
+          </h1>
+          <p className="text-brand-ui text-brand-ink-2">{t('separateSignIn')}</p>
+          {/* A plain anchor, not next/link: this leaves the app for a different origin, and a
             client-side navigation would not carry the session there anyway. */}
-        <a
-          href={consoleHref}
-          data-testid="open-organizer-console"
-          className="inline-flex w-full items-center justify-center rounded-md bg-action-primary px-4 py-2 font-medium text-action-primary-foreground transition-colors hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2"
-        >
-          {t('openConsole')}
-        </a>
-        {created ? <p className="text-caption text-text-muted">{t('reviewNote')}</p> : null}
-      </Card>
+          <a
+            href={consoleHref}
+            data-testid="open-organizer-console"
+            className={`${brandButtonClasses('primary', 'md')} w-full`}
+          >
+            {t('openConsole')}
+          </a>
+          {created ? <p className="text-brand-meta text-brand-ink-2">{t('reviewNote')}</p> : null}
+        </div>
+      </AccountPage>
     );
   }
 
   return (
-    <Card className="mx-auto max-w-sm space-y-4">
-      <div>
-        <h1 className="text-h2 font-bold text-text-primary">{t('heading')}</h1>
-        <p className="mt-1 text-caption text-text-muted">{t('lead')}</p>
-      </div>
+    <AccountPage width="narrow">
+      <div className={`${ACCOUNT_PANEL} space-y-5 p-6 sm:p-8`}>
+        <div>
+          <h1 className="text-balance font-brand-display text-brand-d2 text-brand-ink">
+            {t('heading')}
+          </h1>
+          <p className="mt-2 text-brand-ui text-brand-ink-2">{t('lead')}</p>
+        </div>
 
-      <form
-        className="space-y-4"
-        onSubmit={(e) => {
-          e.preventDefault();
-          setError(null);
-          create.mutate();
-        }}
-      >
-        <Input
-          id="org-name"
-          label={t('orgName')}
-          autoFocus
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          minLength={2}
-          required
-        />
-        <Input
-          id="org-contact"
-          label={t('supportEmail')}
-          type="email"
-          placeholder={user?.email ?? ''}
-          value={contactEmail}
-          onChange={(e) => setContactEmail(e.target.value)}
-        />
-
-        {/* Country first: it decides the legal forms offered below it. */}
-        <Select
-          id="org-country"
-          label={t('country')}
-          hint={t('countryHint')}
-          value={country}
-          onChange={(e) => {
-            setCountry(e.target.value);
-            // A legal form belongs to a country; keeping the old one would carry "Pvt Ltd"
-            // onto a Canadian registration.
-            setEntityType('');
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            setError(null);
+            create.mutate();
           }}
         >
-          <option value="">{t('countryPlaceholder')}</option>
-          {MARKETS.map((m) => (
-            <option key={m.code} value={m.name}>
-              {m.name}
+          <BrandTextField
+            id="org-name"
+            label={t('orgName')}
+            autoFocus
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            minLength={2}
+            required
+          />
+          <BrandTextField
+            id="org-contact"
+            label={t('supportEmail')}
+            type="email"
+            placeholder={user?.email ?? ''}
+            value={contactEmail}
+            onChange={(e) => setContactEmail(e.target.value)}
+          />
+
+          {/* Country first: it decides the legal forms offered below it. */}
+          <BrandSelectField
+            id="org-country"
+            label={t('country')}
+            hint={t('countryHint')}
+            value={country}
+            onChange={(e) => {
+              setCountry(e.target.value);
+              // A legal form belongs to a country; keeping the old one would carry "Pvt Ltd"
+              // onto a Canadian registration.
+              setEntityType('');
+            }}
+          >
+            <option value="">{t('countryPlaceholder')}</option>
+            {MARKETS.map((m) => (
+              <option key={m.code} value={m.name}>
+                {m.name}
+              </option>
+            ))}
+          </BrandSelectField>
+
+          <BrandSelectField
+            id="org-entity"
+            label={t('entityType')}
+            hint={t('entityTypeHint')}
+            value={entityType}
+            disabled={entityTypes.length === 0}
+            onChange={(e) => setEntityType(e.target.value)}
+          >
+            <option value="">
+              {country ? t('entityTypePlaceholder') : t('entityTypeNeedsCountry')}
             </option>
-          ))}
-        </Select>
+            {entityTypes.map((form) => (
+              <option key={form} value={form}>
+                {form}
+              </option>
+            ))}
+          </BrandSelectField>
 
-        <Select
-          id="org-entity"
-          label={t('entityType')}
-          hint={t('entityTypeHint')}
-          value={entityType}
-          disabled={entityTypes.length === 0}
-          onChange={(e) => setEntityType(e.target.value)}
-        >
-          <option value="">
-            {country ? t('entityTypePlaceholder') : t('entityTypeNeedsCountry')}
-          </option>
-          {entityTypes.map((form) => (
-            <option key={form} value={form}>
-              {form}
-            </option>
-          ))}
-        </Select>
+          <BrandTextField
+            id="org-legal-name"
+            label={t('legalName')}
+            hint={t('legalNameHint')}
+            value={legalName}
+            onChange={(e) => setLegalName(e.target.value)}
+            required
+          />
 
-        <Input
-          id="org-legal-name"
-          label={t('legalName')}
-          hint={t('legalNameHint')}
-          value={legalName}
-          onChange={(e) => setLegalName(e.target.value)}
-          required
-        />
+          {error ? (
+            <p role="alert" className="text-brand-meta text-brand-critical">
+              {error}
+            </p>
+          ) : null}
 
-        {error ? (
-          <p role="alert" className="text-caption text-status-error">
-            {error}
-          </p>
-        ) : null}
+          <BrandButton
+            type="submit"
+            className="w-full"
+            aria-busy={create.isPending || undefined}
+            disabled={
+              create.isPending ||
+              name.trim().length < 2 ||
+              legalName.trim().length < 2 ||
+              !country ||
+              !entityType
+            }
+          >
+            {t('create')}
+          </BrandButton>
+        </form>
 
-        <Button
-          type="submit"
-          className="w-full"
-          loading={create.isPending}
-          disabled={
-            create.isPending ||
-            name.trim().length < 2 ||
-            legalName.trim().length < 2 ||
-            !country ||
-            !entityType
-          }
-        >
-          {t('create')}
-        </Button>
-      </form>
-
-      <p className="text-caption text-text-muted">
-        {t('changedMind')}{' '}
-        <Link href="/account" className="text-action-primary underline">
-          {t('backToAccount')}
-        </Link>
-      </p>
-    </Card>
+        <p className="text-brand-meta text-brand-ink-2">
+          {t('changedMind')}{' '}
+          <Link href="/account" className={BRAND_LINK}>
+            {t('backToAccount')}
+          </Link>
+        </p>
+      </div>
+    </AccountPage>
   );
 }

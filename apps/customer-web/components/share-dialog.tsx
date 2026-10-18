@@ -5,6 +5,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
 import { Check, Copy, Eye, Mail, MessageCircle, Repeat, Shield, Smartphone } from 'lucide-react';
 import {
+  BRAND_FOCUS,
+  BrandButton,
   errorMessage,
   useToast,
   type ShareExpiryValue,
@@ -12,7 +14,8 @@ import {
   type WalletTicket,
 } from '@eticketsgo/web-kit';
 import { api } from '@/lib/api';
-import { Button, Dialog, Select } from '@/components/ui';
+import { Dialog } from '@/components/ui';
+import { BrandSelectField } from '@/components/account-brand';
 
 /** Each permission's words live at `storefront.shareDialog.permission.<VALUE>`. */
 const PERMISSIONS: { value: SharePermissionValue; icon: typeof Eye }[] = [
@@ -30,7 +33,12 @@ const EXPIRIES: { value: ShareExpiryValue; key: string }[] = [
   { value: 'never', key: 'never' },
 ];
 
-/** Secure Experience Sharing dialog: create a scoped, expiring, revocable link. */
+/**
+ * Secure Experience Sharing dialog: create a scoped, expiring, revocable link.
+ *
+ * Opened from a booking's ticket page, which is on the brand layer; the kit's Dialog is drawn
+ * inside that page, so everything in it uses the brand's fields, buttons and pills.
+ */
 export function ShareDialog({
   ticket,
   open,
@@ -131,12 +139,16 @@ export function ShareDialog({
               readOnly
               value={link}
               aria-label={t('linkLabel')}
-              className="min-w-0 flex-1 rounded-md border border-border bg-background-subtle px-3 py-2 font-mono text-caption text-text-secondary"
+              className={`h-11 min-w-0 flex-1 rounded-brand-control border border-brand-line bg-brand-sunken px-3 font-mono text-brand-meta text-brand-ink-2 ${BRAND_FOCUS}`}
             />
-            <Button variant="outline" size="sm" onClick={copy}>
-              {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+            <BrandButton variant="secondary" onClick={copy} className="shrink-0">
+              {copied ? (
+                <Check className="h-4 w-4" aria-hidden />
+              ) : (
+                <Copy className="h-4 w-4" aria-hidden />
+              )}
               {copied ? sc('copied') : sc('copy')}
-            </Button>
+            </BrandButton>
           </div>
 
           <div className="grid grid-cols-3 gap-2">
@@ -146,9 +158,9 @@ export function ShareDialog({
                 href={c.href}
                 target="_blank"
                 rel="noreferrer"
-                className="flex flex-col items-center gap-1 rounded-lg border border-border px-2 py-3 text-caption font-medium text-text-secondary transition-colors hover:bg-background-subtle hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                className={`flex min-h-[4.5rem] flex-col items-center justify-center gap-1.5 rounded-brand-control border border-brand-line-strong bg-brand-surface px-2 py-3 text-brand-meta font-semibold text-brand-ink transition-colors duration-150 hover:border-brand-ink-3 hover:bg-brand-sunken ${BRAND_FOCUS}`}
               >
-                <c.icon className="h-4 w-4" />
+                <c.icon className="h-4 w-4" aria-hidden />
                 {c.label}
               </a>
             ))}
@@ -156,35 +168,40 @@ export function ShareDialog({
 
           {qr && (
             <div className="flex flex-col items-center">
-              <p className="mb-1.5 text-caption text-text-muted">{t('scanHint')}</p>
+              <p className="mb-1.5 text-brand-meta text-brand-ink-2">{t('scanHint')}</p>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={qr} alt={t('qrAlt')} className="h-40 w-40 rounded-lg bg-white p-2" />
+              <img
+                src={qr}
+                alt={t('qrAlt')}
+                className="h-40 w-40 rounded-brand-control border border-brand-line bg-white p-2"
+              />
             </div>
           )}
 
-          <p className="text-caption text-text-muted">{t(`note.${permission}`)}</p>
+          <p className="text-brand-meta text-brand-ink-2">{t(`note.${permission}`)}</p>
 
-          <div className="flex justify-between">
-            <Button variant="outline" onClick={reset}>
+          <div className="flex flex-wrap justify-between gap-2">
+            <BrandButton variant="secondary" onClick={reset}>
               {t('newLink')}
-            </Button>
-            <Button onClick={close}>{tx('action.done')}</Button>
+            </BrandButton>
+            <BrandButton onClick={close}>{tx('action.done')}</BrandButton>
           </div>
         </div>
       ) : (
         <div className="space-y-4">
           <fieldset>
-            <legend className="mb-2 text-caption font-medium text-text-secondary">
+            <legend className="mb-2 text-brand-ui font-medium text-brand-ink">
               {t('whatCan')}
             </legend>
             <div className="space-y-2">
               {PERMISSIONS.map((p) => (
                 <label
                   key={p.value}
-                  className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors ${
+                  // Chosen is an ink outline, two pixels, as well as the radio's own dot.
+                  className={`flex cursor-pointer items-start gap-3 rounded-brand-control border p-3 transition-colors duration-150 ${
                     permission === p.value
-                      ? 'border-action-primary bg-action-primary/5'
-                      : 'border-border hover:bg-background-subtle'
+                      ? 'border-brand-ink bg-brand-sunken ring-1 ring-brand-ink'
+                      : 'border-brand-line-strong bg-brand-surface hover:border-brand-ink-3'
                   }`}
                 >
                   <input
@@ -193,13 +210,14 @@ export function ShareDialog({
                     value={p.value}
                     checked={permission === p.value}
                     onChange={() => setPermission(p.value)}
-                    className="mt-0.5 h-4 w-4 text-action-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                    className={`mt-0.5 h-4 w-4 accent-brand-ink ${BRAND_FOCUS}`}
                   />
                   <span>
-                    <span className="flex items-center gap-1.5 text-[0.9375rem] font-medium text-text-primary">
-                      <p.icon className="h-3.5 w-3.5" /> {t(`permission.${p.value}.label`)}
+                    <span className="flex items-center gap-1.5 text-brand-ui font-semibold text-brand-ink">
+                      <p.icon className="h-3.5 w-3.5" aria-hidden />{' '}
+                      {t(`permission.${p.value}.label`)}
                     </span>
-                    <span className="text-caption text-text-muted">
+                    <span className="block text-brand-meta text-brand-ink-2">
                       {t(`permission.${p.value}.hint`)}
                     </span>
                   </span>
@@ -208,7 +226,7 @@ export function ShareDialog({
             </div>
           </fieldset>
 
-          <Select
+          <BrandSelectField
             id="share-expiry"
             label={t('expires')}
             value={expiry}
@@ -219,31 +237,30 @@ export function ShareDialog({
                 {t(`expiry.${x.key}`)}
               </option>
             ))}
-          </Select>
+          </BrandSelectField>
 
           {/* Existing shares */}
           {shares.data && shares.data.shares.length > 0 && (
             <div>
-              <p className="mb-1.5 text-caption font-medium text-text-secondary">
-                {t('activeLinks')}
-              </p>
+              <p className="mb-1.5 text-brand-ui font-medium text-brand-ink">{t('activeLinks')}</p>
               <ul className="space-y-1.5">
                 {shares.data.shares
                   .filter((s) => s.status === 'PENDING')
                   .map((s) => (
                     <li
                       key={s.id}
-                      className="flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-caption"
+                      className="flex items-center justify-between gap-2 rounded-brand-control border border-brand-line px-3 py-1 text-brand-meta"
                     >
-                      <span className="text-text-secondary">
+                      <span className="text-brand-ink-2">
                         {t('activeLine', {
                           permission: permissionLabel(s.permission),
                           count: s.openCount,
                         })}
                       </span>
                       <button
+                        type="button"
                         onClick={() => revoke.mutate(s.id)}
-                        className="font-medium text-status-error hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                        className={`min-h-11 rounded-brand-control px-2 font-semibold text-brand-critical underline-offset-4 hover:underline ${BRAND_FOCUS}`}
                       >
                         {t('revoke')}
                       </button>
@@ -253,13 +270,17 @@ export function ShareDialog({
             </div>
           )}
 
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={close}>
+          <div className="flex flex-wrap justify-end gap-2">
+            <BrandButton variant="secondary" onClick={close}>
               {tx('action.cancel')}
-            </Button>
-            <Button loading={create.isPending} onClick={() => create.mutate()}>
+            </BrandButton>
+            <BrandButton
+              aria-busy={create.isPending || undefined}
+              disabled={create.isPending}
+              onClick={() => create.mutate()}
+            >
               {t('create')}
-            </Button>
+            </BrandButton>
           </div>
         </div>
       )}
