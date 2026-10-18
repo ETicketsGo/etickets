@@ -14,6 +14,7 @@ import { AppException, ErrorCodes } from '../common/errors';
 import { availableUnits } from '../inventory/inventory-strategy.interface';
 import { countryAliases } from '../common/country';
 import { contentLabelFor, contentLabelPolicy } from '../common/content-label';
+import { showTimezone } from '../spaces/space-owner';
 import {
   EVENT_IMAGE_URL_SELECT,
   coverImagePath,
@@ -413,6 +414,8 @@ export class PublicEventsService {
               include: { inventory: true },
             },
             showZones: true,
+            // Only for the session's zone: a show in a cinema's screen is on the cinema's clock.
+            screen: { select: { cinema: { select: { timezone: true } } } },
           },
         },
       },
@@ -442,6 +445,12 @@ export class PublicEventsService {
       // So the buyer is told "Free" rather than "₹0.00", and the checkout can skip itself.
       isFree: event.isFree,
       venue: event.venue,
+      /*
+        The zone the event's times are printed in when no session says otherwise: the venue's,
+        else the one zone its country has. `venue.timezone` is the stored column and may be
+        null; the storefront rendered a null in the reader's own clock, with no zone named.
+      */
+      timeZone: venueZone(event.venue?.timezone, event.venue?.country),
       organizer: {
         id: event.organization.id,
         name: event.organization.name,
@@ -463,6 +472,12 @@ export class PublicEventsService {
         startsAt: s.startsAt,
         endsAt: s.endsAt,
         status: s.status,
+        /*
+          The zone THIS session is printed in - the same answer the booking confirmation, the
+          ticket and the reminder give (`showTimezone`). A show in a cinema's screen is on the
+          cinema's clock even when the event's venue row says otherwise.
+        */
+        timeZone: showTimezone(s.screen, event.venue),
         /*
           Whether this session sells named seats.
 

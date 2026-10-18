@@ -1,3 +1,5 @@
+import { venueZone } from '@eticketsgo/shared-types';
+
 /**
  * Who owns a space, where it is, and what it is called - asked in ONE place.
  *
@@ -91,6 +93,32 @@ export function requireSpaceOrganizationId(space: SpaceOwnership): string {
  */
 export function spaceTimezone(space: SpacePlacement): string | null {
   return space.venue?.timezone ?? space.cinema?.timezone ?? null;
+}
+
+/**
+ * The zone a SHOW's time is printed in for a buyer: "7:00 pm GMT+5:30".
+ *
+ * The cinema's zone when the show is in a cinema's screen, else the event's venue's, else the
+ * one zone the venue's country has. This is the order the booking, the ticket, the guest
+ * booking view, the share card and the reminders already use, written down once so the
+ * storefront's event page and seat page ask the same question and get the same answer.
+ *
+ * -- THE DEFECT THIS EXISTS FOR -------------------------------------------------------------
+ * On QA, in a browser set to America/Denver, the event page showed a show as "Wed 28 Oct 2026,
+ * 10:04 pm" while its booking confirmation showed "Thu 29 Oct 2026, 9:34 am GMT+5:30". The
+ * event page read only `event.venue.timezone`; the confirmation read this chain. The seat
+ * page's summary read `spaceTimezone` over a screen selected without its venue, so a room in a
+ * venue (no cinema) had no zone at all and the header fell to the reader's clock.
+ *
+ * Not `spaceTimezone`: that one answers where a space IS, for scheduling. A show's printed time
+ * must agree with the ticket the buyer already holds, and changing the ticket's order would be
+ * a booking-path change this does not make.
+ */
+export function showTimezone(
+  screen: { cinema?: { timezone: string | null } | null } | null | undefined,
+  eventVenue: { timezone: string | null; country?: string | null } | null | undefined,
+): string | null {
+  return screen?.cinema?.timezone ?? venueZone(eventVenue?.timezone, eventVenue?.country);
 }
 
 /** What to call the place this space is in. The venue is the place; a cinema is a tenant of one. */

@@ -2951,6 +2951,11 @@ export interface PublicEvent extends EventDetails {
      */
     timezone?: string | null;
   };
+  /**
+   * The zone the event's times are printed in: the venue's, else the one zone its country has.
+   * Absent on an older API; `venue.timezone` is the stored column and can be null.
+   */
+  timeZone?: string | null;
   organizer: {
     id: string;
     name: string;
@@ -2966,6 +2971,11 @@ export interface PublicEvent extends EventDetails {
     startsAt: string;
     endsAt: string;
     status: string;
+    /**
+     * The zone THIS session's time is printed in - the same zone its booking and ticket use (a
+     * show in a cinema's screen is on the cinema's clock). Absent on an older API.
+     */
+    timeZone?: string | null;
     /**
      * This session sells named seats, so the buyer picks from a map rather than a quantity.
      *
@@ -4478,8 +4488,12 @@ export interface PublicShowSummary {
   endsAt: string;
   /** SCHEDULED, PAUSED, CANCELLED or COMPLETED. */
   status: string;
-  /** The zone the show is advertised in: the cinema's, else the venue's. */
-  timeZone: string;
+  /**
+   * The zone the show is advertised in: the cinema's, else the venue's, else the one zone the
+   * venue's country has - the zone the buyer's ticket prints. Null only when none of those is
+   * known (an older API also sent null for a room in a venue that is not a cinema).
+   */
+  timeZone: string | null;
   /** Calendar date of the show in `timeZone`, YYYY-MM-DD. */
   localDate: string;
   event: {

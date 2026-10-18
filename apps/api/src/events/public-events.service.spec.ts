@@ -346,6 +346,74 @@ describe('PublicEventsService.getBySlug', () => {
     expect(where.status).toEqual({ in: ['SCHEDULED', 'PAUSED'] });
     expect((where.startsAt.gte as Date).getTime()).toBeGreaterThanOrEqual(before.getTime() - 1000);
   });
+
+  describe('the zone each time is printed in', () => {
+    /*
+      Found on QA in a Denver browser: the event page printed a show as "Wed 28 Oct 2026,
+      10:04 pm" while its confirmation printed "Thu 29 Oct 2026, 9:34 am GMT+5:30". The page
+      had only the venue row's zone column; the booking reads cinema, then venue, then country.
+    */
+    const detail = (venue: unknown, sessions: unknown[]) =>
+      jest.fn().mockResolvedValue({
+        id: 'e1',
+        slug: 'e1',
+        title: 'Gig',
+        status: 'PUBLISHED',
+        isFree: false,
+        images: [],
+        venue,
+        organization: { id: 'o1', name: 'Org', cashPaymentsEnabled: false },
+        sessions,
+      });
+    const session = (screen: unknown) => ({
+      id: 's1',
+      startsAt: new Date('2026-10-29T04:04:00Z'),
+      endsAt: new Date('2026-10-29T06:04:00Z'),
+      status: 'SCHEDULED',
+      screenId: screen ? 'sc1' : null,
+      screen,
+      ticketTypes: [],
+      showZones: [],
+    });
+
+    it('gives a show in a cinema screen the cinema clock, as its booking does', async () => {
+      const findUnique = detail(
+        { name: 'Hall', city: 'Meridian', country: 'United States', timezone: 'America/Denver' },
+        [session({ cinema: { timezone: 'Asia/Kolkata' } })],
+      );
+      const service = new PublicEventsService({ event: { findUnique } } as never, advertised);
+      const event = await service.getBySlug('e1');
+      expect(findUnique.mock.calls[0][0].include.sessions.include.screen).toEqual({
+        select: { cinema: { select: { timezone: true } } },
+      });
+      expect(event.sessions[0].timeZone).toBe('Asia/Kolkata');
+      expect(event.timeZone).toBe('America/Denver');
+    });
+
+    it('falls back to the venue country when the venue row has no zone', async () => {
+      const findUnique = detail(
+        { name: 'Hall', city: 'Hyderabad', country: 'India', timezone: null },
+        [session(null)],
+      );
+      const service = new PublicEventsService({ event: { findUnique } } as never, advertised);
+      const event = await service.getBySlug('e1');
+      expect(event.timeZone).toBe('Asia/Kolkata');
+      expect(event.sessions[0].timeZone).toBe('Asia/Kolkata');
+      // The stored column is returned as stored: the resolved answer is a separate field.
+      expect(event.venue).toMatchObject({ timezone: null });
+    });
+
+    it('says nothing rather than guess for a country with more than one zone', async () => {
+      const findUnique = detail(
+        { name: 'Hall', city: 'Boise', country: 'United States', timezone: null },
+        [session(null)],
+      );
+      const service = new PublicEventsService({ event: { findUnique } } as never, advertised);
+      const event = await service.getBySlug('e1');
+      expect(event.timeZone).toBeNull();
+      expect(event.sessions[0].timeZone).toBeNull();
+    });
+  });
 });
 
 describe('PublicEventsService cards carry the venue zone', () => {

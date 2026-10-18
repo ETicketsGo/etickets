@@ -5,6 +5,7 @@ import { CalendarDays, Heart, MapPin } from 'lucide-react';
 import { eventImageSource, gradientFor, useToast } from '@eticketsgo/web-kit';
 import type { PaginatedEvents } from '@/lib/api';
 import { useFormat } from '@/lib/format';
+import { eventZone } from '@/lib/event-when';
 import { isSaved, toggleSaved } from '@/lib/saved';
 import { Badge } from './ui';
 import { ContentLabelBadge } from './content-label-badge';
@@ -115,9 +116,9 @@ export function EventCard({
               zone (found on QA in "You might also like"), so it could disagree with the page it
               links to. A card saved before the API sent a zone falls back to the browser's.
             */}
-            {dateTime(event.nextSessionAt, undefined, event.venue.timezone ?? undefined)}
-            {event.nextSessionAt && event.venue.timezone
-              ? ` (${zoneAbbrev(event.nextSessionAt, event.venue.timezone)})`
+            {dateTime(event.nextSessionAt, undefined, eventZone(event))}
+            {event.nextSessionAt && eventZone(event)
+              ? ` (${zoneAbbrev(event.nextSessionAt, eventZone(event))})`
               : ''}
           </p>
           <p className="flex items-center gap-1.5">

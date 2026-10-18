@@ -5,6 +5,7 @@ import { CalendarDays, MapPin } from 'lucide-react';
 import { BRAND_FOCUS, EventArtwork, eventImageSource } from '@eticketsgo/web-kit';
 import type { PaginatedEvents } from '@/lib/api';
 import { useFormat } from '@/lib/format';
+import { eventZone } from '@/lib/event-when';
 import { Link } from '@/i18n/navigation';
 import { ContentLabelBadge } from './content-label-badge';
 import { FromPrice } from './home/parts';
@@ -37,7 +38,8 @@ export function BrandEventCard({
 }) {
   const { dateTime, zoneAbbrev } = useFormat();
   const image = eventImageSource({ variants: event.imageVariants, path: event.imagePath }, 'card');
-  const zone = event.venue.timezone ?? undefined;
+  // The venue's zone, else its country's only one (a saved card can predate the API's answer).
+  const zone = eventZone(event);
   const [broken, setBroken] = useState(false);
   return (
     <div className="relative h-full">

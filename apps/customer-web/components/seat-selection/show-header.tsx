@@ -13,9 +13,10 @@ import {
 } from '@eticketsgo/web-kit';
 import { Link } from '@/i18n/navigation';
 import { useVenueWhenText } from '@/components/booking-brand';
+import { summaryZone } from '@/lib/event-when';
 
 /** A time of day in the show's zone: "6:00 pm" in English, "18 h 00" in French. */
-function clock(iso: string, timeZone: string, locale?: string): string {
+function clock(iso: string, timeZone: string | undefined, locale?: string): string {
   const options: Intl.DateTimeFormatOptions = {
     hour: 'numeric',
     minute: '2-digit',
@@ -60,8 +61,12 @@ export function ShowHeader({ summary }: { summary: PublicShowSummary }) {
     The venue's time with its zone, always named, in the one format every booking screen uses
     (useVenueWhenText). The zone used to appear only when the reader's own zone differed, which
     is wrong for a link forwarded to somebody abroad: the page cannot know who will read it.
+
+    `summaryZone`, not `summary.timeZone`: the API answered null for a room in a venue that is
+    not a cinema, and a null printed the READER's clock with the reader's zone missing - on QA a
+    Hyderabad 11:01 pm show read "10:31 am" in a Denver browser.
   */
-  const when = venueWhenText(summary.startsAt, summary.timeZone);
+  const when = venueWhenText(summary.startsAt, summaryZone(summary));
   const runtime = summary.movie
     ? t('runtime', {
         hours: Math.floor(summary.movie.runtimeMinutes / 60),
@@ -173,7 +178,7 @@ function ShowtimeSwitcher({ summary, locale }: { summary: PublicShowSummary; loc
       <p className="mb-2 text-brand-eyebrow uppercase text-brand-ink-3">{t('otherShowtimes')}</p>
       <ul className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
         {rows.map((row) => {
-          const time = clock(row.startsAt, summary.timeZone, locale);
+          const time = clock(row.startsAt, row.cinema?.timezone ?? summaryZone(summary), locale);
           const detail = row.format ?? row.screen?.name ?? '';
           const state =
             row.availability === 'LIMITED'
