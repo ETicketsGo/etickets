@@ -171,6 +171,15 @@ describe('the app header', () => {
   });
 });
 
+describe('the storefront footer', () => {
+  it('links the shop to the platform pages, since its header does not', async () => {
+    const { footer } = await mount('/', false);
+    expect(footer.querySelector('a[href="/features"]')).not.toBeNull();
+    expect(footer.querySelector('a[href="/organizers"]')).not.toBeNull();
+    expect(footer.textContent).toContain(LEGAL_LINE);
+  });
+});
+
 describe('the marketing footer', () => {
   it('offers Sign in to a visitor', async () => {
     const { footer } = await mount('/features', false);

@@ -75,6 +75,13 @@ const COLUMNS: {
         did not, so a carrier reviewer starting at the front door could not reach it.
       */
       { href: '/about', label: 'about' },
+      /*
+        The way from the shop to the platform pages (N1). The shop's header carries the shop's
+        navigation only, so without these the home page had no click that reached Features or
+        the organizer pitch: the owner's own walk goes "Home -> Features -> Pricing".
+      */
+      { href: '/features', label: 'features' },
+      { href: '/organizers', label: 'forOrganizers' },
       { href: '/terms', label: 'terms' },
       { href: '/privacy', label: 'privacy' },
       { href: '/refunds', label: 'refunds' },
