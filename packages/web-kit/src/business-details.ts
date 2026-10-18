@@ -22,6 +22,8 @@
  * storefront keeps saying so, and that notice disappears on its own once they are filled in.
  */
 
+import { PUBLISHED_SUPPORT_EMAIL } from '@eticketsgo/shared-types';
+
 /** A detail that is either published, or honestly absent. Never a plausible-looking stand-in. */
 type Published = string | null;
 
@@ -56,7 +58,8 @@ export interface BusinessDetails {
  */
 export const BUSINESS_DETAILS: BusinessDetails = {
   legalName: 'DeepTrics LLC',
-  supportEmail: 'support@eticketsgo.com',
+  // Shared with the API, which mails every Contact and Help form message to this mailbox.
+  supportEmail: PUBLISHED_SUPPORT_EMAIL,
   organizerEmail: null,
   salesEmail: null,
   partnershipsEmail: null,

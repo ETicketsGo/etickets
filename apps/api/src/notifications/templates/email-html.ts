@@ -58,6 +58,11 @@ export interface EmailView {
   heading: string;
   paragraphs: string[];
   rows: EmailRow[];
+  /**
+   * Somebody else's words, shown as a quotation under the facts: today only the support
+   * mailbox's copy of a form message. Optional, so every other view is unchanged.
+   */
+  quoted?: string[];
   cta: { label: string; url: string } | null;
   /** Why this message arrived. Not marketing copy - the answer to "why am I getting this". */
   footerNote: string;
@@ -133,6 +138,29 @@ ${cells}
               </table>
             </td></tr>
           </table>`;
+}
+
+/**
+ * A message somebody typed, quoted under the facts.
+ *
+ * Escaped like everything else, then each line break kept: a person writing to support
+ * breaks their lines on purpose, and running them together is how a list of steps to
+ * reproduce a bug becomes one unreadable sentence. The break is added AFTER escaping, so it is
+ * the only markup in the block.
+ */
+function quotedBlock(blocks: string[] | undefined): string {
+  if (!blocks?.length) return '';
+  const inner = blocks
+    .map(
+      (block) =>
+        `<p style="font-family:${FONT};margin:0 0 12px;color:${INK};font-size:15px;line-height:1.6;white-space:normal;">${escapeHtml(
+          block,
+        ).replace(/\r?\n/g, '<br />')}</p>`,
+    )
+    .join('\n');
+  return `<div style="margin:4px 0 18px;padding:4px 0 4px 16px;border-left:3px solid ${BORDER};">
+${inner}
+          </div>`;
 }
 
 /**
@@ -213,6 +241,7 @@ export function renderEmailHtml(view: EmailView): string {
                 )}</h1>
                 ${view.paragraphs.map(paragraph).join('\n                ')}
                 ${rowsTable(view.rows)}
+                ${quotedBlock(view.quoted)}
                 ${cta ? ctaBlock(cta) : ''}
               </td>
             </tr>

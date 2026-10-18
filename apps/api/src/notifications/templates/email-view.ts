@@ -3,6 +3,7 @@ import { DEFAULT_LOCALE, isLocale, t, type Locale } from '@eticketsgo/i18n';
 import { messageClassOf } from '../message-class';
 import { moneyValue, whenValue } from './notification-template.service';
 import { safeHref, type EmailRow, type EmailView } from './email-html';
+import { supportMessage, supportReplyLine, supportRequestRows } from './support-request';
 
 /**
  * What each email SHOWS, as opposed to what it says.
@@ -85,6 +86,13 @@ const CTA_KEY: Partial<Record<NotificationType, string>> = {
   [NotificationType.EVENT_PAUSED_BY_ADMIN]: 'openConsole',
   [NotificationType.EVENT_RESUMED_BY_ADMIN]: 'openConsole',
   [NotificationType.ATTENDEE_INVITED]: 'openInvitation',
+  [NotificationType.SUPPORT_REQUEST_RECEIVED]: 'openSupportItem',
+};
+
+/** Why the reader got this mail, where the general "booking or account action" is not true. */
+const WHY_KEY: Partial<Record<NotificationType, string>> = {
+  [NotificationType.SUPPORT_REQUEST_RECEIVED]: 'whySupportInbox',
+  [NotificationType.SUPPORT_REQUEST_ACKNOWLEDGED]: 'whySupport',
 };
 
 /** Any http(s) URL in the sentence. The first is the one the message is about. */
@@ -146,41 +154,73 @@ export function buildEmailView(input: {
     same http(s) check: by this point `link-safety` has already dropped anything that is not
     on a host this deployment owns, and this is the second lock on that door.
   */
-  const linkFromBody = input.body.match(URL_PATTERN)?.[0] ?? '';
+  const isSupportCopy = input.type === NotificationType.SUPPORT_REQUEST_RECEIVED;
+  /*
+    The support mailbox's copy takes its link from the payload ONLY. Its sentence quotes what a
+    stranger typed, and falling back to "the first URL in the sentence" would turn a link in
+    their message into our "Open in the admin console" button.
+  */
+  const linkFromBody = isSupportCopy ? '' : (input.body.match(URL_PATTERN)?.[0] ?? '');
   const href = safeHref(field(payload, 'link') || field(payload, 'url') || linkFromBody);
   const ctaKey = CTA_KEY[input.type] ?? 'openLink';
   // A panel type is a lead type: the panel is what replaces the sentence.
   const lead = ROW_FIELDS[input.type] ? t(locale, `emails.leads.${input.type}`) : null;
 
-  const rows: EmailRow[] = (ROW_FIELDS[input.type] ?? [])
+  let rows: EmailRow[] = (ROW_FIELDS[input.type] ?? [])
     .map((key) => ({
       label: t(locale, `emails.labels.${key}`),
       value: rowValue(locale, payload, key),
     }))
     .filter((row) => row.value !== '');
+  let paragraphs = lead ? [lead] : text ? [text] : [];
+  /*
+    The inbox preview: the one line somebody reads before deciding whether to open anything.
+    Never the subject again - the subject is already on the line above it. For a panel
+    message it is the lead plus the facts that identify the booking, which is how somebody
+    finds the right mail in a list of five confirmations.
+  */
+  let preheader = [lead ?? text, ...rows.slice(0, 2).map((row) => row.value)]
+    .filter(Boolean)
+    .join(' - ');
+  let quoted: string[] | undefined;
+
+  /*
+    The support mailbox's copy is the one message that is BOTH facts and prose: who wrote and
+    how to answer them, and then what they wrote, in their own words and their own line breaks.
+    Neither repeats the other, so the rule above still holds. The message is quoted from the
+    payload rather than the sentence, so a URL the sender typed stays visible as plain text.
+  */
+  if (isSupportCopy) {
+    const { message, truncated } = supportMessage(payload);
+    rows = supportRequestRows(locale, payload);
+    paragraphs = [
+      t(locale, 'emails.SUPPORT_REQUEST_RECEIVED.lead'),
+      supportReplyLine(locale, payload),
+    ];
+    preheader = [supportReplyLine(locale, payload), message].filter(Boolean).join(' - ');
+    quoted = message
+      .split(/\n{2,}/)
+      .map((block) => block.trim())
+      .filter(Boolean)
+      .concat(truncated ? [t(locale, 'emails.SUPPORT_REQUEST_RECEIVED.truncated')] : []);
+  }
 
   return {
     locale,
     subject: input.subject,
-    /*
-      The inbox preview: the one line somebody reads before deciding whether to open anything.
-      Never the subject again - the subject is already on the line above it. For a panel
-      message it is the lead plus the facts that identify the booking, which is how somebody
-      finds the right mail in a list of five confirmations.
-    */
-    preheader: [lead ?? text, ...rows.slice(0, 2).map((row) => row.value)]
-      .filter(Boolean)
-      .join(' - ')
-      .slice(0, 160),
+    preheader: preheader.slice(0, 160),
     heading: input.subject,
-    paragraphs: lead ? [lead] : text ? [text] : [],
+    paragraphs,
     rows,
+    ...(quoted ? { quoted } : {}),
     cta: href ? { label: t(locale, `emails.cta.${ctaKey}`), url: href } : null,
     footerNote: t(
       locale,
-      messageClassOf(input.type) === 'MARKETING'
-        ? 'emails.layout.whyMarketing'
-        : 'emails.layout.whyTransactional',
+      WHY_KEY[input.type]
+        ? `emails.layout.${WHY_KEY[input.type]}`
+        : messageClassOf(input.type) === 'MARKETING'
+          ? 'emails.layout.whyMarketing'
+          : 'emails.layout.whyTransactional',
     ),
     help: input.helpUrl
       ? {

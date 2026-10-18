@@ -11,6 +11,7 @@ import {
   RenderedNotification,
 } from './notification-channel.interface';
 import { EMAIL_TRANSPORT, EmailLogTransport, EmailTransport } from './transports/email.transport';
+import { replyToFor } from './reply-to';
 
 /**
  * Email channel. Delivery is delegated to an injected {@link EmailTransport},
@@ -50,7 +51,15 @@ export class EmailChannel implements NotificationChannel {
     if (isReservedEmail(msg.toEmail)) {
       return { provider: 'none', skipped: true, reason: 'no_deliverable_email' };
     }
-    return this.transport.send({ ...msg, html: this.htmlFor(msg) });
+    /*
+      Reply-To only for the types allowed one, and only a plain address: see reply-to.ts. The
+      payload never sets any other header.
+    */
+    return this.transport.send({
+      ...msg,
+      html: this.htmlFor(msg),
+      replyTo: replyToFor(msg.type, msg.payload),
+    });
   }
 
   private htmlFor(msg: RenderedNotification): string | null {

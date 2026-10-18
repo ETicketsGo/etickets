@@ -104,6 +104,28 @@ const CASES: [NotificationType, Record<string, unknown>, string?][] = [
     NotificationType.EVENT_REJECTED,
     { eventTitle: 'Ilakathamafiliya', reason: 'The poster is not licensed to this organizer.' },
   ],
+  // The support mailbox's copy of a Contact form message, and the sender's acknowledgement.
+  [
+    NotificationType.SUPPORT_REQUEST_RECEIVED,
+    {
+      reference: 'cmgsupport0000example',
+      kind: 'CONTACT',
+      topic: '[Support] Website enquiry',
+      message:
+        'From: Asha Rao\n\nI was charged twice for booking ETG-IND-2026-000024.\n' +
+        'Can you check and refund one of them?\n\n<b>Thanks</b>',
+      senderName: 'Asha Rao',
+      replyTo: 'asha@example.com',
+      accountEmail: '',
+      organizationName: '',
+      bookingReference: 'ETG-IND-2026-000024',
+      link: 'https://admin-qa.eticketsgo.com/admin/support?q=cmgsupport0000example',
+    },
+  ],
+  [
+    NotificationType.SUPPORT_REQUEST_ACKNOWLEDGED,
+    { reference: 'cmgsupport0000example', email: 'asha@example.com' },
+  ],
 ];
 
 const HELP = 'https://qa.eticketsgo.com/help';

@@ -10,7 +10,19 @@ import { FeedbackKind } from '@eticketsgo/shared-types';
 export const submitFeedbackSchema = z
   .object({
     kind: z.nativeEnum(FeedbackKind),
-    email: z.string().trim().toLowerCase().email().optional(),
+    // 254 is the longest address SMTP can carry; this one becomes the Reply-To of a mail.
+    email: z.string().trim().toLowerCase().max(254).email().optional(),
+    /*
+      What the sender calls themselves, for the support mailbox's "From" line. Optional, and
+      only ever shown as text: a signed-in sender's account name is used when this is absent.
+    */
+    name: z.string().trim().max(120).optional(),
+    /*
+      The language the form was shown in, so the acknowledgement is written in it. Free text
+      rather than an enum so an older or newer client is never refused over it; the API reads
+      only the locales it has a catalogue for and treats anything else as English.
+    */
+    locale: z.string().trim().max(16).optional(),
     subject: z.string().trim().max(160).optional(),
     message: z.string().trim().min(1).max(4000),
     rating: z.number().int().min(1).max(5).optional(),

@@ -25,6 +25,14 @@ export interface RenderedNotification {
    * the log transport and every non-email channel do.
    */
   html?: string | null;
+  /**
+   * The Reply-To address, for email only, and only for the types allowed one.
+   *
+   * Set by the email channel from `reply-to.ts`, never by a producer directly: it is the one
+   * header a payload may influence, so the type allowlist and the address check live in one
+   * place. Absent means replies go to the From address, which is every other message.
+   */
+  replyTo?: string | null;
   payload: Record<string, unknown>;
   /**
    * The resolved E.164 destination for SMS/WhatsApp, put here by the channel from the

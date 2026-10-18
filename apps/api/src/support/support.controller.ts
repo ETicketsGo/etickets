@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { AdminPermission, Role } from '@eticketsgo/shared-types';
 import {
   listFeedbackSchema,
@@ -16,6 +17,21 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { countryFilterField } from '../admin/country-filter';
 import { dayField, idField, refineDateOrder, type ListFilters } from '../admin/list-filters';
 
+/**
+ * Ten messages a minute per client, on top of the application-wide limit.
+ *
+ * Every Contact or Help message is now mailed to the support inbox and acknowledged to the
+ * address it gives, so this route sends email on an anonymous caller's behalf. The general
+ * limit (120 a minute) is set for page loads, not for that. Ten is far more than a person
+ * writing to support needs, and a script hitting it is stopped at the first minute.
+ *
+ * Env-overridable through the same variable as the credential routes, ONLY so an e2e run that
+ * posts many messages from one address does not trip it. Deployed environments leave it unset.
+ */
+const SUPPORT_THROTTLE = {
+  default: { limit: Number(process.env.AUTH_THROTTLE_LIMIT ?? 10), ttl: 60_000 },
+};
+
 @ApiTags('support')
 @Controller('support')
 export class SupportController {
@@ -23,6 +39,7 @@ export class SupportController {
 
   @Post()
   @Public()
+  @Throttle(SUPPORT_THROTTLE)
   @UseGuards(OptionalJwtAuthGuard)
   @ApiOperation({
     summary: 'Submit support/feedback (contact, bug, feature, general, CSAT). Public.',

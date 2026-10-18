@@ -16,15 +16,24 @@ import { SupportService } from './support.service';
  * mistyping a reference still has a grievance; it is recorded and read, just not attributed.
  */
 function makeService(over: Record<string, unknown> = {}) {
-  const prisma = {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const prisma: any = {
     feedback: {
       create: jest.fn().mockResolvedValue({ id: 'f1', status: 'OPEN' }),
       count: jest.fn().mockResolvedValue(0),
       findMany: jest.fn().mockResolvedValue([]),
+      // No earlier copy of the same message: every submission here is new.
+      findFirst: jest.fn().mockResolvedValue(null),
     },
     booking: { findUnique: jest.fn().mockResolvedValue(null), findMany: jest.fn() },
     organization: { findMany: jest.fn().mockResolvedValue([]) },
-    $transaction: jest.fn().mockResolvedValue([0, []]),
+    $executeRaw: jest.fn().mockResolvedValue(1),
+    // submit() runs in an interactive transaction (handed this same client); list() in a batch.
+    $transaction: jest.fn((arg: unknown) =>
+      typeof arg === 'function'
+        ? (arg as (tx: unknown) => unknown)(prisma)
+        : Promise.resolve([0, []]),
+    ),
     ...over,
   };
   return { service: new SupportService(prisma as never), prisma };

@@ -5,6 +5,7 @@ import {
   money as formatMoney,
 } from '@eticketsgo/shared-types';
 import { DEFAULT_LOCALE, isLocale, t, type Locale } from '@eticketsgo/i18n';
+import { supportRequestText } from './support-request';
 
 /** The rendered pieces of a notification message. */
 export interface RenderedTemplate {
@@ -569,6 +570,25 @@ const BUILDERS: Partial<Record<NotificationType, Builder>> = {
       body: t(l, 'emails.EVENT_RESUMED_BY_ADMIN.body', { event }),
     };
   },
+
+  /*
+    The support mailbox's copy of a form message. Composed in support-request.ts, which the
+    email view also reads, so the text part and the HTML part name the same facts.
+  */
+  [NotificationType.SUPPORT_REQUEST_RECEIVED]: (l, p) => supportRequestText(l, p),
+
+  /*
+    "We have your message", to whoever wrote. It repeats NONE of what they wrote: the address
+    is whatever was typed into a public form, and a mail that echoed the message would let a
+    stranger send any text they liked to anybody, under our name.
+  */
+  [NotificationType.SUPPORT_REQUEST_ACKNOWLEDGED]: (l, p) => ({
+    subject: t(l, 'emails.SUPPORT_REQUEST_ACKNOWLEDGED.subject'),
+    body: t(l, 'emails.SUPPORT_REQUEST_ACKNOWLEDGED.body', {
+      email: str(p, 'email'),
+      reference: str(p, 'reference'),
+    }),
+  }),
 
   [NotificationType.EVENT_REJECTED]: (l, p) => {
     const event = str(p, 'eventTitle', t(l, 'emails.fragments.yourEvent'));
