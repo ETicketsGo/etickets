@@ -5,8 +5,18 @@ import { useTranslations } from 'next-intl';
 import { MessageCircle, Phone } from 'lucide-react';
 import { Link } from '@/i18n/navigation';
 import { api } from '@/lib/api';
-import { Card, ErrorState, Skeleton, Toggle, useToast } from '@/components/ui';
+import { useToast } from '@/components/ui';
 import { PushToggle } from '@/components/push-toggle';
+import {
+  ACCOUNT_PANEL,
+  AccountHeading,
+  AccountPage,
+  BrandError,
+  BrandToggle,
+  PANEL_TITLE,
+} from '@/components/account-brand';
+import { BRAND_LINK } from '@/components/booking-brand';
+import { Placeholder } from '@/components/home/parts';
 import { SignInRequired, isAuthFailure, useSignedIn } from '@/components/sign-in-required';
 
 /**
@@ -26,6 +36,10 @@ import { SignInRequired, isAuthFailure, useSignedIn } from '@/components/sign-in
  * It is not a channel anybody subscribes to. It opens only if a cancelled show reached you
  * nowhere else, thirty minutes later, once. Presenting it as a preference would invite people
  * to switch off the one message designed to catch the case where every other message failed.
+ *
+ * ── ON THE BRAND LAYER ─────────────────────────────────────────────────────────────
+ * Paper, flat white panels and the brand's switch (ink when on, the field grey when off, the
+ * knob's side saying it too). Same switches, same names, same rules about required channels.
  */
 
 /** Types this page describes; their words live at `notificationSettings.types.<TYPE>`. */
@@ -97,41 +111,48 @@ export default function NotificationSettingsPage() {
     skeleton there avoids flashing a sign-in prompt at somebody who is signed in.
   */
   if (signedIn === false || isAuthFailure(prefs.error) || isAuthFailure(consent.error)) {
-    return <SignInRequired title={t('signInTitle')} description={t('signInDescription')} />;
+    return (
+      <AccountPage>
+        <SignInRequired title={t('signInTitle')} description={t('signInDescription')} />
+      </AccountPage>
+    );
   }
   if (signedIn === null) {
     return (
-      <div className="mx-auto max-w-2xl space-y-3 p-4">
-        <Skeleton className="h-16" />
-        <Skeleton className="h-16" />
-      </div>
+      <AccountPage>
+        <div className="space-y-3" aria-busy="true">
+          <Placeholder className="h-16 w-full" />
+          <Placeholder className="h-16 w-full" />
+        </div>
+      </AccountPage>
     );
   }
 
   if (prefs.isError) {
-    return <ErrorState message={t('loadError')} onRetry={() => prefs.refetch()} />;
+    return (
+      <AccountPage>
+        <BrandError message={t('loadError')} onRetry={() => prefs.refetch()} />
+      </AccountPage>
+    );
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-h3 font-bold tracking-tight text-text-primary">{t('heading')}</h1>
-        <p className="mt-1 text-[0.9375rem] text-text-secondary">{t('lead')}</p>
-      </div>
+    <AccountPage>
+      <AccountHeading title={t('heading')} lead={t('lead')} />
 
       {/* Browser push registration lives with the existing component; one place asks for the
           permission, and this page only decides what it is used for. */}
       <PushToggle />
 
-      <Card className="p-5">
-        <h2 className="text-title font-semibold text-text-primary">{t('whatsappHeading')}</h2>
-        <p className="mt-1 text-[0.9375rem] text-text-secondary">{t('whatsappLead')}</p>
+      <section className={`${ACCOUNT_PANEL} p-5 sm:p-6`}>
+        <h2 className={PANEL_TITLE}>{t('whatsappHeading')}</h2>
+        <p className="mt-1 text-brand-ui text-brand-ink-2">{t('whatsappLead')}</p>
         <div className="mt-4 flex items-center justify-between gap-4">
-          <span className="inline-flex items-center gap-2 text-[0.9375rem] text-text-primary">
-            <MessageCircle className="h-4 w-4" aria-hidden="true" />
+          <span className="inline-flex items-center gap-2 text-brand-ui text-brand-ink">
+            <MessageCircle className="h-4 w-4 shrink-0" aria-hidden="true" />
             {t('whatsappToggleText')}
           </span>
-          <Toggle
+          <BrandToggle
             checked={consentFor('whatsapp:transactional')}
             disabled={!hasPhone || setConsent.isPending}
             aria-label={t('whatsappToggleLabel')}
@@ -141,14 +162,14 @@ export default function NotificationSettingsPage() {
           />
         </div>
         {!hasPhone && (
-          <p className="mt-3 inline-flex items-center gap-2 text-caption text-text-muted">
-            <Phone className="h-3.5 w-3.5" aria-hidden="true" />
+          <p className="mt-3 inline-flex items-center gap-2 text-brand-meta text-brand-ink-2">
+            <Phone className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
             {/* The existing profile flow owns phone numbers; this points at it rather than
                 growing a second way to collect one. */}
             <span>
               {t.rich('addPhone', {
                 link: (chunks) => (
-                  <Link href="/account/profile" className="underline">
+                  <Link href="/account/profile" className={BRAND_LINK}>
                     {chunks}
                   </Link>
                 ),
@@ -156,24 +177,24 @@ export default function NotificationSettingsPage() {
             </span>
           </p>
         )}
-      </Card>
+      </section>
 
-      <Card className="p-5">
-        <h2 className="text-title font-semibold text-text-primary">{t('whatWeSend')}</h2>
+      <section className={`${ACCOUNT_PANEL} p-5 sm:p-6`}>
+        <h2 className={PANEL_TITLE}>{t('whatWeSend')}</h2>
         {prefs.isLoading ? (
-          <div className="mt-4 space-y-4">
-            <Skeleton className="h-16" />
-            <Skeleton className="h-16" />
+          <div className="mt-4 space-y-4" aria-busy="true">
+            <Placeholder className="h-16 w-full" />
+            <Placeholder className="h-16 w-full" />
           </div>
         ) : (
-          <ul className="mt-4 divide-y divide-border">
+          <ul className="mt-4 divide-y divide-brand-line">
             {prefs.data?.types.map((entry) => {
               if (!KNOWN_TYPES.has(entry.type)) return null;
               const title = t(`types.${entry.type}.title`);
               return (
                 <li key={entry.type} className="py-4 first:pt-0 last:pb-0">
-                  <p className="text-body font-medium text-text-primary">{title}</p>
-                  <p className="mt-0.5 text-[0.9375rem] text-text-secondary">
+                  <p className="text-brand-body font-semibold text-brand-ink">{title}</p>
+                  <p className="mt-0.5 text-brand-ui text-brand-ink-2">
                     {t(`types.${entry.type}.description`)}
                   </p>
                   <div className="mt-3 flex flex-wrap gap-x-6 gap-y-3">
@@ -187,7 +208,7 @@ export default function NotificationSettingsPage() {
                         return (
                           <span
                             key={c.channel}
-                            className="text-caption text-text-muted"
+                            className="text-brand-meta text-brand-ink-2"
                             title={t('emergencyTitle')}
                           >
                             {t('emergencyOnly')}
@@ -197,9 +218,9 @@ export default function NotificationSettingsPage() {
                       return (
                         <label
                           key={c.channel}
-                          className="inline-flex items-center gap-2 text-[0.9375rem] text-text-primary"
+                          className="inline-flex min-h-11 items-center gap-2 text-brand-ui text-brand-ink"
                         >
-                          <Toggle
+                          <BrandToggle
                             checked={c.enabled}
                             disabled={c.required || setPreference.isPending}
                             aria-label={t('channelFor', {
@@ -216,7 +237,9 @@ export default function NotificationSettingsPage() {
                           />
                           <span>{channelLabel(c.channel)}</span>
                           {c.required && (
-                            <span className="text-caption text-text-muted">{t('required')}</span>
+                            <span className="text-brand-meta text-brand-ink-3">
+                              {t('required')}
+                            </span>
                           )}
                         </label>
                       );
@@ -227,20 +250,20 @@ export default function NotificationSettingsPage() {
             })}
           </ul>
         )}
-        <p className="mt-4 text-caption text-text-muted">{t('requiredNote')}</p>
-      </Card>
+        <p className="mt-4 text-brand-meta text-brand-ink-2">{t('requiredNote')}</p>
+      </section>
 
-      <Card className="p-5">
-        <h2 className="text-title font-semibold text-text-primary">{t('offersHeading')}</h2>
-        <p className="mt-1 text-[0.9375rem] text-text-secondary">{t('offersLead')}</p>
+      <section className={`${ACCOUNT_PANEL} p-5 sm:p-6`}>
+        <h2 className={PANEL_TITLE}>{t('offersHeading')}</h2>
+        <p className="mt-1 text-brand-ui text-brand-ink-2">{t('offersLead')}</p>
         <div className="mt-4 space-y-3">
           {(['email', 'push', 'whatsapp'] as const).map((channel) => (
             <label
               key={channel}
-              className="flex items-center justify-between gap-4 text-[0.9375rem] text-text-primary"
+              className="flex min-h-11 items-center justify-between gap-4 text-brand-ui text-brand-ink"
             >
               <span>{channelLabel(channel)}</span>
-              <Toggle
+              <BrandToggle
                 checked={consentFor(channel)}
                 disabled={consent.isLoading || setConsent.isPending}
                 aria-label={t('marketingOn', { channel: channelLabel(channel) })}
@@ -249,7 +272,7 @@ export default function NotificationSettingsPage() {
             </label>
           ))}
         </div>
-      </Card>
-    </div>
+      </section>
+    </AccountPage>
   );
 }

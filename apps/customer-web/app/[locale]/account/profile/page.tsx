@@ -4,14 +4,28 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useRouter } from '@/i18n/navigation';
-import { Button, Card, Input, Skeleton, errorMessage, useToast } from '@eticketsgo/web-kit';
+import { BrandButton, errorMessage, useToast } from '@eticketsgo/web-kit';
 import { CheckCircle2, Phone } from 'lucide-react';
-import { ErrorState } from '@/components/ui';
 import { PhoneNumberField, usePhoneNumber } from '@/components/phone-number-field';
 import { api, tokenStore, ApiRequestError } from '@/lib/api';
 import { useSmsCapability } from '@/lib/sign-in-modes';
 import { useMounted } from '@/lib/use-mounted';
 import { dateOnly } from '@/lib/format';
+import {
+  ACCOUNT_PANEL,
+  AccountHeading,
+  AccountPage,
+  BrandError,
+  BrandTextField,
+  PANEL_TITLE,
+} from '@/components/account-brand';
+import { Placeholder } from '@/components/home/parts';
+
+/*
+  The profile on the brand layer: the same three panels (name and email, mobile number,
+  account facts) as flat white panels on paper, with the brand's fields and ink buttons. It was
+  the kit's grey card with blue buttons. Same fields, same ids, same steps and same rules.
+*/
 
 export default function ProfilePage() {
   const t = useTranslations('storefront.profile');
@@ -108,60 +122,57 @@ export default function ProfilePage() {
   });
 
   return (
-    <div className="mx-auto max-w-lg space-y-8">
-      <div>
-        <h1 className="text-h2 font-bold tracking-tight text-text-primary">{t('heading')}</h1>
-        <p className="mt-1.5 text-[0.9375rem] text-text-muted">{t('lead')}</p>
-      </div>
+    <AccountPage width="narrow">
+      <AccountHeading title={t('heading')} lead={t('lead')} />
       {me.isError ? (
-        <ErrorState message={t('loadError')} onRetry={() => me.refetch()} />
+        <BrandError message={t('loadError')} onRetry={() => me.refetch()} />
       ) : !mounted || me.isLoading ? (
-        <Skeleton className="h-48 w-full" />
+        <Placeholder className="h-48 w-full" />
       ) : (
-        <Card>
+        <section className={`${ACCOUNT_PANEL} p-5 sm:p-6`}>
           <div className="space-y-4">
-            <Input
+            <BrandTextField
               id="name"
               label={t('fullName')}
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
             />
-            <Input id="email" label={t('email')} value={me.data?.email ?? ''} disabled />
-            <Button
-              loading={save.isPending}
-              disabled={fullName.trim().length < 2}
+            <BrandTextField id="email" label={t('email')} value={me.data?.email ?? ''} disabled />
+            <BrandButton
+              aria-busy={save.isPending || undefined}
+              disabled={save.isPending || fullName.trim().length < 2}
               onClick={() => save.mutate()}
             >
               {t('save')}
-            </Button>
+            </BrandButton>
           </div>
-        </Card>
+        </section>
       )}
 
       {mounted && !me.isLoading && !me.isError && (
         <>
-          <Card>
-            <h2 className="text-title font-semibold text-text-primary">{t('phoneHeading')}</h2>
-            <p className="mt-1 text-[0.9375rem] text-text-muted">{t('phoneLead')}</p>
+          <section className={`${ACCOUNT_PANEL} p-5 sm:p-6`}>
+            <h2 className={PANEL_TITLE}>{t('phoneHeading')}</h2>
+            <p className="mt-1 text-brand-ui text-brand-ink-2">{t('phoneLead')}</p>
 
             {me.data?.phone ? (
-              <p className="mt-4 flex flex-wrap items-center gap-2 text-[0.9375rem] text-text-primary">
-                <Phone className="h-4 w-4 shrink-0 text-text-muted" aria-hidden />
+              <p className="mt-4 flex flex-wrap items-center gap-2 text-brand-body text-brand-ink">
+                <Phone className="h-4 w-4 shrink-0 text-brand-ink-3" aria-hidden />
                 <span className="tabular-nums">{me.data.phone}</span>
                 {me.data.phoneVerified && (
-                  <span className="inline-flex items-center gap-1 text-caption text-status-success">
+                  <span className="inline-flex h-6 items-center gap-1 rounded-full bg-brand-positive-tint px-2.5 text-brand-meta font-semibold text-brand-positive">
                     <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
                     {t('phoneVerified')}
                   </span>
                 )}
               </p>
             ) : (
-              <p className="mt-4 text-[0.9375rem] text-text-muted">{t('phoneNone')}</p>
+              <p className="mt-4 text-brand-ui text-brand-ink-2">{t('phoneNone')}</p>
             )}
 
             {phoneStep === 'idle' && (
-              <Button
-                variant="outline"
+              <BrandButton
+                variant="secondary"
                 className="mt-4"
                 onClick={() => {
                   phoneField.reset(me.data?.phone);
@@ -169,7 +180,7 @@ export default function ProfilePage() {
                 }}
               >
                 {me.data?.phone ? t('phoneChange') : t('phoneAdd')}
-              </Button>
+              </BrandButton>
             )}
 
             {phoneStep === 'entering' && (
@@ -180,35 +191,38 @@ export default function ProfilePage() {
                   label={t('phoneLabel')}
                   countryLabel={a('countryLabel')}
                   countryPlaceholder={a('countryPlaceholder')}
+                  brand
                 />
                 {smsBlocked && (
-                  <p role="status" className="text-caption text-text-secondary">
+                  <p role="status" className="text-brand-meta text-brand-ink-2">
                     {t('phoneSmsUnavailable')}
                   </p>
                 )}
                 <div className="flex flex-wrap gap-2">
-                  <Button
-                    loading={sendCode.isPending}
+                  <BrandButton
+                    aria-busy={sendCode.isPending || undefined}
                     /*
                       Waits for something that could plausibly be dialled rather than spending
                       an SMS on a typo, and for a country a code can reach. The server is still
                       the judge.
                     */
-                    disabled={smsBlocked || !phone || phoneField.national.length < 6}
+                    disabled={
+                      sendCode.isPending || smsBlocked || !phone || phoneField.national.length < 6
+                    }
                     onClick={() => sendCode.mutate()}
                   >
                     {t('phoneSend')}
-                  </Button>
-                  <Button variant="outline" onClick={() => setPhoneStep('idle')}>
+                  </BrandButton>
+                  <BrandButton variant="secondary" onClick={() => setPhoneStep('idle')}>
                     {t('phoneCancel')}
-                  </Button>
+                  </BrandButton>
                 </div>
               </div>
             )}
 
             {phoneStep === 'confirming' && (
               <div className="mt-4 space-y-3">
-                <Input
+                <BrandTextField
                   id="code"
                   label={t('phoneCodeLabel')}
                   value={code}
@@ -218,35 +232,35 @@ export default function ProfilePage() {
                   onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
                 />
                 <div className="flex flex-wrap gap-2">
-                  <Button
-                    loading={confirmPhone.isPending}
-                    disabled={code.length !== 6}
+                  <BrandButton
+                    aria-busy={confirmPhone.isPending || undefined}
+                    disabled={confirmPhone.isPending || code.length !== 6}
                     onClick={() => confirmPhone.mutate()}
                   >
                     {t('phoneConfirm')}
-                  </Button>
-                  <Button variant="outline" onClick={() => setPhoneStep('entering')}>
+                  </BrandButton>
+                  <BrandButton variant="secondary" onClick={() => setPhoneStep('entering')}>
                     {t('phoneCancel')}
-                  </Button>
+                  </BrandButton>
                 </div>
               </div>
             )}
-          </Card>
+          </section>
 
           {/* Facts about the account, stated rather than editable - nobody sets their own
               joining date, and a field that looks editable and is not is worse than a line
               of text. */}
           {me.data?.memberSince && (
-            <Card>
-              <h2 className="text-title font-semibold text-text-primary">{t('detailsHeading')}</h2>
-              <dl className="mt-3 flex items-baseline justify-between gap-4 text-[0.9375rem]">
-                <dt className="text-text-secondary">{t('memberSince')}</dt>
-                <dd className="text-text-primary">{dateOnly(me.data.memberSince)}</dd>
+            <section className={`${ACCOUNT_PANEL} p-5 sm:p-6`}>
+              <h2 className={PANEL_TITLE}>{t('detailsHeading')}</h2>
+              <dl className="mt-3 flex items-baseline justify-between gap-4 text-brand-ui">
+                <dt className="text-brand-ink-2">{t('memberSince')}</dt>
+                <dd className="tabular-nums text-brand-ink">{dateOnly(me.data.memberSince)}</dd>
               </dl>
-            </Card>
+            </section>
           )}
         </>
       )}
-    </div>
+    </AccountPage>
   );
 }
