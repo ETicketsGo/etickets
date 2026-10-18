@@ -203,8 +203,12 @@ test.describe('printing tickets', () => {
     const pdf = await page.pdf({ format: 'A4', printBackground: true });
     expect(pdfPageCount(pdf)).toBe(tickets.length);
     // Every page says whose copy it is, so one found later is not mistaken for a customer's
-    // own printout. Asserted on the DOM, which can be read exactly.
-    await expect(page.getByText(/Box office copy/)).toHaveCount(tickets.length);
+    // own printout. Asserted on the DOM, which can be read exactly - inside the tickets only:
+    // the sheet's <title> carries the label too, and Next's route announcer (an aria-live
+    // region) can repeat the title, which made a one-ticket sheet count two.
+    await expect(page.locator('article').getByText(/Box office copy/)).toHaveCount(
+      tickets.length,
+    );
 
     await context.close();
   });
