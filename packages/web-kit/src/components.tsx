@@ -32,6 +32,7 @@ import {
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
 } from 'react';
+import { BRAND_FOCUS } from './brand';
 import { titleCase } from './format';
 import { tileClasses, type TileTone } from './primitives';
 
@@ -957,6 +958,7 @@ export function RatingStars({
   label,
   valueLabel = (v) => `${v} out of 5`,
   starLabel = (n) => `${n} star${n > 1 ? 's' : ''}`,
+  brand = false,
 }: {
   value: number;
   onChange?: (value: number) => void;
@@ -966,6 +968,11 @@ export function RatingStars({
   valueLabel?: (value: number) => string;
   /** Accessible name of each star button, e.g. "3 stars". English by default. */
   starLabel?: (n: number) => string;
+  /**
+   * Drawn on the brand layer (inside `data-brand`): a filled star is marigold with an ink
+   * edge, an empty one the field outline, so both clear 3:1 on paper. Opt-in for the consoles.
+   */
+  brand?: boolean;
 }) {
   const dim = size === 'lg' ? 'h-7 w-7' : size === 'sm' ? 'h-3.5 w-3.5' : 'h-5 w-5';
   const interactive = !!onChange;
@@ -979,7 +986,15 @@ export function RatingStars({
         const filled = value >= n;
         const star = (
           <Star
-            className={`${dim} ${filled ? 'fill-status-warning text-status-warning' : 'text-border-strong'}`}
+            className={`${dim} ${
+              brand
+                ? filled
+                  ? 'fill-brand-marigold text-brand-ink'
+                  : 'text-brand-field'
+                : filled
+                  ? 'fill-status-warning text-status-warning'
+                  : 'text-border-strong'
+            }`}
           />
         );
         return interactive ? (
@@ -989,7 +1004,11 @@ export function RatingStars({
             aria-label={starLabel(n)}
             aria-pressed={value >= n}
             onClick={() => onChange!(n)}
-            className="transition-transform hover:scale-110"
+            className={
+              brand
+                ? `rounded-sm transition-transform hover:scale-110 ${BRAND_FOCUS}`
+                : 'transition-transform hover:scale-110'
+            }
           >
             {star}
           </button>
@@ -1101,6 +1120,7 @@ export function Dialog({
   children,
   footer,
   size = 'md',
+  brand = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -1109,6 +1129,14 @@ export function Dialog({
   description?: string;
   children: ReactNode;
   footer?: ReactNode;
+  /**
+   * Draw the frame on the storefront's brand layer: paper, ink, the display face.
+   *
+   * Opt-in, so the organizer and admin consoles keep the frame they have. The panel carries
+   * `data-brand="customer"` itself rather than relying on the page around it: a dialog opened
+   * from the footer sits inside the footer's dark stage band, and would otherwise turn dark.
+   */
+  brand?: boolean;
   /**
    * How wide the panel is.
    *
@@ -1143,24 +1171,44 @@ export function Dialog({
             aria-describedby={description ? descriptionId : undefined}
             tabIndex={-1}
             onKeyDown={onPanelKeyDown}
-            className={`flex max-h-[90vh] w-full flex-col rounded-2xl border border-border bg-background-elevated p-6 shadow-lg focus:outline-none ${
-              size === 'lg' ? 'max-w-2xl' : 'max-w-md'
-            }`}
+            data-brand={brand ? 'customer' : undefined}
+            className={`flex max-h-[90vh] w-full flex-col p-6 focus:outline-none ${
+              brand
+                ? 'rounded-brand-card border border-brand-line bg-brand-surface font-brand-text text-brand-ink shadow-brand-overlay'
+                : 'rounded-2xl border border-border bg-background-elevated shadow-lg'
+            } ${size === 'lg' ? 'max-w-2xl' : 'max-w-md'}`}
             onClick={(e) => e.stopPropagation()}
             initial={{ opacity: 0, scale: 0.96, y: 8 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.97, y: 4 }}
             transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
           >
-            <h2 className="shrink-0 font-display text-title font-semibold text-text-primary">
+            <h2
+              className={
+                brand
+                  ? 'shrink-0 text-balance font-brand-display text-brand-d3 text-brand-ink'
+                  : 'shrink-0 font-display text-title font-semibold text-text-primary'
+              }
+            >
               {title}
             </h2>
             {description && (
-              <p id={descriptionId} className="mt-1 shrink-0 text-ui text-text-secondary">
+              <p
+                id={descriptionId}
+                className={
+                  brand
+                    ? 'mt-1 shrink-0 text-brand-ui text-brand-ink-2'
+                    : 'mt-1 shrink-0 text-ui text-text-secondary'
+                }
+              >
                 {description}
               </p>
             )}
-            <div className="mt-3 flex-1 overflow-y-auto text-[0.9375rem] text-text-secondary">
+            <div
+              className={`mt-3 flex-1 overflow-y-auto ${
+                brand ? 'text-brand-ui text-brand-ink-2' : 'text-[0.9375rem] text-text-secondary'
+              }`}
+            >
               {children}
             </div>
             {footer && <div className="mt-6 flex shrink-0 justify-end gap-2">{footer}</div>}
@@ -1268,6 +1316,7 @@ export function Drawer({
   footer,
   size = 'md',
   closeLabel = 'Close',
+  brand = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -1278,6 +1327,8 @@ export function Drawer({
   size?: 'md' | 'lg';
   /** The close button's accessible name; English unless the app passes its translation. */
   closeLabel?: string;
+  /** The storefront's brand frame, as on `Dialog`: opt-in, and scoped by the panel itself. */
+  brand?: boolean;
 }) {
   const panelRef = useRef<HTMLElement>(null);
   const descriptionId = useId();
@@ -1302,20 +1353,42 @@ export function Drawer({
             aria-describedby={description ? descriptionId : undefined}
             tabIndex={-1}
             onKeyDown={onPanelKeyDown}
-            className={`flex h-full w-full flex-col border-l border-border bg-background-elevated shadow-lg focus:outline-none ${
-              size === 'lg' ? 'sm:max-w-xl' : 'sm:max-w-md'
-            }`}
+            data-brand={brand ? 'customer' : undefined}
+            className={`flex h-full w-full flex-col border-l focus:outline-none ${
+              brand
+                ? 'border-brand-line bg-brand-surface font-brand-text text-brand-ink shadow-brand-overlay'
+                : 'border-border bg-background-elevated shadow-lg'
+            } ${size === 'lg' ? 'sm:max-w-xl' : 'sm:max-w-md'}`}
             onClick={(e) => e.stopPropagation()}
             initial={{ x: '100%' }}
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
             transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
           >
-            <div className="flex shrink-0 items-start justify-between gap-3 border-b border-border px-6 py-4">
+            <div
+              className={`flex shrink-0 items-start justify-between gap-3 border-b px-6 py-4 ${
+                brand ? 'border-brand-line' : 'border-border'
+              }`}
+            >
               <div className="min-w-0">
-                <h2 className="font-display text-title font-semibold text-text-primary">{title}</h2>
+                <h2
+                  className={
+                    brand
+                      ? 'font-brand-display text-brand-d3 text-brand-ink'
+                      : 'font-display text-title font-semibold text-text-primary'
+                  }
+                >
+                  {title}
+                </h2>
                 {description && (
-                  <p id={descriptionId} className="mt-0.5 text-ui text-text-secondary">
+                  <p
+                    id={descriptionId}
+                    className={
+                      brand
+                        ? 'mt-0.5 text-brand-ui text-brand-ink-2'
+                        : 'mt-0.5 text-ui text-text-secondary'
+                    }
+                  >
                     {description}
                   </p>
                 )}
@@ -1324,14 +1397,22 @@ export function Drawer({
                 type="button"
                 onClick={onClose}
                 aria-label={closeLabel}
-                className={`-mr-2 flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-text-muted hover:bg-background-subtle hover:text-text-primary ${focus}`}
+                className={`-mr-2 flex shrink-0 items-center justify-center ${
+                  brand
+                    ? `h-11 w-11 rounded-brand-control text-brand-ink-2 hover:bg-brand-sunken hover:text-brand-ink ${BRAND_FOCUS}`
+                    : `h-10 w-10 rounded-md text-text-muted hover:bg-background-subtle hover:text-text-primary ${focus}`
+                }`}
               >
                 <X className="h-[1.125rem] w-[1.125rem]" aria-hidden />
               </button>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">{children}</div>
             {footer && (
-              <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-border px-6 py-4">
+              <div
+                className={`flex shrink-0 flex-wrap justify-end gap-2 border-t px-6 py-4 ${
+                  brand ? 'border-brand-line' : 'border-border'
+                }`}
+              >
                 {footer}
               </div>
             )}

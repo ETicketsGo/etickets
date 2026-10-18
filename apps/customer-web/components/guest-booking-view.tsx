@@ -15,7 +15,7 @@ import { PriceBreakdown } from '@/components/price-breakdown';
 import { Link } from '@/i18n/navigation';
 import { useFormat } from '@/lib/format';
 import { wasCancelledInThisBrowser } from '@/lib/guest-session';
-import { BRAND_EYEBROW, BRAND_PANEL } from '@/components/booking-brand';
+import { BRAND_EYEBROW, BRAND_LINK, BRAND_PANEL } from '@/components/booking-brand';
 import { ReferenceCode } from '@/components/reference-code';
 import { useStatusLabel } from '@/lib/status-label';
 
@@ -142,7 +142,7 @@ export function GuestBookingSummary({ view }: { view: GuestBookingView }) {
       {view.reference ? (
         <div className="flex items-center justify-between gap-3 border-t border-brand-line pt-4 text-brand-ui">
           <span className="text-brand-ink-2">{c('bookingReference')}</span>
-          <ReferenceCode brand value={view.reference} label={c('bookingReference')} />
+          <ReferenceCode value={view.reference} label={c('bookingReference')} />
         </div>
       ) : null}
 
@@ -215,7 +215,6 @@ export function GuestTotals({
   return (
     <div className="border-t border-brand-line pt-4">
       <PriceBreakdown
-        brand
         quote={{
           currency: view.currency,
           subtotalMinor: t.subtotalMinor,
@@ -366,32 +365,79 @@ export function GuestPrintSheet({
   const tickets = view ? guestTicketsForPrint(view) : [];
   const ready = !isLoading && !isError && tickets.length > 0;
 
+  /*
+    Nothing to print yet, or nothing to print at all: a page on paper that says so and offers the
+    way on, instead of a near-blank sheet with one line of text. A bad or expired link is the
+    usual reason, so "Find my booking" (which emails a fresh link) comes first.
+  */
+  if (!ready) {
+    return (
+      <div
+        data-brand="customer"
+        className="min-h-screen bg-brand-canvas px-4 pb-16 pt-8 font-brand-text text-brand-ink sm:pt-12"
+      >
+        <div className={`${BRAND_PANEL} mx-auto max-w-md space-y-4 p-5 text-center sm:p-8`}>
+          {isLoading ? (
+            <>
+              <p role="status" className="text-brand-body text-brand-ink-2">
+                {g('printLoading')}
+              </p>
+              <Link
+                href={backHref}
+                className={`inline-flex min-h-11 items-center gap-1.5 ${BRAND_LINK}`}
+              >
+                <ArrowLeft className="h-4 w-4" aria-hidden /> {g('printBack')}
+              </Link>
+            </>
+          ) : (
+            <>
+              <h1 className={NOT_HERE_TITLE}>{g('printError')}</h1>
+              <p className="text-brand-body text-brand-ink-2">
+                {isError ? g('linkDeadBody') : g('noTicketsOnBooking')}
+              </p>
+              <div className="flex flex-col gap-3 pt-1 sm:flex-row">
+                <Link
+                  href="/booking/find"
+                  className={`${brandButtonClasses('primary', 'lg')} w-full sm:flex-1`}
+                >
+                  {g('findTitle')}
+                </Link>
+                <Link
+                  href={backHref}
+                  className={`${brandButtonClasses('secondary', 'lg')} w-full sm:flex-1`}
+                >
+                  <ArrowLeft className="h-4 w-4" aria-hidden /> {g('printBack')}
+                </Link>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  /*
+    The sheet itself stays as it was: it is built for paper, and the printed tickets are not on
+    the brand layer. Only the toolbar above it, which never prints, is.
+  */
   return (
     <>
-      <div className="no-print mx-auto flex max-w-2xl flex-wrap items-center justify-between gap-3 p-6">
-        <Link
-          href={backHref}
-          className="inline-flex items-center gap-1.5 rounded-md text-[0.9375rem] font-medium text-text-secondary transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-        >
+      <div
+        data-brand="customer"
+        className="no-print mx-auto flex max-w-2xl flex-wrap items-center justify-between gap-3 p-6 font-brand-text"
+      >
+        <Link href={backHref} className={`inline-flex min-h-11 items-center gap-1.5 ${BRAND_LINK}`}>
           <ArrowLeft className="h-4 w-4" aria-hidden /> {g('printBack')}
         </Link>
-        {ready ? (
-          <button
-            type="button"
-            onClick={() => window.print()}
-            className="inline-flex items-center gap-2 rounded-md bg-action-primary px-4 py-2 text-[0.9375rem] font-medium text-action-primary-foreground transition-colors hover:bg-action-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2"
-          >
-            <Printer className="h-4 w-4" aria-hidden /> {g('printButton')}
-          </button>
-        ) : null}
+        <button
+          type="button"
+          onClick={() => window.print()}
+          className={brandButtonClasses('primary', 'md')}
+        >
+          <Printer className="h-4 w-4" aria-hidden /> {g('printButton')}
+        </button>
       </div>
-      {isLoading ? (
-        <p className="mx-auto max-w-2xl px-6 text-sm">{g('printLoading')}</p>
-      ) : !ready ? (
-        <p className="mx-auto max-w-2xl px-6 text-sm">{g('printError')}</p>
-      ) : (
-        <PrintableTickets tickets={tickets} />
-      )}
+      <PrintableTickets tickets={tickets} />
     </>
   );
 }

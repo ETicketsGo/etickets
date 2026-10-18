@@ -29,6 +29,12 @@
     "from": "From",
     "notFound": "Not found"
   },
+  "notFoundPage": {
+    "title": "We cannot find this page",
+    "lead": "The link may be wrong, or the page may have moved. Search for an event, or go back to the home page.",
+    "home": "Back to home",
+    "browse": "Browse events"
+  },
   "status": {
     "CONFIRMED": "Confirmed",
     "PENDING_PAYMENT": "Awaiting payment",

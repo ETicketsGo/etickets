@@ -441,7 +441,7 @@ export default function ExplorePage() {
         </div>
       ) : nothingHere && where ? (
         <div className={`${BRAND_WRAP} pt-12 lg:pt-16`}>
-          <EmptyPlace place={where} variant="brand" />
+          <EmptyPlace place={where} />
         </div>
       ) : (
         <>
@@ -574,7 +574,6 @@ export default function ExplorePage() {
           data-testid="place-groups"
         >
           <PlaceSections
-            variant="brand"
             buckets={placeSections}
             currencyOf={(e) => e.currency}
             render={(items) => (

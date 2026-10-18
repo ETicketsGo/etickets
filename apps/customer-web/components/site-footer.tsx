@@ -168,9 +168,7 @@ export function SiteFooter({
               the feedback pill floated over content, prices included.
             */}
             <div className="mt-6 flex flex-wrap items-center gap-3">
-              <LanguageSwitcher
-                selectClassName={`h-11 rounded-brand-control border border-brand-field bg-brand-surface px-3 text-brand-ui text-brand-ink ${BRAND_FOCUS}`}
-              />
+              <LanguageSwitcher />
               <FeedbackButton
                 label={h('feedback')}
                 className={`inline-flex h-11 items-center gap-2 rounded-brand-control border border-brand-line-strong px-4 text-brand-ui font-semibold text-brand-ink transition-colors hover:border-brand-ink-3 ${BRAND_FOCUS}`}

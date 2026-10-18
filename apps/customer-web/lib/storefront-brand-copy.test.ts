@@ -26,6 +26,8 @@ const FILES = [
   'components/storefront-brand.tsx',
   'components/place-sections.tsx',
   'components/home/parts.tsx',
+  // The 404 (U5): the page a stranger following a dead link reads, in their language.
+  'components/not-found-view.tsx',
 ];
 
 function codeOnly(source: string): string {

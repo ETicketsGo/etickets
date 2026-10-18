@@ -637,7 +637,6 @@ function AccountPayment() {
           </h2>
           <div className="mt-2">
             <PriceBreakdown
-              brand
               quote={{
                 currency: booking.currency,
                 subtotalMinor: booking.subtotalMinor,

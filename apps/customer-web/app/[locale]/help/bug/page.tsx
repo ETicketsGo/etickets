@@ -33,9 +33,9 @@ export default function ReportBugPage() {
               kind="BUG"
               showSubject
               submitLabel="Submit bug report"
-              successMessage="Thanks — your bug report has been logged."
+              successMessage="Thanks - your bug report has been logged."
               messageLabel="What happened?"
-              messagePlaceholder="Describe the problem and the steps to reproduce it…"
+              messagePlaceholder="Describe the problem and the steps to reproduce it..."
             />
           </Panel>
         </div>

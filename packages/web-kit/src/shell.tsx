@@ -157,6 +157,7 @@ export function AppShell({
   drawerLabel = 'Navigation',
   width = 'contained',
   appearance = 'classic',
+  renderMark,
   children,
 }: {
   /** The console's name beside the platform mark: "Organizer", "Admin". */
@@ -196,6 +197,13 @@ export function AppShell({
    * `data-brand="console"`, so the page inside may use the `brand-*` tokens too.
    */
   appearance?: ShellAppearance;
+  /**
+   * The platform mark in the classic frame, drawn at the size each place asks for (the class
+   * string). Left out, it is the gradient `LogoMark`. Admin passes its own: the mark its
+   * favicon uses, so the tab and the console header are the same picture. The desk draws the
+   * wordmark and never asks.
+   */
+  renderMark?: (className: string) => ReactNode;
   children: ReactNode;
 }) {
   const pathname = usePathname() ?? '/';
@@ -325,7 +333,11 @@ export function AppShell({
                 <DeskWordmark />
               ) : (
                 <>
-                  <LogoMark variant="compact" id="etg-topbar" className="h-7 w-7 shrink-0" />
+                  {renderMark ? (
+                    renderMark('h-7 w-7 shrink-0')
+                  ) : (
+                    <LogoMark variant="compact" id="etg-topbar" className="h-7 w-7 shrink-0" />
+                  )}
                   {!workspace && (
                     <span className="font-display text-[1.0625rem] font-bold tracking-tight text-text-primary">
                       ETickets<span className="text-action-primary">Go</span>
@@ -531,7 +543,11 @@ export function AppShell({
               )
             ) : (
               <>
-                <LogoMark variant="compact" id="etg-sidebar" className="h-8 w-8 shrink-0" />
+                {renderMark ? (
+                  renderMark('h-8 w-8 shrink-0')
+                ) : (
+                  <LogoMark variant="compact" id="etg-sidebar" className="h-8 w-8 shrink-0" />
+                )}
                 {!collapsed && (
                   // Stacked, so the console's name is never truncated beside the collapse control.
                   <span className="flex min-w-0 flex-col leading-none">
@@ -614,7 +630,11 @@ export function AppShell({
                     </span>
                   ) : (
                     <>
-                      <LogoMark variant="compact" id="etg-drawer" className="h-7 w-7 shrink-0" />
+                      {renderMark ? (
+                        renderMark('h-7 w-7 shrink-0')
+                      ) : (
+                        <LogoMark variant="compact" id="etg-drawer" className="h-7 w-7 shrink-0" />
+                      )}
                       <span className="min-w-0 truncate font-display font-semibold text-white">
                         {workspace?.name.trim() ? workspace.name : `ETicketsGo ${brand}`}
                       </span>
