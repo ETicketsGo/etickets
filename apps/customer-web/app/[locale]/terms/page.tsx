@@ -9,6 +9,7 @@ import {
 import { resolveJurisdiction } from '@/lib/market';
 import { Link } from '@/i18n/navigation';
 import { INDIA_OPERATOR_SENTENCE, LEGAL_INFORMATION_HREF } from '@/lib/legal-entity';
+import { BrandPage } from '@/components/storefront-brand';
 
 export const metadata: Metadata = {
   title: 'Terms & Conditions',
@@ -25,7 +26,7 @@ export default async function TermsPage({
   const country = await resolveJurisdiction((await searchParams).country);
 
   return (
-    <>
+    <BrandPage>
       <PageHero
         eyebrow="Legal"
         title="Terms & Conditions"
@@ -168,6 +169,6 @@ export default async function TermsPage({
         </Prose>
         <OperatorLine country={country} />
       </LegalDocument>
-    </>
+    </BrandPage>
   );
 }

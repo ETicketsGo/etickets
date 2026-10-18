@@ -55,10 +55,18 @@ describe('nothing is published until somebody publishes it', () => {
     expect(publishedDetail(BUSINESS_DETAILS.legalName)).toBe('DeepTrics LLC');
   });
 
-  it('keeps the storefront notice up while anything is missing', () => {
-    // Still true, and deliberately so: a postal address and a support phone are not published.
-    // The notice is derived, so it retires itself when they are - nobody has to remember.
-    expect(needsPlaceholderNotice()).toBe(true);
+  it('takes the notice down once the operator and a working support address are published', () => {
+    // The notice reads "contact details and legal terms are not published yet". With the legal
+    // entity and support@ published (PR #425) that is false, and it sat beside the DeepTrics
+    // disclosure that STPL reviews. Optional details (phone, postal address) stay unpublished
+    // and unshown; they no longer keep a false sentence on every page.
+    expect(missingBusinessDetails().length).toBeGreaterThan(0);
+    expect(needsPlaceholderNotice()).toBe(false);
+  });
+
+  it('keeps the notice up while an essential detail is missing', () => {
+    expect(needsPlaceholderNotice({ ...BUSINESS_DETAILS, supportEmail: null })).toBe(true);
+    expect(needsPlaceholderNotice({ ...BUSINESS_DETAILS, legalName: '  ' })).toBe(true);
   });
 
   it('takes the notice down by itself once everything is real', () => {

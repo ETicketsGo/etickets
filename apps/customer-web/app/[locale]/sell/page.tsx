@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { MarketingLanding } from '@/components/marketing/landing';
+import { BrandPage } from '@/components/storefront-brand';
 
 export const metadata: Metadata = {
   title: 'Sell tickets with ETicketsGo',
@@ -16,5 +17,9 @@ export const metadata: Metadata = {
   purpose, from `/organizers`, a search, or a link we send them.
 */
 export default function SellPage() {
-  return <MarketingLanding />;
+  return (
+    <BrandPage>
+      <MarketingLanding />
+    </BrandPage>
+  );
 }

@@ -43,6 +43,48 @@ const BRAND_FILES = [
   'components/reviews/rate-movie-panel.tsx',
   'components/reviews/rating-summary.tsx',
   'components/reviews/recent-reviews.tsx',
+  /*
+    The marketing, legal and help pages (U1): the last storefront pages on the old blue
+    MarketingShell, and the shared pieces they are built from.
+  */
+  ...[
+    'about',
+    'contact',
+    'features',
+    'solutions',
+    'pricing',
+    'sell',
+    'customers',
+    'organizers',
+    'organizers/[id]',
+    'faq',
+    'changelog',
+    'blog',
+    'blog/[slug]',
+    'docs',
+    'docs/api',
+    'legal',
+    'terms',
+    'privacy',
+    'refunds',
+    'sms',
+    'cookies',
+    'organizer-agreement',
+    'help',
+    'help/bug',
+    'help/complaint',
+    'help/contact',
+    'help/feature',
+  ].map((route) => `app/[locale]/${route}/page.tsx`),
+  'components/marketing/kit.tsx',
+  'components/marketing/blocks.tsx',
+  'components/marketing/landing.tsx',
+  'components/marketing/faq.tsx',
+  'components/marketing/contact-form.tsx',
+  'components/marketing/footer.tsx',
+  'components/legal/policy-chrome.tsx',
+  'components/legal/legal-business-information.tsx',
+  'components/feedback-form.tsx',
 ];
 
 /** The pages themselves, which must each put themselves on the brand layer. */
@@ -82,6 +124,15 @@ function brandNames(): { colours: Set<string>; sizes: Set<string> } {
 describe('Explore, Movies, the film page and My tickets are on the brand layer', () => {
   it.each(PAGES)('%s puts itself on the brand layer', (file) => {
     expect(read(file)).toMatch(/<BrandPage>/);
+  });
+
+  it('gives the marketing routes the storefront header, not the old blue one', () => {
+    // The old MarketingNav ("Go to app", blue "Get started") is gone; every route renders the
+    // same Header, and only the footer's link columns differ on the marketing routes.
+    const chrome = read('components/site-chrome.tsx');
+    expect(chrome).not.toMatch(/MarketingNav/);
+    expect(chrome.match(/<Header\s/g)).toHaveLength(1);
+    expect(chrome).toMatch(/<MarketingFooter\s/);
   });
 
   it.each(BRAND_FILES)('%s uses none of the old system', (file) => {

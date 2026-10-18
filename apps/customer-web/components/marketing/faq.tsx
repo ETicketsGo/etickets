@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import { Search } from 'lucide-react';
 import { Link } from '@/i18n/navigation';
+import { MK_EYEBROW, MK_FIELD, MK_LINK, MK_PANEL } from './kit';
 
 export interface FaqItem {
   q: string;
@@ -32,22 +33,25 @@ export function FaqSearch({ groups }: { groups: FaqGroup[] }) {
   return (
     <div>
       <div className="relative mx-auto max-w-xl">
-        <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
+        <Search
+          aria-hidden
+          className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-brand-ink-3"
+        />
         <input
           type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search questions..."
           aria-label="Search FAQs"
-          className="w-full rounded-xl border border-border bg-background-surface py-2.5 pl-10 pr-3.5 text-[0.9375rem] text-text-primary shadow-xs placeholder:text-text-muted focus:border-action-primary focus:outline-none focus:ring-2 focus:ring-ring/40"
+          className={`${MK_FIELD} h-11 pl-10`}
         />
       </div>
 
       <div className="mt-10 space-y-10">
         {filtered.length === 0 ? (
-          <p className="text-center text-[0.9375rem] text-text-muted">
+          <p className="text-center text-brand-ui text-brand-ink-2">
             No questions match &quot;{query}&quot;. Try a different term or{' '}
-            <Link href="/contact" className="font-medium text-action-primary hover:underline">
+            <Link href="/contact" className={MK_LINK}>
               contact us
             </Link>
             .
@@ -55,27 +59,23 @@ export function FaqSearch({ groups }: { groups: FaqGroup[] }) {
         ) : (
           filtered.map((g) => (
             <section key={g.category}>
-              <h2 className="text-caption font-semibold uppercase tracking-wide text-text-muted">
-                {g.category}
-              </h2>
-              <div className="mt-4 divide-y divide-border rounded-2xl border border-border bg-background-surface">
+              <h2 className={MK_EYEBROW}>{g.category}</h2>
+              <div className={`mt-4 divide-y divide-brand-line ${MK_PANEL}`}>
                 {g.items.map((i) => (
                   <details
                     key={i.q}
                     className="group px-5 py-4 [&_summary::-webkit-details-marker]:hidden"
                   >
-                    <summary className="flex cursor-pointer items-center justify-between gap-4 text-[0.9375rem] font-semibold text-text-primary">
+                    <summary className="flex min-h-11 cursor-pointer items-center justify-between gap-4 rounded-sm text-brand-ui font-semibold text-brand-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-focus focus-visible:ring-offset-2 focus-visible:ring-offset-brand-surface">
                       {i.q}
                       <span
-                        className="text-text-muted transition-transform group-open:rotate-45"
+                        className="text-brand-ink-3 transition-transform group-open:rotate-45"
                         aria-hidden
                       >
                         +
                       </span>
                     </summary>
-                    <p className="mt-3 text-[0.9375rem] leading-relaxed text-text-secondary">
-                      {i.a}
-                    </p>
+                    <p className="mt-3 text-brand-ui text-brand-ink-2">{i.a}</p>
                   </details>
                 ))}
               </div>

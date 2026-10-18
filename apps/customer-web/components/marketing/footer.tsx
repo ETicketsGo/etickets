@@ -1,11 +1,28 @@
+'use client';
+
 import { Link } from '@/i18n/navigation';
 import { useTranslations } from 'next-intl';
-import { Logo, needsPlaceholderNotice } from '@eticketsgo/web-kit';
+import { BRAND_FOCUS, BrandStatusPill, needsPlaceholderNotice } from '@eticketsgo/web-kit';
 import { INDIA_OPERATOR } from '@eticketsgo/shared-types';
 import { FooterSignInLink } from '@/components/marketing/footer-sign-in-link';
+import { Wordmark } from '@/components/wordmark';
+import { LanguageSwitcher } from '@/components/language-switcher';
+import { FeedbackButton } from '@/components/feedback-widget';
 
-const FOOTER_LINK =
-  'inline-flex min-h-11 items-center text-[0.9375rem] text-text-secondary transition-colors hover:text-text-primary lg:min-h-0';
+/*
+  ── THE MARKETING FOOTER, DRAWN AS THE STOREFRONT FOOTER ───────────────────────────────────
+  Same stage band, wordmark, type, language switcher and feedback button as `SiteFooter`, which
+  the home page and Explore end with, so About or the terms no longer end in a second product's
+  grey footer. What it keeps of its own is what it was for: the four columns of links to the
+  platform pages (features, pricing, the organizer agreement and the rest), the sign-in link
+  that returns to this page, and the placeholder notice.
+
+  The language switcher moved here from the old marketing header. These pages now take the
+  storefront header, which has none (it lives in the footer, EXPERIENCE-AUDIT.md C2), and
+  without it a French reader of the terms had no way to French.
+*/
+
+const FOOTER_LINK = `inline-flex min-h-11 items-center rounded-sm text-brand-ui text-brand-ink-2 transition-colors hover:text-brand-ink lg:min-h-8 ${BRAND_FOCUS}`;
 
 const COLUMNS: { title: string; links: { href: string; label: string; external?: boolean }[] }[] = [
   {
@@ -56,31 +73,52 @@ const COLUMNS: { title: string; links: { href: string; label: string; external?:
   },
 ];
 
-export function MarketingFooter({ buildId = null }: { buildId?: string | null }) {
+export function MarketingFooter({
+  buildId = null,
+  environmentNotice = null,
+}: {
+  buildId?: string | null;
+  environmentNotice?: string | null;
+}) {
   const f = useTranslations('common.footer');
+  const h = useTranslations('home.footer');
+  const nav = useTranslations('common.nav');
   return (
-    <footer className="border-t border-border bg-background-subtle/40">
-      <div className="mx-auto max-w-shell px-4 py-14 sm:px-6 lg:px-8">
-        <div className="grid gap-10 lg:grid-cols-[1.4fr_repeat(4,1fr)]">
-          <div>
+    <footer
+      data-brand="customer"
+      data-brand-tone="stage"
+      className="mt-auto bg-brand-canvas font-brand-text text-brand-ink"
+    >
+      <div className="mx-auto max-w-shell px-4 py-12 sm:px-6 lg:px-10 lg:py-16">
+        <div className="grid grid-cols-2 gap-x-6 gap-y-10 lg:grid-cols-[1.4fr_repeat(4,1fr)]">
+          <div className="col-span-2 lg:col-span-1">
             <Link
               href="/"
-              className="flex items-center gap-2 font-bold tracking-tight text-text-primary"
+              aria-label={nav('home')}
+              className={`inline-flex h-11 items-center rounded-brand-control ${BRAND_FOCUS}`}
             >
-              {/* Compact for the same reason as the storefront footer — see the note there. */}
-              <Logo markClassName="h-9 w-9" id="mftr" />
+              <Wordmark className="text-[1.625rem]" />
             </Link>
-            <p className="mt-3 max-w-xs text-[0.9375rem] leading-relaxed text-text-secondary">
+            <p className="mt-3 max-w-xs text-brand-ui text-brand-ink-2">
               ETicketsGo sells your tickets, checks guests in at the door, and shows you how the
               event did. The gate keeps working when the network does not.
             </p>
+            <div className="mt-6 flex flex-wrap items-center gap-3">
+              <LanguageSwitcher
+                selectClassName={`h-11 rounded-brand-control border border-brand-field bg-brand-surface px-3 text-brand-ui text-brand-ink ${BRAND_FOCUS}`}
+              />
+              <FeedbackButton
+                label={h('feedback')}
+                className={`inline-flex h-11 items-center gap-2 rounded-brand-control border border-brand-line-strong px-4 text-brand-ui font-semibold text-brand-ink transition-colors hover:border-brand-ink-3 ${BRAND_FOCUS}`}
+              />
+            </div>
           </div>
           {COLUMNS.map((col) => (
             <div key={col.title}>
-              <h3 className="text-caption font-semibold uppercase tracking-wide text-text-secondary">
+              <h2 className="text-brand-eyebrow uppercase text-brand-ink-3">
                 {f(`columns.${col.title}`)}
-              </h3>
-              <ul className="mt-4 lg:space-y-2.5">
+              </h2>
+              <ul className="mt-4 lg:space-y-1">
                 {col.links.map((l) => (
                   <li key={l.href + l.label}>
                     {l.href === '/login' ? (
@@ -98,7 +136,7 @@ export function MarketingFooter({ buildId = null }: { buildId?: string | null })
             </div>
           ))}
         </div>
-        <div className="mt-12 flex flex-col items-start justify-between gap-4 border-t border-border pt-6 text-caption text-text-secondary sm:flex-row sm:items-center">
+        <div className="mt-12 flex flex-col items-start justify-between gap-3 border-t border-brand-line pt-6 text-brand-meta text-brand-ink-3 sm:flex-row sm:items-center">
           {/*
             The same line, from the same catalogue key, as the storefront footer. This one used
             to be a hardcoded English literal, so the two footers already disagreed and a French
@@ -118,9 +156,10 @@ export function MarketingFooter({ buildId = null }: { buildId?: string | null })
             </p>
           )}
           {needsPlaceholderNotice() && (
-            <p className="text-text-secondary">
-              Our contact details and legal terms are not published yet.
-            </p>
+            <p>Our contact details and legal terms are not published yet.</p>
+          )}
+          {environmentNotice && (
+            <BrandStatusPill status="caution">{environmentNotice}</BrandStatusPill>
           )}
         </div>
       </div>

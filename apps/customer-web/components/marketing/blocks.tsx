@@ -1,6 +1,14 @@
-import { Container, Eyebrow, GradientBackdrop, PrimaryLink, SecondaryLink } from './kit';
+import { Container, Eyebrow, MK_PANEL, PrimaryLink, SecondaryLink } from './kit';
 
-/** Interior-page hero: eyebrow, title, lead, optional CTAs, on a soft backdrop. */
+/**
+ * Interior-page hero: eyebrow, title, lead, optional CTAs, on paper.
+ *
+ * Drawn like the top of Explore: the eyebrow, the title in the display face and one lead
+ * paragraph, left-aligned on the same gutters as the header. The old hero centred the words
+ * on a blue gradient wash, and its lead had to be special-cased to full-strength ink because
+ * the secondary colour failed AA on that wash (4.49:1). On paper the secondary ink passes on
+ * its own, so the special case went with the wash.
+ */
 export function PageHero({
   eyebrow,
   title,
@@ -15,34 +23,16 @@ export function PageHero({
   secondary?: { href: string; label: string };
 }) {
   return (
-    <div className="relative overflow-hidden border-b border-border">
-      <GradientBackdrop />
-      <Container className="py-16 text-center sm:py-24">
-        <div className="mx-auto max-w-3xl">
-          <div className="flex justify-center">
-            <Eyebrow>{eyebrow}</Eyebrow>
-          </div>
-          <h1 className="mt-5 text-balance text-3xl font-bold leading-[1.1] tracking-tight text-text-primary sm:text-5xl">
+    <div className="border-b border-brand-line">
+      <Container className="pb-10 pt-8 lg:pb-14 lg:pt-14">
+        <div className="max-w-3xl">
+          <Eyebrow>{eyebrow}</Eyebrow>
+          <h1 className="mt-3 text-balance font-brand-display text-brand-d1 text-brand-ink">
             {title}
           </h1>
-          {/*
-            `text-text-primary` rather than `text-text-secondary`, and only here.
-
-            The lead sits on the hero's tinted gradient, not on the page background. Measured
-            with axe at 390px: #555d6d on #c5d5f8 is 4.49:1, against a 4.5:1 requirement - a
-            hundredth short, and failing on EVERY marketing page (terms, privacy, contact, faq,
-            pricing, refunds). A secondary colour chosen against a white page was never checked
-            against the colour it actually lands on.
-
-            Fixed on the component, not on the token: `text-text-secondary` is correct
-            everywhere else it is used, and changing the token to rescue one backdrop would
-            darken body copy across the whole product.
-          */}
-          <p className="mx-auto mt-5 max-w-2xl text-pretty text-lg leading-relaxed text-text-primary">
-            {lead}
-          </p>
+          <p className="mt-4 max-w-prose text-pretty text-brand-lead text-brand-ink-2">{lead}</p>
           {(primary || secondary) && (
-            <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
               {primary && <PrimaryLink href={primary.href}>{primary.label}</PrimaryLink>}
               {secondary && <SecondaryLink href={secondary.href}>{secondary.label}</SecondaryLink>}
             </div>
@@ -53,16 +43,39 @@ export function PageHero({
   );
 }
 
-/** A dismissible-looking notice banner (static) for placeholder/legal-review notes. */
+/** A static notice banner for placeholder/legal-review notes. */
 export function NoticeBanner({ children }: { children: React.ReactNode }) {
   return (
-    /*
-      An opaque tint, so the note carries its own background instead of borrowing the washed
-      marketing section behind it. As `bg-status-warning/5` this measured 3.99:1 — the amber
-      was being read against a gradient nobody had accounted for when the colour was chosen.
-    */
-    <div className="rounded-2xl border border-status-warning/30 bg-tint-warning px-5 py-4 text-[0.9375rem] text-text-primary">
-      <span className="font-semibold text-status-warning">Please note:</span> {children}
+    <div className="rounded-brand-card bg-brand-caution-tint px-5 py-4 text-brand-ui text-brand-ink">
+      <span className="font-semibold text-brand-caution">Please note:</span> {children}
+    </div>
+  );
+}
+
+/**
+ * A white panel with a hairline, optionally headed by a title and a small action: the brand
+ * layer's stand-in for the old kit `Card` (grey border, drop shadow, old title style).
+ */
+export function Panel({
+  children,
+  className = '',
+  title,
+  action,
+}: {
+  children: React.ReactNode;
+  className?: string;
+  title?: React.ReactNode;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div className={`${MK_PANEL} p-5 sm:p-6 ${className}`}>
+      {(title || action) && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          {title && <h2 className="font-brand-display text-brand-d3 text-brand-ink">{title}</h2>}
+          {action}
+        </div>
+      )}
+      {children}
     </div>
   );
 }
@@ -70,10 +83,13 @@ export function NoticeBanner({ children }: { children: React.ReactNode }) {
 /**
  * Long-form content wrapper with tasteful typographic defaults for legal/docs pages
  * (Tailwind Typography is not a dependency, so styles are applied explicitly).
+ *
+ * Links are ink with an underline rather than a colour, so a link in a paragraph of the terms
+ * is still a link in greyscale and to somebody who cannot tell blue from black.
  */
 export function Prose({ children }: { children: React.ReactNode }) {
   return (
-    <div className="mx-auto max-w-3xl space-y-5 text-[0.975rem] leading-relaxed text-text-secondary [&_a]:font-medium [&_a]:text-action-primary hover:[&_a]:underline [&_h2]:mt-10 [&_h2]:text-xl [&_h2]:font-bold [&_h2]:tracking-tight [&_h2]:text-text-primary [&_h3]:mt-6 [&_h3]:text-base [&_h3]:font-semibold [&_h3]:text-text-primary [&_li]:ml-1 [&_strong]:text-text-primary [&_ul]:list-disc [&_ul]:space-y-1.5 [&_ul]:pl-5">
+    <div className="mx-auto max-w-3xl space-y-5 text-brand-body text-brand-ink-2 [&_a]:rounded-sm [&_a]:font-medium [&_a]:text-brand-ink [&_a]:underline [&_a]:decoration-brand-line-strong [&_a]:underline-offset-4 hover:[&_a]:decoration-brand-ink [&_h2]:mt-10 [&_h2]:font-brand-display [&_h2]:text-brand-d3 [&_h2]:text-brand-ink [&_h3]:mt-6 [&_h3]:font-brand-display [&_h3]:text-brand-card [&_h3]:text-brand-ink [&_li]:ml-1 [&_strong]:text-brand-ink [&_ul]:list-disc [&_ul]:space-y-1.5 [&_ul]:pl-5">
       {children}
     </div>
   );

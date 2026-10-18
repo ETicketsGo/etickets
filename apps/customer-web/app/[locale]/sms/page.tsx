@@ -10,6 +10,7 @@ import {
 } from '@/components/legal/policy-chrome';
 import { resolveJurisdiction } from '@/lib/market';
 import { BUSINESS_DETAILS, publishedDetail } from '@eticketsgo/web-kit';
+import { BrandPage } from '@/components/storefront-brand';
 
 /**
  * The public description of the text-message programme.
@@ -53,7 +54,7 @@ export default async function SmsPage({
   const legalName = publishedDetail(BUSINESS_DETAILS.legalName);
 
   return (
-    <>
+    <BrandPage>
       <PageHero
         eyebrow="Text messages"
         title="ETicketsGo text messages"
@@ -113,9 +114,9 @@ export default async function SmsPage({
         {/*
             OUTSIDE `Prose`, and that is the whole point.
 
-            `Prose` styles every descendant anchor with `[&_a]:text-action-primary`, which has
-            higher specificity than the button's own `text-action-primary-foreground`. Inside
-            it, this button rendered as a solid blue pill with its label in the same blue - a
+            `Prose` styles every descendant anchor's text colour with an arbitrary variant, which
+            has higher specificity than the button's own label colour. Inside it, this button
+            rendered as a solid pill with its label in the same colour as the fill - a
             control that looks broken while working perfectly. `not-prose` does not help: these
             are plain arbitrary variants, not Tailwind Typography. Only a screenshot showed it.
           */}
@@ -172,6 +173,6 @@ export default async function SmsPage({
         </Prose>
         <OperatorLine country={country} />
       </LegalDocument>
-    </>
+    </BrandPage>
   );
 }

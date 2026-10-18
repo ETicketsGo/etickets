@@ -8,6 +8,7 @@ import {
   BackToLegal,
 } from '@/components/legal/policy-chrome';
 import { resolveJurisdiction } from '@/lib/market';
+import { BrandPage } from '@/components/storefront-brand';
 
 export const metadata: Metadata = {
   title: 'Refund and Cancellation Policy',
@@ -45,7 +46,7 @@ export default async function RefundsPage({
 }) {
   const country = await resolveJurisdiction((await searchParams).country);
   return (
-    <>
+    <BrandPage>
       <PageHero
         eyebrow="Legal"
         title="Refund and Cancellation Policy"
@@ -147,6 +148,6 @@ export default async function RefundsPage({
         </Prose>
         <OperatorLine country={country} />
       </LegalDocument>
-    </>
+    </BrandPage>
   );
 }
