@@ -1,6 +1,6 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { NotificationType, Role } from '@eticketsgo/shared-types';
+import { AdminPermission, NotificationType, Role } from '@eticketsgo/shared-types';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
@@ -342,26 +342,111 @@ export class PayoutAccountsService {
     await this.notifyOwners(organizationId, 'SAVED', outcome.row, {
       changedFields: outcome.changedFields,
     });
+    await this.notifyVerifiers(user, organizationId, outcome.row, outcome.changedFields);
     return this.view(outcome.row);
   }
 
-  /** Every account, masked, for the admin making transfers. */
-  async adminList(): Promise<
+  /**
+   * Tell the staff who can verify it that an account is waiting.
+   *
+   * ── WHY ──────────────────────────────────────────────────────────────────────────────
+   * A save used to tell the owners and nobody else, and the admin dashboard had no queue for it,
+   * so a new bank account sat at "waiting for verification" with nobody aware it was there - and
+   * no payout can be made to it until somebody checks it.
+   *
+   * ── WHO ──────────────────────────────────────────────────────────────────────────────
+   * Staff who hold what the verify route needs (PAYOUT_MANAGE and BANK_VERIFY), less the people
+   * maker-checker would refuse: whoever entered the details and every member of the organization.
+   * The notice says so in words, because the person most likely to wonder why nobody has acted
+   * is the one who may not.
+   *
+   * Masked like the owners' copy: bank, currency, last four digits and field names. Never throws
+   * (the audience service swallows and logs); the save is already durable.
+   */
+  private async notifyVerifiers(
+    user: RequestUser,
+    organizationId: string,
+    row: { id: string; currency: string; bankName: string; accountLast4: string; version: number },
+    changedFields: string[],
+  ): Promise<void> {
+    try {
+      const [org, members, saver] = await Promise.all([
+        this.prisma.organization.findUnique({
+          where: { id: organizationId },
+          select: { name: true },
+        }),
+        this.prisma.organizationMember.findMany({
+          where: { organizationId },
+          select: { userId: true },
+        }),
+        this.prisma.user.findUnique({ where: { id: user.id }, select: { email: true } }),
+      ]);
+      const ruledOut = new Set([user.id, ...members.map((m) => m.userId)]);
+      await this.audience.notifyAdminsHolding(
+        [AdminPermission.PAYOUT_MANAGE, AdminPermission.BANK_VERIFY],
+        NotificationType.PAYOUT_ACCOUNT_AWAITING_VERIFICATION,
+        {
+          accountId: row.id,
+          organizationId,
+          organizationName: org?.name ?? '',
+          currency: row.currency,
+          bankName: row.bankName,
+          accountLast4: row.accountLast4,
+          version: row.version,
+          changedFields,
+          savedByEmail: saver?.email ?? user.email ?? '',
+        },
+        { skip: (id) => ruledOut.has(id) },
+      );
+    } catch {
+      // A lookup failing here must not fail a save that has already been committed.
+    }
+  }
+
+  /**
+   * Every account, masked, for the admin making transfers.
+   *
+   * `viewer` is the admin asking. For each account still waiting, `independenceBlock` says
+   * whether maker-checker would refuse THIS person's decision, and why, using the same rule as
+   * `assertIndependent`. The screen used to find out only after the click, so the one person who
+   * could not verify (the owner who is also staff) was shown a button that could only fail. It
+   * is advice for the screen; the decision routes still check for themselves.
+   */
+  async adminList(viewer?: Pick<RequestUser, 'id'>): Promise<
     (PayoutAccountView & {
       organization: { id: string; name: string };
       /** Who entered these details. Shown so a reviewer can see they are not that person. */
       savedBy: { id: string; email: string } | null;
       /** Who verified the current version. That person can never pay into this account. */
       verifiedBy: { id: string; email: string } | null;
+      /** Why the viewer may not decide on this account; null when they may (or it is decided). */
+      independenceBlock: 'SAME_PERSON' | 'ORGANIZATION_MEMBER' | null;
     })[]
   > {
-    const rows = await this.prisma.organizerPayoutAccount.findMany({
-      include: { organization: { select: { id: true, name: true } } },
-      orderBy: [{ organizationId: 'asc' }, { currency: 'asc' }],
-    });
+    const [rows, memberships] = await Promise.all([
+      this.prisma.organizerPayoutAccount.findMany({
+        include: { organization: { select: { id: true, name: true } } },
+        orderBy: [{ organizationId: 'asc' }, { currency: 'asc' }],
+      }),
+      viewer
+        ? this.prisma.organizationMember.findMany({
+            where: { userId: viewer.id },
+            select: { organizationId: true },
+          })
+        : Promise.resolve([] as { organizationId: string }[]),
+    ]);
+    const memberOf = new Set(memberships.map((m) => m.organizationId));
     const people = await this.emails(rows.flatMap((r) => [r.updatedByUserId, r.verifiedByUserId]));
     return rows.map((row) => ({
       ...this.view(row),
+      independenceBlock:
+        viewer && reviewStatusOf(row) === 'PENDING_VERIFICATION'
+          ? independenceFailure({
+              actorUserId: viewer.id,
+              savedByUserId: row.updatedByUserId,
+              actorIsMember: memberOf.has(row.organizationId),
+            })
+          : null,
       organization: row.organization,
       savedBy: row.updatedByUserId
         ? { id: row.updatedByUserId, email: people.get(row.updatedByUserId) ?? '' }

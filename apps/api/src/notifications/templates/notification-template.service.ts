@@ -547,6 +547,30 @@ const BUILDERS: Partial<Record<NotificationType, Builder>> = {
   },
 
   /*
+    The staff copy of a bank account save: it is waiting for a check, and the one person who must
+    not do that check is named. Masked like the owners' copy - the payload has no field that
+    could hold a full number, so this cannot print one.
+  */
+  [NotificationType.PAYOUT_ACCOUNT_AWAITING_VERIFICATION]: (l, p) => {
+    const raw = p.changedFields;
+    const names = Array.isArray(raw) ? raw.map(String) : [];
+    const changes = names.map((n) => t(l, `emails.PAYOUT_ACCOUNT_UPDATED.fields.${n}`)).join(', ');
+    const values = {
+      organization: str(p, 'organizationName', t(l, 'emails.fragments.anOrganization')),
+      currency: str(p, 'currency'),
+      bank: str(p, 'bankName'),
+      last4: str(p, 'accountLast4'),
+      version: str(p, 'version', '1'),
+      changes: changes || t(l, 'emails.PAYOUT_ACCOUNT_UPDATED.fields.initial'),
+      savedBy: str(p, 'savedByEmail', t(l, 'emails.fragments.notProvided')),
+    };
+    return {
+      subject: t(l, 'emails.PAYOUT_ACCOUNT_AWAITING_VERIFICATION.subject', values),
+      body: t(l, 'emails.PAYOUT_ACCOUNT_AWAITING_VERIFICATION.body', values),
+    };
+  },
+
+  /*
     The reason is the admin's own words and is the whole point of the message: "paused" alone
     sends the organizer straight to support to ask why. It is required by the console, but an
     older caller may omit it, so it is optional here like the rejection note.

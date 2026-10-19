@@ -48,6 +48,15 @@ export const TEMPLATE_CONTRACTS: Partial<Record<NotificationType, TemplateContra
   },
 
   /*
+    The staff copy. Which organization and which account (masked), so a reviewer can find it,
+    and who entered it, because that person is the one who may not check it.
+  */
+  [NotificationType.PAYOUT_ACCOUNT_AWAITING_VERIFICATION]: {
+    required: ['organizationName', 'currency', 'bankName', 'accountLast4', 'savedByEmail'],
+    optional: ['version', 'changedFields', 'accountId', 'organizationId'],
+  },
+
+  /*
     The ticket. `reference` is what a customer reads down a phone to support, and the event
     and time are how they recognise which booking this is among several.
   */

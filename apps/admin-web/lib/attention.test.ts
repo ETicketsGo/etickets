@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { ActionQueue } from '@eticketsgo/web-kit';
 import {
+  BANK_ACCOUNTS_QUEUE,
   RECONCILIATION_QUEUE,
   attentionQueues,
+  bankAccountsWaiting,
   failedPaymentsQueue,
   lastSevenDays,
   queueNoun,
@@ -183,5 +185,102 @@ describe('sorting the answers', () => {
 describe('queue names', () => {
   it('uses the plural noun with no number', () => {
     expect(queueNoun(RECONCILIATION_QUEUE)).toBe('reconciliation exceptions nobody has picked up');
+  });
+});
+
+/*
+  B1: an organizer's bank account waiting for verification had no place on the dashboard, so the
+  page said "nothing is waiting" with one sitting there. These pin the queue, who sees it, its
+  count and its clear chip.
+*/
+describe('bank accounts waiting for verification', () => {
+  const WITH_PAYOUTS: ActionQueue[] = [
+    q('disputes', 'FINANCE_READ', 'critical'),
+    q('payouts-failed', 'PAYOUT_MANAGE', 'critical'),
+    q('settlements-blocked', 'FINANCE_READ'),
+  ];
+  const VERIFIER = ['BOOKING_READ', 'FINANCE_READ', 'PAYOUT_MANAGE', 'BANK_VERIFY'];
+  const PAYER = ['BOOKING_READ', 'FINANCE_READ', 'PAYOUT_MANAGE', 'PAYOUT_EXECUTE'];
+
+  it('is shown to staff who can verify, beside failed payouts', () => {
+    const keys = attentionQueues(WITH_PAYOUTS, VERIFIER, NOW).map((x) => x.key);
+    expect(keys).toEqual([
+      'disputes',
+      'payouts-failed',
+      'bank-accounts-pending',
+      'settlements-blocked',
+      'reconciliation-open',
+      'payments-failed-7d',
+    ]);
+  });
+
+  it('is not shown to staff without BANK_VERIFY, nor to BANK_VERIFY without the list', () => {
+    const has = (caps: string[]) =>
+      attentionQueues(WITH_PAYOUTS, caps, NOW).some((x) => x.key === BANK_ACCOUNTS_QUEUE.key);
+    expect(has(PAYER)).toBe(false);
+    expect(has(['BOOKING_READ', 'ORGANIZER_READ', 'SUPPORT_MANAGE'])).toBe(false);
+    expect(has(['BANK_VERIFY'])).toBe(false);
+    expect(has(VERIFIER)).toBe(true);
+  });
+
+  it('is still shown if the shared list stops carrying failed payouts', () => {
+    const keys = attentionQueues(SHARED, VERIFIER, NOW).map((x) => x.key);
+    expect(keys).toContain('bank-accounts-pending');
+  });
+
+  it('links to the bank accounts on the payouts page', () => {
+    expect(BANK_ACCOUNTS_QUEUE.href).toBe('/admin/payouts#bank-accounts');
+    expect(BANK_ACCOUNTS_QUEUE.kind).toBe('action');
+  });
+
+  it('counts one waiting account with its age, and nothing once it is verified', () => {
+    const saved = '2026-10-07T13:00:00.000Z';
+    expect(
+      bankAccountsWaiting([{ status: 'PENDING_VERIFICATION', updatedAt: saved }], NOW),
+    ).toEqual({
+      count: 1,
+      note: 'Waiting 2 days',
+    });
+    expect(bankAccountsWaiting([{ status: 'VERIFIED', updatedAt: saved }], NOW)).toEqual({
+      count: 0,
+    });
+  });
+
+  it('says how long the OLDEST has waited when there are several', () => {
+    const out = bankAccountsWaiting(
+      [
+        { status: 'PENDING_VERIFICATION', updatedAt: '2026-10-09T12:00:00.000Z' },
+        { status: 'REJECTED', updatedAt: '2026-09-01T00:00:00.000Z' },
+        { status: 'PENDING_VERIFICATION', updatedAt: '2026-10-09T14:30:00.000Z' },
+      ],
+      NOW,
+    );
+    expect(out).toEqual({ count: 2, note: 'Oldest waiting 3 hours' });
+    expect(
+      bankAccountsWaiting(
+        [{ status: 'PENDING_VERIFICATION', updatedAt: '2026-10-09T14:40:00.000Z' }],
+        NOW,
+      ).note,
+    ).toBe('Waiting less than an hour');
+  });
+
+  it('a waiting account is work on the page; a verified one is a clear chip', () => {
+    const queues = attentionQueues(WITH_PAYOUTS, VERIFIER, NOW);
+    const answer = (bank: number): AttentionItem[] =>
+      queues.map((queue) => ({
+        queue,
+        outcome: { status: 'ok', count: queue.key === BANK_ACCOUNTS_QUEUE.key ? bank : 0 },
+      }));
+    const waiting = summarise(answer(1));
+    expect(waiting.needsAction.map((i) => i.queue.key)).toEqual(['bank-accounts-pending']);
+    expect(waiting.waiting).toBe(1);
+    expect(BANK_ACCOUNTS_QUEUE.label(1)).toBe('1 bank account waiting for verification');
+
+    const clear = summarise(answer(0));
+    expect(clear.needsAction).toEqual([]);
+    expect(clear.allChecked).toBe(true);
+    expect(clear.clear.map((i) => i.queue.key)).toContain('bank-accounts-pending');
+    // The chip reads "No " + this.
+    expect(queueNoun(BANK_ACCOUNTS_QUEUE)).toBe('bank accounts waiting for verification');
   });
 });

@@ -386,6 +386,8 @@ enum NotificationType {
   /// A published event whose checkout would refuse every customer. Publishing already
   /// blocks this, so it only ever means one that BECAME unsellable after going live.
   EVENT_NOT_SELLABLE
+  /// Staff-facing: an organizer's saved bank account waits for an independent verifier.
+  PAYOUT_ACCOUNT_AWAITING_VERIFICATION
 
   // Account security, addressed to the account holder about their own credentials.
   PASSWORD_RESET_REQUESTED

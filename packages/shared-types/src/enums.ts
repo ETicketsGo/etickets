@@ -340,6 +340,12 @@ export const NotificationType = {
   SHARE_VIEWED: 'SHARE_VIEWED',
   SHARE_REVOKED: 'SHARE_REVOKED',
   PAYOUT_ACCOUNT_UPDATED: 'PAYOUT_ACCOUNT_UPDATED',
+  /**
+   * Staff-facing: an organizer saved or replaced a payout bank account and it now waits for
+   * somebody with BANK_VERIFY to check it. PAYOUT_ACCOUNT_UPDATED is the owners' copy; this one
+   * is the reviewers', so a saved account stops waiting in a queue nobody was told about.
+   */
+  PAYOUT_ACCOUNT_AWAITING_VERIFICATION: 'PAYOUT_ACCOUNT_AWAITING_VERIFICATION',
   SETTLEMENT_RELEASED: 'SETTLEMENT_RELEASED',
   PAYMENT_DISPUTE_OPENED: 'PAYMENT_DISPUTE_OPENED',
   PAYMENT_DISPUTE_CLOSED: 'PAYMENT_DISPUTE_CLOSED',

@@ -238,6 +238,16 @@ export const EVENT_POLICY: Partial<Record<NotificationType, EventPolicy>> = {
     urgency: 'IMPORTANT',
     guaranteed: [E, A],
   },
+  /*
+    The staff side of the same save: a bank account is waiting for an independent check, and no
+    payout can go to it until somebody does. Email and inbox like the other approval queues
+    (an organization registering, an event submitted); not push, because it is done from a desk.
+  */
+  [NotificationType.PAYOUT_ACCOUNT_AWAITING_VERIFICATION]: {
+    channels: [E, A],
+    urgency: 'IMPORTANT',
+    guaranteed: [E, A],
+  },
 
   /* Organizer money. Their console and their email; not their WhatsApp, not at 3am. */
   [NotificationType.SETTLEMENT_RELEASED]: {

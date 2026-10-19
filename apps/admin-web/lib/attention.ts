@@ -19,8 +19,9 @@ import { FAILED_PAYMENTS_WEEK_SCOPE } from './dashboard-labels';
  * ── WHERE THE QUEUES COME FROM ─────────────────────────────────────────────────────
  * The shared list in web-kit (`ACTION_QUEUES`) is the platform's definition of "waiting on a
  * decision", and the organizer-facing code does not need to know about the admin-only additions
- * here, so this file takes that list as an argument and adds two of its own:
+ * here, so this file takes that list as an argument and adds three of its own:
  *
+ *   - organizer bank accounts waiting for an independent check, for staff who may do it;
  *   - reconciliation exceptions nobody has picked up (OPEN, not ASSIGNED), because the
  *     reconciliation console has had no way in from the dashboard at all;
  *   - failed payments in the last seven days, as INFORMATION - see above.
@@ -96,6 +97,60 @@ export const RECONCILIATION_QUEUE: AttentionQueue = {
   tone: 'warning',
 };
 
+/**
+ * Organizer bank accounts nobody has checked yet.
+ *
+ * An organizer saving or changing their bank details leaves the account waiting for an
+ * independent check, and no payout can be marked paid into it until somebody does. It had no
+ * place on this page, so it waited unseen: the dashboard said "nothing is waiting" with an
+ * account sitting there.
+ *
+ * Shown only to staff who can do the check - the verify route needs PAYOUT_MANAGE (to read the
+ * list) AND BANK_VERIFY - so a payer (Finance B) is not handed work their account is refused.
+ */
+export const BANK_ACCOUNTS_QUEUE: AttentionQueue & { alsoNeeds: string } = {
+  key: 'bank-accounts-pending',
+  kind: 'action',
+  label: (n) =>
+    plural(n, 'bank account waiting for verification', 'bank accounts waiting for verification'),
+  consequence:
+    'An organizer cannot be paid into this account until a staff member other than the person who entered it checks it.',
+  href: '/admin/payouts#bank-accounts',
+  needs: 'BANK_VERIFY',
+  alsoNeeds: 'PAYOUT_MANAGE',
+  tone: 'warning',
+};
+
+/** How long something has waited, in the words a person would use. */
+export function waitedFor(since: Date, now: Date): string {
+  const hours = Math.floor((now.getTime() - since.getTime()) / 3_600_000);
+  if (hours < 1) return 'less than an hour';
+  if (hours < 24) return plural(hours, 'hour', 'hours');
+  return plural(Math.floor(hours / 24), 'day', 'days');
+}
+
+/**
+ * The bank-account queue's count and the age of its oldest item, from the masked admin list
+ * the link opens on. `updatedAt` is the save that put the account back to waiting: nothing
+ * else writes to a waiting row before a decision, and a decision takes it out of the queue.
+ */
+export function bankAccountsWaiting(
+  rows: readonly { status: string; updatedAt: string }[],
+  now: Date,
+): { count: number; note?: string } {
+  const waiting = rows.filter((r) => r.status === 'PENDING_VERIFICATION');
+  if (waiting.length === 0) return { count: 0 };
+  const oldest = waiting.reduce(
+    (min, r) => Math.min(min, new Date(r.updatedAt).getTime()),
+    Number.POSITIVE_INFINITY,
+  );
+  const age = waitedFor(new Date(oldest), now);
+  return {
+    count: waiting.length,
+    note: waiting.length === 1 ? `Waiting ${age}` : `Oldest waiting ${age}`,
+  };
+}
+
 export function failedPaymentsQueue(now: Date): AttentionQueue {
   const { from, to } = lastSevenDays(now);
   return {
@@ -131,12 +186,19 @@ export function attentionQueues(
   if (!capabilities || capabilities.length === 0) return [];
   const held = new Set(capabilities);
   const out: AttentionQueue[] = [];
+  const verifiesBanks =
+    held.has(BANK_ACCOUNTS_QUEUE.needs) && held.has(BANK_ACCOUNTS_QUEUE.alsoNeeds);
   for (const q of shared) {
     if (!held.has(q.needs)) continue;
     out.push({ ...q, kind: 'action' });
+    // Beside failed payouts: both are an organizer who cannot be paid until somebody acts.
+    if (q.key === 'payouts-failed' && verifiesBanks) out.push(BANK_ACCOUNTS_QUEUE);
     if (q.key === 'settlements-blocked' && held.has(RECONCILIATION_QUEUE.needs)) {
       out.push(RECONCILIATION_QUEUE);
     }
+  }
+  if (verifiesBanks && !out.some((q) => q.key === BANK_ACCOUNTS_QUEUE.key)) {
+    out.push(BANK_ACCOUNTS_QUEUE);
   }
   // Placed even when the shared list stops carrying settlements, rather than silently dropped.
   if (

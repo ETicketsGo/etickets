@@ -18,6 +18,7 @@ import {
   useAuthUser,
 } from '@eticketsgo/web-kit';
 import { missingDutyNote, useHolds } from '../../../lib/capabilities';
+import { independenceNote, queueOrder } from '../../../lib/bank-account-review';
 
 const REVIEW_BADGE: Record<PayoutAccount['status'], { status: string; label: string }> = {
   PENDING_VERIFICATION: { status: 'UNDER_REVIEW', label: 'Waiting for verification' },
@@ -201,7 +202,14 @@ export function BankAccounts() {
               {missingDutyNote('verify this account', 'BANK_VERIFY')}
             </p>
           ) : null}
-          {row.status === 'PENDING_VERIFICATION' && mayVerify ? (
+          {row.status === 'PENDING_VERIFICATION' &&
+          mayVerify &&
+          independenceNote(row.independenceBlock) ? (
+            <p className="max-w-xs text-right text-caption text-text-secondary">
+              {independenceNote(row.independenceBlock)}
+            </p>
+          ) : null}
+          {row.status === 'PENDING_VERIFICATION' && mayVerify && !row.independenceBlock ? (
             <>
               <Button size="sm" variant="ghost" onClick={() => verify.mutate(row)}>
                 Mark checked
@@ -217,140 +225,143 @@ export function BankAccounts() {
   ];
 
   return (
-    <Card title="Bank accounts">
-      <p className="mb-3 text-sm text-text-secondary">
-        Where each organizer is paid. Reading a full account number is recorded in the audit log
-        with your name and your reason. Details are checked by someone other than the person who
-        entered them: you cannot check an account you entered or one in your own organization. Every
-        change starts a new version that waits here.
-      </p>
-      {isLoading ? null : data && data.length > 0 ? (
-        <DataTable columns={columns} rows={data} rowKey={(row) => row.id} />
-      ) : (
-        <p className="text-caption text-text-muted">
-          No organizer has added an account yet. They add it in their own console, under Payouts.
+    // The dashboard's "bank accounts waiting" queue links here by this id.
+    <section id="bank-accounts" className="scroll-mt-24">
+      <Card title="Bank accounts">
+        <p className="mb-3 text-sm text-text-secondary">
+          Where each organizer is paid. Reading a full account number is recorded in the audit log
+          with your name and your reason. Details are checked by someone other than the person who
+          entered them: you cannot check an account you entered or one in your own organization.
+          Every change starts a new version that waits here.
         </p>
-      )}
-
-      <Dialog
-        open={!!revealing}
-        onClose={() => setRevealing(null)}
-        title="Show the account number?"
-        footer={
-          <>
-            <Button variant="outline" onClick={() => setRevealing(null)}>
-              Cancel
-            </Button>
-            <Button
-              loading={reveal.isPending}
-              disabled={!reason.trim()}
-              onClick={() => reveal.mutate()}
-            >
-              Show it
-            </Button>
-          </>
-        }
-      >
-        {revealing && (
-          <div className="space-y-3">
-            <p>
-              {revealing.organization?.name} &middot; {revealing.currency} &middot; ending{' '}
-              {revealing.accountLast4}
-            </p>
-            <Input
-              label="Why do you need it?"
-              value={reason}
-              maxLength={200}
-              placeholder="Making the September settlement transfer"
-              hint="Stored in the audit log with your name."
-              onChange={(e) => setReason(e.target.value)}
-            />
-          </div>
+        {isLoading ? null : data && data.length > 0 ? (
+          <DataTable columns={columns} rows={queueOrder(data)} rowKey={(row) => row.id} />
+        ) : (
+          <p className="text-caption text-text-muted">
+            No organizer has added an account yet. They add it in their own console, under Payouts.
+          </p>
         )}
-      </Dialog>
 
-      <Dialog
-        open={!!historyOf}
-        onClose={() => setHistoryOf(null)}
-        title="Change history"
-        footer={
-          <Button variant="outline" onClick={() => setHistoryOf(null)}>
-            Close
-          </Button>
-        }
-      >
-        {historyOf && (
-          <div className="space-y-3">
-            <p className="text-sm text-text-secondary">
-              {historyOf.organization?.name} &middot; {historyOf.currency}
-            </p>
-            <HistoryList accountId={historyOf.id} />
-          </div>
-        )}
-      </Dialog>
+        <Dialog
+          open={!!revealing}
+          onClose={() => setRevealing(null)}
+          title="Show the account number?"
+          footer={
+            <>
+              <Button variant="outline" onClick={() => setRevealing(null)}>
+                Cancel
+              </Button>
+              <Button
+                loading={reveal.isPending}
+                disabled={!reason.trim()}
+                onClick={() => reveal.mutate()}
+              >
+                Show it
+              </Button>
+            </>
+          }
+        >
+          {revealing && (
+            <div className="space-y-3">
+              <p>
+                {revealing.organization?.name} &middot; {revealing.currency} &middot; ending{' '}
+                {revealing.accountLast4}
+              </p>
+              <Input
+                label="Why do you need it?"
+                value={reason}
+                maxLength={200}
+                placeholder="Making the September settlement transfer"
+                hint="Stored in the audit log with your name."
+                onChange={(e) => setReason(e.target.value)}
+              />
+            </div>
+          )}
+        </Dialog>
 
-      <Dialog
-        open={!!rejecting}
-        onClose={() => setRejecting(null)}
-        title="Turn these details down?"
-        footer={
-          <>
-            <Button variant="outline" onClick={() => setRejecting(null)}>
-              Cancel
+        <Dialog
+          open={!!historyOf}
+          onClose={() => setHistoryOf(null)}
+          title="Change history"
+          footer={
+            <Button variant="outline" onClick={() => setHistoryOf(null)}>
+              Close
             </Button>
-            <Button
-              loading={reject.isPending}
-              disabled={!rejectReason.trim()}
-              onClick={() => reject.mutate()}
-            >
-              Turn down
-            </Button>
-          </>
-        }
-      >
-        {rejecting && (
-          <div className="space-y-3">
-            <p>
-              {rejecting.organization?.name} &middot; {rejecting.currency} &middot; ending{' '}
-              {rejecting.accountLast4}
-            </p>
-            <Input
-              label="Why?"
-              value={rejectReason}
-              maxLength={200}
-              placeholder="The account holder name does not match the legal name"
-              hint="The owners are emailed this reason and it is stored. Do not type an account number."
-              onChange={(e) => setRejectReason(e.target.value)}
-            />
-          </div>
-        )}
-      </Dialog>
+          }
+        >
+          {historyOf && (
+            <div className="space-y-3">
+              <p className="text-sm text-text-secondary">
+                {historyOf.organization?.name} &middot; {historyOf.currency}
+              </p>
+              <HistoryList accountId={historyOf.id} />
+            </div>
+          )}
+        </Dialog>
 
-      <Dialog
-        open={!!revealed}
-        onClose={() => setRevealed(null)}
-        title="Account number"
-        footer={
-          <Button variant="outline" onClick={() => setRevealed(null)}>
-            Done
-          </Button>
-        }
-      >
-        {revealed && (
-          <div className="space-y-2">
-            <p className="text-sm text-text-secondary">
-              {revealed.account.holderName} &middot; {revealed.account.bankName} &middot;{' '}
-              {revealed.account.bankCode}
-            </p>
-            <p className="select-all rounded-md border border-border bg-background-subtle px-3 py-2 font-mono text-lg">
-              {revealed.number}
-            </p>
-            <p className="text-caption text-text-muted">
-              This reveal is in the audit log. Close this when you have made the transfer.
-            </p>
-          </div>
-        )}
-      </Dialog>
-    </Card>
+        <Dialog
+          open={!!rejecting}
+          onClose={() => setRejecting(null)}
+          title="Turn these details down?"
+          footer={
+            <>
+              <Button variant="outline" onClick={() => setRejecting(null)}>
+                Cancel
+              </Button>
+              <Button
+                loading={reject.isPending}
+                disabled={!rejectReason.trim()}
+                onClick={() => reject.mutate()}
+              >
+                Turn down
+              </Button>
+            </>
+          }
+        >
+          {rejecting && (
+            <div className="space-y-3">
+              <p>
+                {rejecting.organization?.name} &middot; {rejecting.currency} &middot; ending{' '}
+                {rejecting.accountLast4}
+              </p>
+              <Input
+                label="Why?"
+                value={rejectReason}
+                maxLength={200}
+                placeholder="The account holder name does not match the legal name"
+                hint="The owners are emailed this reason and it is stored. Do not type an account number."
+                onChange={(e) => setRejectReason(e.target.value)}
+              />
+            </div>
+          )}
+        </Dialog>
+
+        <Dialog
+          open={!!revealed}
+          onClose={() => setRevealed(null)}
+          title="Account number"
+          footer={
+            <Button variant="outline" onClick={() => setRevealed(null)}>
+              Done
+            </Button>
+          }
+        >
+          {revealed && (
+            <div className="space-y-2">
+              <p className="text-sm text-text-secondary">
+                {revealed.account.holderName} &middot; {revealed.account.bankName} &middot;{' '}
+                {revealed.account.bankCode}
+              </p>
+              <p className="select-all rounded-md border border-border bg-background-subtle px-3 py-2 font-mono text-lg">
+                {revealed.number}
+              </p>
+              <p className="text-caption text-text-muted">
+                This reveal is in the audit log. Close this when you have made the transfer.
+              </p>
+            </div>
+          )}
+        </Dialog>
+      </Card>
+    </section>
   );
 }

@@ -248,8 +248,8 @@ export class AdminPayoutsController {
 
   @Get('accounts')
   @ApiOperation({ summary: 'Every payout bank account, masked (admin).' })
-  accounts() {
-    return this.accounts_.adminList();
+  accounts(@CurrentUser() admin: RequestUser) {
+    return this.accounts_.adminList(admin);
   }
 
   /**

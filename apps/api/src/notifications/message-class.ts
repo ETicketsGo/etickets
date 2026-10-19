@@ -105,6 +105,8 @@ export const MESSAGE_CLASS: Record<NotificationType, MessageClass> = {
 
   // ── Operational messages to organizers and admins about their own money ─────────
   [NotificationType.PAYOUT_ACCOUNT_UPDATED]: 'TRANSACTIONAL',
+  // A queue item for the staff who verify bank accounts. Work, never marketing.
+  [NotificationType.PAYOUT_ACCOUNT_AWAITING_VERIFICATION]: 'TRANSACTIONAL',
   [NotificationType.SETTLEMENT_RELEASED]: 'TRANSACTIONAL',
   // About a transaction they entered into: the show they bought a ticket for has moved.
   [NotificationType.SHOW_CHANGED]: 'TRANSACTIONAL',
@@ -208,6 +210,7 @@ export const MESSAGE_AUDIENCE: Record<NotificationType, MessageAudience> = {
   // ── The platform's own moderation queue ─────────────────────────────────────────
   [NotificationType.ORGANIZATION_REGISTERED]: 'ADMIN',
   [NotificationType.EVENT_SUBMITTED]: 'ADMIN',
+  [NotificationType.PAYOUT_ACCOUNT_AWAITING_VERIFICATION]: 'ADMIN',
   // The copy for the support mailbox. It has no account behind it and goes to email only.
   [NotificationType.SUPPORT_REQUEST_RECEIVED]: 'ADMIN',
   // The acknowledgement goes back to whoever wrote, in whatever role they wrote.

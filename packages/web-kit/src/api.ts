@@ -5964,6 +5964,12 @@ export interface PayoutAccount {
   savedBy?: { id: string; email: string } | null;
   /** Admin list only: who verified the current version (they can never pay into it). */
   verifiedBy?: { id: string; email: string } | null;
+  /**
+   * Admin list only: why the signed-in admin may NOT verify or reject this waiting account -
+   * they entered it, or they belong to its organization. Null when they may, or it is decided.
+   * Advice for the screen; the decision routes enforce the rule themselves.
+   */
+  independenceBlock?: 'SAME_PERSON' | 'ORGANIZATION_MEMBER' | null;
 }
 
 /** One saved version of a payout bank account. Masked: nothing here can hold a full number. */
