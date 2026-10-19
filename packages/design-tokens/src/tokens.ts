@@ -250,3 +250,30 @@ export const brandFontFamily = {
   display: ['var(--font-brand-display)', 'Bricolage Grotesque Fallback', ...fontFamily.sans],
   text: ['var(--font-inter)', ...fontFamily.sans],
 } as const;
+
+/**
+ * The owner's "Luxury Editorial" palette (colour refresh, 2026-10), by the owner's own names.
+ * The same values are the `--etg-*` CSS variables in brand.css, and the storefront's `--brand-*`
+ * tokens are set from them; token-contrast.test.ts holds all three copies together. Exposed to
+ * Tailwind as `etg-*` (`bg-etg-bg`, `text-etg-gold-text`) for code that wants the owner's names.
+ *
+ * `gold` is decoration only: never text on `bg` or `surface` (2.5:1). Use `gold-text`.
+ */
+export const etgPalette = {
+  bg: '#F6F2EA',
+  surface: '#FFFFFF',
+  ink: '#16130F',
+  'on-ink': '#F6F2EA',
+  muted: '#6A6359',
+  'body-soft': '#3D3830',
+  rule: '#DDD5C7',
+  'rule-strong': '#C9BFAE',
+  gold: '#B8955A',
+  'gold-text': '#84652F',
+  'gold-on-ink': '#E3CFA5',
+  success: '#2F5E45',
+  'success-dot': '#3F7A5A',
+  warning: '#84652F',
+  'neutral-status': '#6A6359',
+  'image-fallback': '#2A221A',
+} as const;

@@ -50,7 +50,7 @@ import {
   Every other route is unchanged.
 */
 
-const navLink = `inline-flex h-11 items-center rounded-brand-control px-3 text-brand-ui font-semibold transition-colors hover:text-brand-ink ${BRAND_FOCUS}`;
+const navLink = `inline-flex h-11 items-center rounded-brand-control px-3 text-brand-ui font-semibold transition-colors hover:text-brand-gold-text ${BRAND_FOCUS}`;
 
 /** The three destinations. Help lives in the footer, beside the legal pages. */
 const LINKS = [
@@ -224,7 +224,7 @@ export function Header({
                     : h('notifications')
                 }
                 title={h('notifications')}
-                className={`relative hidden h-11 w-11 items-center justify-center rounded-full text-brand-ink-2 transition-colors hover:text-brand-ink lg:inline-flex ${BRAND_FOCUS}`}
+                className={`relative hidden h-11 w-11 items-center justify-center rounded-full text-brand-ink-2 transition-colors hover:text-brand-gold-text lg:inline-flex ${BRAND_FOCUS}`}
               >
                 <Bell className="h-5 w-5" aria-hidden />
                 {unreadCount > 0 && (

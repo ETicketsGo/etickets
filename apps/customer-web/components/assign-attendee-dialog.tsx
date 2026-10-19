@@ -151,7 +151,7 @@ export function AssignAttendeeDialog({
                 className={`flex min-h-11 items-center justify-center gap-1.5 rounded-brand-control px-3 text-brand-ui font-medium transition-colors duration-150 ${BRAND_FOCUS} ${
                   mode === m
                     ? 'border border-brand-line-strong bg-brand-surface font-semibold text-brand-ink'
-                    : 'text-brand-ink-2 hover:text-brand-ink'
+                    : 'text-brand-ink-2 hover:text-brand-gold-text'
                 }`}
               >
                 {m === 'invite' ? (

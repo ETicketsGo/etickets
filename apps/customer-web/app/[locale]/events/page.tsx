@@ -112,7 +112,7 @@ function FilterChip({
         type="button"
         onClick={onRemove}
         aria-label={`Remove filter: ${label}`}
-        className={`-my-1 inline-flex h-7 w-7 items-center justify-center rounded-full text-brand-ink-2 transition-colors hover:bg-brand-sunken hover:text-brand-ink ${BRAND_FOCUS}`}
+        className={`-my-1 inline-flex h-7 w-7 items-center justify-center rounded-full text-brand-ink-2 transition-colors hover:bg-brand-sunken hover:text-brand-gold-text ${BRAND_FOCUS}`}
       >
         <X className="h-3.5 w-3.5" aria-hidden />
       </button>

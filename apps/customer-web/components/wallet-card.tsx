@@ -104,11 +104,13 @@ export function WalletCard({
       >
         {stub ? (
           <>
-            <span className="text-brand-eyebrow uppercase text-brand-ink-2">{stub.weekday}</span>
+            <span className="text-brand-eyebrow uppercase text-brand-gold-text">
+              {stub.weekday}
+            </span>
             <span className="font-brand-display text-[2rem] font-bold leading-none tabular-nums">
               {stub.day}
             </span>
-            <span className="text-brand-meta text-brand-ink-2">{stub.month}</span>
+            <span className="text-brand-meta text-brand-gold-text">{stub.month}</span>
           </>
         ) : (
           <Icon className="h-6 w-6 text-brand-ink-2" aria-hidden />
@@ -117,7 +119,9 @@ export function WalletCard({
       </div>
 
       <div className="flex min-w-0 flex-1 flex-col p-4 sm:p-5">
-        <p className="text-brand-eyebrow uppercase text-brand-ink-3">{item.badge ?? item.type}</p>
+        <p className="text-brand-eyebrow uppercase text-brand-gold-text">
+          {item.badge ?? item.type}
+        </p>
         <h2
           id={`wi-${item.id}`}
           className="mt-1 line-clamp-2 font-brand-display text-brand-card text-brand-ink"
@@ -148,11 +152,11 @@ export function WalletCard({
               {item.progress.label}
             </p>
             <div
-              className="h-1.5 overflow-hidden rounded-full bg-brand-sunken"
+              className="h-1.5 overflow-hidden rounded-full bg-brand-line"
               role="img"
               aria-label={item.progress.label}
             >
-              <div className="h-full rounded-full bg-brand-ink" style={{ width: `${pct}%` }} />
+              <div className="h-full rounded-full bg-brand-positive" style={{ width: `${pct}%` }} />
             </div>
           </div>
         )}

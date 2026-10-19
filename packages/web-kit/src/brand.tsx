@@ -26,14 +26,13 @@ export type BrandButtonSize = 'sm' | 'md' | 'lg';
 const BRAND_BUTTON_VARIANT: Record<BrandButtonVariant, string> = {
   // Ink on paper, marigold on a stage: the variables swap, the class does not.
   primary: 'bg-brand-action text-brand-on-action hover:bg-brand-action-hover',
-  // A hairline button for the second choice beside a primary one.
-  secondary:
-    'border border-brand-line-strong bg-brand-surface text-brand-ink hover:border-brand-ink-3',
+  // The second choice beside a primary one: an ink outline on whatever is behind it.
+  secondary: 'border border-brand-ink bg-transparent text-brand-ink hover:bg-brand-sunken',
   // Text-only, for low-stakes actions in dense places (a table row, a card footer).
   quiet: 'text-brand-ink hover:bg-brand-sunken',
   /*
-    The marigold button on PAPER: the one "Book tickets" moment on a storefront page. Ink text
-    carries it (10.7:1); the fill alone is not a boundary on paper, which is why it is never
+    The gold (`marigold` token) button on PAPER: the one "Book tickets" moment on a storefront page. Ink text
+    carries it (6.6:1); the fill alone is not a boundary on paper, which is why it is never
     used for anything a person must find by colour.
   */
   marigold: 'bg-brand-marigold text-brand-on-marigold hover:bg-brand-marigold-hover',
@@ -86,18 +85,23 @@ export function brandChipClasses(selected: boolean): string {
     BRAND_FOCUS,
     selected
       ? 'bg-brand-action text-brand-on-action'
-      : 'border border-brand-line-strong bg-brand-surface text-brand-ink hover:border-brand-ink-3',
+      : 'border border-brand-line bg-transparent text-brand-ink hover:border-brand-ink-3',
   ].join(' ');
 }
 
 export type BrandStatus = 'positive' | 'caution' | 'critical' | 'info' | 'neutral' | 'live';
 
+/*
+  Text and a 1px edge in the same colour, on a light tint or none (the colour refresh). The edge
+  is an inset ring rather than a border so it adds no width: the pill sits exactly where it did.
+*/
 const BRAND_STATUS: Record<BrandStatus, string> = {
-  positive: 'bg-brand-positive-tint text-brand-positive',
-  caution: 'bg-brand-caution-tint text-brand-caution',
-  critical: 'bg-brand-critical-tint text-brand-critical',
-  info: 'bg-brand-info-tint text-brand-info',
-  neutral: 'bg-brand-sunken text-brand-ink-2',
+  positive: 'bg-brand-positive-tint text-brand-positive ring-1 ring-inset ring-current',
+  caution: 'bg-brand-caution-tint text-brand-caution ring-1 ring-inset ring-current',
+  critical: 'bg-brand-critical-tint text-brand-critical ring-1 ring-inset ring-current',
+  info: 'bg-brand-info-tint text-brand-info ring-1 ring-inset ring-current',
+  // Ended, concluded, transferred: the muted ink, no fill.
+  neutral: 'bg-transparent text-brand-ink-3 ring-1 ring-inset ring-current',
   // Today / on sale now / doors open. Marigold, and always with words.
   live: 'bg-brand-marigold text-brand-on-marigold',
 };
@@ -179,7 +183,7 @@ export function EventArtwork({
   const missing = !src || failed === src;
   return (
     <div
-      className={`relative isolate w-full overflow-hidden rounded-brand-card bg-brand-sunken ${BRAND_RATIO[ratio]} ${className}`}
+      className={`relative isolate w-full overflow-hidden rounded-brand-card bg-brand-image-fallback ${BRAND_RATIO[ratio]} ${className}`}
     >
       {missing ? (
         <div

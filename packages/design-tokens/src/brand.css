@@ -1,9 +1,9 @@
 /**
  * ── THE BRAND LAYER ────────────────────────────────────────────────────────────────
  * ETicketsGo's experience-reset palette (docs/design/DESIGN-SYSTEM.md). One brand, two
- * temperaments: the customer storefront is a stage (paper, ink, a marigold light, and
+ * temperaments: the customer storefront is a stage (paper, ink, a gold light, and
  * photography doing the shouting); the organizer and admin consoles are a desk (the same
- * paper and ink, quieter, with marigold reduced to a signal).
+ * paper and ink, quieter, with gold reduced to a signal).
  *
  * ── WHY A SEPARATE LAYER ───────────────────────────────────────────────────────────
  * The tokens in tokens.css paint every screen in three apps today. Changing them would
@@ -20,8 +20,9 @@
  * That is the whole guarantee this PR makes about pages outside the three vertical slices.
  *
  * ── RULES THE VALUES ENCODE ───────────────────────────────────────────────────────
- * - Ink is the action colour on paper; marigold is the action colour on a stage. Marigold is
- *   NEVER text on paper (it cannot reach 4.5:1 there) and NEVER a warning.
+ * - Ink is the action colour on paper; gold is the action colour on a stage. The `marigold`
+ *   tokens keep their name but have held the owner's gold since the colour refresh (2026-10):
+ *   decorative gold is NEVER text on paper (2.5:1); gold words use `--brand-gold-text`.
  * - Status colours say something happened or needs doing. They are not decoration.
  * - Surfaces: canvas, surface, sunken. No fourth level, no tinted cards.
  * - Every text pair clears WCAG AA 4.5:1 and every control boundary 3:1;
@@ -30,37 +31,76 @@
  * Values are HSL channels like tokens.css, so Tailwind can compose alpha.
  */
 
+/*
+  ── THE LUXURY EDITORIAL PALETTE (owner's colour refresh, 2026-10) ──────────────────
+  The owner's named colours, as plain CSS variables so anything outside Tailwind (an inline
+  style, an SVG, a template) can use them, and as `etg-*` Tailwind colours (tailwind-preset.ts,
+  from `etgPalette` in tokens.ts). The `--brand-*` blocks below take their VALUES from these:
+  each brand line names the `--etg-*` it equals, and token-contrast.test.ts fails if the two
+  drift apart. Components keep their `brand-*` classes; only the numbers moved.
+
+  Gold has three jobs and three values. `--etg-gold` is decoration only (a rule, a dot, a
+  badge with ink on it): it is 2.5:1 on ivory and is NEVER text there. Gold words on ivory are
+  `--etg-gold-text`; gold on an ink band is `--etg-gold-on-ink`.
+*/
+:root {
+  --etg-bg: #f6f2ea; /* page background, warm ivory */
+  --etg-surface: #ffffff; /* cards, panels, inputs */
+  --etg-ink: #16130f; /* primary text, primary buttons, dark bands */
+  --etg-on-ink: #f6f2ea; /* text and icons on ink */
+  --etg-muted: #6a6359; /* secondary text, meta lines, placeholders */
+  --etg-body-soft: #3d3830; /* long-form body copy on ivory */
+  --etg-rule: #ddd5c7; /* hairlines, dividers, card edges */
+  --etg-rule-strong: #c9bfae; /* perforations, stronger dividers */
+  --etg-gold: #b8955a; /* decorative only - never text on ivory */
+  --etg-gold-text: #84652f; /* gold words on ivory or white */
+  --etg-gold-on-ink: #e3cfa5; /* gold on an ink band */
+  --etg-success: #2f5e45;
+  --etg-success-dot: #3f7a5a;
+  --etg-warning: #84652f;
+  --etg-neutral-status: #6a6359;
+  --etg-image-fallback: #2a221a; /* behind a picture that is loading or missing */
+}
+
 /* ── customer: paper and ink ───────────────────────────────────────────────────── */
 [data-brand='customer'] {
-  --brand-canvas: 40 33% 97.6%; /* #FBF9F5 warm paper, never pure white */
-  --brand-surface: 0 0% 100%;
-  --brand-sunken: 40 22% 93.5%; /* #F1EEE8 - filter bars, inset panels */
-  --brand-ink: 30 14% 8%; /* #17140F */
-  --brand-ink-2: 30 6% 31%; /* #544F4A - supporting text */
-  --brand-ink-3: 30 5% 39%; /* #69655F - metadata, captions */
-  --brand-line: 36 16% 88%; /* decoration only: card edges, rules */
-  --brand-line-strong: 36 10% 78%;
-  --brand-field: 30 6% 50%; /* a field's outline: 3:1 on every surface */
+  --brand-canvas: 40 40% 94.1%; /* = --etg-bg #F6F2EA */
+  --brand-surface: 0 0% 100%; /* = --etg-surface */
+  --brand-sunken: 40 34% 91.2%; /* #F0EBE1 - filter bars, inset panels; a step below the ivory */
+  --brand-ink: 34.3 18.9% 7.3%; /* = --etg-ink #16130F */
+  --brand-ink-2: 36.9 11.9% 21.4%; /* = --etg-body-soft #3D3830 - supporting and body text */
+  --brand-ink-3: 35.3 8.7% 38.2%; /* = --etg-muted #6A6359 - metadata, captions */
+  --brand-line: 38.2 24.4% 82.4%; /* = --etg-rule #DDD5C7 - decoration only */
+  --brand-line-strong: 37.8 20% 73.5%; /* = --etg-rule-strong #C9BFAE */
+  --brand-field: 30 6% 50%; /* a field's outline: 3:1 on every surface (WCAG 1.4.11) */
 
-  --brand-action: 30 14% 8%; /* the primary button is ink */
-  --brand-action-hover: 30 10% 22%;
-  --brand-on-action: 40 33% 98%;
+  --brand-action: 34.3 18.9% 7.3%; /* the primary button is ink */
+  --brand-action-hover: 32.7 14.7% 14.7%; /* #2B2620 */
+  --brand-on-action: 40 40% 94.1%; /* = --etg-on-ink */
 
-  --brand-marigold: 42 100% 55%; /* #FFB81A - the light: fills only, always with ink on it */
-  --brand-marigold-hover: 40 100% 49%;
-  --brand-on-marigold: 30 14% 8%;
+  /* The accent: gold. Fills only (a dot, a rule, a badge, a selected seat), with ink on it. */
+  --brand-marigold: 37.7 39.8% 53.7%; /* = --etg-gold #B8955A */
+  --brand-marigold-hover: 37.3 36.3% 48.6%; /* #A9874F */
+  --brand-on-marigold: 34.3 18.9% 7.3%;
+  --brand-gold-text: 38.1 47.5% 35.1%; /* = --etg-gold-text #84652F - category labels, link hover */
 
-  --brand-positive: 152 64% 25%; /* #17693F */
-  --brand-positive-tint: 148 32% 91%;
-  --brand-caution: 22 86% 33%; /* #9C430C - burnt orange, kept well away from marigold */
-  --brand-caution-tint: 26 60% 92%;
+  --brand-positive: 148.1 33.3% 27.6%; /* = --etg-success #2F5E45 */
+  --brand-positive-tint: 140 22% 92.5%;
+  --brand-success-dot: 147.5 31.9% 36.3%; /* = --etg-success-dot #3F7A5A */
+  --brand-caution: 38.1 47.5% 35.1%; /* = --etg-warning #84652F */
+  --brand-caution-tint: 39 58.8% 93.3%; /* #F8F1E4 */
   --brand-critical: 356 72% 41%; /* #B51D29 */
   --brand-critical-tint: 356 70% 94.5%;
   --brand-info: 220 58% 39%; /* #2A4F9D */
   --brand-info-tint: 220 60% 94.5%;
 
-  --brand-focus: 30 14% 8%;
-  --brand-scrim: 30 14% 6%; /* image overlays, at alpha */
+  /*
+    The focus ring is gold, as the palette asks - in its TEXT strength. The decorative gold is
+    2.5:1 on ivory, under the 3:1 a focus indicator needs (WCAG 1.4.11); #84652F is 4.8:1.
+  */
+  --brand-focus: 38.1 47.5% 35.1%;
+  --brand-scrim: 34.3 18.9% 6%; /* image overlays, at alpha */
+  --brand-image-fallback: 30 23.5% 13.3%; /* = --etg-image-fallback #2A221A */
 
   --brand-radius-control: 0.625rem; /* 10px */
   --brand-radius-card: 1rem; /* 16px */
@@ -71,34 +111,37 @@
 /* ── customer, stage tone: the lights go down ─────────────────────────────────── */
 [data-brand='customer'] [data-brand-tone='stage'],
 [data-brand='customer'][data-brand-tone='stage'] {
-  --brand-canvas: 30 12% 6%; /* #110F0D */
-  --brand-surface: 30 9% 10%; /* #1C1A17 */
-  --brand-sunken: 30 8% 14%; /* #282522 */
-  --brand-ink: 40 30% 96%; /* #F8F6F2 */
-  --brand-ink-2: 36 10% 76%;
-  --brand-ink-3: 36 7% 66%;
-  --brand-line: 30 7% 20%;
-  --brand-line-strong: 30 6% 30%;
-  --brand-field: 30 5% 52%;
+  --brand-canvas: 34.3 18.9% 7.3%; /* = --etg-ink #16130F - the dark band */
+  --brand-surface: 33.3 15.3% 11.6%; /* #221E19 */
+  --brand-sunken: 35 15% 15.7%; /* #2E2922 */
+  --brand-ink: 40 40% 94.1%; /* = --etg-on-ink #F6F2EA */
+  --brand-ink-2: 37.1 17.9% 77.1%; /* #CFC7BA */
+  --brand-ink-3: 35.5 11.8% 63.5%; /* #ADA497 */
+  --brand-line: 34.3 13.7% 20%; /* #3A342C */
+  --brand-line-strong: 35.3 12.4% 26.9%; /* #4D463C */
+  --brand-field: 36 7.9% 50.2%; /* #8A8276 */
 
-  --brand-action: 42 100% 55%; /* on a stage the action is the marigold light */
-  --brand-action-hover: 44 100% 64%;
-  --brand-on-action: 30 14% 8%;
+  --brand-action: 40.6 52.5% 76.9%; /* = --etg-gold-on-ink: on a dark band the action is gold */
+  --brand-action-hover: 41.3 55.6% 84.1%; /* #EDDFC0 */
+  --brand-on-action: 34.3 18.9% 7.3%;
 
-  --brand-marigold: 42 100% 55%;
-  --brand-marigold-hover: 44 100% 64%;
-  --brand-on-marigold: 30 14% 8%;
+  --brand-marigold: 40.6 52.5% 76.9%; /* = --etg-gold-on-ink #E3CFA5 */
+  --brand-marigold-hover: 41.3 55.6% 84.1%;
+  --brand-on-marigold: 34.3 18.9% 7.3%;
+  --brand-gold-text: 40.6 52.5% 76.9%; /* = --etg-gold-on-ink */
 
-  --brand-positive: 150 50% 58%;
-  --brand-positive-tint: 152 30% 15%;
-  --brand-caution: 26 90% 66%;
-  --brand-caution-tint: 22 40% 15%;
+  --brand-positive: 144 28.7% 65.9%; /* #8FC1A3 - the success green, lifted for the dark */
+  --brand-positive-tint: 147 24.4% 16.1%;
+  --brand-success-dot: 144 28.7% 65.9%;
+  --brand-caution: 40.6 52.5% 76.9%; /* the warning is gold, as on paper */
+  --brand-caution-tint: 36.9 28.9% 17.6%;
   --brand-critical: 358 85% 72%;
   --brand-critical-tint: 356 40% 16%;
   --brand-info: 218 85% 76%;
   --brand-info-tint: 220 40% 17%;
 
-  --brand-focus: 42 100% 55%;
+  --brand-focus: 40.6 52.5% 76.9%;
+  --brand-image-fallback: 30 23.5% 13.3%;
   color: hsl(var(--brand-ink));
 }
 
@@ -118,13 +161,18 @@
   --brand-action-hover: 30 8% 22%;
   --brand-on-action: 40 33% 98%;
 
-  /* A signal in the console, not a decoration: today, live, the current nav item's bar. */
-  --brand-marigold: 42 100% 55%;
-  --brand-marigold-hover: 40 100% 49%;
+  /*
+    A signal in the console, not a decoration: today, live, the current nav item's bar. Gold
+    since the colour refresh, the same accent as the storefront's wordmark and the favicons.
+  */
+  --brand-marigold: 37.7 39.8% 53.7%; /* = --etg-gold */
+  --brand-marigold-hover: 37.3 36.3% 48.6%;
   --brand-on-marigold: 30 14% 8%;
+  --brand-gold-text: 38.1 47.5% 35.1%; /* = --etg-gold-text */
 
   --brand-positive: 152 64% 25%;
   --brand-positive-tint: 148 32% 91%;
+  --brand-success-dot: 147.5 31.9% 36.3%; /* = --etg-success-dot */
   --brand-caution: 22 86% 33%;
   --brand-caution-tint: 26 60% 92%;
   --brand-critical: 356 72% 41%;
@@ -134,6 +182,7 @@
 
   --brand-focus: 30 12% 9%;
   --brand-scrim: 30 14% 6%;
+  --brand-image-fallback: 30 23.5% 13.3%; /* = --etg-image-fallback */
 
   --brand-radius-control: 0.5rem; /* 8px - a console is denser than a shop window */
   --brand-radius-card: 0.75rem; /* 12px */
@@ -164,12 +213,14 @@
   --brand-action-hover: 40 10% 82%;
   --brand-on-action: 30 12% 9%;
 
-  --brand-marigold: 42 100% 55%;
-  --brand-marigold-hover: 44 100% 64%;
+  --brand-marigold: 40.6 52.5% 76.9%; /* = --etg-gold-on-ink */
+  --brand-marigold-hover: 41.3 55.6% 84.1%;
   --brand-on-marigold: 30 14% 8%;
+  --brand-gold-text: 40.6 52.5% 76.9%; /* = --etg-gold-on-ink */
 
   --brand-positive: 150 50% 58%;
   --brand-positive-tint: 152 28% 18.5%;
+  --brand-success-dot: 150 50% 58%;
   --brand-caution: 26 90% 66%;
   --brand-caution-tint: 22 38% 18.5%;
   --brand-critical: 358 85% 72%;
@@ -178,6 +229,7 @@
   --brand-info-tint: 220 38% 20%;
 
   --brand-focus: 40 20% 94%;
+  --brand-image-fallback: 30 23.5% 13.3%;
   --brand-shadow-overlay: 0 12px 32px -12px rgb(0 0 0 / 0.6), 0 2px 6px -2px rgb(0 0 0 / 0.4);
 }
 

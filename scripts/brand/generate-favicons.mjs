@@ -23,8 +23,8 @@
  * a tab is recognised by colour before it is read. Same glyph, three of the brand's own
  * colours (packages/design-tokens/src/brand.css):
  *
- *   customer   paper tile, ink E, marigold dot   - the wordmark as the storefront prints it
- *   organizer  ink tile, paper E, marigold dot   - the same wordmark with the lights down
+ *   customer   paper tile, ink E, gold dot       - the wordmark as the storefront prints it
+ *   organizer  ink tile, paper E, gold dot       - the same wordmark with the lights down
  *   admin      marigold tile, ink E, ink dot     - the loudest one, because it is the one
  *                                                  where an action in the wrong tab costs most
  *
@@ -40,10 +40,12 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const PAPER = '#FBF9F5';
 const INK = '#17140F';
 const MARIGOLD = '#FFB81A';
+// The owner's gold (colour refresh, 2026-10): the full stop on the two marks that carry a dot.
+const GOLD = '#B8955A';
 
 const APPS = {
-  'customer-web': { tile: PAPER, glyph: INK, dot: MARIGOLD, edge: '#E4DED3' },
-  'organizer-web': { tile: INK, glyph: PAPER, dot: MARIGOLD, edge: null },
+  'customer-web': { tile: PAPER, glyph: INK, dot: GOLD, edge: '#E4DED3' },
+  'organizer-web': { tile: INK, glyph: PAPER, dot: GOLD, edge: null },
   'admin-web': { tile: MARIGOLD, glyph: INK, dot: INK, edge: null },
 };
 

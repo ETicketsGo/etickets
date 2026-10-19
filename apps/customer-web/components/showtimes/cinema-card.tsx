@@ -82,7 +82,7 @@ export function CinemaCard({
           aria-label={t('favourite', { name: group.name })}
           onClick={() => onToggleFavourite(group.key)}
           className={`-mr-1.5 -mt-1.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full hover:bg-brand-sunken ${focusRing} ${
-            group.favourite ? 'text-brand-critical' : 'text-brand-ink-3 hover:text-brand-ink'
+            group.favourite ? 'text-brand-critical' : 'text-brand-ink-3 hover:text-brand-gold-text'
           }`}
         >
           {/* Filled when on: the shape changes, not just the colour. */}

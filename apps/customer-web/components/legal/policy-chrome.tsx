@@ -62,7 +62,7 @@ export function BackToLegal() {
   return (
     <Link
       href="/legal"
-      className="inline-flex items-center gap-1.5 rounded-sm text-brand-ui font-medium text-brand-ink underline decoration-brand-line-strong underline-offset-4 hover:decoration-brand-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-focus focus-visible:ring-offset-2 focus-visible:ring-offset-brand-canvas"
+      className="inline-flex items-center gap-1.5 rounded-sm text-brand-ui font-medium text-brand-ink underline decoration-brand-line-strong underline-offset-4 hover:text-brand-gold-text hover:decoration-brand-gold-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-focus focus-visible:ring-offset-2 focus-visible:ring-offset-brand-canvas"
     >
       <span aria-hidden>&larr;</span> Legal &amp; Policies
     </Link>
@@ -92,7 +92,7 @@ export function OperatorLine({ country }: { country?: PolicyJurisdiction | null 
     >
       {operatorSentences(country).join(' ')}{' '}
       <Link
-        className="font-medium text-brand-ink underline decoration-brand-line-strong underline-offset-4 hover:decoration-brand-ink"
+        className="font-medium text-brand-ink underline decoration-brand-line-strong underline-offset-4 hover:text-brand-gold-text hover:decoration-brand-gold-text"
         href={LEGAL_INFORMATION_HREF}
       >
         Company information
@@ -103,7 +103,7 @@ export function OperatorLine({ country }: { country?: PolicyJurisdiction | null 
           {' '}
           Questions about this document:{' '}
           <a
-            className="font-medium text-brand-ink underline decoration-brand-line-strong underline-offset-4 hover:decoration-brand-ink"
+            className="font-medium text-brand-ink underline decoration-brand-line-strong underline-offset-4 hover:text-brand-gold-text hover:decoration-brand-gold-text"
             href={`mailto:${support}`}
           >
             {support}

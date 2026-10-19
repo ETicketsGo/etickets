@@ -80,7 +80,7 @@ export function InstallPrompt() {
         type="button"
         onClick={dismiss}
         aria-label="Dismiss install prompt"
-        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-brand-control text-brand-ink-2 hover:bg-brand-sunken hover:text-brand-ink ${BRAND_FOCUS}`}
+        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-brand-control text-brand-ink-2 hover:bg-brand-sunken hover:text-brand-gold-text ${BRAND_FOCUS}`}
       >
         <X className="h-4 w-4" aria-hidden />
       </button>

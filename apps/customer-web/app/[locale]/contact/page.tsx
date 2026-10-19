@@ -92,7 +92,7 @@ export default function ContactPage() {
                   <p className="text-brand-ui text-brand-ink-2">
                     Support email:{' '}
                     <a
-                      className="font-medium text-brand-ink underline decoration-brand-line-strong underline-offset-4 hover:decoration-brand-ink"
+                      className="font-medium text-brand-ink underline decoration-brand-line-strong underline-offset-4 hover:text-brand-gold-text hover:decoration-brand-gold-text"
                       href={`mailto:${SUPPORT_EMAIL}`}
                     >
                       {SUPPORT_EMAIL}
@@ -101,7 +101,7 @@ export default function ContactPage() {
                 )}
                 <p className="text-brand-ui">
                   <Link
-                    className="font-medium text-brand-ink underline decoration-brand-line-strong underline-offset-4 hover:decoration-brand-ink"
+                    className="font-medium text-brand-ink underline decoration-brand-line-strong underline-offset-4 hover:text-brand-gold-text hover:decoration-brand-gold-text"
                     href={LEGAL_INFORMATION_HREF}
                   >
                     Legal and business information

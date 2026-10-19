@@ -37,7 +37,7 @@ const ORGANIZER_URL = process.env.NEXT_PUBLIC_ORGANIZER_URL ?? 'http://localhost
   `data-brand="customer"`, so these resolve to paper, ink and the one overlay shadow.
 */
 const item =
-  'flex min-h-11 w-full items-center gap-2.5 px-3 py-2 text-left text-brand-ui text-brand-ink-2 transition-colors hover:bg-brand-sunken hover:text-brand-ink focus-visible:bg-brand-sunken focus-visible:text-brand-ink focus-visible:outline-none';
+  'flex min-h-11 w-full items-center gap-2.5 px-3 py-2 text-left text-brand-ui text-brand-ink-2 transition-colors hover:bg-brand-sunken hover:text-brand-gold-text focus-visible:bg-brand-sunken focus-visible:text-brand-ink focus-visible:outline-none';
 
 export function AccountMenu({ onSignOut }: { onSignOut: () => void }) {
   const t = useTranslations('common.nav');
@@ -103,7 +103,7 @@ export function AccountMenu({ onSignOut }: { onSignOut: () => void }) {
         aria-haspopup="menu"
         aria-label={a('accountMenuFor', { name: label })}
         data-testid="account-menu-trigger"
-        className="flex h-11 items-center gap-2 rounded-brand-control px-1.5 text-brand-ui font-semibold text-brand-ink-2 transition-colors hover:text-brand-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-focus focus-visible:ring-offset-2 focus-visible:ring-offset-brand-canvas"
+        className="flex h-11 items-center gap-2 rounded-brand-control px-1.5 text-brand-ui font-semibold text-brand-ink-2 transition-colors hover:text-brand-gold-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-focus focus-visible:ring-offset-2 focus-visible:ring-offset-brand-canvas"
       >
         <span
           aria-hidden

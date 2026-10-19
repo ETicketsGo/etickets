@@ -96,7 +96,7 @@ export default function LegalCenterPage() {
                     </span>
                     <span
                       aria-hidden
-                      className="mt-1 shrink-0 text-brand-ink-3 transition-transform group-hover:translate-x-0.5 group-hover:text-brand-ink"
+                      className="mt-1 shrink-0 text-brand-ink-3 transition-transform group-hover:translate-x-0.5 group-hover:text-brand-gold-text"
                     >
                       &rarr;
                     </span>
@@ -110,7 +110,7 @@ export default function LegalCenterPage() {
               shown the one that applies to the market you are browsing. If you need another
               country&apos;s version, or have a question about any of this, write to us at{' '}
               <a
-                className="font-medium text-brand-ink underline decoration-brand-line-strong underline-offset-4 hover:decoration-brand-ink"
+                className="font-medium text-brand-ink underline decoration-brand-line-strong underline-offset-4 hover:text-brand-gold-text hover:decoration-brand-gold-text"
                 href="mailto:support@eticketsgo.com"
               >
                 support@eticketsgo.com

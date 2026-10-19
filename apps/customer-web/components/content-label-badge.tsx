@@ -28,8 +28,8 @@ export function ContentLabelBadge({
   return (
     <span
       data-content-label={label}
-      className={`inline-flex h-5 items-center whitespace-nowrap rounded border bg-brand-surface px-1.5 text-[0.6875rem] font-semibold text-brand-ink-2 ${
-        label === 'TEST' ? 'border-dashed border-brand-field' : 'border-brand-line-strong'
+      className={`inline-flex h-5 items-center whitespace-nowrap rounded border border-brand-line-strong bg-transparent px-1.5 text-[0.6875rem] font-semibold text-brand-ink-3 ${
+        label === 'TEST' ? 'border-dashed' : ''
       } ${className}`}
     >
       {t(label)}

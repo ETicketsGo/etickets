@@ -139,7 +139,7 @@ export function SiteFooter({
   const h = useTranslations('home.footer');
   const nav = useTranslations('common.nav');
 
-  const link = `inline-flex min-h-11 items-center rounded-sm text-brand-ui text-brand-ink-2 transition-colors hover:text-brand-ink lg:min-h-8 ${BRAND_FOCUS}`;
+  const link = `inline-flex min-h-11 items-center rounded-sm text-brand-ui text-brand-ink-2 transition-colors hover:text-brand-gold-text lg:min-h-8 ${BRAND_FOCUS}`;
 
   return (
     /*

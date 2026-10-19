@@ -56,7 +56,7 @@ function Toolbar({ bookingId, canPrint }: { bookingId: string; canPrint: boolean
     <div className="no-print mx-auto flex max-w-2xl flex-wrap items-center justify-between gap-3 p-6">
       <Link
         href={`/account/bookings/${bookingId}/tickets`}
-        className={`-ml-2 inline-flex min-h-11 items-center gap-1.5 rounded-brand-control px-2 text-brand-ui font-medium text-brand-ink-2 transition-colors duration-150 hover:text-brand-ink ${BRAND_FOCUS}`}
+        className={`-ml-2 inline-flex min-h-11 items-center gap-1.5 rounded-brand-control px-2 text-brand-ui font-medium text-brand-ink-2 transition-colors duration-150 hover:text-brand-gold-text ${BRAND_FOCUS}`}
       >
         <ArrowLeft className="h-4 w-4" aria-hidden /> Back to tickets
       </Link>

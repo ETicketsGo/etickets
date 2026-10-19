@@ -47,7 +47,7 @@ export default async function BlogPostPage({ params }: { params: Promise<{ slug:
         <Container className="max-w-3xl">
           <Link
             href="/blog"
-            className={`inline-flex min-h-11 items-center gap-1.5 rounded-sm text-brand-meta font-medium text-brand-ink-2 hover:text-brand-ink ${MK_FOCUS}`}
+            className={`inline-flex min-h-11 items-center gap-1.5 rounded-sm text-brand-meta font-medium text-brand-ink-2 hover:text-brand-gold-text ${MK_FOCUS}`}
           >
             <ArrowLeft className="h-4 w-4" /> All articles
           </Link>

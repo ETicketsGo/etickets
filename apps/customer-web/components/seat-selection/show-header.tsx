@@ -88,7 +88,7 @@ export function ShowHeader({ summary }: { summary: PublicShowSummary }) {
     >
       <Link
         href={backHref}
-        className={`inline-flex min-h-11 items-center gap-1 rounded-sm text-brand-ui font-medium text-brand-ink-2 hover:text-brand-ink ${BRAND_FOCUS}`}
+        className={`inline-flex min-h-11 items-center gap-1 rounded-sm text-brand-ui font-medium text-brand-ink-2 hover:text-brand-gold-text ${BRAND_FOCUS}`}
       >
         <ChevronLeft className="h-4 w-4" aria-hidden />
         {t('backTo', { title })}

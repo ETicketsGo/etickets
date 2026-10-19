@@ -3,6 +3,6 @@
 <rect x="8" y="8" width="496" height="496" rx="104" fill="#17140F"/>
 <g>
 <path fill="#FBF9F5" d="M80 96H304V160H144V224H272V288H144V352H304V416H80Z"/>
-<circle cx="384" cy="368" r="48" fill="#FFB81A"/>
+<circle cx="384" cy="368" r="48" fill="#B8955A"/>
 </g>
 </svg>

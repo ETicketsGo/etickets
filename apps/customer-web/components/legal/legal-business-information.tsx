@@ -31,7 +31,7 @@ export function LegalBusinessInformation() {
           <dd className="text-brand-ui leading-relaxed text-brand-ink-2">
             {fact.href ? (
               <a
-                className="font-medium text-brand-ink underline decoration-brand-line-strong underline-offset-4 hover:decoration-brand-ink"
+                className="font-medium text-brand-ink underline decoration-brand-line-strong underline-offset-4 hover:text-brand-gold-text hover:decoration-brand-gold-text"
                 href={fact.href}
               >
                 {fact.value}

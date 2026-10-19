@@ -57,7 +57,7 @@ export function BrandEventCard({
                 (`fetchpriority` on the first cards only, the rest lazy). The no-photo and
                 broken-photo case is still EventArtwork's typographic fallback.
               */
-              <div className="relative aspect-[4/3] w-full overflow-hidden rounded-brand-card bg-brand-sunken">
+              <div className="relative aspect-[4/3] w-full overflow-hidden rounded-brand-card bg-brand-image-fallback">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={image.src}
@@ -85,14 +85,14 @@ export function BrandEventCard({
             )}
           </div>
         </div>
-        <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-brand-eyebrow uppercase text-brand-ink-3">
+        <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-brand-eyebrow uppercase text-brand-gold-text">
           <span>{event.category}</span>
           <ContentLabelBadge label={event.contentLabel} />
         </p>
         <h3 className="mt-1 line-clamp-2 font-brand-display text-brand-card text-brand-ink">
           {event.title}
         </h3>
-        <p className="mt-1.5 flex items-start gap-1.5 text-brand-meta text-brand-ink-2">
+        <p className="mt-1.5 flex items-start gap-1.5 text-brand-meta text-brand-ink-3">
           <CalendarDays className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
           <span>
             {/* The venue's clock, named, as on the event page it opens. */}
@@ -100,7 +100,7 @@ export function BrandEventCard({
             {event.nextSessionAt && zone ? ` (${zoneAbbrev(event.nextSessionAt, zone)})` : ''}
           </span>
         </p>
-        <p className="mt-1 flex items-start gap-1.5 text-brand-meta text-brand-ink-2">
+        <p className="mt-1 flex items-start gap-1.5 text-brand-meta text-brand-ink-3">
           <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
           <span>
             {event.venue.name}, {event.venue.city}

@@ -69,7 +69,7 @@ export function MovieHero({ movie }: { movie: PublicMovieShows['movie'] }) {
         data-brand-tone="stage"
         className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-x-4 gap-y-5 bg-brand-canvas px-4 pb-8 pt-6 sm:grid-cols-[12rem_minmax(0,1fr)] sm:gap-x-8 sm:px-6 sm:pb-10 sm:pt-10 lg:grid-cols-[14rem_minmax(0,1fr)] lg:px-10"
       >
-        <div className="self-start overflow-hidden rounded-brand-card bg-brand-sunken sm:row-span-2">
+        <div className="self-start overflow-hidden rounded-brand-card bg-brand-image-fallback sm:row-span-2">
           <div className="aspect-[2/3] w-full">
             {movie.posterUrl && !posterFailed ? (
               // eslint-disable-next-line @next/next/no-img-element
