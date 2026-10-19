@@ -148,6 +148,10 @@
     "subject": "We have your message",
     "body": "Thank you for writing to ETicketsGo. We have your message and we will reply to {email}. Your reference is {reference}. If you write to us again about this, please give this reference."
   },
+  "PAYOUT_ACCOUNT_AWAITING_VERIFICATION": {
+    "subject": "Bank account waiting for verification: {organization}",
+    "body": "{organization} saved a {currency} payout bank account at {bank}, ending {last4} (version {version}). Changed: {changes}. Entered by {savedBy}. No payout can go to it until it is verified. A staff member other than the person who entered these details must verify them: {savedBy} cannot, and nor can anyone who belongs to {organization}. Open Payouts > Bank accounts in the admin console to check it."
+  },
   "PAYOUT_ACCOUNT_UPDATED": {
     "saved": {
       "subject": "Your {currency} payout bank account was changed",

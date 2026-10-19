@@ -26,6 +26,8 @@ const EXPECTED_HREF: Record<string, RegExp> = {
   'refunds-requested': /\/admin\/refunds\?status=REQUESTED$/,
   'refunds-failed': /\/admin\/refunds\?status=FAILED$/,
   'payouts-failed': /\/admin\/payouts$/,
+  // Unfiltered list, scrolled to its section: the bank accounts are one card on the payouts page.
+  'bank-accounts-pending': /\/admin\/payouts#bank-accounts$/,
   'settlements-blocked': /\/admin\/settlements\?status=BLOCKED$/,
   'reconciliation-open': /\/admin\/finance-reconciliation\?status=OPEN$/,
   'organizers-pending': /\/admin\/organizers\?status=PENDING$/,

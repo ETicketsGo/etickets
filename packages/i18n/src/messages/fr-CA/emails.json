@@ -148,6 +148,10 @@
     "subject": "Nous avons bien reçu votre message",
     "body": "Merci d'avoir écrit à ETicketsGo. Nous avons bien reçu votre message et nous répondrons à {email}. Votre référence est {reference}. Si vous nous écrivez de nouveau à ce sujet, indiquez cette référence."
   },
+  "PAYOUT_ACCOUNT_AWAITING_VERIFICATION": {
+    "subject": "Compte bancaire en attente de vérification : {organization}",
+    "body": "{organization} a enregistré un compte bancaire de versement en {currency} chez {bank}, se terminant par {last4} (version {version}). Modifié : {changes}. Saisi par {savedBy}. Aucun versement ne peut y être envoyé avant sa vérification. Un membre du personnel autre que la personne qui a saisi ces coordonnées doit les vérifier : {savedBy} ne le peut pas, ni personne qui fait partie de {organization}. Ouvrez Versements > Comptes bancaires dans la console d'administration pour le vérifier."
+  },
   "PAYOUT_ACCOUNT_UPDATED": {
     "saved": {
       "subject": "Votre compte bancaire de versement en {currency} a été modifié",

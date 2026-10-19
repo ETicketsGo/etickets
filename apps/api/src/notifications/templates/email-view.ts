@@ -80,6 +80,7 @@ const CTA_KEY: Partial<Record<NotificationType, string>> = {
   [NotificationType.ORGANIZATION_APPROVED]: 'openConsole',
   [NotificationType.ORGANIZATION_REJECTED]: 'openConsole',
   [NotificationType.EVENT_SUBMITTED]: 'openConsole',
+  [NotificationType.PAYOUT_ACCOUNT_AWAITING_VERIFICATION]: 'openConsole',
   [NotificationType.EVENT_APPROVED]: 'openConsole',
   [NotificationType.EVENT_REJECTED]: 'openConsole',
   [NotificationType.EVENT_NOT_SELLABLE]: 'openConsole',

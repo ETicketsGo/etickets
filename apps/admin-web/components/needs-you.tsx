@@ -16,6 +16,7 @@ import {
   RotateCcw,
   Scale,
   ShieldAlert,
+  ShieldCheck,
   type LucideIcon,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -33,6 +34,7 @@ import {
 } from '@eticketsgo/web-kit';
 import {
   attentionQueues,
+  bankAccountsWaiting,
   lastSevenDays,
   queueNoun,
   summarise,
@@ -94,6 +96,9 @@ function fetchCount(queue: AttentionQueue, now: Date): Promise<Count> {
       return api.admin
         .payouts()
         .then((rows) => ({ count: rows.filter((p) => p.status === 'FAILED').length }));
+    case 'bank-accounts-pending':
+      // The masked admin list is not paged; the count and the oldest are read from the rows.
+      return api.admin.payoutAccounts().then((rows) => bankAccountsWaiting(rows, now));
     case 'settlements-blocked':
       return api.admin.settlements
         .list({ ...one, status: 'BLOCKED' })
@@ -139,6 +144,7 @@ const QUEUE_ICON: Record<string, LucideIcon> = {
   'refunds-requested': RotateCcw,
   'refunds-failed': CircleAlert,
   'payouts-failed': Banknote,
+  'bank-accounts-pending': ShieldCheck,
   'settlements-blocked': Landmark,
   'reconciliation-open': Scale,
   'organizers-pending': Building2,

@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Role } from '@eticketsgo/shared-types';
+import { Role, permissionsFor, type AdminPermission } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationService } from './notification.service';
 import type { NotificationType } from '@eticketsgo/shared-types';
@@ -83,6 +83,68 @@ export class AdminAudienceService {
         ),
       );
       return admins.length;
+    } catch (err) {
+      this.logger.error(`${type}: admin fan-out failed entirely: ${err}`);
+      return 0;
+    }
+  }
+
+  /**
+   * Every active admin who holds ALL of `required`, as the permission guard computes it (a super
+   * admin holds everything). For a queue only some staff can work: paging somebody about work
+   * their account would be refused for teaches them to ignore the channel.
+   */
+  async adminsHolding(
+    required: readonly AdminPermission[],
+  ): Promise<{ id: string; email: string }[]> {
+    const staff = await this.prisma.user.findMany({
+      where: {
+        status: 'ACTIVE',
+        OR: [{ roles: { has: Role.ADMIN } }, { roles: { has: Role.SUPER_ADMIN } }],
+      },
+      select: { id: true, email: true, roles: true, adminGrants: { select: { permission: true } } },
+    });
+    return staff
+      .filter((u) => {
+        const held = permissionsFor(
+          u.roles,
+          u.adminGrants.map((g) => g.permission as AdminPermission),
+        );
+        return required.every((p) => held.has(p));
+      })
+      .map((u) => ({ id: u.id, email: u.email }));
+  }
+
+  /**
+   * `notifyAdmins`, narrowed to the staff who can act: those holding every capability in
+   * `required`, less anybody `skip` rules out (for a maker-checker queue, the maker). Never
+   * throws, and returns how many were notified - zero is logged, because a queue whose only
+   * possible reviewers were all skipped is one nothing ever leaves.
+   */
+  async notifyAdminsHolding(
+    required: readonly AdminPermission[],
+    type: NotificationType,
+    payload: Record<string, unknown>,
+    options: { skip?: (userId: string) => boolean } = {},
+  ): Promise<number> {
+    try {
+      const skip = options.skip;
+      const all = await this.adminsHolding(required);
+      const recipients = skip ? all.filter((a) => !skip(a.id)) : all;
+      if (recipients.length === 0) {
+        this.logger.warn(
+          `${type}: no active admin holding ${required.join('+')} who may act on it - this item will wait in the queue unseen.`,
+        );
+        return 0;
+      }
+      await Promise.all(
+        recipients.map((a) =>
+          this.notifications
+            .send({ type, userId: a.id, toEmail: a.email, payload })
+            .catch((err) => this.logger.warn(`${type}: could not notify admin ${a.id}: ${err}`)),
+        ),
+      );
+      return recipients.length;
     } catch (err) {
       this.logger.error(`${type}: admin fan-out failed entirely: ${err}`);
       return 0;
