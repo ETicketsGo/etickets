@@ -25,6 +25,9 @@ on:
   # and the expensive `verify` job runs only when one of those paths changed.
   pull_request:
 
+  # Run by hand (Actions > Mobile CI > Run workflow) to queue an Android build on demand.
+  workflow_dispatch:
+
 concurrency:
   group: mobile-ci-${{ github.ref }}
   cancel-in-progress: true
@@ -37,6 +40,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       mobile: ${{ steps.diff.outputs.mobile }}
+      # Did the mobile APP itself change? Only then does a push to main spend an EAS build.
+      app: ${{ steps.diff.outputs.app }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -46,8 +51,25 @@ jobs:
           EVENT: ${{ github.event_name }}
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_AFTER: ${{ github.sha }}
         run: |
-          if [ "$EVENT" != "pull_request" ]; then echo "mobile=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            echo "mobile=true" >> "$GITHUB_OUTPUT"; echo "app=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if [ "$EVENT" = "push" ]; then
+            echo "mobile=true" >> "$GITHUB_OUTPUT"
+            # The free Expo plan allows 15 Android builds a month. Shared-package changes (most
+            # web/API work) still run the full mobile verify above, but only a change to the app
+            # itself queues a build. A first push (no "before") counts as a change.
+            if [ -z "$PUSH_BEFORE" ] || [ "$PUSH_BEFORE" = "0000000000000000000000000000000000000000" ]               || git diff --name-only "$PUSH_BEFORE" "$PUSH_AFTER" | grep -q '^apps/customer-mobile/'; then
+              echo "app=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "app=false" >> "$GITHUB_OUTPUT"
+            fi
+            exit 0
+          fi
+          echo "app=false" >> "$GITHUB_OUTPUT"
           CHANGED=$(git diff --name-only "$BASE...$HEAD")
           echo "$CHANGED"
           if echo "$CHANGED" | grep -qE '^(apps/customer-mobile/|packages/shared-types/|packages/validation/|packages/design-tokens/|package.json$|package-lock.json$|turbo.json$|.npmrc$|.github/workflows/mobile-ci.yml$)'; then
@@ -150,8 +172,11 @@ jobs:
   eas-build:
     name: EAS build (Android, QA profile)
     runs-on: ubuntu-latest
-    needs: verify
-    if: ${{ github.ref == 'refs/heads/main' }}
+    needs: [changes, verify]
+    # Main only, and only when the app itself changed or someone asked for a build by hand.
+    # Every shared-package push used to queue one; October's 15 free builds were gone by the 9th
+    # and the next 43 pushes all went red for a reason no code change could fix.
+    if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || needs.changes.outputs.app == 'true') }}
     steps:
       - uses: actions/checkout@v4
       # Node 22 HERE ONLY, and not because this repo needs it.
@@ -204,7 +229,17 @@ jobs:
       # failure this comment exists to prevent.
       - if: steps.guard.outputs.has_token == 'true'
         working-directory: apps/customer-mobile
-        run: eas build --platform android --profile qa --non-interactive --no-wait
+        # A used-up plan quota is a billing fact, not a broken build: it is reported as a
+        # warning naming the reset, and every other failure still fails the job.
+        run: |
+          set +e
+          OUT=$(eas build --platform android --profile qa --non-interactive --no-wait 2>&1); CODE=$?
+          echo "$OUT"
+          if [ $CODE -ne 0 ] && echo "$OUT" | grep -qi "used its Android builds from the Free plan"; then
+            echo "::warning::Expo free-plan Android build quota is used up for this month - no build was queued. $(echo "$OUT" | grep -oi 'will reset[^.]*' | head -1). Upgrade the Expo plan or run this workflow by hand after the reset."
+            exit 0
+          fi
+          exit $CODE
       # ── WHY iOS IS BEHIND A FLAG ───────────────────────────────────────────────────
       #
       # An iOS build needs signing credentials, and those need a paid Apple Developer
