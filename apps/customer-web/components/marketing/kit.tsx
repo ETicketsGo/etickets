@@ -33,7 +33,7 @@ export const MK_PRIMARY = `${MK_BUTTON} bg-brand-action text-brand-on-action hov
 export const MK_SECONDARY = `${MK_BUTTON} border border-brand-line-strong bg-brand-surface text-brand-ink hover:border-brand-ink-3`;
 
 /** An inline text link in running copy: ink, underlined, so it never depends on colour alone. */
-export const MK_LINK = `rounded-sm font-medium text-brand-ink underline decoration-brand-line-strong underline-offset-4 hover:decoration-brand-ink ${MK_FOCUS}`;
+export const MK_LINK = `rounded-sm font-medium text-brand-ink underline decoration-brand-line-strong underline-offset-4 hover:text-brand-gold-text hover:decoration-brand-gold-text ${MK_FOCUS}`;
 
 /** A white card with a hairline, no shadow: the brand's panel. */
 export const MK_PANEL = 'rounded-brand-card border border-brand-line bg-brand-surface';

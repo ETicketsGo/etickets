@@ -78,7 +78,7 @@ function qrFallback(text: string): string {
   return (
     'data:image/svg+xml;utf8,' +
     encodeURIComponent(
-      `<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120"><rect width="120" height="120" fill="#f1f5f9"/><text x="60" y="64" font-family="sans-serif" font-size="11" fill="#94a3b8" text-anchor="middle">${safe}</text></svg>`,
+      `<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120"><rect width="120" height="120" fill="#F6F2EA"/><text x="60" y="64" font-family="sans-serif" font-size="11" fill="#6A6359" text-anchor="middle">${safe}</text></svg>`,
     )
   );
 }
@@ -208,7 +208,7 @@ export default function TicketDetailPage() {
         <button
           type="button"
           onClick={() => router.push('/account/tickets')}
-          className={`-ml-2 inline-flex min-h-11 items-center gap-1.5 rounded-brand-control px-2 text-brand-ui font-medium text-brand-ink-2 hover:text-brand-ink ${BRAND_FOCUS}`}
+          className={`-ml-2 inline-flex min-h-11 items-center gap-1.5 rounded-brand-control px-2 text-brand-ui font-medium text-brand-ink-2 hover:text-brand-gold-text ${BRAND_FOCUS}`}
         >
           <ArrowLeft className="h-4 w-4" aria-hidden /> {b('allTickets')}
         </button>

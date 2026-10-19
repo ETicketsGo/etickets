@@ -1,6 +1,7 @@
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { etgPalette } from './tokens';
 
 /**
  * Every colour pair the design system claims is legible, checked as arithmetic.
@@ -572,6 +573,8 @@ const BRAND_TEXT_PAIRS: { fg: string; bg: string; what: string }[] = [
   { fg: 'brand-on-action', bg: 'brand-action-hover', what: 'the primary button, hover' },
   { fg: 'brand-on-marigold', bg: 'brand-marigold', what: 'ink on a marigold chip or seat' },
   { fg: 'brand-on-marigold', bg: 'brand-marigold-hover', what: 'ink on marigold, hover' },
+  // Gold words: category labels, a link on hover, the date accent on a ticket stub.
+  ...BRAND_SURFACES.map((bg) => ({ fg: 'brand-gold-text', bg, what: `gold text on ${bg}` })),
   ...['positive', 'caution', 'critical', 'info'].flatMap((s) => [
     { fg: `brand-${s}`, bg: `brand-${s}-tint`, what: `a ${s} pill` },
     { fg: `brand-${s}`, bg: 'brand-surface', what: `${s} text on a card` },
@@ -615,7 +618,7 @@ describe.each(Object.keys(BRAND_BLOCKS) as (keyof typeof BRAND_BLOCKS)[])(
   },
 );
 
-describe('brand layer: marigold is a light, not a warning', () => {
+describe('brand layer: the accent', () => {
   it('a selected seat (marigold) stands out from the stage it is drawn on', () => {
     // Seat maps are drawn on the stage tone. On paper marigold is too pale to mark a state on
     // its own (about 1.6:1), which is why DESIGN-SYSTEM.md requires ink text or an ink outline
@@ -624,15 +627,6 @@ describe('brand layer: marigold is a light, not a warning', () => {
     const ratio = contrast(readToken(stage, 'brand-marigold'), readToken(stage, 'brand-canvas'));
     expect(Number(ratio.toFixed(2))).toBeGreaterThanOrEqual(AA_NON_TEXT);
   });
-
-  it.each(Object.keys(BRAND_BLOCKS) as (keyof typeof BRAND_BLOCKS)[])(
-    'keeps the caution hue at least 15 degrees from marigold in %s',
-    (name) => {
-      const block = brandBlock(name);
-      const hue = (token: string) => Number(new RegExp(`--${token}:\\s*([\\d.]+)`).exec(block)![1]);
-      expect(Math.abs(hue('brand-marigold') - hue('brand-caution'))).toBeGreaterThanOrEqual(15);
-    },
-  );
 
   it('defines the same names in every block', () => {
     const names = (block: string) =>
@@ -646,5 +640,130 @@ describe('brand layer: marigold is a light, not a warning', () => {
     for (const name of Object.keys(BRAND_BLOCKS) as (keyof typeof BRAND_BLOCKS)[]) {
       expect(names(brandBlock(name)).sort(), `${name} defines a different set`).toEqual(base);
     }
+  });
+});
+
+/**
+ * ── THE OWNER'S PALETTE (colour refresh, 2026-10) ──────────────────────────────────
+ * Three copies of the same numbers exist on purpose: `--etg-*` hex variables (brand.css, for
+ * code outside Tailwind), `etgPalette` (tokens.ts, the `etg-*` Tailwind colours), and the
+ * storefront's `--brand-*` HSL channels the components actually paint with. These tests keep
+ * the three equal, and hold the owner's pairs to AA - including the one rule the palette
+ * states outright: the decorative gold #B8955A is never text on ivory.
+ */
+const ETG_ROOT = (() => {
+  const start = BRAND_CSS.indexOf(':root {');
+  expect(start, 'brand.css has no :root block of --etg-* variables').toBeGreaterThanOrEqual(0);
+  return BRAND_CSS.slice(start, BRAND_CSS.indexOf('}', start));
+})();
+
+function etgHex(name: string): string {
+  const m = new RegExp(`--etg-${name}:\\s*(#[0-9a-fA-F]{6})`).exec(ETG_ROOT);
+  if (!m) throw new Error(`--etg-${name} not found in brand.css`);
+  return m[1].toUpperCase();
+}
+
+function hexToRgb(hex: string): Rgb {
+  const n = parseInt(hex.slice(1), 16);
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+}
+
+const etg = (name: string) => hexToRgb(etgHex(name));
+
+describe("the owner's palette", () => {
+  it('brand.css --etg-* and tokens.ts etgPalette hold the same values', () => {
+    for (const [name, hex] of Object.entries(etgPalette)) {
+      expect(etgHex(name), `--etg-${name}`).toBe(hex.toUpperCase());
+    }
+    const declared = [...ETG_ROOT.matchAll(/--etg-([a-z-]+):/g)].map((m) => m[1]).sort();
+    expect(declared).toEqual(Object.keys(etgPalette).sort());
+  });
+
+  it('every --brand-* that says it equals an --etg-* colour does (within one step of rounding)', () => {
+    const lines = [
+      ...BRAND_CSS.matchAll(/--(brand-[a-z0-9-]+):([^;]+);\s*\/\*\s*= --etg-([a-z-]+)/g),
+    ];
+    expect(lines.length).toBeGreaterThan(15);
+    for (const [, token, value, name] of lines) {
+      const [h, sat, l] = value.trim().replace(/%/g, '').split(/\s+/).map(Number);
+      const got = hslToRgb(h, sat, l);
+      const want = etg(name);
+      for (const ch of ['r', 'g', 'b'] as const) {
+        expect(
+          Math.abs(got[ch] - want[ch]),
+          `--${token} (${value.trim()}) drifts from --etg-${name} ${etgHex(name)} in ${ch}`,
+        ).toBeLessThanOrEqual(1);
+      }
+    }
+  });
+
+  const TEXT: [string, string, string][] = [
+    ['ink', 'bg', 'primary text on the ivory page'],
+    ['ink', 'surface', 'primary text on a card'],
+    ['body-soft', 'bg', 'long-form body copy'],
+    ['muted', 'bg', 'meta text on the page'],
+    ['muted', 'surface', 'meta text on a card'],
+    ['on-ink', 'ink', 'text on an ink band or button'],
+    ['gold-text', 'bg', 'a category label on the page'],
+    ['gold-text', 'surface', 'a category label on a card'],
+    ['gold-on-ink', 'ink', 'gold on an ink band'],
+    ['ink', 'gold', 'a number on the gold notification badge'],
+    ['success', 'bg', 'an Active ticket status'],
+    ['success', 'surface', 'an Active ticket status on a card'],
+    ['warning', 'bg', 'a partial check-in state'],
+    ['warning', 'surface', 'a partial check-in state on a card'],
+    ['neutral-status', 'surface', 'an ended ticket status on a card'],
+  ];
+  it.each(TEXT)('%s on %s (%s) clears 4.5:1', (fg, bg) => {
+    const ratio = contrast(etg(fg), etg(bg));
+    expect(
+      Number(ratio.toFixed(2)),
+      `${fg} on ${bg} is ${ratio.toFixed(2)}:1`,
+    ).toBeGreaterThanOrEqual(AA_NORMAL);
+  });
+
+  it('the success dot is visible next to its words (3:1 on a card)', () => {
+    expect(contrast(etg('success-dot'), etg('surface'))).toBeGreaterThanOrEqual(AA_NON_TEXT);
+  });
+
+  it('the decorative gold cannot be text on ivory - which is why gold-text exists', () => {
+    // A fact about the numbers, asserted so nobody "simplifies" gold-text away.
+    expect(contrast(etg('gold'), etg('bg'))).toBeLessThan(AA_NORMAL);
+    expect(contrast(etg('gold'), etg('surface'))).toBeLessThan(AA_NORMAL);
+  });
+
+  it('no code sets the decorative gold as a text colour', () => {
+    // `text-etg-gold` (not -text, not -on-ink) and the raw hex in a text/fill role.
+    const roots = [
+      'apps/customer-web',
+      'apps/organizer-web',
+      'apps/admin-web',
+      'packages/web-kit/src',
+    ];
+    const offenders: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        if (['node_modules', '.next', 'dist', 'public'].includes(entry.name)) continue;
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) walk(full);
+        else if (/\.(tsx?|css)$/.test(entry.name)) {
+          const src = readFileSync(full, 'utf8');
+          if (/text-etg-gold(?![-\w])|color:\s*#b8955a|color:\s*var\(--etg-gold\)/i.test(src)) {
+            offenders.push(full);
+          }
+        }
+      }
+    };
+    for (const r of roots) walk(resolve(__dirname, '../../..', r));
+    expect(offenders).toEqual([]);
+  });
+
+  it('on paper the brand accent is the decorative gold and the warning is the gold text', () => {
+    const paper = brandBlock('customer');
+    const near = (a: Rgb, b: Rgb) =>
+      Math.max(Math.abs(a.r - b.r), Math.abs(a.g - b.g), Math.abs(a.b - b.b));
+    expect(near(readToken(paper, 'brand-marigold'), etg('gold'))).toBeLessThanOrEqual(1);
+    expect(near(readToken(paper, 'brand-caution'), etg('warning'))).toBeLessThanOrEqual(1);
+    expect(near(readToken(paper, 'brand-gold-text'), etg('gold-text'))).toBeLessThanOrEqual(1);
   });
 });

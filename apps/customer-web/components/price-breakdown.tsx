@@ -103,9 +103,9 @@ const STYLES = {
   value: 'text-brand-ink',
   valueMuted: 'text-brand-ink-2',
   toggle:
-    'inline-flex min-h-6 items-center rounded-sm text-brand-meta font-medium text-brand-ink underline decoration-brand-line-strong underline-offset-4 hover:decoration-brand-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-focus focus-visible:ring-offset-2',
+    'inline-flex min-h-6 items-center rounded-sm text-brand-meta font-medium text-brand-ink underline decoration-brand-line-strong underline-offset-4 hover:text-brand-gold-text hover:decoration-brand-gold-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-focus focus-visible:ring-offset-2',
   groupToggle:
-    'inline-flex items-center gap-1 rounded-sm text-left text-brand-ink-2 hover:text-brand-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-focus focus-visible:ring-offset-2',
+    'inline-flex items-center gap-1 rounded-sm text-left text-brand-ink-2 hover:text-brand-gold-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-focus focus-visible:ring-offset-2',
   panel: 'mt-1 space-y-1 border-l-2 border-brand-line pl-3',
   rule: 'border-brand-line',
   total: 'font-brand-text text-brand-figure-sm tabular-nums text-brand-ink',

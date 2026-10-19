@@ -345,7 +345,7 @@ export function BrandTabs<T extends string>({
           className={`min-h-11 flex-1 rounded-[0.5rem] px-3 py-1.5 text-brand-ui transition-colors duration-150 ${BRAND_FOCUS} ${
             value === tab.value
               ? 'bg-brand-surface font-semibold text-brand-ink'
-              : 'text-brand-ink-2 hover:text-brand-ink'
+              : 'text-brand-ink-2 hover:text-brand-gold-text'
           }`}
         >
           {tab.label}

@@ -137,7 +137,7 @@ export function BottomNav() {
                 className={`relative flex h-14 flex-col items-center justify-center gap-0.5 px-1 text-[0.75rem] leading-none transition-colors ${BRAND_FOCUS} ${
                   active
                     ? 'font-semibold text-brand-ink'
-                    : 'font-medium text-brand-ink-3 hover:text-brand-ink'
+                    : 'font-medium text-brand-ink-3 hover:text-brand-gold-text'
                 }`}
               >
                 <Icon className="h-5 w-5" strokeWidth={active ? 2.4 : 1.8} aria-hidden />

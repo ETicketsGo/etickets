@@ -82,8 +82,8 @@ const metadata: Metadata = {
 
 export const viewport: Viewport = {
   themeColor: [
-    { media: '(prefers-color-scheme: light)', color: '#ffffff' },
-    { media: '(prefers-color-scheme: dark)', color: '#0B0E15' },
+    { media: '(prefers-color-scheme: light)', color: '#F6F2EA' },
+    { media: '(prefers-color-scheme: dark)', color: '#16130F' },
   ],
   /*
     ── WITHOUT THIS, EVERY SAFE-AREA INSET IS ZERO ──────────────────────────────────

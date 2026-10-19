@@ -79,7 +79,7 @@ const TICKET_TONE: Record<string, BrandStatus> = {
 const COLUMN = 'mx-auto max-w-2xl px-4 sm:px-6';
 
 /** A quiet text control in the top row and under the actions: 44px tall, ink on hover. */
-const QUIET_LINK = `inline-flex min-h-11 items-center gap-1.5 rounded-brand-control px-2 text-brand-ui font-medium text-brand-ink-2 transition-colors duration-150 hover:text-brand-ink ${BRAND_FOCUS}`;
+const QUIET_LINK = `inline-flex min-h-11 items-center gap-1.5 rounded-brand-control px-2 text-brand-ui font-medium text-brand-ink-2 transition-colors duration-150 hover:text-brand-gold-text ${BRAND_FOCUS}`;
 
 /** This page's translator, in the shape the helpers below take it. */
 type Translate = (key: string, values?: Record<string, string | number>) => string;
@@ -93,7 +93,7 @@ function qrFallback(title: string, hint: string): string {
   return (
     'data:image/svg+xml;utf8,' +
     encodeURIComponent(
-      `<svg xmlns="http://www.w3.org/2000/svg" width="220" height="220"><rect width="220" height="220" fill="#f1f5f9"/><text x="110" y="112" font-family="sans-serif" font-size="13" fill="#94a3b8" text-anchor="middle">${esc(title)}</text><text x="110" y="134" font-family="sans-serif" font-size="10" fill="#94a3b8" text-anchor="middle">${esc(hint)}</text></svg>`,
+      `<svg xmlns="http://www.w3.org/2000/svg" width="220" height="220"><rect width="220" height="220" fill="#F6F2EA"/><text x="110" y="112" font-family="sans-serif" font-size="13" fill="#6A6359" text-anchor="middle">${esc(title)}</text><text x="110" y="134" font-family="sans-serif" font-size="10" fill="#6A6359" text-anchor="middle">${esc(hint)}</text></svg>`,
     )
   );
 }

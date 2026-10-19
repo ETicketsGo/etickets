@@ -22,7 +22,7 @@ import { FeedbackButton } from '@/components/feedback-widget';
   without it a French reader of the terms had no way to French.
 */
 
-const FOOTER_LINK = `inline-flex min-h-11 items-center rounded-sm text-brand-ui text-brand-ink-2 transition-colors hover:text-brand-ink lg:min-h-8 ${BRAND_FOCUS}`;
+const FOOTER_LINK = `inline-flex min-h-11 items-center rounded-sm text-brand-ui text-brand-ink-2 transition-colors hover:text-brand-gold-text lg:min-h-8 ${BRAND_FOCUS}`;
 
 const COLUMNS: { title: string; links: { href: string; label: string; external?: boolean }[] }[] = [
   {

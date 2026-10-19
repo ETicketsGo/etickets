@@ -1,5 +1,12 @@
 import type { Config } from 'tailwindcss';
-import { brandFontFamily, brandTypeScale, fontFamily, radius, typeScale } from './tokens';
+import {
+  brandFontFamily,
+  brandTypeScale,
+  etgPalette,
+  fontFamily,
+  radius,
+  typeScale,
+} from './tokens';
 
 /** Wraps a CSS variable so Tailwind can apply alpha via <alpha-value>. */
 const hsl = (v: string) => `hsl(var(${v}) / <alpha-value>)`;
@@ -194,6 +201,8 @@ const preset: Partial<Config> = {
           marigold: hsl('--brand-marigold'),
           'marigold-hover': hsl('--brand-marigold-hover'),
           'on-marigold': hsl('--brand-on-marigold'),
+          // Gold words: #84652F on paper, the light gold on a stage. Never the decorative gold.
+          'gold-text': hsl('--brand-gold-text'),
           positive: hsl('--brand-positive'),
           'positive-tint': hsl('--brand-positive-tint'),
           caution: hsl('--brand-caution'),
@@ -204,7 +213,15 @@ const preset: Partial<Config> = {
           'info-tint': hsl('--brand-info-tint'),
           focus: hsl('--brand-focus'),
           scrim: hsl('--brand-scrim'),
+          'success-dot': hsl('--brand-success-dot'),
+          // Behind a picture while it loads, or where it is missing.
+          'image-fallback': hsl('--brand-image-fallback'),
         },
+        /*
+          The owner's palette by the owner's names (tokens.ts `etgPalette`, brand.css `--etg-*`).
+          Literal values, so they resolve on any page, with or without `data-brand`.
+        */
+        etg: { ...etgPalette },
       },
       borderRadius: {
         sm: radius.sm,

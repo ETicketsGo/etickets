@@ -25,7 +25,7 @@ export const BRAND_PANEL = 'rounded-brand-card border border-brand-line bg-brand
 export const BRAND_EYEBROW = 'text-brand-eyebrow uppercase text-brand-ink-3';
 
 /** A text link on paper: ink, underlined, the brand focus ring. Marigold is never text here. */
-export const BRAND_LINK = `rounded-sm font-medium text-brand-ink underline decoration-brand-line-strong underline-offset-4 hover:decoration-brand-ink ${BRAND_FOCUS}`;
+export const BRAND_LINK = `rounded-sm font-medium text-brand-ink underline decoration-brand-line-strong underline-offset-4 hover:text-brand-gold-text hover:decoration-brand-gold-text ${BRAND_FOCUS}`;
 
 /** A text field on the brand layer: 44px, the field outline that reaches 3:1 everywhere. */
 export const BRAND_FIELD = `h-11 rounded-brand-control border border-brand-field bg-brand-surface px-3 text-brand-ui text-brand-ink placeholder:text-brand-ink-3 ${BRAND_FOCUS}`;

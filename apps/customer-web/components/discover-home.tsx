@@ -714,7 +714,7 @@ export function DiscoverHome() {
             <Link
               key={href}
               href={href}
-              className={`inline-flex min-h-11 items-center text-brand-ui text-brand-ink underline decoration-brand-line-strong underline-offset-4 hover:decoration-brand-ink ${BRAND_FOCUS}`}
+              className={`inline-flex min-h-11 items-center text-brand-ui text-brand-ink underline decoration-brand-line-strong underline-offset-4 hover:text-brand-gold-text hover:decoration-brand-gold-text ${BRAND_FOCUS}`}
             >
               {t(`trust.${key}`)}
             </Link>

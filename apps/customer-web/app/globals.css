@@ -16,7 +16,8 @@ html {
 }
 
 body {
-  background-color: hsl(var(--background-canvas));
+  /* The owner's ivory (brand.css), so no edge of a page - overscroll included - shows the old grey. */
+  background-color: var(--etg-bg);
   color: hsl(var(--text-primary));
   font-family:
     var(--font-inter),

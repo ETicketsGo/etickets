@@ -70,7 +70,7 @@ export function ReferenceCode({
           aria-label={`${label}: ${copied ? t('copied') : t('copy')}`}
           // -m-1.5 + p-2 keeps the 14px icon where it was and makes the target 30px, over the 24px minimum
           // (WCAG 2.5.8); it was 18px.
-          className={`-m-1.5 rounded p-2 text-brand-ink-3 transition-colors hover:text-brand-ink ${BRAND_FOCUS}`}
+          className={`-m-1.5 rounded p-2 text-brand-ink-3 transition-colors hover:text-brand-gold-text ${BRAND_FOCUS}`}
         >
           {copied ? (
             <Check className="h-3.5 w-3.5 text-brand-positive" aria-hidden />

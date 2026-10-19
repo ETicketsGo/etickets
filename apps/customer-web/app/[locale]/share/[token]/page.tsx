@@ -29,7 +29,7 @@ function shareQrFallback(text: string): string {
   return (
     'data:image/svg+xml;utf8,' +
     encodeURIComponent(
-      `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"><rect width="200" height="200" fill="#f1f5f9"/><text x="100" y="104" font-family="sans-serif" font-size="12" fill="#94a3b8" text-anchor="middle">${safe}</text></svg>`,
+      `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"><rect width="200" height="200" fill="#F6F2EA"/><text x="100" y="104" font-family="sans-serif" font-size="12" fill="#6A6359" text-anchor="middle">${safe}</text></svg>`,
     )
   );
 }

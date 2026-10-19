@@ -93,7 +93,7 @@ function PageButton({
       aria-label={label}
       disabled={!onClick}
       onClick={onClick ?? undefined}
-      className={`inline-flex h-11 w-9 shrink-0 items-center justify-center rounded-brand-control text-brand-ink-2 hover:bg-brand-surface hover:text-brand-ink disabled:cursor-not-allowed disabled:text-brand-ink-3 disabled:hover:bg-transparent ${focusRing}`}
+      className={`inline-flex h-11 w-9 shrink-0 items-center justify-center rounded-brand-control text-brand-ink-2 hover:bg-brand-surface hover:text-brand-gold-text disabled:cursor-not-allowed disabled:text-brand-ink-3 disabled:hover:bg-transparent ${focusRing}`}
     >
       {children}
     </button>

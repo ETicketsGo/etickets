@@ -667,7 +667,7 @@ export default function EventDetailPage() {
       {!hasArt ? (
         <span aria-hidden className="mb-6 block h-1 w-16 rounded-full bg-brand-marigold" />
       ) : null}
-      <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-brand-eyebrow uppercase text-brand-ink-2">
+      <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-brand-eyebrow uppercase text-brand-gold-text">
         {[event.category, event.venue.city].filter(Boolean).join(' / ')}
         <ContentLabelBadge label={event.contentLabel} />
       </p>
@@ -813,7 +813,7 @@ export default function EventDetailPage() {
           <div
             aria-hidden
             data-testid="event-hero-placeholder"
-            className="relative flex aspect-video w-full items-end bg-brand-sunken p-6 lg:absolute lg:inset-0 lg:aspect-auto lg:justify-end lg:p-10"
+            className="relative flex aspect-video w-full items-end bg-brand-image-fallback p-6 lg:absolute lg:inset-0 lg:aspect-auto lg:justify-end lg:p-10"
           >
             <span className="h-1 w-16 rounded-full bg-brand-marigold" />
           </div>

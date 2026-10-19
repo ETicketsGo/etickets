@@ -175,7 +175,7 @@ export function SectionHead({
 
 /** A text link at the end of a section heading ("See all 38", "Change city"). */
 export function sectionLinkClasses(): string {
-  return `inline-flex min-h-11 items-center rounded-sm text-brand-ui font-semibold text-brand-ink underline decoration-brand-line-strong decoration-2 underline-offset-4 hover:decoration-brand-ink ${BRAND_FOCUS}`;
+  return `inline-flex min-h-11 items-center rounded-sm text-brand-ui font-semibold text-brand-ink underline decoration-brand-line-strong decoration-2 underline-offset-4 hover:text-brand-gold-text hover:decoration-brand-gold-text ${BRAND_FOCUS}`;
 }
 
 /** The event's own card copy, or null for the typographic artwork. */
@@ -212,7 +212,7 @@ function RowThumb({ event }: { event: PublicEventCard }) {
   const image = cardImage(event, 'card');
   const [failed, setFailed] = useState(false);
   return (
-    <div className="relative aspect-[4/3] w-full overflow-hidden rounded-brand-control bg-brand-sunken">
+    <div className="relative aspect-[4/3] w-full overflow-hidden rounded-brand-control bg-brand-image-fallback">
       {image && !failed ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
@@ -256,7 +256,7 @@ export function FeatureCard({ event, state }: { event: PublicEventCard; state?: 
           />
         </div>
       </div>
-      <p className="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-brand-eyebrow uppercase text-brand-ink-3">
+      <p className="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-brand-eyebrow uppercase text-brand-gold-text">
         {event.category}
         <ContentLabelBadge label={event.contentLabel} />
       </p>
@@ -293,14 +293,14 @@ export function EventRow({ event, state }: { event: PublicEventCard; state?: Buy
         <RowThumb event={event} />
       </div>
       <div className="min-w-0 self-end sm:self-center">
-        <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-brand-eyebrow uppercase text-brand-ink-3">
+        <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-brand-eyebrow uppercase text-brand-gold-text">
           {event.category}
           <ContentLabelBadge label={event.contentLabel} />
         </p>
         <h3 className="mt-1 line-clamp-2 font-brand-display text-brand-card text-brand-ink">
           {event.title}
         </h3>
-        <p className="mt-1 line-clamp-2 text-brand-meta text-brand-ink-2">
+        <p className="mt-1 line-clamp-2 text-brand-meta text-brand-ink-3">
           {when ? `${when.day}, ${when.time} - ` : ''}
           {event.venue.name}, {event.venue.city}
         </p>
@@ -347,7 +347,7 @@ export function EventTile({
           />
         </div>
       </div>
-      <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-brand-eyebrow uppercase text-brand-ink-3">
+      <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-brand-eyebrow uppercase text-brand-gold-text">
         <span>
           {event.category}
           {showCity ? ` / ${event.venue.city}` : ''}
@@ -358,7 +358,7 @@ export function EventTile({
         {event.title}
       </h3>
       <div className="mt-1 flex flex-wrap items-baseline justify-between gap-x-3">
-        <span className="text-brand-meta text-brand-ink-2">
+        <span className="text-brand-meta text-brand-ink-3">
           {when ? `${when.day}, ${when.time}` : event.venue.name}
         </span>
         <PriceOrState event={event} state={state} />
@@ -498,7 +498,7 @@ export function StageHero({ event }: { event: PublicEventCard }) {
         <div className="max-w-2xl">
           <div className="flex flex-wrap items-center gap-3">
             {today && <BrandStatusPill status="live">{nav('today')}</BrandStatusPill>}
-            <span className="text-brand-eyebrow uppercase text-brand-ink-2">
+            <span className="text-brand-eyebrow uppercase text-brand-gold-text">
               {event.category} / {event.venue.city}
             </span>
             <ContentLabelBadge label={event.contentLabel} />

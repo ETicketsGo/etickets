@@ -40,7 +40,7 @@ export const PLATFORM_LINKS = [
   { href: '/customers', key: 'forAttendees' },
 ] as const;
 
-const navLink = `inline-flex h-11 items-center rounded-brand-control px-3 text-brand-ui font-semibold transition-colors hover:text-brand-ink ${BRAND_FOCUS}`;
+const navLink = `inline-flex h-11 items-center rounded-brand-control px-3 text-brand-ui font-semibold transition-colors hover:text-brand-gold-text ${BRAND_FOCUS}`;
 
 /** The platform links as a row of bar links, for a desktop bar. */
 export function PlatformLinks({ pathname }: { pathname: string }) {
@@ -156,7 +156,7 @@ export function PlatformMenuButton({
       aria-expanded={open}
       aria-controls={controls}
       aria-label={open ? a11y('closeMenu') : a11y('openMenu')}
-      className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-brand-control text-brand-ink-2 transition-colors hover:text-brand-ink lg:hidden ${BRAND_FOCUS}`}
+      className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-brand-control text-brand-ink-2 transition-colors hover:text-brand-gold-text lg:hidden ${BRAND_FOCUS}`}
     >
       {open ? <X className="h-5 w-5" aria-hidden /> : <Menu className="h-5 w-5" aria-hidden />}
     </button>

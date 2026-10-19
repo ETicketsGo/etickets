@@ -212,7 +212,9 @@ export default function ExperienceWalletPage() {
           role="status"
           aria-live="polite"
           className={`flex flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-brand-card px-4 py-2 text-brand-meta ${
-            online ? 'bg-brand-sunken text-brand-ink-2' : 'bg-brand-caution-tint text-brand-caution'
+            online
+              ? 'bg-brand-surface text-brand-ink-2 ring-1 ring-inset ring-brand-line'
+              : 'bg-brand-caution-tint text-brand-caution'
           }`}
         >
           <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-0.5 py-1.5">

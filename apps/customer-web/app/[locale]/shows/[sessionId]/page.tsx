@@ -735,7 +735,7 @@ export default function SeatSelectionPage() {
   // True only when the customer arrived here from a venue map, which is the only case
   // where "back to the map" is a place they can actually return to.
   const cameFromMap = sectionId !== null;
-  const stageLink = `inline-flex min-h-11 items-center gap-1.5 rounded-sm text-brand-ui font-medium text-brand-ink underline decoration-brand-line-strong underline-offset-4 hover:decoration-brand-ink ${BRAND_FOCUS}`;
+  const stageLink = `inline-flex min-h-11 items-center gap-1.5 rounded-sm text-brand-ui font-medium text-brand-ink underline decoration-brand-line-strong underline-offset-4 hover:text-brand-gold-text hover:decoration-brand-gold-text ${BRAND_FOCUS}`;
 
   return shell(
     <div className={`space-y-6 ${selected.length > 0 ? 'pb-28 lg:pb-0' : ''}`}>

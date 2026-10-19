@@ -219,7 +219,7 @@ export default function MovieDetailPage() {
                     <button
                       type="button"
                       onClick={() => preference.setCity(null)}
-                      className={`inline-flex min-h-11 items-center rounded-sm font-semibold text-brand-ink underline decoration-brand-line-strong underline-offset-4 hover:decoration-brand-ink sm:min-h-0 ${BRAND_FOCUS}`}
+                      className={`inline-flex min-h-11 items-center rounded-sm font-semibold text-brand-ink underline decoration-brand-line-strong underline-offset-4 hover:text-brand-gold-text hover:decoration-brand-gold-text sm:min-h-0 ${BRAND_FOCUS}`}
                     >
                       {t('city.showAll')}
                     </button>

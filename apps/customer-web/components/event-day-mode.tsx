@@ -24,7 +24,7 @@ function qrFallback(title: string, hint: string): string {
   return (
     'data:image/svg+xml;utf8,' +
     encodeURIComponent(
-      `<svg xmlns="http://www.w3.org/2000/svg" width="240" height="240"><rect width="240" height="240" fill="#f8fafc"/><text x="120" y="122" font-family="sans-serif" font-size="13" fill="#94a3b8" text-anchor="middle">${esc(title)}</text><text x="120" y="144" font-family="sans-serif" font-size="10" fill="#94a3b8" text-anchor="middle">${esc(hint)}</text></svg>`,
+      `<svg xmlns="http://www.w3.org/2000/svg" width="240" height="240"><rect width="240" height="240" fill="#F6F2EA"/><text x="120" y="122" font-family="sans-serif" font-size="13" fill="#6A6359" text-anchor="middle">${esc(title)}</text><text x="120" y="144" font-family="sans-serif" font-size="10" fill="#6A6359" text-anchor="middle">${esc(hint)}</text></svg>`,
     )
   );
 }
@@ -162,7 +162,7 @@ export function EventDayMode({
           onClick={onExit}
           type="button"
           aria-label={e('exit')}
-          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-brand-ink-2 transition-colors duration-150 hover:bg-brand-sunken hover:text-brand-ink ${BRAND_FOCUS}`}
+          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-brand-ink-2 transition-colors duration-150 hover:bg-brand-sunken hover:text-brand-gold-text ${BRAND_FOCUS}`}
         >
           <X className="h-5 w-5" aria-hidden />
         </button>
