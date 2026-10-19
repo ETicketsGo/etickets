@@ -201,6 +201,18 @@ describe('integration-real-postgres: a saved bank account reaches its verifiers'
     return false;
   };
 
+  /*
+    Notifications this spec causes are left PENDING (no worker runs here). Another suite's
+    `dispatchDue` sweeps EVERY due row on the shared CI database, and one that picks up ours just
+    before afterAll deletes it fails with "record to update not found". Cancelling them as soon as
+    they are asserted takes them out of every sweep.
+  */
+  const quiet = () =>
+    prisma.notification.updateMany({
+      where: { userId: { in: Object.values(ids) }, status: 'PENDING' },
+      data: { status: 'CANCELLED' },
+    });
+
   /** This organization's rows in the admin list, as `actor` sees them. */
   async function listed(actor: Actor) {
     const res = await call(actor, 'GET', '/admin/payouts/accounts');
@@ -248,6 +260,7 @@ describe('integration-real-postgres: a saved bank account reaches its verifiers'
     const text = JSON.stringify(rows);
     expect(text).not.toContain(NUMBER);
     expect(text).not.toMatch(/cipher/i);
+    await quiet();
   });
 
   it('the dashboard list counts it as waiting, and tells each viewer whether they may decide', async () => {
@@ -283,5 +296,6 @@ describe('integration-real-postgres: a saved bank account reaches its verifiers'
     const after = await listed('verifier');
     expect(after.filter((r) => r.status === 'PENDING_VERIFICATION')).toHaveLength(0);
     expect(after[0].independenceBlock).toBeNull();
+    await quiet();
   });
 });
