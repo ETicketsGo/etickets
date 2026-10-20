@@ -233,6 +233,9 @@ const MOVED_FILES = [
   'components/brand-event-card.tsx',
   'components/phone-sign-in.tsx',
   'components/guest-self-service.tsx',
+  // The editorial event page (P1, owner design 2026-10-19): its reservation card and phone bar.
+  'components/event-reservation.tsx',
+  'components/sticky-continue.tsx',
 ];
 
 /**

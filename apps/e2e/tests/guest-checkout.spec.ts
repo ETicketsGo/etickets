@@ -79,7 +79,7 @@ test.describe('guest checkout', () => {
     // Signing in is still offered; it is an alternative, not the only way.
     await expect(page.getByRole('link', { name: 'Sign in' }).first()).toBeVisible();
 
-    await page.getByRole('button', { name: /Continue to payment/ }).click();
+    await page.getByRole('button', { name: /^Reserve/ }).click();
     await expect(page).toHaveURL(/\/booking\/.+\/payment/, { timeout: 20_000 });
 
     await page.getByRole('button', { name: /^Pay/ }).click();
@@ -226,7 +226,7 @@ test.describe('guest checkout', () => {
     await chooseQuantity(quantity, 1);
     await page.getByLabel('Your name').fill(guest.name);
     await page.getByLabel('Email', { exact: true }).fill(uniqueEmail('guestcancel'));
-    await page.getByRole('button', { name: /Continue to payment/ }).click();
+    await page.getByRole('button', { name: /^Reserve/ }).click();
     await expect(page).toHaveURL(/\/booking\/.+\/payment/, { timeout: 20_000 });
     const cancelledId = /\/booking\/([^/]+)\/payment/.exec(page.url())?.[1] ?? '';
 

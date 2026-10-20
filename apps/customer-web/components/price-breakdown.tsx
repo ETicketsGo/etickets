@@ -109,8 +109,15 @@ const STYLES = {
   panel: 'mt-1 space-y-1 border-l-2 border-brand-line pl-3',
   rule: 'border-brand-line',
   total: 'font-brand-text text-brand-figure-sm tabular-nums text-brand-ink',
+  totalLabel: 'text-brand-ui text-brand-ink-2',
 } as const;
-type Styles = typeof STYLES;
+type Styles = { [K in keyof typeof STYLES]: string };
+/** The reservation card's total: small caps beside a figure-size amount. */
+const RESERVATION_STYLES: Styles = {
+  ...STYLES,
+  totalLabel: 'text-brand-eyebrow uppercase text-brand-ink-2',
+  total: 'font-brand-display text-brand-figure tabular-nums text-brand-ink',
+};
 const StyleContext = createContext<Styles>(STYLES);
 
 function Line({
@@ -367,6 +374,17 @@ export function PriceBreakdown({
    * `moneyFractionDigits` over everything the card shows, and both halves use that answer.
    */
   fractionDigits,
+  /**
+   * The event page's reservation card (owner design 2026-10-19): the total's label in small caps
+   * and its amount at figure size. Class names only - every row and amount is the same. Opt-in,
+   * so the seat page, Review & pay and the confirmation are drawn exactly as before.
+   */
+  tone,
+  /**
+   * Names the tickets row - "2 x VIP" - where the caller knows the row is exactly that. The
+   * amount is still the quote's own; only the words beside it change. Left off, "Tickets".
+   */
+  ticketsLabel,
 }: {
   quote?: QuotedFees | null;
   loading?: boolean;
@@ -377,8 +395,10 @@ export function PriceBreakdown({
   fallbackCurrency?: string;
   note?: string | null;
   fractionDigits?: number;
+  tone?: 'reservation';
+  ticketsLabel?: string;
 }) {
-  const s = STYLES;
+  const s = tone === 'reservation' ? RESERVATION_STYLES : STYLES;
   return (
     <StyleContext.Provider value={s}>
       <Breakdown
@@ -392,6 +412,7 @@ export function PriceBreakdown({
           fallbackCurrency,
           note,
           fractionDigits,
+          ticketsLabel,
         }}
       />
     </StyleContext.Provider>
@@ -408,6 +429,7 @@ function Breakdown({
   fallbackCurrency,
   note,
   fractionDigits,
+  ticketsLabel,
 }: {
   quote?: QuotedFees | null;
   loading: boolean;
@@ -418,6 +440,7 @@ function Breakdown({
   fallbackCurrency?: string;
   note?: string | null;
   fractionDigits?: number;
+  ticketsLabel?: string;
 }) {
   const t = useTranslations('storefront.event');
   const s = useContext(StyleContext);
@@ -470,7 +493,7 @@ function Breakdown({
     return (
       <div className={`border-t ${s.rule} pt-4`}>
         <div className="flex items-center justify-between">
-          <span className={`${s.text} ${s.label}`}>{totalLabel ?? t('total')}</span>
+          <span className={s.totalLabel}>{totalLabel ?? t('total')}</span>
           <span className={s.total}>{t('freeLabel')}</span>
         </div>
         <p className={`mt-1 ${s.small} ${s.muted}`}>{t('freeNote')}</p>
@@ -493,7 +516,7 @@ function Breakdown({
               return (
                 <TicketsLine
                   key={key}
-                  label={t('lineTickets')}
+                  label={ticketsLabel ?? t('lineTickets')}
                   value={value}
                   included={breakdown.includedTax}
                   includedMaintenanceMinor={breakdown.includedMaintenanceMinor}
@@ -545,7 +568,7 @@ function Breakdown({
       <div
         className={`flex items-center justify-between ${quote ? `mt-2 border-t ${s.rule} pt-2` : ''}`}
       >
-        <span className={`${s.text} ${s.label}`}>{totalLabel ?? t('total')}</span>
+        <span className={s.totalLabel}>{totalLabel ?? t('total')}</span>
         {/* Addressable on its own: the amount the buyer is agreeing to is the one thing
             worth being able to point at exactly, from a test or from anywhere else. */}
         <span data-testid="price-total" className={s.total}>

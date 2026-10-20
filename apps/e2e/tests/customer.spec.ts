@@ -49,7 +49,7 @@ test('customer registers, books a ticket, pays, and sees a QR ticket', async ({ 
   await expect(qty).toBeVisible();
   await chooseQuantity(qty, 2);
 
-  await page.getByRole('button', { name: /Continue to payment/ }).click();
+  await page.getByRole('button', { name: /^Reserve/ }).click();
 
   // Fee breakdown then pay (mock)
   await expect(page).toHaveURL(/\/booking\/.+\/payment/, { timeout: 20_000 });
@@ -145,7 +145,7 @@ test('attendee identity: owner invites, recipient claims, ticket moves to their 
   await expect(page).toHaveURL(/\/events\/.+/);
   const qty = quantitySteppers(page).first();
   await chooseQuantity(qty, 1);
-  await page.getByRole('button', { name: /Continue to payment/ }).click();
+  await page.getByRole('button', { name: /^Reserve/ }).click();
   await expect(page).toHaveURL(/\/booking\/.+\/payment/, { timeout: 20_000 });
   await page.getByRole('button', { name: /Pay/ }).click();
   await expect(page).toHaveURL(/\/booking\/.+\/confirmation/, { timeout: 20_000 });
@@ -198,7 +198,7 @@ test('secure sharing: owner creates a guest link, recipient opens it, then it is
   await page.goto(`${CUSTOMER}/events`);
   await openPaidEvent(page);
   await chooseQuantity(quantitySteppers(page).first(), 1);
-  await page.getByRole('button', { name: /Continue to payment/ }).click();
+  await page.getByRole('button', { name: /^Reserve/ }).click();
   await expect(page).toHaveURL(/\/booking\/.+\/payment/, { timeout: 20_000 });
   await page.getByRole('button', { name: /Pay/ }).click();
   await expect(page).toHaveURL(/\/booking\/.+\/confirmation/, { timeout: 20_000 });
@@ -254,7 +254,7 @@ test('experience wallet: placeholder items appear behind a feature flag and filt
   await page.goto(`${CUSTOMER}/events`);
   await openPaidEvent(page);
   await chooseQuantity(quantitySteppers(page).first(), 1);
-  await page.getByRole('button', { name: /Continue to payment/ }).click();
+  await page.getByRole('button', { name: /^Reserve/ }).click();
   await expect(page).toHaveURL(/\/booking\/.+\/payment/, { timeout: 20_000 });
   await page.getByRole('button', { name: /Pay/ }).click();
   await expect(page).toHaveURL(/\/booking\/.+\/confirmation/, { timeout: 20_000 });

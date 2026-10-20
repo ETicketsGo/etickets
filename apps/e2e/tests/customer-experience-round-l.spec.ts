@@ -244,7 +244,7 @@ test.describe('on a phone', () => {
     }
 
     // The card's own button takes over once it is on screen: one Continue, not two.
-    const own = page.getByRole('button', { name: /Continue to payment/ });
+    const own = page.getByRole('button', { name: /^Reserve/ });
     await own.scrollIntoViewIfNeeded({ timeout: 5_000 });
     await expect(sticky).toHaveCount(0);
 
@@ -264,7 +264,7 @@ test.describe('on a phone', () => {
     const notice = page.getByTestId('event-sold-out');
     await expect(notice).toBeVisible();
     await expect(notice).toContainText('This event is sold out');
-    await expect(page.getByRole('button', { name: /Continue to payment/ })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /^Reserve/ })).toHaveCount(0);
     await expect(page.getByTestId('sticky-continue')).toHaveCount(0);
     // An event with tickets left shows no notice.
     await goToEvent(page, paid);
@@ -276,7 +276,7 @@ test.describe('on a phone', () => {
     await chooseQuantity(quantitySteppers(page).first(), 1);
     await page.getByLabel('Your name').fill('L Cancel Guest');
     await page.getByLabel('Email', { exact: true }).fill(uniqueEmail('l_cancel'));
-    await page.getByRole('button', { name: /Continue to payment/ }).click();
+    await page.getByRole('button', { name: /^Reserve/ }).click();
     await expect(page).toHaveURL(/\/booking\/([^/]+)\/payment/, { timeout: 30_000 });
     const id = /\/booking\/([^/]+)\/payment/.exec(page.url())![1];
 

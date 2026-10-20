@@ -55,7 +55,7 @@ test('the offers an organizer advertises are offered at checkout', async ({
   await seedBrowserAuth(context, tokens);
   await page.goto(`${CUSTOMER}/events/${target!.slug}`, { waitUntil: 'networkidle' });
   await chooseQuantity(page.getByRole('group', { name: /^Quantity of / }).first(), 1);
-  await page.getByRole('button', { name: /Continue to payment/i }).click();
+  await page.getByRole('button', { name: /^Reserve/ }).click();
   await expect(page).toHaveURL(/\/booking\/.+\/payment/, { timeout: 40_000 });
 
   // The organizer's code is on the screen, not something the buyer had to be told.

@@ -239,7 +239,7 @@ test.describe('WCAG 2.1.1 — a booking can be completed from the keyboard', () 
     await page.keyboard.press('Enter');
     await expect(quantity).not.toHaveAttribute('data-quantity', '0');
 
-    const cta = page.getByRole('button', { name: /Continue to payment/ });
+    const cta = page.getByRole('button', { name: /^Reserve/ });
     const reachedCta = await tabTo(page, cta);
     expect(reachedCta, 'the checkout button is not reachable by tabbing').toBe(true);
     await page.keyboard.press('Enter');

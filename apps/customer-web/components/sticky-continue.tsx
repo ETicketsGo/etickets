@@ -2,10 +2,16 @@
 
 import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { BrandButton } from '@eticketsgo/web-kit';
+import { BrandButton, brandButtonClasses } from '@eticketsgo/web-kit';
 
 /** The id of the wrapper round the card's own "Continue to payment" button. */
 export const CONTINUE_ANCHOR_ID = 'event-continue-anchor';
+
+/** The id of the reservation card itself, which the `jump` bar scrolls to. */
+export const TICKETS_SECTION_ID = 'tickets';
+
+/** The id of the header's "Book tickets" link on a phone. */
+export const BOOK_LINK_ID = 'event-book-link';
 
 /**
  * "Continue to payment", kept in reach on a phone once tickets are chosen.
@@ -32,20 +38,31 @@ export const CONTINUE_ANCHOR_ID = 'event-continue-anchor';
  * - Below `lg` only. From `lg` the card sits beside the page and is sticky already.
  */
 export function StickyContinue({
-  visible,
+  mode,
   count,
   total,
+  from,
   label,
+  jumpLabel,
   pending,
   disabled,
   onContinue,
 }: {
-  /** There is something chosen to continue with. */
-  visible: boolean;
+  /**
+   * `continue`: tickets are chosen; the bar presses the card's own button.
+   * `jump`: nothing is chosen yet (or the seats are chosen on the map); the bar takes the
+   * buyer to the reservation card, which on a phone is below the story (owner design
+   * 2026-10-19). `hidden`: nothing to buy.
+   */
+  mode: 'continue' | 'jump' | 'hidden';
   count: number;
   /** The quoted total, already formatted. Null while it is being worked out: never a stale one. */
   total: string | null;
+  /** The lowest price on sale, for the `jump` bar. Null for a free event or none on sale. */
+  from: string | null;
   label: string;
+  /** "Book tickets" */
+  jumpLabel: string;
   pending: boolean;
   disabled: boolean;
   onContinue: () => void;
@@ -54,20 +71,34 @@ export function StickyContinue({
   const [anchorOnScreen, setAnchorOnScreen] = useState(false);
 
   useEffect(() => {
-    const anchor = document.getElementById(CONTINUE_ANCHOR_ID);
-    if (!anchor || typeof IntersectionObserver === 'undefined') return;
+    /*
+      In `jump` mode the bar is a way to the card, so it goes while the card OR the header's own
+      "Book tickets" link is on screen - never two copies of the same way in one view.
+    */
+    const ids = mode === 'jump' ? [TICKETS_SECTION_ID, BOOK_LINK_ID] : [CONTINUE_ANCHOR_ID];
+    const anchors = ids
+      .map((id) => document.getElementById(id))
+      .filter((el): el is HTMLElement => el !== null);
+    if (!anchors.length || typeof IntersectionObserver === 'undefined') return;
+    const visible = new Set<Element>();
     const observer = new IntersectionObserver(
-      ([entry]) => setAnchorOnScreen(entry.isIntersecting),
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) visible.add(entry.target);
+          else visible.delete(entry.target);
+        }
+        setAnchorOnScreen(visible.size > 0);
+      },
       {
         // The bar and the bottom navigation cover the lowest ~9rem; a button behind them is not seen.
         rootMargin: '0px 0px -144px 0px',
       },
     );
-    observer.observe(anchor);
+    anchors.forEach((anchor) => observer.observe(anchor));
     return () => observer.disconnect();
-  }, [visible]);
+  }, [mode]);
 
-  const shown = visible && !anchorOnScreen;
+  const shown = mode !== 'hidden' && !anchorOnScreen;
 
   useEffect(() => {
     if (!shown) return;
@@ -84,32 +115,63 @@ export function StickyContinue({
   return (
     /*
       On the brand layer: a surface with a hairline and the one overlay shadow the system allows
-      (it floats over the page), the total as a tabular figure, the ink primary button. It sets
-      its own `data-brand` so its colours never depend on where it happens to be mounted.
+      (it floats over the page), the total as a tabular figure, the ink button in the
+      reservation card's small caps. It sets its own `data-brand` so its colours never depend on
+      where it happens to be mounted.
     */
     <div
       data-testid="sticky-continue"
+      data-mode={mode}
       data-brand="customer"
       aria-hidden="true"
       className="fixed inset-x-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-30 border-t border-brand-line bg-brand-surface px-4 py-3 font-brand-text shadow-brand-overlay lg:hidden print:hidden"
     >
       <div className="mx-auto flex max-w-shell items-center gap-3">
         <div className="min-w-0 flex-1">
-          <p className="text-brand-meta text-brand-ink-2">{t('stickyTickets', { count })}</p>
-          {total ? (
-            <p className="text-brand-figure-sm tabular-nums text-brand-ink">{total}</p>
+          {mode === 'continue' ? (
+            <>
+              <p className="text-brand-eyebrow uppercase text-brand-ink-3">
+                {t('stickyTickets', { count })}
+              </p>
+              {total ? (
+                <p className="font-brand-display text-brand-figure-sm tabular-nums text-brand-ink">
+                  {total}
+                </p>
+              ) : null}
+            </>
+          ) : from ? (
+            <p className="text-brand-ui text-brand-ink-2">
+              {t.rich('fromPrice', {
+                price: from,
+                strong: (chunks) => (
+                  <span className="font-brand-display text-brand-figure-sm tabular-nums text-brand-ink">
+                    {chunks}
+                  </span>
+                ),
+              })}
+            </p>
           ) : null}
         </div>
-        <BrandButton
-          tabIndex={-1}
-          size="lg"
-          onClick={onContinue}
-          aria-busy={pending || undefined}
-          disabled={disabled}
-          className="shrink-0"
-        >
-          {label}
-        </BrandButton>
+        {mode === 'continue' ? (
+          <BrandButton
+            tabIndex={-1}
+            size="lg"
+            onClick={onContinue}
+            aria-busy={pending || undefined}
+            disabled={disabled}
+            className="shrink-0 uppercase tracking-[0.08em]"
+          >
+            {label}
+          </BrandButton>
+        ) : (
+          <a
+            tabIndex={-1}
+            href={`#${TICKETS_SECTION_ID}`}
+            className={`${brandButtonClasses('primary', 'lg')} shrink-0 uppercase tracking-[0.08em]`}
+          >
+            {jumpLabel}
+          </a>
+        )}
       </div>
     </div>
   );

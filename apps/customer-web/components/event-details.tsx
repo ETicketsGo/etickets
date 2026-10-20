@@ -1,17 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import {
-  BadgeCheck,
-  CalendarDays,
-  ChevronRight,
-  FileText,
-  Globe,
-  Hourglass,
-  Instagram,
-  MapPin,
-  UserCheck,
-} from 'lucide-react';
+import { BadgeCheck, ChevronRight, FileText, Globe, Instagram } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import {
   BRAND_FOCUS,
@@ -24,7 +14,8 @@ import {
 import { Link } from '@/i18n/navigation';
 import { Dialog } from '@/components/ui';
 import { BrandActionButton } from '@/components/brand-forms';
-import { BRAND_EYEBROW, BRAND_LINK, BRAND_PANEL } from '@/components/booking-brand';
+import { BRAND_EYEBROW, BRAND_LINK } from '@/components/booking-brand';
+import type { ArrivalFact } from '@/lib/event-editorial';
 
 /**
  * The event details buyers check before they pay, asked for by the owner after a BookMyShow
@@ -34,7 +25,7 @@ import { BRAND_EYEBROW, BRAND_LINK, BRAND_PANEL } from '@/components/booking-bra
  */
 
 /** "1 hour 30 minutes", in the reader's language. */
-function useDurationText() {
+export function useDurationText() {
   const t = useTranslations('storefront.event');
   return (minutes: number) => {
     const { hours, minutes: rest } = splitMinutes(minutes);
@@ -47,60 +38,138 @@ function useDurationText() {
   };
 }
 
+/** One cell of the fact row. */
+interface FactCell {
+  label: string;
+  lines: string[];
+  sub?: string | null;
+  /** Marks the lines as a machine-readable time. */
+  dateTime?: string | null;
+}
+
 /**
- * The key facts, as a row of labelled figures under the hero.
+ * The key facts, as the owner's hairline-ruled row: DATE, TIME, VENUE, then how long it runs and
+ * who it is for when the organizer said.
+ *
+ * The design labels the middle cell "DOORS . SHOW". No session has a doors time, so it is the
+ * show's time alone and labelled so; a doors time is never guessed from the start.
  *
  * Duration is the SELECTED show's, read from its own start and end - never a separate number
- * that could disagree with the ticket. The date is the venue's clock with its zone named, and a
- * short note says so once, here, rather than on every line that prints a time.
+ * that could disagree with the ticket. The date and time are the venue's clock with its zone
+ * named, and a short note says so once, here, rather than on every line that prints a time.
  */
 export function EventFacts({
   event,
   when,
-  minutes,
+  startsAt,
+  longDate,
+  duration,
+  dateRange,
   note,
 }: {
   event: PublicEvent;
   /** The shown date in the venue's clock, from `useVenueWhen`. */
   when: { day: string; time: string; zone: string } | null;
-  minutes: number | null;
+  /** The shown show's start, for the machine-readable `<time>` around the time. */
+  startsAt: string | null;
+  /** The same date written out: "Thursday", "5 November 2026". */
+  longDate: { weekday: string; date: string } | null;
+  /** "3 hours", or null when the show has no length. */
+  duration: string | null;
+  /** "21 Nov to 28 Nov" when the event has more than one date still to come. */
+  dateRange: string | null;
   /** "Times are at the venue, in its time zone." */
   note: string;
 }) {
   const t = useTranslations('storefront.event');
-  const duration = useDurationText();
-  const facts = [
-    when
-      ? {
-          icon: CalendarDays,
-          label: t('dateLabel'),
-          value: `${when.day}, ${when.time}${when.zone ? ` ${when.zone}` : ''}`,
-        }
-      : null,
-    minutes ? { icon: Hourglass, label: t('durationLabel'), value: duration(minutes) } : null,
-    event.ageLimit
-      ? { icon: UserCheck, label: t('ageLabel'), value: t('ageLimit', { age: event.ageLimit }) }
-      : null,
-    { icon: MapPin, label: t('venueHeading'), value: `${event.venue.name}, ${event.venue.city}` },
-  ].filter((fact): fact is { icon: typeof MapPin; label: string; value: string } => fact !== null);
+  const cells = (
+    [
+      when && longDate
+        ? {
+            label: t('dateLabel'),
+            lines: [longDate.weekday, longDate.date],
+            sub: dateRange,
+          }
+        : null,
+      when
+        ? {
+            label: t('timeLabel'),
+            lines: [`${when.time}${when.zone ? ` ${when.zone}` : ''}`],
+            dateTime: startsAt,
+          }
+        : null,
+      { label: t('venueHeading'), lines: [event.venue.name, event.venue.city] },
+      duration ? { label: t('durationLabel'), lines: [duration] } : null,
+      event.ageLimit
+        ? { label: t('ageLabel'), lines: [t('ageLimit', { age: event.ageLimit })] }
+        : null,
+    ] as (FactCell | null)[]
+  ).filter((cell): cell is FactCell => cell !== null);
 
   return (
     <div>
-      <dl className="grid gap-x-8 gap-y-5 sm:grid-cols-2">
-        {facts.map(({ icon: Icon, label, value }) => (
-          // dt and dd are the group's only children (a valid definition list); the icon rides
-          // inside the term, positioned into the gutter.
-          <div key={label} className="relative min-w-0 pl-8">
-            <dt className="text-brand-eyebrow uppercase text-brand-ink-3">
-              <Icon className="absolute left-0 top-0.5 h-5 w-5 text-brand-ink-3" aria-hidden />
-              {label}
-            </dt>
-            <dd className="mt-1 text-brand-ui font-medium text-brand-ink">{value}</dd>
+      {/*
+        One ruled row: an ink rule above, a hairline below, hairlines between the cells. Five
+        facts at most, three to a row from `sm`, two on a phone.
+      */}
+      <dl className="grid grid-cols-2 border-t border-brand-ink sm:grid-cols-3">
+        {cells.map(({ label, lines, sub, dateTime }) => (
+          <div
+            key={label}
+            className="min-w-0 border-b border-brand-line py-4 even:border-l even:pl-4 sm:border-l sm:px-5 sm:[&:nth-child(3n+1)]:border-l-0 sm:[&:nth-child(3n+1)]:pl-0"
+          >
+            <dt className="text-brand-eyebrow uppercase text-brand-ink-3">{label}</dt>
+            <dd className="mt-2 font-brand-display text-brand-card text-brand-ink">
+              {lines.map((line) =>
+                dateTime ? (
+                  <time key={line} dateTime={dateTime} className="block break-words">
+                    {line}
+                  </time>
+                ) : (
+                  <span key={line} className="block break-words">
+                    {line}
+                  </span>
+                ),
+              )}
+              {sub ? (
+                <span className="mt-1 block font-brand-text text-brand-meta text-brand-ink-2">
+                  {sub}
+                </span>
+              ) : null}
+            </dd>
           </div>
         ))}
       </dl>
-      {when?.zone ? <p className="mt-4 text-brand-meta text-brand-ink-3">{note}</p> : null}
+      {when?.zone ? <p className="mt-3 text-brand-meta text-brand-ink-3">{note}</p> : null}
     </div>
+  );
+}
+
+/**
+ * "Before you arrive": short facts, two to a row, each only when it is true for this event.
+ * Which ones hold is decided in `lib/event-editorial.ts`; this only draws them.
+ */
+export function ArrivalFacts({ facts }: { facts: ArrivalFact[] }) {
+  const t = useTranslations('storefront.event');
+  if (!facts.length) return null;
+  const copy: Record<ArrivalFact, { title: string; body: string }> = {
+    offline: { title: t('arriveOfflineTitle'), body: t('arriveOfflineBody') },
+    transfer: { title: t('arriveTransferTitle'), body: t('arriveTransferBody') },
+  };
+  return (
+    <section aria-labelledby="arrive-heading">
+      <h2 id="arrive-heading" className="font-brand-display text-brand-d2 text-brand-ink">
+        {t('beforeYouArrive')}
+      </h2>
+      <ul className="mt-5 grid grid-cols-1 gap-x-8 sm:grid-cols-2">
+        {facts.map((fact) => (
+          <li key={fact} className="border-t border-brand-line py-4">
+            <h3 className="text-brand-body font-semibold text-brand-ink">{copy[fact].title}</h3>
+            <p className="mt-1 text-brand-meta text-brand-ink-2">{copy[fact].body}</p>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -182,7 +251,10 @@ export function OrganizerCard({ organizer }: { organizer: PublicEvent['organizer
   const website = webLink(organizer.website);
   const instagram = webLink(organizer.instagramUrl);
   return (
-    <section aria-labelledby="organizer-heading" className={`${BRAND_PANEL} p-6`}>
+    <section
+      aria-labelledby="organizer-heading"
+      className="min-w-0 border-t border-brand-line pt-5"
+    >
       <h2 id="organizer-heading" className={BRAND_EYEBROW}>
         {t('organizerHeading')}
       </h2>

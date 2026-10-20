@@ -283,7 +283,10 @@ test.describe('the storefront in French', () => {
     await page.goto(`${CUSTOMER}/fr-CA/events/${fx.slug}`, { waitUntil: 'networkidle' });
 
     // The storefront: French labels, and "Gratuit" rather than a currency-formatted zero.
-    await expect(page.getByText('Gratuit').first()).toBeVisible({ timeout: 30_000 });
+    // The ticket row's price. (The phone-only "from" line in the header is hidden on a desktop.)
+    await expect(page.getByTestId('ticket-selection').getByText('Gratuit').first()).toBeVisible({
+      timeout: 30_000,
+    });
     /*
       This asserted 'Sous-total'. A free event has no money to break down, so the breakdown
       renders the total and the free note and nothing else — there is no subtotal row to
@@ -368,7 +371,7 @@ test.describe('the storefront in French', () => {
     await page.goto(`${CUSTOMER}/fr-CA/events/${paid.slug}`, { waitUntil: 'networkidle' });
 
     await chooseQuantity(page.getByLabel(/Quantité de/).first(), 1);
-    await page.getByRole('button', { name: 'Passer au paiement' }).click();
+    await page.getByRole('button', { name: /^Réserver/ }).click();
 
     await expect(page).toHaveURL(/\/fr-CA\/booking\/[^/]+\/payment/, { timeout: 30_000 });
     await expect(page.getByRole('heading', { name: 'Vérifier et payer' })).toBeVisible({
