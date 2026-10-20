@@ -3,9 +3,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { useParams } from 'next/navigation';
 import { useRouter } from '@/i18n/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
-  ArrowLeft,
   CalendarPlus,
   Check,
   CloudSun,
@@ -21,7 +20,6 @@ import {
   BrandStatusPill,
   brandButtonClasses,
   buildIcsDataUrl,
-  eventImageSource,
   googleMapsUrl,
   googleDirectionsUrl,
   useCountdown,
@@ -39,7 +37,18 @@ import { useTranslations } from 'next-intl';
 import { useMounted } from '@/lib/use-mounted';
 import { useStatusLabel } from '@/lib/status-label';
 import { currentPageUrl } from '@/lib/site-url';
-import { BRAND_EYEBROW, BRAND_PANEL } from '@/components/booking-brand';
+import { BRAND_EYEBROW, BRAND_PANEL, useVenueWhen } from '@/components/booking-brand';
+import {
+  PASS_CAPS,
+  PassCard,
+  PassFact,
+  PassPerforation,
+  PassPhoto,
+  PassStage,
+  PassTopBar,
+  passDay,
+  useStoredOffline,
+} from '@/components/pass-brand';
 import { Placeholder as LoadingBlock } from '@/components/home/parts';
 import { BrandEmpty, BrandPage } from '@/components/storefront-brand';
 
@@ -65,6 +74,9 @@ const TICKET_TONE: Record<string, BrandStatus> = {
 /** The page's column: narrow, like a ticket, with the shell's gutters. */
 const COLUMN = 'mx-auto max-w-2xl px-4 sm:px-6';
 
+/** The pass's column on the dark page: a phone's width, and a little more from `sm`. */
+const PASS_COLUMN = 'mx-auto max-w-md px-4 sm:max-w-lg';
+
 // Lazy-loaded (WS6): the Apple/Google wallet-pass panel is below the fold and only
 // needed when a pass is available, so it's split out of the initial ticket bundle.
 const WalletPasses = dynamic(
@@ -88,7 +100,9 @@ export default function TicketDetailPage() {
   const td = useTranslations('storefront.ticketDetail');
   const b = useTranslations('storefront.bookingTickets');
   const tx = useTranslations('common');
-  const { dateTime, zoneAbbrev } = useFormat();
+  const { locale: formatLocale } = useFormat();
+  const locale = formatLocale ?? 'en-IN';
+  const venueWhen = useVenueWhen();
   const statusLabel = useStatusLabel();
   const mounted = useMounted();
   const { ticketId } = useParams<{ ticketId: string }>();
@@ -119,6 +133,8 @@ export default function TicketDetailPage() {
   const event = eventQ.data;
 
   const countdown = useCountdown(ticket?.startsAt);
+  // "OFFLINE" in the top bar only when this ticket is in the device's saved wallet.
+  const storedOffline = useStoredOffline(ticket?.id, ticketQ.dataUpdatedAt);
 
   useEffect(() => {
     if (event) setSaved(isSaved(event.id));
@@ -191,9 +207,7 @@ export default function TicketDetailPage() {
     : '';
   const mapsQuery = event ? `${event.venue.name}, ${event.venue.city}` : ticket.event.title;
   const fallback = qrFallback(w('qrUnavailable'));
-  const thumb = event
-    ? eventImageSource({ variants: event.imageVariants, path: event.imagePath }, 'card')
-    : null;
+  const eventImage = event ? { variants: event.imageVariants, path: event.imagePath } : null;
 
   const ics = buildIcsDataUrl({
     title: ticket.event.title,
@@ -202,28 +216,40 @@ export default function TicketDetailPage() {
     start: ticket.startsAt,
   });
 
+  const when = venueWhen(ticket.startsAt, zone);
+  const facts: { key: string; label: string; value: ReactNode }[] = [
+    { key: 'date', label: b('date'), value: passDay(ticket.startsAt, zone, locale) },
+    {
+      // Doors only when the event has a doors time; the API has none today, so this is the
+      // show's own time on the venue's clock, with its zone named.
+      key: 'time',
+      label: b('time'),
+      value: (
+        <>
+          <span className="tabular-nums">{when.time}</span>
+          {when.zone && (
+            <span className="block text-brand-meta font-normal text-brand-ink-3">{when.zone}</span>
+          )}
+        </>
+      ),
+    },
+    ...(ticket.holderName ? [{ key: 'guest', label: b('guest'), value: ticket.holderName }] : []),
+  ];
+
   return (
     <BrandPage>
-      <div className={`${COLUMN} pt-4 sm:pt-8`}>
-        <button
-          type="button"
-          onClick={() => router.push('/account/tickets')}
-          className={`-ml-2 inline-flex min-h-11 items-center gap-1.5 rounded-brand-control px-2 text-brand-ui font-medium text-brand-ink-2 hover:text-brand-gold-text ${BRAND_FOCUS}`}
-        >
-          <ArrowLeft className="h-4 w-4" aria-hidden /> {b('allTickets')}
-        </button>
-      </div>
+      <PassStage>
+        <PassTopBar storedOffline={storedOffline} />
 
-      <div className={`${COLUMN} mt-2 space-y-6`}>
-        {/* The event, on a stage band: what this ticket is for, where, and how long until. */}
-        <section
-          data-brand-tone="stage"
-          aria-labelledby="ticket-title"
-          className="overflow-hidden rounded-brand-card bg-brand-canvas text-brand-ink"
-        >
-          <div className="flex items-start gap-4 p-5 sm:p-6">
-            <div className="min-w-0 flex-1">
-              <p className="text-brand-eyebrow uppercase text-brand-ink-2">
+        <div className={`${PASS_COLUMN} mt-3 space-y-5 sm:mt-5`}>
+          {/* The ticket, on paper: what it is for, the facts a doorperson reads, then the QR. */}
+          <PassCard>
+            <PassPhoto image={eventImage} />
+            <div className="px-5 pt-5 text-center sm:px-7">
+              <p className={PASS_CAPS}>
+                {b('admitOne')}
+                <span aria-hidden> · </span>
+                <span className="sr-only">, </span>
                 {event?.category ?? td('categoryFallback')}
               </p>
               <h1
@@ -232,24 +258,68 @@ export default function TicketDetailPage() {
               >
                 {ticket.event.title}
               </h1>
-              <p className="mt-2 flex items-center gap-1.5 text-brand-ui text-brand-ink-2">
+              <p className="mt-2 flex items-center justify-center gap-1.5 text-brand-ui text-brand-ink-2">
                 <MapPin className="h-4 w-4 shrink-0" aria-hidden /> {venueName || td('venueTba')}
               </p>
             </div>
-            {thumb && (
-              // eslint-disable-next-line @next/next/no-img-element
+
+            {/*
+              The venue's clock, named. A phone set to another zone showed a different time from
+              the one printed at the venue; the ticket's own zone first, the event's venue if the
+              ticket does not carry one.
+            */}
+            <dl
+              className={`mx-5 mt-4 grid divide-x divide-brand-line border-y border-brand-line sm:mx-7 ${
+                facts.length === 3 ? 'grid-cols-3' : 'grid-cols-2'
+              }`}
+            >
+              {facts.map((f) => (
+                <PassFact key={f.key} label={f.label}>
+                  {f.value}
+                </PassFact>
+              ))}
+            </dl>
+
+            <PassPerforation />
+
+            {/* The QR: what the door scans. On white, for the scanner, never tinted. */}
+            <div className="flex flex-col items-center px-5 pb-6 text-center sm:px-7">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={thumb.src}
-                srcSet={thumb.srcSet}
-                sizes="96px"
-                alt=""
-                width={400}
-                height={300}
-                className="hidden aspect-[4/3] w-24 shrink-0 rounded-brand-control object-cover min-[360px]:block"
+                // A vendor barcode the server cannot draw arrives as null: show the fallback.
+                src={ticket.qrDataUrl ?? fallback}
+                alt={b('qrAlt', { serial: ticket.serial })}
+                onError={(e) => {
+                  const img = e.currentTarget;
+                  if (img.src !== fallback) img.src = fallback;
+                }}
+                className="h-56 w-56 rounded-brand-control border border-brand-line bg-white p-2"
               />
-            )}
+              {ticket.bookingRef && (
+                <p className="mt-4 font-mono text-brand-ui uppercase tracking-[0.08em] text-brand-ink-2">
+                  <span className="sr-only">{b('bookingReference')}: </span>
+                  {ticket.bookingRef}
+                </p>
+              )}
+              <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+                <BrandStatusPill status={TICKET_TONE[ticket.status] ?? 'neutral'}>
+                  {statusLabel('ticket', ticket.status)}
+                </BrandStatusPill>
+                <span className="font-mono text-brand-meta text-brand-ink-3">{ticket.serial}</span>
+              </div>
+              {ticket.status === 'ACTIVE' && (
+                <p className="mt-3 text-brand-ui font-semibold text-brand-ink-3">{b('brighten')}</p>
+              )}
+            </div>
+          </PassCard>
+
+          {/* Wallet passes (only when a provider is configured + the ticket is eligible) */}
+          <div className="grid grid-cols-1 gap-3 empty:hidden min-[360px]:grid-cols-2 [&>*:only-child]:col-span-full">
+            <WalletPasses ticketId={ticket.id} ticketStatus={ticket.status} variant="pass" />
           </div>
-          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 border-t border-brand-line px-5 py-4 sm:px-6">
+
+          {/* How long until, and the wishlist and share controls. */}
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 rounded-brand-card border border-brand-line px-5 py-4">
             {countdown.isPast ? (
               <p className="text-brand-ui font-medium text-brand-ink-2">{td('pastEvent')}</p>
             ) : (
@@ -296,99 +366,60 @@ export default function TicketDetailPage() {
               </button>
             </div>
           </div>
-        </section>
 
-        {/* The QR: what the door scans. On white, for the scanner, never tinted. */}
-        <section className={`${BRAND_PANEL} p-6 text-center`}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            // A vendor barcode the server cannot draw arrives as null: show the fallback.
-            src={ticket.qrDataUrl ?? fallback}
-            alt={b('qrAlt', { serial: ticket.serial })}
-            onError={(e) => {
-              const img = e.currentTarget;
-              if (img.src !== fallback) img.src = fallback;
-            }}
-            className="mx-auto h-56 w-56 rounded-brand-control border border-brand-line bg-white p-2"
-          />
-          <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-            <BrandStatusPill status={TICKET_TONE[ticket.status] ?? 'neutral'}>
-              {statusLabel('ticket', ticket.status)}
-            </BrandStatusPill>
-            <span className="font-mono text-brand-meta text-brand-ink-3">{ticket.serial}</span>
+          {/* Actions */}
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <a
+              href={ics}
+              download={`${ticket.event.slug}.ics`}
+              className={`${brandButtonClasses('secondary', 'md')} whitespace-normal text-center`}
+            >
+              <CalendarPlus className="h-4 w-4 shrink-0" aria-hidden /> {tx('action.addToCalendar')}
+            </a>
+            <a
+              href={googleDirectionsUrl(mapsQuery)}
+              target="_blank"
+              rel="noreferrer"
+              className={`${brandButtonClasses('secondary', 'md')} whitespace-normal text-center`}
+            >
+              <Navigation className="h-4 w-4 shrink-0" aria-hidden /> {td('directions')}
+            </a>
+            <a
+              href={googleMapsUrl(mapsQuery)}
+              target="_blank"
+              rel="noreferrer"
+              className={`${brandButtonClasses('secondary', 'md')} col-span-2 whitespace-normal text-center sm:col-span-1`}
+            >
+              <MapPin className="h-4 w-4 shrink-0" aria-hidden /> {td('viewVenue')}
+            </a>
           </div>
-          {/*
-            The venue's clock, named. A phone set to another zone showed a different time from the
-            one printed at the venue; the ticket's own zone first, the event's venue if the ticket
-            does not carry one.
-          */}
-          <p className="mt-2 text-brand-ui font-semibold tabular-nums text-brand-ink">
-            {dateTime(ticket.startsAt, undefined, zone)}
-            {zone ? (
-              <span className="font-normal text-brand-ink-2">
-                {' '}
-                ({zoneAbbrev(ticket.startsAt, zone)})
-              </span>
-            ) : null}
-          </p>
-          {ticket.holderName && (
-            <p className="mt-1 text-brand-meta text-brand-ink-2">
-              {td('holder', { name: ticket.holderName })}
-            </p>
-          )}
-        </section>
 
-        {/* Actions */}
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          <a
-            href={ics}
-            download={`${ticket.event.slug}.ics`}
-            className={`${brandButtonClasses('secondary', 'md')} whitespace-normal text-center`}
-          >
-            <CalendarPlus className="h-4 w-4 shrink-0" aria-hidden /> {tx('action.addToCalendar')}
-          </a>
-          <a
-            href={googleDirectionsUrl(mapsQuery)}
-            target="_blank"
-            rel="noreferrer"
-            className={`${brandButtonClasses('secondary', 'md')} whitespace-normal text-center`}
-          >
-            <Navigation className="h-4 w-4 shrink-0" aria-hidden /> {td('directions')}
-          </a>
-          <a
-            href={googleMapsUrl(mapsQuery)}
-            target="_blank"
-            rel="noreferrer"
-            className={`${brandButtonClasses('secondary', 'md')} col-span-2 whitespace-normal text-center sm:col-span-1`}
-          >
-            <MapPin className="h-4 w-4 shrink-0" aria-hidden /> {td('viewVenue')}
-          </a>
-        </div>
-
-        {/* Wallet passes (only when a provider is configured + the ticket is eligible) */}
-        <WalletPasses ticketId={ticket.id} ticketStatus={ticket.status} />
-
-        {/* Venue + placeholders */}
-        <div className="grid gap-3 sm:grid-cols-3">
-          <div className={`${BRAND_PANEL} p-4 sm:col-span-3`}>
-            <p className="font-brand-display text-brand-card text-brand-ink">
-              {venueName || td('venue')}
-            </p>
-            <p className="mt-1 text-brand-ui text-brand-ink-2">
-              {venueLine || td('detailsToFollow')}
-            </p>
+          {/* Venue + placeholders */}
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className={`${BRAND_PANEL} p-4 sm:col-span-3`}>
+              <p className="font-brand-display text-brand-card text-brand-ink">
+                {venueName || td('venue')}
+              </p>
+              <p className="mt-1 text-brand-ui text-brand-ink-2">
+                {venueLine || td('detailsToFollow')}
+              </p>
+            </div>
+            <Placeholder icon={CloudSun} title={td('weather')} note={td('weatherNote')} />
+            <Placeholder icon={ParkingCircle} title={td('parking')} note={td('parkingNote')} />
+            <Placeholder
+              icon={Navigation}
+              title={td('gettingThere')}
+              note={td('gettingThereNote')}
+            />
           </div>
-          <Placeholder icon={CloudSun} title={td('weather')} note={td('weatherNote')} />
-          <Placeholder icon={ParkingCircle} title={td('parking')} note={td('parkingNote')} />
-          <Placeholder icon={Navigation} title={td('gettingThere')} note={td('gettingThereNote')} />
-        </div>
 
-        {/* Status timeline */}
-        <section className={`${BRAND_PANEL} p-5`}>
-          <h2 className={`mb-4 ${BRAND_EYEBROW}`}>{w('ticketStatus')}</h2>
-          <Timeline status={ticket.status} />
-        </section>
-      </div>
+          {/* Status timeline */}
+          <section className={`${BRAND_PANEL} p-5`}>
+            <h2 className={`mb-4 ${BRAND_EYEBROW}`}>{w('ticketStatus')}</h2>
+            <Timeline status={ticket.status} />
+          </section>
+        </div>
+      </PassStage>
     </BrandPage>
   );
 }

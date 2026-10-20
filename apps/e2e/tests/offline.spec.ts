@@ -55,7 +55,7 @@ test('offline wallet: a cached pass stays accessible without connectivity', asyn
   await context.setOffline(false);
 
   // Open the ticket viewer online and cache its shell (reload = full navigation).
-  await page.getByRole('link', { name: 'View tickets' }).click();
+  await page.getByRole('link', { name: 'Open pass', exact: true }).click();
   await expect(page).toHaveURL(/\/account\/bookings\/.+\/tickets$/);
   await expect(page.getByText('Ticket 1 of 2')).toBeVisible({ timeout: 20_000 });
   await page.reload();
@@ -85,7 +85,9 @@ test('offline privacy: logout clears cache and a second user cannot see it', asy
   await registerAndBook(page, 'User A', uniqueEmail('userA'), '1');
   await page.getByRole('link', { name: 'All my tickets' }).click();
   await expect(page).toHaveURL(/\/account\/tickets/);
-  await expect(page.getByRole('link', { name: /View ticket/ })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole('link', { name: 'Open pass', exact: true })).toBeVisible({
+    timeout: 20_000,
+  });
 
   // A signs out (purges their cached wallet). Sign out now lives inside the account menu,
   // which is where it belongs — the header shows WHO is signed in, so a shared device shows
@@ -105,5 +107,5 @@ test('offline privacy: logout clears cache and a second user cannot see it', asy
   await expect(page).toHaveURL(/\/account\/tickets/, { timeout: 20_000 });
 
   await expect(page.getByText(/wallet is empty/i)).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByRole('link', { name: /View ticket/ })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Open pass', exact: true })).toHaveCount(0);
 });

@@ -4,9 +4,17 @@ import { WebProviders, workspaceThemeScript } from '@eticketsgo/web-kit';
 // Self-hosted, so `next build` never downloads fonts; the display face is for titles only.
 import { inter } from '@eticketsgo/web-kit/fonts/inter';
 import { display } from '@eticketsgo/web-kit/fonts/display';
+// The wordmark's face (wordmark.tsx); the header, sidebar and sign-in page draw the brand in it.
+import { brandDisplay } from '@eticketsgo/web-kit/fonts/brand-display';
 
 export const metadata: Metadata = {
-  title: 'ETicketsGo — Admin',
+  /*
+    Every tab reads "<Page> - ETicketsGo" (owner, 2026-10-19). A segment that exports a title
+    gets the template; the console's own pages are client components and are named by the shell
+    from the menu (shell.tsx `useConsoleTabTitle`). The default is what shows before that runs,
+    and on a page with no name of its own.
+  */
+  title: { default: 'ETicketsGo Admin', template: '%s - ETicketsGo' },
   description: 'Platform administration: organizers, events, refunds, payouts, and audit.',
   manifest: '/manifest.webmanifest',
   /*
@@ -32,7 +40,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     // storefront never sets it, which is what keeps its blue unchanged.
     <html
       lang="en"
-      className={`${inter.variable} ${display.variable}`}
+      className={`${inter.variable} ${display.variable} ${brandDisplay.variable}`}
       data-console=""
       suppressHydrationWarning
     >

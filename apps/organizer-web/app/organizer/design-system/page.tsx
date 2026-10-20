@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation';
 import { DesignSystemGallery } from './gallery';
 
 export const metadata: Metadata = {
-  title: 'Design system - ETicketsGo Organizer',
+  title: 'Design system',
   robots: { index: false, follow: false },
 };
 

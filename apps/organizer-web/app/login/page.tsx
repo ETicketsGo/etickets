@@ -17,6 +17,7 @@ export default function OrganizerLogin() {
 
   return (
     <LoginForm
+      product="Organizer"
       title="Organizer sign in"
       subtitle="Manage your events, orders, and payouts."
       defaultRedirect="/organizer"
