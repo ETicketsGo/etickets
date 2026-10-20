@@ -154,9 +154,11 @@ for (const width of [1440, 390]) {
       for (const path of ['/', '/explore', '/events']) {
         await page.goto(`${CUSTOMER}${path}`, { waitUntil: 'networkidle' });
         await expect(chip(page)).toHaveAccessibleName('Location: Mumbai. Change');
-        await expect(page.locator('main')).toContainText('Show mum1');
-        await expect(page.locator('[data-place-group]')).toHaveCount(0);
         const main = page.locator('main');
+        // Explore reads the discovery feed, which this file does not mock; home and Browse
+        // read the mocked listing, so the city's own event is checked there.
+        if (path !== '/explore') await expect(main).toContainText('Show mum1');
+        await expect(page.locator('[data-place-group]')).toHaveCount(0);
         await expect(main).not.toContainText(/Elsewhere|More in India/);
         // Not the rest of India, not the United States, not Canada.
         for (const other of ['Show hyd1', 'Show boi1', 'Show tor1']) {
