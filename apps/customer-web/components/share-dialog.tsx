@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
 import { Check, Copy, Eye, Mail, MessageCircle, Repeat, Shield, Smartphone } from 'lucide-react';
@@ -43,10 +43,16 @@ export function ShareDialog({
   ticket,
   open,
   onClose,
+  initialPermission = 'VIEW',
 }: {
   ticket: WalletTicket;
   open: boolean;
   onClose: () => void;
+  /**
+   * The choice the dialog opens on. The pass's TRANSFER button opens this same dialog with
+   * "Transfer ownership" already chosen; the person still picks the expiry and creates the link.
+   */
+  initialPermission?: SharePermissionValue;
 }) {
   const t = useTranslations('storefront.shareDialog');
   const sc = useTranslations('storefront.common');
@@ -58,6 +64,9 @@ export function ShareDialog({
   const [link, setLink] = useState<string | null>(null);
   const [qr, setQr] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (open) setPermission(initialPermission);
+  }, [open, initialPermission]);
 
   const shares = useQuery({
     queryKey: ['shares', ticket.id],

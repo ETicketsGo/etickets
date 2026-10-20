@@ -641,7 +641,16 @@
         "one": "Cancelled",
         "other": "Cancelled"
       }
-    }
+    },
+    "admitOne": "Admit one",
+    "date": "Date",
+    "time": "Time",
+    "guest": "Guest",
+    "brighten": "Brighten your screen at the door.",
+    "transfer": "Transfer",
+    "offlineReady": "Offline",
+    "offlineReadyLabel": "This pass is saved on this device and works offline.",
+    "passBack": "Tickets"
   },
   "common": {
     "copy": "Copy",
@@ -953,7 +962,13 @@
       "active": "{count} active",
       "other": "{count} other",
       "tickets": "{count, plural, one {# ticket} other {# tickets}}"
-    }
+    },
+    "openPass": "Open pass",
+    "transfer": "Transfer",
+    "statusActive": "Active",
+    "statusEnded": "Ended",
+    "admitted": "{done} of {total} admitted",
+    "stillToArrive": "{count, plural, one {One guest still to arrive} other {# guests still to arrive}}"
   },
   "guest": {
     "title": "Buy as a guest",
