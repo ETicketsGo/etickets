@@ -166,12 +166,15 @@ function confirmation(type: 'SubscriptionConfirmation' | 'UnsubscribeConfirmatio
 const state: {
   secret: string | undefined;
   fetchedCertUrls: string[];
-  /** Every capture the webhook attempted. Empty is the assertion for an unverified message. */
-  captured: { topicArn?: string; messageId?: string; subscribeUrl?: string }[];
+  /**
+   * Every confirmation the webhook handed to SnsConfirmationService. Empty is the assertion
+   * for an unverified message: nothing unverified may reach the code that fetches a URL.
+   */
+  handed: SnsEnvelope[];
 } = {
   secret: undefined,
   fetchedCertUrls: [],
-  captured: [],
+  handed: [],
 };
 
 @Module({
@@ -199,8 +202,9 @@ const state: {
     {
       provide: SnsConfirmationService,
       useValue: {
-        capture: async (input: Record<string, string | undefined>) => {
-          state.captured.push(input);
+        handle: async (envelope: SnsEnvelope) => {
+          state.handed.push(envelope);
+          return { kind: 'confirmed' };
         },
       },
     },
@@ -220,7 +224,7 @@ describe('the SES/SNS webhook over the wire', () => {
   beforeEach(async () => {
     if (!available) return;
     state.fetchedCertUrls = [];
-    state.captured = [];
+    state.handed = [];
     state.secret = SECRET;
 
     const moduleRef = await Test.createTestingModule({
@@ -260,13 +264,13 @@ describe('the SES/SNS webhook over the wire', () => {
     expect(fetchedCertUrls()).toEqual([TRUSTED_URL]);
   });
 
-  maybe('accepts a SubscriptionConfirmation, and does not confirm it itself', async () => {
+  maybe('accepts a SubscriptionConfirmation and hands it to the confirmation service', async () => {
     const res = await post(JSON.stringify(confirmation('SubscriptionConfirmation')));
     expect(res.status).toBeLessThan(300);
     await expect(res.json()).resolves.toMatchObject({ received: true, applied: 0 });
     /*
-      The SubscribeURL is on a trusted SNS host, so a naive implementation could have followed
-      it and it would have looked fine. Only the certificate URL is ever fetched.
+      The webhook itself fetches only the certificate. Following the SubscribeURL is the
+      confirmation service's job, behind its own checks (sns-confirmation.spec.ts).
     */
     expect(fetchedCertUrls()).toEqual([TRUSTED_URL]);
   });
@@ -314,31 +318,30 @@ describe('the SES/SNS webhook over the wire', () => {
     expect(res.status).toBe(401);
   });
   /*
-    ── CAPTURE HAPPENS ONLY AFTER THE SIGNATURE IS PROVEN ──────────────────────────────
-    The confirmation token is held so an operator can complete the manual step. That is only
-    safe because the message has already been proven to come from Amazon. These three tests
-    are the boundary: they go through the real HTTP path, the real body parser and the real
-    verifier, and assert on whether anything was handed to the store at all.
+    ── CONFIRMATION IS REACHED ONLY AFTER THE SIGNATURE IS PROVEN ─────────────────────
+    The confirmation service fetches a URL taken from the message. That is only safe because
+    the message has already been proven to come from Amazon. These tests are the boundary:
+    they go through the real HTTP path, the real body parser and the real verifier, and
+    assert on whether anything was handed to that service at all.
   */
-  maybe('captures a confirmation whose signature verifies', async () => {
+  maybe('hands on a confirmation whose signature verifies', async () => {
     await post(JSON.stringify(confirmation('SubscriptionConfirmation')));
-    expect(state.captured).toHaveLength(1);
-    expect(state.captured[0]).toMatchObject({
-      topicArn: 'arn:aws:sns:ap-south-2:1234:eticketsgo-ses-events',
-      messageId: 'msg-confirm',
-      subscribeUrl: 'https://sns.ap-south-2.amazonaws.com/?Action=ConfirmSubscription&Token=xyz',
+    expect(state.handed).toHaveLength(1);
+    expect(state.handed[0]).toMatchObject({
+      TopicArn: 'arn:aws:sns:ap-south-2:1234:eticketsgo-ses-events',
+      MessageId: 'msg-confirm',
     });
   });
 
-  maybe('never captures a confirmation carrying no signature', async () => {
+  maybe('never hands on a confirmation carrying no signature', async () => {
     const unsigned = { ...confirmation('SubscriptionConfirmation') };
     delete (unsigned as Record<string, unknown>).Signature;
     const res = await post(JSON.stringify(unsigned));
     expect(res.status).toBe(401);
-    expect(state.captured).toEqual([]);
+    expect(state.handed).toEqual([]);
   });
 
-  maybe('never captures a confirmation whose body was altered after signing', async () => {
+  maybe('never hands on a confirmation whose body was altered after signing', async () => {
     const tampered = {
       ...confirmation('SubscriptionConfirmation'),
       // The attacker's own topic. Signed for a different one, so verification must fail.
@@ -346,20 +349,20 @@ describe('the SES/SNS webhook over the wire', () => {
     };
     const res = await post(JSON.stringify(tampered));
     expect(res.status).toBe(401);
-    expect(state.captured).toEqual([]);
+    expect(state.handed).toEqual([]);
   });
 
-  maybe('never captures when the path secret is wrong, whatever the body says', async () => {
+  maybe('never hands on anything when the path secret is wrong', async () => {
     state.secret = 'a-different-secret';
     const res = await post(JSON.stringify(confirmation('SubscriptionConfirmation')));
     expect(res.status).toBe(401);
-    expect(state.captured).toEqual([]);
+    expect(state.handed).toEqual([]);
   });
 
-  maybe('does not capture an UnsubscribeConfirmation, which would re-subscribe', async () => {
+  maybe('does not act on an UnsubscribeConfirmation, which would re-subscribe', async () => {
     const res = await post(JSON.stringify(confirmation('UnsubscribeConfirmation')));
     expect(res.status).toBeLessThan(300);
-    expect(state.captured).toEqual([]);
+    expect(state.handed).toEqual([]);
   });
 });
 

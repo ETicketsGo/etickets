@@ -214,10 +214,10 @@ export class DeliveryWebhookService {
    * SES delivery, bounce and complaint notifications, arriving over SNS.
    *
    * SNS confirms a subscription by POSTing a `SubscriptionConfirmation` with a URL that must
-   * be fetched. That fetch is deliberately NOT automatic: an endpoint that confirms whatever
-   * subscription is offered will attach itself to any topic anybody points at it. Only the
-   * URL's host is logged — the token is not — and outside production the URL is held for a
-   * one-time authenticated reveal so an operator can confirm it once, on purpose.
+   * be fetched. An endpoint that confirms whatever subscription is offered would attach itself
+   * to any topic anybody points at it, so the fetch happens only for a topic named in
+   * SES_SNS_TOPIC_ARNS and only to Amazon's own ConfirmSubscription URL for it (ADR-054). The
+   * token is never logged or stored.
    */
   async ses(input: {
     secret: string;
@@ -249,43 +249,49 @@ export class DeliveryWebhookService {
       this.reject('ses');
     }
 
-    const type = snsMessageType(input.headers, input.body);
-    if (type === 'SubscriptionConfirmation' || type === 'UnsubscribeConfirmation') {
+    /*
+      The SIGNED Type, not the `x-amz-sns-message-type` header: the header is not covered by
+      the signature, so a request whose header disagrees with its body is handled as what the
+      body proves it is. For every genuine message the two are the same.
+    */
+    const type = verdict.ok ? verdict.type : snsMessageType(input.headers, input.body);
+    if (type === 'UnsubscribeConfirmation') {
       /*
-        ── WHY THE URL IS STILL NOT FOLLOWED ───────────────────────────────────────────
-        Even now that the message is proven to be from Amazon, confirming automatically means
-        this endpoint attaches itself to whatever topic somebody with an AWS account points at
-        it -- and then trusts the events from it. The signature proves the SENDER, not that we
-        WANT the subscription.
-
-        So the HOST is logged and the token is not, and a person confirms it once, on purpose,
-        in the console. It happens exactly as often as somebody sets up a topic.
-
-        ── AND WHY THE TOKEN IS NOW HELD SOMEWHERE ─────────────────────────────────────
-        Keeping the token out of the logs left the operator with no way to perform the manual
-        step this design requires of them. Outside production, and only there, the URL is put
-        in one row behind an authenticated capability that reveals it once (ADR-052). This
-        runs AFTER the signature check above, so only a message proven to be from Amazon is
-        ever stored.
+        Logged and acknowledged, never acted on: following its URL would RE-subscribe, which no
+        operator here needs, and an unsubscribe is somebody's deliberate act in AWS that this
+        endpoint has no business undoing.
       */
       this.logger.warn(
-        `SNS ${type} received and SIGNATURE-VERIFIED. Confirm it deliberately in the AWS ` +
-          `console; this endpoint does not auto-confirm. Host: ${hostOf(input.body.SubscribeURL)}`,
+        `SNS UnsubscribeConfirmation received and SIGNATURE-VERIFIED for topic ` +
+          `${typeof input.body.TopicArn === 'string' ? input.body.TopicArn : '(none)'}; not acted on.`,
       );
-      if (type === 'SubscriptionConfirmation' && this.confirmations) {
-        /*
-          An Unsubscribe token is deliberately not captured: acting on one would RE-subscribe,
-          which is not a step any operator here needs, and the narrowest store is the safest.
-        */
-        await this.confirmations.capture({
-          topicArn: typeof input.body.TopicArn === 'string' ? input.body.TopicArn : undefined,
-          messageId: typeof input.body.MessageId === 'string' ? input.body.MessageId : undefined,
-          subscribeUrl:
-            typeof input.body.SubscribeURL === 'string' ? input.body.SubscribeURL : undefined,
-        });
-      }
-      this.metrics.recordNotificationWebhook('ses', 'subscription_confirmation');
+      this.metrics.recordNotificationWebhook('ses', 'unsubscribe_confirmation');
       return { received: true, applied: 0, duplicate: false };
+    }
+    if (type === 'SubscriptionConfirmation') {
+      /*
+        ── CONFIRMED HERE, BUT ONLY FOR A TOPIC WE NAMED (ADR-054) ────────────────────────
+        The signature proves the SENDER, not that we WANT the subscription. What proves the
+        second is SES_SNS_TOPIC_ARNS: SnsConfirmationService acts only for a topic named there
+        exactly, and only by calling Amazon's ConfirmSubscription for that topic on its own
+        regional host. Anything else is refused with the same 401 a forgery gets, and nothing
+        is fetched. This replaced the manual reveal (ADR-052), which production could not use.
+      */
+      const outcome = this.confirmations
+        ? await this.confirmations.handle(input.body as SnsEnvelope)
+        : ({ kind: 'refused', reason: 'topic_not_allowed' } as const);
+      this.metrics.recordNotificationWebhook('ses', `subscription_${outcome.kind}`);
+      if (outcome.kind === 'refused') this.reject('ses');
+      if (outcome.kind === 'failed') {
+        // 5xx on purpose: every check passed and only Amazon's answer was wrong, so SNS's
+        // redelivery is the retry we want.
+        throw new AppException(
+          ErrorCodes.INTERNAL,
+          'Subscription confirmation did not complete. It will be retried.',
+          HttpStatus.BAD_GATEWAY,
+        );
+      }
+      return { received: true, applied: 0, duplicate: outcome.kind !== 'confirmed' };
     }
 
     // The SES event is a JSON string inside the SNS envelope.
@@ -441,14 +447,5 @@ export class DeliveryWebhookService {
       select: { id: true },
     });
     return row?.id ?? null;
-  }
-}
-
-/** Host only — an SNS SubscribeURL carries a token that should not reach a log. */
-function hostOf(url: unknown): string {
-  try {
-    return new URL(String(url)).host;
-  } catch {
-    return 'unparseable';
   }
 }
