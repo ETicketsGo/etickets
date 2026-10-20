@@ -44,7 +44,13 @@ import { nextStepAfterBooking } from '@/lib/after-booking';
 import { GuestBuyerFields, useGuestBuyer } from '@/components/guest-buyer';
 import { startGuestBooking } from '@/lib/guest-session';
 import { useLocale, useTranslations } from 'next-intl';
-import { BuyerRegionField, formatFor, moneyFractionDigits, useAuthUser } from '@eticketsgo/web-kit';
+import {
+  BuyerRegionField,
+  Wordmark,
+  formatFor,
+  moneyFractionDigits,
+  useAuthUser,
+} from '@eticketsgo/web-kit';
 import { currentPageUrl } from '@/lib/site-url';
 import {
   ArrivalFacts,
@@ -62,7 +68,6 @@ import {
   selectedTicketId,
   type ChooserTicket,
 } from '@/components/event-reservation';
-import { Wordmark } from '@/components/wordmark';
 import { arrivalFacts, isEveningShow, longVenueDate } from '@/lib/event-editorial';
 import {
   BRAND_EYEBROW,
@@ -849,7 +854,7 @@ export default function EventDetailPage() {
                 data-testid={hasArt ? 'event-hero-placeholder' : 'event-hero-brand'}
                 className="absolute inset-0 flex flex-col items-center justify-center gap-5 text-etg-gold-on-ink"
               >
-                <Wordmark className="text-[2rem] sm:text-[2.75rem]" />
+                <Wordmark tone="dark" size="xl" />
                 <span className="h-px w-12 bg-brand-marigold" />
               </div>
             )}
