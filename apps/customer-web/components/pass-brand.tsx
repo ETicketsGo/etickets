@@ -2,10 +2,14 @@
 
 import { useEffect, useState, type ReactNode } from 'react';
 import { ArrowLeft, Check } from 'lucide-react';
-import { BRAND_FOCUS, eventImageSource, type EventImageVariants } from '@eticketsgo/web-kit';
+import {
+  BRAND_FOCUS,
+  Wordmark,
+  eventImageSource,
+  type EventImageVariants,
+} from '@eticketsgo/web-kit';
 import { useTranslations } from 'next-intl';
 import { useRouter } from '@/i18n/navigation';
-import { Wordmark } from '@/components/wordmark';
 import { currentUserId } from '@/lib/offline/identity';
 import { loadWallet } from '@/lib/offline/wallet-store';
 
@@ -61,7 +65,10 @@ export function PassTopBar({ storedOffline }: { storedOffline: boolean }) {
       >
         <ArrowLeft className="h-4 w-4" aria-hidden /> {b('passBack')}
       </button>
-      <Wordmark className="justify-self-center text-[1rem] min-[360px]:text-[1.125rem]" />
+      <Wordmark
+        tone="brand"
+        className="justify-self-center text-[1rem] min-[360px]:text-[1.125rem]"
+      />
       <span className="justify-self-end">
         {storedOffline && (
           <span
@@ -170,7 +177,7 @@ export function PhotoFallback() {
       data-brand-tone="stage"
       className="absolute inset-0 flex items-center justify-center bg-brand-image-fallback text-brand-ink-3"
     >
-      <Wordmark className="text-[1rem] opacity-80" />
+      <Wordmark tone="brand" size="sm" className="opacity-80" />
     </div>
   );
 }
