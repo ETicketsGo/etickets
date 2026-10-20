@@ -646,3 +646,50 @@ describe('isTopicAllowed, which confirmation relies on', () => {
     expect(verifier.isTopicAllowed(undefined)).toBe(false);
   });
 });
+
+describe('an unset topic allowlist where real customers are served', () => {
+  /*
+    QA tolerates an unset SES_SNS_TOPIC_ARNS with a warning. STAGING and PRODUCTION refuse every
+    event instead: there, a signed message from somebody else's topic must never mark a real
+    customer's address as bounced.
+  */
+  it.each(['PRODUCTION', 'STAGING'])(
+    'refuses every topic in %s, before fetching anything',
+    async (APP_ENV) => {
+      const { impl, calls } = unreachableCerts();
+      const verifier = new SnsVerifier(impl, configFor({ APP_ENV, SES_SNS_TOPIC_ARNS: ' ' }));
+      await expect(
+        verifier.verify(unsigned({ TopicArn: 'arn:aws:sns:ap-south-1:123456789012:anything' })),
+      ).resolves.toEqual({ ok: false, reason: 'topic_not_allowed' });
+      expect(calls).toEqual([]);
+    },
+  );
+
+  it('still checks the signature of a listed topic in PRODUCTION', async () => {
+    const prodTopic = 'arn:aws:sns:ap-south-1:123456789012:eticketsgo-ses-events-prod';
+    const { impl, calls } = unreachableCerts();
+    const verifier = new SnsVerifier(
+      impl,
+      configFor({ APP_ENV: 'PRODUCTION', SES_SNS_TOPIC_ARNS: prodTopic }),
+    );
+    await expect(verifier.verify(unsigned({ TopicArn: prodTopic }))).resolves.toEqual({
+      ok: false,
+      reason: 'cert_fetch_failed',
+    });
+    // QA's topic is refused by production even though Amazon signed it.
+    await expect(
+      verifier.verify(
+        unsigned({ TopicArn: 'arn:aws:sns:ap-south-1:123456789012:eticketsgo-ses-events-qa' }),
+      ),
+    ).resolves.toEqual({ ok: false, reason: 'topic_not_allowed' });
+    expect(calls).toHaveLength(1);
+  });
+
+  it('keeps QA as it is: an unset allowlist checks no topic', async () => {
+    const { impl } = unreachableCerts();
+    const verifier = new SnsVerifier(impl, configFor({ APP_ENV: 'QA' }));
+    await expect(
+      verifier.verify(unsigned({ TopicArn: 'arn:aws:sns:ap-south-1:123456789012:anything' })),
+    ).resolves.toEqual({ ok: false, reason: 'cert_fetch_failed' });
+  });
+});

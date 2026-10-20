@@ -136,7 +136,19 @@ export class NotificationDiagnosticsService {
   private credentialsFor(provider: string, channel: NotificationChannelKey): string[] {
     switch (`${provider}:${channel}`) {
       case 'ses:email':
-        return ['AWS_REGION', 'EMAIL_FROM', 'SES_CONFIGURATION_SET', 'SES_WEBHOOK_SECRET'];
+        return [
+          'AWS_REGION',
+          'EMAIL_FROM',
+          'SES_CONFIGURATION_SET',
+          'SES_WEBHOOK_SECRET',
+          'SES_SNS_TOPIC_ARNS',
+          // STAGING/PRODUCTION send only with the SES-only key (resolveSesCredentials).
+          ...(['STAGING', 'PRODUCTION'].includes(
+            (this.config.get<string>('APP_ENV') ?? '').toUpperCase(),
+          )
+            ? ['SES_AWS_ACCESS_KEY_ID', 'SES_AWS_SECRET_ACCESS_KEY']
+            : []),
+        ];
       case 'sendgrid:email':
         return ['SENDGRID_API_KEY', 'EMAIL_FROM'];
       case 'twilio:sms':

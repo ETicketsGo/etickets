@@ -23,7 +23,7 @@ The India SMS checklist is [MSG91-DLT-CHECKLIST.md](MSG91-DLT-CHECKLIST.md).
 | DNS, DMARC                          | `p=quarantine`, rua to GoDaddy (onsecureserver.net)                                          | unchanged; see section 4                        |
 | DNS, apex SPF                       | Microsoft 365 only                                                                           | unchanged (SES is checked on `mail.`)           |
 | DNS, M365 DKIM                      | selectors absent                                                                             | OWNER-CONFIGURATION.md item 4 (support mailbox) |
-| SNS subscription confirmation       | not possible in production as built                                                          | PR R1 merged and deployed                       |
+| SNS subscription confirmation       | not possible in production as built                                                          | PR R1 (#445) merged and deployed                |
 
 ## Rules for every PROD change on this page
 
@@ -109,7 +109,7 @@ The India SMS checklist is [MSG91-DLT-CHECKLIST.md](MSG91-DLT-CHECKLIST.md).
 }
 ```
 
-- [ ] Do **not** subscribe the topic yet. That is Gate 9, after PR R1 is deployed.
+- [ ] Do **not** subscribe the topic yet. That is Gate 9, after PR R1 (#445) is deployed.
 
 ## Gate 6. Configuration set `eticketsgo-prod`
 
@@ -141,6 +141,7 @@ account id into the repository.
       "Action": "ses:SendEmail",
       "Resource": [
         "arn:aws:ses:ap-south-1:<account-id>:identity/eticketsgo.com",
+        "arn:aws:ses:ap-south-1:<account-id>:identity/tickets@eticketsgo.com",
         "arn:aws:ses:ap-south-1:<account-id>:configuration-set/eticketsgo-prod"
       ],
       "Condition": {
@@ -153,8 +154,11 @@ account id into the repository.
 
 - [ ] Create **one** access key. Store it in the password manager only.
 - Notes: the API calls SES v2 `SendEmail` with simple content, so `ses:SendRawEmail` is not needed.
-  Keep `EMAIL_FROM` as the bare address `tickets@eticketsgo.com`. If `EMAIL_FROM` ever changes,
-  change the condition first.
+  Keep `EMAIL_FROM` as the bare address `tickets@eticketsgo.com` (the boot guard refuses a display
+  name). If `EMAIL_FROM` ever changes, change the condition first. The `identity/tickets@...` line
+  matters only if that address is also verified as its own identity: SES then authorizes against
+  the address identity, not the domain.
+- This key goes in `SES_AWS_ACCESS_KEY_ID` / `SES_AWS_SECRET_ACCESS_KEY` only, never in `AWS_*`.
 
 ### 7.2 `eticketsgo-secrets-prod`: read payment secrets only
 
@@ -180,15 +184,15 @@ PROD reads its payment credentials from Secrets Manager (`payments/*`), and toda
 
 - [ ] If the secrets use a customer-managed KMS key, also allow `kms:Decrypt` on that key ARN only,
       with condition `kms:ViaService = secretsmanager.<secrets-region>.amazonaws.com`.
-- [ ] **Blocker, read before Gate 8.** The code reads ONE AWS key pair for both SES and Secrets
-      Manager (`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`, `email.transport.ts` and the default
-      provider chain in `aws-secrets-manager.secret-manager.ts`; `docs/pilot/INFRASTRUCTURE.md` 1.1).
-      Two separate users cannot both be loaded today. Choose one, and record the choice:
-  - **A (meets the requirement; needs a small code PR first):** give the SES transport its own
-    key-pair variables, falling back to `AWS_*` when unset. Then `AWS_*` holds
-    `eticketsgo-secrets-prod` and the SES pair holds `eticketsgo-ses-prod`.
-  - **B (interim, owner approval needed):** one production user holding both policies above.
-    Still independent of QA, but one key can both send mail and read payment secrets.
+- [ ] **Decided: separate keys (choice A), implemented by PR R4.** The SES client reads
+      `SES_AWS_ACCESS_KEY_ID` / `SES_AWS_SECRET_ACCESS_KEY` and nothing else in STAGING/PRODUCTION.
+      The payment secret store is unchanged: it builds its client from the AWS default chain, which
+      reads `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`. So `AWS_*` holds
+      `eticketsgo-secrets-prod` and the SES pair holds `eticketsgo-ses-prod`. Do not grant
+      `secretsmanager:*` to `eticketsgo-ses-prod`, and do not grant `ses:*` to
+      `eticketsgo-secrets-prod`. The boot guard refuses the same key id in both pairs.
+- [ ] **PROD must run a commit that contains R4 before the SES pair is used.** An older commit
+      ignores `SES_AWS_*` and would sign SES with the secrets key (AccessDenied on every send).
 - [ ] Prove the secrets key before removing QA's: after the deploy,
       `GET /api/admin/payments/live-readiness` shows `credentials: passed`, and the api boot log has
       no `Could not bind provider 'razorpay'` (INFRASTRUCTURE.md 1.4 step 6).
@@ -237,23 +241,37 @@ an owner identity; never give it an access key on Railway.
 
 ## Gate 8. PROD variables (names only), on api AND worker
 
-Only the worker sends email; configuring the api alone leaves readiness green while nothing
-leaves. Set every row on **both** services unless marked.
+The worker sends customer email; the api sends support-form copies and ops alerts. Both load the
+same configuration and the same boot guard, so in SES mode each one refuses to start unless it
+holds every row marked for it. Configuring the api alone leaves readiness green while nothing
+leaves.
 
-| Variable                                        | Value to hold                                                | Services    |
-| ----------------------------------------------- | ------------------------------------------------------------ | ----------- |
-| `SMS_ENABLED`                                   | `false` (email-only pilot; set it first)                     | api, worker |
-| `EMAIL_PROVIDER`                                | `ses`                                                        | api, worker |
-| `EMAIL_FROM`                                    | `tickets@eticketsgo.com` (already set on api; add to worker) | api, worker |
-| `AWS_REGION`                                    | `ap-south-1` (not `AWS_SES_REGION`, which nothing reads)     | api, worker |
-| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`    | Gate 7 choice A or B; replaces QA's key                      | api, worker |
-| SES key pair (choice A only)                    | `eticketsgo-ses-prod` key; names fixed by the code PR        | api, worker |
-| `SECRET_MANAGER_PROVIDER`, `AWS_SECRETS_REGION` | unchanged; confirm present                                   | api, worker |
-| `SES_CONFIGURATION_SET`                         | `eticketsgo-prod`                                            | api, worker |
-| `SES_SNS_TOPIC_ARNS`                            | the `eticketsgo-ses-events-prod` ARN only (QA's ARN removed) | api, worker |
-| `SES_WEBHOOK_SECRET`                            | new random value, 32+ characters, never QA's                 | api, worker |
-| `PUBLIC_API_URL`                                | `https://api.eticketsgo.com` (confirm present)               | api         |
-| `ALLOW_UNDELIVERABLE_NOTIFICATIONS`             | leave `true` for now; removed in Gate 11                     | api, worker |
+| Variable                            | Value to hold                                                      | api | worker |
+| ----------------------------------- | ------------------------------------------------------------------ | --- | ------ |
+| `SMS_ENABLED`                       | `false` (email-only pilot; set it first)                           | yes | yes    |
+| `EMAIL_FROM`                        | `tickets@eticketsgo.com`, bare (already on api; add to worker)     | yes | yes    |
+| `AWS_REGION`                        | `ap-south-1` (not `AWS_SES_REGION`, which nothing reads)           | yes | yes    |
+| `SES_AWS_ACCESS_KEY_ID`             | `eticketsgo-ses-prod` key id (send email only)                     | yes | yes    |
+| `SES_AWS_SECRET_ACCESS_KEY`         | `eticketsgo-ses-prod` secret                                       | yes | yes    |
+| `AWS_ACCESS_KEY_ID`                 | `eticketsgo-secrets-prod` key id; replaces QA's key                | yes | yes    |
+| `AWS_SECRET_ACCESS_KEY`             | `eticketsgo-secrets-prod` secret                                   | yes | yes    |
+| `SECRET_MANAGER_PROVIDER`           | unchanged; confirm present                                         | yes | yes    |
+| `AWS_SECRETS_REGION`                | unchanged; confirm present                                         | yes | yes    |
+| `SES_CONFIGURATION_SET`             | `eticketsgo-prod` (replaces `eticketsgo-qa`)                       | yes | yes    |
+| `SES_SNS_TOPIC_ARNS`                | the `eticketsgo-ses-events-prod` ARN only (QA's ARN removed)       | yes | yes    |
+| `SES_WEBHOOK_SECRET`                | new random value, 32+ characters, never QA's                       | yes | yes    |
+| `PUBLIC_API_URL`                    | `https://api.eticketsgo.com` (confirm present)                     | yes | no     |
+| `ALLOW_UNDELIVERABLE_NOTIFICATIONS` | leave `true` for now; removed in Gate 11                           | yes | yes    |
+| `EMAIL_PROVIDER`                    | `ses`, set LAST, after every row above is in place on that service | yes | yes    |
+
+`SES_SNS_TOPIC_ARNS` and `SES_WEBHOOK_SECRET` are needed on the worker too: the worker does not
+receive webhooks, but the boot guard checks the whole SES configuration on every service.
+
+If `EMAIL_PROVIDER=ses` reaches a service before the rest, that service refuses to boot with
+`EMAIL_PROVIDER=ses is not ready in APP_ENV=PRODUCTION` and names each missing item. Check with
+`node $K/state.mjs PROD` which deployment is serving; if the failed one replaced the old one, roll
+back with the deploy kit (section "Rollback"). Fix the named item; do not set `EMAIL_PROVIDER`
+back to `log` to hide it unless rolling back.
 
 Commands (Git Bash, from the repo checkout; the token loading is the procedure's section 2):
 
@@ -288,13 +306,13 @@ CONFIRM_PROD_DEPLOY=worker@$SHA node $K/deploy-pinned.mjs PROD worker $SHA
 - [ ] Delete the old QA access key from PROD in this change (it is replaced, not added to). Do not
       delete the QA user itself; QA still uses it.
 
-## Gate 9. Subscribe the topic (requires PR R1 merged and deployed)
+## Gate 9. Subscribe the topic (requires PR R1 (#445) merged and deployed)
 
-As built, production cannot confirm an SNS subscription (REAL-EMAIL-CERTIFICATION.md 6.1). PR R1
-adds secure auto-confirmation in production. Do not subscribe before PR R1 is merged and PROD runs
+As built, production cannot confirm an SNS subscription (REAL-EMAIL-CERTIFICATION.md 6.1). PR R1 (#445)
+adds secure auto-confirmation in production. Do not subscribe before PR R1 (#445) is merged and PROD runs
 a commit that contains it.
 
-- [ ] PROD api runs a commit that includes PR R1 (`state.mjs` commit vs the R1 merge commit).
+- [ ] PROD api runs a commit that includes PR R1 (#445) (`state.mjs` commit vs the R1 merge commit).
 - [ ] Subscribe topic `eticketsgo-ses-events-prod`, protocol **HTTPS**, endpoint
       `https://api.eticketsgo.com/api/notifications/webhooks/ses/<SES_WEBHOOK_SECRET>`.
 - [ ] Raw message delivery **off**.

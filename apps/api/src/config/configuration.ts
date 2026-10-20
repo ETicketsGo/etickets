@@ -635,11 +635,23 @@ const envSchema = z.object({
   SUPPORT_INBOX_EMAIL: z.string().optional(),
   // SendGrid (EMAIL_PROVIDER=sendgrid)
   SENDGRID_API_KEY: z.string().optional(),
-  // AWS SES v2 (EMAIL_PROVIDER=ses). Credentials fall back to the default AWS
-  // provider chain when the explicit access-key pair is omitted.
+  // AWS SES v2 (EMAIL_PROVIDER=ses). AWS_REGION is the SES region.
   AWS_REGION: z.string().optional(),
+  /*
+    The shared AWS key. The AWS default credential chain reads these two names, so the payment
+    secret store (AWS Secrets Manager) signs with them. Outside STAGING/PRODUCTION the SES
+    client also falls back to them, which is how QA and UAT send today.
+  */
   AWS_ACCESS_KEY_ID: z.string().optional(),
   AWS_SECRET_ACCESS_KEY: z.string().optional(),
+  /*
+    The SES-only key: an IAM user that may call ses:SendEmail and nothing else. No AWS SDK
+    reads these names by itself, so only the SES client ever sees them, and the key that sends
+    email cannot read payment secrets. Required for SES in STAGING/PRODUCTION
+    (assertSesProductionReadiness); optional elsewhere. Set both or neither.
+  */
+  SES_AWS_ACCESS_KEY_ID: z.string().optional(),
+  SES_AWS_SECRET_ACCESS_KEY: z.string().optional(),
 
   /*
     The sign-in code's message text.
@@ -1120,6 +1132,110 @@ function assertDeliverabilityHardening(cfg: AppConfig): void {
 ` +
         `  Set ALLOW_UNDELIVERABLE_NOTIFICATIONS=true only to boot deliberately without ` +
         `mail or text messages (migrations, smoke checks) — never to serve customers.`,
+    );
+  }
+}
+
+/**
+ * SES mode in a live environment must be able to send AND hear back, with its own key (R4).
+ *
+ * The deliverability guard above only asks whether a real provider is chosen. SES can be
+ * chosen and still be wrong in ways nothing reports:
+ *   - no configuration set: mail goes out and no delivery, bounce or complaint event ever
+ *     comes back, so a bounced address is mailed forever;
+ *   - no dedicated key: the send falls back to the shared AWS key, which also reads the payment
+ *     secrets (or, with no key at all, to whatever the default chain finds);
+ *   - no topic allowlist or webhook secret: SES events are taken from any signed SNS topic;
+ *   - another environment's configuration set or topic: production's bounces land in QA, or
+ *     QA's in production.
+ *
+ * Checked whenever EMAIL_PROVIDER=ses in STAGING/PRODUCTION, and deliberately NOT skipped by
+ * ALLOW_UNDELIVERABLE_NOTIFICATIONS: that switch is for booting with mail OFF (log), and a
+ * deployment that has chosen SES is no longer doing that. Production on log is unaffected.
+ *
+ * A half-set SES key pair is refused in every environment: it is always a mistake.
+ */
+function assertSesProductionReadiness(cfg: AppConfig): void {
+  const keyId = cfg.SES_AWS_ACCESS_KEY_ID?.trim();
+  const secret = cfg.SES_AWS_SECRET_ACCESS_KEY?.trim();
+  if (Boolean(keyId) !== Boolean(secret)) {
+    throw new Error(
+      'SES_AWS_ACCESS_KEY_ID and SES_AWS_SECRET_ACCESS_KEY must be set together (or neither).',
+    );
+  }
+  if (cfg.EMAIL_PROVIDER !== 'ses' || !['STAGING', 'PRODUCTION'].includes(cfg.APP_ENV)) return;
+
+  const errors: string[] = [];
+  if (!cfg.AWS_REGION?.trim()) errors.push('  - AWS_REGION is not set (the SES region).');
+  const from = cfg.EMAIL_FROM?.trim() ?? '';
+  if (!from) {
+    errors.push('  - EMAIL_FROM is not set.');
+  } else if (!/^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/.test(from)) {
+    // The IAM policy pins ses:FromAddress to one address; a display name or typo would make
+    // every send AccessDenied, which is only found at the first purchase.
+    errors.push('  - EMAIL_FROM must be a bare address such as tickets@eticketsgo.com.');
+  }
+  if (!cfg.SES_CONFIGURATION_SET?.trim()) {
+    errors.push(
+      '  - SES_CONFIGURATION_SET is not set: no delivery, bounce or complaint event would ever arrive.',
+    );
+  }
+  if (!keyId) {
+    errors.push(
+      '  - SES_AWS_ACCESS_KEY_ID / SES_AWS_SECRET_ACCESS_KEY are not set. Email here is sent ' +
+        'only with the SES-only key, never the shared AWS key that reads payment secrets.',
+    );
+  } else if (keyId === cfg.AWS_ACCESS_KEY_ID?.trim()) {
+    errors.push(
+      '  - SES_AWS_ACCESS_KEY_ID is the same key as AWS_ACCESS_KEY_ID. The SES key must be a ' +
+        'separate IAM user that cannot read payment secrets.',
+    );
+  }
+  const topics = (cfg.SES_SNS_TOPIC_ARNS ?? '')
+    .split(',')
+    .map((t) => t.trim())
+    .filter(Boolean);
+  if (topics.length === 0) {
+    errors.push('  - SES_SNS_TOPIC_ARNS is not set: SES events would be taken from any SNS topic.');
+  }
+  for (const arn of topics) {
+    if (!/^arn:aws:sns:[a-z0-9-]+:\d{12}:[A-Za-z0-9_-]+$/.test(arn)) {
+      errors.push(`  - SES_SNS_TOPIC_ARNS has an entry that is not an SNS topic ARN: ${arn}`);
+    }
+  }
+  if ((cfg.SES_WEBHOOK_SECRET?.trim().length ?? 0) < 32) {
+    errors.push('  - SES_WEBHOOK_SECRET must be set, 32 characters or more.');
+  }
+
+  /*
+    Isolation by name. Our resources carry their environment in the name (eticketsgo-qa,
+    eticketsgo-ses-events-qa), and the first PRODUCTION audit found exactly this: production
+    pointed at QA's configuration set and topic. A name that says another environment is refused.
+  */
+  const foreign = ['qa', 'uat', 'dev', 'test', 'local', 'staging'].filter(
+    (env) => env !== cfg.APP_ENV.toLowerCase(),
+  );
+  const namesOtherEnv = (name: string) =>
+    name
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .some((part) => foreign.includes(part));
+  const configSet = cfg.SES_CONFIGURATION_SET?.trim() ?? '';
+  if (configSet && namesOtherEnv(configSet)) {
+    errors.push(`  - SES_CONFIGURATION_SET=${configSet} names another environment.`);
+  }
+  for (const arn of topics) {
+    const topicName = arn.split(':').pop() ?? '';
+    if (namesOtherEnv(topicName)) {
+      errors.push(`  - SES_SNS_TOPIC_ARNS names another environment's topic: ${topicName}`);
+    }
+  }
+
+  if (errors.length) {
+    throw new Error(
+      `EMAIL_PROVIDER=ses is not ready in APP_ENV=${cfg.APP_ENV}:\n${errors.join('\n')}\n` +
+        '  Keep EMAIL_PROVIDER=log until every item is set. ALLOW_UNDELIVERABLE_NOTIFICATIONS ' +
+        'does not skip this check.',
     );
   }
 }
@@ -1770,6 +1886,7 @@ export function loadConfig(): AppConfig {
   }
   assertProductionHardening(parsed.data);
   assertDeliverabilityHardening(parsed.data);
+  assertSesProductionReadiness(parsed.data);
   assertOfflineCheckinWindow(parsed.data);
   assertRazorpayConsistency(parsed.data);
   assertPaymentEnvironmentKeySafety(parsed.data);
