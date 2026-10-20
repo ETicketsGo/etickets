@@ -1,21 +1,13 @@
 'use client';
 
-import { useQueries, useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { ChevronDown, Search } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import {
-  BrandButton,
-  DISCOVERY_COUNTRIES,
-  cityScope,
-  countryKey,
-  countryLabelOf,
-  selectedPlace,
-  useCity,
-} from '@eticketsgo/web-kit';
+import { BrandButton, cityScope, useCity } from '@eticketsgo/web-kit';
 import { api } from '@/lib/api';
-import { EmptyPlace, PlaceSections } from '@/components/place-sections';
-import { Placeholder, Rail, RailItem } from '@/components/home/parts';
+import { EmptyPlace } from '@/components/place-sections';
+import { Placeholder } from '@/components/home/parts';
 import { BRAND_FIELD } from '@/components/booking-brand';
 import { BRAND_WRAP, BrandEmpty, BrandPage, FilmCard } from '@/components/storefront-brand';
 import { useCountryWords } from '@/lib/country-words';
@@ -77,44 +69,6 @@ export default function MoviesPage() {
     queryKey: ['movies', applied, JSON.stringify(scope)],
     queryFn: () => api.listMovies({ ...applied, ...scope }),
   });
-
-  /*
-    Films beyond the selected city: the rest of its country, then each other country under its
-    own title. A film card carries no venue, so each group is its own country-scoped read (with
-    the same search and genre), and a film already shown above is never repeated below.
-  */
-  const placeInfo = selectedPlace(preference);
-  const homeCode = countryKey(placeInfo.country);
-  const hasPlace = Boolean(placeInfo.city || homeCode);
-  const near = useQuery({
-    queryKey: ['movies', 'same-country', applied, homeCode],
-    queryFn: () => api.listMovies({ ...applied, country: homeCode ?? undefined }),
-    enabled: Boolean(placeInfo.city && homeCode),
-  });
-  const abroad = useQueries({
-    queries: DISCOVERY_COUNTRIES.filter((c) => c !== homeCode).map((code) => ({
-      queryKey: ['movies', 'abroad', applied, code],
-      queryFn: () => api.listMovies({ ...applied, country: code }),
-      enabled: hasPlace,
-    })),
-  });
-  /*
-    Computed on every render rather than memoised. The memo listed one dependency per OTHER
-    country, and that list is one longer before the visitor's country is known than after it, so
-    React reported "the final argument passed to useMemo changed size between renders" on every
-    visit (the "1 issue" badge in development). Filtering a few dozen films is cheaper than that.
-  */
-  const buckets = (() => {
-    const shown = new Set((data ?? []).map((m) => m.id));
-    const sameCountry = (near.data ?? []).filter((m) => !shown.has(m.id));
-    sameCountry.forEach((m) => shown.add(m.id));
-    const others = DISCOVERY_COUNTRIES.filter((c) => c !== homeCode);
-    const elsewhere = others.flatMap((code, i) => {
-      const items = (abroad[i]?.data ?? []).filter((m) => !shown.has(m.id));
-      return items.length > 0 ? [{ code, name: countryLabelOf(code), items }] : [];
-    });
-    return { sameCountry, elsewhere, homeCountry: homeCode };
-  })();
 
   // Genre options for the filter come from an unfiltered baseline fetch so the
   // list stays stable regardless of what is currently applied.
@@ -230,8 +184,8 @@ export default function MoviesPage() {
             Same reasoning as Browse: an empty page must name its cause.
 
             The location is the cause nobody guesses, because it was chosen once in the header
-            and then forgotten. It names the place, offers cities in the same country that have
-            films, and the groups below still show the rest of the country and the world.
+            and then forgotten. It names the place and offers cities in the same country that have
+            films, and the search. Nothing from other countries is drawn under it.
           */
         cityOnly && place ? (
           <EmptyPlace place={place} noun="films" />
@@ -239,31 +193,6 @@ export default function MoviesPage() {
           <BrandEmpty title={t('noMatch')} hint={t('noMatchHint')} />
         )}
       </div>
-
-      {/* Beyond the selected city: the rest of its country, then the world, by country. */}
-      {hasPlace && !isLoading && !isError && (
-        <div
-          className={`${BRAND_WRAP} space-y-12 lg:space-y-16 ${
-            buckets.elsewhere.length > 0 || (placeInfo.city && buckets.sameCountry.length > 0)
-              ? 'pt-12 lg:pt-16'
-              : ''
-          }`}
-          data-testid="place-groups"
-        >
-          <PlaceSections
-            buckets={{ ...buckets, sameCountry: placeInfo.city ? buckets.sameCountry : [] }}
-            render={(items) => (
-              <Rail cols={5} phone="poster" label={t('listLabel')}>
-                {items.map((m) => (
-                  <RailItem key={m.id}>
-                    <FilmCard movie={m} />
-                  </RailItem>
-                ))}
-              </Rail>
-            )}
-          />
-        </div>
-      )}
     </BrandPage>
   );
 }

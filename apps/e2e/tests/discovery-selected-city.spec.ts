@@ -141,34 +141,46 @@ for (const width of [1440, 390]) {
       await expect(dialog.getByRole('option', { name: /^Hyderabad/ })).toHaveCount(1);
     });
 
-    test('home orders the selected city, its country, then each other country in its own currency', async ({
+    /*
+      The owner removed the "More in <country>" and "Elsewhere: <country>" rails (2026-10-19,
+      "do we really need Elsewhere part?"). This test used to assert their order and currency
+      notes; it now asserts that a page shows only the place the visitor chose.
+    */
+    test('a selected city shows that city alone: no "More in" and no "Elsewhere" groups', async ({
       page,
     }) => {
       await mockCatalogue(page);
       await select(page, 'Mumbai', 'IN');
-      await page.goto(`${CUSTOMER}/`, { waitUntil: 'networkidle' });
-      const same = page.locator('[data-place-group="same-country"]');
-      const us = page.locator('[data-place-group="elsewhere"][data-country="US"]');
-      const ca = page.locator('[data-place-group="elsewhere"][data-country="CA"]');
-      await expect(same).toContainText('More in India');
-      await expect(same).toContainText('Hyderabad');
-      await expect(us).toContainText('Elsewhere: United States');
-      await expect(us).toContainText('Boise');
-      await expect(us).toContainText('USD');
-      await expect(ca).toContainText('Elsewhere: Canada');
-      await expect(ca).toContainText('Toronto');
-      await expect(ca).toContainText('CAD');
-      // Document order: its country, then the United States, then Canada.
-      const y = async (l: ReturnType<Page['locator']>) => (await l.boundingBox())!.y;
-      expect(await y(same)).toBeLessThan(await y(us));
-      expect(await y(us)).toBeLessThan(await y(ca));
-      // India is never offered as "elsewhere" to a visitor in India.
-      await expect(page.locator('[data-place-group="elsewhere"][data-country="IN"]')).toHaveCount(
-        0,
-      );
+      for (const path of ['/', '/explore', '/events']) {
+        await page.goto(`${CUSTOMER}${path}`, { waitUntil: 'networkidle' });
+        await expect(chip(page)).toHaveAccessibleName('Location: Mumbai. Change');
+        const main = page.locator('main');
+        // Explore reads the discovery feed, which this file does not mock; home and Browse
+        // read the mocked listing, so the city's own event is checked there.
+        if (path !== '/explore') await expect(main).toContainText('Show mum1');
+        await expect(page.locator('[data-place-group]')).toHaveCount(0);
+        await expect(main).not.toContainText(/Elsewhere|More in India/);
+        // Not the rest of India, not the United States, not Canada.
+        for (const other of ['Show hyd1', 'Show boi1', 'Show tor1']) {
+          await expect(main).not.toContainText(other);
+        }
+      }
     });
 
-    test('a city with nothing on says so, suggests cities in its country, and still shows the rest', async ({
+    test('"All cities" is one list of the country: no "Elsewhere" groups', async ({ page }) => {
+      await mockCatalogue(page);
+      await select(page, '__all__', 'IN');
+      await page.goto(`${CUSTOMER}/events`, { waitUntil: 'networkidle' });
+      const main = page.locator('main');
+      await expect(main).toContainText('Show mum1');
+      await expect(main).toContainText('Show hyd1');
+      await expect(page.locator('[data-place-group]')).toHaveCount(0);
+      await expect(main).not.toContainText(/Elsewhere|Prices in/);
+      await expect(main).not.toContainText('Show boi1');
+      await expect(main).not.toContainText('Show tor1');
+    });
+
+    test('a city with nothing on says so, suggests cities in its country, and shows nothing from elsewhere', async ({
       page,
     }) => {
       await mockCatalogue(page);
@@ -177,8 +189,9 @@ for (const width of [1440, 390]) {
         await page.goto(`${CUSTOMER}${path}`, { waitUntil: 'networkidle' });
         await expect(page.getByText('No events available in Pune yet').first()).toBeVisible();
         await expect(chip(page)).toHaveAccessibleName('Location: Pune. Change');
-        await expect(page.getByText('Elsewhere: United States').first()).toBeVisible();
-        await expect(page.getByText('Elsewhere: Canada').first()).toBeVisible();
+        // Was: "Elsewhere: United States" and "Elsewhere: Canada" visible under the empty state.
+        await expect(page.locator('[data-place-group]')).toHaveCount(0);
+        await expect(page.locator('main')).not.toContainText(/Elsewhere/);
       }
       await page.goto(`${CUSTOMER}/events`, { waitUntil: 'networkidle' });
       await expect(page.getByRole('button', { name: /Mumbai/ }).first()).toBeVisible();

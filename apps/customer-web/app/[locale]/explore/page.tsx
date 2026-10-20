@@ -9,8 +9,6 @@ import {
   brandChipClasses,
   BRAND_FOCUS,
   cityScope,
-  countryKey,
-  selectedPlace,
   useCity,
 } from '@eticketsgo/web-kit';
 import { api } from '@/lib/api';
@@ -26,8 +24,7 @@ import { hasPhoto } from '@/lib/home-feed';
 import { useBuyability } from '@/lib/use-buyability';
 import { useCountryWords } from '@/lib/country-words';
 import { useRecentlyViewed } from '@/lib/use-live-events';
-import { usePlaceGroups } from '@/lib/use-place-groups';
-import { EmptyPlace, PlaceSections } from '@/components/place-sections';
+import { EmptyPlace } from '@/components/place-sections';
 import {
   EventRow,
   EventTile,
@@ -315,7 +312,6 @@ export default function ExplorePage() {
   const scopeKey = JSON.stringify(scope);
   // The selected city names the page; with none, the country the page is scoped to.
   const where = preference.city ?? (preference.country ? words(preference.country, true) : null);
-  const place = selectedPlace(preference);
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['discovery', scopeKey],
@@ -334,13 +330,11 @@ export default function ExplorePage() {
   );
 
   /*
-    What is on beyond the selected city: the rest of its country, then each other country under
-    its own title (one small read per group). Nothing is asked for when no place is chosen,
-    because there is then nothing to be "elsewhere" from.
+    Only the selected place. The "More in <country>" and "Elsewhere: <country>" rails that used
+    to follow are gone (owner, 2026-10-19): "All cities" is the country's events in the sections
+    above, a city is that city alone, and an empty city gets `EmptyPlace` and nothing from
+    somewhere else.
   */
-  const groups = usePlaceGroups(place);
-  const placeSections = { ...groups, homeCountry: countryKey(place.country) };
-  const hasGroups = groups.sameCountry.length > 0 || groups.elsewhere.length > 0;
 
   /*
     Recently viewed: current, still on sale, and in this place.
@@ -373,8 +367,6 @@ export default function ExplorePage() {
     ...extraSections
       .filter((s) => s.kind === 'events')
       .flatMap((s) => (s.items as PublicEventCard[]).map((e) => e.slug)),
-    ...groups.sameCountry.slice(0, 6).map((e) => e.slug),
-    ...groups.elsewhere.flatMap((g) => g.items.slice(0, 6).map((e) => e.slug)),
   ]);
 
   return (
@@ -565,27 +557,6 @@ export default function ExplorePage() {
             </section>
           )}
         </>
-      )}
-
-      {/* Beyond the selected city: the rest of its country, then the world, by country. */}
-      {!isLoading && !isError && (
-        <div
-          className={`${BRAND_WRAP} space-y-12 lg:space-y-16 ${hasGroups ? 'pt-12 lg:pt-16' : ''}`}
-          data-testid="place-groups"
-        >
-          <PlaceSections
-            buckets={placeSections}
-            currencyOf={(e) => e.currency}
-            render={(items) => (
-              <EventRail
-                items={items as PublicEventCard[]}
-                label={t('eventsLabel')}
-                states={states}
-                showCity
-              />
-            )}
-          />
-        </div>
       )}
     </BrandPage>
   );

@@ -82,8 +82,8 @@ test.describe('QA: where the customer is actually changes what they see', () => 
       timeout: 30_000,
     });
 
-    // And the city's own list is genuinely narrowed. Events elsewhere are allowed only under
-    // their own "Elsewhere:" heading (#363); Boise is QA's US city.
+    // And the city's own list is genuinely narrowed; Boise is QA's US city. The "Elsewhere:"
+    // groups (#363) were removed on 2026-10-19, so the split below keeps the whole page.
     await expect(eventCards(page).first()).toBeVisible({ timeout: 30_000 });
     const text = (await page.locator('main').innerText()).toLowerCase();
     expect(text.split('elsewhere:')[0]).not.toContain('boise');
@@ -136,8 +136,8 @@ test.describe('QA: where the customer is actually changes what they see', () => 
     const text = (await page.locator('main').innerText()).toLowerCase();
     expect(text.split('elsewhere:')[0]).not.toContain('boise');
 
-    // The way out is named rather than dumped (#363): other countries sit under their own
-    // "Elsewhere:" heading, and "Change location" opens the picker.
+    // The way out is named rather than dumped: "Change location" opens the picker. (Other
+    // countries no longer follow under an "Elsewhere:" heading - removed 2026-10-19.)
     await page.getByRole('button', { name: 'Change location' }).click();
     await expect(page.getByRole('dialog')).toBeVisible({ timeout: 15_000 });
   });

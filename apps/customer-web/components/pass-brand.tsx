@@ -49,15 +49,20 @@ export function PassStage({ children }: { children: ReactNode }) {
 }
 
 /**
- * The pass's own top bar: back to My tickets, the wordmark, and - only when this pass is saved
- * on the device - "OFFLINE" with a tick, in gold. Nothing is shown when it is not saved: the
- * word would otherwise promise something the device cannot do.
+ * The pass's own top bar: back to My tickets on the left and - only when this pass is saved
+ * on the device - "OFFLINE" with a tick, in gold, on the right. Nothing is shown there when it
+ * is not saved: the word would otherwise promise something the device cannot do.
+ *
+ * No wordmark in the middle (owner, 2026-10-19: "we dont need to show ETicketsGo on the top
+ * of the ticket"). The site header above already names the shop, and a doorperson reads the
+ * card, not the bar. Two columns, so "< TICKETS" keeps its place whether or not the pass is
+ * saved offline.
  */
 export function PassTopBar({ storedOffline }: { storedOffline: boolean }) {
   const b = useTranslations('storefront.bookingTickets');
   const router = useRouter();
   return (
-    <div className="mx-auto grid max-w-md grid-cols-[1fr_auto_1fr] items-center gap-2 px-4 pt-3 sm:max-w-lg sm:pt-6">
+    <div className="mx-auto grid max-w-md grid-cols-[1fr_auto] items-center gap-2 px-4 pt-3 sm:max-w-lg sm:pt-6">
       <button
         type="button"
         onClick={() => router.push('/account/tickets')}
@@ -65,17 +70,14 @@ export function PassTopBar({ storedOffline }: { storedOffline: boolean }) {
       >
         <ArrowLeft className="h-4 w-4" aria-hidden /> {b('passBack')}
       </button>
-      <Wordmark tone="brand" size="sm" className="justify-self-center" />
       <span className="justify-self-end">
         {storedOffline && (
           <span
             className="inline-flex items-center gap-1 text-brand-eyebrow uppercase tracking-[0.16em] text-brand-gold-text"
             title={b('offlineReadyLabel')}
           >
-            {/* The word is dropped below 360px, where the bar cannot hold three things. */}
-            <span aria-hidden className="max-[359px]:hidden">
-              {b('offlineReady')}
-            </span>
+            {/* With two things in the bar the word fits down to 320px; it was dropped below 360 when the wordmark sat between them. */}
+            <span aria-hidden>{b('offlineReady')}</span>
             <Check className="h-3.5 w-3.5" aria-hidden />
             <span className="sr-only">{b('offlineReadyLabel')}</span>
           </span>

@@ -168,16 +168,16 @@ describe('the home page header (owner, 2026-10-18: "Combined")', () => {
     expect(header.querySelector('[aria-label^="Location:"]')).not.toBeNull();
     expect(host.querySelector('nav[aria-label="Primary"]')).not.toBeNull();
     // A phone reaches the platform pages through a menu button.
-    expect(header.querySelector('button[aria-controls="home-platform-menu"]')).not.toBeNull();
+    expect(header.querySelector('button[aria-controls="shop-platform-menu"]')).not.toBeNull();
   });
 
   it('signed out, phone menu: the five platform links, Sign in and Get started', async () => {
     const { header } = await mount('/', false);
     const button = header.querySelector(
-      'button[aria-controls="home-platform-menu"]',
+      'button[aria-controls="shop-platform-menu"]',
     ) as HTMLButtonElement;
     await act(async () => button.click());
-    const menu = header.querySelector('#home-platform-menu') as HTMLElement;
+    const menu = header.querySelector('#shop-platform-menu') as HTMLElement;
     expect(menu).not.toBeNull();
     const seen = labels(menu);
     for (const link of MARKETING_LINKS) expect(seen).toContain(link);
@@ -192,7 +192,7 @@ describe('the home page header (owner, 2026-10-18: "Combined")', () => {
     for (const link of MARKETING_LINKS) expect(seen).not.toContain(link);
     expect(seen).not.toContain('Sign in');
     expect(seen).not.toContain('Get started');
-    expect(header.querySelector('button[aria-controls="home-platform-menu"]')).toBeNull();
+    expect(header.querySelector('button[aria-controls="shop-platform-menu"]')).toBeNull();
     expect(header.querySelector('input[type="search"]')).not.toBeNull();
     expect(host.querySelector('nav[aria-label="Primary"]')).not.toBeNull();
   });
@@ -206,15 +206,86 @@ describe('the home page header (owner, 2026-10-18: "Combined")', () => {
     expect(header).not.toContain('>Get started<');
     expect(header).not.toContain('>Features<');
   });
+});
 
-  it('another app route signed out keeps only Sign in: no platform links', async () => {
-    const { header } = await mount('/explore', false);
+/*
+  ── EVERY SHOP PAGE, SIGNED OUT (owner, 2026-10-19) ───────────────────────────────────────
+  "without sign in, when we click on Explore, we are unable to see other options". The combined
+  bar is now on every shop page for a visitor, except the purchase steps (the seat page, the
+  booking and payment pages, checkout), which keep the plain shop bar with "Sign in".
+*/
+describe('the shop header for a visitor', () => {
+  it.each([
+    '/explore',
+    '/movies',
+    '/events',
+    '/events/some-event',
+    '/movies/some-film',
+    '/organizers/org-1',
+  ])(
+    '%s signed out: the shop header AND the platform links, Sign in and Get started',
+    async (route) => {
+      const { host, header } = await mount(route, false);
+      expect(header.dataset.nav).not.toBe('marketing');
+      const seen = labels(header);
+      for (const link of APP_LINKS) expect(seen).toContain(link);
+      for (const link of MARKETING_LINKS) expect(seen).toContain(link);
+      expect(seen).toContain('Sign in');
+      expect(seen).toContain('Get started');
+      expect(header.querySelector('[aria-label^="Location:"]')).not.toBeNull();
+      expect(host.querySelector('nav[aria-label="Primary"]')).not.toBeNull();
+      expect(header.querySelector('button[aria-controls="shop-platform-menu"]')).not.toBeNull();
+    },
+  );
+
+  it('an event page signed out: the phone menu carries the platform links too', async () => {
+    const { header } = await mount('/events/some-event', false);
+    const button = header.querySelector(
+      'button[aria-controls="shop-platform-menu"]',
+    ) as HTMLButtonElement;
+    await act(async () => button.click());
+    const seen = labels(header.querySelector('#shop-platform-menu') as HTMLElement);
+    for (const link of MARKETING_LINKS) expect(seen).toContain(link);
+    expect(seen).toContain('Sign in');
+    expect(seen).toContain('Get started');
+  });
+
+  it.each([
+    '/shows/session-1',
+    '/booking/b-1',
+    '/booking/b-1/payment',
+    '/booking/b-1/confirmation',
+    '/checkout',
+  ])('%s signed out keeps the plain shop header: Sign in, no platform links', async (route) => {
+    const { header } = await mount(route, false);
     const seen = labels(header);
     for (const link of APP_LINKS) expect(seen).toContain(link);
     for (const link of MARKETING_LINKS) expect(seen).not.toContain(link);
     expect(seen).toContain('Sign in');
     expect(seen).not.toContain('Get started');
-    expect(header.querySelector('button[aria-controls="home-platform-menu"]')).toBeNull();
+    expect(header.querySelector('button[aria-controls="shop-platform-menu"]')).toBeNull();
+  });
+
+  it('signed in on Explore and an event page: the pure shop header', async () => {
+    for (const route of ['/explore', '/events/some-event']) {
+      const { header } = await mount(route, true);
+      const seen = labels(header);
+      for (const link of MARKETING_LINKS) expect(seen).not.toContain(link);
+      expect(seen).not.toContain('Sign in');
+      expect(seen).not.toContain('Get started');
+      cleanup?.();
+      cleanup = null;
+      localStorage.clear();
+    }
+  });
+
+  it('before the session is known on Explore: no platform links and no Sign in', () => {
+    path = '/explore';
+    const html = renderToStaticMarkup(tree(false));
+    const header = html.slice(html.indexOf('<header'), html.indexOf('</header>'));
+    expect(header).toContain('data-auth="pending"');
+    expect(header).not.toContain('>Sign in<');
+    expect(header).not.toContain('>Features<');
   });
 });
 
@@ -222,11 +293,11 @@ describe('the app header', () => {
   it.each([
     ['/', true],
     ['/explore', true],
-    ['/explore', false],
     ['/movies', true],
     ['/account/tickets', true],
     ['/account/profile', true],
-    ['/events', false],
+    ['/shows/session-1', false],
+    ['/booking/b-1/payment', false],
   ] as const)('%s (signed in: %s) never carries the marketing links', async (route, signedIn) => {
     const { header } = await mount(route, signedIn);
     expect(header.dataset.nav).not.toBe('marketing');

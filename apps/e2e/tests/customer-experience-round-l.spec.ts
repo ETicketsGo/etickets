@@ -186,8 +186,10 @@ test.describe('on a phone', () => {
         .map((x) => `${x.name} ${Math.round(x.r.width)}x${Math.round(x.r.height)}`);
       return {
         logo: box('a[aria-label="ETicketsGo home"]'),
-        // On an event page the link carries ?next= back to the event.
-        signIn: box('header a[href*="/login"]'),
+        // A signed-out visitor's way to sign in. Since 2026-10-19 an event page carries the
+        // platform links for a visitor, and on a phone "Sign in" sits in the header's menu
+        // (whose link still carries ?next= back to the event), so the target is the menu button.
+        signIn: box('header a[href*="/login"], header button[aria-controls="shop-platform-menu"]'),
         // The language select moved from the header to the footer in the storefront redesign.
         language: box('footer select'),
         quantity: box('[data-quantity-stepper]'),

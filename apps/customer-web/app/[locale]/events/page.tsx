@@ -8,17 +8,11 @@ import {
   emptyResultSuggestions,
   type SearchIntent,
 } from '@eticketsgo/shared-types';
-import {
-  cityScope,
-  countryKey,
-  countryPhrase,
-  useCity,
-  type SellableCity,
-} from '@eticketsgo/web-kit';
+import { cityScope, countryPhrase, useCity, type SellableCity } from '@eticketsgo/web-kit';
 import { api } from '@/lib/api';
 import { BRAND_FOCUS } from '@eticketsgo/web-kit';
 import { BrandEventCard } from '@/components/brand-event-card';
-import { EmptyPlace, PlaceSections } from '@/components/place-sections';
+import { EmptyPlace } from '@/components/place-sections';
 import { BRAND_WRAP, BrandEmpty, BrandPage, FilmCard } from '@/components/storefront-brand';
 import { BRAND_LINK, BRAND_PANEL } from '@/components/booking-brand';
 import {
@@ -28,7 +22,6 @@ import {
   BrandSelect,
   BrandSkeleton,
 } from '@/components/brand-forms';
-import { usePlaceGroups } from '@/lib/use-place-groups';
 import { useTranslations } from 'next-intl';
 
 const PAGE_SIZE = 24;
@@ -257,30 +250,9 @@ export default function EventsPage() {
   const ts = useTranslations('showtimes.search');
 
   /*
-    The same search with no place on it, for the groups UNDER the results.
-
-    The list above is this search inside the selected city (or country); the groups below are
-    the same search in the rest of that country, then in each other country under its own
-    title. Anything already shown above is not repeated.
+    Only the selected place. The "More in <country>" and "Elsewhere: <country>" groups that used
+    to follow the results are gone (owner, 2026-10-19): the list above IS the answer.
   */
-  const pageCity = applied.city ?? null;
-  const pageCountry =
-    (pageCity && pageCity === preference.city ? preference.place?.country : null) ??
-    preference.country;
-  const elsewhereRequest = useMemo(() => {
-    const rest: Record<string, unknown> = { ...request };
-    delete rest.city;
-    delete rest.country;
-    delete rest.cityCountry;
-    delete rest.region;
-    return rest as Record<string, string | undefined>;
-  }, [request]);
-  const shownIds = useMemo(() => new Set(items.map((e) => e.id)), [items]);
-  const groups = usePlaceGroups(
-    { city: pageCity, country: pageCountry },
-    { filters: elsewhereRequest, skip: shownIds },
-  );
-  const placeGroups = { ...groups, homeCountry: countryKey(pageCountry) };
 
   // Replace on a new search (page 1), append on Load more.
   useEffect(() => {
@@ -660,23 +632,6 @@ export default function EventsPage() {
               ) : undefined
             }
           />
-        )}
-
-        {/* Beyond this search's city: the rest of its country, then the world, by country. */}
-        {!isLoading && !isError && (
-          <div className="space-y-12 pt-4 lg:space-y-16" data-testid="place-groups">
-            <PlaceSections
-              buckets={placeGroups}
-              currencyOf={(e) => e.currency}
-              render={(group) => (
-                <div className="grid gap-x-6 gap-y-10 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                  {group.map((e) => (
-                    <BrandEventCard key={e.id} event={e} />
-                  ))}
-                </div>
-              )}
-            />
-          </div>
         )}
       </div>
     </BrandPage>

@@ -29,7 +29,6 @@ import {
 } from '@/lib/home-feed';
 import { Link } from '@/i18n/navigation';
 import { useRecentlyViewed } from '@/lib/use-live-events';
-import { usePlaceGroups } from '@/lib/use-place-groups';
 import {
   EventRow,
   EventTile,
@@ -190,28 +189,13 @@ export function DiscoverHome() {
   const films = postersFirst(movies.data ?? []).slice(0, 5);
 
   /*
-    What is on beyond the selected city, nearest first: the rest of its country ("More in India"),
-    then each other country under its own title ("Elsewhere: Canada"), every group in its venues'
-    currency. With no city selected the page above already IS the country, so only the other
-    countries follow. Inside a group the API's order is kept (DEMO before TEST).
+    Only the selected place. The "More in <country>" and "Elsewhere: <country>" rails that used
+    to follow are gone (owner, 2026-10-19, "do we really need Elsewhere part?"): "All cities" is
+    the country above, a city is that city alone, and an empty place gets the empty band and
+    nothing from somewhere else.
   */
   const place_ = selectedPlace(preference);
   const homeCode = countryKey(place_.country);
-  const outside = usePlaceGroups(place_, { perGroup: 8 });
-  const outsideScope = Boolean(place_.city || place_.country);
-  /** "US Dollar", in the reader's language, for a group's "Prices in" line. */
-  const currencyName = (code: string) => {
-    try {
-      return new Intl.DisplayNames([locale], { type: 'currency' }).of(code) ?? code;
-    } catch {
-      return code;
-    }
-  };
-  const countryLabel = (country: string) => {
-    const code = country.trim().length === 2 ? country.trim().toUpperCase() : null;
-    if (!code) return country;
-    return locale.startsWith('en') ? countryPhrase(code) : countryName(code);
-  };
 
   const { events: recent } = useRecentlyViewed(preference);
 
@@ -255,7 +239,7 @@ export function DiscoverHome() {
     Whether the events this page promotes can be bought right now. The listing payload has no
     availability or sales window, so the few events the page features or lists first are read
     from `/public/events/:slug` (the same query, and cache, as the event page itself). Bounded:
-    6 hero candidates, 9 listed, 12 in the rails and 4 recent - at most 31 small reads, cached
+    6 hero candidates, 9 listed and 4 recent - at most 19 small reads, cached
     for a minute; nothing else on the page waits for them, and a card shows its price only once
     its own read proves something is on sale.
   */
@@ -265,9 +249,7 @@ export function DiscoverHome() {
       ...heroCandidates(all),
       ...all.slice(0, 9).map((e) => e.slug),
       ...(filter.kind === 'all' ? [] : filteredAll.slice(0, 9).map((e) => e.slug)),
-      // The rails below: at most 3 groups of 4, and 4 recently viewed.
-      ...outside.sameCountry.slice(0, 8).map((e) => e.slug),
-      ...outside.elsewhere.flatMap((g) => g.items.slice(0, 4).map((e) => e.slug)),
+      // And the 4 recently viewed below.
       ...recent.slice(0, 4).map((e) => e.slug),
     ]),
   ];
@@ -591,81 +573,7 @@ export function DiscoverHome() {
       )}
 
       {/*
-        5. Beyond the selected city. "More in <country>" first (the same country is the nearest
-        honest alternative), then one "Elsewhere: <country>" group per other country. Every
-        group says which currency its prices are in, so no rail mixes Rs, $ and CA$, and every
-        card names its own venue city and shows its time at that venue.
-      */}
-      {outsideScope && outside.sameCountry.length > 0 && (
-        <section
-          aria-labelledby="home-same-country"
-          data-place-group="same-country"
-          className={`${WRAP} pt-12 lg:pt-16`}
-        >
-          <SectionHead
-            id="home-same-country"
-            title={t('sections.moreInCountry', { country: countryLabel(homeCode ?? '') })}
-            action={
-              <button
-                type="button"
-                onClick={() => preference.requestPicker()}
-                className={sectionLinkClasses()}
-              >
-                {t('sections.changeCity')}
-              </button>
-            }
-          />
-          <Rail
-            cols={4}
-            label={t('sections.moreInCountry', { country: countryLabel(homeCode ?? '') })}
-          >
-            {outside.sameCountry.slice(0, 8).map((e) => (
-              <RailItem key={e.id}>
-                <EventTile event={e} showCity state={states.get(e.slug)} />
-              </RailItem>
-            ))}
-          </Rail>
-        </section>
-      )}
-      {outsideScope &&
-        outside.elsewhere.map((group) => {
-          const items = group.items.slice(0, 4);
-          const currencies = [...new Set(items.map((e) => e.currency))];
-          const title = t('sections.elsewhereIn', { country: countryName(group.code) });
-          const id = `home-elsewhere-${group.code.toLowerCase()}`;
-          return (
-            <section
-              key={group.code}
-              aria-labelledby={id}
-              data-place-group="elsewhere"
-              data-country={group.code}
-              className={`${WRAP} pt-12 lg:pt-16`}
-            >
-              <SectionHead
-                id={id}
-                title={title}
-                hint={
-                  currencies.length === 1
-                    ? t('sections.pricesIn', {
-                        name: currencyName(currencies[0]),
-                        currency: currencies[0],
-                      })
-                    : undefined
-                }
-              />
-              <Rail cols={4} label={title}>
-                {items.map((e) => (
-                  <RailItem key={e.id}>
-                    <EventTile event={e} showCity state={states.get(e.slug)} />
-                  </RailItem>
-                ))}
-              </Rail>
-            </section>
-          );
-        })}
-
-      {/*
-        6. Recently viewed: current, still on sale, and scoped like everything else here (see
+        5. Recently viewed: current, still on sale, and scoped like everything else here (see
         `useRecentlyViewed` - it was once the one list nothing filtered or kept up to date).
       */}
       {recent.length > 0 && (
