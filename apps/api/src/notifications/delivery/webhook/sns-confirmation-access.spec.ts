@@ -3,15 +3,15 @@ import { ADMIN_PERMISSION_KEY, ROLES_KEY } from '../../../common/decorators';
 import { NotificationOpsController } from '../notification-ops.controller';
 
 /**
- * Who may read an SNS confirmation token.
+ * Who may read the SNS subscription confirmation status.
  *
  * ── WHY THIS IS ASSERTED ON THE ROUTES AND NOT THROUGH A LOGIN ─────────────────────
  * The guards that enforce these decorators are global and already have their own tests; what
- * is worth protecting here is that these three particular routes carry the HIGH capability
- * rather than inheriting the controller's read-level one. That distinction is a single
- * decorator, it is invisible in review, and getting it wrong would let any admin with
- * ordinary operational read access retrieve a token that attaches this platform's webhook to
- * an AWS topic.
+ * is worth protecting here is that this route carries the HIGH capability rather than
+ * inheriting the controller's read-level one: which topic the platform trusts is
+ * configuration. And that the token-revealing routes of the retired manual flow (ADR-052) are
+ * GONE -- since ADR-054 no token is ever held, and a route that could hand one out must not
+ * quietly come back.
  *
  * `admin-surface.spec.ts` already proves every admin controller is gated at all. This proves
  * the bar for these routes specifically.
@@ -19,7 +19,14 @@ import { NotificationOpsController } from '../notification-ops.controller';
 describe('the SNS confirmation routes are held at the configuration capability', () => {
   const proto = NotificationOpsController.prototype as unknown as Record<string, () => unknown>;
 
-  const ROUTES = ['snsPendingConfirmation', 'revealSnsConfirmation', 'markSnsConfirmed'] as const;
+  const ROUTES = ['snsPendingConfirmation'] as const;
+
+  it.each(['revealSnsConfirmation', 'markSnsConfirmed'])(
+    '%s no longer exists: nothing can reveal or hand-confirm a token',
+    (handler) => {
+      expect(proto[handler]).toBeUndefined();
+    },
+  );
 
   it.each(ROUTES)('%s requires PLATFORM_CONFIG', (handler) => {
     const permissions = Reflect.getMetadata(ADMIN_PERMISSION_KEY, proto[handler]) as
