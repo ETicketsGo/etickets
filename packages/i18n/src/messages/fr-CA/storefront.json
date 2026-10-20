@@ -641,7 +641,16 @@
         "one": "Annulé",
         "other": "Annulés"
       }
-    }
+    },
+    "admitOne": "Entrée pour une personne",
+    "date": "Date",
+    "time": "Heure",
+    "guest": "Invité",
+    "brighten": "Augmentez la luminosité de l'écran à l'entrée.",
+    "transfer": "Transférer",
+    "offlineReady": "Hors ligne",
+    "offlineReadyLabel": "Ce billet est enregistré sur cet appareil et fonctionne hors ligne.",
+    "passBack": "Billets"
   },
   "common": {
     "copy": "Copier",
@@ -953,7 +962,13 @@
       "active": "{count, plural, one {# actif} other {# actifs}}",
       "other": "{count, plural, one {# autre} other {# autres}}",
       "tickets": "{count, plural, one {# billet} other {# billets}}"
-    }
+    },
+    "openPass": "Ouvrir le billet",
+    "transfer": "Transférer",
+    "statusActive": "Actif",
+    "statusEnded": "Terminé",
+    "admitted": "{done} sur {total} entrés",
+    "stillToArrive": "{count, plural, one {# invité n'est pas encore arrivé} other {# invités ne sont pas encore arrivés}}"
   },
   "guest": {
     "title": "Acheter comme invité",

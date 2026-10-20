@@ -4,6 +4,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { Wallet } from 'lucide-react';
 import { brandButtonClasses, useToast } from '@eticketsgo/web-kit';
 import { api } from '@/lib/api';
+import { PASS_OUTLINE } from '@/components/pass-brand';
 
 const LABEL: Record<string, string> = { apple: 'Apple Wallet', google: 'Google Wallet' };
 
@@ -17,9 +18,15 @@ const LABEL: Record<string, string> = { apple: 'Apple Wallet', google: 'Google W
 export function WalletPasses({
   ticketId,
   ticketStatus,
+  variant = 'panel',
 }: {
   ticketId: string;
   ticketStatus: string;
+  /**
+   * `pass`: only the outlined buttons, for the dark pass page under the paper ticket (the
+   * owner's "ADD TO WALLET"). Same providers, same eligibility, same action.
+   */
+  variant?: 'panel' | 'pass';
 }) {
   const toast = useToast();
   const eligible = ticketStatus === 'ACTIVE';
@@ -66,6 +73,26 @@ export function WalletPasses({
   if (!eligible) return null;
   const usable = (providers.data?.providers ?? []).filter((p) => p.status !== 'unavailable');
   if (providers.isLoading || usable.length === 0) return null;
+
+  if (variant === 'pass')
+    return (
+      <>
+        {usable.map((p) => (
+          <button
+            key={p.provider}
+            type="button"
+            data-testid={`wallet-btn-${p.provider}`}
+            disabled={generate.isPending}
+            onClick={() => generate.mutate(p.provider)}
+            className={PASS_OUTLINE}
+          >
+            <Wallet className="h-4 w-4" aria-hidden />
+            Add to {LABEL[p.provider]}
+            {p.mode === 'sandbox' && <span className="normal-case tracking-normal">(sandbox)</span>}
+          </button>
+        ))}
+      </>
+    );
 
   return (
     <section
