@@ -28,7 +28,7 @@ async function buyAsGuest(page: import('@playwright/test').Page) {
 
   await page.getByLabel('Your name').fill(guest.name);
   await page.getByLabel('Email', { exact: true }).fill(guest.email);
-  await page.getByRole('button', { name: /Continue to payment/ }).click();
+  await page.getByRole('button', { name: /^Reserve/ }).click();
 
   await expect(page).toHaveURL(/\/booking\/.+\/payment/, { timeout: 20_000 });
   await page.getByRole('button', { name: /^Pay/ }).click();

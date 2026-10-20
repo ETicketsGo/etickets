@@ -8,7 +8,7 @@ import { ChevronLeft, ChevronRight, Images, MapPin, Share2 } from 'lucide-react'
 import { ImageLightbox } from '@/components/image-lightbox';
 import { heroState } from '@/lib/event-hero';
 import { eventIsSoldOut, showIsSoldOut } from '@/lib/event-availability';
-import { CONTINUE_ANCHOR_ID, StickyContinue } from '@/components/sticky-continue';
+import { BOOK_LINK_ID, CONTINUE_ANCHOR_ID, StickyContinue } from '@/components/sticky-continue';
 import {
   BRAND_FOCUS,
   BUSINESS_DETAILS,
@@ -43,21 +43,30 @@ import { PriceBreakdown } from '@/components/price-breakdown';
 import { nextStepAfterBooking } from '@/lib/after-booking';
 import { GuestBuyerFields, useGuestBuyer } from '@/components/guest-buyer';
 import { startGuestBooking } from '@/lib/guest-session';
-import { useTranslations } from 'next-intl';
-import { BuyerRegionField, moneyFractionDigits, useAuthUser } from '@eticketsgo/web-kit';
+import { useLocale, useTranslations } from 'next-intl';
+import { BuyerRegionField, formatFor, moneyFractionDigits, useAuthUser } from '@eticketsgo/web-kit';
 import { currentPageUrl } from '@/lib/site-url';
 import {
+  ArrivalFacts,
   ArtistsCard,
   EventFacts,
   OrganizerCard,
   TermsAgreeNote,
   TermsRow,
+  useDurationText,
   useTermsDialog,
 } from '@/components/event-details';
 import {
+  SeatPriceList,
+  TicketTypeChooser,
+  selectedTicketId,
+  type ChooserTicket,
+} from '@/components/event-reservation';
+import { Wordmark } from '@/components/wordmark';
+import { arrivalFacts, isEveningShow, longVenueDate } from '@/lib/event-editorial';
+import {
   BRAND_EYEBROW,
   BRAND_LINK,
-  BRAND_PANEL,
   QuantityStepper,
   TicketAvailability,
   useVenueWhen,
@@ -71,6 +80,9 @@ export default function EventDetailPage() {
   const { money, dateOnly } = useFormat();
   // The venue's clock, in parts, for the hero, the booking panel and the date chips.
   const venueWhen = useVenueWhen();
+  // The written-out date ("Thursday 5 November") in the storefront's English, never the browser's.
+  const locale = formatFor(useLocale()).locale ?? 'en-IN';
+  const durationText = useDurationText();
   const { slug } = useParams<{ slug: string }>();
   const router = useRouter();
   const {
@@ -110,6 +122,8 @@ export default function EventDetailPage() {
     }
   }, [user?.lastBuyerRegion, regionTouched, buyerRegion]);
   const [qty, setQty] = useState<Record<string, number>>({});
+  /* Which ticket the reservation card's guest stepper counts; see components/event-reservation. */
+  const [chosenTicket, setChosenTicket] = useState<string | null>(null);
   /*
     Buying without an account.
 
@@ -522,7 +536,7 @@ export default function EventDetailPage() {
       ? sf('event.holdingTickets')
       : event.isFree
         ? sf('event.getMyTickets')
-        : sf('event.continueToPayment');
+        : sf('event.reserve');
   /*
     Nothing left to buy, said at the top of the booking card as well as in each ticket row.
     A sold-out date of an event with other dates still on sale says so for the date, because
@@ -582,17 +596,19 @@ export default function EventDetailPage() {
   const hasArt = hero.mode !== 'none';
 
   /*
-    ── THE FIRST SCREEN ANSWERS "WHAT, WHEN, WHERE, HOW MUCH" ────────────────────────────
-    Audit C4: on a phone the first screen had the photo, the title and the organizer, and no
-    date, no price and no way to buy. The hero now carries the date in the venue's clock with
-    its zone named, the venue, the organizer, the lowest price still on sale and one action
-    that goes to the tickets.
+    ── WHAT THE FIRST SCREEN SAYS ────────────────────────────────────────────────────────
+    The owner's editorial design (2026-10-19): a gold line - category, city, the date written
+    out - a big centred title, a short gold rule and a wide picture. The date, the time with its
+    zone and the venue follow at once in the ruled fact row, and the reservation card sits
+    beside them from `lg`.
 
     "From" is the cheapest ticket of the shown date that can still be bought - one ticket's own
     price, in its own currency, never a sum. When nothing is on sale it falls back to the
-    cheapest listed, so the figure still describes the event rather than vanishing.
+    cheapest listed, so the figure still describes the event rather than vanishing. It is shown
+    on a phone, where the card is below the story, beside the jump to the tickets.
   */
   const shownWhen = session ? venueWhen(session.startsAt, zone) : null;
+  const longDate = session ? longVenueDate(session.startsAt, zone, locale) : null;
   const onSaleTypes = (session?.ticketTypes ?? []).filter(
     (t) => t.available > 0 && t.saleState !== 'CLOSED' && t.saleState !== 'NOT_YET',
   );
@@ -609,8 +625,74 @@ export default function EventDetailPage() {
   const futureSessions = event.sessions.filter((s) => new Date(s.startsAt).getTime() > Date.now());
   const supportEmail = publishedDetail(BUSINESS_DETAILS.supportEmail);
   const minutes = session ? showDurationMinutes(session.startsAt, session.endsAt) : null;
+  const duration = minutes ? durationText(minutes) : null;
+  const eyebrow = [event.category, event.venue.city, longDate?.short].filter(
+    (part): part is string => Boolean(part),
+  );
+  const arrival = arrivalFacts(futureSessions.length > 0);
+  const seatedChoice = Boolean(session?.seatBased && hasReservedTickets);
 
-  /** A quantity row: name, availability, price and a stepper. Shared by tickets, add-ons, bundles. */
+  /*
+    Ticket rows for the reservation card's radio list. Free tickets say "Free" rather than "Rs
+    0.00": a zero with a currency symbol reads as a price that failed to load.
+  */
+  const toChooser = (types: NonNullable<typeof session>['ticketTypes']): ChooserTicket[] =>
+    types.map((t) => {
+      const unavailable = t.available <= 0 || t.saleState === 'CLOSED' || t.saleState === 'NOT_YET';
+      return {
+        id: t.id,
+        name: t.name,
+        price: event.isFree
+          ? tx('state.free')
+          : money(t.priceMinor, t.currency, undefined, cardFractionDigits),
+        meta: (
+          <TicketAvailability
+            available={t.available}
+            saleState={t.saleState}
+            salesStartAt={t.salesStartAt}
+            zone={zone}
+            tone="caps"
+          />
+        ),
+        unavailable,
+        max: unavailable ? 0 : Math.min(t.maxPerOrder, t.available),
+      };
+    });
+  // A seated show sells its standing zones here and its named seats on the map.
+  const chooserTickets = session
+    ? toChooser(session.seatBased ? zoneTicketTypes : session.ticketTypes)
+    : [];
+  const selectedId = selectedTicketId(chooserTickets, chosenTicket, qty);
+  const setTicketQuantity = (id: string, n: number) => setQty((p) => ({ ...p, [id]: n }));
+  /*
+    "2 x VIP" on the breakdown's first row, as the design draws it - only when that row is
+    exactly that: one ticket type and nothing else in the cart. The amount beside it is still
+    the quote's own subtotal.
+  */
+  const countedTypes = chooserTickets.filter((t) => (qty[t.id] ?? 0) > 0);
+  const ticketsLabel =
+    countedTypes.length === 1 && quoteAddOns.length === 0 && quoteBundles.length === 0
+      ? sf('event.ticketLine', { count: qty[countedTypes[0].id], name: countedTypes[0].name })
+      : undefined;
+  const quotedTotal =
+    !event.isFree && quoteQ.data?.fees && !quoteQ.isFetching
+      ? money(quoteQ.data.fees.totalMinor, quoteQ.data.fees.currency, undefined, cardFractionDigits)
+      : null;
+
+  /** The ink button's words: "Reserve", then the quoted total once there is one. */
+  const reserveContent = (pending: boolean) => (
+    <>
+      {pending ? sf('event.holdingTickets') : continueLabel}
+      {!pending && quotedTotal ? (
+        <>
+          <Dot />
+          <span className="tabular-nums">{quotedTotal}</span>
+        </>
+      ) : null}
+    </>
+  );
+
+  /** A quantity row: name, availability, price and a stepper. For add-ons and bundles. */
   const ticketRow = ({
     id,
     name,
@@ -658,921 +740,878 @@ export default function EventDetailPage() {
     </li>
   );
 
-  const heroTitle = (
-    <div className="max-w-2xl">
-      {/*
-        No picture at all: the band carries the brand's no-image mark (EventArtwork's marigold
-        rule) above the words, so it reads as designed rather than as a photo that failed.
-      */}
-      {!hasArt ? (
-        <span aria-hidden className="mb-6 block h-1 w-16 rounded-full bg-brand-marigold" />
-      ) : null}
-      <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-brand-eyebrow uppercase text-brand-gold-text">
-        {[event.category, event.venue.city].filter(Boolean).join(' / ')}
-        <ContentLabelBadge label={event.contentLabel} />
-      </p>
-      <h1
-        id="event-title"
-        className="mt-3 text-balance font-brand-display text-brand-d1 text-brand-ink"
-      >
-        {event.title}
-      </h1>
-      <div className="mt-4 space-y-1 text-brand-body text-brand-ink-2">
-        {shownWhen ? (
-          <p>
-            <time dateTime={session!.startsAt}>
-              <span className="font-semibold text-brand-ink">{shownWhen.day},</span>{' '}
-              <span className="text-brand-ink">{shownWhen.time}</span>
-              {shownWhen.zone ? <span> {shownWhen.zone}</span> : null}
-            </time>
-            {futureSessions.length > 1 ? (
-              <span>
-                {' '}
-                -{' '}
-                {sf('event.dateRange', {
-                  from: dateOnly(
-                    futureSessions[0].startsAt,
-                    undefined,
-                    sessionZone(futureSessions[0], event),
-                  ),
-                  to: dateOnly(
-                    futureSessions[futureSessions.length - 1].startsAt,
-                    undefined,
-                    sessionZone(futureSessions[futureSessions.length - 1], event),
-                  ),
-                })}
-              </span>
-            ) : null}
-          </p>
-        ) : null}
-        <p>
-          {/* "Name, City", as Review & pay and the confirmation write the place. */}
-          <span className="font-semibold text-brand-ink">{event.venue.name},</span>{' '}
-          {event.venue.city}
-        </p>
-        <p>{sf('event.byOrganizer', { name: event.organizer.name })}</p>
-      </div>
-      <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-3">
-        {eventSoldOut ? (
-          <BrandStatusPill status="neutral">{sf('event.soldOutEventTitle')}</BrandStatusPill>
-        ) : (
-          <a href="#tickets" className={brandButtonClasses('primary', 'lg')}>
-            {sf('event.bookTickets')}
-          </a>
-        )}
-        {fromText && !eventSoldOut ? (
-          <p className="text-brand-ui text-brand-ink-2">
-            {event.isFree ? (
-              <span className="text-brand-figure-sm text-brand-ink">{fromText}</span>
-            ) : (
-              sf.rich('event.fromPrice', {
-                price: fromText,
-                strong: (chunks) => (
-                  <span className="text-brand-figure-sm tabular-nums text-brand-ink">{chunks}</span>
-                ),
-              })
-            )}
-          </p>
-        ) : null}
-      </div>
-    </div>
-  );
-
-  const quietOnPhoto = `flex min-h-11 items-center gap-1.5 rounded-full bg-brand-scrim/70 px-4 text-brand-meta font-semibold text-brand-ink transition-colors hover:bg-brand-scrim/90 ${BRAND_FOCUS}`;
+  const photoControl = `flex min-h-11 items-center gap-1.5 rounded-full bg-brand-scrim/70 px-4 text-brand-meta font-semibold text-brand-ink transition-colors hover:bg-brand-scrim/90 ${BRAND_FOCUS}`;
 
   return (
     <div
       data-brand="customer"
-      // Out to the edges of the page column: the hero is a band, not a card.
+      // Out to the edges of the page column, so the paper runs edge to edge.
       className="-mx-4 -mt-6 bg-brand-canvas pb-16 font-brand-text text-brand-ink sm:-mx-6 sm:-mt-10 lg:-mx-8 lg:pb-24"
     >
-      {/*
-        ── THE HERO IS A STAGE BAND ─────────────────────────────────────────────────────
-        DESIGN-SYSTEM.md section 6: text sits on a photo only on a stage band, over a scrim from
-        the text side, never over the focal point. On a phone the picture comes first and the
-        words sit under it on the same dark band (a 16:9 photo on a 390px screen is 220px, and
-        words laid over it covered it); from `lg` the picture fills the band and the words sit in
-        its left third over the scrim.
-
-        The banner copy is cut by the API to 16:9 around the organizer's focal point; a wider box
-        crops further around the same point. The whole picture is one tap away in the viewer.
-      */}
-      <section
-        data-brand-tone="stage"
-        aria-labelledby="event-title"
-        className="relative isolate overflow-hidden bg-brand-canvas"
-      >
-        {heroImage ? (
-          <div className="relative aspect-video w-full lg:absolute lg:inset-0 lg:aspect-auto">
-            <button
-              type="button"
-              onClick={() => setLightbox(shownImage)}
-              aria-label={
-                gallery.length > 1
-                  ? sf('event.galleryOpen', { total: gallery.length })
-                  : sf('event.galleryOpenOne')
-              }
-              className="absolute inset-0 cursor-zoom-in focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-inset focus-visible:ring-brand-focus"
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                key={heroImage.banner.src}
-                src={heroImage.banner.src}
-                srcSet={heroImage.banner.srcSet}
-                sizes="(min-width: 1440px) 1440px, 100vw"
-                alt=""
-                width={1280}
-                height={720}
-                // The largest thing on the page. Lower case: see the note on EventCard.
-                {...{ fetchpriority: 'high' }}
-                onError={() => markImageFailed(heroImage.full)}
-                style={{ objectPosition: heroImage.position }}
-                className="h-full w-full animate-fade-in object-cover"
-              />
-            </button>
-            {/* The scrim: from the text side (left) on a wide screen, from below on a phone. */}
-            <div
-              aria-hidden
-              className="pointer-events-none absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-brand-canvas to-transparent lg:hidden"
-            />
-            <div
-              aria-hidden
-              className="pointer-events-none absolute inset-0 hidden bg-gradient-to-r from-brand-scrim/90 via-brand-scrim/40 to-transparent lg:block"
-            />
-            <div
-              aria-hidden
-              className="pointer-events-none absolute inset-x-0 bottom-0 hidden h-1/2 bg-gradient-to-t from-brand-scrim/80 to-transparent lg:block"
-            />
-          </div>
-        ) : hasArt ? (
-          /*
-            Every image failed. The band keeps a picture-shaped box so nothing below it moves,
-            filled with the stage colour and a marigold rule - the brand's no-image artwork, with
-            the title left to the heading beside it rather than printed twice.
-          */
-          <div
-            aria-hidden
-            data-testid="event-hero-placeholder"
-            className="relative flex aspect-video w-full items-end bg-brand-image-fallback p-6 lg:absolute lg:inset-0 lg:aspect-auto lg:justify-end lg:p-10"
+      <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-10">
+        {/*
+          ── THE EDITORIAL HEADER ───────────────────────────────────────────────────────
+          Centred: the gold line, the title and a short gold rule. The separators are drawn
+          dots, not characters, so the line stays plain text for a screen reader and ASCII in
+          the catalogue.
+        */}
+        <header className="pt-10 text-center sm:pt-14">
+          <p className="flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1 text-brand-eyebrow uppercase text-brand-gold-text">
+            {eyebrow.map((part, index) => (
+              <span key={`${part}-${index}`} className="inline-flex items-center gap-x-2.5">
+                {index > 0 ? <Dot /> : null}
+                {part}
+              </span>
+            ))}
+            <ContentLabelBadge label={event.contentLabel} />
+          </p>
+          <h1
+            id="event-title"
+            className="mx-auto mt-4 max-w-4xl text-balance font-brand-display text-brand-d1 text-brand-ink lg:text-brand-hero"
           >
-            <span className="h-1 w-16 rounded-full bg-brand-marigold" />
+            {event.title}
+          </h1>
+          <span aria-hidden className="mx-auto mt-6 block h-px w-12 bg-brand-marigold" />
+          {/*
+            On a phone the card is below the story, so the first screen keeps a way to it and
+            the lowest price. From `lg` the card is beside the picture and needs no pointer.
+          */}
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-x-5 gap-y-3 lg:hidden">
+            {eventSoldOut ? (
+              <BrandStatusPill status="neutral">{sf('event.soldOutEventTitle')}</BrandStatusPill>
+            ) : (
+              <a id={BOOK_LINK_ID} href="#tickets" className={brandButtonClasses('primary', 'lg')}>
+                {sf('event.bookTickets')}
+              </a>
+            )}
+            {fromText && !eventSoldOut ? (
+              <p className="text-brand-ui text-brand-ink-2">
+                {event.isFree ? (
+                  <span className="text-brand-figure-sm text-brand-ink">{fromText}</span>
+                ) : (
+                  sf.rich('event.fromPrice', {
+                    price: fromText,
+                    strong: (chunks) => (
+                      <span className="text-brand-figure-sm tabular-nums text-brand-ink">
+                        {chunks}
+                      </span>
+                    ),
+                  })
+                )}
+              </p>
+            ) : null}
           </div>
-        ) : null}
+        </header>
 
-        {/* Photo controls, top right; Share always (it is about the event, not the photo). */}
-        <div className="absolute right-4 top-4 z-10 flex gap-2 sm:right-6 lg:right-10 lg:top-6">
-          {heroImage && (
-            <button type="button" onClick={() => setLightbox(shownImage)} className={quietOnPhoto}>
-              <Images className="h-4 w-4" aria-hidden />
-              {gallery.length > 1
-                ? sf('event.galleryOpen', { total: gallery.length })
-                : sf('event.galleryOpenOne')}
-            </button>
-          )}
-          <button type="button" onClick={share} className={quietOnPhoto}>
-            <Share2 className="h-4 w-4" aria-hidden />
-            {shared ? sf('common.copied') : tx('action.share')}
-          </button>
-        </div>
-        {heroImage && gallery.length > 1 && (
-          <div className="absolute inset-x-4 top-1/2 z-10 hidden -translate-y-1/2 justify-between sm:flex lg:hidden">
-            <button
-              type="button"
-              onClick={() => setActiveImage((shownImage - 1 + gallery.length) % gallery.length)}
-              aria-label={sf('event.galleryPrevious')}
-              className={`${quietOnPhoto} w-11 justify-center px-0`}
-            >
-              <ChevronLeft className="h-5 w-5" aria-hidden />
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveImage((shownImage + 1) % gallery.length)}
-              aria-label={sf('event.galleryNext')}
-              className={`${quietOnPhoto} w-11 justify-center px-0`}
-            >
-              <ChevronRight className="h-5 w-5" aria-hidden />
-            </button>
-          </div>
-        )}
-
-        <div
-          className={`relative px-4 pb-10 sm:px-6 lg:flex lg:items-end lg:px-10 lg:pb-14 ${
-            hasArt ? 'pt-2 lg:min-h-[600px] lg:pt-32' : 'pt-12 lg:min-h-[360px] lg:pt-20'
-          }`}
+        {/*
+          ── THE PICTURE ─────────────────────────────────────────────────────────────────
+          Wide, below the title, with nothing printed on it. The banner copy is cut by the API
+          to 16:9 around the organizer's focal point; the wider desktop box crops further
+          around the same point, and the whole picture is one tap away in the viewer. With no
+          picture, or none that loads, the brand's own artwork holds the same box, so nothing
+          below it moves and no broken image shows.
+        */}
+        <figure
+          data-brand-tone="stage"
+          className="relative mt-8 overflow-hidden bg-brand-image-fallback sm:mt-10"
         >
-          {heroTitle}
-        </div>
-      </section>
-
-      {/*
-        The rest of the organizer's images, as buttons that put one in the hero. Buttons with a
-        pressed state rather than a carousel: every image is one tab-stop away, a screen reader
-        hears which is showing, and nothing moves by itself.
-      */}
-      {gallery.length > 1 && (
-        <ul
-          className="flex gap-2 overflow-x-auto px-4 pt-4 sm:px-6 lg:px-10"
-          aria-label={sf('event.galleryLabel')}
-        >
-          {gallery.map((image, index) => (
-            <li key={image.full} className="shrink-0">
+          <div className="relative aspect-video w-full lg:aspect-[21/9]">
+            {heroImage ? (
               <button
                 type="button"
-                onClick={() => setActiveImage(index)}
-                aria-pressed={index === shownImage}
-                aria-label={sf('event.galleryShow', { index: index + 1, total: gallery.length })}
-                className={`block overflow-hidden rounded-brand-control border-2 transition-opacity ${BRAND_FOCUS} ${
-                  index === shownImage
-                    ? 'border-brand-ink'
-                    : 'border-transparent opacity-75 hover:opacity-100'
-                }`}
+                onClick={() => setLightbox(shownImage)}
+                aria-label={
+                  gallery.length > 1
+                    ? sf('event.galleryOpen', { total: gallery.length })
+                    : sf('event.galleryOpenOne')
+                }
+                className="absolute inset-0 cursor-zoom-in focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-inset focus-visible:ring-brand-focus"
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  src={image.strip}
+                  key={heroImage.banner.src}
+                  src={heroImage.banner.src}
+                  srcSet={heroImage.banner.srcSet}
+                  sizes="(min-width: 1152px) 1152px, 100vw"
                   alt=""
-                  width={114}
-                  height={64}
-                  loading="lazy"
-                  // A thumbnail that cannot load takes its image out of the gallery with it.
-                  onError={() => markImageFailed(image.full)}
-                  className="aspect-video h-16 object-cover"
+                  width={1280}
+                  height={720}
+                  // The largest thing on the page. Camel case: React 19 writes it as `fetchpriority`.
+                  fetchPriority="high"
+                  onError={() => markImageFailed(heroImage.full)}
+                  style={{ objectPosition: heroImage.position }}
+                  className="h-full w-full animate-fade-in object-cover"
                 />
               </button>
-            </li>
-          ))}
-        </ul>
-      )}
-      <ImageLightbox
-        images={gallery.map((image) => image.full)}
-        index={lightbox}
-        title={event.title}
-        onIndexChange={(index) => {
-          setLightbox(index);
-          // Closing leaves the hero on the image the buyer was looking at.
-          setActiveImage(index);
-        }}
-        onClose={() => setLightbox(null)}
-      />
-
-      {/*
-        ── TICKETS FIRST ON A PHONE, BESIDE THE STORY ON A DESK ─────────────────────────
-        The booking panel is first in the document, so on one column it follows the hero
-        directly: "which date, which tickets, how much" is the next thing a buyer meets, not
-        the last (it used to come after the description, the artists and the sessions - "I need
-        to scroll a lot to reach select no of tickets"). From `lg` it moves to the right
-        column and stays in view while the story scrolls past.
-      */}
-      <div className="mt-8 grid grid-cols-1 gap-8 px-4 sm:px-6 lg:mt-12 lg:grid-cols-3 lg:gap-12 lg:px-10">
-        <div className="lg:sticky lg:top-24 lg:col-start-3 lg:row-start-1 lg:h-fit">
-          <section
-            id="tickets"
-            aria-labelledby="tickets-heading"
-            className={`${BRAND_PANEL} scroll-mt-24 p-4 sm:p-6`}
-          >
-            <h2 id="tickets-heading" className="font-brand-display text-brand-d3 text-brand-ink">
-              {session?.seatBased && hasReservedTickets
-                ? sf('event.seatedHeading')
-                : sf('event.selectTickets')}
-            </h2>
-            {shownWhen ? (
-              <p className="mt-1 text-brand-meta text-brand-ink-2">
-                {shownWhen.day}, {shownWhen.time}
-                {shownWhen.zone ? ` ${shownWhen.zone}` : ''} - {event.venue.name}
-              </p>
-            ) : null}
-
-            {/*
-              Dates, as chips, inside the booking panel: the date and the tickets are one
-              decision. Only when there is more than one to choose from.
-            */}
-            {event.sessions.length > 1 ? (
-              <div className="mt-5">
-                <p className={BRAND_EYEBROW}>{sf('event.chooseDate')}</p>
-                <div
-                  role="group"
-                  aria-label={sf('event.sessionsHeading')}
-                  className="-mx-1 mt-2 flex gap-2 overflow-x-auto px-1 pb-1"
-                >
-                  {event.sessions.map((s) => {
-                    const active = session?.id === s.id;
-                    // Only from a page left open past the start: the API no longer sends these.
-                    const started = new Date(s.startsAt).getTime() <= Date.now();
-                    const when = venueWhen(s.startsAt, sessionZone(s, event));
-                    return (
-                      <button
-                        key={s.id}
-                        type="button"
-                        disabled={started}
-                        aria-pressed={active}
-                        onClick={() => {
-                          setSessionId(s.id);
-                          setQty({});
-                        }}
-                        className={`${brandChipClasses(active)} h-11 shrink-0 disabled:opacity-40`}
-                      >
-                        {when.day.replace(/\s\d{4}$/, '')}, {when.time}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : null}
-            {futureSessions.length === 0 ? (
-              <p className="mt-4 text-brand-ui text-brand-ink-2">
-                {sf('event.noUpcomingSessions')}
-              </p>
-            ) : null}
-
-            {dateSoldOut && (
+            ) : (
               <div
-                role="status"
-                data-testid="event-sold-out"
-                className="mt-5 rounded-brand-control bg-brand-sunken px-4 py-3"
+                aria-hidden
+                data-testid={hasArt ? 'event-hero-placeholder' : 'event-hero-brand'}
+                className="absolute inset-0 flex flex-col items-center justify-center gap-5 text-etg-gold-on-ink"
               >
-                <p className="text-brand-ui font-semibold text-brand-ink">
-                  {eventSoldOut ? sf('event.soldOutEventTitle') : sf('event.soldOutDateTitle')}
-                </p>
-                <p className="mt-1 text-brand-meta text-brand-ink-2">
-                  {eventSoldOut ? sf('event.soldOutEventHint') : sf('event.soldOutDateHint')}
-                </p>
+                <Wordmark className="text-[2rem] sm:text-[2.75rem]" />
+                <span className="h-px w-12 bg-brand-marigold" />
               </div>
             )}
+          </div>
+
+          {/* Photo controls, top right; Share always (it is about the event, not the photo). */}
+          <div className="absolute right-3 top-3 z-10 flex gap-2 sm:right-4 sm:top-4">
+            {heroImage && (
+              <button
+                type="button"
+                onClick={() => setLightbox(shownImage)}
+                className={photoControl}
+              >
+                <Images className="h-4 w-4" aria-hidden />
+                {gallery.length > 1
+                  ? sf('event.galleryOpen', { total: gallery.length })
+                  : sf('event.galleryOpenOne')}
+              </button>
+            )}
+            <button type="button" onClick={share} className={photoControl}>
+              <Share2 className="h-4 w-4" aria-hidden />
+              {shared ? sf('common.copied') : tx('action.share')}
+            </button>
+          </div>
+          {heroImage && gallery.length > 1 && (
+            <div className="absolute inset-x-3 top-1/2 z-10 hidden -translate-y-1/2 justify-between sm:flex">
+              <button
+                type="button"
+                onClick={() => setActiveImage((shownImage - 1 + gallery.length) % gallery.length)}
+                aria-label={sf('event.galleryPrevious')}
+                className={`${photoControl} w-11 justify-center px-0`}
+              >
+                <ChevronLeft className="h-5 w-5" aria-hidden />
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveImage((shownImage + 1) % gallery.length)}
+                aria-label={sf('event.galleryNext')}
+                className={`${photoControl} w-11 justify-center px-0`}
+              >
+                <ChevronRight className="h-5 w-5" aria-hidden />
+              </button>
+            </div>
+          )}
+        </figure>
+
+        {/*
+          The rest of the organizer's images, as buttons that put one in the picture. Buttons
+          with a pressed state rather than a carousel: every image is one tab-stop away, a screen
+          reader hears which is showing, and nothing moves by itself.
+        */}
+        {gallery.length > 1 && (
+          <ul className="flex gap-2 overflow-x-auto pt-4" aria-label={sf('event.galleryLabel')}>
+            {gallery.map((image, index) => (
+              <li key={image.full} className="shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setActiveImage(index)}
+                  aria-pressed={index === shownImage}
+                  aria-label={sf('event.galleryShow', { index: index + 1, total: gallery.length })}
+                  className={`block overflow-hidden border-2 transition-opacity ${BRAND_FOCUS} ${
+                    index === shownImage
+                      ? 'border-brand-ink'
+                      : 'border-transparent opacity-75 hover:opacity-100'
+                  }`}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={image.strip}
+                    alt=""
+                    width={114}
+                    height={64}
+                    loading="lazy"
+                    // A thumbnail that cannot load takes its image out of the gallery with it.
+                    onError={() => markImageFailed(image.full)}
+                    className="aspect-video h-16 object-cover"
+                  />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <ImageLightbox
+          images={gallery.map((image) => image.full)}
+          index={lightbox}
+          title={event.title}
+          onIndexChange={(index) => {
+            setLightbox(index);
+            // Closing leaves the picture on the image the buyer was looking at.
+            setActiveImage(index);
+          }}
+          onClose={() => setLightbox(null)}
+        />
+
+        {/*
+          ── THE STORY, AND THE RESERVATION BESIDE IT ─────────────────────────────────────
+          From `lg` the card is the right column and stays in view while the story scrolls past.
+          On one column it comes after the story, as the owner's phone design has it; the
+          "Book tickets" link in the header and the sticky bar keep it one tap away.
+        */}
+        <div className="mt-10 grid grid-cols-1 gap-12 lg:mt-12 lg:grid-cols-[minmax(0,1fr)_22.5rem] lg:gap-14">
+          <div className="min-w-0 space-y-14 lg:col-start-1 lg:row-start-1">
+            <EventFacts
+              event={event}
+              when={shownWhen}
+              longDate={longDate}
+              duration={duration}
+              dateRange={
+                futureSessions.length > 1
+                  ? sf('event.dateRange', {
+                      from: dateOnly(
+                        futureSessions[0].startsAt,
+                        undefined,
+                        sessionZone(futureSessions[0], event),
+                      ),
+                      to: dateOnly(
+                        futureSessions[futureSessions.length - 1].startsAt,
+                        undefined,
+                        sessionZone(futureSessions[futureSessions.length - 1], event),
+                      ),
+                    })
+                  : null
+              }
+              note={sf('event.venueTimeNote')}
+            />
+
+            {event.description && (
+              <section aria-labelledby="about-heading" className="max-w-prose">
+                <h2 id="about-heading" className="font-brand-display text-brand-d2 text-brand-ink">
+                  {longDate && isEveningShow(longDate.hour)
+                    ? sf('event.theEvening')
+                    : sf('event.about')}
+                </h2>
+                <p className="mt-4 whitespace-pre-line text-brand-body text-brand-ink-2">
+                  {event.description}
+                </p>
+              </section>
+            )}
+
+            <ArrivalFacts facts={arrival} />
+
+            <ArtistsCard artists={event.artists} />
+
+            <div className="grid grid-cols-1 gap-10 sm:grid-cols-2 sm:gap-8">
+              <section
+                aria-labelledby="venue-heading"
+                className="min-w-0 break-words border-t border-brand-line pt-5"
+              >
+                <h2 id="venue-heading" className={BRAND_EYEBROW}>
+                  {sf('event.venueHeading')}
+                </h2>
+                <p className="mt-3 font-brand-display text-brand-card text-brand-ink">
+                  {event.venue.name}
+                </p>
+                {/*
+                  Composed, not concatenated. The city, state and country are their own columns
+                  and `address` is one free-text box, so an organizer who types the whole address
+                  into it - which is what the word invites - used to get it printed twice:
+                  "Worli, Mumbai, MH, Mumbai, India". See `venueAddressLine`.
+                */}
+                <p className="mt-1 text-brand-ui text-brand-ink-2">
+                  {venueAddressLine(event.venue)}
+                </p>
+                {/*
+                  Directions open the map app the buyer already has. Venues store an address and
+                  no coordinates, so there is nothing to draw here, and an empty "map preview" box
+                  is a promise rendered as a grey rectangle.
+                */}
+                <a
+                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                    venueMapQuery(event.venue),
+                  )}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`${brandButtonClasses('secondary', 'md')} mt-4`}
+                >
+                  <MapPin className="h-4 w-4" aria-hidden />
+                  {sf('event.getDirections')}
+                  <span className="sr-only">{sf('event.opensInNewTab')}</span>
+                </a>
+              </section>
+              <OrganizerCard organizer={event.organizer} />
+            </div>
 
             {/*
-              A seated show is chosen on the seat map, not here.
-
-              Reserved seating used to exist only for cinemas, so this card only ever needed
-              to offer quantities. Now that a session can be in a room, offering a quantity
-              box for one would let somebody ask for "two of Stalls" without saying WHICH two
-              — and the booking would be refused at the last step with "please select a seat
-              for each ticket", after they had committed to the price.
-
-              Read from the session rather than from the event: two dates of the same tour
-              can differ, one in a seated theatre and one in a standing room.
+              Who to ask. The organizer runs the event; the platform holds the booking and the
+              money. A buyer about to pay should see both, and how to reach us, before they pay.
+              The address is the published one (BUSINESS_DETAILS); while none is published the
+              contact page stands in, which always reaches a person.
             */}
-            {session?.seatBased ? (
-              sessionStarted ? null : (
-                <div className="mt-5 space-y-5">
-                  {hasReservedTickets && (
-                    <>
-                      <p className="text-brand-ui text-brand-ink-2">{sf('event.seatedLead')}</p>
-                      <Link
-                        href={`/shows/${session.id}`}
-                        className={`${brandButtonClasses('primary', 'lg')} w-full`}
-                      >
-                        {sf('event.chooseSeats')}
-                      </Link>
-                    </>
-                  )}
-                  {zoneTicketTypes.length > 0 && (
-                    <ul className="divide-y divide-brand-line">
-                      {zoneTicketTypes.map((ticketType) => {
-                        const unavailable =
-                          ticketType.available <= 0 ||
-                          ticketType.saleState === 'CLOSED' ||
-                          ticketType.saleState === 'NOT_YET';
-                        return ticketRow({
-                          id: ticketType.id,
-                          name: ticketType.name,
-                          meta: (
-                            <TicketAvailability
-                              available={ticketType.available}
-                              saleState={ticketType.saleState}
-                              salesStartAt={ticketType.salesStartAt}
-                              zone={zone}
-                            />
-                          ),
-                          price: money(
-                            ticketType.priceMinor,
-                            ticketType.currency,
-                            undefined,
-                            cardFractionDigits,
-                          ),
-                          value: qty[ticketType.id] ?? 0,
-                          max: unavailable
-                            ? 0
-                            : Math.min(ticketType.maxPerOrder, ticketType.available),
-                          disabled: unavailable,
-                          onChange: (n) =>
-                            setQty((previous) => ({ ...previous, [ticketType.id]: n })),
-                        });
-                      })}
-                    </ul>
-                  )}
-                  {zoneTicketTypes.length > 0 && (
-                    <>
-                      <PriceBreakdown
-                        free={event.isFree}
-                        quote={quoteQ.data?.fees}
-                        loading={quoteQ.isFetching}
-                        fallbackTotalMinor={ticketSubtotal}
-                        fallbackCurrency={zoneTicketTypes[0]?.currency}
-                        fractionDigits={cardFractionDigits}
-                      />
-                      {(guest.asGuest || guest.needsContact) && (
-                        <GuestBuyerFields
-                          state={guest}
-                          variant={guest.asGuest ? 'guest' : 'account'}
-                        />
-                      )}
-                      {error && (
-                        <p role="alert" className="text-brand-meta text-brand-critical">
-                          {error}
-                        </p>
-                      )}
-                      <BrandButton
-                        size="lg"
-                        className="w-full"
-                        disabled={
-                          zoneTicketTypes.every((ticketType) => (qty[ticketType.id] ?? 0) === 0) ||
-                          book.isPending
-                        }
-                        aria-busy={book.isPending || undefined}
-                        onClick={() => startBooking(false)}
-                      >
-                        {book.isPending
-                          ? sf('event.holdingTickets')
-                          : sf('event.continueToPayment')}
-                      </BrandButton>
-                    </>
-                  )}
+            <section
+              aria-labelledby="support-heading"
+              className="break-words border-t border-brand-line pt-6"
+            >
+              <h2 id="support-heading" className="font-brand-display text-brand-d3 text-brand-ink">
+                {sf('event.supportHeading')}
+              </h2>
+              <p className="mt-2 max-w-prose text-brand-ui text-brand-ink-2">
+                {sf('event.supportBody', { organizer: event.organizer.name })}
+              </p>
+              {event.refundPolicy ? (
+                <div className="mt-4 border-t border-brand-line pt-4">
+                  <h3 className="text-brand-ui font-semibold text-brand-ink">
+                    {sf('event.refundPolicy')}
+                  </h3>
+                  <p className="mt-1 text-brand-ui text-brand-ink-2">{event.refundPolicy}</p>
                 </div>
-              )
-            ) : (
-              <>
-                {(session?.ticketTypes.length ?? 0) > 0 && (
-                  <ul className="mt-5 divide-y divide-brand-line" data-testid="ticket-selection">
-                    {session!.ticketTypes.map((t) => {
-                      const unavailable =
-                        t.available <= 0 || t.saleState === 'CLOSED' || t.saleState === 'NOT_YET';
-                      return ticketRow({
-                        id: t.id,
-                        name: t.name,
-                        meta: (
-                          <TicketAvailability
-                            available={t.available}
-                            saleState={t.saleState}
-                            salesStartAt={t.salesStartAt}
-                            zone={zone}
-                          />
-                        ),
-                        /*
-                          "Free" rather than "Rs 0.00". A zero with a currency symbol reads as a
-                          price that failed to load, and it is the one thing about this event a
-                          buyer most wants confirmed before they commit to a seat.
-                        */
-                        price: event.isFree
-                          ? tx('state.free')
-                          : money(t.priceMinor, t.currency, undefined, cardFractionDigits),
-                        value: qty[t.id] ?? 0,
-                        max: unavailable ? 0 : Math.min(t.maxPerOrder, t.available),
-                        disabled: unavailable,
-                        onChange: (n) => setQty((p) => ({ ...p, [t.id]: n })),
-                      });
-                    })}
-                  </ul>
-                )}
-
-                {/* Upsell: add-ons (v1.3) */}
-                {addOns.length > 0 && !dateSoldOut && (
-                  <div className="mt-6">
-                    <p className={BRAND_EYEBROW}>{sf('event.enhance')}</p>
-                    <ul className="mt-3 divide-y divide-brand-line">
-                      {addOns.map((a) =>
-                        ticketRow({
-                          id: a.id,
-                          name: a.name,
-                          meta: a.soldOut ? (
-                            <BrandStatusPill status="neutral">
-                              {tx('state.soldOut')}
-                            </BrandStatusPill>
-                          ) : null,
-                          price: money(a.priceMinor, a.currency, undefined, cardFractionDigits),
-                          value: addOnQty[a.id] ?? 0,
-                          max: Math.max(
-                            0,
-                            a.remaining === null
-                              ? a.maxPerOrder
-                              : Math.min(a.maxPerOrder, a.remaining),
-                          ),
-                          disabled: a.soldOut,
-                          onChange: (n) => setAddOnQty((p) => ({ ...p, [a.id]: n })),
-                        }),
-                      )}
-                    </ul>
-                  </div>
-                )}
-
-                {/* Cross-sell: bundles (v1.3) */}
-                {bundles.length > 0 && !dateSoldOut && (
-                  <div className="mt-6">
-                    <p className={BRAND_EYEBROW}>{sf('event.bundlesHeading')}</p>
-                    <ul className="mt-3 divide-y divide-brand-line">
-                      {bundles.map((bundle) =>
-                        ticketRow({
-                          id: bundle.id,
-                          name: bundle.name,
-                          meta:
-                            bundle.savingsMinor > 0 ? (
-                              <BrandStatusPill status="positive">
-                                {sf('event.bundleSave', {
-                                  amount: money(
-                                    bundle.savingsMinor,
-                                    bundle.currency,
-                                    undefined,
-                                    cardFractionDigits,
-                                  ),
-                                })}
-                              </BrandStatusPill>
-                            ) : null,
-                          extra:
-                            bundle.components.length > 0 ? (
-                              <p className="mt-1 text-brand-meta text-brand-ink-3">
-                                {sf('event.bundleIncludes', {
-                                  items: bundle.components
-                                    .map((c) => `${c.quantity}x ${c.label}`)
-                                    .join(', '),
-                                })}
-                              </p>
-                            ) : null,
-                          price: money(
-                            bundle.priceFromMinor,
-                            bundle.currency,
-                            undefined,
-                            cardFractionDigits,
-                          ),
-                          value: bundleQty[bundle.id] ?? 0,
-                          max: bundle.maxPerOrder,
-                          disabled: false,
-                          onChange: (n) => setBundleQty((p) => ({ ...p, [bundle.id]: n })),
-                        }),
-                      )}
-                    </ul>
-                  </div>
-                )}
-
-                {/* Above the breakdown, because it can change what the breakdown says. */}
-                {!event.isFree && !dateSoldOut && (
-                  <div className="mt-6">
-                    <BuyerRegionField
-                      value={buyerRegion}
-                      onChange={(v) => {
-                        setRegionTouched(true);
-                        setBuyerRegion(v);
-                      }}
-                      prefilled={Boolean(user?.lastBuyerRegion) && !regionTouched}
-                      country={event.venue?.country}
-                      // Translated: the field's English defaults showed on French Indian pages (QA).
-                      label={sf('checkout.buyerRegionLabel')}
-                      hint={sf('checkout.buyerRegionHint')}
-                      noneLabel={sf('checkout.buyerRegionNone')}
-                      prefilledNote={sf('checkout.buyerRegionPrefilled')}
-                    />
-                  </div>
-                )}
-
-                {!dateSoldOut && (
-                  <div className="mt-6">
-                    <PriceBreakdown
-                      free={event.isFree}
-                      quote={quoteQ.data?.fees}
-                      loading={quoteQ.isFetching}
-                      fallbackTotalMinor={subtotal}
-                      /*
-                        What the tickets on this page are priced in, so the total before any
-                        quote matches the prices above it. Without this the breakdown had no
-                        currency until a ticket was chosen, and `money()` falls back to INR --
-                        so a dollar-priced event opened on a rupee total.
-                      */
-                      fallbackCurrency={
-                        event.sessions.flatMap((s) => s.ticketTypes)[0]?.currency ?? undefined
-                      }
-                      // Decided above, from everything on this card - see `cardFractionDigits`.
-                      fractionDigits={cardFractionDigits}
-                    />
-                  </div>
-                )}
-
-                {/*
-                  Name and email, for somebody with no account. Below the price and above the
-                  button, which is the order the buyer reads: what it costs, who it is for,
-                  then pay.
-                */}
-                {!dateSoldOut && (guest.asGuest || guest.needsContact) && (
-                  <div className="mt-6">
-                    <GuestBuyerFields state={guest} variant={guest.asGuest ? 'guest' : 'account'} />
-                  </div>
-                )}
-
-                {error && (
-                  <p role="alert" className="mt-4 text-brand-meta text-brand-critical">
-                    {error}
-                  </p>
-                )}
-                {/* Nothing to continue to when nothing is left; the notice above says so. */}
-                {!dateSoldOut && (
-                  <div id={CONTINUE_ANCHOR_ID} className="mt-6">
-                    <BrandButton
-                      size="lg"
-                      className="w-full"
-                      aria-busy={(book.isPending && !payWithCash) || undefined}
-                      disabled={totalQty === 0 || book.isPending || sessionStarted}
-                      onClick={() => startBooking(false)}
+              ) : null}
+              <ul className="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-brand-ui">
+                {supportEmail ? (
+                  <li>
+                    <a
+                      href={`mailto:${supportEmail}`}
+                      className={`${BRAND_LINK} inline-flex min-h-6 items-center`}
                     >
-                      {continueLabel}
-                    </BrandButton>
+                      {sf('event.supportEmail', { email: supportEmail })}
+                    </a>
+                  </li>
+                ) : null}
+                <li>
+                  <Link href="/help" className={`${BRAND_LINK} inline-flex min-h-6 items-center`}>
+                    {sf('event.supportHelp')}
+                  </Link>
+                </li>
+                <li>
+                  <Link
+                    href="/help/contact"
+                    className={`${BRAND_LINK} inline-flex min-h-6 items-center`}
+                  >
+                    {sf('event.supportContact')}
+                  </Link>
+                </li>
+                {terms.hasTerms ? (
+                  <li>
+                    <TermsRow onOpen={terms.open} />
+                  </li>
+                ) : null}
+              </ul>
+            </section>
+            {terms.dialog}
+
+            {/* Reviews */}
+            <section aria-labelledby="reviews-heading">
+              <h2 id="reviews-heading" className="font-brand-display text-brand-d2 text-brand-ink">
+                {sf('event.reviews')}
+              </h2>
+              <div className="mt-4">
+                {reviews.isLoading ? (
+                  <div className="space-y-3">
+                    <BrandSkeleton className="h-16 w-40" />
+                    <BrandSkeleton className="h-10 w-full" />
                   </div>
+                ) : reviews.data && reviews.data.count > 0 ? (
+                  <div className="space-y-5">
+                    <div className="flex items-center gap-6">
+                      <div>
+                        <p className="text-brand-figure tabular-nums text-brand-ink">
+                          {reviews.data.average.toFixed(1)}
+                        </p>
+                        <RatingStars value={Math.round(reviews.data.average)} size="sm" />
+                        <p className="mt-1 text-brand-meta text-brand-ink-3">
+                          {sf('event.reviewCount', { count: reviews.data.count })}
+                        </p>
+                      </div>
+                      <div className="flex-1 space-y-1">
+                        {[5, 4, 3, 2, 1].map((star) => {
+                          const c = reviews.data!.distribution[String(star)] ?? 0;
+                          const pct = reviews.data!.count
+                            ? Math.round((c / reviews.data!.count) * 100)
+                            : 0;
+                          return (
+                            <div key={star} className="flex items-center gap-2 text-brand-meta">
+                              <span className="w-3 tabular-nums text-brand-ink-3">{star}</span>
+                              <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-brand-sunken">
+                                <div
+                                  className="h-full rounded-full bg-brand-ink"
+                                  style={{ width: `${pct}%` }}
+                                />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <ul className="divide-y divide-brand-line">
+                      {reviews.data.items.map((r) => (
+                        <li key={r.id} className="py-4">
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="text-brand-ui font-semibold text-brand-ink">
+                              {r.author}
+                            </span>
+                            <RatingStars value={r.rating} size="sm" />
+                          </div>
+                          {r.comment && (
+                            <p className="mt-1 text-brand-ui text-brand-ink-2">{r.comment}</p>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : (
+                  <p className="text-brand-ui text-brand-ink-2">{sf('event.noReviews')}</p>
                 )}
 
-                {/*
-                  Offered only when the organizer takes cash, and never for a free event
-                  where there is nothing to collect. A second BUTTON rather than a radio
-                  group: the choice is the action, and making somebody pick an option and
-                  then press Continue is a step that earns nothing.
-                */}
-                {event.cashAccepted && !event.isFree && !dateSoldOut && (
-                  <>
+                {/* Write a review */}
+                {authed && (
+                  <div className="mt-6 border border-brand-line bg-brand-surface p-5">
+                    <p className="text-brand-ui font-semibold text-brand-ink">
+                      {mine.data ? sf('event.updateYourReview') : sf('event.writeReview')}
+                    </p>
+                    <div className="mt-2">
+                      <RatingStars value={rating} onChange={setRating} size="lg" />
+                    </div>
+                    <BrandTextarea
+                      id="review-comment"
+                      aria-label={sf('event.yourReview')}
+                      className="mt-3"
+                      rows={3}
+                      placeholder={sf('event.reviewPlaceholder')}
+                      value={comment}
+                      onChange={(e) => setComment(e.target.value)}
+                    />
                     <BrandButton
                       variant="secondary"
-                      size="lg"
-                      className="mt-3 w-full"
-                      aria-busy={(book.isPending && payWithCash) || undefined}
-                      disabled={totalQty === 0 || book.isPending || sessionStarted}
-                      onClick={() => startBooking(true)}
+                      className="mt-3"
+                      aria-busy={submitReview.isPending || undefined}
+                      disabled={rating < 1 || submitReview.isPending}
+                      onClick={() => submitReview.mutate()}
                     >
-                      {b('payAtVenue')}
+                      {mine.data ? sf('event.updateReview') : sf('event.submitReview')}
                     </BrandButton>
-                    <p className="mt-2 text-brand-meta text-brand-ink-3">{b('payAtVenueHint')}</p>
-                  </>
+                    <p className="mt-2 text-brand-meta text-brand-ink-3">
+                      {sf('event.reviewEligibility')}
+                    </p>
+                  </div>
                 )}
-              </>
-            )}
-            {terms.hasTerms && !sessionStarted && <TermsAgreeNote onOpen={terms.open} />}
-          </section>
-        </div>
-
-        {/* The story: what it is, who is on, where, who runs it, and what others thought. */}
-        <div className="min-w-0 space-y-12 lg:col-span-2 lg:row-start-1">
-          <EventFacts
-            event={event}
-            when={shownWhen}
-            minutes={minutes}
-            note={sf('event.venueTimeNote')}
-          />
-
-          {event.description && (
-            <section aria-labelledby="about-heading" className="max-w-prose">
-              <h2 id="about-heading" className="font-brand-display text-brand-d2 text-brand-ink">
-                {sf('event.about')}
-              </h2>
-              <p className="mt-4 whitespace-pre-line text-brand-body text-brand-ink-2">
-                {event.description}
-              </p>
+              </div>
             </section>
-          )}
 
-          <ArtistsCard artists={event.artists} />
-
-          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-            <section
-              aria-labelledby="venue-heading"
-              className={`${BRAND_PANEL} min-w-0 break-words p-6`}
-            >
-              <h2 id="venue-heading" className={BRAND_EYEBROW}>
-                {sf('event.venueHeading')}
+            {/* FAQ */}
+            <section aria-labelledby="faq-heading">
+              <h2 id="faq-heading" className="font-brand-display text-brand-d2 text-brand-ink">
+                {sf('event.faq')}
               </h2>
-              <p className="mt-3 font-brand-display text-brand-card text-brand-ink">
-                {event.venue.name}
-              </p>
-              {/*
-                Composed, not concatenated. The city, state and country are their own columns
-                and `address` is one free-text box, so an organizer who types the whole address
-                into it - which is what the word invites - used to get it printed twice:
-                "Worli, Mumbai, MH, Mumbai, India". See `venueAddressLine`.
-              */}
-              <p className="mt-1 text-brand-ui text-brand-ink-2">{venueAddressLine(event.venue)}</p>
-              {/*
-                Directions open the map app the buyer already has. Venues store an address and
-                no coordinates, so there is nothing to draw here, and an empty "map preview" box
-                is a promise rendered as a grey rectangle.
-              */}
-              <a
-                href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-                  venueMapQuery(event.venue),
-                )}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={`${brandButtonClasses('secondary', 'md')} mt-4`}
-              >
-                <MapPin className="h-4 w-4" aria-hidden />
-                {sf('event.getDirections')}
-                <span className="sr-only">{sf('event.opensInNewTab')}</span>
-              </a>
+              <div className="mt-4 divide-y divide-brand-line border-y border-brand-line">
+                {[
+                  { q: sf('event.faqReceiveQ'), a: sf('event.faqReceiveA') },
+                  {
+                    q: sf('event.faqRefundQ'),
+                    // The organizer's own policy is their words, shown as written.
+                    a: event.refundPolicy ?? sf('event.faqRefundA'),
+                  },
+                  { q: sf('event.faqPrintQ'), a: sf('event.faqPrintA') },
+                  { q: sf('event.faqTransferQ'), a: sf('event.faqTransferA') },
+                ].map((f) => (
+                  <details key={f.q} className="group">
+                    <summary
+                      className={`flex min-h-12 cursor-pointer list-none items-center justify-between gap-4 rounded-sm py-3 text-brand-body font-semibold text-brand-ink ${BRAND_FOCUS}`}
+                    >
+                      {f.q}
+                      <ChevronRight
+                        className="h-4 w-4 shrink-0 text-brand-ink-3 transition-transform group-open:rotate-90"
+                        aria-hidden
+                      />
+                    </summary>
+                    <p className="pb-4 text-brand-ui text-brand-ink-2">{f.a}</p>
+                  </details>
+                ))}
+              </div>
             </section>
-            <OrganizerCard organizer={event.organizer} />
           </div>
 
           {/*
-            Who to ask. The organizer runs the event; the platform holds the booking and the
-            money. A buyer about to pay should see both, and how to reach us, before they pay.
-            The address is the published one (BUSINESS_DETAILS); while none is published the
-            contact page stands in, which always reaches a person.
+            ── THE RESERVATION CARD ────────────────────────────────────────────────────────
+            White, a hairline, square corners: the design's "RESERVATION" card. Every rule it
+            enforces is the one the page always had - which date, which tickets, the quoted
+            price, who it is for, then one ink button that does what "Continue to payment" did.
           */}
-          <section aria-labelledby="support-heading" className={`${BRAND_PANEL} break-words p-6`}>
-            <h2 id="support-heading" className="font-brand-display text-brand-d3 text-brand-ink">
-              {sf('event.supportHeading')}
-            </h2>
-            <p className="mt-2 max-w-prose text-brand-ui text-brand-ink-2">
-              {sf('event.supportBody', { organizer: event.organizer.name })}
-            </p>
-            {event.refundPolicy ? (
-              <div className="mt-4 border-t border-brand-line pt-4">
-                <h3 className="text-brand-ui font-semibold text-brand-ink">
-                  {sf('event.refundPolicy')}
-                </h3>
-                <p className="mt-1 text-brand-ui text-brand-ink-2">{event.refundPolicy}</p>
-              </div>
-            ) : null}
-            <ul className="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-brand-ui">
-              {supportEmail ? (
-                <li>
-                  <a
-                    href={`mailto:${supportEmail}`}
-                    className={`${BRAND_LINK} inline-flex min-h-6 items-center`}
-                  >
-                    {sf('event.supportEmail', { email: supportEmail })}
-                  </a>
-                </li>
+          <div className="lg:sticky lg:top-24 lg:col-start-2 lg:row-start-1 lg:h-fit">
+            <section
+              id="tickets"
+              aria-labelledby="tickets-heading"
+              className="scroll-mt-24 border border-brand-line bg-brand-surface px-5 py-6 sm:px-7"
+            >
+              <p className={`${BRAND_EYEBROW} text-center`}>{sf('event.reservation')}</p>
+              <h2
+                id="tickets-heading"
+                className="mt-2 text-center font-brand-display text-brand-d3 text-brand-ink"
+              >
+                {seatedChoice ? sf('event.seatedHeading') : sf('event.chooseTickets')}
+              </h2>
+              {shownWhen ? (
+                <p className="mt-1 text-center text-brand-meta text-brand-ink-2">
+                  {shownWhen.day}, {shownWhen.time}
+                  {shownWhen.zone ? ` ${shownWhen.zone}` : ''} - {event.venue.name}
+                </p>
               ) : null}
-              <li>
-                <Link href="/help" className={`${BRAND_LINK} inline-flex min-h-6 items-center`}>
-                  {sf('event.supportHelp')}
-                </Link>
-              </li>
-              <li>
-                <Link
-                  href="/help/contact"
-                  className={`${BRAND_LINK} inline-flex min-h-6 items-center`}
+
+              {/*
+                Dates, as chips, inside the card: the date and the tickets are one decision. Only
+                when there is more than one to choose from.
+              */}
+              {event.sessions.length > 1 ? (
+                <div className="mt-5 border-t border-brand-line pt-4">
+                  <p className={BRAND_EYEBROW}>{sf('event.chooseDate')}</p>
+                  <div
+                    role="group"
+                    aria-label={sf('event.sessionsHeading')}
+                    className="-mx-1 mt-2 flex gap-2 overflow-x-auto px-1 pb-1"
+                  >
+                    {event.sessions.map((s) => {
+                      const active = session?.id === s.id;
+                      // Only from a page left open past the start: the API no longer sends these.
+                      const started = new Date(s.startsAt).getTime() <= Date.now();
+                      const when = venueWhen(s.startsAt, sessionZone(s, event));
+                      return (
+                        <button
+                          key={s.id}
+                          type="button"
+                          disabled={started}
+                          aria-pressed={active}
+                          onClick={() => {
+                            setSessionId(s.id);
+                            setQty({});
+                            setChosenTicket(null);
+                          }}
+                          className={`${brandChipClasses(active)} h-11 shrink-0 disabled:opacity-40`}
+                        >
+                          {when.day.replace(/\s\d{4}$/, '')}, {when.time}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
+              {futureSessions.length === 0 ? (
+                <p className="mt-4 text-center text-brand-ui text-brand-ink-2">
+                  {sf('event.noUpcomingSessions')}
+                </p>
+              ) : null}
+
+              {dateSoldOut && (
+                <div
+                  role="status"
+                  data-testid="event-sold-out"
+                  className="mt-5 bg-brand-sunken px-4 py-3"
                 >
-                  {sf('event.supportContact')}
-                </Link>
-              </li>
-              {terms.hasTerms ? (
-                <li>
-                  <TermsRow onOpen={terms.open} />
-                </li>
-              ) : null}
-            </ul>
-          </section>
-          {terms.dialog}
-
-          {/* Reviews */}
-          <section aria-labelledby="reviews-heading">
-            <h2 id="reviews-heading" className="font-brand-display text-brand-d2 text-brand-ink">
-              {sf('event.reviews')}
-            </h2>
-            <div className="mt-4">
-              {reviews.isLoading ? (
-                <div className="space-y-3">
-                  <BrandSkeleton className="h-16 w-40" />
-                  <BrandSkeleton className="h-10 w-full" />
-                </div>
-              ) : reviews.data && reviews.data.count > 0 ? (
-                <div className="space-y-5">
-                  <div className="flex items-center gap-6">
-                    <div>
-                      <p className="text-brand-figure tabular-nums text-brand-ink">
-                        {reviews.data.average.toFixed(1)}
-                      </p>
-                      <RatingStars value={Math.round(reviews.data.average)} size="sm" />
-                      <p className="mt-1 text-brand-meta text-brand-ink-3">
-                        {sf('event.reviewCount', { count: reviews.data.count })}
-                      </p>
-                    </div>
-                    <div className="flex-1 space-y-1">
-                      {[5, 4, 3, 2, 1].map((star) => {
-                        const c = reviews.data!.distribution[String(star)] ?? 0;
-                        const pct = reviews.data!.count
-                          ? Math.round((c / reviews.data!.count) * 100)
-                          : 0;
-                        return (
-                          <div key={star} className="flex items-center gap-2 text-brand-meta">
-                            <span className="w-3 tabular-nums text-brand-ink-3">{star}</span>
-                            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-brand-sunken">
-                              <div
-                                className="h-full rounded-full bg-brand-ink"
-                                style={{ width: `${pct}%` }}
-                              />
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                  <ul className="divide-y divide-brand-line">
-                    {reviews.data.items.map((r) => (
-                      <li key={r.id} className="py-4">
-                        <div className="flex items-center justify-between gap-3">
-                          <span className="text-brand-ui font-semibold text-brand-ink">
-                            {r.author}
-                          </span>
-                          <RatingStars value={r.rating} size="sm" />
-                        </div>
-                        {r.comment && (
-                          <p className="mt-1 text-brand-ui text-brand-ink-2">{r.comment}</p>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : (
-                <p className="text-brand-ui text-brand-ink-2">{sf('event.noReviews')}</p>
-              )}
-
-              {/* Write a review */}
-              {authed && (
-                <div className={`${BRAND_PANEL} mt-6 p-4`}>
                   <p className="text-brand-ui font-semibold text-brand-ink">
-                    {mine.data ? sf('event.updateYourReview') : sf('event.writeReview')}
+                    {eventSoldOut ? sf('event.soldOutEventTitle') : sf('event.soldOutDateTitle')}
                   </p>
-                  <div className="mt-2">
-                    <RatingStars value={rating} onChange={setRating} size="lg" />
-                  </div>
-                  <BrandTextarea
-                    id="review-comment"
-                    aria-label={sf('event.yourReview')}
-                    className="mt-3"
-                    rows={3}
-                    placeholder={sf('event.reviewPlaceholder')}
-                    value={comment}
-                    onChange={(e) => setComment(e.target.value)}
-                  />
-                  <BrandButton
-                    variant="secondary"
-                    className="mt-3"
-                    aria-busy={submitReview.isPending || undefined}
-                    disabled={rating < 1 || submitReview.isPending}
-                    onClick={() => submitReview.mutate()}
-                  >
-                    {mine.data ? sf('event.updateReview') : sf('event.submitReview')}
-                  </BrandButton>
-                  <p className="mt-2 text-brand-meta text-brand-ink-3">
-                    {sf('event.reviewEligibility')}
+                  <p className="mt-1 text-brand-meta text-brand-ink-2">
+                    {eventSoldOut ? sf('event.soldOutEventHint') : sf('event.soldOutDateHint')}
                   </p>
                 </div>
               )}
-            </div>
-          </section>
 
-          {/* FAQ */}
-          <section aria-labelledby="faq-heading">
-            <h2 id="faq-heading" className="font-brand-display text-brand-d2 text-brand-ink">
-              {sf('event.faq')}
-            </h2>
-            <div className="mt-4 divide-y divide-brand-line border-y border-brand-line">
-              {[
-                { q: sf('event.faqReceiveQ'), a: sf('event.faqReceiveA') },
-                {
-                  q: sf('event.faqRefundQ'),
-                  // The organizer's own policy is their words, shown as written.
-                  a: event.refundPolicy ?? sf('event.faqRefundA'),
-                },
-                { q: sf('event.faqPrintQ'), a: sf('event.faqPrintA') },
-                { q: sf('event.faqTransferQ'), a: sf('event.faqTransferA') },
-              ].map((f) => (
-                <details key={f.q} className="group">
-                  <summary
-                    className={`flex min-h-12 cursor-pointer list-none items-center justify-between gap-4 rounded-sm py-3 text-brand-body font-semibold text-brand-ink ${BRAND_FOCUS}`}
-                  >
-                    {f.q}
-                    <ChevronRight
-                      className="h-4 w-4 shrink-0 text-brand-ink-3 transition-transform group-open:rotate-90"
-                      aria-hidden
-                    />
-                  </summary>
-                  <p className="pb-4 text-brand-ui text-brand-ink-2">{f.a}</p>
-                </details>
-              ))}
-            </div>
-          </section>
+              {/*
+                A seated show is chosen on the seat map, not here.
+
+                Reserved seating used to exist only for cinemas, so this card only ever needed
+                to offer quantities. Now that a session can be in a room, offering a quantity
+                box for one would let somebody ask for "two of Stalls" without saying WHICH two
+                — and the booking would be refused at the last step with "please select a seat
+                for each ticket", after they had committed to the price. So its prices are
+                listed and the button goes to the map.
+
+                Read from the session rather than from the event: two dates of the same tour
+                can differ, one in a seated theatre and one in a standing room.
+              */}
+              {session?.seatBased ? (
+                sessionStarted ? null : (
+                  <div className="mt-5 space-y-5">
+                    {hasReservedTickets && (
+                      <>
+                        <SeatPriceList
+                          tickets={session.ticketTypes
+                            .filter((t) => t.inventoryKind !== 'ZONE')
+                            .map((t) => ({
+                              id: t.id,
+                              name: t.name,
+                              price: money(t.priceMinor, t.currency, undefined, cardFractionDigits),
+                              meta: (
+                                <TicketAvailability
+                                  available={t.available}
+                                  saleState={t.saleState}
+                                  salesStartAt={t.salesStartAt}
+                                  zone={zone}
+                                  tone="caps"
+                                />
+                              ),
+                            }))}
+                        />
+                        <p className="text-brand-ui text-brand-ink-2">{sf('event.seatedLead')}</p>
+                        <Link
+                          href={`/shows/${session.id}`}
+                          className={`${brandButtonClasses('primary', 'lg')} w-full uppercase tracking-[0.08em]`}
+                        >
+                          {sf('event.chooseSeats')}
+                        </Link>
+                      </>
+                    )}
+                    {zoneTicketTypes.length > 0 && (
+                      <>
+                        <TicketTypeChooser
+                          name={`ticket-type-${session.id}`}
+                          tickets={chooserTickets}
+                          selectedId={selectedId}
+                          qty={qty}
+                          onSelect={setChosenTicket}
+                          onQuantity={setTicketQuantity}
+                        />
+                        <PriceBreakdown
+                          tone="reservation"
+                          ticketsLabel={ticketsLabel}
+                          free={event.isFree}
+                          quote={quoteQ.data?.fees}
+                          loading={quoteQ.isFetching}
+                          fallbackTotalMinor={ticketSubtotal}
+                          fallbackCurrency={zoneTicketTypes[0]?.currency}
+                          fractionDigits={cardFractionDigits}
+                        />
+                        {(guest.asGuest || guest.needsContact) && (
+                          <GuestBuyerFields
+                            state={guest}
+                            variant={guest.asGuest ? 'guest' : 'account'}
+                          />
+                        )}
+                        {error && (
+                          <p role="alert" className="text-brand-meta text-brand-critical">
+                            {error}
+                          </p>
+                        )}
+                        <BrandButton
+                          size="lg"
+                          className="w-full uppercase tracking-[0.08em]"
+                          disabled={
+                            zoneTicketTypes.every(
+                              (ticketType) => (qty[ticketType.id] ?? 0) === 0,
+                            ) || book.isPending
+                          }
+                          aria-busy={book.isPending || undefined}
+                          onClick={() => startBooking(false)}
+                        >
+                          {reserveContent(book.isPending)}
+                        </BrandButton>
+                      </>
+                    )}
+                  </div>
+                )
+              ) : (
+                <>
+                  {chooserTickets.length > 0 && (
+                    <div className="mt-5">
+                      <TicketTypeChooser
+                        name={`ticket-type-${session!.id}`}
+                        tickets={chooserTickets}
+                        selectedId={selectedId}
+                        qty={qty}
+                        onSelect={setChosenTicket}
+                        onQuantity={setTicketQuantity}
+                      />
+                    </div>
+                  )}
+
+                  {/* Upsell: add-ons (v1.3) */}
+                  {addOns.length > 0 && !dateSoldOut && (
+                    <div className="mt-6">
+                      <p className={BRAND_EYEBROW}>{sf('event.enhance')}</p>
+                      <ul className="mt-3 divide-y divide-brand-line">
+                        {addOns.map((a) =>
+                          ticketRow({
+                            id: a.id,
+                            name: a.name,
+                            meta: a.soldOut ? (
+                              <BrandStatusPill status="neutral">
+                                {tx('state.soldOut')}
+                              </BrandStatusPill>
+                            ) : null,
+                            price: money(a.priceMinor, a.currency, undefined, cardFractionDigits),
+                            value: addOnQty[a.id] ?? 0,
+                            max: Math.max(
+                              0,
+                              a.remaining === null
+                                ? a.maxPerOrder
+                                : Math.min(a.maxPerOrder, a.remaining),
+                            ),
+                            disabled: a.soldOut,
+                            onChange: (n) => setAddOnQty((p) => ({ ...p, [a.id]: n })),
+                          }),
+                        )}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Cross-sell: bundles (v1.3) */}
+                  {bundles.length > 0 && !dateSoldOut && (
+                    <div className="mt-6">
+                      <p className={BRAND_EYEBROW}>{sf('event.bundlesHeading')}</p>
+                      <ul className="mt-3 divide-y divide-brand-line">
+                        {bundles.map((bundle) =>
+                          ticketRow({
+                            id: bundle.id,
+                            name: bundle.name,
+                            meta:
+                              bundle.savingsMinor > 0 ? (
+                                <BrandStatusPill status="positive">
+                                  {sf('event.bundleSave', {
+                                    amount: money(
+                                      bundle.savingsMinor,
+                                      bundle.currency,
+                                      undefined,
+                                      cardFractionDigits,
+                                    ),
+                                  })}
+                                </BrandStatusPill>
+                              ) : null,
+                            extra:
+                              bundle.components.length > 0 ? (
+                                <p className="mt-1 text-brand-meta text-brand-ink-3">
+                                  {sf('event.bundleIncludes', {
+                                    items: bundle.components
+                                      .map((c) => `${c.quantity}x ${c.label}`)
+                                      .join(', '),
+                                  })}
+                                </p>
+                              ) : null,
+                            price: money(
+                              bundle.priceFromMinor,
+                              bundle.currency,
+                              undefined,
+                              cardFractionDigits,
+                            ),
+                            value: bundleQty[bundle.id] ?? 0,
+                            max: bundle.maxPerOrder,
+                            disabled: false,
+                            onChange: (n) => setBundleQty((p) => ({ ...p, [bundle.id]: n })),
+                          }),
+                        )}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Above the breakdown, because it can change what the breakdown says. */}
+                  {!event.isFree && !dateSoldOut && (
+                    <div className="mt-6">
+                      <BuyerRegionField
+                        value={buyerRegion}
+                        onChange={(v) => {
+                          setRegionTouched(true);
+                          setBuyerRegion(v);
+                        }}
+                        prefilled={Boolean(user?.lastBuyerRegion) && !regionTouched}
+                        country={event.venue?.country}
+                        // Translated: the field's English defaults showed on French Indian pages (QA).
+                        label={sf('checkout.buyerRegionLabel')}
+                        hint={sf('checkout.buyerRegionHint')}
+                        noneLabel={sf('checkout.buyerRegionNone')}
+                        prefilledNote={sf('checkout.buyerRegionPrefilled')}
+                      />
+                    </div>
+                  )}
+
+                  {!dateSoldOut && (
+                    <div className="mt-6">
+                      <PriceBreakdown
+                        tone="reservation"
+                        ticketsLabel={ticketsLabel}
+                        free={event.isFree}
+                        quote={quoteQ.data?.fees}
+                        loading={quoteQ.isFetching}
+                        fallbackTotalMinor={subtotal}
+                        /*
+                          What the tickets on this page are priced in, so the total before any
+                          quote matches the prices above it. Without this the breakdown had no
+                          currency until a ticket was chosen, and `money()` falls back to INR --
+                          so a dollar-priced event opened on a rupee total.
+                        */
+                        fallbackCurrency={
+                          event.sessions.flatMap((s) => s.ticketTypes)[0]?.currency ?? undefined
+                        }
+                        // Decided above, from everything on this card - see `cardFractionDigits`.
+                        fractionDigits={cardFractionDigits}
+                      />
+                    </div>
+                  )}
+
+                  {/*
+                    Name and email, for somebody with no account. Below the price and above the
+                    button, which is the order the buyer reads: what it costs, who it is for,
+                    then pay.
+                  */}
+                  {!dateSoldOut && (guest.asGuest || guest.needsContact) && (
+                    <div className="mt-6">
+                      <GuestBuyerFields
+                        state={guest}
+                        variant={guest.asGuest ? 'guest' : 'account'}
+                      />
+                    </div>
+                  )}
+
+                  {error && (
+                    <p role="alert" className="mt-4 text-brand-meta text-brand-critical">
+                      {error}
+                    </p>
+                  )}
+                  {/* Nothing to continue to when nothing is left; the notice above says so. */}
+                  {!dateSoldOut && (
+                    <div id={CONTINUE_ANCHOR_ID} className="mt-6">
+                      <BrandButton
+                        size="lg"
+                        className="w-full uppercase tracking-[0.08em]"
+                        aria-busy={(book.isPending && !payWithCash) || undefined}
+                        disabled={totalQty === 0 || book.isPending || sessionStarted}
+                        onClick={() => startBooking(false)}
+                      >
+                        {reserveContent(book.isPending && !payWithCash)}
+                      </BrandButton>
+                    </div>
+                  )}
+
+                  {/*
+                    Offered only when the organizer takes cash, and never for a free event
+                    where there is nothing to collect. A second BUTTON rather than a radio
+                    group: the choice is the action, and making somebody pick an option and
+                    then press Continue is a step that earns nothing.
+                  */}
+                  {event.cashAccepted && !event.isFree && !dateSoldOut && (
+                    <>
+                      <BrandButton
+                        variant="secondary"
+                        size="lg"
+                        className="mt-3 w-full"
+                        aria-busy={(book.isPending && payWithCash) || undefined}
+                        disabled={totalQty === 0 || book.isPending || sessionStarted}
+                        onClick={() => startBooking(true)}
+                      >
+                        {b('payAtVenue')}
+                      </BrandButton>
+                      <p className="mt-2 text-brand-meta text-brand-ink-3">{b('payAtVenueHint')}</p>
+                    </>
+                  )}
+                </>
+              )}
+              {terms.hasTerms && !sessionStarted && <TermsAgreeNote onOpen={terms.open} />}
+            </section>
+          </div>
         </div>
       </div>
 
       <StickyContinue
-        visible={!session?.seatBased && !sessionStarted && !dateSoldOut && totalQty > 0}
-        count={totalQty}
-        total={
-          !event.isFree && quoteQ.data?.fees && !quoteQ.isFetching
-            ? money(
-                quoteQ.data.fees.totalMinor,
-                quoteQ.data.fees.currency,
-                undefined,
-                cardFractionDigits,
-              )
-            : null
+        mode={
+          !session?.seatBased && !sessionStarted && !dateSoldOut && totalQty > 0
+            ? 'continue'
+            : !eventSoldOut && futureSessions.length > 0
+              ? 'jump'
+              : 'hidden'
         }
+        count={totalQty}
+        total={quotedTotal}
+        from={fromText && !event.isFree ? fromText : null}
         label={continueLabel}
+        jumpLabel={sf('event.bookTickets')}
         pending={book.isPending && !payWithCash}
         disabled={book.isPending}
         onContinue={() => startBooking(false)}
@@ -1580,7 +1619,7 @@ export default function EventDetailPage() {
 
       {/* You might also like — recommendations seeded by this event. */}
       {recommendations.isLoading ? (
-        <section className="mt-16 space-y-4 px-4 sm:px-6 lg:px-10">
+        <section className="mx-auto mt-20 max-w-6xl space-y-4 px-4 sm:px-6 lg:px-10">
           <h2 className="font-brand-display text-brand-d2 text-brand-ink">
             {sf('event.recommendations')}
           </h2>
@@ -1591,7 +1630,7 @@ export default function EventDetailPage() {
           </div>
         </section>
       ) : recommendations.data && recommendations.data.length > 0 ? (
-        <section className="mt-16 space-y-6 px-4 sm:px-6 lg:px-10">
+        <section className="mx-auto mt-20 max-w-6xl space-y-6 border-t border-brand-line px-4 pt-12 sm:px-6 lg:px-10">
           <h2 className="font-brand-display text-brand-d2 text-brand-ink">
             {sf('event.recommendations')}
           </h2>
@@ -1604,4 +1643,9 @@ export default function EventDetailPage() {
       ) : null}
     </div>
   );
+}
+
+/** The design's middle dot, drawn rather than typed: a separator, not a character. */
+function Dot() {
+  return <span aria-hidden className="inline-block h-1 w-1 shrink-0 rounded-full bg-current" />;
 }

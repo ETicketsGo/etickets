@@ -193,7 +193,7 @@ test.describe('the storefront on a phone', () => {
     await chooseQuantity(quantitySteppers(page).first(), 1);
     await page.getByLabel('Your name').fill('Footer Check');
     await page.getByLabel('Email', { exact: true }).fill(uniqueEmail('footer'));
-    await page.getByRole('button', { name: /Continue to payment/ }).click();
+    await page.getByRole('button', { name: /^Reserve/ }).click();
     await expect(page).toHaveURL(/\/booking\/.+\/payment/, { timeout: 20_000 });
     await page.waitForTimeout(800);
 

@@ -117,11 +117,17 @@ export function TicketAvailability({
   saleState,
   salesStartAt,
   zone,
+  tone,
 }: {
   available: number;
   saleState?: string | null;
   salesStartAt?: string | null;
   zone?: string;
+  /**
+   * The event page's reservation card: a count still on sale in gold small caps ("112 LEFT"),
+   * as the owner's design draws it. Closed, not-yet and sold-out read as they always have.
+   */
+  tone?: 'caps';
 }) {
   const t = useTranslations('storefront.event');
   const tx = useTranslations('common');
@@ -139,6 +145,12 @@ export function TicketAvailability({
     );
   if (available <= 0)
     return <BrandStatusPill status="neutral">{tx('state.soldOut')}</BrandStatusPill>;
+  if (tone === 'caps')
+    return (
+      <span className="text-brand-eyebrow uppercase tabular-nums text-brand-gold-text">
+        {t('left', { count: available })}
+      </span>
+    );
   if (available <= FEW_LEFT)
     return <BrandStatusPill status="caution">{t('left', { count: available })}</BrandStatusPill>;
   return (

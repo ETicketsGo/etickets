@@ -56,14 +56,14 @@ test.describe('intentional demo venue buyer paths', () => {
     await signedInBuyer(request, context, 'zone_buyer');
 
     await page.goto(`${CUSTOMER}/events/riverbend-ga-vip`, { waitUntil: 'networkidle' });
-    const ga = page.getByLabel('Quantity of General Admission');
-    const vip = page.getByLabel('Quantity of VIP Pit');
-    await expect(ga).toBeVisible();
-    await expect(vip).toBeVisible();
-    await chooseQuantity(ga, 2);
-    await chooseQuantity(vip, 1);
+    // The reservation card: a radio chooses which ticket the guest stepper counts, and the
+    // counts of both are kept, so one order still holds 2 General Admission and 1 VIP Pit.
+    await page.getByRole('radio', { name: /General Admission/ }).check();
+    await chooseQuantity(page.getByLabel('Quantity of General Admission'), 2);
+    await page.getByRole('radio', { name: /VIP Pit/ }).check();
+    await chooseQuantity(page.getByLabel('Quantity of VIP Pit'), 1);
     await expect(page.getByText(/\$280\.00/)).toBeVisible();
-    await page.getByRole('button', { name: /Continue to payment/i }).click();
+    await page.getByRole('button', { name: /^Reserve/ }).click();
     await expect(page).toHaveURL(/\/booking\/[^/]+\/payment/, { timeout: 30_000 });
     await page.getByRole('button', { name: /^Pay/ }).click();
     await expect(page).toHaveURL(/\/booking\/[^/]+\/confirmation/, { timeout: 30_000 });

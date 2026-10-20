@@ -17,7 +17,7 @@ async function registerAndBook(page: Page, name: string, email: string, qty: str
   await page.goto(`${CUSTOMER}/events`);
   await openPaidEvent(page);
   await chooseQuantity(quantitySteppers(page).first(), Number(qty));
-  await page.getByRole('button', { name: /Continue to payment/ }).click();
+  await page.getByRole('button', { name: /^Reserve/ }).click();
   await expect(page).toHaveURL(/\/booking\/.+\/payment/, { timeout: 20_000 });
   await page.getByRole('button', { name: /Pay/ }).click();
   await expect(page).toHaveURL(/\/booking\/.+\/confirmation/, { timeout: 20_000 });
