@@ -83,6 +83,7 @@ export type SnsRejection =
   | 'cert_url_not_https'
   | 'cert_url_untrusted_host'
   | 'cert_url_malformed'
+  | 'cert_url_untrusted_path'
   | 'cert_fetch_failed'
   | 'signature_invalid'
   | 'topic_not_allowed';
@@ -102,12 +103,53 @@ export type SnsRejection =
 const TRUSTED_SIGNING_HOST =
   /^sns\.[a-z]{2}(?:-gov|-iso[a-z]?)?-[a-z]+-\d+\.amazonaws\.com(?:\.cn)?$/;
 
-function isTrustedSigningHost(hostname: string): boolean {
+export function isTrustedSigningHost(hostname: string): boolean {
   return TRUSTED_SIGNING_HOST.test(hostname.toLowerCase());
 }
 
+/**
+ * Everything about a certificate URL except the network: https, an Amazon signing host, and
+ * nothing that could make "the host" mean something other than the host.
+ *
+ * ── WHY USERINFO AND PORTS ARE REFUSED, NOT IGNORED ────────────────────────────────
+ * `https://sns.us-east-1.amazonaws.com@evil.test/` has the host `evil.test`, and the host
+ * pattern refuses it. The reverse, `https://evil.test@sns.us-east-1.amazonaws.com/`, has an
+ * Amazon host and a username, and nothing Amazon sends carries either a username or a port.
+ * A URL that does is not one of theirs, whatever it would have resolved to, so it is refused
+ * before any comparison has to be clever about it.
+ *
+ * ── WHY THE PATH MUST BE A .pem ────────────────────────────────────────────────────
+ * SNS publishes its signing certificates as `/SimpleNotificationService-<id>.pem`. Requiring
+ * the extension keeps this fetch pointed at a certificate and not at any other resource the
+ * same host serves; the name itself is not pinned, so a rotation that changes it still works.
+ */
+export function signingCertUrlProblem(
+  raw: string,
+): Extract<
+  SnsRejection,
+  | 'cert_url_malformed'
+  | 'cert_url_not_https'
+  | 'cert_url_untrusted_host'
+  | 'cert_url_untrusted_path'
+> | null {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return 'cert_url_malformed';
+  }
+  // Plain HTTP would let anybody on the path swap the key the signature is checked against.
+  if (url.protocol !== 'https:') return 'cert_url_not_https';
+  if (url.username || url.password || url.port) return 'cert_url_untrusted_host';
+  if (!isTrustedSigningHost(url.hostname)) return 'cert_url_untrusted_host';
+  if (!url.pathname.toLowerCase().endsWith('.pem') || url.search || url.hash) {
+    return 'cert_url_untrusted_path';
+  }
+  return null;
+}
+
 /** `SES_SNS_TOPIC_ARNS`, comma-separated, as a set; null when unset or blank. */
-function parseTopicArns(raw: string | undefined): Set<string> | null {
+export function parseTopicArns(raw: string | undefined): Set<string> | null {
   const arns = (raw ?? '')
     .split(',')
     .map((arn) => arn.trim())
@@ -168,6 +210,17 @@ export class SnsVerifier implements OnModuleInit {
   }
 
   /**
+   * Whether SES_SNS_TOPIC_ARNS names this topic, exactly.
+   *
+   * False when the allowlist is unset. Delivery events tolerate an unset allowlist (see
+   * onModuleInit); confirming a subscription does not, because confirming is the act of
+   * choosing which topic to trust, and an unset list has made no choice.
+   */
+  isTopicAllowed(topicArn: string | undefined): boolean {
+    return Boolean(this.allowedTopics && topicArn && this.allowedTopics.has(topicArn));
+  }
+
+  /**
    * Said once, at boot, where it matters: a deployed environment that receives SES events and
    * accepts them from any correctly signed topic. A warning rather than a refusal, because
    * requiring it would stop QA booting before anybody has had the chance to look its ARN up.
@@ -219,24 +272,19 @@ export class SnsVerifier implements OnModuleInit {
       return { ok: false, reason: 'topic_not_allowed' };
     }
 
-    let certUrl: URL;
-    try {
-      certUrl = new URL(envelope.SigningCertURL);
-    } catch {
-      return { ok: false, reason: 'cert_url_malformed' };
-    }
-    // Plain HTTP would let anybody on the path swap the key the signature is checked against.
-    if (certUrl.protocol !== 'https:') return { ok: false, reason: 'cert_url_not_https' };
-    if (!isTrustedSigningHost(certUrl.hostname)) {
-      /*
-        The one that matters. Without it, this is a signature scheme in which the attacker
-        supplies the key — and an SSRF primitive pointed at whatever the API server can reach.
-      */
+    /*
+      The one that matters. Without it, this is a signature scheme in which the attacker
+      supplies the key — and an SSRF primitive pointed at whatever the API server can reach.
+    */
+    const certProblem = signingCertUrlProblem(envelope.SigningCertURL);
+    if (certProblem) {
+      // The reason only: the URL is attacker-chosen text and has no business in a log line.
       this.logger.warn(
-        `SNS message named an untrusted signing host (${certUrl.hostname}); refused`,
+        `SNS message named an untrusted signing certificate URL (${certProblem}); refused`,
       );
-      return { ok: false, reason: 'cert_url_untrusted_host' };
+      return { ok: false, reason: certProblem };
     }
+    const certUrl = new URL(envelope.SigningCertURL);
 
     const cert = await this.certificate(certUrl);
     if (!cert) return { ok: false, reason: 'cert_fetch_failed' };
@@ -281,7 +329,12 @@ export class SnsVerifier implements OnModuleInit {
       const timer = setTimeout(() => controller.abort(), 5_000);
       let body: string;
       try {
-        const res = await this.fetchImpl(key, { signal: controller.signal });
+        /*
+          `redirect: 'error'`: the host check above is about the URL this process asked for. A
+          redirect would make the certificate come from wherever the first response pointed,
+          which is a host nobody checked.
+        */
+        const res = await this.fetchImpl(key, { signal: controller.signal, redirect: 'error' });
         if (!res.ok) return null;
         body = await res.text();
       } finally {

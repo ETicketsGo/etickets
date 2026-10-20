@@ -45,10 +45,13 @@ judges on delivery evidence rather than on whether a variable is set.
      asked for.
 7. **Subscribe the topic** to
    `https://<PUBLIC_API_URL>/api/notifications/webhooks/ses/<SES_WEBHOOK_SECRET>` (HTTPS).
-8. **Confirm the subscription in the console.** The endpoint verifies the signature and
-   deliberately does **not** auto-confirm — an endpoint that confirms whatever it is offered
-   attaches itself to any topic anyone points at it. Look for the log line
-   `SNS SubscriptionConfirmation received and SIGNATURE-VERIFIED`.
+8. **Check the subscription confirmed itself.** Set `SES_WEBHOOK_SECRET` and
+   `SES_SNS_TOPIC_ARNS` (below) and deploy BEFORE step 7. The endpoint then confirms the
+   subscription itself, but only for a topic named in `SES_SNS_TOPIC_ARNS` and only by
+   calling Amazon's own ConfirmSubscription URL for it (ADR-054). The SNS console shows
+   **Confirmed**; the api log reads `SNS subscription CONFIRMED automatically`. If the
+   subscription was created before the variables, press **Request confirmation** in the SNS
+   console.
 
 ### Environment
 
@@ -57,6 +60,7 @@ EMAIL_PROVIDER=ses
 AWS_REGION=<region of the verified identity>
 EMAIL_FROM=<verified from address>
 SES_WEBHOOK_SECRET=<32+ random chars>
+SES_SNS_TOPIC_ARNS=<the SNS topic ARN from step 5>   # required: confirmation is refused without it
 PUBLIC_API_URL=https://<public api host>
 # Credentials come from the IAM role where one exists; otherwise:
 AWS_ACCESS_KEY_ID= / AWS_SECRET_ACCESS_KEY=

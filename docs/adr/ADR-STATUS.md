@@ -40,6 +40,8 @@ decisions were made and implemented; only the formal ADR document is outstanding
 | 049 | Notification producers, customer preferences and WhatsApp opt-in rollout        |
 | 050 | Notification launch certification, SNS signature verification and TEST traffic  |
 | 051 | Notification failure classification, template binding and market enablement     |
+| 052 | SNS confirmation capture and one-time reveal (superseded by 054)                |
+| 054 | Automatic SNS subscription confirmation, in every environment                   |
 
 ## Referenced in code/docs but not yet written up (024–035)
 
