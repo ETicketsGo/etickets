@@ -421,16 +421,17 @@ describe('the 404, the feedback dialog, the guest panel and the shared leftovers
     }
   });
 
-  it("draws the admin console's header mark from its own favicon", () => {
-    // Not a storefront file, but the same round: the header showed the old gradient ticket next
-    // to a tab showing the new mark. The shell takes the mark; admin hands it public/icon.svg.
+  it("draws the admin console's header with the one wordmark", () => {
+    // Not a storefront file, but the same brand: admin showed the old gradient ticket, then its
+    // favicon as a stand-in (#431). It now draws the shell's wordmark like every other surface
+    // (owner, 2026-10-19; web-kit wordmark.test.tsx pins the rest).
     const admin = codeOnly(
       readFileSync(join(ROOT, '..', 'admin-web', 'components', 'admin-shell.tsx'), 'utf8'),
     );
-    expect(admin).toMatch(/renderMark=\{adminMark\}/);
-    expect(admin).toMatch(/src="\/icon\.svg"/);
+    expect(admin).not.toMatch(/renderMark|src="\/icon\.svg"/);
     const shell = codeOnly(readFileSync(join(WEB_KIT, 'shell.tsx'), 'utf8'));
-    expect(shell.match(/renderMark \?/g)).toHaveLength(3);
+    expect(shell).not.toMatch(/LogoMark|renderMark/);
+    expect(shell.match(/<Wordmark /g)).toHaveLength(3);
   });
 });
 

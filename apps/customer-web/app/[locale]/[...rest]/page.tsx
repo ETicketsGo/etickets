@@ -1,4 +1,15 @@
+import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
+
+/*
+  The tab's name. `not-found.tsx` exports the same, but Next does not apply a nested
+  not-found's metadata to a request that reached it through this route, so the tab read the
+  root title - the organizer pitch - on every wrong address. Template: "Page not found - ETicketsGo".
+*/
+export const metadata: Metadata = {
+  title: 'Page not found',
+  robots: { index: false, follow: true },
+};
 
 /**
  * Every address under a locale that no route claims, sent to the locale's own 404.
