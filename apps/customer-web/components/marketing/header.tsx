@@ -2,11 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import { Menu, X } from 'lucide-react';
-import { BRAND_FOCUS, brandButtonClasses } from '@eticketsgo/web-kit';
+import { BRAND_FOCUS, brandButtonClasses, Wordmark } from '@eticketsgo/web-kit';
 import { Link, usePathname } from '@/i18n/navigation';
 import { useTranslations } from 'next-intl';
 import { AccountMenu } from '@/components/account-menu';
-import { Wordmark } from '@/components/wordmark';
 import { useShellAuth, useSignOut } from '@/lib/use-shell-auth';
 import { useSignInHref } from '@/lib/use-sign-in-href';
 
@@ -206,7 +205,7 @@ export function MarketingHeader({ initialSignedIn = false }: { initialSignedIn?:
           aria-label={h('homeLabel')}
           className={`inline-flex h-11 shrink-0 items-center rounded-brand-control ${BRAND_FOCUS}`}
         >
-          <Wordmark />
+          <Wordmark size="md" tone="brand" />
         </Link>
 
         <nav aria-label={m('navLabel')} className="hidden items-center gap-1 lg:flex">

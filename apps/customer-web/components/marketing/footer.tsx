@@ -2,10 +2,14 @@
 
 import { Link } from '@/i18n/navigation';
 import { useTranslations } from 'next-intl';
-import { BRAND_FOCUS, BrandStatusPill, needsPlaceholderNotice } from '@eticketsgo/web-kit';
+import {
+  BRAND_FOCUS,
+  BrandStatusPill,
+  needsPlaceholderNotice,
+  Wordmark,
+} from '@eticketsgo/web-kit';
 import { INDIA_OPERATOR } from '@eticketsgo/shared-types';
 import { FooterSignInLink } from '@/components/marketing/footer-sign-in-link';
-import { Wordmark } from '@/components/wordmark';
 import { LanguageSwitcher } from '@/components/language-switcher';
 import { FeedbackButton } from '@/components/feedback-widget';
 
@@ -85,7 +89,8 @@ export function MarketingFooter({
 }) {
   const f = useTranslations('common.footer');
   const h = useTranslations('home.footer');
-  const nav = useTranslations('common.nav');
+  // The wordmark link's name contains the words it shows ("ETicketsGo home"), as the header's does.
+  const hd = useTranslations('home.header');
   return (
     <footer
       data-brand="customer"
@@ -97,10 +102,10 @@ export function MarketingFooter({
           <div className="col-span-2 lg:col-span-1">
             <Link
               href="/"
-              aria-label={nav('home')}
+              aria-label={hd('homeLabel')}
               className={`inline-flex h-11 items-center rounded-brand-control ${BRAND_FOCUS}`}
             >
-              <Wordmark className="text-[1.625rem]" />
+              <Wordmark size="lg" tone="brand" />
             </Link>
             <p className="mt-3 max-w-xs text-brand-ui text-brand-ink-2">
               ETicketsGo sells your tickets, checks guests in at the door, and shows you how the

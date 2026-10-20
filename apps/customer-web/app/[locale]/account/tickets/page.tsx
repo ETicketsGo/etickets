@@ -1,6 +1,6 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
+import { useQueries, useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from '@/i18n/navigation';
 import { RefreshCw, Search, Trash2, WifiOff } from 'lucide-react';
@@ -9,7 +9,9 @@ import {
   brandButtonClasses,
   brandChipClasses,
   buildWallet,
+  eventTiming,
   filterWallet,
+  groupWalletTickets,
   searchWallet,
   sectionizeWallet,
   summarizeBookingGroup,
@@ -24,8 +26,8 @@ import {
   type WalletItem,
   type WalletLabels,
 } from '@eticketsgo/web-kit';
-import { tokenStore } from '@/lib/api';
-import { WalletCard } from '@/components/wallet-card';
+import { api, tokenStore } from '@/lib/api';
+import { WalletCard, type WalletStubInfo } from '@/components/wallet-card';
 import { BRAND_FIELD } from '@/components/booking-brand';
 import { Placeholder } from '@/components/home/parts';
 import { BrandEmpty, BrandPage } from '@/components/storefront-brand';
@@ -178,6 +180,50 @@ export default function ExperienceWalletPage() {
     () => (data ? buildWallet({ tickets: data, labels }, flags) : []),
     [data, flags, labels],
   );
+  /*
+    What each stub shows beyond the wallet item: the booking's counts (for "1 of 2 admitted"),
+    whether the show has ended, whether a ticket on it can be transferred today, and the event's
+    photo and city from its public page. Transfer follows the server's own rule for a transfer
+    link (the current holder, an active ticket, a show that has not ended), so the word is only
+    offered where the dialog behind it can succeed.
+  */
+  const groups = useMemo(() => (data ? groupWalletTickets(data) : []), [data]);
+  const slugs = useMemo(() => [...new Set(groups.map((g) => g.slug).filter(Boolean))], [groups]);
+  const events = useQueries({
+    queries: slugs.map((slug) => ({
+      queryKey: ['event', slug],
+      queryFn: () => api.getEvent(slug),
+      // A photo and a city: worth one try, never a reason to hold the wallet up or retry offline.
+      retry: false,
+      staleTime: 10 * 60 * 1000,
+      enabled: online,
+    })),
+  });
+  const stubInfo = useMemo(() => {
+    const bySlug = new Map(slugs.map((slug, i) => [slug, events[i]?.data]));
+    const now = Date.now();
+    return new Map<string, WalletStubInfo>(
+      groups.map((g) => {
+        const event = bySlug.get(g.slug);
+        const ended = eventTiming(g.startsAt, now).phase === 'ended';
+        return [
+          `ticket:${g.bookingId}`,
+          {
+            counts: g.counts,
+            ended,
+            transferable:
+              !ended &&
+              g.tickets.some(
+                (t) => t.status === 'ACTIVE' && t.ownedByViewer !== false && !t.transferred,
+              ),
+            image: event ? { variants: event.imageVariants, path: event.imagePath } : null,
+            city: event?.venue.city ?? null,
+          },
+        ];
+      }),
+    );
+  }, [groups, slugs, events]);
+
   const availableFilters = useMemo(() => {
     const present = new Set(items.flatMap((i) => i.filters));
     return FILTER_CHIPS.filter((c) => present.has(c));
@@ -270,13 +316,13 @@ export default function ExperienceWalletPage() {
           />
         ) : (!mounted || isLoading) && !data ? (
           <div
-            className="grid gap-4 sm:grid-cols-2 sm:gap-6"
+            className="grid gap-4 sm:gap-5"
             role="status"
             aria-busy="true"
             aria-label={w('loading')}
           >
             {Array.from({ length: 2 }).map((_, i) => (
-              <Placeholder key={i} className="h-48 w-full" />
+              <Placeholder key={i} className="h-44 w-full" />
             ))}
           </div>
         ) : items.length > 0 ? (
@@ -329,10 +375,14 @@ export default function ExperienceWalletPage() {
                     <h2 className="mb-3 text-brand-eyebrow uppercase text-brand-ink-3">
                       {sectionLabel(section.key)}
                     </h2>
-                    <ul className="grid list-none gap-4 sm:grid-cols-2 sm:gap-6">
+                    <ul className="grid list-none gap-4 sm:gap-5">
                       {section.items.map((item) => (
                         <li key={item.id} className="min-w-0">
-                          <WalletCard item={item} onPreview={preview} />
+                          <WalletCard
+                            item={item}
+                            info={stubInfo.get(item.id)}
+                            onPreview={preview}
+                          />
                         </li>
                       ))}
                     </ul>

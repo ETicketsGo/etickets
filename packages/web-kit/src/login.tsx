@@ -2,11 +2,12 @@
 
 import { useRouter } from 'next/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
-import { KeyRound, Lock, Mail, Ticket } from 'lucide-react';
+import { KeyRound, Lock, Mail } from 'lucide-react';
 import type { AuthTokens } from '@eticketsgo/shared-types';
 import { api, errorMessage, takeSignedOutNotice, tokenStore } from './api';
 import { Button, Card, Input } from './components';
 import { nextFromSearch } from './safe-next';
+import { Wordmark } from './wordmark';
 
 /** Pages of a console that are a dead end straight after signing in (see `finish`). */
 const CONSOLE_SIGN_IN_PAGES = ['/login'] as const;
@@ -28,6 +29,7 @@ export function LoginForm({
   mfaEnrollPath,
   backOfficePath,
   footer,
+  product,
 }: {
   title?: string;
   defaultEmail?: string;
@@ -69,6 +71,8 @@ export function LoginForm({
    * first, or an owner who forgot a password, had nowhere to go.
    */
   footer?: ReactNode;
+  /** The console's name, set beside the wordmark above the card: "Organizer", "Admin". */
+  product?: string;
 }) {
   const router = useRouter();
   const [email, setEmail] = useState(defaultEmail ?? '');
@@ -193,8 +197,10 @@ export function LoginForm({
     <div className="flex min-h-screen items-center justify-center bg-background-canvas p-4">
       <div className="w-full max-w-sm">
         <div className="mb-6 text-center">
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-action-primary text-action-primary-foreground shadow-md">
-            <Ticket className="h-6 w-6" />
+          {/* The brand, as on every other surface: the one wordmark (wordmark.tsx), where a
+              blue ticket tile used to stand in for it. */}
+          <div className="mb-5 flex justify-center">
+            <Wordmark size="lg" tone="auto" product={product} />
           </div>
           <h1 className="text-h3 font-bold tracking-tight text-text-primary">{title}</h1>
           {subtitle && <p className="mt-1.5 text-[0.9375rem] text-text-muted">{subtitle}</p>}

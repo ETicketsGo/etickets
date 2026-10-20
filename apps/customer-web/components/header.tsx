@@ -5,12 +5,17 @@ import { usePathname, useRouter } from '@/i18n/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { Bell, Search } from 'lucide-react';
 import { api } from '@/lib/api';
-import { BRAND_FOCUS, CityPicker, brandButtonClasses, useCity } from '@eticketsgo/web-kit';
+import {
+  BRAND_FOCUS,
+  CityPicker,
+  Wordmark,
+  brandButtonClasses,
+  useCity,
+} from '@eticketsgo/web-kit';
 import { AccountMenu } from '@/components/account-menu';
 import { useShellAuth, useSignOut } from '@/lib/use-shell-auth';
 import { Link } from '@/i18n/navigation';
 import { useTranslations } from 'next-intl';
-import { Wordmark } from '@/components/wordmark';
 import { useSignInHref } from '@/lib/use-sign-in-href';
 import {
   PlatformLinks,
@@ -148,7 +153,7 @@ export function Header({
           aria-label={h('homeLabel')}
           className={`inline-flex h-11 shrink-0 items-center rounded-brand-control ${BRAND_FOCUS}`}
         >
-          <Wordmark />
+          <Wordmark size="md" tone="brand" />
         </Link>
 
         <CityPicker

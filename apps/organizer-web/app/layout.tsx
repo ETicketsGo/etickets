@@ -8,7 +8,13 @@ import { display } from '@eticketsgo/web-kit/fonts/display';
 import { brandDisplay } from '@eticketsgo/web-kit/fonts/brand-display';
 
 export const metadata: Metadata = {
-  title: 'ETicketsGo — Organizer',
+  /*
+    Every tab reads "<Page> - ETicketsGo" (owner, 2026-10-19). A segment that exports a title
+    gets the template; the console's own pages are client components and are named by the shell
+    from the menu (shell.tsx `useConsoleTabTitle`). The default is what shows before that runs,
+    and on a page with no name of its own.
+  */
+  title: { default: 'ETicketsGo Organizer', template: '%s - ETicketsGo' },
   description: 'Create events, manage orders, check in attendees, and track revenue.',
   manifest: '/manifest.webmanifest',
   /*

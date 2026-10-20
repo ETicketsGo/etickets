@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   activeSectionIndex,
+  consolePageTitle,
   filterQuickNav,
   navAllowed,
   navCurrentHref,
+  navCurrentLabel,
   navInSection,
   navSections,
   quickNavEntries,
@@ -139,5 +141,19 @@ describe('quick navigation', () => {
     expect(filterQuickNav(entries, 'fee').map((e) => e.href)).toEqual(['/bf']);
     expect(filterQuickNav(entries, 'pay').map((e) => e.href)).toEqual(['/pc', '/po']);
     expect(filterQuickNav(entries, 'money')[0].href).toBe('/po');
+  });
+});
+
+describe('the tab title', () => {
+  it('names the page after the menu item it is, the deepest one', () => {
+    expect(navCurrentLabel('/organizer/payouts', NAV)).toBe('Payouts');
+    expect(navCurrentLabel('/organizer/payouts/abc', NAV)).toBe('Payouts');
+    expect(navCurrentLabel('/organizer/cinemas/abc/schedule', NAV)).toBe('Venues & seating');
+    expect(navCurrentLabel('/organizer', NAV)).toBe('Overview');
+    expect(navCurrentLabel('/organizer/somewhere-else', NAV)).toBeNull();
+  });
+
+  it('reads "<Page> - ETicketsGo"', () => {
+    expect(consolePageTitle('Payouts')).toBe('Payouts - ETicketsGo');
   });
 });

@@ -41,6 +41,29 @@ const CARD_BG = '#FFFFFF';
  */
 const FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif";
 
+/**
+ * The ETicketsGo wordmark, as the web apps draw it (packages/web-kit/src/wordmark.tsx): the name
+ * in a heavy grotesque, tracked in, ink, with a gold full stop on the baseline (owner,
+ * 2026-10-19: the same wordmark on every surface, emails included).
+ *
+ * Email cannot load the display face, so the name is set in the closest safe stack at 800 and
+ * the face is named first for the reader who happens to have it. The full stop is a drawn dot
+ * rather than a "." in that stack, whose square period would not match the mark. Outlook on
+ * Windows ignores border-radius and shows a small gold square, which still reads as the dot.
+ * Colours are the palette's own (`etgPalette`): `gold` on paper, `gold-on-ink` in dark mode.
+ */
+const WORDMARK_FONT =
+  "'Bricolage Grotesque','Helvetica Neue',Helvetica,Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif";
+const WORDMARK_INK = '#16130F';
+const WORDMARK_GOLD = '#B8955A';
+const WORDMARK_ON_INK = '#F6F2EA';
+const WORDMARK_GOLD_ON_INK = '#E3CFA5';
+
+/** The header wordmark, the same in every template. Exported for its test. */
+export function emailWordmark(): string {
+  return `<span class="etg-wordmark" style="font-family:${WORDMARK_FONT};font-size:22px;line-height:24px;font-weight:800;color:${WORDMARK_INK};letter-spacing:-0.6px;white-space:nowrap;">ETicketsGo</span><span class="etg-dot" aria-hidden="true" style="display:inline-block;width:7px;height:7px;margin-left:1px;border-radius:4px;background:${WORDMARK_GOLD};vertical-align:baseline;"></span>`;
+}
+
 /** One fact about the thing the mail is about: "When", "Friday 2 Oct 2026, 7:30 pm (IST)". */
 export interface EmailRow {
   label: string;
@@ -211,8 +234,9 @@ export function renderEmailHtml(view: EmailView): string {
       @media (prefers-color-scheme: dark) {
         .etg-page { background: #0B0F19 !important; }
         .etg-card { background: #151A24 !important; border-color: #2A313D !important; }
-        .etg-ink, .etg-ink *, .etg-mark span { color: #F3F4F6 !important; }
-        .etg-mark span span { color: #6E9BFF !important; }
+        .etg-ink, .etg-ink * { color: #F3F4F6 !important; }
+        .etg-mark .etg-wordmark { color: ${WORDMARK_ON_INK} !important; }
+        .etg-mark .etg-dot { background: ${WORDMARK_GOLD_ON_INK} !important; }
         .etg-rows { background: #1B212C !important; border-color: #2A313D !important; }
       }
       @media (max-width: 620px) {
@@ -231,7 +255,7 @@ export function renderEmailHtml(view: EmailView): string {
           <table role="presentation" class="etg-card" cellpadding="0" cellspacing="0" border="0" width="600" style="width:600px;max-width:100%;background:${CARD_BG};border:1px solid ${BORDER};border-radius:14px;border-collapse:separate;">
             <tr>
               <td class="etg-pad etg-mark" style="padding:22px 32px;border-bottom:1px solid ${BORDER};">
-                <span style="font-family:${FONT};font-size:17px;font-weight:700;color:${INK};letter-spacing:-0.2px;">ETickets<span style="color:${BRAND};">Go</span></span>
+                ${emailWordmark()}
               </td>
             </tr>
             <tr>

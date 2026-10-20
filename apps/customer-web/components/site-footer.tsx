@@ -2,9 +2,8 @@
 
 import { Link } from '@/i18n/navigation';
 import { useTranslations } from 'next-intl';
-import { BRAND_FOCUS, BrandStatusPill } from '@eticketsgo/web-kit';
+import { BRAND_FOCUS, BrandStatusPill, Wordmark } from '@eticketsgo/web-kit';
 import { INDIA_OPERATOR } from '@eticketsgo/shared-types';
-import { Wordmark } from '@/components/wordmark';
 import { LanguageSwitcher } from '@/components/language-switcher';
 import { FeedbackButton } from '@/components/feedback-widget';
 
@@ -137,7 +136,8 @@ export function SiteFooter({
   const f = useTranslations('common.footer');
   const g = useTranslations('storefront.guest');
   const h = useTranslations('home.footer');
-  const nav = useTranslations('common.nav');
+  // The wordmark link's name contains the words it shows ("ETicketsGo home"), as the header's does.
+  const hd = useTranslations('home.header');
 
   const link = `inline-flex min-h-11 items-center rounded-sm text-brand-ui text-brand-ink-2 transition-colors hover:text-brand-gold-text lg:min-h-8 ${BRAND_FOCUS}`;
 
@@ -161,10 +161,10 @@ export function SiteFooter({
           <div>
             <Link
               href="/"
-              aria-label={nav('home')}
+              aria-label={hd('homeLabel')}
               className={`inline-flex h-11 items-center rounded-brand-control ${BRAND_FOCUS}`}
             >
-              <Wordmark className="text-[1.625rem]" />
+              <Wordmark size="lg" tone="brand" />
             </Link>
             {/* Translated, not inlined: a hardcoded tagline passes a build that fails on
                 missing keys and still shows English to a French reader. */}
