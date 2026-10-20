@@ -220,15 +220,20 @@ const BUILDERS: Partial<Record<NotificationType, Builder>> = {
         seats: optional(l, 'seats', { seats }),
         reference: bookingName(l, p),
         /*
-          The way back in for somebody who bought without an account — and nothing at all for
-          somebody who has one, who signs in instead.
+          The way back in for somebody who bought without an account, and the tickets page in
+          their account for somebody who has one (`linkTo`). Two sentences because the two
+          links differ: the guest's opens the tickets with no sign-in, the account holder's
+          asks them to sign in first.
 
           Optional, like every other fragment here, for the reason the file's header gives: this
           row may have been queued before the field existed, and a required `{link}` would print
           literally in the one message that carries a customer's tickets. It is in the BODY, not
-          the subject: a subject shows on a locked screen, and this is a bearer credential.
+          the subject: a subject shows on a locked screen, and the guest link is a bearer
+          credential.
         */
-        link: optional(l, 'accessLink', { link: str(p, 'link') }),
+        link: optional(l, p.linkTo === 'ACCOUNT_TICKETS' ? 'accountTicketsLink' : 'accessLink', {
+          link: str(p, 'link'),
+        }),
       }),
     };
   },
@@ -323,7 +328,8 @@ const BUILDERS: Partial<Record<NotificationType, Builder>> = {
     cancellation below: it has to say WHICH show and WHEN it was, because the reader did not
     initiate this and may be about to travel to it.
 
-    Three readers. An online buyer is told a refund follows, and one does. A buyer who paid
+    Four readers. An online buyer is told a refund follows, and one does; one whose booking
+    was free is told there is nothing to refund, because nothing was paid. A buyer who paid
     cash at the counter is not: no refund is sent anywhere, the cash is given back at the venue,
     so they are told that, how much, and the reference to show. And a walk-up cash sale with no
     buyer email has the organization's address on it, so that copy goes to the people who must
@@ -354,16 +360,41 @@ const BUILDERS: Partial<Record<NotificationType, Builder>> = {
         }),
       };
     }
+    // A free booking: nothing was paid, so no refund is promised.
+    if (str(p, 'refundStatus') === 'NOTHING_TO_REFUND') {
+      return {
+        subject: t(l, 'emails.SHOW_CANCELLED.subject'),
+        body: t(l, 'emails.SHOW_CANCELLED.bodyFree', vars),
+      };
+    }
     return {
       subject: t(l, 'emails.SHOW_CANCELLED.subject'),
       body: t(l, 'emails.SHOW_CANCELLED.body', vars),
     };
   },
 
-  [NotificationType.BOOKING_CANCELLED]: (l, p) => ({
-    subject: t(l, 'emails.BOOKING_CANCELLED.subject'),
-    body: t(l, 'emails.BOOKING_CANCELLED.body', { reference: bookingName(l, p) }),
-  }),
+  /*
+    The customer's own booking ending, which is not the show being called off (that is
+    SHOW_CANCELLED above, and a booking ended by it is told there and only there). Which
+    booking, for what and when, so somebody with several can tell which one, and what happens
+    to the money. `refundStatus` is set by the producer; a free booking has nothing to give
+    back and says so, rather than leaving the reader waiting for a refund.
+  */
+  [NotificationType.BOOKING_CANCELLED]: (l, p) => {
+    const event = str(p, 'eventTitle').trim();
+    return {
+      subject: t(l, 'emails.BOOKING_CANCELLED.subject'),
+      body: t(l, 'emails.BOOKING_CANCELLED.body', {
+        reference: bookingName(l, p),
+        forEvent: optional(l, 'forEvent', { event }),
+        when: whenClause(l, p),
+        refund:
+          str(p, 'refundStatus') === 'NOTHING_TO_REFUND'
+            ? t(l, 'emails.fragments.nothingToRefund')
+            : '',
+      }),
+    };
+  },
 
   [NotificationType.REFUND_COMPLETED]: (l, p) => ({
     subject: t(l, 'emails.REFUND_COMPLETED.subject'),

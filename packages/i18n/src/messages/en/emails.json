@@ -26,6 +26,7 @@
   "SHOW_CANCELLED": {
     "subject": "Your show has been cancelled",
     "body": "We are sorry - {event} has been cancelled. Your booking {reference} is no longer valid{when}. A refund will follow.",
+    "bodyFree": "We are sorry - {event} has been cancelled. Your booking {reference} is no longer valid{when}. The booking was free, so no money was taken and there is nothing to refund.",
     "bodyCash": "We are sorry - {event} has been cancelled. Your booking {reference} is no longer valid{when}. You paid {amount} in cash at the counter. The box office at the venue will give you back {amount} in cash. Show your booking reference {reference} at the box office.",
     "subjectOrganizerCash": "Show cancelled: cash to give back",
     "bodyOrganizerCash": "{event}{when} has been cancelled. Booking {reference} for {buyer} was paid in cash at the counter. The buyer gave no email, so this message comes to you. Give {amount} in cash back to {buyer} at the counter. Then open Counter and select Mark as given back."
@@ -36,7 +37,7 @@
   },
   "BOOKING_CANCELLED": {
     "subject": "Your booking was cancelled",
-    "body": "Your booking {reference} has been cancelled."
+    "body": "Your booking {reference}{forEvent}{when} has been cancelled. Its tickets no longer work.{refund}"
   },
   "REFUND_COMPLETED": {
     "subject": "Your refund is complete",
@@ -197,7 +198,9 @@
     "anOrganizer": "An organizer",
     "anEvent": "an event",
     "notProvided": "not provided",
-    "accessLink": " Open your tickets here, no account needed: {link}"
+    "accessLink": " Open your tickets here, no account needed: {link}",
+    "nothingToRefund": " The booking was free, so no money was taken and there is nothing to refund.",
+    "accountTicketsLink": " See your tickets in your account: {link}"
   },
   "GUEST_BOOKING_ACCESS": {
     "subject": "Your ETicketsGo tickets",

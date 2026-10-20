@@ -36,7 +36,23 @@ const EVENT = {
 
 /** A case is a type and a payload, with a name when one type has several readers. */
 const CASES: [NotificationType, Record<string, unknown>, string?][] = [
-  [NotificationType.BOOKING_CONFIRMED, { ...EVENT, link: 'https://qa.eticketsgo.com/booking/abc' }],
+  // A guest: the link is their access link, and no account is needed.
+  [
+    NotificationType.BOOKING_CONFIRMED,
+    { ...EVENT, link: 'https://qa.eticketsgo.com/booking/access/abc' },
+    'BOOKING_CONFIRMED-guest',
+  ],
+  // An account holder: the link is the booking's tickets page, which asks them to sign in.
+  [
+    NotificationType.BOOKING_CONFIRMED,
+    {
+      ...EVENT,
+      bookingId: 'cmbookingexample',
+      link: 'https://qa.eticketsgo.com/account/bookings/cmbookingexample/tickets',
+      linkTo: 'ACCOUNT_TICKETS',
+    },
+    'BOOKING_CONFIRMED-account',
+  ],
   [NotificationType.EVENT_REMINDER, { ...EVENT }],
   [
     NotificationType.PAYMENT_FAILED,
@@ -51,6 +67,12 @@ const CASES: [NotificationType, Record<string, unknown>, string?][] = [
   [NotificationType.REFUND_COMPLETED, { ...EVENT, amountMinor: 129_900 }],
   [NotificationType.SHOW_CHANGED, { ...EVENT }],
   [NotificationType.SHOW_CANCELLED, { ...EVENT }],
+  // A free booking on a cancelled show: no refund is promised.
+  [
+    NotificationType.SHOW_CANCELLED,
+    { ...EVENT, refundStatus: 'NOTHING_TO_REFUND' },
+    'SHOW_CANCELLED-free',
+  ],
   // Paid in cash at the counter: the cash comes back at the venue, not as a refund.
   [
     NotificationType.SHOW_CANCELLED,
@@ -69,7 +91,8 @@ const CASES: [NotificationType, Record<string, unknown>, string?][] = [
     },
     'SHOW_CANCELLED-cash-organizer',
   ],
-  [NotificationType.BOOKING_CANCELLED, { ...EVENT }],
+  // The buyer cancelled their own free booking: nothing was paid, so nothing is refunded.
+  [NotificationType.BOOKING_CANCELLED, { ...EVENT, refundStatus: 'NOTHING_TO_REFUND' }],
   [NotificationType.TICKET_TRANSFERRED, { ...EVENT, ticketId: 'TKT-9931' }],
   [NotificationType.TICKET_CHECKED_IN, { ...EVENT, serial: 'TKT-9931' }],
   [
