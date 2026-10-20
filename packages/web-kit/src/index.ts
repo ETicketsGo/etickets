@@ -53,7 +53,7 @@ export * from './buyer-region';
 export * from './location-fields';
 export * from './coordinates';
 export * from './workspace-theme';
-export * from './logo';
+export * from './wordmark';
 export * from './printable-tickets';
 export * from './event-details';
 export * from './safe-next';

@@ -1,6 +1,6 @@
 import { NotificationType } from '@eticketsgo/shared-types';
 import { buildEmailView } from './email-view';
-import { renderEmailHtml } from './email-html';
+import { emailWordmark, renderEmailHtml } from './email-html';
 
 /**
  * The HTML people actually receive.
@@ -191,5 +191,32 @@ describe('a French reader', () => {
   it('falls back to English for a locale nobody translated', () => {
     const out = renderEmailHtml(buildEmailView({ ...BOOKING, locale: 'de-DE' }));
     expect(out).toContain('View my tickets');
+  });
+});
+
+describe('the email header', () => {
+  /*
+    Owner, 2026-10-19: the same ETicketsGo wordmark on every surface. The header used to be
+    "ETickets" with a blue "Go"; it is now the name in ink with the gold full stop, and every
+    template carries the same one because the layout draws it, not the template.
+  */
+  it('is the ETicketsGo wordmark with the gold dot, in every template', () => {
+    for (const type of [
+      NotificationType.BOOKING_CONFIRMED,
+      NotificationType.BOOKING_CANCELLED,
+      NotificationType.REFUND_COMPLETED,
+    ]) {
+      const out = html({ type } as Partial<typeof BOOKING>);
+      expect(out).toContain(emailWordmark());
+      expect(out).toContain('>ETicketsGo</span>');
+      expect(out).toContain('background:#B8955A');
+      expect(out).not.toContain('ETickets<span');
+    }
+  });
+
+  it('turns the dot to the ink-band gold in dark mode', () => {
+    const out = html();
+    expect(out).toContain('.etg-mark .etg-dot { background: #E3CFA5 !important; }');
+    expect(out).toContain('.etg-mark .etg-wordmark { color: #F6F2EA !important; }');
   });
 });

@@ -15,8 +15,8 @@ import {
 } from 'react';
 import { useAuthUser, useLogout } from './hooks';
 import { apiAssetUrl } from './api';
-import { LogoMark } from './logo';
-import { visibleNav, type NavItem } from './nav';
+import { Wordmark, WordmarkMonogram } from './wordmark';
+import { consolePageTitle, navCurrentLabel, visibleNav, type NavItem } from './nav';
 import { IconButton } from './primitives';
 import { brandButtonClasses } from './brand';
 import {
@@ -48,6 +48,43 @@ function writeCollapsed(value: boolean): void {
   } catch {
     /* not saved; the sidebar still works for this visit */
   }
+}
+
+/**
+ * Names the browser tab after the page: "<Page> - ETicketsGo" (owner, 2026-10-19).
+ *
+ * The consoles' pages are client components, which cannot export metadata, so every tab said
+ * "ETicketsGo — Organizer" and five open tabs could not be told apart. The label is the menu's
+ * own name for the page (`navCurrentLabel`).
+ *
+ * It only replaces a title that is ours to replace: the app's default (which starts with
+ * "ETicketsGo") or the name it gave the previous page. A page that names itself - the print
+ * sheet's "<event> - <ref> - ETicketsGo ticket" - keeps its name. It is held, not set once:
+ * Next 15 can stream the layout's default `<title>` in after this effect has run (see
+ * `printable-tickets.tsx`), and a title set once would be put back to the default.
+ */
+function useConsoleTabTitle(label: string | null) {
+  const given = useRef<string | null>(null);
+  useEffect(() => {
+    if (!label) return undefined;
+    const title = consolePageTitle(label);
+    const hold = () => {
+      const now = document.title;
+      if (now === title) return;
+      if (now === '' || now.startsWith('ETicketsGo') || now === given.current) {
+        given.current = title;
+        document.title = title;
+      }
+    };
+    hold();
+    const observer = new MutationObserver(hold);
+    observer.observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+    return () => observer.disconnect();
+  }, [label]);
 }
 
 const FOCUSABLE = 'a[href], button:not([disabled])';
@@ -140,7 +177,7 @@ export interface ShellAction {
  *
  * ── TWO APPEARANCES, ONE FRAME ─────────────────────────────────────────────────────
  * `appearance="desk"` paints the same frame in the brand layer (docs/design/DESIGN-SYSTEM.md):
- * paper sidebar with a marigold current-item bar, the wordmark instead of the gradient mark,
+ * paper sidebar with a marigold current-item bar,
  * an ink primary action that keeps its words. Admin stays `classic` until it adopts the system.
  */
 export function AppShell({
@@ -157,7 +194,6 @@ export function AppShell({
   drawerLabel = 'Navigation',
   width = 'contained',
   appearance = 'classic',
-  renderMark,
   children,
 }: {
   /** The console's name beside the platform mark: "Organizer", "Admin". */
@@ -197,13 +233,6 @@ export function AppShell({
    * `data-brand="console"`, so the page inside may use the `brand-*` tokens too.
    */
   appearance?: ShellAppearance;
-  /**
-   * The platform mark in the classic frame, drawn at the size each place asks for (the class
-   * string). Left out, it is the gradient `LogoMark`. Admin passes its own: the mark its
-   * favicon uses, so the tab and the console header are the same picture. The desk draws the
-   * wordmark and never asks.
-   */
-  renderMark?: (className: string) => ReactNode;
   children: ReactNode;
 }) {
   const pathname = usePathname() ?? '/';
@@ -224,6 +253,7 @@ export function AppShell({
     });
 
   const items = useMemo(() => visibleNav(nav, user), [nav, user]);
+  useConsoleTabTitle(navCurrentLabel(pathname, items));
 
   const openQuick = useCallback(() => {
     setMobileOpen(false);
@@ -329,25 +359,7 @@ export function AppShell({
               href={home}
               className={`min-w-0 shrink-0 items-center gap-2 rounded-sm lg:hidden ${workspace ? 'hidden sm:flex' : 'flex'} ${focus}`}
             >
-              {desk ? (
-                <DeskWordmark />
-              ) : (
-                <>
-                  {renderMark ? (
-                    renderMark('h-7 w-7 shrink-0')
-                  ) : (
-                    <LogoMark variant="compact" id="etg-topbar" className="h-7 w-7 shrink-0" />
-                  )}
-                  {!workspace && (
-                    <span className="font-display text-[1.0625rem] font-bold tracking-tight text-text-primary">
-                      ETickets<span className="text-action-primary">Go</span>
-                    </span>
-                  )}
-                  <span className="rounded-full bg-background-subtle px-2 py-0.5 text-micro font-semibold text-text-secondary">
-                    {brand}
-                  </span>
-                </>
-              )}
+              <Wordmark size="sm" tone={desk ? 'brand' : 'auto'} product={brand} />
             </Link>
             {workspace && (
               /*
@@ -524,42 +536,20 @@ export function AppShell({
             aria-label={collapsed ? `ETicketsGo ${brand}, home` : undefined}
             className={`flex min-w-0 items-center gap-2.5 rounded-md ${navFocus}`}
           >
-            {desk ? (
-              collapsed ? (
-                <span
-                  aria-hidden
-                  className="flex h-8 w-8 items-center justify-center rounded-brand-control bg-brand-ink font-brand-display text-brand-ui font-extrabold text-brand-canvas"
-                >
-                  E
-                </span>
-              ) : (
-                // Stacked, so the console's name is never truncated beside the collapse control.
-                <span className="flex min-w-0 flex-col gap-1 leading-none">
-                  <DeskWordmark />
-                  <span className="truncate text-brand-eyebrow uppercase text-brand-ink-3">
-                    {brand}
-                  </span>
-                </span>
-              )
+            {collapsed ? (
+              /*
+                Folded to its first letter and the gold full stop - the favicon's picture. Ink on
+                the desk's paper (paper when the desk is dark), paper on the classic navy, so it
+                stands off either sidebar.
+              */
+              <WordmarkMonogram
+                tone={desk ? 'brand' : 'light'}
+                label={null}
+                className="h-9 w-9 text-[1rem]"
+              />
             ) : (
-              <>
-                {renderMark ? (
-                  renderMark('h-8 w-8 shrink-0')
-                ) : (
-                  <LogoMark variant="compact" id="etg-sidebar" className="h-8 w-8 shrink-0" />
-                )}
-                {!collapsed && (
-                  // Stacked, so the console's name is never truncated beside the collapse control.
-                  <span className="flex min-w-0 flex-col leading-none">
-                    <span className="font-display text-[1.0625rem] font-bold tracking-tight text-white">
-                      ETicketsGo
-                    </span>
-                    <span className="mt-1 truncate text-[0.6875rem] font-semibold uppercase tracking-[0.1em] text-nav-muted">
-                      {brand}
-                    </span>
-                  </span>
-                )}
-              </>
+              // Stacked, so the console's name is never cut short beside the collapse control.
+              <Wordmark size="sm" tone={desk ? 'brand' : 'dark'} product={brand} stacked />
             )}
           </Link>
           <RailTip label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
@@ -624,21 +614,14 @@ export function AppShell({
                 className={`flex items-center justify-between gap-2 border-b py-2 pl-4 pr-2 ${c.asideBorder}`}
               >
                 <span className="flex min-w-0 items-center gap-2.5">
-                  {desk ? (
-                    <span className="min-w-0 truncate text-brand-body font-semibold text-brand-ink">
-                      {workspace?.name.trim() ? workspace.name : `ETicketsGo ${brand}`}
+                  {workspace?.name.trim() ? (
+                    <span
+                      className={`min-w-0 truncate font-semibold ${desk ? 'text-brand-body text-brand-ink' : 'font-display text-white'}`}
+                    >
+                      {workspace.name}
                     </span>
                   ) : (
-                    <>
-                      {renderMark ? (
-                        renderMark('h-7 w-7 shrink-0')
-                      ) : (
-                        <LogoMark variant="compact" id="etg-drawer" className="h-7 w-7 shrink-0" />
-                      )}
-                      <span className="min-w-0 truncate font-display font-semibold text-white">
-                        {workspace?.name.trim() ? workspace.name : `ETicketsGo ${brand}`}
-                      </span>
-                    </>
+                    <Wordmark size="sm" tone={desk ? 'brand' : 'dark'} product={brand} />
                   )}
                 </span>
                 <button
@@ -757,16 +740,6 @@ function DeskNotice({
         </span>
       )}
     </Link>
-  );
-}
-
-/** The brand wordmark: the name in the display face and the one marigold dot. */
-function DeskWordmark() {
-  return (
-    <span className="inline-flex items-baseline whitespace-nowrap font-brand-display text-[1.25rem] font-extrabold leading-none tracking-tight text-brand-ink">
-      ETicketsGo
-      <span aria-hidden className="ml-0.5 inline-block h-2 w-2 rounded-full bg-brand-marigold" />
-    </span>
   );
 }
 

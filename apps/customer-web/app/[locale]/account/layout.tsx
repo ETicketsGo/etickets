@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { sectionTitle } from '@/lib/page-title';
 
 /*
   A screen with a name.
@@ -12,7 +13,7 @@ import type { Metadata } from 'next';
   server export. It renders its children and nothing else.
 */
 export const metadata: Metadata = {
-  title: 'Your account',
+  title: sectionTitle('Your account'),
   description: 'Your bookings, tickets and settings.',
 };
 

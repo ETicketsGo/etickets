@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import { dateTime, zoneAbbrev } from '@eticketsgo/shared-types';
 import type { WalletTicket } from './api';
+import { Wordmark } from './wordmark';
 
 /**
  * Tickets, laid out to become paper.
@@ -152,10 +153,15 @@ export function PrintableTickets({ tickets, copyLabel, autoPrint }: PrintableTic
               aria-label={`Ticket ${i + 1} of ${tickets.length}`}
             >
               <header className="border-b border-black/20 pb-2">
-                <p className="text-[0.7rem] uppercase tracking-widest text-black/60">
-                  ETicketsGo · Ticket {i + 1} of {tickets.length}
-                  {copyLabel ? ` · ${copyLabel}` : ''}
-                </p>
+                {/* The brand on paper is the same wordmark as on screen; its gold full stop is
+                    drawn, not a background, so it survives a printer that drops backgrounds. */}
+                <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+                  <Wordmark size="sm" tone="light" />
+                  <p className="text-[0.7rem] uppercase tracking-widest text-black/60">
+                    Ticket {i + 1} of {tickets.length}
+                    {copyLabel ? ` · ${copyLabel}` : ''}
+                  </p>
+                </div>
                 <h1 className="mt-1 text-xl font-bold leading-tight">{t.event.title}</h1>
                 {place && <p className="text-sm text-black/70">{place}</p>}
               </header>

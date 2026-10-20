@@ -17,21 +17,11 @@ import { ColorSchemeSwitch } from './color-scheme-switch';
  *
  * The names a test or a screen reader finds the controls by are kept: the navigation landmark
  * is "Admin", the phone drawer is "Admin menu", the menu button is "Toggle navigation".
+ *
+ * The brand is the shell's: the one ETicketsGo wordmark with "Admin" beside it, in place of the
+ * old purple-to-blue gradient ticket and the favicon image that stood in for it (#431).
  */
 const NAV = adminNavItems();
-
-/*
-  The admin mark: the console's own favicon (`public/icon.svg`, drawn by
-  scripts/brand/generate-favicons.mjs) - an ink E and the marigold full stop on a marigold tile.
-  The header still drew the old purple-to-blue gradient ticket, so the browser tab and the
-  console's own header showed two different logos. The same file is used, not a copy of it, so
-  they cannot drift apart again. Decorative here: the words beside it already say ETicketsGo.
-*/
-function adminMark(className: string) {
-  // A static SVG from this app's public folder; next/image adds nothing for a 32px vector.
-  // eslint-disable-next-line @next/next/no-img-element
-  return <img src="/icon.svg" alt="" aria-hidden className={className} />;
-}
 
 export function AdminShell({ children }: { children: ReactNode }) {
   return (
@@ -41,7 +31,6 @@ export function AdminShell({ children }: { children: ReactNode }) {
       navLabel="Admin"
       drawerLabel="Admin menu"
       width="fluid"
-      renderMark={adminMark}
       /*
         From `sm` up only. At 320-390px the brand, the menu button, three appearance buttons
         and Sign out do not fit on one line; on a phone the switch is in the drawer instead.

@@ -250,3 +250,31 @@ export function navCurrentHref(pathname: string, items: NavItem[]): string | nul
   visit(items);
   return best;
 }
+
+/**
+ * The name of the page the viewer is on, from the menu: the current item's label (the deepest
+ * match, as `navCurrentHref` picks it), or null when no item claims the address.
+ *
+ * The consoles' pages are client components and cannot export metadata, so every tab read
+ * "ETicketsGo — Organizer" whatever was open. The menu already names every page for the
+ * sidebar; the tab now uses the same name (`consolePageTitle`).
+ */
+export function navCurrentLabel(pathname: string, items: NavItem[]): string | null {
+  const href = navCurrentHref(pathname, items);
+  if (!href) return null;
+  let label: string | null = null;
+  const visit = (list: NavItem[]) => {
+    for (const item of list) {
+      if (label) return;
+      if (item.href === href) label = item.label;
+      else if (item.children) visit(item.children);
+    }
+  };
+  visit(items);
+  return label;
+}
+
+/** The browser tab title for a page: "<Page> - ETicketsGo", on every surface (owner, 2026-10-19). */
+export function consolePageTitle(label: string): string {
+  return `${label} - ETicketsGo`;
+}
