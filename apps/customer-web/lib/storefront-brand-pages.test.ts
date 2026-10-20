@@ -33,6 +33,8 @@ const BRAND_FILES = [
   'components/storefront-brand.tsx',
   'components/wallet-card.tsx',
   'components/wallet-passes.tsx',
+  // The premium pass (P2): the dark page, the paper ticket, the perforation.
+  'components/pass-brand.tsx',
   'components/showtimes/availability-legend.tsx',
   'components/showtimes/cinema-card.tsx',
   'components/showtimes/date-strip.tsx',
@@ -430,5 +432,36 @@ describe('the 404, the feedback dialog, the guest panel and the shared leftovers
     const shell = codeOnly(readFileSync(join(WEB_KIT, 'shell.tsx'), 'utf8'));
     expect(shell).not.toMatch(/LogoMark|renderMark/);
     expect(shell.match(/<Wordmark /g)).toHaveLength(3);
+  });
+});
+
+/*
+  ── THE PASS KEEPS ITS QR SCANNABLE (P2, 2026-10-19) ─────────────────────────────────────
+  The pass pages were redrawn as a paper ticket on a dark page. The QR is the one thing on them
+  a machine reads, so its drawing is pinned: the same 224px box, on white, with the server's own
+  image (its size and error correction are the API's). A dark page must never tint it or shrink
+  it, and the TRANSFER on My tickets must stay behind the stub's `transferable` flag.
+*/
+describe('the pass keeps its QR as it was', () => {
+  const PASS_PAGES = [
+    'app/[locale]/account/tickets/[ticketId]/page.tsx',
+    'app/[locale]/account/bookings/[bookingId]/tickets/page.tsx',
+  ];
+
+  it.each(PASS_PAGES)('%s draws the QR at 224px on white, inside the paper card', (file) => {
+    const source = read(file);
+    expect(source).toMatch(
+      /className=\{?[`"]h-56 w-56 rounded-brand-control border border-brand-line bg-white p-2/,
+    );
+    expect(source).toMatch(/<PassCard[\s>]/);
+    expect(source).toMatch(/<PassStage>/);
+  });
+
+  it('the paper card puts the paper tokens back inside the dark page', () => {
+    expect(read('components/pass-brand.tsx')).toMatch(/data-brand="customer"/);
+  });
+
+  it('offers TRANSFER on a stub only when the booking has a transferable ticket', () => {
+    expect(read('components/wallet-card.tsx')).toMatch(/info\?\.transferable && \(/);
   });
 });

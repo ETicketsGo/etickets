@@ -19,7 +19,8 @@ async function openTicketViewerFromWallet(page: Page) {
   await page.getByRole('link', { name: 'All my tickets' }).click();
   await expect(page).toHaveURL(/\/account\/tickets$/, { timeout: 20_000 });
   await expect(page.getByRole('heading', { level: 1, name: 'My tickets' })).toBeVisible();
-  await page.getByRole('link', { name: 'View ticket', exact: true }).click();
+  // The wallet's stub opens the booking's pass (it said "View ticket" before the P2 redesign).
+  await page.getByRole('link', { name: 'Open pass', exact: true }).click();
   await expect(page).toHaveURL(/\/account\/bookings\/[^/]+\/tickets$/);
 }
 
@@ -91,7 +92,7 @@ test('customer registers, books a ticket, pays, and sees a QR ticket', async ({ 
   await expect(page.getByText('2 tickets')).toBeVisible({ timeout: 20_000 });
 
   // Open the group → focused ticket viewer
-  await page.getByRole('link', { name: 'View tickets' }).click();
+  await page.getByRole('link', { name: 'Open pass', exact: true }).click();
   await expect(page).toHaveURL(/\/account\/bookings\/.+\/tickets/);
   await expect(page.getByText('Ticket 1 of 2')).toBeVisible({ timeout: 20_000 });
 
@@ -120,7 +121,10 @@ test('customer registers, books a ticket, pays, and sees a QR ticket', async ({ 
   // The individual ticket detail page still works from the viewer
   await page.getByRole('link', { name: 'Full ticket details' }).click();
   await expect(page).toHaveURL(/\/account\/tickets\/.+/);
-  await expect(page.getByRole('button', { name: /All tickets/ })).toBeVisible({ timeout: 20_000 });
+  // The pass's own top bar leads back to My tickets.
+  await expect(page.getByRole('button', { name: 'Tickets', exact: true })).toBeVisible({
+    timeout: 20_000,
+  });
 });
 
 test('attendee identity: owner invites, recipient claims, ticket moves to their wallet', async ({
@@ -261,11 +265,11 @@ test('experience wallet: placeholder items appear behind a feature flag and filt
   await expect(page.getByText('ETicketsGo Gold')).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText('10% Welcome Coupon')).toBeVisible();
   // The real ticket item is present too (generic card, no type branching)
-  await expect(page.getByRole('link', { name: /View ticket/ })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Open pass', exact: true })).toBeVisible();
 
   // Filter to Memberships → only the membership remains
   await page.getByRole('button', { name: 'Memberships' }).click();
   await expect(page.getByText('ETicketsGo Gold')).toBeVisible();
-  await expect(page.getByRole('link', { name: /View ticket/ })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Open pass', exact: true })).toHaveCount(0);
   await expect(page.getByText('10% Welcome Coupon')).toHaveCount(0);
 });

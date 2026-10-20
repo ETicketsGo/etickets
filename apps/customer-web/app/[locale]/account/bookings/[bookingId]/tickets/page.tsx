@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation';
 import { useRouter } from '@/i18n/navigation';
 import { AssignAttendeeDialog } from '@/components/assign-attendee-dialog';
 import { ShareDialog } from '@/components/share-dialog';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   ArrowLeft,
   Car,
@@ -18,6 +18,7 @@ import {
   Printer,
   Maximize2,
   Navigation,
+  Repeat,
   ScanLine,
   Share2,
   UserPlus,
@@ -39,13 +40,27 @@ import {
   useToast,
   type BookingGroup,
   type BrandStatus,
+  type SharePermissionValue,
   type WalletTicket,
 } from '@eticketsgo/web-kit';
-import { tokenStore } from '@/lib/api';
+import { api, tokenStore } from '@/lib/api';
 import { useFormat } from '@/lib/format';
 import { ReferenceCode } from '@/components/reference-code';
 import { EventDayMode } from '@/components/event-day-mode';
-import { BRAND_EYEBROW, BRAND_LINK, BRAND_PANEL } from '@/components/booking-brand';
+import { BRAND_EYEBROW, BRAND_LINK, useVenueWhen } from '@/components/booking-brand';
+import {
+  PASS_CAPS,
+  PASS_OUTLINE,
+  PassCard,
+  PassFact,
+  PassPerforation,
+  PassPhoto,
+  PassStage,
+  PassTopBar,
+  passDay,
+  useStoredOffline,
+} from '@/components/pass-brand';
+import dynamic from 'next/dynamic';
 import { BrandError } from '@/components/account-brand';
 import { Placeholder as LoadingBlock } from '@/components/home/parts';
 import { BrandEmpty, BrandPage } from '@/components/storefront-brand';
@@ -78,6 +93,16 @@ const TICKET_TONE: Record<string, BrandStatus> = {
 /** The page's column: narrow, like a ticket, with the shell's gutters. */
 const COLUMN = 'mx-auto max-w-2xl px-4 sm:px-6';
 
+/** The pass's column on the dark page: a phone's width, and a little more from `sm`. */
+const PASS_COLUMN = 'mx-auto max-w-md px-4 sm:max-w-lg';
+
+// Lazy-loaded, as on the single ticket page: the wallet-pass buttons need a provider query and
+// only render when one is configured.
+const WalletPasses = dynamic(
+  () => import('@/components/wallet-passes').then((m) => m.WalletPasses),
+  { ssr: false, loading: () => null },
+);
+
 /** A quiet text control in the top row and under the actions: 44px tall, ink on hover. */
 const QUIET_LINK = `inline-flex min-h-11 items-center gap-1.5 rounded-brand-control px-2 text-brand-ui font-medium text-brand-ink-2 transition-colors duration-150 hover:text-brand-gold-text ${BRAND_FOCUS}`;
 
@@ -108,7 +133,6 @@ export default function BookingTicketsViewer() {
     "View tickets" lands, so a French buyer went from a French page to an English one (QA).
   */
   const b = useTranslations('storefront.bookingTickets');
-  const { dateTime, zoneAbbrev } = useFormat();
   const statusLabel = useStatusLabel();
   const mounted = useMounted();
   const { bookingId } = useParams<{ bookingId: string }>();
@@ -143,10 +167,31 @@ export default function BookingTicketsViewer() {
   );
   const tickets = useMemo(() => group?.tickets ?? [], [group]);
 
+  // The event's public page, for the photo and the category on the pass. Optional: offline, or
+  // for an event no longer listed, the pass draws the brand's mark and the kind of booking.
+  const eventQ = useQuery({
+    queryKey: ['event', group?.slug],
+    queryFn: () => api.getEvent(group!.slug),
+    enabled: !!group?.slug && online,
+    retry: false,
+    staleTime: 10 * 60 * 1000,
+  });
+  const event = eventQ.data;
+  const eventImage = event ? { variants: event.imageVariants, path: event.imagePath } : null;
+  const wc = useTranslations('storefront.walletCard');
+  const venueWhen = useVenueWhen();
+  const { locale: formatLocale } = useFormat();
+  const locale = formatLocale ?? 'en-IN';
+
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [eventDayOpen, setEventDayOpen] = useState(false);
   const [assignOpen, setAssignOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [sharePermission, setSharePermission] = useState<SharePermissionValue>('VIEW');
+  const openShare = (permission: SharePermissionValue) => {
+    setSharePermission(permission);
+    setShareOpen(true);
+  };
   const [autoAdvance, setAutoAdvance] = useState(false);
   const headingRef = useRef<HTMLHeadingElement>(null);
 
@@ -186,6 +231,25 @@ export default function BookingTicketsViewer() {
     tickets.findIndex((t) => t.id === selectedId),
   );
   const current: WalletTicket | undefined = tickets[index];
+  // "OFFLINE" in the top bar only when this ticket is in the device's saved wallet.
+  const storedOffline = useStoredOffline(current?.id, syncedAt);
+
+  /*
+    TRANSFER on My tickets lands here with `?transfer=1`: the same Share dialog the pass's own
+    TRANSFER button opens, on the first ticket of the booking that can be transferred. Once,
+    so closing the dialog does not reopen it.
+  */
+  const transferHandled = useRef(false);
+  useEffect(() => {
+    if (transferHandled.current || tickets.length === 0) return;
+    if (new URLSearchParams(window.location.search).get('transfer') !== '1') return;
+    transferHandled.current = true;
+    const target = tickets.find(isTransferable);
+    if (!target) return;
+    setSelectedId(target.id);
+    setSharePermission('TRANSFER');
+    setShareOpen(true);
+  }, [tickets]);
 
   const goTo = useCallback(
     (next: number) => {
@@ -254,11 +318,6 @@ export default function BookingTicketsViewer() {
     up a phone with a dying battery in a queue.
   */
   const printHref = `/account/bookings/${bookingId}/tickets/print`;
-  const printLink = (
-    <Link href={printHref} className={QUIET_LINK}>
-      <Printer className="h-4 w-4" aria-hidden /> {b('print')}
-    </Link>
-  );
 
   const backLink = (
     <button
@@ -311,16 +370,13 @@ export default function BookingTicketsViewer() {
 
   const timing = eventTiming(current.startsAt, Date.now());
   const canAssign = current.ownedByViewer !== false && current.status === 'ACTIVE';
+  const canTransfer = isTransferable(current);
   const assignmentLine = attendeeLine(current, b);
   const showNextActive = tickets.some((t) => t.status === 'ACTIVE') && current.status !== 'ACTIVE';
   const inactive = isTicketInactive(current.status);
   const seat = current.seatLabel;
-  /*
-    The venue's zone, named, so the time on the ticket is checkable against the clock on the
-    wall. `zoneAbbrev` returns e.g. "IST"; nothing is shown when the API did not send a zone,
-    because an unlabelled time is better than one labelled with a zone we guessed.
-  */
-  const zoneLabel = current.timezone ? zoneAbbrev(current.startsAt, current.timezone) : null;
+  const when = venueWhen(current.startsAt, current.timezone ?? undefined);
+  const shortDay = passDay(current.startsAt, current.timezone, locale);
   const seatText = seat ? b('seatLabel', { seat }) : null;
   const place = group.isMovie
     ? [group.cinemaName, group.screenName, seatText].filter(Boolean).join(' - ')
@@ -328,271 +384,325 @@ export default function BookingTicketsViewer() {
   const mapsQuery = group.isMovie
     ? [group.cinemaName, group.venueName].filter(Boolean).join(', ') || group.title
     : group.venueName || group.title;
+  // The event's category from its public page; the kind of booking until (or unless) it loads.
+  const category = event?.category ?? wc(group.isMovie ? 'badgeMovie' : 'badgeEvent');
+  const facts = [
+    { key: 'date', label: b('date'), value: shortDay },
+    {
+      // Doors only when the event has a doors time; the API has none today, so this is the
+      // show's own time on the venue's clock, with its zone.
+      key: 'time',
+      label: b('time'),
+      value: (
+        <>
+          <span className="tabular-nums">{when.time}</span>
+          {when.zone && (
+            <span className="block text-brand-meta font-normal text-brand-ink-3">{when.zone}</span>
+          )}
+        </>
+      ),
+    },
+    ...(current.holderName
+      ? [{ key: 'guest', label: b('guest'), value: current.holderName as ReactNode }]
+      : []),
+  ];
 
   return (
     <BrandPage>
-      <section
-        className={`${COLUMN} space-y-6 pt-4 sm:pt-8`}
-        aria-label={b('sectionLabel', { title: group.title })}
-      >
-        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-          <span className="flex flex-wrap items-center gap-x-2">
-            {backLink}
-            {printLink}
-          </span>
-          {!online && (
-            <span className="inline-flex h-6 items-center gap-1.5 rounded-full bg-brand-caution-tint px-2.5 text-brand-meta font-semibold text-brand-caution">
-              <WifiOff className="h-3.5 w-3.5" aria-hidden /> {b('offlineSaved')}
-            </span>
-          )}
-        </div>
-
-        {/* The booking, on a stage band: what these tickets are for and how many are in. */}
-        <GroupHeader group={group} />
-
-        {/* Event Day Mode entry — prominent on event day, always available below */}
-        {timing.isEventDay && (
-          <button
-            type="button"
-            onClick={() => setEventDayOpen(true)}
-            className={`${brandButtonClasses('primary', 'lg')} w-full`}
-          >
-            <Maximize2 className="h-4 w-4" aria-hidden /> {b('enterEventDayMode')}
-          </button>
-        )}
-
-        {/* Ticket viewer: one ticket at a time. The QR on white, for the scanner, never tinted. */}
-        <div
-          className={BRAND_PANEL}
-          style={{ touchAction: 'pan-y' }}
-          onTouchStart={onTouchStart}
-          onTouchEnd={onTouchEnd}
+      <PassStage>
+        <PassTopBar storedOffline={storedOffline} />
+        <section
+          className={`${PASS_COLUMN} space-y-5 pt-3 sm:pt-5`}
+          aria-label={b('sectionLabel', { title: group.title })}
         >
-          <div
-            role="group"
-            aria-label={b('ticketOf', { index: index + 1, total: tickets.length })}
-            aria-live="polite"
-            className="flex flex-col items-center p-6 text-center"
-          >
-            <p className={BRAND_EYEBROW}>
-              {b('ticketOf', { index: index + 1, total: tickets.length })}
+          {!online && (
+            <p className="flex justify-center">
+              <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-brand-caution-tint px-3 text-brand-meta font-semibold text-brand-caution">
+                <WifiOff className="h-3.5 w-3.5" aria-hidden /> {b('offlineSaved')}
+              </span>
             </p>
+          )}
 
-            <div className="mt-4">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                key={current.id}
-                // A vendor barcode the server cannot draw arrives as null: show the fallback.
-                src={current.qrDataUrl ?? qrFallbackUrl}
-                alt={b('qrAlt', { serial: current.serial })}
-                onError={(e) => {
-                  const img = e.currentTarget;
-                  if (img.src !== qrFallbackUrl) img.src = qrFallbackUrl;
-                }}
-                className={`h-56 w-56 rounded-brand-control border border-brand-line bg-white p-2 ${inactive ? 'opacity-40 grayscale' : ''}`}
-              />
-            </div>
-
-            <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-              <BrandStatusPill status={TICKET_TONE[current.status] ?? 'neutral'}>
-                {statusLabel('ticket', current.status)}
-              </BrandStatusPill>
-              <span className="font-mono text-brand-meta text-brand-ink-3">{current.serial}</span>
-            </div>
-
-            {/*
-              ── WHAT A PERSON CHECKS WHEN NOBODY SCANS ──────────────────────────────
-              Most Indian cinemas admit on a visual check: someone looks at the ticket, reads
-              the screen and the seat, and waves you through. The barcode is the exception,
-              not the rule.
-
-              This block is for them. Screen, seat and show time are set large enough to read
-              at arm's length in a queue, in the order they are actually read — where do I
-              send this person, and are they here for the right show. Everything else stays
-              small, because it is for the customer rather than the doorperson.
-            */}
-            <dl className="mt-5 grid w-full max-w-md grid-cols-2 gap-x-4 gap-y-3 border-y border-brand-line py-4 text-left">
-              {group.screenName && (
-                <div>
-                  <dt className={BRAND_EYEBROW}>{b('screen')}</dt>
-                  <dd className="mt-0.5 font-brand-display text-brand-card text-brand-ink">
-                    {group.screenName}
-                  </dd>
-                </div>
-              )}
-              {seat && (
-                <div>
-                  <dt className={BRAND_EYEBROW}>{b('seat')}</dt>
-                  <dd className="mt-0.5 font-brand-display text-brand-card tabular-nums text-brand-ink">
-                    {seat}
-                  </dd>
-                </div>
-              )}
-              <div className={group.screenName && seat ? 'col-span-2' : ''}>
-                <dt className={BRAND_EYEBROW}>
-                  {zoneLabel ? b('showTimeWithZone', { zone: zoneLabel }) : b('showTime')}
-                </dt>
-                {/*
-                  Rendered in the VENUE's timezone, not the device's. A phone set to another
-                  zone previously showed a time that was not when the show starts — on the one
-                  screen where being wrong sends somebody to the wrong screening.
-                */}
-                <dd className="mt-0.5 font-brand-display text-brand-card tabular-nums text-brand-ink">
-                  {dateTime(current.startsAt, undefined, current.timezone ?? undefined)}
-                </dd>
-              </div>
-              <div>
-                <dt className={BRAND_EYEBROW}>{b('ticket')}</dt>
-                <dd className="mt-0.5 text-brand-ui text-brand-ink">{current.ticketType}</dd>
-              </div>
-              {current.bookingRef && (
-                <div>
-                  <dt className={BRAND_EYEBROW}>{b('booking')}</dt>
-                  {/* Quoted to staff and to support far more often than the serial is. */}
-                  <dd className="mt-0.5 text-brand-ui">
-                    <ReferenceCode value={current.bookingRef} label={b('bookingReference')} />
-                  </dd>
-                </div>
-              )}
-              {current.holderName && (
-                <div className="col-span-2">
-                  <dt className={BRAND_EYEBROW}>{b('attendee')}</dt>
-                  <dd className="mt-0.5 text-brand-ui text-brand-ink">{current.holderName}</dd>
-                </div>
-              )}
-              {place && (
-                <div className="col-span-2 flex items-center gap-1.5 text-brand-meta text-brand-ink-2">
-                  <MapPin className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                  <dt className="sr-only">{b('location')}</dt>
-                  <dd>{place}</dd>
-                </div>
-              )}
-            </dl>
-
-            {assignmentLine && (
-              <p className="mt-3 text-brand-meta font-medium text-brand-ink-2">{assignmentLine}</p>
-            )}
-
-            {inactive && (
-              <p className="mt-3 max-w-xs text-brand-meta text-brand-ink-2">
-                {b('inactive', { status: statusLabel('ticket', current.status).toLowerCase() })}
-              </p>
-            )}
-
-            <Link
-              href={`/account/tickets/${current.id}`}
-              className={`mt-4 inline-flex min-h-11 items-center text-brand-ui ${BRAND_LINK}`}
+          {/* Event Day Mode entry — prominent on event day, always available below */}
+          {timing.isEventDay && (
+            <button
+              type="button"
+              onClick={() => setEventDayOpen(true)}
+              className={`${brandButtonClasses('primary', 'lg')} w-full`}
             >
-              {b('fullDetails')}
+              <Maximize2 className="h-4 w-4" aria-hidden /> {b('enterEventDayMode')}
+            </button>
+          )}
+
+          {/* The ticket: one at a time, on paper. The QR on white, for the scanner, never tinted. */}
+          <div style={{ touchAction: 'pan-y' }} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+            <PassCard>
+              <PassPhoto image={eventImage} />
+              <div className="px-5 pt-5 text-center sm:px-7">
+                <p className={PASS_CAPS}>
+                  {b('admitOne')}
+                  <span aria-hidden> · </span>
+                  <span className="sr-only">, </span>
+                  {category}
+                </p>
+                <h1
+                  ref={headingRef}
+                  className="mt-2 text-balance font-brand-display text-brand-d3 text-brand-ink focus:outline-none"
+                  tabIndex={-1}
+                >
+                  {group.title}
+                </h1>
+              </div>
+
+              {/*
+                ── WHAT A PERSON CHECKS WHEN NOBODY SCANS ──────────────────────────────
+                Most Indian cinemas admit on a visual check: someone looks at the ticket, reads
+                the screen and the seat, and waves you through. The barcode is the exception,
+                not the rule. So the day, the time on the venue's clock and the guest are set
+                large across the card, then screen and seat when the ticket has them.
+              */}
+              <dl
+                className={`mx-5 mt-4 grid divide-x divide-brand-line border-y border-brand-line sm:mx-7 ${
+                  facts.length === 3 ? 'grid-cols-3' : 'grid-cols-2'
+                }`}
+              >
+                {facts.map((f) => (
+                  <PassFact key={f.key} label={f.label}>
+                    {f.value}
+                  </PassFact>
+                ))}
+              </dl>
+              {(group.screenName || seat) && (
+                <dl className="mx-5 grid grid-cols-2 divide-x divide-brand-line border-b border-brand-line sm:mx-7">
+                  {group.screenName && <PassFact label={b('screen')}>{group.screenName}</PassFact>}
+                  {seat && (
+                    <PassFact label={b('seat')}>
+                      <span className="tabular-nums">{seat}</span>
+                    </PassFact>
+                  )}
+                </dl>
+              )}
+              <dl className="mx-5 mt-3 flex flex-wrap justify-center gap-x-4 gap-y-1 text-brand-meta text-brand-ink-2 sm:mx-7">
+                <div className="flex gap-1">
+                  <dt className="text-brand-ink-3">{b('ticket')}:</dt>
+                  <dd className="text-brand-ink">{current.ticketType}</dd>
+                </div>
+                {place && (
+                  <div className="flex items-center gap-1.5">
+                    <MapPin className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                    <dt className="sr-only">{b('location')}</dt>
+                    <dd>{place}</dd>
+                  </div>
+                )}
+              </dl>
+
+              <PassPerforation />
+
+              <div
+                role="group"
+                aria-label={b('ticketOf', { index: index + 1, total: tickets.length })}
+                aria-live="polite"
+                className="flex flex-col items-center px-5 pb-6 text-center sm:px-7"
+              >
+                {tickets.length > 1 && (
+                  <p className={`mb-3 ${BRAND_EYEBROW}`}>
+                    {b('ticketOf', { index: index + 1, total: tickets.length })}
+                  </p>
+                )}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  key={current.id}
+                  // A vendor barcode the server cannot draw arrives as null: show the fallback.
+                  src={current.qrDataUrl ?? qrFallbackUrl}
+                  alt={b('qrAlt', { serial: current.serial })}
+                  onError={(e) => {
+                    const img = e.currentTarget;
+                    if (img.src !== qrFallbackUrl) img.src = qrFallbackUrl;
+                  }}
+                  className={`h-56 w-56 rounded-brand-control border border-brand-line bg-white p-2 ${inactive ? 'opacity-40 grayscale' : ''}`}
+                />
+
+                {current.bookingRef && (
+                  <p className="mt-4 text-brand-ui">
+                    <span className="sr-only">{b('booking')}: </span>
+                    {/* Quoted to staff and to support far more often than the serial is. */}
+                    <ReferenceCode value={current.bookingRef} label={b('bookingReference')} />
+                  </p>
+                )}
+                <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+                  <BrandStatusPill status={TICKET_TONE[current.status] ?? 'neutral'}>
+                    {statusLabel('ticket', current.status)}
+                  </BrandStatusPill>
+                  <span className="font-mono text-brand-meta text-brand-ink-3">
+                    {current.serial}
+                  </span>
+                </div>
+                {!inactive && (
+                  <p className="mt-3 text-brand-ui font-semibold text-brand-ink-3">
+                    {b('brighten')}
+                  </p>
+                )}
+
+                {assignmentLine && (
+                  <p className="mt-3 text-brand-meta font-medium text-brand-ink-2">
+                    {assignmentLine}
+                  </p>
+                )}
+
+                {inactive && (
+                  <p className="mt-3 max-w-xs text-brand-meta text-brand-ink-2">
+                    {b('inactive', {
+                      status: statusLabel('ticket', current.status).toLowerCase(),
+                    })}
+                  </p>
+                )}
+
+                <Link
+                  href={`/account/tickets/${current.id}`}
+                  className={`mt-3 inline-flex min-h-11 items-center text-brand-ui ${BRAND_LINK}`}
+                >
+                  {b('fullDetails')}
+                </Link>
+              </div>
+
+              {tickets.length > 1 && (
+                <div className="flex items-center justify-between gap-2 border-t border-brand-line p-2 sm:p-3">
+                  <button
+                    type="button"
+                    onClick={() => goTo(index - 1)}
+                    disabled={index === 0}
+                    aria-label={b('previousTicket')}
+                    className={brandButtonClasses('quiet', 'md')}
+                  >
+                    <ChevronLeft className="h-4 w-4" aria-hidden /> {b('prev')}
+                  </button>
+                  {showNextActive && (
+                    <button
+                      type="button"
+                      onClick={jumpNextActive}
+                      className={`${brandButtonClasses('secondary', 'md')} px-3`}
+                    >
+                      <ScanLine className="h-4 w-4" aria-hidden /> {b('nextActiveQr')}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => goTo(index + 1)}
+                    disabled={index === tickets.length - 1}
+                    aria-label={b('nextTicket')}
+                    className={brandButtonClasses('quiet', 'md')}
+                  >
+                    {b('next')} <ChevronRight className="h-4 w-4" aria-hidden />
+                  </button>
+                </div>
+              )}
+            </PassCard>
+          </div>
+
+          {/*
+            ADD TO WALLET and TRANSFER, outlined on the ink. Each only when it would work today:
+            a wallet pass when a provider is configured and the ticket is active, a transfer when
+            this person holds an active ticket to a show that has not ended (the server's rule
+            for a transfer link). TRANSFER opens the same Share dialog, on "Transfer ownership".
+          */}
+          <div className="grid grid-cols-1 gap-3 empty:hidden min-[360px]:grid-cols-2 [&>*:only-child]:col-span-full">
+            <WalletPasses ticketId={current.id} ticketStatus={current.status} variant="pass" />
+            {canTransfer && (
+              <button type="button" onClick={() => openShare('TRANSFER')} className={PASS_OUTLINE}>
+                <Repeat className="h-4 w-4" aria-hidden /> {b('transfer')}
+              </button>
+            )}
+          </div>
+
+          {/* The booking: how many tickets and how many are in. */}
+          <GroupHeader group={group} />
+
+          {/* Quick actions */}
+          <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+            <QuickAction icon={Share2} label={b('actionShare')} onClick={() => openShare('VIEW')} />
+            <QuickAction
+              icon={UserPlus}
+              label={b('actionAssign')}
+              onClick={() =>
+                canAssign
+                  ? setAssignOpen(true)
+                  : toast.push(
+                      current.status === 'ACTIVE' ? b('assignOwnerOnly') : b('assignClosed'),
+                      'info',
+                    )
+              }
+            />
+            {/*
+              The PDF is the print sheet, saved. It called `window.print()` on THIS page, which
+              printed the site header and bottom navigation over the QR and named the file after
+              the site's tagline. The sheet has no chrome, one ticket per page, and a real name.
+            */}
+            <QuickAction
+              icon={Download}
+              label={b('actionPdf')}
+              onClick={() => router.push(printHref)}
+            />
+            <QuickAction
+              icon={Wallet}
+              label={b('actionWallet')}
+              onClick={() => toast.push(b('walletPassesSoon'), 'info')}
+            />
+            <QuickAction
+              icon={Navigation}
+              label={b('actionDirections')}
+              href={googleDirectionsUrl(mapsQuery)}
+            />
+            <QuickAction
+              icon={Car}
+              label={b('actionParking')}
+              href={googleMapsUrl(`parking near ${mapsQuery}`)}
+            />
+          </div>
+          <div className="-mt-2 flex flex-wrap items-center justify-between gap-x-3">
+            <button
+              type="button"
+              onClick={() => setEventDayOpen(true)}
+              className={`-ml-2 ${QUIET_LINK}`}
+            >
+              <Maximize2 className="h-4 w-4" aria-hidden /> {b('eventDayMode')}
+            </button>
+            {/*
+              Paper, for a door that reads rather than scans, and for anyone who would rather
+              not hold up a phone with a dying battery in a queue.
+            */}
+            <Link href={printHref} className={QUIET_LINK}>
+              <Printer className="h-4 w-4" aria-hidden /> {b('print')}
+            </Link>
+            <Link href="/help" className={`-mr-2 ${QUIET_LINK}`}>
+              <LifeBuoy className="h-4 w-4" aria-hidden /> {b('support')}
             </Link>
           </div>
 
+          {/* Ticket strip + auto-advance */}
           {tickets.length > 1 && (
-            <div className="flex items-center justify-between gap-2 border-t border-brand-line p-2 sm:p-3">
-              <button
-                type="button"
-                onClick={() => goTo(index - 1)}
-                disabled={index === 0}
-                aria-label={b('previousTicket')}
-                className={brandButtonClasses('quiet', 'md')}
-              >
-                <ChevronLeft className="h-4 w-4" aria-hidden /> {b('prev')}
-              </button>
-              {showNextActive && (
-                <button
-                  type="button"
-                  onClick={jumpNextActive}
-                  className={`${brandButtonClasses('secondary', 'md')} px-3`}
-                >
-                  <ScanLine className="h-4 w-4" aria-hidden /> {b('nextActiveQr')}
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => goTo(index + 1)}
-                disabled={index === tickets.length - 1}
-                aria-label={b('nextTicket')}
-                className={brandButtonClasses('quiet', 'md')}
-              >
-                {b('next')} <ChevronRight className="h-4 w-4" aria-hidden />
-              </button>
+            <div>
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+                <p className={BRAND_EYEBROW}>{b('allInBooking')}</p>
+                <label className="flex min-h-11 cursor-pointer items-center gap-2 text-brand-ui text-brand-ink-2">
+                  <input
+                    type="checkbox"
+                    checked={autoAdvance}
+                    onChange={toggleAutoAdvance}
+                    className={`h-5 w-5 rounded accent-brand-ink ${BRAND_FOCUS}`}
+                  />
+                  {b('autoAdvance')}
+                </label>
+              </div>
+              <TicketStrip
+                tickets={tickets}
+                index={index}
+                onSelect={goTo}
+                isMovie={group.isMovie}
+              />
             </div>
           )}
-        </div>
-
-        {/* Quick actions */}
-        <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
-          <QuickAction icon={Share2} label={b('actionShare')} onClick={() => setShareOpen(true)} />
-          <QuickAction
-            icon={UserPlus}
-            label={b('actionAssign')}
-            onClick={() =>
-              canAssign
-                ? setAssignOpen(true)
-                : toast.push(
-                    current.status === 'ACTIVE' ? b('assignOwnerOnly') : b('assignClosed'),
-                    'info',
-                  )
-            }
-          />
-          {/*
-            The PDF is the print sheet, saved. It called `window.print()` on THIS page, which
-            printed the site header and bottom navigation over the QR and named the file after
-            the site's tagline. The sheet has no chrome, one ticket per page, and a real name.
-          */}
-          <QuickAction
-            icon={Download}
-            label={b('actionPdf')}
-            onClick={() => router.push(printHref)}
-          />
-          <QuickAction
-            icon={Wallet}
-            label={b('actionWallet')}
-            onClick={() => toast.push(b('walletPassesSoon'), 'info')}
-          />
-          <QuickAction
-            icon={Navigation}
-            label={b('actionDirections')}
-            href={googleDirectionsUrl(mapsQuery)}
-          />
-          <QuickAction
-            icon={Car}
-            label={b('actionParking')}
-            href={googleMapsUrl(`parking near ${mapsQuery}`)}
-          />
-        </div>
-        <div className="-mt-2 flex items-center justify-between gap-3">
-          <button
-            type="button"
-            onClick={() => setEventDayOpen(true)}
-            className={`-ml-2 ${QUIET_LINK}`}
-          >
-            <Maximize2 className="h-4 w-4" aria-hidden /> {b('eventDayMode')}
-          </button>
-          <Link href="/help" className={`-mr-2 ${QUIET_LINK}`}>
-            <LifeBuoy className="h-4 w-4" aria-hidden /> {b('support')}
-          </Link>
-        </div>
-
-        {/* Ticket strip + auto-advance */}
-        {tickets.length > 1 && (
-          <div>
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-              <p className={BRAND_EYEBROW}>{b('allInBooking')}</p>
-              <label className="flex min-h-11 cursor-pointer items-center gap-2 text-brand-ui text-brand-ink-2">
-                <input
-                  type="checkbox"
-                  checked={autoAdvance}
-                  onChange={toggleAutoAdvance}
-                  className={`h-5 w-5 rounded accent-brand-ink ${BRAND_FOCUS}`}
-                />
-                {b('autoAdvance')}
-              </label>
-            </div>
-            <TicketStrip tickets={tickets} index={index} onSelect={goTo} isMovie={group.isMovie} />
-          </div>
-        )}
-      </section>
+        </section>
+      </PassStage>
 
       {eventDayOpen && (
         <EventDayMode
@@ -612,8 +722,26 @@ export default function BookingTicketsViewer() {
         onClose={() => setAssignOpen(false)}
       />
 
-      <ShareDialog ticket={current} open={shareOpen} onClose={() => setShareOpen(false)} />
+      <ShareDialog
+        ticket={current}
+        open={shareOpen}
+        initialPermission={sharePermission}
+        onClose={() => setShareOpen(false)}
+      />
     </BrandPage>
+  );
+}
+
+/**
+ * Whether this person can transfer this ticket today: they hold it, it is active, and the show
+ * has not ended. The same conditions the server checks before it makes a transfer link.
+ */
+function isTransferable(t: WalletTicket): boolean {
+  return (
+    t.status === 'ACTIVE' &&
+    t.ownedByViewer !== false &&
+    !t.transferred &&
+    eventTiming(t.startsAt, Date.now()).phase !== 'ended'
   );
 }
 
@@ -660,7 +788,7 @@ function GroupHeader({ group }: { group: BookingGroup }) {
   return (
     <header
       data-brand-tone="stage"
-      className="overflow-hidden rounded-brand-card bg-brand-canvas text-brand-ink"
+      className="overflow-hidden rounded-brand-card border border-brand-line bg-brand-canvas text-brand-ink"
     >
       <div className="p-5 sm:p-6">
         <p className="flex flex-wrap items-center gap-x-2 text-brand-eyebrow uppercase text-brand-ink-2">
@@ -668,12 +796,10 @@ function GroupHeader({ group }: { group: BookingGroup }) {
           <span aria-hidden>-</span>
           <span className="font-mono normal-case tracking-normal">{group.bookingRef}</span>
         </p>
-        <h1
-          className="mt-2 text-balance font-brand-display text-brand-d3 text-brand-ink focus:outline-none"
-          tabIndex={-1}
-        >
+        {/* The page's heading is the title on the ticket above; this names the booking. */}
+        <h2 className="mt-2 text-balance font-brand-display text-brand-card text-brand-ink">
           {group.title}
-        </h1>
+        </h2>
       </div>
 
       {(showProgress || segments.length > 0) && (
