@@ -41,18 +41,25 @@ import {
   - No blur. The bar is opaque paper, which also keeps `position: fixed` inside it meaning the
     screen (see the portal comment in CityPicker).
 
-  ── THE SIGNED-OUT HOME PAGE (owner, 2026-10-18, "Combined") ───────────────────────────
-  The front door serves two strangers: somebody buying a ticket and somebody deciding whether
-  to sell with us. So on `/`, and only for a visitor who is signed out, this bar keeps every
-  shop control (city, search, Explore, Movies, Tickets; the city bar and the bottom bar below)
-  AND offers the platform pages (Features, Solutions, Pricing, For organizers, For attendees)
-  with "Sign in" and "Get started", the same five links and buttons as the marketing header.
+  ── THE SIGNED-OUT SHOP (owner, 2026-10-18 "Combined"; 2026-10-19 every shop page) ─────────
+  A visitor who is not signed in may be somebody buying a ticket or somebody deciding whether
+  to sell with us. So for a visitor who is signed out this bar keeps every shop control (city,
+  search, Explore, Movies, Tickets; the city bar and the bottom bar below) AND offers the
+  platform pages (Features, Solutions, Pricing, For organizers, For attendees) with "Sign in"
+  and "Get started", the same five links and buttons as the marketing header.
     - desktop: a slim second row under the shop bar, so the first row is exactly the shop's
       and nothing overflows at 1024;
     - phone: a menu button beside the city, opening the marketing header's own phone menu.
-  A signed-in customer gets the pure shop bar there. Until the session is known nothing on the
-  right is drawn, so a signed-in customer never sees "Sign in" or the platform links flash.
-  Every other route is unchanged.
+  It started on `/` alone (#435). The owner then found Explore signed out "unable to see other
+  options", so it is now every shop page: Explore, Movies, Browse, an event, a film, an
+  organizer's page and the rest.
+
+  EXCEPT the purchase steps (`isPurchaseRoute`): the seat page, the booking and payment pages
+  and checkout keep the plain shop bar with "Sign in". Somebody choosing seats or paying is
+  not offered a tour of the platform.
+
+  A signed-in customer gets the pure shop bar everywhere. Until the session is known nothing on
+  the right is drawn, so a signed-in customer never sees "Sign in" or the platform links flash.
 */
 
 const navLink = `inline-flex h-11 items-center rounded-brand-control px-3 text-brand-ui font-semibold transition-colors hover:text-brand-gold-text ${BRAND_FOCUS}`;
@@ -77,6 +84,15 @@ function hasOwnSearch(path: string): boolean {
   return path === '/events' || path === '/movies';
 }
 
+/*
+  The steps where somebody is choosing seats or paying: the seat page (`/shows/...`), every
+  booking page (`/booking/...`, its payment step included - `isCheckoutRoute` in site-chrome)
+  and checkout. These keep the plain shop bar with "Sign in" for a visitor.
+*/
+export function isPurchaseRoute(path: string): boolean {
+  return /^\/(shows|booking|checkout)(\/|$)/.test(path);
+}
+
 export function Header({
   /*
     What the server believed, from the session-hint cookie.
@@ -99,11 +115,12 @@ export function Header({
     after. The same hook drives the marketing header and footer, so every bar agrees.
   */
   const { authed, known } = useShellAuth(initialSignedIn);
-  const home = pathname === '/';
-  // The combined front door: shop controls plus the platform pages, for a visitor only.
-  const visitorHome = home && known && !authed;
+  // Every shop page but the purchase steps offers a visitor the platform pages too.
+  const combinedRoute = !isPurchaseRoute(pathname);
+  // The combined bar: shop controls plus the platform pages, for a visitor only.
+  const visitor = combinedRoute && known && !authed;
   const [menuOpen, setMenuOpen] = useState(false);
-  useEffect(() => setMenuOpen(false), [pathname, visitorHome]);
+  useEffect(() => setMenuOpen(false), [pathname, visitor]);
 
   const { data: unread } = useQuery({
     queryKey: ['notifications', 'unread-count'],
@@ -244,8 +261,8 @@ export function Header({
               */}
               <AccountMenu onSignOut={logout} />
             </>
-          ) : home && !known ? (
-            // The home page's answer is not known yet: hold the space, draw nothing.
+          ) : combinedRoute && !known ? (
+            // The answer is not known yet: hold the space, draw nothing.
             <span aria-hidden data-auth="pending" className="inline-block h-11 w-11" />
           ) : (
             <>
@@ -254,11 +271,11 @@ export function Header({
                 row, and a row of its own for "Sign in" pushed the search and the hero down. The
                 bottom bar's Account tab leads to the same sign-in at that width.
 
-                On the signed-out home page "Sign in" sits beside "Get started" instead: in the
+                On a signed-out shop page "Sign in" sits beside "Get started" instead: in the
                 second row on a desktop, in the menu on a phone (a phone bar with the wordmark,
                 the city, "Sign in" and a menu button does not fit one row at 390).
               */}
-              {!visitorHome && (
+              {!visitor && (
                 <Link
                   href={signInHref}
                   className={`${brandButtonClasses('secondary', 'md')} max-[359px]:hidden`}
@@ -266,10 +283,10 @@ export function Header({
                   {a('signIn')}
                 </Link>
               )}
-              {visitorHome && (
+              {visitor && (
                 <PlatformMenuButton
                   open={menuOpen}
-                  controls="home-platform-menu"
+                  controls="shop-platform-menu"
                   onToggle={() => setMenuOpen((o) => !o)}
                 />
               )}
@@ -278,7 +295,7 @@ export function Header({
         </div>
       </div>
 
-      {visitorHome && (
+      {visitor && (
         <div data-nav-row="platform" className="hidden border-t border-brand-line lg:block">
           <div className="mx-auto flex h-[52px] max-w-shell items-center gap-x-6 px-10">
             <nav aria-label={m('navLabel')} className="-ml-3 flex items-center gap-1">
@@ -290,9 +307,9 @@ export function Header({
           </div>
         </div>
       )}
-      {visitorHome && menuOpen && (
+      {visitor && menuOpen && (
         <PlatformMenu
-          id="home-platform-menu"
+          id="shop-platform-menu"
           pathname={pathname}
           actions={<VisitorActions signInHref={signInHref} wide />}
         />

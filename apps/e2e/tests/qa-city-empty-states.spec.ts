@@ -45,9 +45,9 @@ test.describe('QA: a city that empties a page says so', () => {
     await expect(page.getByText(/No films available in Hyderabad yet/)).toBeVisible({
       timeout: 30_000,
     });
-    // The way on is cities with films, and the films elsewhere, titled by country. The selected
-    // city is never silently widened.
-    await expect(page.getByText(/Elsewhere: /).first()).toBeVisible({ timeout: 30_000 });
+    // The way on is cities with films and the search. The selected city is never silently
+    // widened, and since 2026-10-19 no "Elsewhere: <country>" rail follows (owner).
+    await expect(page.getByText(/Elsewhere: /)).toHaveCount(0);
     await expect(page.getByRole('button', { name: /^Location: Hyderabad/ })).toBeVisible();
   });
 
@@ -59,9 +59,10 @@ test.describe('QA: a city that empties a page says so', () => {
     await expect(page.getByText(/No events available in Pune yet/)).toBeVisible({
       timeout: 30_000,
     });
-    // The selected city stays; the rest of the country and the world follow under their own titles.
+    // The selected city stays, and nothing from the rest of the country or the world follows
+    // (the "More in" and "Elsewhere" groups were removed by the owner on 2026-10-19).
     await expect(page.getByRole('button', { name: /^Location: Pune/ })).toBeVisible();
-    await expect(page.getByText(/More in |Elsewhere: /).first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText(/More in |Elsewhere: /)).toHaveCount(0);
   });
 
   test('a search term makes the message about the search, not the city', async ({ page }) => {
