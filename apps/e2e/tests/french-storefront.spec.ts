@@ -371,7 +371,7 @@ test.describe('the storefront in French', () => {
     await page.goto(`${CUSTOMER}/fr-CA/events/${paid.slug}`, { waitUntil: 'networkidle' });
 
     await chooseQuantity(page.getByLabel(/Quantité de/).first(), 1);
-    await page.getByRole('button', { name: 'Passer au paiement' }).click();
+    await page.getByRole('button', { name: /^Réserver/ }).click();
 
     await expect(page).toHaveURL(/\/fr-CA\/booking\/[^/]+\/payment/, { timeout: 30_000 });
     await expect(page.getByRole('heading', { name: 'Vérifier et payer' })).toBeVisible({
