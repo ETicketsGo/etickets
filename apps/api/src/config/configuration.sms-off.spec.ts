@@ -22,6 +22,13 @@ describe('loadConfig: SMS_ENABLED=false', () => {
     PAYMENT_PROVIDER_NAME: 'stripe',
     EMAIL_PROVIDER: 'ses',
     EMAIL_FROM: 'tickets@eticketsgo.com',
+    // The rest of production SES (configuration.ses-production.spec.ts owns these).
+    AWS_REGION: 'ap-south-1',
+    SES_CONFIGURATION_SET: 'eticketsgo-prod',
+    SES_AWS_ACCESS_KEY_ID: 'AKIASESONLYEXAMPLE',
+    SES_AWS_SECRET_ACCESS_KEY: 'ses-only-secret',
+    SES_SNS_TOPIC_ARNS: 'arn:aws:sns:ap-south-1:123456789012:eticketsgo-ses-events-prod',
+    SES_WEBHOOK_SECRET: 'w'.repeat(40),
     ...extra,
   });
 

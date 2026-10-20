@@ -5,6 +5,7 @@ import {
   EmailLogTransport,
   SendGridEmailTransport,
   SesEmailTransport,
+  resolveSesCredentials,
   selectEmailTransport,
 } from './email.transport';
 
@@ -165,5 +166,105 @@ describe('selectEmailTransport', () => {
     expect(() => selectEmailTransport(configFor({ EMAIL_PROVIDER: 'sendgrid' }))).toThrow(
       /SENDGRID_API_KEY/,
     );
+  });
+});
+
+/*
+  R4: the SES key is its own IAM user. The shared AWS_ACCESS_KEY_ID pair is what the default
+  credential chain reads, and so what the payment secret store signs with; production email
+  must never be sent with it.
+*/
+describe('SesEmailTransport: which AWS key signs the send', () => {
+  const sesClientArgs = () => {
+    const { SESv2Client } = jest.requireMock('@aws-sdk/client-sesv2') as { SESv2Client: jest.Mock };
+    return SESv2Client.mock.calls.at(-1)?.[0] as { credentials?: Record<string, string> };
+  };
+  const SHARED = { AWS_ACCESS_KEY_ID: 'AKIASHARED', AWS_SECRET_ACCESS_KEY: 'shared-secret' };
+  const DEDICATED = {
+    SES_AWS_ACCESS_KEY_ID: 'AKIASESONLY',
+    SES_AWS_SECRET_ACCESS_KEY: 'ses-secret',
+  };
+  const base = { AWS_REGION: 'ap-south-1', EMAIL_FROM: 'tickets@eticketsgo.com' };
+
+  it('uses the dedicated SES pair when it is set, even with the shared pair present', () => {
+    new SesEmailTransport(configFor({ ...base, ...SHARED, ...DEDICATED, APP_ENV: 'PRODUCTION' }));
+    expect(sesClientArgs().credentials).toEqual({
+      accessKeyId: 'AKIASESONLY',
+      secretAccessKey: 'ses-secret',
+    });
+  });
+
+  it('passes only the key to the SDK, not the source label', () => {
+    new SesEmailTransport(configFor({ ...base, ...DEDICATED }));
+    expect(Object.keys(sesClientArgs().credentials ?? {}).sort()).toEqual([
+      'accessKeyId',
+      'secretAccessKey',
+    ]);
+  });
+
+  it.each(['PRODUCTION', 'STAGING'])('refuses to sign with the shared key in %s', (APP_ENV) => {
+    expect(() => new SesEmailTransport(configFor({ ...base, ...SHARED, APP_ENV }))).toThrow(
+      /SES_AWS_ACCESS_KEY_ID/,
+    );
+    // Nor does it drop to the default chain, which would find the same shared key.
+    expect(() => new SesEmailTransport(configFor({ ...base, APP_ENV }))).toThrow(
+      /SES_AWS_ACCESS_KEY_ID/,
+    );
+  });
+
+  it('refuses half a dedicated pair in any environment', () => {
+    for (const APP_ENV of ['QA', 'PRODUCTION']) {
+      expect(() =>
+        resolveSesCredentials(configFor({ APP_ENV, SES_AWS_ACCESS_KEY_ID: 'AKIASESONLY' })),
+      ).toThrow(/set together/);
+      expect(() =>
+        resolveSesCredentials(configFor({ APP_ENV, SES_AWS_SECRET_ACCESS_KEY: 'x' })),
+      ).toThrow(/set together/);
+    }
+  });
+
+  it('keeps QA exactly as configured today: the shared pair, unchanged', () => {
+    new SesEmailTransport(configFor({ ...base, ...SHARED, APP_ENV: 'QA' }));
+    expect(sesClientArgs().credentials).toEqual({
+      accessKeyId: 'AKIASHARED',
+      secretAccessKey: 'shared-secret',
+    });
+    expect(resolveSesCredentials(configFor({ ...SHARED, APP_ENV: 'QA' }))?.source).toBe('shared');
+  });
+
+  it('lets QA move to a dedicated pair without touching the shared one', () => {
+    expect(
+      resolveSesCredentials(configFor({ ...SHARED, ...DEDICATED, APP_ENV: 'QA' }))?.source,
+    ).toBe('dedicated');
+  });
+
+  it('falls back to the default chain only outside STAGING/PRODUCTION', () => {
+    new SesEmailTransport(configFor({ ...base, APP_ENV: 'LOCAL' }));
+    expect(sesClientArgs()).not.toHaveProperty('credentials');
+  });
+});
+
+describe('SesEmailTransport: the configuration set on every send', () => {
+  it('names SES_CONFIGURATION_SET on every message, Reply-To or not', async () => {
+    const t = new SesEmailTransport(
+      configFor({
+        AWS_REGION: 'ap-south-1',
+        EMAIL_FROM: 'tickets@eticketsgo.com',
+        SES_CONFIGURATION_SET: 'eticketsgo-prod',
+        SES_AWS_ACCESS_KEY_ID: 'AKIASESONLY',
+        SES_AWS_SECRET_ACCESS_KEY: 'ses-secret',
+        APP_ENV: 'PRODUCTION',
+      }),
+    );
+    await t.send(msg());
+    await t.send(msg({ type: NotificationType.BOOKING_CANCELLED }));
+    await t.send(msg({ replyTo: 'asha@gmail.com' }));
+    for (const [command] of mockSesSend.mock.calls as [{ __command: Record<string, unknown> }][]) {
+      expect(command.__command).toMatchObject({
+        FromEmailAddress: 'tickets@eticketsgo.com',
+        ConfigurationSetName: 'eticketsgo-prod',
+      });
+    }
+    expect(mockSesSend).toHaveBeenCalledTimes(3);
   });
 });

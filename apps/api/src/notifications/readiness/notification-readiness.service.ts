@@ -277,8 +277,18 @@ export class NotificationReadinessService {
         detail: 'EMAIL_PROVIDER=log writes to the service log and SENDS NOTHING.',
       });
     } else {
+      // STAGING/PRODUCTION sign SES with the SES-only key, never the shared AWS key.
+      const liveEnv = ['STAGING', 'PRODUCTION'].includes(
+        (this.config.get<string>('APP_ENV') ?? '').toUpperCase(),
+      );
       const creds =
-        emailProvider === 'ses' ? ['AWS_REGION', 'EMAIL_FROM'] : ['SENDGRID_API_KEY', 'EMAIL_FROM'];
+        emailProvider === 'ses'
+          ? [
+              'AWS_REGION',
+              'EMAIL_FROM',
+              ...(liveEnv ? ['SES_AWS_ACCESS_KEY_ID', 'SES_AWS_SECRET_ACCESS_KEY'] : []),
+            ]
+          : ['SENDGRID_API_KEY', 'EMAIL_FROM'];
       const check = this.require('email', `Email (${emailProvider})`, creds);
       if (check.state === 'CONFIGURED') {
         const external: string[] = [];

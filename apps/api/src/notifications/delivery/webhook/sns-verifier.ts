@@ -220,6 +220,12 @@ export class SnsVerifier implements OnModuleInit {
     return Boolean(this.allowedTopics && topicArn && this.allowedTopics.has(topicArn));
   }
 
+  /** STAGING or PRODUCTION: the environments that refuse an unset topic allowlist. */
+  private liveEnvironment(): boolean {
+    const appEnv = (this.config?.get<string>('APP_ENV') ?? '').toUpperCase();
+    return appEnv === 'STAGING' || appEnv === 'PRODUCTION';
+  }
+
   /**
    * Said once, at boot, where it matters: a deployed environment that receives SES events and
    * accepts them from any correctly signed topic. A warning rather than a refusal, because
@@ -269,6 +275,14 @@ export class SnsVerifier implements OnModuleInit {
       signed field, so it cannot be swapped for an allowed one after signing.
     */
     if (this.allowedTopics && !this.allowedTopics.has(envelope.TopicArn ?? '')) {
+      return { ok: false, reason: 'topic_not_allowed' };
+    }
+    /*
+      Where real customers are served, an unset allowlist refuses everything instead of taking
+      any signed topic. A STAGING/PRODUCTION in SES mode cannot boot without it
+      (assertSesProductionReadiness); this covers the same environment while it is still on log.
+    */
+    if (!this.allowedTopics && this.liveEnvironment()) {
       return { ok: false, reason: 'topic_not_allowed' };
     }
 

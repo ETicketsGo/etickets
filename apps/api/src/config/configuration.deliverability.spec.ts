@@ -1,5 +1,15 @@
 import { loadConfig } from './configuration';
 
+/** What SES additionally needs in production. configuration.ses-production.spec.ts owns it. */
+const SES_PRODUCTION_READY = {
+  AWS_REGION: 'ap-south-1',
+  SES_CONFIGURATION_SET: 'eticketsgo-prod',
+  SES_AWS_ACCESS_KEY_ID: 'AKIASESONLYEXAMPLE',
+  SES_AWS_SECRET_ACCESS_KEY: 'ses-only-secret',
+  SES_SNS_TOPIC_ARNS: 'arn:aws:sns:ap-south-1:123456789012:eticketsgo-ses-events-prod',
+  SES_WEBHOOK_SECRET: 'w'.repeat(40),
+};
+
 /**
  * A production that cannot deliver a ticket must not start.
  *
@@ -61,7 +71,11 @@ describe('loadConfig deliverability hardening', () => {
   });
 
   it.each(['sendgrid', 'ses'])('boots with %s configured', (provider) => {
-    process.env = base({ EMAIL_PROVIDER: provider, EMAIL_FROM: 'tickets@eticketsgo.com' });
+    process.env = base({
+      EMAIL_PROVIDER: provider,
+      EMAIL_FROM: 'tickets@eticketsgo.com',
+      ...(provider === 'ses' ? SES_PRODUCTION_READY : {}),
+    });
     expect(() => loadConfig()).not.toThrow();
   });
 
