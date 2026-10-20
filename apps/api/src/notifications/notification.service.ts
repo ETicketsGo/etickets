@@ -1,6 +1,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import {
   FailureClass,
+  NotificationStatus,
   NotificationType,
   OutcomeClass,
   SendKind,
@@ -25,7 +26,7 @@ import { NotificationPolicyResolver } from './policy/notification-policy.resolve
 import { dedupeKeyFor, intentKeyFor } from './policy/dedupe-key';
 import { MetricsService } from '../metrics/metrics.service';
 import { TransportError } from './channels/transports/transport-http';
-import { DeliveryRecorderService } from './delivery/delivery-recorder.service';
+import { DeliveryRecorderService, LOG_MODE_REASON } from './delivery/delivery-recorder.service';
 import { SuppressionService } from './delivery/suppression.service';
 import { resolvePhoneDestination } from './channels/phone-destination';
 import { redactProviderText } from './channels/transports/provider-text';
@@ -36,8 +37,7 @@ import { notificationFailedAlert } from '../ops/alerts/ops-alert-messages';
 /**
  * Input to {@link NotificationService.send}. `channels` and `locale` are
  * optional so existing callers keep working unchanged: with neither provided,
- * a single email notification is persisted (status SENT) and delivered, exactly
- * reproducing the original behaviour.
+ * a single email notification is persisted (status PENDING) and handed to the worker.
  */
 export interface NotifyInput {
   type: NotificationType;
@@ -524,8 +524,9 @@ export class NotificationService {
    * -- WHAT EACH OUTCOME MEANS -------------------------------------------------------
    * SENT means a provider accepted it, and the provider and its reference are recorded
    * alongside so somebody can later ask that provider what became of it. A skip -- no phone
-   * number, no registered device -- is also SENT-with-a-reason rather than FAILED: there was
-   * nothing to deliver to, and retrying that twelve times cannot change it. A permanent
+   * number, no registered device, a suppressed address -- is SKIPPED with the reason, and a
+   * send the `log` transport printed is LOGGED: neither is FAILED, because retrying cannot
+   * change them, and neither is SENT, because nothing left the platform. A permanent
    * refusal (no DLT template, no route for the destination) goes straight to FAILED without
    * burning retries, because the next attempt would be refused for the same reason.
    *
@@ -582,7 +583,14 @@ export class NotificationService {
         total that lumps them in with a first attempt. The notification records the reason
         when it is created and the attempt inherits it, rather than guessing from a counter.
       */
-      const kind = (row.sendReason as SendKind | null) ?? undefined;
+      /*
+        PRIMARY is NOT passed down. The notification's reason is PRIMARY for its whole life,
+        so handing it to every attempt filed the fifth automatic retry of a confirmation as a
+        first send (seen on QA: six attempts, all PRIMARY). Left unset, the recorder derives
+        RETRY from the attempt number; a FALLBACK or MANUAL_RESEND is still said explicitly.
+      */
+      const reason = (row.sendReason as SendKind | null) ?? undefined;
+      const kind = reason === SendKind.PRIMARY ? undefined : reason;
       try {
         if (!channel) throw new Error(`Unknown channel "${row.channel}"`);
         const rendered = this.renderFor(
@@ -607,9 +615,20 @@ export class NotificationService {
         */
         const suppressed = await this.isSuppressed(key, rendered);
         if (suppressed) {
+          /*
+            SKIPPED, with an attempt that says why. This was FAILED with no attempt row at
+            all, so the admin view showed a failure with nothing behind it -- and a refusal we
+            chose to make read like a send that went wrong. Nothing retries it either way.
+          */
+          const skipId = await this.openAttempt(row.id, key, row.attempts + 1, kind);
+          if (skipId) {
+            await this.deliveries
+              ?.notAttempted(skipId, OutcomeClass.POLICY_SUPPRESSED, 'destination_suppressed')
+              .catch(() => undefined);
+          }
           await this.prisma.notification.update({
             where: { id: row.id },
-            data: { status: 'FAILED', lastError: 'destination_suppressed' },
+            data: { status: NotificationStatus.SKIPPED, lastError: 'destination_suppressed' },
           });
           summary.failed += 1;
           this.metrics?.recordNotification(key, 'none', 'suppressed');
@@ -625,8 +644,17 @@ export class NotificationService {
         deliveryId = await this.openAttempt(row.id, key, row.attempts + 1, kind);
 
         const outcome = await channel.deliver(rendered);
+        /*
+          The log transport answers like a provider that accepted the message, and it is not
+          one: it printed a line. Decided here, once, from the provider name every log
+          transport reports, so no channel can forget to say it.
+        */
+        const logged = !outcome.skipped && outcome.provider === 'log';
         if (deliveryId) {
-          if (outcome.skipped) {
+          if (logged) {
+            await this.deliveries?.logged(deliveryId);
+            this.metrics?.recordNotificationAttempt(key, 'log', OutcomeClass.LOG_ONLY);
+          } else if (outcome.skipped) {
             await this.deliveries?.skipped(
               deliveryId,
               outcome.provider,
@@ -667,24 +695,38 @@ export class NotificationService {
             }
           }
         }
+        /*
+          SENT only when something actually took the message. A skip and a log-mode send
+          used to be SENT as well -- with the reason in `lastError` beside a status claiming
+          success -- so every report and the admin search counted them as delivered. Neither
+          has a `sentAt`: nothing was sent at any time.
+        */
+        const status = outcome.skipped
+          ? NotificationStatus.SKIPPED
+          : logged
+            ? NotificationStatus.LOGGED
+            : NotificationStatus.SENT;
         await this.prisma.notification.update({
           where: { id: row.id },
           data: {
-            status: 'SENT',
-            sentAt: new Date(),
+            status,
+            sentAt: status === NotificationStatus.SENT ? new Date() : null,
             provider: outcome.provider,
             providerMessageId: outcome.providerMessageId ?? null,
-            // A skip records WHY nothing went out. `lastError` is the only free-text field
-            // on the row and an operator reading it wants to see "no_destination" there,
-            // not an empty column and a status that claims success.
-            lastError: outcome.skipped ? (outcome.reason ?? 'skipped') : null,
+            // WHY nothing went out. `lastError` is the only free-text field on the row and an
+            // operator reading it wants "no_destination" there, not an empty column.
+            lastError: outcome.skipped
+              ? (outcome.reason ?? 'skipped')
+              : logged
+                ? LOG_MODE_REASON
+                : null,
           },
         });
         summary.sent += 1;
         this.metrics?.recordNotification(
           key,
           outcome.provider,
-          outcome.skipped ? 'skipped' : 'sent',
+          outcome.skipped ? 'skipped' : logged ? 'logged' : 'sent',
         );
       } catch (err) {
         const attempts = row.attempts + 1;
@@ -799,8 +841,28 @@ export class NotificationService {
     sendKind?: SendKind,
   ): Promise<string | null> {
     if (!this.deliveries) return null;
+    /*
+      Past every attempt already on record, not only past the failed ones.
+
+      `attempts` counts FAILURES -- it is what the retry ladder is indexed by -- so a message
+      that was sent, skipped or logged still has 0. An operator resend of it then asked for
+      attempt 1 again, collided with the original on the unique index, got no row, and went
+      out with nothing recorded: no provider reference, so its delivery callback could not be
+      matched and the admin view kept showing the first attempt's outcome.
+    */
+    let recorded = 0;
+    try {
+      const agg = await this.prisma.notificationDelivery.aggregate({
+        where: { notificationId },
+        _max: { attemptNumber: true },
+      });
+      recorded = agg?._max?.attemptNumber ?? 0;
+    } catch {
+      // Unknown is treated as none: the unique index still stops two rows sharing a number.
+    }
+    const next = Math.max(attemptNumber, recorded + 1);
     return this.deliveries
-      .open({ notificationId, provider: 'pending', channel, attemptNumber, sendKind })
+      .open({ notificationId, provider: 'pending', channel, attemptNumber: next, sendKind })
       .catch(() => null);
   }
 

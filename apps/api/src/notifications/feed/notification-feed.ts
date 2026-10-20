@@ -1,3 +1,5 @@
+import { normaliseCauseIdentity } from '../../events/sellability-cause';
+
 /**
  * The notification centre as an organizer reads it: grouped by what to do, folded by cause.
  *
@@ -289,7 +291,9 @@ function actionFor(type: string, payload: Record<string, unknown>): FeedAction |
 function groupKey(row: FeedSourceRow): string {
   const p = row.payload;
   if (row.type === 'EVENT_NOT_SELLABLE') {
-    const cause = str(p.blockerCodes) ?? str(p.reason) ?? row.id;
+    // Normalised, so a row written before a fix link gained an anchor folds with one after.
+    const codes = str(p.blockerCodes);
+    const cause = (codes && normaliseCauseIdentity(codes)) ?? str(p.reason) ?? row.id;
     return [row.type, str(p.eventId) ?? '', cause].join('|');
   }
   const about = str(p.eventId) ?? str(p.disputeId) ?? str(p.settlementId);
@@ -324,7 +328,7 @@ function resolutionOf(latest: FeedSourceRow, lookup: ResolutionLookup | undefine
   if (live.clear) return true;
   const cause = str(latest.payload.blockerCodes);
   if (!cause) return null;
-  if (str(latest.payload.blockerCode)) return !live.causes.has(cause);
+  if (str(latest.payload.blockerCode)) return !live.causes.has(normaliseCauseIdentity(cause));
   // An older row: a "+"-joined set of bare codes. Fixed only when none of them remain.
   return !cause.split('+').some((code) => live.codes.has(code));
 }

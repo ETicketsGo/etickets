@@ -3,7 +3,12 @@ import { NotificationType } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 import { AdminAudienceService } from '../notifications/admin-audience.service';
 import { EventSellabilityService } from './event-sellability.service';
-import { causeIdentity, legacyCoverage, MAX_LISTED_SESSIONS } from './sellability-cause';
+import {
+  announcedCauses,
+  causeIdentity,
+  legacyCoverage,
+  MAX_LISTED_SESSIONS,
+} from './sellability-cause';
 
 export interface SellabilitySweepSummary {
   checked: number;
@@ -128,7 +133,7 @@ export class EventSellabilitySweepService {
         whose code an earlier message to the same owner already named is treated as told
         (`legacyAnnouncedCodes()`), and that owner is skipped for it. Read, never rewritten.
       */
-      const legacy = await this.legacyCoverage(event.id);
+      const { legacy, announced } = await this.priorCoverage(event.id);
       for (const blocker of report.blockers) {
         summary.notified += await this.audience.notifyOrganizationOwners(
           event.organizationId,
@@ -156,7 +161,16 @@ export class EventSellabilitySweepService {
             affectedSessions: blocker.affectedSessions,
             sessions: blocker.sessions.slice(0, MAX_LISTED_SESSIONS),
           },
-          { skip: (userId) => legacy.get(userId)?.has(blocker.code) ?? false },
+          {
+            /*
+              Told already, by either shape: the earlier code set, or a current-shape row whose
+              identity differs from this one only by a fix-path anchor (see
+              normaliseCauseIdentity) - which the dedupe key alone cannot see.
+            */
+            skip: (userId) =>
+              (legacy.get(userId)?.has(blocker.code) ?? false) ||
+              (announced.get(userId)?.has(causeIdentity(blocker)) ?? false),
+          },
         );
       }
     }
@@ -164,12 +178,13 @@ export class EventSellabilitySweepService {
   }
 
   /**
-   * Who was already told which codes about this event, by a message of the earlier shape.
+   * Who was already told what about this event: the code sets of the earlier shape
+   * (`legacyCoverage()`) and the normalised causes of the current one (`announcedCauses()`).
    *
-   * A cancelled row was never delivered, so it told nobody anything. Rows of the current
-   * shape and the platform's own copies are read too, and ignored by `legacyCoverage()`.
+   * A cancelled row was never delivered, so it told nobody anything. The platform's own
+   * copies are read too, and ignored by both.
    */
-  private async legacyCoverage(eventId: string) {
+  private async priorCoverage(eventId: string) {
     const rows = await this.prisma.notification.findMany({
       where: {
         type: NotificationType.EVENT_NOT_SELLABLE,
@@ -178,6 +193,6 @@ export class EventSellabilitySweepService {
       },
       select: { userId: true, payload: true },
     });
-    return legacyCoverage(rows);
+    return { legacy: legacyCoverage(rows), announced: announcedCauses(rows) };
   }
 }

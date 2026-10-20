@@ -47,11 +47,12 @@ export class NotificationOpsController {
   @RequiresAdmin(AdminPermission.OPS_READ)
   @ApiOperation({
     summary:
-      'Search notifications by reference, type, channel, provider, status, failure class, ' +
+      'Search notifications by reference, bookingId, type, channel, provider, status, failure class, ' +
       'configBlocked=true (waiting on a person) or retryExhausted=true (worth resending).',
   })
   search(
     @Query('reference') reference?: string,
+    @Query('bookingId') bookingId?: string,
     @Query('type') type?: string,
     @Query('channel') channel?: string,
     @Query('provider') provider?: string,
@@ -65,6 +66,7 @@ export class NotificationOpsController {
   ) {
     return this.ops.search({
       reference,
+      bookingId,
       type,
       channel,
       provider,

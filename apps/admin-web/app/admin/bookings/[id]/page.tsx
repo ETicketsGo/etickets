@@ -26,6 +26,7 @@ import {
 import { StatusBadge } from '@/components/status-badge';
 import { MoneyStatusPill } from '@/components/money-status';
 import { RecordHistory } from '@/components/record-history';
+import { BookingMessages } from '@/components/booking-messages';
 import { accountContactText } from '../../../../components/account-contact';
 
 /** GST components named in full, as the buyer's checkout and receipt name them. */
@@ -401,6 +402,8 @@ export default function AdminBookingDetail() {
           <p className="text-sm text-text-muted">No refunds for this booking.</p>
         )}
       </Card>
+
+      <BookingMessages bookingId={b.id} />
 
       <RecordHistory
         subjects={[

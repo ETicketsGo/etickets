@@ -16,6 +16,9 @@ import { MetricsService } from '../../metrics/metrics.service';
 import { SuppressionService, type DestinationRef } from './suppression.service';
 import { NotificationRateService } from '../cost/notification-rate.service';
 
+/** Why a logged message was not delivered, as an operator reads it in `lastError`. */
+export const LOG_MODE_REASON = 'log_mode_not_delivered';
+
 /**
  * The record of what a provider did with one message.
  *
@@ -182,7 +185,12 @@ export class DeliveryRecorderService {
     await this.prisma.notificationDelivery.update({
       where: { id: deliveryId },
       data: {
-        status: DeliveryState.REJECTED,
+        /*
+          SKIPPED, not REJECTED. REJECTED means a provider refused the message, and no
+          provider was asked: the attempt row said "refused" while the notification said
+          "sent", and both were wrong about a message that went nowhere.
+        */
+        status: DeliveryState.SKIPPED,
         outcomeClass: outcome,
         provider: 'none',
         failureCode: reason,
@@ -202,6 +210,28 @@ export class DeliveryRecorderService {
    */
   async skipped(deliveryId: string, _provider: string, reason: string): Promise<void> {
     await this.notAttempted(deliveryId, OutcomeClass.NO_DESTINATION, reason);
+  }
+
+  /**
+   * The `log` transport took it: written to the server log, delivered to nobody.
+   *
+   * It used to go through {@link accepted}, so the attempt read ACCEPTED / PROVIDER_ACCEPTED
+   * under a provider called `log`, was priced like a real send, and counted towards the
+   * acceptance rate. In LOCAL that is harmless; in an environment where a real channel has
+   * been left on `log` it is a report saying messages went out when none did.
+   */
+  async logged(deliveryId: string): Promise<void> {
+    await this.prisma.notificationDelivery.update({
+      where: { id: deliveryId },
+      data: {
+        status: DeliveryState.LOGGED,
+        outcomeClass: OutcomeClass.LOG_ONLY,
+        provider: 'log',
+        failureCode: LOG_MODE_REASON,
+        // Nothing was sent, so there is no price to quote -- and it is not free either.
+        costSource: CostSource.UNKNOWN,
+      },
+    });
   }
 
   /**

@@ -2173,6 +2173,9 @@ export const api = {
       request<Paged<AdminMovieRow>>(`/admin/movies${qs(params ?? {})}`),
     audit: (params: PageParams & AuditFilters) =>
       request<Paged<AuditRow>>(`/admin/audit${qs(params)}`),
+    /** The messages sent about something, newest first, each with what became of it. */
+    notifications: (params: { bookingId?: string; reference?: string; limit?: number }) =>
+      request<AdminNotificationRow[]>(`/admin/notifications${qs(params)}`),
     auditSummary: (params?: AuditFilters) =>
       request<AuditSummary>(`/admin/audit/summary${qs(params ?? {})}`),
     /* Every one of these searches in the DATABASE. They used to filter the fetched page. */
@@ -6625,6 +6628,38 @@ export interface OrganizerReviewSignals {
     registeredAt: string;
   }[];
   nameCollisions: { organizationId: string; name: string; status: string; exact: boolean }[];
+}
+
+/**
+ * One message as support sees it. `delivery` is the API's reading of every fact on the row,
+ * because `status` alone says SENT on older rows about messages that never left the platform.
+ */
+export interface AdminNotificationRow {
+  id: string;
+  type: string;
+  channel: string;
+  status: string;
+  recipient: string | null;
+  attempts: number;
+  lastError: string | null;
+  createdAt: string;
+  sentAt: string | null;
+  provider: string | null;
+  deliveryState: string | null;
+  delivery: {
+    verdict:
+      | 'DELIVERED'
+      | 'IN_APP'
+      | 'ACCEPTED'
+      | 'NOT_DELIVERED'
+      | 'NOT_SENT'
+      | 'LOG_ONLY'
+      | 'IN_PROGRESS'
+      | 'CANCELLED';
+    /** true = reached the person, false = did not, null = nobody has said. */
+    delivered: boolean | null;
+    label: string;
+  };
 }
 
 export interface AuditRow {

@@ -258,8 +258,12 @@ describe('NotificationService.cancel', () => {
 });
 
 describe('NotificationService.dispatchDue', () => {
-  it('delivers each due row and marks it SENT', async () => {
-    const { service, prisma, deliver } = setup({ dueRows: [row({ id: 'd1' }), row({ id: 'd2' })] });
+  it('delivers each due row and marks it SENT when a provider accepts it', async () => {
+    const accepted = jest.fn().mockResolvedValue({ provider: 'ses', providerMessageId: 'm-1' });
+    const { service, prisma, deliver } = setup({
+      dueRows: [row({ id: 'd1' }), row({ id: 'd2' })],
+      deliver: accepted,
+    });
     const summary = await service.dispatchDue(new Date());
     expect(summary).toEqual({ sent: 2, failed: 0, retried: 0 });
     expect(deliver).toHaveBeenCalledTimes(2);
