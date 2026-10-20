@@ -61,6 +61,12 @@ export function TicketTypeChooser({
   const t = useTranslations('storefront.event');
   const tx = useTranslations('common');
   const selected = tickets.find((ticket) => ticket.id === selectedId) ?? null;
+  /*
+    Nothing on sale (sold out, closed, not yet): the stepper stays, disabled, on the first
+    ticket - the same "you cannot add one" the old per-row steppers said, where a buyer and the
+    e2e suite both look for it.
+  */
+  const counted = selected ?? tickets[0] ?? null;
   return (
     <div>
       <fieldset data-testid="ticket-selection">
@@ -71,8 +77,13 @@ export function TicketTypeChooser({
             const isSelected = ticket.id === selectedId;
             return (
               <li key={ticket.id}>
+                {/*
+                  The whole row is the radio's target (WCAG 2.5.8): the native input is stretched
+                  over the row, transparent, and the drawn circle beside the name follows its
+                  checked, disabled and focus states.
+                */}
                 <label
-                  className={`flex gap-3 py-4 ${
+                  className={`relative flex gap-3 py-4 ${
                     ticket.unavailable ? 'cursor-not-allowed' : 'cursor-pointer'
                   }`}
                 >
@@ -83,7 +94,11 @@ export function TicketTypeChooser({
                     checked={isSelected}
                     disabled={ticket.unavailable}
                     onChange={() => onSelect(ticket.id)}
-                    className="mt-1 h-4 w-4 shrink-0 cursor-[inherit] accent-brand-ink"
+                    className="peer absolute inset-0 h-full w-full cursor-[inherit] appearance-none opacity-0"
+                  />
+                  <span
+                    aria-hidden
+                    className="mt-1 h-4 w-4 shrink-0 rounded-full border border-brand-ink bg-brand-surface transition-[border-width] duration-150 peer-checked:border-[5px] peer-disabled:border-brand-line-strong peer-focus-visible:ring-2 peer-focus-visible:ring-brand-focus peer-focus-visible:ring-offset-2"
                   />
                   <span className="min-w-0 flex-1">
                     <span className="flex items-baseline justify-between gap-3">
@@ -114,19 +129,19 @@ export function TicketTypeChooser({
           })}
         </ul>
       </fieldset>
-      {selected ? (
+      {counted ? (
         <div className="flex items-center justify-between gap-4 py-4">
           <div className="min-w-0">
             <p className={BRAND_EYEBROW}>{t('guests')}</p>
-            <p className="mt-1 truncate text-brand-meta text-brand-ink-2">{selected.name}</p>
+            <p className="mt-1 truncate text-brand-meta text-brand-ink-2">{counted.name}</p>
           </div>
           <QuantityStepper
-            label={tx('a11y.quantityOf', { name: selected.name })}
-            name={selected.name}
-            value={qty[selected.id] ?? 0}
-            max={selected.max}
-            disabled={selected.unavailable}
-            onChange={(next) => onQuantity(selected.id, next)}
+            label={tx('a11y.quantityOf', { name: counted.name })}
+            name={counted.name}
+            value={qty[counted.id] ?? 0}
+            max={selected ? counted.max : 0}
+            disabled={!selected || counted.unavailable}
+            onChange={(next) => onQuantity(counted.id, next)}
           />
         </div>
       ) : null}

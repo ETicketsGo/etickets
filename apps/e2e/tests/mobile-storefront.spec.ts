@@ -1,4 +1,4 @@
-import { test, expect, devices, type Page } from '@playwright/test';
+import { test, expect, devices } from '@playwright/test';
 import { CUSTOMER, uniqueEmail } from './helpers';
 import { openPaidEvent } from './pick-event';
 import { chooseQuantity, quantitySteppers } from './ticket-quantity';
@@ -20,19 +20,6 @@ import { chooseQuantity, quantitySteppers } from './ticket-quantity';
  * without hunting for it. Everything else on an event page is reference material.
  */
 test.use({ ...devices['Pixel 7'], viewport: { width: 411, height: 852 } });
-
-/** How far down the page a heading sits, in pixels from the top of the document. */
-async function headingOffsets(page: Page): Promise<{ text: string; y: number }[]> {
-  return page.evaluate(() =>
-    Array.from(document.querySelectorAll('main h2, main h3'))
-      .map((el) => ({
-        text: (el.textContent ?? '').trim(),
-        y: Math.round(el.getBoundingClientRect().top + window.scrollY),
-      }))
-      .filter((h) => h.text)
-      .sort((a, b) => a.y - b.y),
-  );
-}
 
 test.describe('the storefront on a phone', () => {
   test('1: no page scrolls sideways', async ({ page }) => {
@@ -66,37 +53,26 @@ test.describe('the storefront on a phone', () => {
     expect(scrollW, 'the event page scrolls sideways').toBeLessThanOrEqual(clientW + 1);
   });
 
-  test('3: buying comes before reading about it', async ({ page }) => {
+  test('3: the first screen offers the way to buy', async ({ page }) => {
     await page.goto(`${CUSTOMER}/events`);
     await openPaidEvent(page);
     await page.waitForTimeout(800);
 
-    const headings = await headingOffsets(page);
-    const find = (re: RegExp) => headings.find((h) => re.test(h.text));
-    const buy = find(/select tickets|choose your seats/i);
-    const faq = find(/frequently asked/i);
-    const reviews = find(/ratings & reviews|reviews/i);
-    const venue = find(/^venue$/i);
-
-    expect(buy, 'the event page offers a way to buy').toBeTruthy();
-
-    // The complaint, exactly: the FAQ was above the tickets.
-    if (faq) expect(buy!.y, 'the FAQ comes before ticket selection').toBeLessThan(faq.y);
-    if (reviews) expect(buy!.y, 'the reviews come before ticket selection').toBeLessThan(reviews.y);
     /*
-      And the venue, which is the next thing down after the sessions. Reference material about
-      where the show is belongs after the decision it does not affect - a buyer picking a showtime
-      wants the tickets next, not an address.
+      The owner's editorial design (2026-10-19) puts the reservation card AFTER the story on a
+      phone. What this test protected - "I need to scroll a lot to reach select no of tickets" -
+      is now kept by the first screen itself: "Book tickets" and the lowest price sit under the
+      title, and one tap lands on the card.
     */
-    if (venue) expect(buy!.y, 'the venue comes before ticket selection').toBeLessThan(venue.y);
-
-    /*
-      Within one screen of the fold. Anything further and it is being hunted for rather than seen.
-      Deliberately generous: this is protecting against the regression that puts it four screens
-      down, not pinning a pixel that a longer event title would move.
-    */
-    const viewport = page.viewportSize()!.height;
-    expect(buy!.y, 'ticket selection is far down the page').toBeLessThan(viewport * 1.2);
+    await page.evaluate(() => window.scrollTo(0, 0));
+    const book = page.getByRole('link', { name: 'Book tickets' });
+    await expect(book, 'the first screen offers a way to buy').toBeInViewport();
+    await book.click();
+    const card = page.locator('#tickets');
+    await expect(card).toBeInViewport();
+    await expect(
+      card.getByRole('heading', { name: /choose your tickets|choose your seats/i }),
+    ).toBeVisible();
 
     /*
       ── AND WHILE THIS CARD IS OPEN: ONE FIGURE, ONE SHAPE ─────────────────────────
@@ -145,10 +121,9 @@ test.describe('the storefront on a phone', () => {
 
   test('4: the desktop layout is still two columns', async ({ page }) => {
     /*
-      The ordering above is done with `order` inside a grid, dropped from `lg` up. That is easy to
-      get wrong in a way no phone-sized test would notice, and the owner's standing instruction is
-      that these fixes must not disturb the web - so the desktop shape is asserted here, beside the
-      change that could break it.
+      On a wide screen the reservation card is the right column beside the story and stays in
+      view while it scrolls (owner design 2026-10-19). Asserted here, beside the phone tests,
+      because a change for the phone is the easiest way to break it.
     */
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`${CUSTOMER}/events`);
@@ -156,27 +131,21 @@ test.describe('the storefront on a phone', () => {
     await page.waitForTimeout(800);
 
     const layout = await page.evaluate(() => {
-      const grid = document.querySelector('main > div > div.grid');
-      if (!grid) return null;
-      const cs = getComputedStyle(grid);
-      const wrapper = grid.firstElementChild;
+      const card = document.getElementById('tickets');
+      const grid = card?.closest('.grid');
+      if (!card || !grid) return null;
+      const story = grid.firstElementChild!.getBoundingClientRect();
+      const box = card.getBoundingClientRect();
       return {
-        columns: cs.gridTemplateColumns.split(' ').length,
-        // On a wide screen the left column is a block again, not dissolved into the grid.
-        wrapperDisplay: wrapper ? getComputedStyle(wrapper).display : null,
-        // And every `order` is back to its default, so the DOM order is what is drawn.
-        orders: Array.from(grid.querySelectorAll(':scope > *, :scope > * > *')).map(
-          (el) => getComputedStyle(el).order,
-        ),
+        columns: getComputedStyle(grid).gridTemplateColumns.split(' ').length,
+        cardRightOfStory: box.left >= story.right,
+        sticky: getComputedStyle(card.parentElement!).position,
       };
     });
     expect(layout, 'the event page has its two-column grid').toBeTruthy();
-    expect(layout!.columns, 'desktop is not three columns').toBe(3);
-    expect(layout!.wrapperDisplay, 'the left column is dissolved on desktop').toBe('block');
-    expect(
-      layout!.orders.every((o) => o === '0'),
-      `a mobile order leaked into desktop: ${layout!.orders.join(',')}`,
-    ).toBe(true);
+    expect(layout!.columns, 'desktop is two columns').toBe(2);
+    expect(layout!.cardRightOfStory, 'the card is the right column').toBe(true);
+    expect(layout!.sticky, 'the card stays in view').toBe('sticky');
   });
 
   test('5: the payment step is not mostly footer', async ({ page }) => {

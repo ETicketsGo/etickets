@@ -214,7 +214,10 @@ test.describe('a free event', () => {
     await seedBrowserAuth(context, buyerTokens);
 
     await page.goto(`${CUSTOMER}/events/${fx.slug}`, { waitUntil: 'networkidle' });
-    await expect(page.getByText('Free entry')).toBeVisible({ timeout: 30_000 });
+    // In the reservation card's ticket rows; the name is also under the guest stepper.
+    await expect(page.getByTestId('ticket-selection').getByText('Free entry')).toBeVisible({
+      timeout: 30_000,
+    });
     // The ticket line and the summary both say Free. The line now prints its price on its own
     // ("Free") beside the availability, rather than "Free - 100 left" as one string.
     await expect(

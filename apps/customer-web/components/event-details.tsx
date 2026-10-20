@@ -38,6 +38,15 @@ export function useDurationText() {
   };
 }
 
+/** One cell of the fact row. */
+interface FactCell {
+  label: string;
+  lines: string[];
+  sub?: string | null;
+  /** Marks the lines as a machine-readable time. */
+  dateTime?: string | null;
+}
+
 /**
  * The key facts, as the owner's hairline-ruled row: DATE, TIME, VENUE, then how long it runs and
  * who it is for when the organizer said.
@@ -52,6 +61,7 @@ export function useDurationText() {
 export function EventFacts({
   event,
   when,
+  startsAt,
   longDate,
   duration,
   dateRange,
@@ -60,6 +70,8 @@ export function EventFacts({
   event: PublicEvent;
   /** The shown date in the venue's clock, from `useVenueWhen`. */
   when: { day: string; time: string; zone: string } | null;
+  /** The shown show's start, for the machine-readable `<time>` around the time. */
+  startsAt: string | null;
   /** The same date written out: "Thursday", "5 November 2026". */
   longDate: { weekday: string; date: string } | null;
   /** "3 hours", or null when the show has no length. */
@@ -70,25 +82,29 @@ export function EventFacts({
   note: string;
 }) {
   const t = useTranslations('storefront.event');
-  const cells = [
-    when && longDate
-      ? {
-          label: t('dateLabel'),
-          lines: [longDate.weekday, longDate.date],
-          sub: dateRange,
-        }
-      : null,
-    when
-      ? { label: t('timeLabel'), lines: [`${when.time}${when.zone ? ` ${when.zone}` : ''}`] }
-      : null,
-    { label: t('venueHeading'), lines: [event.venue.name, event.venue.city] },
-    duration ? { label: t('durationLabel'), lines: [duration] } : null,
-    event.ageLimit
-      ? { label: t('ageLabel'), lines: [t('ageLimit', { age: event.ageLimit })] }
-      : null,
-  ].filter(
-    (cell): cell is { label: string; lines: string[]; sub?: string | null } => cell !== null,
-  );
+  const cells = (
+    [
+      when && longDate
+        ? {
+            label: t('dateLabel'),
+            lines: [longDate.weekday, longDate.date],
+            sub: dateRange,
+          }
+        : null,
+      when
+        ? {
+            label: t('timeLabel'),
+            lines: [`${when.time}${when.zone ? ` ${when.zone}` : ''}`],
+            dateTime: startsAt,
+          }
+        : null,
+      { label: t('venueHeading'), lines: [event.venue.name, event.venue.city] },
+      duration ? { label: t('durationLabel'), lines: [duration] } : null,
+      event.ageLimit
+        ? { label: t('ageLabel'), lines: [t('ageLimit', { age: event.ageLimit })] }
+        : null,
+    ] as (FactCell | null)[]
+  ).filter((cell): cell is FactCell => cell !== null);
 
   return (
     <div>
@@ -97,18 +113,24 @@ export function EventFacts({
         facts at most, three to a row from `sm`, two on a phone.
       */}
       <dl className="grid grid-cols-2 border-t border-brand-ink sm:grid-cols-3">
-        {cells.map(({ label, lines, sub }) => (
+        {cells.map(({ label, lines, sub, dateTime }) => (
           <div
             key={label}
             className="min-w-0 border-b border-brand-line py-4 even:border-l even:pl-4 sm:border-l sm:px-5 sm:[&:nth-child(3n+1)]:border-l-0 sm:[&:nth-child(3n+1)]:pl-0"
           >
             <dt className="text-brand-eyebrow uppercase text-brand-ink-3">{label}</dt>
             <dd className="mt-2 font-brand-display text-brand-card text-brand-ink">
-              {lines.map((line) => (
-                <span key={line} className="block break-words">
-                  {line}
-                </span>
-              ))}
+              {lines.map((line) =>
+                dateTime ? (
+                  <time key={line} dateTime={dateTime} className="block break-words">
+                    {line}
+                  </time>
+                ) : (
+                  <span key={line} className="block break-words">
+                    {line}
+                  </span>
+                ),
+              )}
               {sub ? (
                 <span className="mt-1 block font-brand-text text-brand-meta text-brand-ink-2">
                   {sub}

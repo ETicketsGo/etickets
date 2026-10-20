@@ -955,6 +955,7 @@ export default function EventDetailPage() {
             <EventFacts
               event={event}
               when={shownWhen}
+              startsAt={session?.startsAt ?? null}
               longDate={longDate}
               duration={duration}
               dateRange={
