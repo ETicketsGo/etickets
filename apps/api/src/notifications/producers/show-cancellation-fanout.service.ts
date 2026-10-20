@@ -214,6 +214,14 @@ export class ShowCancellationFanoutService {
                     : {}),
                 }
               : {}),
+            /*
+              A free booking has no refund coming, so it must not be promised one. The same
+              field and value the free cancellation writes (`RefundsService.cancelFreeTickets`),
+              because whichever of the two reaches this booking first is the one it reads.
+            */
+            ...(!paidInCash && booking.totalMinor === 0
+              ? { refundStatus: 'NOTHING_TO_REFUND' }
+              : {}),
           },
         });
         notified += 1;

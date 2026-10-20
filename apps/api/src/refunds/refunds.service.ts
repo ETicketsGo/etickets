@@ -32,6 +32,7 @@ import { recheckAfter, type Reconciliation } from './refund-reconcile';
 import { ACCEPTED_TRANSFERS, currentHolderUserId, isTransferred } from '../tickets/ticket-holder';
 import type { RequestUser } from '../common/decorators';
 import { MetricsService } from '../metrics/metrics.service';
+import { SHOW_ZONE_SCREEN_SELECT, showTimezone } from '../spaces/space-owner';
 import { groupScopeWhere, type GroupScope } from '../admin/group-scope';
 import { countryWhere } from '../admin/country-filter';
 import { allOf, dayRangeWhere, type ListFilters } from '../admin/list-filters';
@@ -393,11 +394,20 @@ export class RefundsService {
       /*
         No REFUND_REQUESTED notice on this branch, and not by omission: nothing was requested.
         The tickets are cancelled here and now, so the message a buyer is owed is "your tickets
-        were cancelled" — BOOKING_CANCELLED — which this path has never sent for anybody, guest
-        or account. Sending a refund-request notice for a refund that will never exist would put
-        a customer on hold waiting for money that was never taken.
+        were cancelled" — BOOKING_CANCELLED — which `cancelFreeTickets` sends, guest or account.
+        Sending a refund-request notice for a refund that will never exist would put a customer
+        on hold waiting for money that was never taken.
+
+        Except when the SHOW was cancelled: that cause has its own message, SHOW_CANCELLED, and
+        one booking is told about one cause once. See `cancelFreeTickets` for why it is written
+        here and not left to the fan-out.
       */
-      return this.cancelFreeTickets(requester, booking, ownTickets, input);
+      return this.cancelFreeTickets(requester, booking, ownTickets, input, {
+        tell:
+          options.sessionCancelled === true
+            ? NotificationType.SHOW_CANCELLED
+            : NotificationType.BOOKING_CANCELLED,
+      });
     }
 
     const items = await this.prisma.bookingItem.findMany({ where: { bookingId: booking.id } });
@@ -633,6 +643,10 @@ export class RefundsService {
     },
     ownTickets: { id: string; status: string; ticketTypeId: string; seatId: string | null }[],
     input: RefundRequestInput,
+    /** What the buyer is told when the booking ends: their own cancellation, or the show's. */
+    notify: {
+      tell: typeof NotificationType.BOOKING_CANCELLED | typeof NotificationType.SHOW_CANCELLED;
+    },
   ) {
     const LIVE: string[] = [TicketStatus.ACTIVE, TicketStatus.CHECKED_IN];
     const outcome = await this.prisma.$transaction(async (tx) => {
@@ -687,9 +701,58 @@ export class RefundsService {
         },
       });
       if (remaining === 0) {
-        await tx.booking.update({
+        // Reads back what the buyer's message names, in the same statement that ends it.
+        const ended = await tx.booking.update({
           where: { id: booking.id },
           data: { status: BookingStatus.CANCELLED, cancelledAt: new Date() },
+          select: {
+            userId: true,
+            buyerEmail: true,
+            reference: true,
+            event: {
+              select: { title: true, venue: { select: { timezone: true, country: true } } },
+            },
+            eventSession: {
+              select: { startsAt: true, screen: { select: SHOW_ZONE_SCREEN_SELECT } },
+            },
+          },
+        });
+        /*
+          The buyer is told their booking has ended, in the transaction that ends it, so the
+          cancellation and the message owed for it commit or roll back as one fact (see
+          `sendCritical`). Nothing told anybody before: the template existed and no code sent
+          it, so a buyer who cancelled heard nothing and had no record of having done it.
+
+          Only when the BOOKING ends. Giving back one ticket of three leaves a live booking, and
+          "your booking has been cancelled" would be untrue; the wallet shows that ticket as
+          cancelled.
+
+          ONE message per booking per cause. The buyer's own cancellation is BOOKING_CANCELLED.
+          A cancelled show is SHOW_CANCELLED, never both - and it is written HERE for a free
+          booking, not left to the fan-out, because the fan-out tells only bookings that are
+          still live (or cash ones the counter voided). Cancelling an event opens the
+          cancellation "refunds" at once, before the ShowCancelled event reaches the fan-out,
+          so a free booking was already CANCELLED by the time the fan-out looked, and nobody
+          told its holder their show was off. When the fan-out got there first it has told
+          them already, and the dedupe key (the booking) makes this write a no-op.
+
+          To the booking's own addressee, whoever asked: the account, or the address a guest
+          paid with. The same payload shape the fan-out writes, so the two cannot read
+          differently. Free: no money was taken, so the message says there is nothing to refund.
+        */
+        await this.notifications.sendCritical(tx, {
+          type: notify.tell,
+          userId: ended?.userId ?? null,
+          toEmail: ended?.buyerEmail ?? null,
+          bookingId: booking.id,
+          payload: {
+            bookingId: booking.id,
+            reference: ended?.reference ?? '',
+            eventTitle: ended?.event?.title ?? '',
+            startsAt: ended?.eventSession?.startsAt?.toISOString() ?? '',
+            timeZone: showTimezone(ended?.eventSession?.screen, ended?.event?.venue) ?? '',
+            refundStatus: 'NOTHING_TO_REFUND',
+          },
         });
       }
       return {

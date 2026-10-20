@@ -32,6 +32,7 @@ import { MetricsService } from '../metrics/metrics.service';
 import { ReceiptsService } from '../receipts/receipts.service';
 import { BookingReferenceService } from '../bookings/booking-reference.service';
 import { guestAccessLink, issueGuestAccessToken } from '../bookings/guest-access';
+import { accountTicketsLink } from '../bookings/account-tickets-link';
 import { SettlementService } from './settlement/settlement.service';
 import { RazorpayOrderService } from './razorpay/razorpay-order.service';
 import {
@@ -983,8 +984,10 @@ export class PaymentsService {
         minted in this same transaction so a committed booking and a working link are one fact
         rather than two that can disagree.
 
-        An account booking's email is untouched. Its owner signs in, and mailing them a
-        password-free credential to the same tickets would weaken what they already have.
+        An account booking gets no credential. Its owner signs in, and mailing them a
+        password-free credential to the same tickets would weaken what they already have. It
+        gets a plain link to its tickets page instead (see `accountTicketsLink`), which asks
+        for that sign-in before it shows anything.
       */
       const guestAccess = booking.userId
         ? null
@@ -1010,6 +1013,23 @@ export class PaymentsService {
           */
           this.logger.error(
             `Guest access link could not be built for booking ${booking.id}; the confirmation ` +
+              `was sent without it. ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      }
+      /*
+        The account holder's way to their tickets. Reported by the owner: the confirmation
+        carried a reference and nothing to press, so the buyer had to go and find the page.
+        A missing CUSTOMER_WEB_URL costs the button and never the confirmation, for exactly
+        the reason the guest link above gives.
+      */
+      let accountLink: string | undefined;
+      if (booking.userId) {
+        try {
+          accountLink = accountTicketsLink(this.config, booking.id);
+        } catch (err) {
+          this.logger.error(
+            `Tickets link could not be built for booking ${booking.id}; the confirmation ` +
               `was sent without it. ${err instanceof Error ? err.message : String(err)}`,
           );
         }
@@ -1040,11 +1060,18 @@ export class PaymentsService {
           bookingId: booking.id,
           reference,
           /*
-            Undefined, not an empty string, for an account booking: the template omits an
-            absent fragment and prints an empty one. Undefined is also what every notification
-            queued before this field existed carries, so those still render as a sentence.
+            The guest's access link, or the account holder's tickets page. Undefined, not an
+            empty string, when neither could be built: the template omits an absent fragment
+            and prints an empty one. Undefined is also what every notification queued before
+            this field existed carries, so those still render as a sentence.
           */
-          link: guestLink,
+          link: guestLink ?? accountLink,
+          /*
+            Which of the two `link` is, because the sentence differs: a guest is told no
+            account is needed, an account holder is told the page is in their account. Set
+            only for the account link, so a guest's payload is exactly what it was.
+          */
+          ...(accountLink ? { linkTo: 'ACCOUNT_TICKETS' } : {}),
           eventTitle: booking.event?.title ?? '',
           startsAt: booking.eventSession?.startsAt?.toISOString() ?? '',
           // The venue's clock (`showTimezone`), the same answer the ticket gives. Empty only

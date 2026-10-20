@@ -26,6 +26,7 @@
   "SHOW_CANCELLED": {
     "subject": "Votre séance a été annulée",
     "body": "Nous sommes désolés - {event} a été annulée. Votre réservation {reference} n'est plus valide{when}. Un remboursement suivra.",
+    "bodyFree": "Nous sommes désolés - {event} a été annulée. Votre réservation {reference} n'est plus valide{when}. La réservation était gratuite : aucun montant n'a été perçu et il n'y a rien à rembourser.",
     "bodyCash": "Nous sommes désolés - {event} a été annulée. Votre réservation {reference} n'est plus valide{when}. Vous avez payé {amount} en argent comptant au comptoir. La billetterie du lieu vous remettra {amount} en argent comptant. Présentez votre numéro de réservation {reference} à la billetterie.",
     "subjectOrganizerCash": "Séance annulée : argent comptant à remettre",
     "bodyOrganizerCash": "{event}{when} a été annulée. La réservation {reference} de {buyer} a été payée en argent comptant au comptoir. L'acheteur n'a donné aucun courriel, alors ce message vous est envoyé. Remettez {amount} en argent comptant à {buyer} au comptoir. Ouvrez ensuite la page Counter et choisissez « Mark as given back »."
@@ -36,7 +37,7 @@
   },
   "BOOKING_CANCELLED": {
     "subject": "Votre réservation a été annulée",
-    "body": "Votre réservation {reference} a été annulée."
+    "body": "Votre réservation {reference}{forEvent}{when} a été annulée. Ses billets ne sont plus valides.{refund}"
   },
   "REFUND_COMPLETED": {
     "subject": "Votre remboursement est effectué",
@@ -197,7 +198,9 @@
     "anOrganizer": "Un organisateur",
     "anEvent": "un événement",
     "notProvided": "non fourni",
-    "accessLink": " Consultez vos billets ici, aucun compte requis : {link}"
+    "accessLink": " Consultez vos billets ici, aucun compte requis : {link}",
+    "nothingToRefund": " La réservation était gratuite : aucun montant n'a été perçu et il n'y a rien à rembourser.",
+    "accountTicketsLink": " Consultez vos billets dans votre compte : {link}"
   },
   "GUEST_BOOKING_ACCESS": {
     "subject": "Vos billets ETicketsGo",
