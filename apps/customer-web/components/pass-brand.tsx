@@ -65,10 +65,7 @@ export function PassTopBar({ storedOffline }: { storedOffline: boolean }) {
       >
         <ArrowLeft className="h-4 w-4" aria-hidden /> {b('passBack')}
       </button>
-      <Wordmark
-        tone="brand"
-        className="justify-self-center text-[1rem] min-[360px]:text-[1.125rem]"
-      />
+      <Wordmark tone="brand" size="sm" className="justify-self-center" />
       <span className="justify-self-end">
         {storedOffline && (
           <span
