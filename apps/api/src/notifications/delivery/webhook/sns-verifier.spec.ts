@@ -6,6 +6,7 @@ import { createSign, createPrivateKey, type KeyObject } from 'node:crypto';
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SnsVerifier, type SnsEnvelope } from './sns-verifier';
+import { signSnsEnvelope } from '../../test-support/sns-signing';
 
 /**
  * Proving an SNS message really came from Amazon.
@@ -492,5 +493,156 @@ describe('where the certificate is allowed to come from', () => {
       ok: false,
       reason: 'cert_fetch_failed',
     });
+  });
+});
+
+/*
+  ── ADDED WITH AUTOMATIC CONFIRMATION (ADR-054) ─────────────────────────────────────
+  Confirmation now acts on a verified message, so the verifier's guarantees carry more weight
+  than when a person stood behind them. These pin the cases the earlier suite did not: the
+  shapes of certificate URL that resolve to an Amazon host only on a careless reading, the
+  redirect that would move the fetch somewhere unchecked, and SignatureVersion 2.
+*/
+describe('certificate URLs that only look like Amazon', () => {
+  it.each([
+    [
+      'a lookalike suffix',
+      'https://sns.us-east-1.amazonaws.com.evil.com/SimpleNotificationService-a.pem',
+      'cert_url_untrusted_host',
+    ],
+    [
+      'userinfo making Amazon the username',
+      'https://sns.us-east-1.amazonaws.com@evil.com/SimpleNotificationService-a.pem',
+      'cert_url_untrusted_host',
+    ],
+    [
+      'userinfo in front of the Amazon host',
+      'https://evil.com@sns.us-east-1.amazonaws.com/SimpleNotificationService-a.pem',
+      'cert_url_untrusted_host',
+    ],
+    [
+      'a port',
+      'https://sns.us-east-1.amazonaws.com:8443/SimpleNotificationService-a.pem',
+      'cert_url_untrusted_host',
+    ],
+    [
+      'plain http',
+      'http://sns.us-east-1.amazonaws.com/SimpleNotificationService-a.pem',
+      'cert_url_not_https',
+    ],
+    [
+      'a path that is not a certificate',
+      'https://sns.us-east-1.amazonaws.com/?Action=ListTopics',
+      'cert_url_untrusted_path',
+    ],
+    [
+      'a query string',
+      'https://sns.us-east-1.amazonaws.com/SimpleNotificationService-a.pem?x=1',
+      'cert_url_untrusted_path',
+    ],
+  ])('refuses %s, before any request', async (_label, url, expected) => {
+    const { impl, calls } = unreachableCerts();
+    await expect(new SnsVerifier(impl).verify(unsigned({ SigningCertURL: url }))).resolves.toEqual({
+      ok: false,
+      reason: expected,
+    });
+    expect(calls).toEqual([]);
+  });
+
+  it('fetches the certificate without following redirects', async () => {
+    const seen: RequestInit[] = [];
+    const impl = jest.fn(async (_u: unknown, init?: RequestInit) => {
+      seen.push(init ?? {});
+      return { ok: false, text: async () => '' } as never;
+    });
+    await new SnsVerifier(impl as unknown as typeof fetch).verify(unsigned());
+    expect(seen).toHaveLength(1);
+    expect(seen[0].redirect).toBe('error');
+    expect(seen[0].signal).toBeDefined();
+  });
+});
+
+describe('both signature versions', () => {
+  const v = (over: Partial<SnsEnvelope>, algorithm?: 'RSA-SHA1' | 'RSA-SHA256') =>
+    signSnsEnvelope(
+      {
+        Type: 'Notification',
+        MessageId: 'msg-v',
+        TopicArn: 'arn:aws:sns:us-east-1:1234:ses-events',
+        Message: '{"eventType":"Delivery"}',
+        Timestamp: '2026-10-20T10:00:00.000Z',
+        SigningCertURL: TRUSTED_URL,
+        ...over,
+      },
+      privateKey,
+      algorithm,
+    );
+
+  maybe('verifies SignatureVersion 1 (SHA1)', async () => {
+    const { impl } = certServer();
+    await expect(new SnsVerifier(impl).verify(v({ SignatureVersion: '1' }))).resolves.toEqual({
+      ok: true,
+      type: 'Notification',
+    });
+  });
+
+  maybe('verifies SignatureVersion 2 (SHA256)', async () => {
+    const { impl } = certServer();
+    await expect(new SnsVerifier(impl).verify(v({ SignatureVersion: '2' }))).resolves.toEqual({
+      ok: true,
+      type: 'Notification',
+    });
+  });
+
+  maybe('refuses version 2 carrying a SHA1 signature', async () => {
+    const { impl } = certServer();
+    await expect(
+      new SnsVerifier(impl).verify(v({ SignatureVersion: '2' }, 'RSA-SHA1')),
+    ).resolves.toEqual({ ok: false, reason: 'signature_invalid' });
+  });
+
+  maybe('refuses version 1 carrying a SHA256 signature', async () => {
+    const { impl } = certServer();
+    await expect(
+      new SnsVerifier(impl).verify(v({ SignatureVersion: '1' }, 'RSA-SHA256')),
+    ).resolves.toEqual({ ok: false, reason: 'signature_invalid' });
+  });
+
+  maybe('verifies a version 2 SubscriptionConfirmation', async () => {
+    const { impl } = certServer();
+    const topic = 'arn:aws:sns:us-east-1:123456789012:ses-events';
+    const env = signSnsEnvelope(
+      {
+        Type: 'SubscriptionConfirmation',
+        MessageId: 'sub-v2',
+        TopicArn: topic,
+        Message: 'You have chosen to subscribe',
+        SubscribeURL: `https://sns.us-east-1.amazonaws.com/?Action=ConfirmSubscription&TopicArn=${topic}&Token=t`,
+        Token: 't',
+        Timestamp: '2026-10-20T10:00:00.000Z',
+        SignatureVersion: '2',
+        SigningCertURL: TRUSTED_URL,
+      },
+      privateKey,
+    );
+    await expect(new SnsVerifier(impl).verify(env)).resolves.toEqual({
+      ok: true,
+      type: 'SubscriptionConfirmation',
+    });
+  });
+});
+
+describe('isTopicAllowed, which confirmation relies on', () => {
+  const T = 'arn:aws:sns:us-east-1:123456789012:ses-events';
+  it('is false when the allowlist is unset, whatever the topic', () => {
+    expect(new SnsVerifier(undefined, configFor({})).isTopicAllowed(T)).toBe(false);
+  });
+  it('is an exact match: no prefix, no case folding, no near miss', () => {
+    const verifier = new SnsVerifier(undefined, configFor({ SES_SNS_TOPIC_ARNS: T }));
+    expect(verifier.isTopicAllowed(T)).toBe(true);
+    expect(verifier.isTopicAllowed(`${T}-2`)).toBe(false);
+    expect(verifier.isTopicAllowed(T.toUpperCase())).toBe(false);
+    expect(verifier.isTopicAllowed(T.slice(0, -1))).toBe(false);
+    expect(verifier.isTopicAllowed(undefined)).toBe(false);
   });
 });

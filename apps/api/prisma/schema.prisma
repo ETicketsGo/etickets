@@ -2948,49 +2948,61 @@ model NotificationCertification {
 /// deploy every time a vendor renegotiates, and -- worse -- it silently reprices HISTORY,
 /// because yesterday's report would be recomputed at today's price. Effective dating is what
 /// makes a cost report about last month still true next year.
-/// An SNS SubscriptionConfirmation that has been PROVEN to come from Amazon and is waiting for
-/// a person to act on it.
+/// An SNS subscription confirmation for the SES event topic, and what became of it.
 ///
-/// ── WHY THIS TABLE EXISTS ─────────────────────────────────────────────────────────
-/// The SES webhook deliberately refuses to auto-confirm: a valid signature proves the SENDER,
-/// not that we WANT the subscription, and auto-confirming would attach this endpoint to any
-/// topic somebody with an AWS account points at it. Confirmation is therefore a human act.
+/// ── WHAT THIS TABLE IS NOW (ADR-054) ──────────────────────────────────────────────
+/// The SES webhook confirms a subscription itself, in every environment, but only when the
+/// message is signature-verified, comes from a topic named in SES_SNS_TOPIC_ARNS, and carries
+/// a SubscribeURL that can only be Amazon's ConfirmSubscription call for that same topic. One
+/// row per (topic, token) is the idempotency record: a redelivery, or a replay of a message
+/// already acted on, finds a CONFIRMED row and does nothing.
 ///
-/// But the token that authorises it arrives once, inside the message body, and the handler
-/// deliberately logs only the SubscribeURL's HOST — because a token in a log is a token in
-/// every log aggregator, backup and screenshot thereafter. So there was no way for an operator
-/// to complete the very step the design requires of them.
+/// ── WHY THE TOKEN IS NOT STORED ───────────────────────────────────────────────────
+/// The token is used in the same request it arrives in, so nothing needs to hold it. Only its
+/// SHA-256 is kept, which is enough to recognise a repeat and useless for confirming anything.
+/// `subscribeUrl` on new rows is the URL with the token replaced by a marker.
 ///
-/// This is the narrowest fix: hold the URL in one row, behind an authenticated capability,
-/// revealed once and audited.
-///
-/// ── WHY IT IS NOT ENCRYPTED AT REST ───────────────────────────────────────────────
-/// This repository has no key-management or encryption abstraction, and inventing one for a
-/// single QA-only column would be a worse outcome than the honest limitation: a general
-/// secret store is a real design decision, not a side effect of a webhook fix. So the row is
-/// protected by NEVER BEING WRITTEN outside a non-production environment (see the capture
-/// guard) rather than by cryptography. In QA the database already holds test bookings and
-/// notification payloads; a 72-hour SNS token is not the most sensitive thing in it.
+/// ── HISTORY ──────────────────────────────────────────────────────────────────────
+/// Rows written before ADR-054 came from the retired manual flow (ADR-052): outside
+/// production a verified confirmation was held here, plaintext, for a one-time admin reveal.
+/// Those rows keep their columns (`revealedAt`, `revealedBy`) and are never read for a token
+/// again; a new confirmation for the same topic marks any PENDING one EXPIRED.
 model SnsPendingConfirmation {
-  id           String                @id @default(cuid())
-  topicArn     String
-  /// SNS MessageId — the idempotency key. A retried delivery carries the same one, so the
-  /// unique index makes a redelivery a no-op rather than a second row.
-  messageId    String                @unique
-  /// Never logged, never returned by an unauthenticated route, never put in metrics or audit
-  /// metadata. Read exactly once through the admin reveal route.
-  subscribeUrl String
-  status       SnsConfirmationStatus @default(PENDING)
-  receivedAt   DateTime              @default(now())
+  id              String                @id @default(cuid())
+  topicArn        String
+  /// SNS MessageId. A retried delivery carries the same one, so the unique index makes a
+  /// redelivery a no-op rather than a second row.
+  messageId       String                @unique
+  /// New rows: the SubscribeURL with its token replaced by a marker -- never the live URL.
+  /// Rows from the retired manual flow (ADR-052) hold the original URL; nothing reads it.
+  subscribeUrl    String
+  status          SnsConfirmationStatus @default(PENDING)
+  receivedAt      DateTime              @default(now())
   /// SNS confirmation tokens are valid for three days; after that the row is useless and the
   /// operator must ask AWS to send a new one.
-  expiresAt    DateTime
-  /// Stamped by the one-time reveal. A second read returns metadata WITHOUT the URL.
-  revealedAt   DateTime?
-  revealedBy   String?
-  createdAt    DateTime              @default(now())
-  updatedAt    DateTime              @updatedAt
+  expiresAt       DateTime
+  /// Retired manual flow only (ADR-052). Never set by the automatic confirmation.
+  revealedAt      DateTime?
+  revealedBy      String?
+  /// SHA-256 (hex) of the confirmation token. With topicArn, the key that makes a second
+  /// confirmation of the same token a no-op. Null on rows from the retired manual flow.
+  tokenHash       String?
+  /// When Amazon answered ConfirmSubscription with a SubscriptionArn for this topic.
+  confirmedAt     DateTime?
+  /// What Amazon returned. Kept for the operator to match against the SNS console; never
+  /// logged or put in audit metadata, because it is also the key to an unsubscribe.
+  subscriptionArn String?
+  /// The lease on an attempt in flight: a second delivery of the same token while one request
+  /// is calling Amazon waits for this to age out instead of calling Amazon too.
+  lastAttemptAt   DateTime?
+  /// The redacted reason the last attempt failed (`timeout`, `http_503`, `redirect_refused`...).
+  /// Never a URL, never a token.
+  lastFailure     String?
+  attemptCount    Int                   @default(0)
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
 
+  @@unique([topicArn, tokenHash])
   @@index([status, receivedAt])
   @@index([topicArn, status])
 }
@@ -2999,8 +3011,8 @@ enum SnsConfirmationStatus {
   PENDING
   /// Superseded: a newer confirmation arrived for the same topic, or the token aged out.
   EXPIRED
-  /// An operator revealed the URL and reported the subscription confirmed. Never set by this
-  /// platform on its own — nothing here can observe AWS accepting the token.
+  /// Amazon answered ConfirmSubscription with a SubscriptionArn for this topic (ADR-054). On
+  /// rows from the retired manual flow (ADR-052) it was reported by an operator instead.
   CONFIRMED
 }
 

@@ -123,43 +123,25 @@ export class NotificationOpsController {
     return this.ops.liftSuppression(user.id, id);
   }
   /**
-   * The SNS subscription confirmation waiting for a person.
+   * The latest SNS subscription confirmation record: whether the SES event topic's
+   * subscription was confirmed, and if not, the redacted reason the last attempt failed.
    *
-   * ── WHY THESE SIT AT THE HIGHER CAPABILITY ────────────────────────────────────────
-   * Reading a status is ordinarily an OPS_READ act, but the thing behind it authorises
-   * attaching this platform's webhook to an AWS topic. That is a configuration decision about
-   * what the platform trusts, not an operational lookup, so both routes are held at the same
-   * bar as lifting a suppression.
+   * ── WHY THERE IS NO REVEAL ANY MORE ───────────────────────────────────────────────
+   * The webhook confirms the subscription itself once the signature, the topic allowlist and
+   * the SubscribeURL all check out (ADR-054), so no token is ever held for a person to read.
+   * The one-time reveal and the "mark confirmed" routes of ADR-052 were retired with it.
+   *
+   * Held at PLATFORM_CONFIG, like the rest of the subscription's configuration: which topic
+   * this platform trusts is a configuration decision, not an operational lookup.
    */
   @Get('sns/pending-confirmation')
   @RequiresAdmin(AdminPermission.PLATFORM_CONFIG)
   @ApiOperation({
     summary:
-      'Status of the pending SNS subscription confirmation. Never includes the URL or token.',
+      'Latest SNS subscription confirmation: status, attempts and last failure reason. ' +
+      'Never includes the URL, the token or the SubscriptionArn.',
   })
   snsPendingConfirmation() {
     return this.snsConfirmations.status();
-  }
-
-  @Post('sns/pending-confirmation/reveal')
-  @RequiresAdmin(AdminPermission.PLATFORM_CONFIG)
-  @ApiOperation({
-    summary:
-      'Reveal the SNS SubscribeURL once, for manual confirmation in the AWS console. ' +
-      'Audited. Refused in production. Never auto-followed.',
-  })
-  revealSnsConfirmation(@CurrentUser() user: RequestUser) {
-    return this.snsConfirmations.reveal(user.id);
-  }
-
-  @Post('sns/pending-confirmation/:id/confirmed')
-  @RequiresAdmin(AdminPermission.PLATFORM_CONFIG)
-  @ApiOperation({
-    summary:
-      'Record that an operator confirmed the subscription in AWS. Never inferred — nothing ' +
-      'here can observe AWS accepting a token.',
-  })
-  markSnsConfirmed(@CurrentUser() user: RequestUser, @Param('id') id: string) {
-    return this.snsConfirmations.markConfirmed(user.id, id);
   }
 }

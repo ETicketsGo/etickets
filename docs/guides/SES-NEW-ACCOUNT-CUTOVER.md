@@ -129,28 +129,29 @@ appeared in retained Railway logs before PR #92 redacted it, and the URL is chan
 
 ---
 
-## Step 6 — Confirm the subscription (a person, deliberately)
+## Step 6 — The subscription confirms itself (check it did)
 
-The platform **never auto-confirms** an SNS subscription: the signature proves Amazon sent it,
-not that we want to be subscribed. The subscription sits at "Pending confirmation" until a human
-completes it.
+The api confirms the SNS subscription itself (ADR-054), in every environment including
+production, but **only** when all of these hold: the path secret matches, the SNS signature
+verifies against an Amazon signing certificate, the `TopicArn` is listed in
+`SES_SNS_TOPIC_ARNS` exactly, and the `SubscribeURL` is Amazon's own `ConfirmSubscription`
+call for that topic on `sns.<region>.amazonaws.com`. Anything else is refused (401) and
+nothing is fetched.
 
-Outside production, the confirmation URL is captured and revealed **once**:
+So **set `SES_WEBHOOK_SECRET` and `SES_SNS_TOPIC_ARNS` on the api (Step 7) and let it deploy
+BEFORE you create the subscription in Step 5.4.** If the subscription was created first, it
+stays "Pending confirmation": set the variables, then in the SNS console select the
+subscription and press **Request confirmation**.
 
-```bash
-# as an admin holding PLATFORM_CONFIG
-GET  /api/admin/notifications/sns/pending-confirmation          # status only, no token
-POST /api/admin/notifications/sns/pending-confirmation/reveal   # the SubscribeURL, once
-POST /api/admin/notifications/sns/pending-confirmation/:id/confirmed
-```
+Check it worked:
 
-Open the revealed URL in a browser, check the SNS console shows **Confirmed**, then record it
-with the third call. A second reveal returns 409 and discloses nothing.
-
-> **Production gap — decide before go-live.** `reveal` is refused in production by an `APP_ENV`
-> allowlist (`LOCAL/DEV/TEST/CI/QA/UAT`), so this flow cannot confirm a production subscription.
-> Someone has to choose: extend the allowlist to production, add an encrypted reveal, or confirm
-> production by another route. Do not discover this on launch day.
+- SNS console: the subscription status is **Confirmed** within a few seconds.
+- api log: `SNS subscription CONFIRMED automatically for topic <arn>`. A refusal reads
+  `SNS SubscriptionConfirmation refused (<reason>)`; the reason names the failed check
+  (for example `topic_not_allowed` or `topic_allowlist_unset`).
+- As an admin with PLATFORM_CONFIG: `GET /api/admin/notifications/sns/pending-confirmation`
+  returns the latest record (`status`, `attemptCount`, `lastFailure`). It never returns the
+  URL or the token. The reveal routes of the old manual flow are gone.
 
 ---
 

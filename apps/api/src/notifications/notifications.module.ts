@@ -30,7 +30,7 @@ import { NotificationOpsService } from './delivery/notification-ops.service';
 import { NotificationOpsController } from './delivery/notification-ops.controller';
 import { DeliveryWebhookService } from './delivery/webhook/delivery-webhook.service';
 import { ProviderEventReplayService } from './delivery/webhook/provider-event-replay.service';
-import { SnsVerifier } from './delivery/webhook/sns-verifier';
+import { SNS_FETCH, SnsVerifier } from './delivery/webhook/sns-verifier';
 import { DeliveryWebhookController } from './delivery/webhook/delivery-webhook.controller';
 import { SnsBodyMiddleware, applySnsBodyParser } from './delivery/webhook/sns-body.middleware';
 import { SnsConfirmationService } from './delivery/webhook/sns-confirmation.service';
@@ -103,6 +103,16 @@ import { PUSH_TRANSPORT, selectPushTransport } from './channels/transports/push.
     SnsVerifier,
     SnsBodyMiddleware,
     SnsConfirmationService,
+    /*
+      The only HTTP client the SNS code uses: the signing-certificate fetch and the one
+      ConfirmSubscription call. Provided (rather than left to the classes' fallback) so a
+      whole-application test can replace it and count exactly what would have gone out.
+    */
+    {
+      provide: SNS_FETCH,
+      useValue: ((input: string | URL | Request, init?: RequestInit) =>
+        fetch(input, init)) as typeof fetch,
+    },
     NotificationOpsService,
     EmailChannel,
     SmsChannel,

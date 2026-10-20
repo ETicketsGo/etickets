@@ -1,6 +1,6 @@
 # ADR-052: Holding an SNS confirmation token long enough for a person to use it
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR-054](./ADR-054-sns-automatic-confirmation.md) (2026-10-20). The capture, the reveal and the mark-confirmed routes were retired; the webhook now confirms the subscription itself.
 - **Date:** 2026-09-09
 - **Extends:** [ADR-050](./ADR-050-notification-launch-certification.md), [ADR-051](./ADR-051-notification-failure-and-binding-model.md)
 - **Scope:** SES delivery events over SNS

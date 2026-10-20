@@ -15,10 +15,10 @@ refunds and password resets. Email is the only buyer channel in the pilot (SMS, 
    callbacks `OBSERVED`, and the certification report reads `LIVE_CERTIFIED` / `PASS` (section 2). That proves the
    chain enqueue, worker, SES, SNS, webhook on QA. It does not prove production DNS, production SES access, or
    inbox placement.
-3. **One step cannot be done in production as built:** confirming the SNS subscription. The confirmation token is
-   deliberately never stored or logged in production, so the "confirm in the console" step has no token to use
-   (section 6.1). Decide the route before launch day; this is the one engineering-and-owner decision on the critical
-   path.
+3. **Confirming the SNS subscription in production: resolved by ADR-054 (2026-10-20).** The webhook now confirms
+   the subscription itself in every environment, but only for a topic named in `SES_SNS_TOPIC_ARNS` and only by
+   calling Amazon's own ConfirmSubscription URL for it (section 6.1). The owner sets the variables, deploys, and then
+   subscribes.
 4. **The "organizer invite" email does not exist.** Team invitations are a link the owner copies and sends
    (section 8, row 4). Certify the link, not an email.
 5. **The booking confirmation email carries no QR code.** For a guest it carries the booking reference and a link
@@ -143,8 +143,9 @@ instead. **FAIL** if any of the three is `fail` or `neutral`.
    body unparsed, so before PR #90 every real message returned 500. A route-scoped parser now reads it
    (`sns-body.middleware.ts`, bound only to this route). **Do not widen it to other routes**, and do not put a proxy,
    WAF or CDN rule in front that rewrites or rejects `text/plain` on this path [code].
-4. A `SubscriptionConfirmation` is never auto-confirmed. The handler verifies the signature, logs the HOST only, and
-   (outside production) stores the confirmation URL once (`delivery-webhook.service.ts:253-289`).
+4. A `SubscriptionConfirmation` is confirmed automatically only when the signature verifies, the `TopicArn` is in
+   `SES_SNS_TOPIC_ARNS` exactly, and the `SubscribeURL` is Amazon's ConfirmSubscription call for that topic on its
+   regional host (ADR-054, `sns-confirmation.service.ts`). The token is never stored or logged.
 
 **Checks, in order:**
 
@@ -163,7 +164,14 @@ Read delivery status from `NotificationDelivery` (the row's `deliveryState` in t
 `status`: a successful send leaves `Notification.status = SENT` and only the delivery row becomes `DELIVERED`
 [memory: `ses-sns-webhook`].
 
-### 6.1 The production confirmation gap (decision needed)
+### 6.1 The production confirmation gap (RESOLVED 2026-10-20, ADR-054)
+
+**Resolution.** None of options A, B and C below was taken. The webhook confirms the subscription itself in every
+environment, production included, once the path secret, the signature, the exact topic allowlist and the SubscribeURL
+shape all check out. No token is stored, so the encryption question no longer arises. The capture, reveal and
+mark-confirmed routes were retired. The production procedure is `SES-NEW-ACCOUNT-CUTOVER.md` Step 6: set
+`SES_WEBHOOK_SECRET` and `SES_SNS_TOPIC_ARNS` on the api and deploy, then create the HTTPS subscription and check
+it reads **Confirmed**. The text below is the original analysis, kept for the record.
 
 The confirmation token arrives once, inside the SNS message body. In production the handler stores nothing and logs
 only the host: the capture guard allows `LOCAL, DEV, TEST, CI, QA, UAT` and names `PRODUCTION`, `PROD`, `STAGING` as
@@ -322,7 +330,7 @@ recipient address, token or secret goes in a screenshot or a report.
 | 5   | Create the configuration set, SNS topic, event destination                                                                                         | Yes (AWS console)              | Check S3/S4 outputs                                                                   |
 | 6   | Create the production IAM principal and policy; never reuse the QA SES user                                                                        | Yes                            | Provide the policy (`INFRASTRUCTURE.md` 1.4)                                          |
 | 7   | Set production variables on api and worker (section 7) as part of the approved deploy                                                              | Yes (secrets; deploy approval) | Prepare the list; confirm names only                                                  |
-| 8   | Decide the production SNS confirmation route (section 6.1)                                                                                         | Decide                         | Implement the chosen option; rehearse on QA                                           |
+| 8   | Production SNS confirmation route (section 6.1): DONE, automatic (ADR-054); set the variables before subscribing                                   | Set variables first            | Done in code; rehearse on QA                                                          |
 | 9   | Subscribe the topic to the production webhook URL and confirm it                                                                                   | Yes                            | Run probe N3 and the checks N4 to N8                                                  |
 | 10  | Provide the mailboxes (Gmail, Outlook, Yahoo, an Indian provider, a company box) and accounts                                                      | Yes                            | Run the sends, record headers, placement and rendering                                |
 | 11  | Run the live purchase and partial refund (S6, S8) that produce messages 1 and 5                                                                    | Yes (live money)               | Observe delivery and state                                                            |
