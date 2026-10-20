@@ -106,6 +106,8 @@ describe('integration-real-postgres: first sellability run after the per-cause c
   let orgId = '';
 
   let current: SellabilityReport;
+  // Which event the stubbed list hands the sweep. Each test sweeps its own.
+  let sweptEvent = EVENT_ID;
   let sweep: EventSellabilitySweepService;
   let notifications: NotificationService;
 
@@ -157,7 +159,7 @@ describe('integration-real-postgres: first sellability run after the per-cause c
     sweep = new EventSellabilitySweepService(
       {
         event: {
-          findMany: async () => [{ id: EVENT_ID, title: TITLE, organizationId: orgId }],
+          findMany: async () => [{ id: sweptEvent, title: TITLE, organizationId: orgId }],
         },
         notification: db.notification,
       } as never,
@@ -186,12 +188,12 @@ describe('integration-real-postgres: first sellability run after the per-cause c
       120_000,
     );
 
-  const rowsFor = (userId: string) =>
+  const rowsFor = (userId: string, eventId = EVENT_ID) =>
     db.notification.findMany({
       where: {
         userId,
         type: 'EVENT_NOT_SELLABLE',
-        payload: { path: ['eventId'], equals: EVENT_ID },
+        payload: { path: ['eventId'], equals: eventId },
       },
       orderBy: { createdAt: 'asc' },
     });
@@ -287,4 +289,72 @@ describe('integration-real-postgres: first sellability run after the per-cause c
     expect(await rowsFor(newOwnerId)).toHaveLength(fresh.length);
     expect(await rowsFor(adminId)).toHaveLength(adminBefore.length);
   });
+
+  maybe(
+    'a fix link that gains or loses an anchor does not announce the same fault again',
+    async () => {
+      /*
+      What happened on QA: the readiness link became `/readiness#seat-classes`, the cause
+      identity changed with it, and the next sweep told every organizer about the same unmapped
+      seat class a second time - 13 repeat emails and inbox rows across 9 events.
+
+      The row below is written exactly as the sweep wrote it while the anchor was part of the
+      identity. The sweeps after it see the same fault through both forms of the link.
+    */
+      const event2 = `evt2-${suffix}`;
+      sweptEvent = event2;
+      // Runnable on its own: the owner may not have been added by the test above.
+      if (
+        !(await db.organizationMember.findFirst({
+          where: { organizationId: orgId, userId: ownerId },
+        }))
+      ) {
+        await db.organizationMember.create({
+          data: { organizationId: orgId, userId: ownerId, role: 'ORGANIZER_OWNER' },
+        });
+      }
+      const anchored = `${BALCONY.fixPath}#seat-classes`;
+      await notifications.send({
+        type: NotificationType.EVENT_NOT_SELLABLE,
+        userId: ownerId,
+        toEmail: `owner+${suffix}@example.test`,
+        payload: {
+          eventId: event2,
+          eventTitle: TITLE,
+          reason: BALCONY.message,
+          blockerCodes: `${BALCONY.code}:${BALCONY.subject}@${anchored}`,
+          blockerCode: BALCONY.code,
+          owner: BALCONY.owner,
+          subject: BALCONY.subject,
+          fixPath: anchored,
+        },
+      });
+      const before = await rowsFor(ownerId, event2);
+      expect(before.length).toBeGreaterThan(0);
+
+      for (const fixPath of [anchored, BALCONY.fixPath, `${BALCONY.fixPath}#categories`]) {
+        current = {
+          eventId: event2,
+          sellable: false,
+          blockers: [{ ...BALCONY, fixPath }],
+          warnings: [],
+          checkedAt: new Date().toISOString(),
+        };
+        await sweep.sweep();
+        expect(await rowsFor(ownerId, event2)).toHaveLength(before.length);
+      }
+
+      // A different PAGE is still a different cause, and is still told.
+      current = {
+        eventId: event2,
+        sellable: false,
+        blockers: [{ ...BALCONY, fixPath: '/organizer/cinemas/c2/readiness#seat-classes' }],
+        warnings: [],
+        checkedAt: new Date().toISOString(),
+      };
+      await sweep.sweep();
+      expect((await rowsFor(ownerId, event2)).length).toBeGreaterThan(before.length);
+      sweptEvent = EVENT_ID;
+    },
+  );
 });

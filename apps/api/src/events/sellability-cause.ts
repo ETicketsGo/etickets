@@ -22,7 +22,25 @@ export function causeIdentity(issue: Pick<SellabilityIssue, 'code' | 'subject' |
   let id = issue.code;
   if (issue.subject) id += `:${issue.subject}`;
   if (issue.fixPath) id += `@${issue.fixPath}`;
-  return id;
+  return normaliseCauseIdentity(id);
+}
+
+/**
+ * A cause identity with the fix path reduced to the PAGE it names.
+ *
+ * -- WHY THE ANCHOR IS NOT PART OF THE IDENTITY ----------------------------------
+ * The fix path separates two cinemas missing the same mapping, which is a page. The part
+ * after `#` (or `?`) only scrolls that page, and it changes whenever somebody improves a
+ * link. On QA it did: `/readiness` became `/readiness#seat-classes`, the identity changed
+ * with it, the dedupe key changed with the identity, and the next sweep told every organizer
+ * about the same unmapped seat class all over again - 13 repeat emails and inbox rows across
+ * 9 events, and two cards for one fault in the notification centre.
+ *
+ * Applied to identities READ from stored rows as well as to new ones, so rows written with
+ * an anchor compare equal to rows written without. Nothing stored is rewritten.
+ */
+export function normaliseCauseIdentity(id: string): string {
+  return id.replace(/@(\/[^#?]*)[#?].*$/, '@$1');
 }
 
 /**
@@ -70,6 +88,31 @@ export function legacyAnnouncedCodes(payload: unknown): ReadonlySet<string> {
   const codes = p.blockerCodes.split('+');
   if (!codes.every((c) => LEGACY_CODE.test(c))) return none;
   return new Set(codes);
+}
+
+/**
+ * Per recipient, every cause a message of the CURRENT shape already announced, normalised.
+ *
+ * The dedupe key stops an identical identity being written twice, and nothing else: a row
+ * written while a fix path still carried an anchor has a different key from the same cause
+ * written without one. Reading the earlier rows and comparing normalised identities is what
+ * makes such a cause count as told - the same approach `legacyCoverage` takes for the shape
+ * before this one. The platform team's copy is not evidence the organizer was told.
+ */
+export function announcedCauses(
+  rows: ReadonlyArray<{ userId: string | null; payload: unknown }>,
+): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>();
+  for (const row of rows) {
+    if (!row.userId || !row.payload || typeof row.payload !== 'object') continue;
+    const p = row.payload as Record<string, unknown>;
+    if (p.organizationId !== undefined || typeof p.blockerCode !== 'string') continue;
+    if (typeof p.blockerCodes !== 'string' || p.blockerCodes.length === 0) continue;
+    const seen = out.get(row.userId) ?? new Set<string>();
+    seen.add(normaliseCauseIdentity(p.blockerCodes));
+    out.set(row.userId, seen);
+  }
+  return out;
 }
 
 /** A bare blocker code, as the earlier sweep joined them: upper case, digits, underscores. */

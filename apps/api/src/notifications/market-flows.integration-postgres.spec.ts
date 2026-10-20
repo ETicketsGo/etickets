@@ -346,7 +346,12 @@ describe('integration-real-postgres: India, US and Canada notification flows', (
     */
       const bookingId = `ca-ok-${suffix}`;
       deliver.mockReset();
-      deliver.mockResolvedValue({ provider: 'log' });
+      /*
+        A provider that really took each message. It used to be `log`, which the sweep then
+        recorded as accepted -- but a log-mode push reached nobody, and counting it as the
+        customer having been told is exactly the claim the delivery records no longer make.
+      */
+      deliver.mockResolvedValue({ provider: 'stub-provider', providerMessageId: 'stub-1' });
       const notifications = buildService();
       const fallbacks = new NotificationFallbackService(db as never, notifications as never);
 

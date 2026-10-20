@@ -152,9 +152,42 @@ describe('the status column tells the truth', () => {
 
     await service.dispatchDue();
 
+    // SKIPPED, not SENT: it used to say SENT beside the reason, and every report read it as
+    // delivered. Nothing was sent, so there is no send time either.
+    expect(update.mock.calls[0][0].data).toMatchObject({
+      status: 'SKIPPED',
+      lastError: 'no_destination',
+      sentAt: null,
+    });
+  });
+
+  it('a log-mode send is LOGGED, never SENT', async () => {
+    // The log transport answers like a provider that accepted the message. It printed a line.
+    const deliver = jest.fn().mockResolvedValue({ provider: 'log' });
+    const { service, update } = setup({ deliver, dueRows: [dueRow({ channel: 'email' })] });
+
+    await service.dispatchDue();
+
+    expect(update.mock.calls[0][0].data).toMatchObject({
+      status: 'LOGGED',
+      provider: 'log',
+      lastError: 'log_mode_not_delivered',
+      sentAt: null,
+    });
+  });
+
+  it('a provider that accepted it is SENT, with a send time and no error', async () => {
+    const deliver = jest.fn().mockResolvedValue({ provider: 'ses', providerMessageId: 'm-1' });
+    const { service, update } = setup({ deliver, dueRows: [dueRow({ channel: 'email' })] });
+
+    await service.dispatchDue();
+
     expect(update.mock.calls[0][0].data).toMatchObject({
       status: 'SENT',
-      lastError: 'no_destination',
+      provider: 'ses',
+      providerMessageId: 'm-1',
+      lastError: null,
+      sentAt: expect.any(Date),
     });
   });
 

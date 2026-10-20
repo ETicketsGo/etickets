@@ -1,4 +1,10 @@
-import { causeIdentity, legacyAnnouncedCodes, legacyCoverage } from './sellability-cause';
+import {
+  announcedCauses,
+  causeIdentity,
+  legacyAnnouncedCodes,
+  legacyCoverage,
+  normaliseCauseIdentity,
+} from './sellability-cause';
 
 /**
  * Reading what a message of the EARLIER shape already told its recipient.
@@ -77,5 +83,64 @@ describe('legacyCoverage', () => {
     expect([...map.keys()].sort()).toEqual(['u1', 'u2']);
     expect([...map.get('u1')!].sort()).toEqual(['PRICE_OVER_CEILING', 'SEAT_CLASS_UNMAPPED']);
     expect([...map.get('u2')!]).toEqual(['NO_PRICING_POLICY']);
+  });
+});
+
+describe('normaliseCauseIdentity', () => {
+  it('drops the anchor and query from the fix path, which only scroll the page', () => {
+    expect(
+      normaliseCauseIdentity(
+        'SEAT_CLASS_UNMAPPED:Platinum Executive@/organizer/cinemas/c1/readiness#seat-classes',
+      ),
+    ).toBe('SEAT_CLASS_UNMAPPED:Platinum Executive@/organizer/cinemas/c1/readiness');
+    expect(normaliseCauseIdentity('NO_SEATS@/organizer/venues?tab=rooms')).toBe(
+      'NO_SEATS@/organizer/venues',
+    );
+  });
+
+  it('keeps the page, which is what separates two cinemas missing the same mapping', () => {
+    expect(
+      normaliseCauseIdentity('SEAT_CLASS_UNMAPPED:Balcony@/organizer/cinemas/c2/readiness'),
+    ).toBe('SEAT_CLASS_UNMAPPED:Balcony@/organizer/cinemas/c2/readiness');
+  });
+
+  it('leaves a bare code and a code with a subject alone', () => {
+    expect(normaliseCauseIdentity('NO_PRICING_POLICY')).toBe('NO_PRICING_POLICY');
+    expect(normaliseCauseIdentity('SEAT_CLASS_UNMAPPED:Box')).toBe('SEAT_CLASS_UNMAPPED:Box');
+  });
+
+  it('is what causeIdentity produces, so new keys never carry an anchor', () => {
+    expect(
+      causeIdentity({
+        code: 'SEAT_CLASS_UNMAPPED',
+        subject: 'Box',
+        fixPath: '/organizer/cinemas/c1/readiness#seat-classes',
+      }),
+    ).toBe('SEAT_CLASS_UNMAPPED:Box@/organizer/cinemas/c1/readiness');
+  });
+});
+
+describe('announcedCauses', () => {
+  it('collects the normalised causes each recipient was told, of the current shape only', () => {
+    const map = announcedCauses([
+      {
+        userId: 'u1',
+        payload: {
+          blockerCode: 'SEAT_CLASS_UNMAPPED',
+          blockerCodes: 'SEAT_CLASS_UNMAPPED:Box@/organizer/cinemas/c1/readiness#seat-classes',
+        },
+      },
+      // The earlier shape: read by legacyCoverage, not here.
+      { userId: 'u1', payload: { blockerCodes: 'NO_PRICING_POLICY' } },
+      // The platform team's copy is no evidence the organizer was told.
+      {
+        userId: 'u2',
+        payload: { organizationId: 'o1', blockerCode: 'X', blockerCodes: 'X' },
+      },
+    ]);
+    expect([...(map.get('u1') ?? [])]).toEqual([
+      'SEAT_CLASS_UNMAPPED:Box@/organizer/cinemas/c1/readiness',
+    ]);
+    expect(map.has('u2')).toBe(false);
   });
 });

@@ -22,6 +22,12 @@
  * UNDELIVERED the provider carried it and could not deliver (handset off, number dead)
  * BOUNCED     the destination is permanently bad (mailbox does not exist)
  * COMPLAINED  the recipient marked it as spam
+ * SKIPPED     no provider was called: nowhere to send to, or the destination is suppressed
+ * LOGGED      no provider was called: the `log` transport wrote it to the server log
+ *
+ * SKIPPED and LOGGED are written by this platform, never by a callback. They exist because
+ * the attempt row used to say REJECTED for a skip -- "the provider refused it" -- about a
+ * message no provider ever saw, and ACCEPTED for a log-mode send that went nowhere.
  *
  * BOUNCED, COMPLAINED and REJECTED are the ones that must stop future traffic to that
  * destination. UNDELIVERED usually must not: a phone that was switched off is a phone that
@@ -38,6 +44,8 @@ export const DeliveryState = {
   UNDELIVERED: 'UNDELIVERED',
   BOUNCED: 'BOUNCED',
   COMPLAINED: 'COMPLAINED',
+  SKIPPED: 'SKIPPED',
+  LOGGED: 'LOGGED',
 } as const;
 export type DeliveryState = (typeof DeliveryState)[keyof typeof DeliveryState];
 
@@ -72,7 +80,50 @@ const RANK: Record<DeliveryState, number> = {
   REJECTED: 7,
   COMPLAINED: 8,
   BOUNCED: 9,
+  /*
+    Final the moment they are written: no provider holds a reference to these, so no
+    callback can arrive about them, and ranking them above every other outcome means a
+    stray one could not move them anyway.
+  */
+  SKIPPED: 10,
+  LOGGED: 10,
 };
+
+/**
+ * The attempt never reached a provider, so nothing was delivered and nothing can be.
+ *
+ * Kept apart from the failures because a resend of one of these is not a second copy of
+ * anything -- the first one went nowhere.
+ */
+export function wasNotSent(state: DeliveryState | null | undefined): boolean {
+  return state === DeliveryState.SKIPPED || state === DeliveryState.LOGGED;
+}
+
+/**
+ * The statuses a Notification row can hold.
+ *
+ * -- WHY SKIPPED AND LOGGED EXIST --------------------------------------------------
+ * SENT used to cover three different facts: a provider accepted it, there was nobody to send
+ * it to, and the log transport printed it. On QA 73 WhatsApp rows said SENT with provider
+ * `none` and reason `no_destination`, and every logged email and push said SENT with
+ * provider `log` -- so in production "sent" read as delivered for messages that never left.
+ * SENT now means a provider (or the in-app inbox) took it; the other two say what happened.
+ *
+ * Additive: rows written before these existed keep their old status, and readers map them
+ * at read time (see the admin delivery summary) rather than anything rewriting history.
+ */
+export const NotificationStatus = {
+  PENDING: 'PENDING',
+  SCHEDULED: 'SCHEDULED',
+  SENT: 'SENT',
+  /** Not sent: nowhere to send to, or the destination is suppressed. `lastError` says which. */
+  SKIPPED: 'SKIPPED',
+  /** Not sent: the channel runs on the log transport, so it was written to the server log. */
+  LOGGED: 'LOGGED',
+  FAILED: 'FAILED',
+  CANCELLED: 'CANCELLED',
+} as const;
+export type NotificationStatus = (typeof NotificationStatus)[keyof typeof NotificationStatus];
 
 /** The state that survives when two are known. Never regresses. */
 export function resolveDeliveryState(

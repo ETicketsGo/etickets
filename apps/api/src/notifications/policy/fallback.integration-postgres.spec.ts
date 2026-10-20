@@ -515,8 +515,21 @@ describe('integration-real-postgres: one channel failing does not recreate the o
     const email = await db!.notification.findFirst({
       where: { userId, channel: 'email', payload: { path: ['bookingId'], equals: bookingId } },
     });
-    expect(email.status).toBe('FAILED');
+    // SKIPPED: we chose not to send it. FAILED would say a send was tried and went wrong.
+    expect(email.status).toBe('SKIPPED');
     expect(email.lastError).toBe('destination_suppressed');
+    // And an attempt that says so, which there used to be none of: the admin view showed a
+    // failure with nothing behind it.
+    const attempts = await db!.notificationDelivery.findMany({
+      where: { notificationId: email.id },
+    });
+    expect(
+      attempts.map((a: { status: string; outcomeClass: string; provider: string }) => [
+        a.status,
+        a.outcomeClass,
+        a.provider,
+      ]),
+    ).toEqual([['SKIPPED', 'POLICY_SUPPRESSED', 'none']]);
 
     await db!.suppressedDestination.deleteMany({
       where: { destinationHash: SuppressionService.hash('email', EMAIL) },

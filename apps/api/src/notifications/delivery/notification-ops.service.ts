@@ -7,12 +7,14 @@ import {
   isConfigurationBlocked,
   isRetryableFailure,
   isTerminalDelivery,
+  wasNotSent,
 } from '@eticketsgo/shared-types';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../audit/audit.service';
 import { AppException, ErrorCodes } from '../../common/errors';
 import { SuppressionService } from './suppression.service';
 import { maskPhone } from '../channels/transports/recipient.util';
+import { summariseDelivery } from './delivery-summary';
 
 /**
  * What an operator can see and do about a notification that did not arrive.
@@ -49,6 +51,8 @@ export class NotificationOpsService {
    */
   async search(q: {
     reference?: string;
+    /** Every message about one booking -- the indexed column, not a payload lookup. */
+    bookingId?: string;
     type?: string;
     channel?: string;
     provider?: string;
@@ -77,6 +81,7 @@ export class NotificationOpsService {
   }) {
     const where: Prisma.NotificationWhereInput = {
       ...(q.type ? { type: q.type as never } : {}),
+      ...(q.bookingId ? { bookingId: q.bookingId } : {}),
       ...(q.channel ? { channel: q.channel } : {}),
       ...(q.status ? { status: q.status } : {}),
       ...(q.provider ? { deliveries: { some: { provider: q.provider } } } : {}),
@@ -125,12 +130,13 @@ export class NotificationOpsService {
         toEmail: true,
         attempts: true,
         lastError: true,
+        provider: true,
         createdAt: true,
         sentAt: true,
         deliveries: {
           orderBy: { attemptNumber: 'desc' },
           take: 1,
-          select: { provider: true, status: true, providerMessageId: true },
+          select: { provider: true, status: true, providerMessageId: true, outcomeClass: true },
         },
       },
     });
@@ -146,9 +152,21 @@ export class NotificationOpsService {
       lastError: r.lastError,
       createdAt: r.createdAt,
       sentAt: r.sentAt,
-      provider: r.deliveries[0]?.provider ?? null,
+      provider: r.deliveries[0]?.provider ?? r.provider ?? null,
       deliveryState: r.deliveries[0]?.status ?? null,
       providerMessageId: r.deliveries[0]?.providerMessageId ?? null,
+      /*
+        What actually happened, in a sentence. `status` alone says SENT on older rows for
+        messages that went nowhere -- a WhatsApp with no phone number, an email the log
+        transport printed -- and this is worked out from every fact on the row instead.
+      */
+      delivery: summariseDelivery({
+        channel: r.channel,
+        status: r.status,
+        provider: r.provider,
+        lastError: r.lastError,
+        latest: r.deliveries[0] ?? null,
+      }),
     }));
   }
 
@@ -166,6 +184,7 @@ export class NotificationOpsService {
         userId: true,
         attempts: true,
         lastError: true,
+        provider: true,
         scheduledFor: true,
         sentAt: true,
         createdAt: true,
@@ -179,6 +198,7 @@ export class NotificationOpsService {
             status: true,
             providerStatus: true,
             providerMessageId: true,
+            outcomeClass: true,
             failureCode: true,
             failureReason: true,
             attemptedAt: true,
@@ -195,6 +215,13 @@ export class NotificationOpsService {
     return {
       ...row,
       toEmail: maskEmail(row.toEmail),
+      delivery: summariseDelivery({
+        channel: row.channel,
+        status: row.status,
+        provider: row.provider,
+        lastError: row.lastError,
+        latest: row.deliveries[row.deliveries.length - 1] ?? null,
+      }),
       /*
         Identifiers only. An operator diagnosing a delivery needs to know which booking the
         message was about; they do not need the seat numbers, the amount paid or the QR.
@@ -309,7 +336,18 @@ export class NotificationOpsService {
         HttpStatus.CONFLICT,
       );
     }
-    if (last && isTerminalDelivery(last) && last !== DeliveryState.UNDELIVERED && !opts.force) {
+    /*
+      A skip or a log-mode send is not refused. Nothing reached anybody, so sending it again
+      -- after a phone number is added, or a real provider is configured -- is the first copy,
+      not a second one.
+    */
+    if (
+      last &&
+      isTerminalDelivery(last) &&
+      last !== DeliveryState.UNDELIVERED &&
+      !wasNotSent(last) &&
+      !opts.force
+    ) {
       throw new AppException(
         ErrorCodes.CONFLICT,
         `This notification ended as ${last}. Pass force to resend it anyway.`,

@@ -114,6 +114,17 @@ describe('folding one cause into one card', () => {
     ]);
   });
 
+  it('folds one cause whose fix link gained an anchor into one card', () => {
+    // QA: the same unmapped class reported with `/readiness` and later `/readiness#seat-classes`
+    // showed as two cards for one fault.
+    const anchored = {
+      ...BALCONY,
+      blockerCodes: `${BALCONY.blockerCodes}#seat-classes`,
+      fixPath: `${BALCONY.fixPath}#seat-classes`,
+    };
+    expect(groupNotifications([row(BALCONY), row(anchored)])).toHaveLength(1);
+  });
+
   it('keeps the same cause on two events as two cards', () => {
     const groups = groupNotifications([
       row(BALCONY),
@@ -222,6 +233,17 @@ describe('whether the problem is still there', () => {
     const [card] = groupNotifications([row(BALCONY)]);
     expect(card.resolved).toBeNull();
     expect(card.dismissible).toBe(false);
+  });
+
+  it('is still a problem when the stored link has an anchor the live cause does not', () => {
+    // The live identity is normalised; a row written while the anchor was part of it must
+    // still match, or a standing fault reads as fixed.
+    const lookup = () => live({ causes: new Set([BALCONY.blockerCodes]) });
+    const [card] = groupNotifications(
+      [row({ ...BALCONY, blockerCodes: `${BALCONY.blockerCodes}#seat-classes` })],
+      lookup,
+    );
+    expect(card.resolved).toBe(false);
   });
 
   it('is fixed when the live check no longer finds that cause', () => {

@@ -155,6 +155,17 @@ export const OutcomeClass = {
    * reliability and is never priced -- no call was made, so no charge is possible.
    */
   CONFIGURATION_BLOCKED: 'CONFIGURATION_BLOCKED',
+  /**
+   * No provider carries this channel here: the `log` transport wrote the message to the
+   * server log, and nothing left the platform. Ours, and never priced.
+   *
+   * -- WHY THIS IS NOT PROVIDER_ACCEPTED -------------------------------------------
+   * It was. The log transport returns success, so every logged email and push was filed as
+   * "the provider took it" -- under a provider called `log` -- and a health report read 100%
+   * acceptance for a channel that delivered nothing to anyone. Outside `isProviderOutcome`
+   * and `reachedProvider` for the same reason as CONFIGURATION_BLOCKED: no call was made.
+   */
+  LOG_ONLY: 'LOG_ONLY',
 } as const;
 export type OutcomeClass = (typeof OutcomeClass)[keyof typeof OutcomeClass];
 
