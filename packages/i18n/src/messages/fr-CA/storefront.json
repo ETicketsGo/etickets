@@ -968,7 +968,7 @@
     "statusActive": "Actif",
     "statusEnded": "Terminé",
     "admitted": "{done} sur {total} entrés",
-    "stillToArrive": "{count, plural, one {Un invité n'est pas encore arrivé} other {# invités ne sont pas encore arrivés}}"
+    "stillToArrive": "{count, plural, one {# invité n'est pas encore arrivé} other {# invités ne sont pas encore arrivés}}"
   },
   "guest": {
     "title": "Acheter comme invité",

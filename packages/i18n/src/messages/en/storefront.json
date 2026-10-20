@@ -968,7 +968,7 @@
     "statusActive": "Active",
     "statusEnded": "Ended",
     "admitted": "{done} of {total} admitted",
-    "stillToArrive": "{count, plural, one {One guest still to arrive} other {# guests still to arrive}}"
+    "stillToArrive": "{count, plural, one {# guest still to arrive} other {# guests still to arrive}}"
   },
   "guest": {
     "title": "Buy as a guest",
