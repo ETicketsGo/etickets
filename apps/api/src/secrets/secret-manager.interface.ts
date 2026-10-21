@@ -18,7 +18,7 @@ export interface SecretManagerHealth {
 }
 
 export interface SecretManager {
-  /** Backend name: 'env' | 'azure' | 'aws' | 'gcp'. */
+  /** Backend name: 'env' | 'railway' | 'azure' | 'aws' | 'gcp'. */
   readonly provider: string;
 
   /** Resolve one reference to its secret value. Fails closed if absent. */

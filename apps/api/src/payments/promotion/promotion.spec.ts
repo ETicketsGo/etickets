@@ -22,7 +22,7 @@ describe('promotion logic', () => {
 
   it('remaps secret references to the target env token', () => {
     expect(remapSecretRef('payments/stripe/test/secret-key', 'PRODUCTION')).toBe(
-      'payments/stripe/production/secret-key',
+      'payments/stripe/live/secret-key',
     );
     expect(remapSecretRef('payments/stripe/test/secret-key', 'STAGING')).toBe(
       'payments/stripe/staging/secret-key',

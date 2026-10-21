@@ -160,42 +160,28 @@ account id into the repository.
   the address identity, not the domain.
 - This key goes in `SES_AWS_ACCESS_KEY_ID` / `SES_AWS_SECRET_ACCESS_KEY` only, never in `AWS_*`.
 
-### 7.2 `eticketsgo-secrets-prod`: read payment secrets only
+### 7.2 Payment secrets: Railway variables, no AWS Secrets Manager
 
-PROD reads its payment credentials from Secrets Manager (`payments/*`), and today it does so with
-**QA's key**. Removing that key without a replacement stops Razorpay.
+Decided 2026-10-21. Production never created AWS Secrets Manager secrets, and live Razorpay
+already runs from the Railway variables `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET` and
+`RAZORPAY_WEBHOOK_SECRET`. `SECRET_MANAGER_PROVIDER=railway` makes the secret store read those
+same variables through two approved names only:
 
-- [ ] Create IAM user `eticketsgo-secrets-prod` in the account that holds the PROD `payments/*`
-      secrets. Attach:
+| Secret name                             | Railway variable          |
+| --------------------------------------- | ------------------------- |
+| `payments/razorpay/live/secret-key`     | `RAZORPAY_KEY_SECRET`     |
+| `payments/razorpay/live/webhook-secret` | `RAZORPAY_WEBHOOK_SECRET` |
 
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Sid": "ReadPaymentSecretsOnly",
-      "Effect": "Allow",
-      "Action": "secretsmanager:GetSecretValue",
-      "Resource": "arn:aws:secretsmanager:<secrets-region>:<account-id>:secret:payments/*"
-    }
-  ]
-}
-```
+Every other name is refused. The generic `env` store stays forbidden in production.
 
-- [ ] If the secrets use a customer-managed KMS key, also allow `kms:Decrypt` on that key ARN only,
-      with condition `kms:ViaService = secretsmanager.<secrets-region>.amazonaws.com`.
-- [ ] **Decided: separate keys (choice A), implemented by PR R4.** The SES client reads
-      `SES_AWS_ACCESS_KEY_ID` / `SES_AWS_SECRET_ACCESS_KEY` and nothing else in STAGING/PRODUCTION.
-      The payment secret store is unchanged: it builds its client from the AWS default chain, which
-      reads `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`. So `AWS_*` holds
-      `eticketsgo-secrets-prod` and the SES pair holds `eticketsgo-ses-prod`. Do not grant
-      `secretsmanager:*` to `eticketsgo-ses-prod`, and do not grant `ses:*` to
-      `eticketsgo-secrets-prod`. The boot guard refuses the same key id in both pairs.
-- [ ] **PROD must run a commit that contains R4 before the SES pair is used.** An older commit
-      ignores `SES_AWS_*` and would sign SES with the secrets key (AccessDenied on every send).
-- [ ] Prove the secrets key before removing QA's: after the deploy,
-      `GET /api/admin/payments/live-readiness` shows `credentials: passed`, and the api boot log has
-      no `Could not bind provider 'razorpay'` (INFRASTRUCTURE.md 1.4 step 6).
+- Do **not** create Secrets Manager secrets or an `eticketsgo-secrets-prod` user.
+- Do **not** change any `RAZORPAY_*` variable.
+- `eticketsgo-ses-prod` gets SES only (7.1), never `secretsmanager:*`.
+- After the Railway-secrets deploy, `GET /api/admin/payments/live-readiness?provider=razorpay`
+  shows `secret-manager` and `credentials` passed, and neither the api nor the worker boot log
+  has `Could not bind provider 'razorpay'`.
+- PROD must run a commit containing #448 before the SES pair is set: an older commit ignores
+  `SES_AWS_*`.
 
 ### 7.3 Optional: read-only audit role
 
@@ -246,23 +232,24 @@ same configuration and the same boot guard, so in SES mode each one refuses to s
 holds every row marked for it. Configuring the api alone leaves readiness green while nothing
 leaves.
 
-| Variable                            | Value to hold                                                      | api | worker |
-| ----------------------------------- | ------------------------------------------------------------------ | --- | ------ |
-| `SMS_ENABLED`                       | `false` (email-only pilot; set it first)                           | yes | yes    |
-| `EMAIL_FROM`                        | `tickets@eticketsgo.com`, bare (already on api; add to worker)     | yes | yes    |
-| `AWS_REGION`                        | `ap-south-1` (not `AWS_SES_REGION`, which nothing reads)           | yes | yes    |
-| `SES_AWS_ACCESS_KEY_ID`             | `eticketsgo-ses-prod` key id (send email only)                     | yes | yes    |
-| `SES_AWS_SECRET_ACCESS_KEY`         | `eticketsgo-ses-prod` secret                                       | yes | yes    |
-| `AWS_ACCESS_KEY_ID`                 | `eticketsgo-secrets-prod` key id; replaces QA's key                | yes | yes    |
-| `AWS_SECRET_ACCESS_KEY`             | `eticketsgo-secrets-prod` secret                                   | yes | yes    |
-| `SECRET_MANAGER_PROVIDER`           | unchanged; confirm present                                         | yes | yes    |
-| `AWS_SECRETS_REGION`                | unchanged; confirm present                                         | yes | yes    |
-| `SES_CONFIGURATION_SET`             | `eticketsgo-prod` (replaces `eticketsgo-qa`)                       | yes | yes    |
-| `SES_SNS_TOPIC_ARNS`                | the `eticketsgo-ses-events-prod` ARN only (QA's ARN removed)       | yes | yes    |
-| `SES_WEBHOOK_SECRET`                | new random value, 32+ characters, never QA's                       | yes | yes    |
-| `PUBLIC_API_URL`                    | `https://api.eticketsgo.com` (confirm present)                     | yes | no     |
-| `ALLOW_UNDELIVERABLE_NOTIFICATIONS` | leave `true` for now; removed in Gate 11                           | yes | yes    |
-| `EMAIL_PROVIDER`                    | `ses`, set LAST, after every row above is in place on that service | yes | yes    |
+| Variable                                                            | Value to hold                                                      | api | worker |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------ | --- | ------ |
+| `SMS_ENABLED`                                                       | `false` (email-only pilot; set it first)                           | yes | yes    |
+| `EMAIL_FROM`                                                        | `tickets@eticketsgo.com`, bare (already on api; add to worker)     | yes | yes    |
+| `AWS_REGION`                                                        | `ap-south-1` (not `AWS_SES_REGION`, which nothing reads)           | yes | yes    |
+| `SES_AWS_ACCESS_KEY_ID`                                             | `eticketsgo-ses-prod` key id (send email only)                     | yes | yes    |
+| `SES_AWS_SECRET_ACCESS_KEY`                                         | `eticketsgo-ses-prod` secret                                       | yes | yes    |
+| `SECRET_MANAGER_PROVIDER`                                           | `railway` (replaces `aws`)                                         | yes | yes    |
+| `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET` | unchanged; confirm present                                         | yes | yes    |
+| `OPS_ALERT_EMAILS`                                                  | the operator mailbox(es) for ops alerts, comma-separated           | yes | yes    |
+| `AWS_SECRETS_REGION`                                                | delete, after `railway` is verified (nothing reads it then)        | yes | yes    |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`                        | delete QA's key from api, after SES and `railway` are verified     | yes | n/a    |
+| `SES_CONFIGURATION_SET`                                             | `eticketsgo-prod` (replaces `eticketsgo-qa`)                       | yes | yes    |
+| `SES_SNS_TOPIC_ARNS`                                                | the `eticketsgo-ses-events-prod` ARN only (QA's ARN removed)       | yes | yes    |
+| `SES_WEBHOOK_SECRET`                                                | new random value, 32+ characters, never QA's                       | yes | yes    |
+| `PUBLIC_API_URL`                                                    | `https://api.eticketsgo.com` (confirm present)                     | yes | no     |
+| `ALLOW_UNDELIVERABLE_NOTIFICATIONS`                                 | leave `true` for now; removed in Gate 11                           | yes | yes    |
+| `EMAIL_PROVIDER`                                                    | `ses`, set LAST, after every row above is in place on that service | yes | yes    |
 
 `SES_SNS_TOPIC_ARNS` and `SES_WEBHOOK_SECRET` are needed on the worker too: the worker does not
 receive webhooks, but the boot guard checks the whole SES configuration on every service.
@@ -302,9 +289,10 @@ CONFIRM_PROD_DEPLOY=worker@$SHA node $K/deploy-pinned.mjs PROD worker $SHA
 - [ ] `curl -s https://api.eticketsgo.com/api/health` returns ok.
 - [ ] `GET /api/admin/notifications/readiness/configuration`: IN email `provider: ses`,
       `configState: READY`, no missing keys.
-- [ ] Razorpay check from Gate 7.2 passes.
-- [ ] Delete the old QA access key from PROD in this change (it is replaced, not added to). Do not
-      delete the QA user itself; QA still uses it.
+- [ ] Railway-secrets check from Gate 7.2 passes.
+- [ ] Only then delete `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (QA's key) and
+      `AWS_SECRETS_REGION` from PROD, with set-var `--delete` and a pinned deploy. Do not delete or
+      deactivate the QA IAM user or its key; QA still sends with it.
 
 ## Gate 9. Subscribe the topic (requires PR R1 (#445) merged and deployed)
 

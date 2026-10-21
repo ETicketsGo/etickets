@@ -70,7 +70,7 @@ export async function bootstrapPaymentConfig(
   });
   const existing = await prisma.paymentProviderConfig.findMany({
     where: { env: env as never, provider: { in: [...reachable] } },
-    select: { provider: true, enabled: true, mode: true },
+    select: { provider: true, enabled: true, mode: true, publicKey: true },
   });
 
   /*
@@ -96,6 +96,25 @@ export async function bootstrapPaymentConfig(
     paymentKeyMode(read(PAYMENT_PUBLIC_KEY_ENV[provider]), read(PAYMENT_SECRET_KEY_ENV[provider]));
 
   const drifted = reachable.filter((p) => needsMode(p, modeOf(p)));
+
+  /*
+    A rotated key id on a row that is otherwise right. The factory builds its adapter from the
+    STORED public key and the CURRENT secret, so a stale key id pairs the new secret with the old
+    id and every readiness check against it fails. Only that one column is corrected: the row's
+    mode, routes and tuned settings are left exactly as they are.
+  */
+  for (const provider of reachable) {
+    const row = existing.find((e) => e.provider === provider);
+    const current = read(PAYMENT_PUBLIC_KEY_ENV[provider]);
+    if (row && !drifted.includes(provider) && current && row.publicKey !== current) {
+      await prisma.paymentProviderConfig.update({
+        where: { env_provider: { env: env as never, provider } },
+        data: { publicKey: current },
+      });
+      logger.log(`[payments:${env}] ${provider} public key id re-synced from the environment.`);
+    }
+  }
+
   if (drifted.length === 0 && activeRoutes > 0) {
     return { providers: [], routes: [], skipped: 'already-configured' };
   }

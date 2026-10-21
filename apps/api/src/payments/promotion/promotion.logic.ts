@@ -8,9 +8,16 @@ import type { PaymentEnvName } from '../configuration/payment-environment';
 
 const ENV_TOKENS = new Set(['local', 'dev', 'qa', 'uat', 'test', 'live', 'staging', 'production']);
 
-/** The secret-store token a target environment's references should use. */
+/**
+ * The secret-store token a target environment's references should use.
+ *
+ * PRODUCTION is `live`, the name the payment-config bootstrap writes on the real row
+ * (`payments/razorpay/live/secret-key`) and the only one the `railway` secret store maps. It
+ * used to be `production`, which matched no row any environment holds, so a promotion into
+ * production could never resolve its secrets.
+ */
 export function targetRefToken(env: PaymentEnvName): string {
-  if (env === 'PRODUCTION') return 'production';
+  if (env === 'PRODUCTION') return 'live';
   if (env === 'STAGING') return 'staging';
   return 'test'; // LOCAL/DEV/QA/UAT use sandbox secrets
 }
@@ -23,7 +30,7 @@ export function expectedMode(env: PaymentEnvName): 'TEST' | 'LIVE' {
 /**
  * Remap a secret reference for the target environment by replacing its recognized
  * env-token segment. e.g. payments/stripe/test/secret-key → (PRODUCTION) →
- * payments/stripe/production/secret-key. Refs without an env token are unchanged.
+ * payments/stripe/live/secret-key. Refs without an env token are unchanged.
  */
 export function remapSecretRef(
   ref: string | null | undefined,

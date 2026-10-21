@@ -15,7 +15,7 @@ function fakePrisma(
       and routed and still say TEST while the environment holds a live key, which is what took
       production down.
     */
-    rows?: Array<{ provider: string; enabled: boolean; mode: string }>;
+    rows?: Array<{ provider: string; enabled: boolean; mode: string; publicKey?: string }>;
   } = {},
 ) {
   const providerUpserts: Array<Record<string, unknown>> = [];
@@ -33,6 +33,7 @@ function fakePrisma(
           providerUpserts.push(args);
           return {};
         }),
+        update: jest.fn().mockResolvedValue({}),
       },
       paymentRoute: {
         count: jest.fn().mockResolvedValue(overrides.activeRoutes ?? 0),
@@ -63,7 +64,14 @@ describe('bootstrapPaymentConfig', () => {
     const f = fakePrisma({
       enabled: 1,
       activeRoutes: 2,
-      rows: [{ provider: 'razorpay', enabled: true, mode: 'LIVE' }],
+      rows: [
+        {
+          provider: 'razorpay',
+          enabled: true,
+          mode: 'LIVE',
+          publicKey: LIVE_RAZORPAY.RAZORPAY_KEY_ID,
+        },
+      ],
     });
     const result = await bootstrapPaymentConfig(
       f.prisma as never,
@@ -198,7 +206,10 @@ describe('bootstrapPaymentConfig and a mode that drifted', () => {
     environment held a live key. A guard that skipped on row COUNTS could not see it, so the API
     refused to start and the reason was dropped by the log rate limit.
   */
-  function prismaWithRow(row: { enabled: boolean; mode: string }, activeRoutes = 4) {
+  function prismaWithRow(
+    row: { enabled: boolean; mode: string; publicKey?: string },
+    activeRoutes = 4,
+  ) {
     const providerUpserts: Array<Record<string, unknown>> = [];
     const routeUpserts: Array<Record<string, unknown>> = [];
     return {
@@ -207,11 +218,14 @@ describe('bootstrapPaymentConfig and a mode that drifted', () => {
       prisma: {
         paymentProviderConfig: {
           count: jest.fn().mockResolvedValue(row.enabled ? 1 : 0),
-          findMany: jest.fn().mockResolvedValue([{ provider: 'razorpay', ...row }]),
+          findMany: jest
+            .fn()
+            .mockResolvedValue([{ provider: 'razorpay', publicKey: live.RAZORPAY_KEY_ID, ...row }]),
           upsert: jest.fn(async (args: Record<string, unknown>) => {
             providerUpserts.push(args);
             return {};
           }),
+          update: jest.fn().mockResolvedValue({}),
         },
         paymentRoute: {
           count: jest.fn().mockResolvedValue(activeRoutes),
@@ -277,5 +291,59 @@ describe('bootstrapPaymentConfig and a mode that drifted', () => {
     );
     expect(result.providers).toEqual(['razorpay:TEST']);
     expect((f.providerUpserts[0].update as Record<string, unknown>).mode).toBe('TEST');
+  });
+});
+
+describe('bootstrapPaymentConfig and a rotated key id', () => {
+  /*
+    With SECRET_MANAGER_PROVIDER=railway the factory pairs the STORED key id with the CURRENT
+    RAZORPAY_KEY_SECRET. A key regenerated in the Razorpay dashboard changes both variables; the
+    row has to follow, or every readiness check builds an adapter with a mismatched pair.
+  */
+  const env = { RAZORPAY_KEY_ID: 'rzp_live_NEWNEWNEWNEWNE', RAZORPAY_KEY_SECRET: 'b'.repeat(24) };
+
+  function prismaWith(publicKey: string) {
+    const update = jest.fn().mockResolvedValue({});
+    const upsert = jest.fn().mockResolvedValue({});
+    const routeUpsert = jest.fn().mockResolvedValue({});
+    return {
+      update,
+      upsert,
+      routeUpsert,
+      prisma: {
+        paymentProviderConfig: {
+          count: jest.fn().mockResolvedValue(1),
+          findMany: jest
+            .fn()
+            .mockResolvedValue([{ provider: 'razorpay', enabled: true, mode: 'LIVE', publicKey }]),
+          upsert,
+          update,
+        },
+        paymentRoute: { count: jest.fn().mockResolvedValue(4), upsert: routeUpsert },
+      },
+    };
+  }
+
+  it('updates only the stored key id, and touches no route or other column', async () => {
+    const f = prismaWith('rzp_live_OLDOLDOLDOLDOL');
+    const result = await bootstrapPaymentConfig(
+      f.prisma as never,
+      'PRODUCTION',
+      envReader(env),
+      logger,
+    );
+    expect(f.update).toHaveBeenCalledWith({
+      where: { env_provider: { env: 'PRODUCTION', provider: 'razorpay' } },
+      data: { publicKey: env.RAZORPAY_KEY_ID },
+    });
+    expect(result.skipped).toBe('already-configured');
+    expect(f.upsert).not.toHaveBeenCalled();
+    expect(f.routeUpsert).not.toHaveBeenCalled();
+  });
+
+  it('writes nothing when the stored key id already matches', async () => {
+    const f = prismaWith(env.RAZORPAY_KEY_ID);
+    await bootstrapPaymentConfig(f.prisma as never, 'PRODUCTION', envReader(env), logger);
+    expect(f.update).not.toHaveBeenCalled();
   });
 });
