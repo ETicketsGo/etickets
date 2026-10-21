@@ -54,7 +54,8 @@ const razorpay: ProviderBinding = {
   publicKeyEnv: 'RAZORPAY_KEY_ID',
   secretKeyEnv: 'RAZORPAY_KEY_SECRET',
   webhookSecretEnv: 'RAZORPAY_WEBHOOK_SECRET',
-  passthroughEnv: [],
+  // Read by the adapter's constructor; without it a factory-built adapter always had Route off.
+  passthroughEnv: ['RAZORPAY_ROUTE_ENABLED'],
   classifyMode: ({ publicKey }) =>
     publicKey?.startsWith('rzp_live_')
       ? 'live'

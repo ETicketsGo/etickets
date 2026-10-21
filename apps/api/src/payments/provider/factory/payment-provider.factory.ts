@@ -108,7 +108,15 @@ export class PaymentProviderFactory implements OnModuleInit {
 
     const instance = await this.build(binding, config);
     this.cache.set(name, { instance, fingerprint });
-    this.registry.add(instance);
+    /*
+      With the `railway` backend the secret IS the Railway variable the resolver already built
+      the live adapter from, so this instance would be a copy of it - except that its key id comes
+      from the stored config row, which can lag a rotated RAZORPAY_KEY_ID. Replacing the money
+      path's adapter with it could only ever make things worse, so it is used for validation and
+      readiness only, and checkout, webhooks, refunds and reconciliation keep the resolver's.
+      A vault backend (aws/azure/gcp) is a different source and still registers, as designed.
+    */
+    if (this.secrets.provider !== 'railway') this.registry.add(instance);
     return instance;
   }
 

@@ -2,10 +2,11 @@ import { ConfigService } from '@nestjs/config';
 import { EnvironmentSecretManager } from './environment-secret-manager';
 import { AzureKeyVaultSecretManager } from './cloud/azure-key-vault.secret-manager';
 import { AwsSecretsManagerSecretManager } from './cloud/aws-secrets-manager.secret-manager';
+import { RailwaySecretManager } from './railway-secret-manager';
 import { GcpSecretManager } from './cloud/gcp.secret-manager';
 import type { SecretManager } from './secret-manager.interface';
 
-export type SecretManagerProvider = 'env' | 'azure' | 'aws' | 'gcp';
+export type SecretManagerProvider = 'env' | 'railway' | 'azure' | 'aws' | 'gcp';
 
 /**
  * Environments where a LIVE credential may exist, and where the env-var backend is
@@ -56,7 +57,7 @@ export function selectSecretManager(config: ConfigService): SecretManager {
   if (provider === 'env' && liveKeysPossible) {
     throw new Error(
       `SECRET_MANAGER_PROVIDER=env is not permitted where live credentials can exist ` +
-        `(APP_ENV=${appEnv}). Configure a managed secret store (azure | aws | gcp).`,
+        `(APP_ENV=${appEnv}). Use SECRET_MANAGER_PROVIDER=railway (approved payment variables only) or a managed store (azure | aws | gcp).`,
     );
   }
 
@@ -65,6 +66,9 @@ export function selectSecretManager(config: ConfigService): SecretManager {
       return new AzureKeyVaultSecretManager(config.get<string>('AZURE_KEY_VAULT_URL'), ttlMs);
     case 'aws':
       return new AwsSecretsManagerSecretManager(config.get<string>('AWS_SECRETS_REGION'), ttlMs);
+    case 'railway':
+      // The approved payment variables only (RAILWAY_SECRET_MAP). Allowed in PRODUCTION.
+      return new RailwaySecretManager(process.env);
     case 'gcp':
       return new GcpSecretManager(config.get<string>('GCP_PROJECT_ID'), ttlMs);
     case 'env':

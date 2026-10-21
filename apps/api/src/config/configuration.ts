@@ -426,7 +426,9 @@ const envSchema = z.object({
   // values. `env` reads from process.env (LOCAL/DEV only — rejected in PRODUCTION);
   // azure/aws/gcp are feature-gated cloud managers (their SDK is loaded lazily and
   // only required when selected). Default `env` keeps local/dev/test/e2e unchanged.
-  SECRET_MANAGER_PROVIDER: z.enum(['env', 'azure', 'aws', 'gcp']).default('env'),
+  // `railway` reads ONLY the approved payment variables (RAILWAY_SECRET_MAP) and is allowed in
+  // PRODUCTION; `env` maps any reference to a variable and stays refused there.
+  SECRET_MANAGER_PROVIDER: z.enum(['env', 'railway', 'azure', 'aws', 'gcp']).default('env'),
   // Short cache TTL (ms) for resolved secrets; supports rotation without restart.
   SECRET_CACHE_TTL_MS: z.coerce.number().default(300000),
   // Azure Key Vault (SECRET_MANAGER_PROVIDER=azure). Uses DefaultAzureCredential.
