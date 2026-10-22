@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Headers, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Post, Query, Req } from '@nestjs/common';
+import type { Request } from 'express';
 import { z } from 'zod';
 import { Throttle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
@@ -15,6 +16,7 @@ import { GuestBookingService } from './guest-booking.service';
 import { CurrentUser, Public, type RequestUser } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { RequiresHumanCheck } from '../human-check/human-check.guard';
+import { requestClientIp } from '../common/client-ip';
 
 /**
  * What somebody may type into the "find my booking" form, and how often.
@@ -86,10 +88,17 @@ export class BookingsController {
   create(
     @CurrentUser() user: RequestUser,
     @Body(new ZodValidationPipe(createBookingSchema)) body: CreateBookingInput,
+    @Req() req: Request,
     @Headers('idempotency-key') idempotencyKey?: string,
     @Headers('x-correlation-id') correlationId?: string,
   ) {
-    return this.router.initiate({ user, body, idempotencyKey, correlationId });
+    return this.router.initiate({
+      user,
+      body,
+      idempotencyKey,
+      correlationId,
+      ip: requestClientIp(req),
+    });
   }
 
   @Get()
@@ -132,18 +141,24 @@ export class BookingsController {
     @Param('id') id: string,
     @Body(new ZodValidationPipe(z.object({ code: z.string().trim().max(60).nullable() })))
     body: { code: string | null },
+    @Headers('x-anon-session') anonymousToken?: string,
   ) {
-    return this.bookings.applyCoupon(user, id, body.code);
+    // Through the router, which requires a guest booking's own checkout session.
+    return this.router.applyCoupon({ user, bookingId: id, code: body.code, anonymousToken });
   }
 
   @Post(':id/extend-hold')
   @ApiOperation({ summary: 'Give the buyer more time on a hold that has not expired.' })
-  extendHold(@CurrentUser() user: RequestUser, @Param('id') id: string) {
+  extendHold(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @Headers('x-anon-session') anonymousToken?: string,
+  ) {
     /*
       No body. WCAG 2.2.1 asks for a SIMPLE ACTION to extend a time limit — its own example
       is pressing the space bar — so this takes nothing to get wrong and nothing to validate.
     */
-    return this.bookings.extendHold(user, id);
+    return this.router.extendHold({ user, bookingId: id, anonymousToken });
   }
 
   @Post(':id/pay')
@@ -185,12 +200,23 @@ export class GuestBookingsController {
   @ApiOperation({ summary: 'Create a guest booking (no account required).' })
   createGuest(
     @Body(new ZodValidationPipe(createBookingSchema)) body: CreateBookingInput,
+    @Req() req: Request,
     @Headers('x-anon-session') anonymousToken?: string,
     @Headers('x-correlation-id') correlationId?: string,
+    @Headers('idempotency-key') idempotencyKey?: string,
   ) {
     // Anonymous ownership: in active mode the router issues a server-side session token
     // when the guest presents none, and returns it once as `anonymousSessionToken`.
-    return this.router.initiate({ user: null, body, anonymousToken, correlationId });
+    // The idempotency key works as on the account route, scoped to the address on the order,
+    // and the client address feeds the per-IP hold limit - this route is the public one.
+    return this.router.initiate({
+      user: null,
+      body,
+      anonymousToken,
+      correlationId,
+      idempotencyKey,
+      ip: requestClientIp(req),
+    });
   }
 
   @Public()
