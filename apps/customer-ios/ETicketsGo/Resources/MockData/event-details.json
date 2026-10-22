@@ -1,0 +1,837 @@
+[
+  {
+    "id": "evt-jazz",
+    "title": "Monsoon Jazz Nights",
+    "slug": "monsoon-jazz-nights-hyderabad",
+    "experienceType": "event",
+    "category": "live-music",
+    "description": "Three hours of jazz under the open sky, with a quartet from Mumbai and a guest vocalist. Seating is open; bring a cushion for the lawn.",
+    "refundPolicy": "Refunds up to 48 hours before the show. After that, tickets can be transferred but not refunded.",
+    "feeMode": "ABSORB",
+    "venue": {
+      "id": "ven-riverside",
+      "name": "Riverside Amphitheatre",
+      "city": "Hyderabad",
+      "country": "IN",
+      "address": "Necklace Road, Hyderabad 500063"
+    },
+    "organizer": {
+      "id": "org-evt-jazz",
+      "name": "Riverside Live"
+    },
+    "sessions": [
+      {
+        "id": "ses-jazz-1",
+        "startsAt": "2026-11-07T14:00:00.000Z",
+        "endsAt": "2026-11-07T17:00:00.000Z",
+        "status": "SCHEDULED",
+        "seatBased": false,
+        "ticketTypes": [
+          {
+            "id": "tt-jazz-lawn",
+            "name": "Lawn",
+            "priceMinor": 79900,
+            "currency": "INR",
+            "maxPerOrder": 10,
+            "available": 120
+          },
+          {
+            "id": "tt-jazz-front",
+            "name": "Front rows",
+            "priceMinor": 149900,
+            "currency": "INR",
+            "maxPerOrder": 10,
+            "available": 0
+          }
+        ]
+      },
+      {
+        "id": "ses-jazz-2",
+        "startsAt": "2026-11-14T14:00:00.000Z",
+        "endsAt": "2026-11-14T17:00:00.000Z",
+        "status": "SCHEDULED",
+        "seatBased": false,
+        "ticketTypes": [
+          {
+            "id": "tt-jazz-lawn-2",
+            "name": "Lawn",
+            "priceMinor": 79900,
+            "currency": "INR",
+            "maxPerOrder": 10,
+            "available": 120
+          },
+          {
+            "id": "tt-jazz-front-2",
+            "name": "Front rows",
+            "priceMinor": 149900,
+            "currency": "INR",
+            "maxPerOrder": 10,
+            "available": 24
+          }
+        ]
+      }
+    ],
+    "imagePath": null,
+    "imageVariants": null
+  },
+  {
+    "id": "evt-comedy",
+    "title": "Laugh Riot: Stand-up Night",
+    "slug": "laugh-riot-standup-vijayawada",
+    "experienceType": "event",
+    "category": "comedy",
+    "description": "Four comics, one long night. Telugu and English sets; recommended for ages 16 and up.",
+    "refundPolicy": "Non-refundable. Tickets may be transferred up to 2 hours before showtime.",
+    "feeMode": "ABSORB",
+    "venue": {
+      "id": "ven-kala",
+      "name": "Kalakshetram Hall",
+      "city": "Vijayawada",
+      "country": "IN",
+      "address": "MG Road, Vijayawada 520010"
+    },
+    "organizer": {
+      "id": "org-evt-comedy",
+      "name": "Open Mic Collective"
+    },
+    "sessions": [
+      {
+        "id": "ses-comedy-1",
+        "startsAt": "2026-11-08T13:30:00.000Z",
+        "endsAt": "2026-11-08T15:30:00.000Z",
+        "status": "SCHEDULED",
+        "seatBased": false,
+        "ticketTypes": [
+          {
+            "id": "tt-comedy-ga",
+            "name": "General admission",
+            "priceMinor": 49900,
+            "currency": "INR",
+            "maxPerOrder": 10,
+            "available": 120
+          }
+        ]
+      }
+    ],
+    "imagePath": null,
+    "imageVariants": null
+  },
+  {
+    "id": "evt-carnatic",
+    "title": "Carnatic Evening with the Sruti Ensemble",
+    "slug": "carnatic-evening-bengaluru",
+    "experienceType": "event",
+    "category": "live-music",
+    "description": "A concert of kritis and a ragam-tanam-pallavi, with violin and mridangam accompaniment.",
+    "refundPolicy": null,
+    "feeMode": "ABSORB",
+    "venue": {
+      "id": "ven-ranga",
+      "name": "Ranga Auditorium",
+      "city": "Bengaluru",
+      "country": "IN",
+      "address": "JP Nagar, Bengaluru 560078"
+    },
+    "organizer": {
+      "id": "org-evt-carnatic",
+      "name": "Sruti Foundation"
+    },
+    "sessions": [
+      {
+        "id": "ses-carnatic-1",
+        "startsAt": "2026-11-21T12:30:00.000Z",
+        "endsAt": "2026-11-21T15:00:00.000Z",
+        "status": "SCHEDULED",
+        "seatBased": true,
+        "ticketTypes": [
+          {
+            "id": "tt-carnatic-balc",
+            "name": "Balcony",
+            "priceMinor": 35000,
+            "currency": "INR",
+            "maxPerOrder": 10,
+            "available": 120
+          },
+          {
+            "id": "tt-carnatic-stalls",
+            "name": "Stalls",
+            "priceMinor": 60000,
+            "currency": "INR",
+            "maxPerOrder": 10,
+            "available": 120
+          }
+        ]
+      }
+    ],
+    "imagePath": null,
+    "imageVariants": null
+  },
+  {
+    "id": "evt-food",
+    "title": "Deccan Street Food Festival",
+    "slug": "deccan-street-food-festival-hyderabad",
+    "experienceType": "event",
+    "category": "food",
+    "description": "Forty stalls, live music and a haleem trail. Entry is free; food is paid at the stalls.",
+    "refundPolicy": null,
+    "feeMode": "ABSORB",
+    "venue": {
+      "id": "ven-lakeside",
+      "name": "Lakeside Grounds",
+      "city": "Hyderabad",
+      "country": "IN",
+      "address": null
+    },
+    "organizer": {
+      "id": "org-evt-food",
+      "name": "Taste of Deccan"
+    },
+    "sessions": [
+      {
+        "id": "ses-food-1",
+        "startsAt": "2026-10-31T10:30:00.000Z",
+        "endsAt": "2026-10-31T18:30:00.000Z",
+        "status": "SCHEDULED",
+        "seatBased": false,
+        "ticketTypes": [
+          {
+            "id": "tt-food-free",
+            "name": "Free entry",
+            "priceMinor": 0,
+            "currency": "INR",
+            "maxPerOrder": 10,
+            "available": 2000
+          }
+        ]
+      },
+      {
+        "id": "ses-food-2",
+        "startsAt": "2026-11-01T10:30:00.000Z",
+        "endsAt": "2026-11-01T18:30:00.000Z",
+        "status": "SCHEDULED",
+        "seatBased": false,
+        "ticketTypes": [
+          {
+            "id": "tt-food-free-2",
+            "name": "Free entry",
+            "priceMinor": 0,
+            "currency": "INR",
+            "maxPerOrder": 10,
+            "available": 2000
+          }
+        ]
+      }
+    ],
+    "imagePath": null,
+    "imageVariants": null
+  },
+  {
+    "id": "evt-pottery",
+    "title": "Wheel & Clay Pottery Workshop",
+    "slug": "wheel-and-clay-pottery-vijayawada",
+    "experienceType": "event",
+    "category": "workshop",
+    "description": "A two-hour beginner session on the wheel. Clay, tools and firing are included; pieces are ready for pickup in two weeks.",
+    "refundPolicy": "Full refund up to 24 hours before the session.",
+    "feeMode": "ABSORB",
+    "venue": {
+      "id": "ven-mitti",
+      "name": "Studio Mitti",
+      "city": "Vijayawada",
+      "country": "IN",
+      "address": "Benz Circle, Vijayawada 520008"
+    },
+    "organizer": {
+      "id": "org-evt-pottery",
+      "name": "Studio Mitti"
+    },
+    "sessions": [
+      {
+        "id": "ses-pottery-1",
+        "startsAt": "2026-11-01T05:30:00.000Z",
+        "endsAt": "2026-11-01T07:30:00.000Z",
+        "status": "SCHEDULED",
+        "seatBased": false,
+        "ticketTypes": [
+          {
+            "id": "tt-pottery",
+            "name": "Workshop seat",
+            "priceMinor": 180000,
+            "currency": "INR",
+            "maxPerOrder": 2,
+            "available": 6
+          }
+        ]
+      }
+    ],
+    "imagePath": null,
+    "imageVariants": null
+  },
+  {
+    "id": "evt-run",
+    "title": "Garden City 10K Run",
+    "slug": "garden-city-10k-bengaluru",
+    "experienceType": "event",
+    "category": "sports",
+    "description": "A timed 10K through the city centre. Includes a race bib, timing chip and finisher medal.",
+    "refundPolicy": "No refunds. Bibs can be transferred until 5 days before race day.",
+    "feeMode": "ABSORB",
+    "venue": {
+      "id": "ven-stadium",
+      "name": "Central Stadium",
+      "city": "Bengaluru",
+      "country": "IN",
+      "address": "Cubbon Road, Bengaluru 560001"
+    },
+    "organizer": {
+      "id": "org-evt-run",
+      "name": "Run Bengaluru"
+    },
+    "sessions": [
+      {
+        "id": "ses-run-1",
+        "startsAt": "2026-12-06T00:30:00.000Z",
+        "endsAt": "2026-12-06T04:30:00.000Z",
+        "status": "SCHEDULED",
+        "seatBased": false,
+        "ticketTypes": [
+          {
+            "id": "tt-run-10k",
+            "name": "10K entry",
+            "priceMinor": 120000,
+            "currency": "INR",
+            "maxPerOrder": 4,
+            "available": 800
+          }
+        ]
+      }
+    ],
+    "imagePath": null,
+    "imageVariants": null
+  },
+  {
+    "id": "evt-mov-monsoon",
+    "title": "The Long Monsoon",
+    "slug": "the-long-monsoon-galaxy-cinemas-hyderabad",
+    "experienceType": "cinema",
+    "category": "movies",
+    "description": "A ferryman on a flooded river carries one last passenger across the season that changes his village.",
+    "refundPolicy": "Cancellations up to 2 hours before showtime.",
+    "feeMode": "PASS",
+    "venue": {
+      "id": "ven-galaxy",
+      "name": "Galaxy Cinemas",
+      "city": "Hyderabad",
+      "country": "IN",
+      "address": "Banjara Hills, Hyderabad 500034"
+    },
+    "organizer": {
+      "id": "org-galaxy",
+      "name": "Galaxy Cinemas"
+    },
+    "sessions": [
+      {
+        "id": "ses-mov-monsoon-2026-10-23-0",
+        "startsAt": "2026-10-23T04:30:00.000Z",
+        "endsAt": "2026-10-23T07:12:00.000Z",
+        "status": "SCHEDULED",
+        "seatBased": true,
+        "ticketTypes": [
+          {
+            "id": "tt-ses-mov-monsoon-2026-10-23-0-std",
+            "name": "Classic",
+            "priceMinor": 22000,
+            "currency": "INR",
+            "maxPerOrder": 10,
+            "available": 18
+          },
+          {
+            "id": "tt-ses-mov-monsoon-2026-10-23-0-rec",
+            "name": "Recliner",
+            "priceMinor": 47000,
+            "currency": "INR",
+            "maxPerOrder": 6,
+            "available": 12
+          }
+        ]
+      },
+      {
+        "id": "ses-mov-monsoon-2026-10-23-1",
+        "startsAt": "2026-10-23T09:00:00.000Z",
+        "endsAt": "2026-10-23T11:42:00.000Z",
+        "status": "SCHEDULED",
+        "seatBased": true,
+        "ticketTypes": [
+          {
+            "id": "tt-ses-mov-monsoon-2026-10-23-1-std",
+            "name": "Classic",
+            "priceMinor": 22000,
+            "currency": "INR",
+            "maxPerOrder": 10,
+            "available": 140
+          },
+          {
+            "id": "tt-ses-mov-monsoon-2026-10-23-1-rec",
+            "name": "Recliner",
+            "priceMinor": 47000,
+            "currency": "INR",
+            "maxPerOrder": 6,
+            "available": 12
+          }
+        ]
+      },
+      {
+        "id": "ses-mov-monsoon-2026-10-23-2",
+        "startsAt": "2026-10-23T14:30:00.000Z",
+        "endsAt": "2026-10-23T17:12:00.000Z",
+        "status": "SCHEDULED",
+        "seatBased": true,
+        "ticketTypes": [
+          {
+            "id": "tt-ses-mov-monsoon-2026-10-23-2-std",
+            "name": "IMAX Classic",
+            "priceMinor": 45000,
+            "currency": "INR",
+            "maxPerOrder": 10,
+            "available": 140
+          },
+          {
+            "id": "tt-ses-mov-monsoon-2026-10-23-2-rec",
+            "name": "Recliner",
+            "priceMinor": 70000,
+            "currency": "INR",
+            "maxPerOrder": 6,
+            "available": 12
+          }
+        ]
+      },
+      {
+        "id": "ses-mov-monsoon-2026-10-24-0",
+        "startsAt": "2026-10-24T04:30:00.000Z",
+        "endsAt": "2026-10-24T07:12:00.000Z",
+        "status": "SCHEDULED",
+        "seatBased": true,
+        "ticketTypes": [
+          {
+            "id": "tt-ses-mov-monsoon-2026-10-24-0-std",
+            "name": "Classic",
+            "priceMinor": 22000,
+            "currency": "INR",
+            "maxPerOrder": 10,
+            "available": 18
+          },
+          {
+            "id": "tt-ses-mov-monsoon-2026-10-24-0-rec",
+            "name": "Recliner",
+            "priceMinor": 47000,
+            "currency": "INR",
+            "maxPerOrder": 6,
+            "available": 12
+          }
+        ]
+      },
+      {
+        "id": "ses-mov-monsoon-2026-10-24-1",
+        "startsAt": "2026-10-24T09:00:00.000Z",
+        "endsAt": "2026-10-24T11:42:00.000Z",
+        "status": "SCHEDULED",
+        "seatBased": true,
+        "ticketTypes": [
+          {
+            "id": "tt-ses-mov-monsoon-2026-10-24-1-std",
+            "name": "Classic",
+            "priceMinor": 22000,
+            "currency": "INR",
+            "maxPerOrder": 10,
+            "available": 140
+          },
+          {
+            "id": "tt-ses-mov-monsoon-2026-10-24-1-rec",
+            "name": "Recliner",
+            "priceMinor": 47000,
+            "currency": "INR",
+            "maxPerOrder": 6,
+            "available": 12
+          }
+        ]
+      },
+      {
+        "id": "ses-mov-monsoon-2026-10-24-2",
+        "startsAt": "2026-10-24T14:30:00.000Z",
+        "endsAt": "2026-10-24T17:12:00.000Z",
+        "status": "SCHEDULED",
+        "seatBased": true,
+        "ticketTypes": [
+          {
+            "id": "tt-ses-mov-monsoon-2026-10-24-2-std",
+            "name": "IMAX Classic",
+            "priceMinor": 45000,
+            "currency": "INR",
+            "maxPerOrder": 10,
+            "available": 140
+          },
+          {
+            "id": "tt-ses-mov-monsoon-2026-10-24-2-rec",
+            "name": "Recliner",
+            "priceMinor": 70000,
+            "currency": "INR",
+            "maxPerOrder": 6,
+            "available": 12
+          }
+        ]
+      }
+    ],
+    "imagePath": null,
+    "imageVariants": null
+  },
+  {
+    "id": "evt-mov-saltpan",
+    "title": "Saltpan",
+    "slug": "saltpan-galaxy-cinemas-hyderabad",
+    "experienceType": "cinema",
+    "category": "movies",
+    "description": "Three generations of a salt-farming family face the year the sea comes in early.",
+    "refundPolicy": "Cancellations up to 2 hours before showtime.",
+    "feeMode": "PASS",
+    "venue": {
+      "id": "ven-galaxy",
+      "name": "Galaxy Cinemas",
+      "city": "Hyderabad",
+      "country": "IN",
+      "address": "Banjara Hills, Hyderabad 500034"
+    },
+    "organizer": {
+      "id": "org-galaxy",
+      "name": "Galaxy Cinemas"
+    },
+    "sessions": [
+      {
+        "id": "ses-mov-saltpan-2026-10-23-0",
+        "startsAt": "2026-10-23T04:30:00.000Z",
+        "endsAt": "2026-10-23T06:48:00.000Z",
+        "status": "SCHEDULED",
+        "seatBased": true,
+        "ticketTypes": [
+          {
+            "id": "tt-ses-mov-saltpan-2026-10-23-0-std",
+            "name": "Classic",
+            "priceMinor": 22000,
+            "currency": "INR",
+            "maxPerOrder": 10,
+            "available": 18
+          },
+          {
+            "id": "tt-ses-mov-saltpan-2026-10-23-0-rec",
+            "name": "Recliner",
+            "priceMinor": 47000,
+            "currency": "INR",
+            "maxPerOrder": 6,
+            "available": 12
+          }
+        ]
+      },
+      {
+        "id": "ses-mov-saltpan-2026-10-23-1",
+        "startsAt": "2026-10-23T09:00:00.000Z",
+        "endsAt": "2026-10-23T11:18:00.000Z",
+        "status": "SCHEDULED",
+        "seatBased": true,
+        "ticketTypes": [
+          {
+            "id": "tt-ses-mov-saltpan-2026-10-23-1-std",
+            "name": "Classic",
+            "priceMinor": 22000,
+            "currency": "INR",
+            "maxPerOrder": 10,
+            "available": 140
+          },
+          {
+            "id": "tt-ses-mov-saltpan-2026-10-23-1-rec",
+            "name": "Recliner",
+            "priceMinor": 47000,
+            "currency": "INR",
+            "maxPerOrder": 6,
+            "available": 12
+          }
+        ]
+      },
+      {
+        "id": "ses-mov-saltpan-2026-10-23-2",
+        "startsAt": "2026-10-23T14:30:00.000Z",
+        "endsAt": "2026-10-23T16:48:00.000Z",
+        "status": "SCHEDULED",
+        "seatBased": true,
+        "ticketTypes": [
+          {
+            "id": "tt-ses-mov-saltpan-2026-10-23-2-std",
+            "name": "IMAX Classic",
+            "priceMinor": 45000,
+            "currency": "INR",
+            "maxPerOrder": 10,
+            "available": 140
+          },
+          {
+            "id": "tt-ses-mov-saltpan-2026-10-23-2-rec",
+            "name": "Recliner",
+            "priceMinor": 70000,
+            "currency": "INR",
+            "maxPerOrder": 6,
+            "available": 12
+          }
+        ]
+      },
+      {
+        "id": "ses-mov-saltpan-2026-10-24-0",
+        "startsAt": "2026-10-24T04:30:00.000Z",
+        "endsAt": "2026-10-24T06:48:00.000Z",
+        "status": "SCHEDULED",
+        "seatBased": true,
+        "ticketTypes": [
+          {
+            "id": "tt-ses-mov-saltpan-2026-10-24-0-std",
+            "name": "Classic",
+            "priceMinor": 22000,
+            "currency": "INR",
+            "maxPerOrder": 10,
+            "available": 18
+          },
+          {
+            "id": "tt-ses-mov-saltpan-2026-10-24-0-rec",
+            "name": "Recliner",
+            "priceMinor": 47000,
+            "currency": "INR",
+            "maxPerOrder": 6,
+            "available": 12
+          }
+        ]
+      },
+      {
+        "id": "ses-mov-saltpan-2026-10-24-1",
+        "startsAt": "2026-10-24T09:00:00.000Z",
+        "endsAt": "2026-10-24T11:18:00.000Z",
+        "status": "SCHEDULED",
+        "seatBased": true,
+        "ticketTypes": [
+          {
+            "id": "tt-ses-mov-saltpan-2026-10-24-1-std",
+            "name": "Classic",
+            "priceMinor": 22000,
+            "currency": "INR",
+            "maxPerOrder": 10,
+            "available": 140
+          },
+          {
+            "id": "tt-ses-mov-saltpan-2026-10-24-1-rec",
+            "name": "Recliner",
+            "priceMinor": 47000,
+            "currency": "INR",
+            "maxPerOrder": 6,
+            "available": 12
+          }
+        ]
+      },
+      {
+        "id": "ses-mov-saltpan-2026-10-24-2",
+        "startsAt": "2026-10-24T14:30:00.000Z",
+        "endsAt": "2026-10-24T16:48:00.000Z",
+        "status": "SCHEDULED",
+        "seatBased": true,
+        "ticketTypes": [
+          {
+            "id": "tt-ses-mov-saltpan-2026-10-24-2-std",
+            "name": "IMAX Classic",
+            "priceMinor": 45000,
+            "currency": "INR",
+            "maxPerOrder": 10,
+            "available": 140
+          },
+          {
+            "id": "tt-ses-mov-saltpan-2026-10-24-2-rec",
+            "name": "Recliner",
+            "priceMinor": 70000,
+            "currency": "INR",
+            "maxPerOrder": 6,
+            "available": 12
+          }
+        ]
+      }
+    ],
+    "imagePath": null,
+    "imageVariants": null
+  },
+  {
+    "id": "evt-mov-winter",
+    "title": "Winter Signal",
+    "slug": "winter-signal-galaxy-cinemas-hyderabad",
+    "experienceType": "cinema",
+    "category": "movies",
+    "description": "A railway signalman in the hills picks up a message that should not exist.",
+    "refundPolicy": "Cancellations up to 2 hours before showtime.",
+    "feeMode": "PASS",
+    "venue": {
+      "id": "ven-galaxy",
+      "name": "Galaxy Cinemas",
+      "city": "Hyderabad",
+      "country": "IN",
+      "address": "Banjara Hills, Hyderabad 500034"
+    },
+    "organizer": {
+      "id": "org-galaxy",
+      "name": "Galaxy Cinemas"
+    },
+    "sessions": [
+      {
+        "id": "ses-mov-winter-2026-10-23-0",
+        "startsAt": "2026-10-23T04:30:00.000Z",
+        "endsAt": "2026-10-23T07:01:00.000Z",
+        "status": "SCHEDULED",
+        "seatBased": true,
+        "ticketTypes": [
+          {
+            "id": "tt-ses-mov-winter-2026-10-23-0-std",
+            "name": "Classic",
+            "priceMinor": 22000,
+            "currency": "INR",
+            "maxPerOrder": 10,
+            "available": 18
+          },
+          {
+            "id": "tt-ses-mov-winter-2026-10-23-0-rec",
+            "name": "Recliner",
+            "priceMinor": 47000,
+            "currency": "INR",
+            "maxPerOrder": 6,
+            "available": 12
+          }
+        ]
+      },
+      {
+        "id": "ses-mov-winter-2026-10-23-1",
+        "startsAt": "2026-10-23T09:00:00.000Z",
+        "endsAt": "2026-10-23T11:31:00.000Z",
+        "status": "SCHEDULED",
+        "seatBased": true,
+        "ticketTypes": [
+          {
+            "id": "tt-ses-mov-winter-2026-10-23-1-std",
+            "name": "Classic",
+            "priceMinor": 22000,
+            "currency": "INR",
+            "maxPerOrder": 10,
+            "available": 140
+          },
+          {
+            "id": "tt-ses-mov-winter-2026-10-23-1-rec",
+            "name": "Recliner",
+            "priceMinor": 47000,
+            "currency": "INR",
+            "maxPerOrder": 6,
+            "available": 12
+          }
+        ]
+      },
+      {
+        "id": "ses-mov-winter-2026-10-23-2",
+        "startsAt": "2026-10-23T14:30:00.000Z",
+        "endsAt": "2026-10-23T17:01:00.000Z",
+        "status": "SCHEDULED",
+        "seatBased": true,
+        "ticketTypes": [
+          {
+            "id": "tt-ses-mov-winter-2026-10-23-2-std",
+            "name": "IMAX Classic",
+            "priceMinor": 45000,
+            "currency": "INR",
+            "maxPerOrder": 10,
+            "available": 140
+          },
+          {
+            "id": "tt-ses-mov-winter-2026-10-23-2-rec",
+            "name": "Recliner",
+            "priceMinor": 70000,
+            "currency": "INR",
+            "maxPerOrder": 6,
+            "available": 12
+          }
+        ]
+      },
+      {
+        "id": "ses-mov-winter-2026-10-24-0",
+        "startsAt": "2026-10-24T04:30:00.000Z",
+        "endsAt": "2026-10-24T07:01:00.000Z",
+        "status": "SCHEDULED",
+        "seatBased": true,
+        "ticketTypes": [
+          {
+            "id": "tt-ses-mov-winter-2026-10-24-0-std",
+            "name": "Classic",
+            "priceMinor": 22000,
+            "currency": "INR",
+            "maxPerOrder": 10,
+            "available": 18
+          },
+          {
+            "id": "tt-ses-mov-winter-2026-10-24-0-rec",
+            "name": "Recliner",
+            "priceMinor": 47000,
+            "currency": "INR",
+            "maxPerOrder": 6,
+            "available": 12
+          }
+        ]
+      },
+      {
+        "id": "ses-mov-winter-2026-10-24-1",
+        "startsAt": "2026-10-24T09:00:00.000Z",
+        "endsAt": "2026-10-24T11:31:00.000Z",
+        "status": "SCHEDULED",
+        "seatBased": true,
+        "ticketTypes": [
+          {
+            "id": "tt-ses-mov-winter-2026-10-24-1-std",
+            "name": "Classic",
+            "priceMinor": 22000,
+            "currency": "INR",
+            "maxPerOrder": 10,
+            "available": 140
+          },
+          {
+            "id": "tt-ses-mov-winter-2026-10-24-1-rec",
+            "name": "Recliner",
+            "priceMinor": 47000,
+            "currency": "INR",
+            "maxPerOrder": 6,
+            "available": 12
+          }
+        ]
+      },
+      {
+        "id": "ses-mov-winter-2026-10-24-2",
+        "startsAt": "2026-10-24T14:30:00.000Z",
+        "endsAt": "2026-10-24T17:01:00.000Z",
+        "status": "SCHEDULED",
+        "seatBased": true,
+        "ticketTypes": [
+          {
+            "id": "tt-ses-mov-winter-2026-10-24-2-std",
+            "name": "IMAX Classic",
+            "priceMinor": 45000,
+            "currency": "INR",
+            "maxPerOrder": 10,
+            "available": 140
+          },
+          {
+            "id": "tt-ses-mov-winter-2026-10-24-2-rec",
+            "name": "Recliner",
+            "priceMinor": 70000,
+            "currency": "INR",
+            "maxPerOrder": 6,
+            "available": 12
+          }
+        ]
+      }
+    ],
+    "imagePath": null,
+    "imageVariants": null
+  }
+]

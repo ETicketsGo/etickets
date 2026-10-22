@@ -1,0 +1,615 @@
+[
+  {
+    "movie": {
+      "id": "mov-monsoon",
+      "title": "The Long Monsoon",
+      "slug": "the-long-monsoon",
+      "synopsis": "A ferryman on a flooded river carries one last passenger across the season that changes his village.",
+      "runtimeMinutes": 142,
+      "certificate": "UA13+",
+      "language": "Kannada",
+      "genres": [
+        "Drama"
+      ],
+      "releaseDate": "2026-10-16",
+      "posterUrl": null,
+      "trailerUrl": null,
+      "cast": [
+        "Anika Rao",
+        "Dev Shetty"
+      ],
+      "director": "Meera Kulkarni"
+    },
+    "shows": [
+      {
+        "sessionId": "ses-mov-monsoon-2026-10-23-0",
+        "eventId": "evt-mov-monsoon",
+        "eventSlug": "the-long-monsoon-galaxy-cinemas-hyderabad",
+        "startsAt": "2026-10-23T04:30:00.000Z",
+        "endsAt": "2026-10-23T07:12:00.000Z",
+        "venue": {
+          "id": "ven-galaxy",
+          "name": "Galaxy Cinemas",
+          "city": "Hyderabad",
+          "country": "IN"
+        },
+        "cinema": {
+          "id": "cin-galaxy",
+          "name": "Galaxy Cinemas Banjara Hills",
+          "brand": "Galaxy"
+        },
+        "screen": {
+          "id": "scr-1",
+          "name": "Screen 1"
+        },
+        "format": "2D",
+        "language": "Kannada",
+        "currency": "INR",
+        "fromPriceMinor": 22000,
+        "seatingType": "RESERVED",
+        "availability": "FILLING_FAST",
+        "seatsAvailable": 18,
+        "seatsTotal": 180
+      },
+      {
+        "sessionId": "ses-mov-monsoon-2026-10-23-1",
+        "eventId": "evt-mov-monsoon",
+        "eventSlug": "the-long-monsoon-galaxy-cinemas-hyderabad",
+        "startsAt": "2026-10-23T09:00:00.000Z",
+        "endsAt": "2026-10-23T11:42:00.000Z",
+        "venue": {
+          "id": "ven-galaxy",
+          "name": "Galaxy Cinemas",
+          "city": "Hyderabad",
+          "country": "IN"
+        },
+        "cinema": {
+          "id": "cin-galaxy",
+          "name": "Galaxy Cinemas Banjara Hills",
+          "brand": "Galaxy"
+        },
+        "screen": {
+          "id": "scr-2",
+          "name": "Screen 2"
+        },
+        "format": "2D",
+        "language": "Kannada",
+        "currency": "INR",
+        "fromPriceMinor": 22000,
+        "seatingType": "RESERVED",
+        "availability": "AVAILABLE",
+        "seatsAvailable": 140,
+        "seatsTotal": 180
+      },
+      {
+        "sessionId": "ses-mov-monsoon-2026-10-23-2",
+        "eventId": "evt-mov-monsoon",
+        "eventSlug": "the-long-monsoon-galaxy-cinemas-hyderabad",
+        "startsAt": "2026-10-23T14:30:00.000Z",
+        "endsAt": "2026-10-23T17:12:00.000Z",
+        "venue": {
+          "id": "ven-galaxy",
+          "name": "Galaxy Cinemas",
+          "city": "Hyderabad",
+          "country": "IN"
+        },
+        "cinema": {
+          "id": "cin-galaxy",
+          "name": "Galaxy Cinemas Banjara Hills",
+          "brand": "Galaxy"
+        },
+        "screen": {
+          "id": "scr-3",
+          "name": "Screen 3"
+        },
+        "format": "IMAX",
+        "language": "Kannada",
+        "currency": "INR",
+        "fromPriceMinor": 45000,
+        "seatingType": "RESERVED",
+        "availability": "AVAILABLE",
+        "seatsAvailable": 140,
+        "seatsTotal": 180
+      },
+      {
+        "sessionId": "ses-mov-monsoon-2026-10-24-0",
+        "eventId": "evt-mov-monsoon",
+        "eventSlug": "the-long-monsoon-galaxy-cinemas-hyderabad",
+        "startsAt": "2026-10-24T04:30:00.000Z",
+        "endsAt": "2026-10-24T07:12:00.000Z",
+        "venue": {
+          "id": "ven-galaxy",
+          "name": "Galaxy Cinemas",
+          "city": "Hyderabad",
+          "country": "IN"
+        },
+        "cinema": {
+          "id": "cin-galaxy",
+          "name": "Galaxy Cinemas Banjara Hills",
+          "brand": "Galaxy"
+        },
+        "screen": {
+          "id": "scr-1",
+          "name": "Screen 1"
+        },
+        "format": "2D",
+        "language": "Kannada",
+        "currency": "INR",
+        "fromPriceMinor": 22000,
+        "seatingType": "RESERVED",
+        "availability": "FILLING_FAST",
+        "seatsAvailable": 18,
+        "seatsTotal": 180
+      },
+      {
+        "sessionId": "ses-mov-monsoon-2026-10-24-1",
+        "eventId": "evt-mov-monsoon",
+        "eventSlug": "the-long-monsoon-galaxy-cinemas-hyderabad",
+        "startsAt": "2026-10-24T09:00:00.000Z",
+        "endsAt": "2026-10-24T11:42:00.000Z",
+        "venue": {
+          "id": "ven-galaxy",
+          "name": "Galaxy Cinemas",
+          "city": "Hyderabad",
+          "country": "IN"
+        },
+        "cinema": {
+          "id": "cin-galaxy",
+          "name": "Galaxy Cinemas Banjara Hills",
+          "brand": "Galaxy"
+        },
+        "screen": {
+          "id": "scr-2",
+          "name": "Screen 2"
+        },
+        "format": "2D",
+        "language": "Kannada",
+        "currency": "INR",
+        "fromPriceMinor": 22000,
+        "seatingType": "RESERVED",
+        "availability": "AVAILABLE",
+        "seatsAvailable": 140,
+        "seatsTotal": 180
+      },
+      {
+        "sessionId": "ses-mov-monsoon-2026-10-24-2",
+        "eventId": "evt-mov-monsoon",
+        "eventSlug": "the-long-monsoon-galaxy-cinemas-hyderabad",
+        "startsAt": "2026-10-24T14:30:00.000Z",
+        "endsAt": "2026-10-24T17:12:00.000Z",
+        "venue": {
+          "id": "ven-galaxy",
+          "name": "Galaxy Cinemas",
+          "city": "Hyderabad",
+          "country": "IN"
+        },
+        "cinema": {
+          "id": "cin-galaxy",
+          "name": "Galaxy Cinemas Banjara Hills",
+          "brand": "Galaxy"
+        },
+        "screen": {
+          "id": "scr-3",
+          "name": "Screen 3"
+        },
+        "format": "IMAX",
+        "language": "Kannada",
+        "currency": "INR",
+        "fromPriceMinor": 45000,
+        "seatingType": "RESERVED",
+        "availability": "AVAILABLE",
+        "seatsAvailable": 140,
+        "seatsTotal": 180
+      }
+    ]
+  },
+  {
+    "movie": {
+      "id": "mov-saltpan",
+      "title": "Saltpan",
+      "slug": "saltpan",
+      "synopsis": "Three generations of a salt-farming family face the year the sea comes in early.",
+      "runtimeMinutes": 118,
+      "certificate": "U",
+      "language": "Marathi",
+      "genres": [
+        "Drama",
+        "Family"
+      ],
+      "releaseDate": "2026-10-16",
+      "posterUrl": null,
+      "trailerUrl": null,
+      "cast": [
+        "Sai Patil",
+        "Ravi Joshi"
+      ],
+      "director": "Omkar Desai"
+    },
+    "shows": [
+      {
+        "sessionId": "ses-mov-saltpan-2026-10-23-0",
+        "eventId": "evt-mov-saltpan",
+        "eventSlug": "saltpan-galaxy-cinemas-hyderabad",
+        "startsAt": "2026-10-23T04:30:00.000Z",
+        "endsAt": "2026-10-23T06:48:00.000Z",
+        "venue": {
+          "id": "ven-galaxy",
+          "name": "Galaxy Cinemas",
+          "city": "Hyderabad",
+          "country": "IN"
+        },
+        "cinema": {
+          "id": "cin-galaxy",
+          "name": "Galaxy Cinemas Banjara Hills",
+          "brand": "Galaxy"
+        },
+        "screen": {
+          "id": "scr-1",
+          "name": "Screen 1"
+        },
+        "format": "2D",
+        "language": "Marathi",
+        "currency": "INR",
+        "fromPriceMinor": 22000,
+        "seatingType": "RESERVED",
+        "availability": "FILLING_FAST",
+        "seatsAvailable": 18,
+        "seatsTotal": 180
+      },
+      {
+        "sessionId": "ses-mov-saltpan-2026-10-23-1",
+        "eventId": "evt-mov-saltpan",
+        "eventSlug": "saltpan-galaxy-cinemas-hyderabad",
+        "startsAt": "2026-10-23T09:00:00.000Z",
+        "endsAt": "2026-10-23T11:18:00.000Z",
+        "venue": {
+          "id": "ven-galaxy",
+          "name": "Galaxy Cinemas",
+          "city": "Hyderabad",
+          "country": "IN"
+        },
+        "cinema": {
+          "id": "cin-galaxy",
+          "name": "Galaxy Cinemas Banjara Hills",
+          "brand": "Galaxy"
+        },
+        "screen": {
+          "id": "scr-2",
+          "name": "Screen 2"
+        },
+        "format": "2D",
+        "language": "Marathi",
+        "currency": "INR",
+        "fromPriceMinor": 22000,
+        "seatingType": "RESERVED",
+        "availability": "AVAILABLE",
+        "seatsAvailable": 140,
+        "seatsTotal": 180
+      },
+      {
+        "sessionId": "ses-mov-saltpan-2026-10-23-2",
+        "eventId": "evt-mov-saltpan",
+        "eventSlug": "saltpan-galaxy-cinemas-hyderabad",
+        "startsAt": "2026-10-23T14:30:00.000Z",
+        "endsAt": "2026-10-23T16:48:00.000Z",
+        "venue": {
+          "id": "ven-galaxy",
+          "name": "Galaxy Cinemas",
+          "city": "Hyderabad",
+          "country": "IN"
+        },
+        "cinema": {
+          "id": "cin-galaxy",
+          "name": "Galaxy Cinemas Banjara Hills",
+          "brand": "Galaxy"
+        },
+        "screen": {
+          "id": "scr-3",
+          "name": "Screen 3"
+        },
+        "format": "IMAX",
+        "language": "Marathi",
+        "currency": "INR",
+        "fromPriceMinor": 45000,
+        "seatingType": "RESERVED",
+        "availability": "AVAILABLE",
+        "seatsAvailable": 140,
+        "seatsTotal": 180
+      },
+      {
+        "sessionId": "ses-mov-saltpan-2026-10-24-0",
+        "eventId": "evt-mov-saltpan",
+        "eventSlug": "saltpan-galaxy-cinemas-hyderabad",
+        "startsAt": "2026-10-24T04:30:00.000Z",
+        "endsAt": "2026-10-24T06:48:00.000Z",
+        "venue": {
+          "id": "ven-galaxy",
+          "name": "Galaxy Cinemas",
+          "city": "Hyderabad",
+          "country": "IN"
+        },
+        "cinema": {
+          "id": "cin-galaxy",
+          "name": "Galaxy Cinemas Banjara Hills",
+          "brand": "Galaxy"
+        },
+        "screen": {
+          "id": "scr-1",
+          "name": "Screen 1"
+        },
+        "format": "2D",
+        "language": "Marathi",
+        "currency": "INR",
+        "fromPriceMinor": 22000,
+        "seatingType": "RESERVED",
+        "availability": "FILLING_FAST",
+        "seatsAvailable": 18,
+        "seatsTotal": 180
+      },
+      {
+        "sessionId": "ses-mov-saltpan-2026-10-24-1",
+        "eventId": "evt-mov-saltpan",
+        "eventSlug": "saltpan-galaxy-cinemas-hyderabad",
+        "startsAt": "2026-10-24T09:00:00.000Z",
+        "endsAt": "2026-10-24T11:18:00.000Z",
+        "venue": {
+          "id": "ven-galaxy",
+          "name": "Galaxy Cinemas",
+          "city": "Hyderabad",
+          "country": "IN"
+        },
+        "cinema": {
+          "id": "cin-galaxy",
+          "name": "Galaxy Cinemas Banjara Hills",
+          "brand": "Galaxy"
+        },
+        "screen": {
+          "id": "scr-2",
+          "name": "Screen 2"
+        },
+        "format": "2D",
+        "language": "Marathi",
+        "currency": "INR",
+        "fromPriceMinor": 22000,
+        "seatingType": "RESERVED",
+        "availability": "AVAILABLE",
+        "seatsAvailable": 140,
+        "seatsTotal": 180
+      },
+      {
+        "sessionId": "ses-mov-saltpan-2026-10-24-2",
+        "eventId": "evt-mov-saltpan",
+        "eventSlug": "saltpan-galaxy-cinemas-hyderabad",
+        "startsAt": "2026-10-24T14:30:00.000Z",
+        "endsAt": "2026-10-24T16:48:00.000Z",
+        "venue": {
+          "id": "ven-galaxy",
+          "name": "Galaxy Cinemas",
+          "city": "Hyderabad",
+          "country": "IN"
+        },
+        "cinema": {
+          "id": "cin-galaxy",
+          "name": "Galaxy Cinemas Banjara Hills",
+          "brand": "Galaxy"
+        },
+        "screen": {
+          "id": "scr-3",
+          "name": "Screen 3"
+        },
+        "format": "IMAX",
+        "language": "Marathi",
+        "currency": "INR",
+        "fromPriceMinor": 45000,
+        "seatingType": "RESERVED",
+        "availability": "AVAILABLE",
+        "seatsAvailable": 140,
+        "seatsTotal": 180
+      }
+    ]
+  },
+  {
+    "movie": {
+      "id": "mov-winter",
+      "title": "Winter Signal",
+      "slug": "winter-signal",
+      "synopsis": "A railway signalman in the hills picks up a message that should not exist.",
+      "runtimeMinutes": 131,
+      "certificate": "UA16+",
+      "language": "Hindi",
+      "genres": [
+        "Thriller"
+      ],
+      "releaseDate": "2026-10-16",
+      "posterUrl": null,
+      "trailerUrl": null,
+      "cast": [
+        "Kabir Mehta",
+        "Zoya Ahmed"
+      ],
+      "director": "Arjun Bhalla"
+    },
+    "shows": [
+      {
+        "sessionId": "ses-mov-winter-2026-10-23-0",
+        "eventId": "evt-mov-winter",
+        "eventSlug": "winter-signal-galaxy-cinemas-hyderabad",
+        "startsAt": "2026-10-23T04:30:00.000Z",
+        "endsAt": "2026-10-23T07:01:00.000Z",
+        "venue": {
+          "id": "ven-galaxy",
+          "name": "Galaxy Cinemas",
+          "city": "Hyderabad",
+          "country": "IN"
+        },
+        "cinema": {
+          "id": "cin-galaxy",
+          "name": "Galaxy Cinemas Banjara Hills",
+          "brand": "Galaxy"
+        },
+        "screen": {
+          "id": "scr-1",
+          "name": "Screen 1"
+        },
+        "format": "2D",
+        "language": "Hindi",
+        "currency": "INR",
+        "fromPriceMinor": 22000,
+        "seatingType": "RESERVED",
+        "availability": "FILLING_FAST",
+        "seatsAvailable": 18,
+        "seatsTotal": 180
+      },
+      {
+        "sessionId": "ses-mov-winter-2026-10-23-1",
+        "eventId": "evt-mov-winter",
+        "eventSlug": "winter-signal-galaxy-cinemas-hyderabad",
+        "startsAt": "2026-10-23T09:00:00.000Z",
+        "endsAt": "2026-10-23T11:31:00.000Z",
+        "venue": {
+          "id": "ven-galaxy",
+          "name": "Galaxy Cinemas",
+          "city": "Hyderabad",
+          "country": "IN"
+        },
+        "cinema": {
+          "id": "cin-galaxy",
+          "name": "Galaxy Cinemas Banjara Hills",
+          "brand": "Galaxy"
+        },
+        "screen": {
+          "id": "scr-2",
+          "name": "Screen 2"
+        },
+        "format": "2D",
+        "language": "Hindi",
+        "currency": "INR",
+        "fromPriceMinor": 22000,
+        "seatingType": "RESERVED",
+        "availability": "AVAILABLE",
+        "seatsAvailable": 140,
+        "seatsTotal": 180
+      },
+      {
+        "sessionId": "ses-mov-winter-2026-10-23-2",
+        "eventId": "evt-mov-winter",
+        "eventSlug": "winter-signal-galaxy-cinemas-hyderabad",
+        "startsAt": "2026-10-23T14:30:00.000Z",
+        "endsAt": "2026-10-23T17:01:00.000Z",
+        "venue": {
+          "id": "ven-galaxy",
+          "name": "Galaxy Cinemas",
+          "city": "Hyderabad",
+          "country": "IN"
+        },
+        "cinema": {
+          "id": "cin-galaxy",
+          "name": "Galaxy Cinemas Banjara Hills",
+          "brand": "Galaxy"
+        },
+        "screen": {
+          "id": "scr-3",
+          "name": "Screen 3"
+        },
+        "format": "IMAX",
+        "language": "Hindi",
+        "currency": "INR",
+        "fromPriceMinor": 45000,
+        "seatingType": "RESERVED",
+        "availability": "AVAILABLE",
+        "seatsAvailable": 140,
+        "seatsTotal": 180
+      },
+      {
+        "sessionId": "ses-mov-winter-2026-10-24-0",
+        "eventId": "evt-mov-winter",
+        "eventSlug": "winter-signal-galaxy-cinemas-hyderabad",
+        "startsAt": "2026-10-24T04:30:00.000Z",
+        "endsAt": "2026-10-24T07:01:00.000Z",
+        "venue": {
+          "id": "ven-galaxy",
+          "name": "Galaxy Cinemas",
+          "city": "Hyderabad",
+          "country": "IN"
+        },
+        "cinema": {
+          "id": "cin-galaxy",
+          "name": "Galaxy Cinemas Banjara Hills",
+          "brand": "Galaxy"
+        },
+        "screen": {
+          "id": "scr-1",
+          "name": "Screen 1"
+        },
+        "format": "2D",
+        "language": "Hindi",
+        "currency": "INR",
+        "fromPriceMinor": 22000,
+        "seatingType": "RESERVED",
+        "availability": "FILLING_FAST",
+        "seatsAvailable": 18,
+        "seatsTotal": 180
+      },
+      {
+        "sessionId": "ses-mov-winter-2026-10-24-1",
+        "eventId": "evt-mov-winter",
+        "eventSlug": "winter-signal-galaxy-cinemas-hyderabad",
+        "startsAt": "2026-10-24T09:00:00.000Z",
+        "endsAt": "2026-10-24T11:31:00.000Z",
+        "venue": {
+          "id": "ven-galaxy",
+          "name": "Galaxy Cinemas",
+          "city": "Hyderabad",
+          "country": "IN"
+        },
+        "cinema": {
+          "id": "cin-galaxy",
+          "name": "Galaxy Cinemas Banjara Hills",
+          "brand": "Galaxy"
+        },
+        "screen": {
+          "id": "scr-2",
+          "name": "Screen 2"
+        },
+        "format": "2D",
+        "language": "Hindi",
+        "currency": "INR",
+        "fromPriceMinor": 22000,
+        "seatingType": "RESERVED",
+        "availability": "AVAILABLE",
+        "seatsAvailable": 140,
+        "seatsTotal": 180
+      },
+      {
+        "sessionId": "ses-mov-winter-2026-10-24-2",
+        "eventId": "evt-mov-winter",
+        "eventSlug": "winter-signal-galaxy-cinemas-hyderabad",
+        "startsAt": "2026-10-24T14:30:00.000Z",
+        "endsAt": "2026-10-24T17:01:00.000Z",
+        "venue": {
+          "id": "ven-galaxy",
+          "name": "Galaxy Cinemas",
+          "city": "Hyderabad",
+          "country": "IN"
+        },
+        "cinema": {
+          "id": "cin-galaxy",
+          "name": "Galaxy Cinemas Banjara Hills",
+          "brand": "Galaxy"
+        },
+        "screen": {
+          "id": "scr-3",
+          "name": "Screen 3"
+        },
+        "format": "IMAX",
+        "language": "Hindi",
+        "currency": "INR",
+        "fromPriceMinor": 45000,
+        "seatingType": "RESERVED",
+        "availability": "AVAILABLE",
+        "seatsAvailable": 140,
+        "seatsTotal": 180
+      }
+    ]
+  }
+]
