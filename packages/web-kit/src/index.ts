@@ -21,6 +21,7 @@ export * from './toggle';
 export * from './admin-grouping';
 export * from './admin-filters';
 export * from './providers';
+export * from './human-check';
 export * from './login';
 export * from './password-field';
 export * from './city';

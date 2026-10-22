@@ -47,6 +47,7 @@ const phoneVerifySchema = z.object({
 type PhoneVerifyBody = z.infer<typeof phoneVerifySchema>;
 import { AllowMfaPending, CurrentUser, Public, type RequestUser } from '../common/decorators';
 import { AUTH_THROTTLE } from '../common/throttle';
+import { RequiresHumanCheck } from '../human-check/human-check.guard';
 
 function meta(req: Request) {
   return { userAgent: req.header('user-agent') ?? undefined, ip: req.ip };
@@ -75,6 +76,7 @@ export class AuthController {
   */
   @Public()
   @Throttle(AUTH_THROTTLE)
+  @RequiresHumanCheck('otp')
   @Post('phone/request-code')
   @ApiOperation({ summary: 'Send a one-time sign-in code to a mobile number.' })
   requestPhoneCode(
@@ -120,6 +122,7 @@ export class AuthController {
     Throttled the same way, because the cost of the request is still somebody else's SMS bill.
   */
   @Throttle(AUTH_THROTTLE)
+  @RequiresHumanCheck('otp')
   @Post('phone/attach/request-code')
   @ApiOperation({ summary: 'Send a code to a number the signed-in customer wants to add.' })
   requestAttachCode(
@@ -144,6 +147,7 @@ export class AuthController {
 
   @Public()
   @Throttle(AUTH_THROTTLE)
+  @RequiresHumanCheck('register')
   @Post('register')
   @ApiOperation({ summary: 'Register a new customer account.' })
   register(@Body(new ZodValidationPipe(registerSchema)) body: RegisterInput, @Req() req: Request) {
@@ -152,6 +156,7 @@ export class AuthController {
 
   @Public()
   @Throttle(AUTH_THROTTLE)
+  @RequiresHumanCheck('login')
   @Post('login')
   @ApiOperation({ summary: 'Authenticate and receive access + refresh tokens.' })
   login(@Body(new ZodValidationPipe(loginSchema)) body: LoginInput, @Req() req: Request) {
@@ -173,6 +178,7 @@ export class AuthController {
   */
   @Public()
   @Throttle(AUTH_THROTTLE)
+  @RequiresHumanCheck('password_reset')
   @Post('forgot-password')
   @ApiOperation({
     summary: 'Request a password reset link. Always answers the same, known address or not.',

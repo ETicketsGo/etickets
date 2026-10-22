@@ -702,6 +702,28 @@ const envSchema = z.object({
   THROTTLE_CLIENT_IP_HEADER: z.string().trim().max(64).optional(),
 
   /*
+    The human check (Cloudflare Turnstile) on abuse-prone public routes. OFF unless set: the
+    guard is then a pass-through. `adaptive` asks for a token only after a network has made a
+    few attempts in a window; `always` asks every time. A switched-on mode with no keys refuses
+    to boot. Full rules: src/human-check/human-check.settings.ts. Parsed loosely there too, so
+    these entries are kept as plain strings and numbers.
+  */
+  TURNSTILE_MODE: z.enum(['off', 'adaptive', 'always']).default('off'),
+  // Public: drawn into the page. Also served by GET /capabilities so it is per environment.
+  TURNSTILE_SITE_KEY: z.string().trim().optional(),
+  TURNSTILE_SECRET_KEY: z.string().trim().optional(),
+  // Comma list of the hostnames a token may have been solved on. Required when deployed.
+  TURNSTILE_ALLOWED_HOSTNAMES: z.string().optional(),
+  // Unset: each route's own choice (OTP and register fail closed, the rest open). Set: all.
+  TURNSTILE_FAIL_OPEN: z.enum(['true', 'false']).optional(),
+  TURNSTILE_VERIFY_TIMEOUT_MS: z.coerce.number().int().min(500).max(10000).default(3000),
+  TURNSTILE_MAX_TOKEN_AGE_SECONDS: z.coerce.number().int().min(30).max(300).default(300),
+  TURNSTILE_ADAPTIVE_WINDOW_SECONDS: z.coerce.number().int().min(60).max(86400).default(600),
+  // Attempts per window before a token is asked for: code/sign-up/email sends, then sign-in/checkout.
+  TURNSTILE_ADAPTIVE_STRICT_LIMIT: z.coerce.number().int().min(0).max(1000).default(3),
+  TURNSTILE_ADAPTIVE_LENIENT_LIMIT: z.coerce.number().int().min(0).max(1000).default(5),
+
+  /*
     How "use my current location" turns coordinates into a city. `offline` uses the bundled
     GeoNames dataset (CC BY 4.0): no key, no cost, nothing leaves the server. `none` turns it
     off, and the storefront then says it could not find a city instead of guessing one.

@@ -257,6 +257,7 @@ interface Options extends RequestInit {
   auth?: boolean;
   _retried?: boolean;
   _steppedUp?: boolean;
+  _humanChecked?: boolean;
 }
 
 /*
@@ -269,6 +270,48 @@ interface Options extends RequestInit {
 let stepUpHandler: (() => Promise<boolean>) | null = null;
 export function setStepUpHandler(fn: (() => Promise<boolean>) | null): void {
   stepUpHandler = fn;
+}
+
+/*
+  The human check (Cloudflare Turnstile). On a few public routes (sign-in, sign-up, phone codes,
+  password reset, guest checkout and lookup, the support form, organizer sign-up) the API can
+  answer 428 HUMAN_CHECK_REQUIRED, or 403 HUMAN_CHECK_FAILED for a token that proved nothing.
+  Both carry the action and the public site key. The app registers ONE handler (see
+  `HumanCheckProvider`) that draws the widget and returns a token, or null when the person
+  cancels or the widget cannot load; the request is then repeated ONCE with the token in a
+  header. With no handler, or with the check switched off on the API, nothing changes.
+*/
+export const HUMAN_CHECK_HEADER = 'x-turnstile-token';
+export const HUMAN_CHECK_REQUIRED_CODE = 'HUMAN_CHECK_REQUIRED';
+export const HUMAN_CHECK_FAILED_CODE = 'HUMAN_CHECK_FAILED';
+
+export interface HumanCheckChallenge {
+  /** The Turnstile action the API will check the token against. */
+  action: string;
+  /** Public widget key for this environment. Null when the API did not say. */
+  siteKey: string | null;
+}
+
+let humanCheckHandler: ((challenge: HumanCheckChallenge) => Promise<string | null>) | null = null;
+export function setHumanCheckHandler(
+  fn: ((challenge: HumanCheckChallenge) => Promise<string | null>) | null,
+): void {
+  humanCheckHandler = fn;
+}
+
+/** The challenge in an API refusal, or null when the refusal is something else. */
+export function humanCheckChallengeFrom(
+  status: number,
+  body: Pick<ApiError, 'code' | 'details'> | null | undefined,
+): HumanCheckChallenge | null {
+  const asked =
+    (status === 428 && body?.code === HUMAN_CHECK_REQUIRED_CODE) ||
+    (status === 403 && body?.code === HUMAN_CHECK_FAILED_CODE);
+  if (!asked) return null;
+  const details = (body?.details ?? {}) as Record<string, unknown>;
+  const action = typeof details.action === 'string' ? details.action : '';
+  const siteKey = typeof details.siteKey === 'string' && details.siteKey ? details.siteKey : null;
+  return action ? { action, siteKey } : null;
 }
 
 async function request<T>(path: string, options: Options = {}): Promise<T> {
@@ -322,6 +365,16 @@ async function request<T>(path: string, options: Options = {}): Promise<T> {
 
   if (!res.ok) {
     const err = data as ApiError;
+    const challenge = humanCheckChallengeFrom(res.status, err);
+    if (challenge && humanCheckHandler && !options._humanChecked) {
+      const token = await humanCheckHandler(challenge);
+      if (token) {
+        // Only once: a second refusal surfaces as an error, so a broken widget cannot loop.
+        const retryHeaders = new Headers(options.headers);
+        retryHeaders.set(HUMAN_CHECK_HEADER, token);
+        return request<T>(path, { ...options, headers: retryHeaders, _humanChecked: true });
+      }
+    }
     if (
       res.status === 403 &&
       err?.code === 'MFA_STEP_UP_REQUIRED' &&
@@ -412,9 +465,15 @@ const discovery = Object.assign(
  * `phoneSignInCountries` is absent from an API older than it; a caller treats absent as "not
  * known" and keeps its previous behaviour rather than as "nowhere".
  */
-export type PlatformCapabilities = Record<string, boolean | string[] | undefined> & {
+export type PlatformCapabilities = Record<
+  string,
+  boolean | string | string[] | null | undefined
+> & {
   phoneSignIn?: boolean;
   phoneSignInCountries?: string[];
+  /** The human check's mode on this deployment, and its public widget key (null when off). */
+  humanCheckMode?: 'off' | 'adaptive' | 'always';
+  humanCheckSiteKey?: string | null;
 };
 
 function refuseChallenge<T extends object>(r: T | MfaChallengeResponse): T {

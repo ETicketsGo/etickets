@@ -75,6 +75,7 @@ export class MetricsService {
   private readonly paymentRefundDuration: Histogram<'provider'>;
   private readonly refundStatusRecovery: Counter<'provider' | 'status'>;
   private readonly refundPolicyDecision: Counter<'mode' | 'reason'>;
+  private readonly humanCheck: Counter<'action' | 'outcome'>;
 
   constructor() {
     this.registry = new Registry();
@@ -510,6 +511,17 @@ export class MetricsService {
       labelNames: ['mode', 'reason'],
       registers: [this.registry],
     });
+    /*
+      One row per human-check decision. `outcome` is a short fixed word (not_required, required,
+      passed, failed_<reason>, unavailable_open, unavailable_closed): enough to tell bots from a
+      Cloudflare outage from a misconfigured widget, and never anything from the token.
+    */
+    this.humanCheck = new Counter({
+      name: 'etg_human_check_total',
+      help: 'Human-check (Turnstile) decisions by route class and outcome.',
+      labelNames: ['action', 'outcome'],
+      registers: [this.registry],
+    });
   }
 
   /** Prometheus exposition text for the /metrics endpoint. */
@@ -838,6 +850,9 @@ export class MetricsService {
   }
   recordRefundPolicyDecision(mode: string, reason: string): void {
     this.safe(() => this.refundPolicyDecision.inc({ mode, reason }));
+  }
+  recordHumanCheck(action: string, outcome: string): void {
+    this.safe(() => this.humanCheck.inc({ action, outcome }));
   }
 
   /** Metrics must never break a request or a business flow. Swallow everything. */

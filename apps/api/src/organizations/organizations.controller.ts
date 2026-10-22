@@ -38,6 +38,7 @@ import { OrganizationLifecycleService } from './organization-lifecycle.service';
 import { ORG_REGISTRATION_THROTTLE } from './organization-limits';
 import { RequiresAdmin, CurrentUser, Public, Roles, type RequestUser } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { RequiresHumanCheck } from '../human-check/human-check.guard';
 import { groupScopeFields, type GroupScope } from '../admin/group-scope';
 import { countryFilterField } from '../admin/country-filter';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -65,6 +66,7 @@ export class OrganizationsController {
     approval queue slowly; this stops a burst. Accounts themselves are throttled at sign-up.
   */
   @Throttle(ORG_REGISTRATION_THROTTLE)
+  @RequiresHumanCheck('organization')
   @Post()
   @ApiOperation({ summary: 'Register a new organization (organizer onboarding).' })
   register(

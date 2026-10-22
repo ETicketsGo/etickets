@@ -14,6 +14,7 @@ import { BookingExecutionRouter } from './orchestration/booking-execution-router
 import { GuestBookingService } from './guest-booking.service';
 import { CurrentUser, Public, type RequestUser } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { RequiresHumanCheck } from '../human-check/human-check.guard';
 
 /**
  * What somebody may type into the "find my booking" form, and how often.
@@ -179,6 +180,7 @@ export class GuestBookingsController {
   ) {}
 
   @Public()
+  @RequiresHumanCheck('guest_checkout')
   @Post('guest')
   @ApiOperation({ summary: 'Create a guest booking (no account required).' })
   createGuest(
@@ -226,6 +228,7 @@ export class GuestBookingsController {
   @Public()
   @Post('guest/lookup')
   @Throttle(GUEST_LOOKUP_THROTTLE)
+  @RequiresHumanCheck('guest_lookup')
   @ApiOperation({
     summary: 'Email a fresh access link for a guest booking. Answers the same either way.',
   })

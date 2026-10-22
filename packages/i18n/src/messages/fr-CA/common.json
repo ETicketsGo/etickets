@@ -136,5 +136,13 @@
     "rights": "© {year} ETicketsGo, {entity} | Tous droits réservés.",
     "build": "Version {id}",
     "testEnvironment": "Environnement de test - les paiements sont simulés."
+  },
+  "humanCheck": {
+    "title": "Confirmez que vous êtes une personne",
+    "description": "Nous le demandons pour bloquer les inscriptions et les messages automatisés. Cela prend en général quelques secondes.",
+    "checking": "Vérification en cours. Cela prend quelques secondes.",
+    "failed": "La vérification ne s'est pas chargée. Vérifiez votre connexion, ou désactivez le bloqueur de contenu pour ce site. Puis réessayez.",
+    "retry": "Réessayer",
+    "cancel": "Annuler"
   }
 }
