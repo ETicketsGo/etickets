@@ -8,5 +8,7 @@
 	<string>$(API_BASE_URL)</string>
 	<key>ETGAllowMutations</key>
 	<string>$(ALLOW_MUTATIONS)</string>
+	<key>ETGQATestAccounts</key>
+	<string>$(QA_TEST_ACCOUNTS)</string>
 </dict>
 </plist>

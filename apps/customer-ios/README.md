@@ -74,15 +74,15 @@ apps/customer-ios/
 
 ## What is real vs mocked (Phase 1)
 
-| Area                                                                                                                   | Status                                                                                                                         |
-| ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| Six screens, navigation, design system, states, previews                                                               | **Implemented**, running on the simulator against MOCK                                                                         |
-| Networking layer: URL building, `/api` prefix, bearer header, `x-correlation-id`, error-body mapping, PROD write guard | **Implemented and unit-tested** with a stub transport                                                                          |
-| Remote repositories for discovery, events, event detail, movie shows, tickets, `/auth/me`                              | **Implemented, not yet run against a live server**. The QA build compiles, but no QA request has been run from this app        |
-| Data shown in MOCK                                                                                                     | **Mocked**: fictional events, venues, people and tickets. Ticket QR images encode `MOCK.<serial>`, which is not a valid ticket |
-| Search and category filtering in MOCK                                                                                  | **Mocked** locally. Real filtering is the server's                                                                             |
-| Sign-in, token storage and refresh                                                                                     | **Not implemented.** QA/PROD run signed out, so Tickets shows a sign-in prompt and Profile shows guest                         |
-| Booking, holds, checkout, payment                                                                                      | **Not implemented** (out of scope). The button is disabled                                                                     |
+| Area                                                                                                                   | Status                                                                                                                                                                                                                                             |
+| ---------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Six screens, navigation, design system, states, previews                                                               | **Implemented**, running on the simulator against MOCK                                                                                                                                                                                             |
+| Networking layer: URL building, `/api` prefix, bearer header, `x-correlation-id`, error-body mapping, PROD write guard | **Implemented and unit-tested** with a stub transport                                                                                                                                                                                              |
+| Remote repositories for discovery, events, event detail, movie shows, tickets, `/auth/me`                              | **Implemented, not yet run against a live server**. The QA build compiles, but no QA request has been run from this app                                                                                                                            |
+| Data shown in MOCK                                                                                                     | **Mocked**: fictional events, venues, people and tickets. Ticket QR images encode `MOCK.<serial>`, which is not a valid ticket                                                                                                                     |
+| Search and category filtering in MOCK                                                                                  | **Mocked** locally. Real filtering is the server's                                                                                                                                                                                                 |
+| Sign-in, token storage, refresh, sign-out (Phase 2A)                                                                   | **Implemented and unit-tested.** The MOCK adapter runs on the simulator. The QA adapter is tested against a stub transport but **not yet against QA**, because the QA test-account allowlist is empty until it's approved. PROD sign-in is blocked |
+| Booking, holds, checkout, payment                                                                                      | **Not implemented** (out of scope). The button is disabled                                                                                                                                                                                         |
 
 ## API contract inventory (verified in apps/api)
 
@@ -138,12 +138,60 @@ Other endpoints Phase 2 needs:
    - Whether to bundle Inter to match the web's typeface, or stay on SF Pro.
 6. **`apps/customer-mobile/docs/API-INTEGRATION.md` is out of date.** It lists forgot-password, account deletion and guest claim as gaps, but all three exist.
 
+## Phase 2A: authentication
+
+**Contract** (audited in `apps/api/src/auth/auth.controller.ts` and `packages/validation/src/auth.ts`)
+
+- **Email sign-in and sign-up.** `POST /auth/login` takes `{email, password}`. `POST /auth/register` takes `{email, password, fullName, phone?, smsConsent?, country?}`. Both return `{accessToken, refreshToken}`. A back-office account that must pass MFA gets `{mfaRequired, challengeToken, methods}` instead, and the app refuses it.
+- **Phone OTP.** `POST /auth/phone/request-code` takes `{phone}`, which must include the country code. `POST /auth/phone/verify` takes `{phone, code: 6 digits, fullName?}` and returns the token pair plus `isNewAccount`.
+- **Refresh and sign-out.** `POST /auth/refresh` takes `{refreshToken}` and rotates it; replaying a used token burns the whole token family. `POST /auth/logout` takes `{refreshToken}` and revokes it. `GET /auth/me` needs the bearer token.
+- **Errors.**
+  - A wrong password is a 401 `INVALID_CREDENTIALS`.
+  - A bad refresh token is a 401 `INVALID_REFRESH_TOKEN`.
+  - Validation errors are a 400 `VALIDATION_FAILED` with `details.fields`.
+  - All auth routes are rate-limited (429).
+- **Passwords.** Strength is judged by the server (`password-policy.ts`, minimum 10 characters). The app checks only that a request is well-formed and shows the server's own messages.
+
+**How it works in the app**
+
+| Piece                                   | File                              | What it does                                                                                                                                        |
+| --------------------------------------- | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `KeychainTokenStore`                    | `Core/Auth/TokenStore.swift`      | One Keychain item per environment. `AfterFirstUnlockThisDeviceOnly`, not synchronised, so no iCloud copy and no backup or restore to another device |
+| `FreshInstallGuard`                     | same                              | Clears a session the Keychain kept from a previous install                                                                                          |
+| `AuthSession` (actor)                   | `Core/Auth/AuthSession.swift`     | Holds the session, does one refresh at a time, and clears tokens only when the server rejects them                                                  |
+| `APIClient`                             | `Core/Networking/APIClient.swift` | On a 401, refreshes once and retries once. Auth requests never carry a bearer token                                                                 |
+| `RemoteAuthService` / `MockAuthService` | `Core/Auth/AuthService.swift`     | QA/PROD and MOCK adapters with the same API                                                                                                         |
+| `AuthStore`                             | `Core/Auth/AuthStore.swift`       | The observable signed-in state for the UI; reacts when a session expires                                                                            |
+| `SignInView`                            | `Features/Auth/SignInView.swift`  | Email sign-in and sign-up, mobile OTP, per-field server errors, AutoFill content types                                                              |
+
+**Session behaviour**
+
+- **One refresh at a time.** Concurrent 401s share a single refresh.
+- **Expired sessions end cleanly.** If the refresh is rejected, the tokens are cleared and the UI says the session ended.
+- **Offline keeps the session.** If the refresh fails on the network, the tokens are kept.
+- **Sign-out always signs out.** It revokes the token on the server when it can, and always ends the local session, even offline.
+
+**Write policy**
+
+- **MOCK:** no network.
+- **QA:** sign-in, sign-up, OTP and any later writes are allowed only for the exact identities in `QA_TEST_ACCOUNTS`: approved email addresses or E.164 numbers, with no wildcards. The real list goes in the git-ignored `Config/QA.local.xcconfig`, so test accounts stay out of source control. The committed default is empty, so nobody can sign in to QA.
+- **PROD:** every non-GET request is refused, including sign-in, before anything is sent.
+
+**MOCK credentials:** `demo.customer@example.com` / `Tickets-Demo-2026`; the mobile code is `123456`. The sign-in sheet shows these in MOCK builds only.
+
+**Debug-only launch arguments** (compiled out of PROD): `-ETGSignIn` opens the sign-in sheet, and `-ETGMockSignedIn` starts MOCK signed in.
+
+**Not in 2A:**
+
+- Forgot and reset password (the routes exist).
+- Attaching a phone to an existing account.
+- Apple sign-in.
+- MFA.
+- Biometric unlock.
+
 ## Phase 2 plan
 
-1. **Auth.**
-   - A Keychain-backed `AccessTokenProviding`, plus a refresh actor that gives one shared `/auth/refresh` per 401 and retries once, matching the Expo client.
-   - Clear tokens only when the server rejects the refresh.
-   - Email/password and phone-OTP sign-in screens. Sign-out calls `/auth/logout`.
+1. **Auth.** Done in 2A (above). Still to do: forgot and reset password, phone attach, and Sign in with Apple, which needs backend support.
 2. **Live data on QA.** Run the Remote repositories against QA, then add contract tests that decode recorded QA responses.
    - Pass `city` to discovery.
    - Add pagination to Explore.

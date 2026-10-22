@@ -11,9 +11,9 @@ struct ModelAndMockTests {
     func fixturesDecode() async throws {
         let feed = try await catalog.discovery()
         #expect(!feed.nowShowing.isEmpty && !feed.trendingEvents.isEmpty)
-        let tickets = try await MockTicketsRepository(latency: .zero).tickets()
+        let tickets = try await MockTicketsRepository(session: await signedInSession(), latency: .zero).tickets()
         #expect(tickets.count == 4)
-        #expect(try await MockAccountRepository().currentUser()?.fullName == "Demo Customer")
+        #expect(try FixtureStore().load("me", as: AuthenticatedUser.self).fullName == "Demo Customer")
     }
 
     @Test("Every event and showtime in the fixtures opens a detail record")
@@ -110,7 +110,7 @@ struct ModelAndMockTests {
 
     @Test("Tickets split into upcoming and past around now")
     func ticketSplit() async throws {
-        let tickets = try await MockTicketsRepository(latency: .zero).tickets()
+        let tickets = try await MockTicketsRepository(session: await signedInSession(), latency: .zero).tickets()
         let now = ISO8601DateFormatter().date(from: "2026-10-22T00:00:00Z")!
         guard case let .tickets(upcoming, past) = MyTicketsViewModel.split(tickets, now: now) else {
             Issue.record("expected tickets"); return
@@ -122,7 +122,7 @@ struct ModelAndMockTests {
 
     @Test("Only server-rendered PNG data URLs become a ticket code")
     func ticketCode() async throws {
-        let ticket = try await MockTicketsRepository(latency: .zero).tickets()[0]
+        let ticket = try await MockTicketsRepository(session: await signedInSession(), latency: .zero).tickets()[0]
         #expect(TicketDetailView.image(fromDataURL: ticket.qrDataUrl) != nil)
         #expect(TicketDetailView.image(fromDataURL: nil) == nil)
         #expect(TicketDetailView.image(fromDataURL: "https://example.com/qr.png") == nil)
@@ -139,6 +139,13 @@ struct ModelAndMockTests {
         await loaded.load()
         #expect(loaded.state.value != nil)
     }
+}
+
+/// A MOCK session that is already signed in.
+func signedInSession(configuration: AppConfiguration = .mock) async -> AuthSession {
+    let store = InMemoryTokenStore(StoredSession(
+        tokens: TokenPair(accessToken: "a", refreshToken: "r"), identity: MockAuthService.demoEmail, user: nil))
+    return AuthSession(store: store, configuration: configuration) { _ in TokenPair(accessToken: "a2", refreshToken: "r2") }
 }
 
 struct FailingCatalog: CatalogRepository {

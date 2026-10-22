@@ -17,15 +17,35 @@ struct AppConfiguration: Sendable, Equatable {
     let apiBaseURL: URL?
     /// The build's request to allow writes. Only QA honours it; see `permits(_:)`.
     let allowsMutations: Bool
+    /// QA only: the identities allowed to write (sign in, sign up, and anything after).
+    /// Exact email addresses or E.164 phone numbers. No patterns: a wildcard could admit
+    /// accounts nobody approved.
+    var qaTestAccounts: [String] = []
 
-    /// Phase 1 rule: reads are always allowed; writes only against QA, and only when the
-    /// build opted in. PROD is read-only whatever the build settings say, so a misconfigured
-    /// xcconfig cannot create a real booking or charge a real card.
+    /// Reads are always allowed; writes only against QA, and only when the build opted in.
+    /// PROD is read-only whatever the build settings say, so a misconfigured xcconfig cannot
+    /// create a real booking, a real account or a real session.
     func permits(_ method: HTTPMethod) -> Bool {
         if method.isSafe { return true }
         switch environment {
         case .qa: return allowsMutations
         case .mock, .prod: return false
+        }
+    }
+
+    /// Whether this identity may write. MOCK writes nothing real, so anyone may; QA requires
+    /// the identity to be on the approved list; PROD allows nobody in this phase.
+    func isApprovedTestAccount(_ identity: String) -> Bool {
+        switch environment {
+        case .mock: return true
+        case .prod: return false
+        case .qa:
+            let id = Self.normalised(identity)
+            guard !id.isEmpty else { return false }
+            return qaTestAccounts.contains { entry in
+                let approved = Self.normalised(entry)
+                return !approved.isEmpty && !approved.contains("*") && approved == id
+            }
         }
     }
 
@@ -41,7 +61,12 @@ struct AppConfiguration: Sendable, Equatable {
             return .mock
         }
         let allows = (info["ETGAllowMutations"] as? String)?.uppercased() == "YES"
-        return AppConfiguration(environment: environment, apiBaseURL: url, allowsMutations: allows)
+        let accounts = (info["ETGQATestAccounts"] as? String ?? "")
+            .split(whereSeparator: { $0 == " " || $0 == "," })
+            .map(String.init)
+        return AppConfiguration(
+            environment: environment, apiBaseURL: url, allowsMutations: allows,
+            qaTestAccounts: environment == .qa ? accounts : [])
     }
 
     static func load(from bundle: Bundle = .main) -> AppConfiguration {
@@ -49,4 +74,11 @@ struct AppConfiguration: Sendable, Equatable {
     }
 
     static let mock = AppConfiguration(environment: .mock, apiBaseURL: nil, allowsMutations: false)
+
+    /// Lower-cased, and phone formatting removed so "+91 98765 43210" matches "+919876543210".
+    private static func normalised(_ value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespaces).lowercased()
+        guard trimmed.first == "+" || trimmed.first?.isNumber == true else { return trimmed }
+        return trimmed.filter { $0 == "+" || $0 == "*" || $0.isNumber }
+    }
 }
