@@ -16,11 +16,11 @@ There's no `package.json` here, so npm and Turbo don't treat this folder as a wo
 
 ## Environments
 
-| Build configuration | Scheme | Data | Writes | Bundle id |
-|---|---|---|---|---|
-| **Mock** (default) | `ETicketsGo` Run/Test | Bundled JSON in `Resources/MockData`, no network at all | Blocked | `com.eticketsgo.customer.native.mock` |
-| **QA** | `ETicketsGo QA` | `https://api-qa.eticketsgo.com/api` | Allowed (none exist in Phase 1) | `…native.qa` |
-| **Prod** | `ETicketsGo` Archive | `https://api.eticketsgo.com/api` | **Always blocked in Phase 1** | `…native` (placeholder, see open decisions) |
+| Build configuration | Scheme                | Data                                                    | Writes                          | Bundle id                                   |
+| ------------------- | --------------------- | ------------------------------------------------------- | ------------------------------- | ------------------------------------------- |
+| **Mock** (default)  | `ETicketsGo` Run/Test | Bundled JSON in `Resources/MockData`, no network at all | Blocked                         | `com.eticketsgo.customer.native.mock`       |
+| **QA**              | `ETicketsGo QA`       | `https://api-qa.eticketsgo.com/api`                     | Allowed (none exist in Phase 1) | `…native.qa`                                |
+| **Prod**            | `ETicketsGo` Archive  | `https://api.eticketsgo.com/api`                        | **Always blocked in Phase 1**   | `…native` (placeholder, see open decisions) |
 
 The values live in `Config/*.xcconfig`, pass through `Config/Info.plist`, and are read by
 `AppConfiguration`. If a value is missing or isn't an `https` URL, the app falls back to MOCK.
@@ -53,6 +53,7 @@ apps/customer-ios/
 ```
 
 **Architecture**
+
 - **Feature MVVM.** Views own a `@MainActor @Observable` view model. Every view model exposes its data as `Loadable<Value>` (idle / loading / loaded / failed), and `LoadableView` renders those states the same way on every screen.
 - **Repositories.** View models depend only on the `CatalogRepository`, `TicketsRepository` and `AccountRepository` protocols. `AppContainer` picks Mock or Remote implementations once, from the build's environment. Replacing mocks with NestJS means changing nothing above the repository layer.
 - **Wire models are the contract.**
@@ -73,15 +74,15 @@ apps/customer-ios/
 
 ## What is real vs mocked (Phase 1)
 
-| Area | Status |
-|---|---|
-| Six screens, navigation, design system, states, previews | **Implemented**, running on the simulator against MOCK |
-| Networking layer: URL building, `/api` prefix, bearer header, `x-correlation-id`, error-body mapping, PROD write guard | **Implemented and unit-tested** with a stub transport |
-| Remote repositories for discovery, events, event detail, movie shows, tickets, `/auth/me` | **Implemented, not yet run against a live server**. The QA build compiles, but no QA request has been run from this app |
-| Data shown in MOCK | **Mocked**: fictional events, venues, people and tickets. Ticket QR images encode `MOCK.<serial>`, which is not a valid ticket |
-| Search and category filtering in MOCK | **Mocked** locally. Real filtering is the server's |
-| Sign-in, token storage and refresh | **Not implemented.** QA/PROD run signed out, so Tickets shows a sign-in prompt and Profile shows guest |
-| Booking, holds, checkout, payment | **Not implemented** (out of scope). The button is disabled |
+| Area                                                                                                                   | Status                                                                                                                         |
+| ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Six screens, navigation, design system, states, previews                                                               | **Implemented**, running on the simulator against MOCK                                                                         |
+| Networking layer: URL building, `/api` prefix, bearer header, `x-correlation-id`, error-body mapping, PROD write guard | **Implemented and unit-tested** with a stub transport                                                                          |
+| Remote repositories for discovery, events, event detail, movie shows, tickets, `/auth/me`                              | **Implemented, not yet run against a live server**. The QA build compiles, but no QA request has been run from this app        |
+| Data shown in MOCK                                                                                                     | **Mocked**: fictional events, venues, people and tickets. Ticket QR images encode `MOCK.<serial>`, which is not a valid ticket |
+| Search and category filtering in MOCK                                                                                  | **Mocked** locally. Real filtering is the server's                                                                             |
+| Sign-in, token storage and refresh                                                                                     | **Not implemented.** QA/PROD run signed out, so Tickets shows a sign-in prompt and Profile shows guest                         |
+| Booking, holds, checkout, payment                                                                                      | **Not implemented** (out of scope). The button is disabled                                                                     |
 
 ## API contract inventory (verified in apps/api)
 
@@ -91,15 +92,15 @@ All endpoints sit under the global prefix `/api` (`apps/api/src/main.ts`). There
 - **Lists** are paginated as `{ data, meta: { page, pageSize, total, totalPages } }`, with `page` and `pageSize` (1–100) as query parameters.
 - **Money** is integer `*Minor` amounts plus a `currency` code. **Dates** are ISO-8601.
 
-| Used by this app | Method / path | Auth | Source |
-|---|---|---|---|
-| Home, Movies list | GET `/public/discovery` (`city`, `country`) | public | `discovery/discovery.controller.ts:18` |
-| Explore | GET `/public/events` (`q`, `category`, `city`, `page`, `pageSize`, dates…) | public | `events/events.controller.ts:441` |
-| Event detail | GET `/public/events/:slug` | public | `events.controller.ts:502` |
-| Event images | GET `/public/events/:id/images/:imageId/:variant` (paths come in `imagePath` / `imageVariants`) | public | `events.controller.ts:520-555` |
-| Movie showtimes | GET `/public/movies/:slug/shows` (`city`, `country`, `from`, `to`, `limit`) | public | `movies/movies.controller.ts:188` |
-| My Tickets | GET `/tickets` | bearer | `tickets/tickets.controller.ts:12` |
-| Profile | GET `/auth/me` | bearer | `auth/auth.controller.ts:215` |
+| Used by this app  | Method / path                                                                                   | Auth   | Source                                 |
+| ----------------- | ----------------------------------------------------------------------------------------------- | ------ | -------------------------------------- |
+| Home, Movies list | GET `/public/discovery` (`city`, `country`)                                                     | public | `discovery/discovery.controller.ts:18` |
+| Explore           | GET `/public/events` (`q`, `category`, `city`, `page`, `pageSize`, dates…)                      | public | `events/events.controller.ts:441`      |
+| Event detail      | GET `/public/events/:slug`                                                                      | public | `events.controller.ts:502`             |
+| Event images      | GET `/public/events/:id/images/:imageId/:variant` (paths come in `imagePath` / `imageVariants`) | public | `events.controller.ts:520-555`         |
+| Movie showtimes   | GET `/public/movies/:slug/shows` (`city`, `country`, `from`, `to`, `limit`)                     | public | `movies/movies.controller.ts:188`      |
+| My Tickets        | GET `/tickets`                                                                                  | bearer | `tickets/tickets.controller.ts:12`     |
+| Profile           | GET `/auth/me`                                                                                  | bearer | `auth/auth.controller.ts:215`          |
 
 Other endpoints Phase 2 needs:
 
