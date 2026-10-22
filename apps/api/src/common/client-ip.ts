@@ -81,29 +81,14 @@ export function clientIpFor(req: Request, header: string | null): string {
   return fallback ? normalise(fallback) : 'unknown';
 }
 
-/**
- * The client address of `req` for a decision made OUTSIDE the throttler - the per-IP booking
- * hold limit - by the same rule the throttler uses, so the two cannot disagree about who a
- * client is. Read from the environment the configuration is loaded from: whether Railway is in
- * front of this process does not change between requests.
- */
-export function requestClientIp(req: Request, env: NodeJS.ProcessEnv = process.env): string {
-  return clientIpFor(
-    req,
-    resolveClientIpHeader({
-      THROTTLE_CLIENT_IP_HEADER: env.THROTTLE_CLIENT_IP_HEADER,
-      RAILWAY_ENVIRONMENT_ID: env.RAILWAY_ENVIRONMENT_ID,
-    }),
-  );
-}
-
 /** A `getTracker` for `@nestjs/throttler`, bound to one header decision. */
 export function clientIpTracker(header: string | null): (req: Record<string, unknown>) => string {
   return (req) => clientIpFor(req as unknown as Request, header);
 }
 
 /**
- * The client address for an AUDIT or SESSION record: the same address the throttle counts.
+ * The client address for an AUDIT or SESSION record, or a decision made outside the throttler
+ * (the per-IP booking hold limit): the same address the throttle counts.
  *
  * Audit rows and refresh-token rows used to store `req.ip`, which behind Railway is the edge
  * node (see the top of this file). A sign-in history that names the same two proxy addresses for
