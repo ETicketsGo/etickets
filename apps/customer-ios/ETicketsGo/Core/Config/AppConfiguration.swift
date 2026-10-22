@@ -18,7 +18,8 @@ struct AppConfiguration: Sendable, Equatable {
     /// The build's request to allow writes. Only QA honours it; see `permits(_:)`.
     let allowsMutations: Bool
     /// QA only: the identities allowed to write (sign in, sign up, and anything after).
-    /// Exact address, `*@domain` suffix, or `prefix*` (for phone numbers).
+    /// Exact email addresses or E.164 phone numbers. No patterns: a wildcard could admit
+    /// accounts nobody approved.
     var qaTestAccounts: [String] = []
 
     /// Reads are always allowed; writes only against QA, and only when the build opted in.
@@ -41,11 +42,9 @@ struct AppConfiguration: Sendable, Equatable {
         case .qa:
             let id = Self.normalised(identity)
             guard !id.isEmpty else { return false }
-            return qaTestAccounts.contains { pattern in
-                let p = Self.normalised(pattern)
-                if p.hasPrefix("*"), p.count > 1 { return id.hasSuffix(p.dropFirst()) }
-                if p.hasSuffix("*"), p.count > 1 { return id.hasPrefix(p.dropLast()) }
-                return !p.isEmpty && id == p
+            return qaTestAccounts.contains { entry in
+                let approved = Self.normalised(entry)
+                return !approved.isEmpty && !approved.contains("*") && approved == id
             }
         }
     }
@@ -76,7 +75,7 @@ struct AppConfiguration: Sendable, Equatable {
 
     static let mock = AppConfiguration(environment: .mock, apiBaseURL: nil, allowsMutations: false)
 
-    /// Lower-cased, and phone formatting removed so "+91 90000 00001" matches "+9190000*".
+    /// Lower-cased, and phone formatting removed so "+91 98765 43210" matches "+919876543210".
     private static func normalised(_ value: String) -> String {
         let trimmed = value.trimmingCharacters(in: .whitespaces).lowercased()
         guard trimmed.first == "+" || trimmed.first?.isNumber == true else { return trimmed }

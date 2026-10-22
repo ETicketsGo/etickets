@@ -37,7 +37,7 @@ private let qaURL = URL(string: "https://api-qa.eticketsgo.com/api")!
 private let meJSON = #"{"id":"u1","email":"tester@qa.eticketsgo.test","fullName":"QA Tester","roles":["CUSTOMER"],"organizationId":null,"lastBuyerRegion":null,"permissions":[]}"#
 private let pairJSON = #"{"accessToken":"access-1","refreshToken":"refresh-1"}"#
 
-private func qaConfig(accounts: [String] = ["*@qa.eticketsgo.test", "+9190000*"]) -> AppConfiguration {
+private func qaConfig(accounts: [String] = ["tester@qa.eticketsgo.test", "t@qa.eticketsgo.test", "+15550100"]) -> AppConfiguration {
     AppConfiguration(environment: .qa, apiBaseURL: qaURL, allowsMutations: true, qaTestAccounts: accounts)
 }
 
@@ -270,7 +270,7 @@ struct AuthSecurityTests {
         let transport = RoutingTransport { _ in (201, pairJSON) }
         let (service, _, _) = remote(qaConfig(), transport: transport)
         await #expect(throws: AuthError.notPermittedInThisBuild) { _ = try await service.login(email: "real.customer@gmail.com", password: "p") }
-        await #expect(throws: AuthError.notPermittedInThisBuild) { try await service.requestPhoneCode(phone: "+919876543210") }
+        await #expect(throws: AuthError.notPermittedInThisBuild) { try await service.requestPhoneCode(phone: "+15550199") }
         await #expect(throws: AuthError.notPermittedInThisBuild) {
             _ = try await service.register(RegistrationForm(fullName: "X Y", email: "x@gmail.com", password: "long-enough-1"))
         }
@@ -280,11 +280,11 @@ struct AuthSecurityTests {
     @Test("PROD: sign-in and sign-up are refused before anything is sent")
     func prodBlocked() async {
         let prod = AppConfiguration(environment: .prod, apiBaseURL: URL(string: "https://api.eticketsgo.com/api")!, allowsMutations: true,
-                                    qaTestAccounts: ["*@qa.eticketsgo.test"])
+                                    qaTestAccounts: ["t@qa.eticketsgo.test"])
         let transport = RoutingTransport { _ in (201, pairJSON) }
         let (service, _, _) = remote(prod, transport: transport)
         await #expect(throws: AuthError.notPermittedInThisBuild) { _ = try await service.login(email: "t@qa.eticketsgo.test", password: "p") }
-        await #expect(throws: AuthError.notPermittedInThisBuild) { try await service.requestPhoneCode(phone: "+919000000001") }
+        await #expect(throws: AuthError.notPermittedInThisBuild) { try await service.requestPhoneCode(phone: "+15550100") }
         #expect(transport.requests.isEmpty)
     }
 

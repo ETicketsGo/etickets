@@ -172,7 +172,7 @@ Other endpoints Phase 2 needs:
 
 **Write policy**
 - **MOCK:** no network.
-- **QA:** sign-in, sign-up, OTP and any later writes are allowed only for identities on `QA_TEST_ACCOUNTS` in `Config/QA.xcconfig`. The list is empty until approved, so as committed, nobody can sign in to QA from this app.
+- **QA:** sign-in, sign-up, OTP and any later writes are allowed only for the exact identities in `QA_TEST_ACCOUNTS`: approved email addresses or E.164 numbers, with no wildcards. The real list goes in the git-ignored `Config/QA.local.xcconfig`, so test accounts stay out of source control. The committed default is empty, so nobody can sign in to QA.
 - **PROD:** every non-GET request is refused, including sign-in, before anything is sent.
 
 **MOCK credentials:** `demo.customer@example.com` / `Tickets-Demo-2026`; the mobile code is `123456`. The sign-in sheet shows these in MOCK builds only.

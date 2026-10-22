@@ -38,18 +38,17 @@ struct ConfigurationTests {
         }
     }
 
-    @Test("QA test-account allowlist: exact, domain suffix and phone prefix")
+    @Test("QA allowlist matches exact identities only; wildcard entries approve nobody")
     func qaAllowlist() {
         let config = AppConfiguration.load(from: [
             "ETGEnvironment": "qa", "ETGAPIBaseURL": "https://api-qa.eticketsgo.com/api", "ETGAllowMutations": "YES",
-            "ETGQATestAccounts": "qa.lead@eticketsgo.com *@qa.eticketsgo.test +9190000*",
+            "ETGQATestAccounts": "approved.one@example.test +15550100 *@example.test approved*",
         ])
-        #expect(config.isApprovedTestAccount("QA.Lead@ETicketsGo.com"))
-        #expect(config.isApprovedTestAccount("tester1@qa.eticketsgo.test"))
-        #expect(config.isApprovedTestAccount("+91 90000 12345"))
-        #expect(!config.isApprovedTestAccount("someone@gmail.com"))
-        #expect(!config.isApprovedTestAccount("tester@eticketsgo.test"))  // not the qa. subdomain
-        #expect(!config.isApprovedTestAccount("+919876543210"))
+        #expect(config.isApprovedTestAccount("Approved.One@Example.test "))
+        #expect(config.isApprovedTestAccount("+1 555 0100"))
+        #expect(!config.isApprovedTestAccount("other@example.test"))  // `*@example.test` is ignored
+        #expect(!config.isApprovedTestAccount("approved.two@example.test"))  // `approved*` is ignored
+        #expect(!config.isApprovedTestAccount("+15550101"))
         #expect(!config.isApprovedTestAccount(""))
     }
 
@@ -58,7 +57,7 @@ struct ConfigurationTests {
         let qa = AppConfiguration(environment: .qa, apiBaseURL: URL(string: "https://api-qa.eticketsgo.com/api"), allowsMutations: true)
         #expect(!qa.isApprovedTestAccount("anyone@example.com"))
         let prod = AppConfiguration(environment: .prod, apiBaseURL: URL(string: "https://api.eticketsgo.com/api"), allowsMutations: true,
-                                    qaTestAccounts: ["*@example.com"])
+                                    qaTestAccounts: ["anyone@example.com"])
         #expect(!prod.isApprovedTestAccount("anyone@example.com"))
         #expect(AppConfiguration.mock.isApprovedTestAccount("anyone@example.com"))
     }
