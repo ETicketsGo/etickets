@@ -301,7 +301,13 @@ describe('GET /public/movies/:slug/shows — the response', () => {
           event: {
             id: 'ev_1',
             slug: 'skyfront-protocol-open-air',
-            venue: { id: 'v_1', name: 'Phoenix Arena', city: 'Bengaluru', country: 'India', timezone: 'Asia/Kolkata' },
+            venue: {
+              id: 'v_1',
+              name: 'Phoenix Arena',
+              city: 'Bengaluru',
+              country: 'India',
+              timezone: 'Asia/Kolkata',
+            },
           },
         }),
       ],

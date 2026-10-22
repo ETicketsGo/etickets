@@ -79,7 +79,13 @@ export interface PublicShowDto {
    * the ticket's `timezone`. Added so a general-admission show, which has no cinema, still
    * tells a client which clock to print. Additive and nullable: older clients ignore it.
    */
-  venue: { id: string; name: string; city: string; country: string | null; timezone: string | null };
+  venue: {
+    id: string;
+    name: string;
+    city: string;
+    country: string | null;
+    timezone: string | null;
+  };
   cinema: { id: string; name: string; brand: string | null; timezone: string } | null;
   /**
    * The show's LOCAL calendar date at the cinema, e.g. "2026-08-09".
