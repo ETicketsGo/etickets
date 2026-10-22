@@ -2224,6 +2224,28 @@ export const api = {
           method: 'DELETE',
         }),
     },
+    /**
+     * Stopping an account and ending its sessions. Needs USER_SUSPEND and a fresh authenticator
+     * code (the shared step-up handler asks for one). Not your own account; a super admin only
+     * by a super admin.
+     */
+    accounts: {
+      suspend: (userId: string, reason: string) =>
+        request<{ userId: string; status: string; sessionsRevoked: number }>(
+          `/admin/users/${userId}/suspend`,
+          { method: 'POST', body: JSON.stringify({ reason }) },
+        ),
+      reinstate: (userId: string, reason?: string) =>
+        request<{ userId: string; status: string }>(`/admin/users/${userId}/reinstate`, {
+          method: 'POST',
+          body: JSON.stringify({ reason }),
+        }),
+      revokeSessions: (userId: string, reason?: string) =>
+        request<{ userId: string; sessionsRevoked: number }>(
+          `/admin/users/${userId}/revoke-sessions`,
+          { method: 'POST', body: JSON.stringify({ reason }) },
+        ),
+    },
     platformAnalytics: () => request<PlatformAnalytics>('/admin/analytics/platform'),
     aiStatus: () => request<AiStatus>('/admin/ai/status'),
     aiUsage: () => request<AiUsageSummary>('/admin/ai/usage'),

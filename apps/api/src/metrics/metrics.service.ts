@@ -76,6 +76,7 @@ export class MetricsService {
   private readonly refundStatusRecovery: Counter<'provider' | 'status'>;
   private readonly refundPolicyDecision: Counter<'mode' | 'reason'>;
   private readonly humanCheck: Counter<'action' | 'outcome'>;
+  private readonly otpSmsRequests: Counter<'market' | 'outcome'>;
 
   constructor() {
     this.registry = new Registry();
@@ -522,6 +523,19 @@ export class MetricsService {
       labelNames: ['action', 'outcome'],
       registers: [this.registry],
     });
+    /*
+      Sign-in codes go straight to the SMS channel, never through NotificationService (a code
+      must not sit in a Notification row), so without this they were the one text message the
+      platform sent with no count anywhere. Market and outcome only: never the number.
+    */
+    this.otpSmsRequests = new Counter({
+      name: 'etg_otp_sms_requests_total',
+      help:
+        'Sign-in code text requests by market and outcome: sent | refused_destination | ' +
+        'rate_limited | budget_tripped | provider_failed.',
+      labelNames: ['market', 'outcome'],
+      registers: [this.registry],
+    });
   }
 
   /** Prometheus exposition text for the /metrics endpoint. */
@@ -853,6 +867,13 @@ export class MetricsService {
   }
   recordHumanCheck(action: string, outcome: string): void {
     this.safe(() => this.humanCheck.inc({ action, outcome }));
+  }
+  /**
+   * One sign-in code request. `market` is an enabled market code or `other`, never anything a
+   * caller typed, so the series count stays bounded however many countries are probed.
+   */
+  recordOtpSms(market: string, outcome: string): void {
+    this.safe(() => this.otpSmsRequests.inc({ market, outcome }));
   }
 
   /** Metrics must never break a request or a business flow. Swallow everything. */

@@ -24,6 +24,8 @@ import {
 } from '@eticketsgo/web-kit';
 import { StatusBadge } from '@/components/status-badge';
 import { roleWords } from '@/lib/words';
+import { useHolds } from '@/lib/capabilities';
+import { AccountActions } from '@/components/account-actions';
 import { AccountContact } from '../../../components/account-contact';
 import {
   CountryFilter,
@@ -58,6 +60,7 @@ const ROLES = [
 const USER_STATUSES = ['ACTIVE', 'SUSPENDED'];
 
 export default function AdminUsers() {
+  const maySuspend = useHolds('USER_SUSPEND');
   const [page, setPage] = useState(1);
   const [q, setQ] = useState('');
   // Role, status and search are local; the country is in the URL (see `useCountryParam`).
@@ -160,6 +163,19 @@ export default function AdminUsers() {
         </div>
       ),
     },
+    /*
+      Suspend, reinstate and sign out everywhere, only for an operator holding USER_SUSPEND. The
+      column is not drawn at all without it: an empty column on every row reads as broken.
+    */
+    ...(maySuspend
+      ? [
+          {
+            key: 'actions',
+            header: 'Actions',
+            render: (u: AdminUser) => <AccountActions account={u} />,
+          },
+        ]
+      : []),
   ];
 
   const filtered = Boolean(filters.country || filters.role || filters.status || filters.q);

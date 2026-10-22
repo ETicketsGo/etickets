@@ -242,3 +242,43 @@ export function pilotAutoPausedAlert(input: {
       'Find and fix the cause first (see the alert named in sourceAlert).',
   };
 }
+
+/**
+ * The daily budget for sign-in-code text messages was reached (`tripped`) or neared
+ * (`warning`). Counts and the market only - never a phone number, not even masked: the point
+ * of the alert is the SHAPE of the traffic, and one number in an email is a person's data.
+ */
+export function otpSmsBudgetAlert(input: {
+  phase: 'tripped' | 'warning';
+  /** `total`, or the market whose own budget it is (IN, US, CA). */
+  scope: string;
+  sentToday: number;
+  dailyLimit: number;
+  warnPercent: number;
+  dayUtc: string;
+}): OpsAlert {
+  const where = input.scope === 'total' ? 'all markets' : input.scope;
+  return {
+    kind: 'OTP_SMS_BUDGET',
+    key: `${input.phase}:${input.scope}:${input.dayUtc}`,
+    summary:
+      input.phase === 'tripped'
+        ? `Sign-in text messages STOPPED: daily SMS budget reached (${where})`
+        : `Sign-in text messages at ${input.warnPercent}% of the daily SMS budget (${where})`,
+    facts: {
+      phase: input.phase,
+      budget: input.scope,
+      sentToday: input.sentToday,
+      dailyLimit: input.dailyLimit,
+      dayUtc: input.dayUtc,
+      effect:
+        input.phase === 'tripped'
+          ? 'Phone sign-in answers SMS_UNAVAILABLE until the next UTC day. Email sign-in works.'
+          : 'Nothing is blocked yet.',
+    },
+    where:
+      'Metric etg_otp_sms_requests_total by market and outcome. Many different numbers in one ' +
+      'market is the shape of SMS pumping. Limits: OTP_SMS_DAILY_LIMIT_TOTAL and ' +
+      'OTP_SMS_DAILY_LIMIT_BY_MARKET on the api service.',
+  };
+}

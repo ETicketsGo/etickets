@@ -2,7 +2,13 @@ import { Body, Controller, Get, Ip, Param, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
 import { AdminPermission, Role } from '@eticketsgo/shared-types';
-import { RequiresAdmin, CurrentUser, Roles, type RequestUser } from '../../common/decorators';
+import {
+  RequiresAdmin,
+  RequiresRecentMfa,
+  CurrentUser,
+  Roles,
+  type RequestUser,
+} from '../../common/decorators';
 import { ZodValidationPipe } from '../../common/zod-validation.pipe';
 import { PaymentOutageService } from './payment-outage.service';
 
@@ -12,6 +18,9 @@ const suspendSchema = z.object({ suspended: z.boolean() });
  * Provider outage operations console (ADR-030). ADMIN/SUPER_ADMIN only. Suspend or
  * resume routes/countries/providers, activate or roll back failover, and toggle
  * maintenance mode. Every action is audited by the service.
+ *
+ * Every write also needs a fresh second-factor check: each one stops or redirects live payments
+ * for a route, a country or a whole provider, so an unattended console must not reach them.
  */
 @ApiTags('admin-payment-outage')
 @ApiBearerAuth()
@@ -28,6 +37,7 @@ export class PaymentOutageController {
   }
 
   @Post('route/:id/suspend')
+  @RequiresRecentMfa()
   route(
     @CurrentUser() user: RequestUser,
     @Ip() ip: string,
@@ -38,6 +48,7 @@ export class PaymentOutageController {
   }
 
   @Post('country/:country/suspend')
+  @RequiresRecentMfa()
   country(
     @CurrentUser() user: RequestUser,
     @Ip() ip: string,
@@ -48,6 +59,7 @@ export class PaymentOutageController {
   }
 
   @Post('provider/:provider/suspend')
+  @RequiresRecentMfa()
   provider(
     @CurrentUser() user: RequestUser,
     @Ip() ip: string,
@@ -58,6 +70,7 @@ export class PaymentOutageController {
   }
 
   @Post('provider/:provider/failover')
+  @RequiresRecentMfa()
   @ApiOperation({ summary: 'Activate or roll back failover for a provider (admin).' })
   failover(
     @CurrentUser() user: RequestUser,
@@ -72,6 +85,7 @@ export class PaymentOutageController {
   }
 
   @Post('maintenance')
+  @RequiresRecentMfa()
   @ApiOperation({ summary: 'Toggle maintenance mode (admin).' })
   maintenance(
     @CurrentUser() user: RequestUser,

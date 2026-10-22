@@ -34,6 +34,8 @@ const PROD_BASE: Record<string, string> = {
   EMAIL_FROM: 'tickets@eticketsgo.example',
   // Production refuses SMS log mode too; routed here so the sandbox rule is what is tested.
   SMS_PROVIDER_BY_MARKET: 'IN=msg91,US=twilio,CA=twilio',
+  // And admin MFA must be armed (assertAdminMfaArmed), so the sandbox rule is what is tested.
+  MFA_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64'),
 };
 
 function withEnv(base: Record<string, string>, extra: Record<string, string> = {}) {
