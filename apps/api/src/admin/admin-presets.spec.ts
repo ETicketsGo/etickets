@@ -53,7 +53,12 @@ const APPROVED: Record<string, AdminPermission[]> = {
     AdminPermission.PAYOUT_MANAGE,
     AdminPermission.PAYOUT_EXECUTE,
   ],
-  FINANCE_REVIEWER: [AdminPermission.BOOKING_READ, AdminPermission.FINANCE_READ],
+  // + AUDIT_READ (the audit log left BOOKING_READ; this bundle's job is oversight).
+  FINANCE_REVIEWER: [
+    AdminPermission.BOOKING_READ,
+    AdminPermission.FINANCE_READ,
+    AdminPermission.AUDIT_READ,
+  ],
   OPS_ONCALL: [AdminPermission.OPS_READ, AdminPermission.OPS_EXECUTE],
 };
 
@@ -73,7 +78,16 @@ describe('the ready-made staff bundles', () => {
       expect(preset.grants).not.toContain(AdminPermission.PLATFORM_CONFIG);
       expect(preset.grants).not.toContain(AdminPermission.PAYMENT_ADMIN);
       expect(preset.grants).not.toContain(AdminPermission.ADMIN_MANAGE);
+      // Locking people out is granted person by person, like managing staff.
+      expect(preset.grants).not.toContain(AdminPermission.USER_SUSPEND);
     }
+  });
+
+  it('gives the audit log to the oversight bundle only', () => {
+    const carriers = Object.entries(ADMIN_PRESETS)
+      .filter(([, p]) => p.grants.includes(AdminPermission.AUDIT_READ))
+      .map(([key]) => key);
+    expect(carriers).toEqual(['FINANCE_REVIEWER']);
   });
 
   it('describes SUPPORT truthfully now that it can change a status', () => {

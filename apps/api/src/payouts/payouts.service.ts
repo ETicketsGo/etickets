@@ -18,6 +18,10 @@ import { PrismaService } from '../prisma/prisma.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
 import { AuditService } from '../audit/audit.service';
 import { AppException, ErrorCodes } from '../common/errors';
+import {
+  SUSPENDED_PAYOUT_MESSAGE,
+  assertOrganizationMayMoveMoney,
+} from './organization-money-gate';
 import type { RequestUser } from '../common/decorators';
 import { PayoutSettingsService } from './payout-settings.service';
 import { derivePayoutAccountState, type PayoutAccountState } from './payout-account-state';
@@ -1196,6 +1200,10 @@ export class PayoutsService {
     */
     const written = await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`payout-generate:${organizationId}`}))`;
+      // Both the organizer's own generate and the automatic run come through here, so a
+      // suspended organizer is held in both. Read after the lock, so a payout cannot be raised
+      // by a generate that started before the suspension and waited behind another.
+      await assertOrganizationMayMoveMoney(tx, organizationId, SUSPENDED_PAYOUT_MESSAGE);
       // Taken after the lock, so a generate that waited starts where the one before it stopped.
       const now = new Date();
       // Eligibility is four rules and both the writer and the read model must use the same four.

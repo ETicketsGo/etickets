@@ -16,10 +16,12 @@ import {
   Skeleton,
   type AuditFilters,
   type AuditRow,
+  useAuthUser,
   zoneShortName,
 } from '@eticketsgo/web-kit';
 import { viewerTimeZone } from '@eticketsgo/shared-types';
 import { accountContactText } from '../../../components/account-contact';
+import { holds } from '../../../lib/capabilities';
 import { FilterBar, useFilterDescription, useUrlFilters } from '../../../components/list-filters';
 
 /**
@@ -42,6 +44,10 @@ import { FilterBar, useFilterDescription, useUrlFilters } from '../../../compone
  * place of supply; nothing financial is derived from this grouping and the money reports do not
  * read it.
  */
+/** Shown instead of the log to somebody without the duty. ASCII only. */
+const NO_AUDIT_ACCESS =
+  'You do not have access to this page. Reading the audit log needs the See the audit log duty.';
+
 const ISO = (d: Date) => d.toISOString().slice(0, 10);
 const TODAY = ISO(new Date());
 const THIRTY_DAYS_AGO = ISO(new Date(Date.now() - 30 * 86_400_000));
@@ -133,6 +139,13 @@ function Entry({ row }: { row: AuditRow }) {
 const FILTER_KEYS = ['country', 'organizationId', 'eventId', 'action', 'from', 'to'] as const;
 
 export default function AuditPage() {
+  /*
+    The log needs AUDIT_READ (it left BOOKING_READ). Somebody who reaches this page by URL without
+    it is told so, rather than shown a refused request as "could not load".
+  */
+  const { user, isLoading: userLoading } = useAuthUser();
+  const known = !userLoading && !!user;
+  const mayRead = holds(user, 'AUDIT_READ');
   const [page, setPage] = useState(1);
   /*
     Every filter lives in the URL, so "what this organizer did last week" can be refreshed and
@@ -170,13 +183,13 @@ export default function AuditPage() {
   };
   const summary = useQuery({
     queryKey: ['admin', 'audit-summary', summaryFilters],
-    enabled: !url.invalidWindow,
+    enabled: mayRead && !url.invalidWindow,
     queryFn: () => api.admin.auditSummary(summaryFilters),
   });
 
   const list = useQuery({
     queryKey: ['admin', 'audit', page, filters],
-    enabled: !url.invalidWindow,
+    enabled: mayRead && !url.invalidWindow,
     queryFn: () => api.admin.audit({ page, pageSize: 50, ...filters }),
   });
 
@@ -210,6 +223,17 @@ export default function AuditPage() {
   const activeOrg = summary.data?.byOrganization.find(
     (o) => o.organizationId === filters.organizationId,
   );
+
+  if (!known || !mayRead) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Audit log" />
+        <Card>
+          <p className="text-sm text-text-secondary">{known ? NO_AUDIT_ACCESS : 'Loading...'}</p>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
