@@ -87,7 +87,8 @@ export function clientIpTracker(header: string | null): (req: Record<string, unk
 }
 
 /**
- * The client address for an AUDIT or SESSION record: the same address the throttle counts.
+ * The client address for an AUDIT or SESSION record, or a decision made outside the throttler
+ * (the per-IP booking hold limit): the same address the throttle counts.
  *
  * Audit rows and refresh-token rows used to store `req.ip`, which behind Railway is the edge
  * node (see the top of this file). A sign-in history that names the same two proxy addresses for

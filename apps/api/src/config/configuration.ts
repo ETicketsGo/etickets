@@ -189,6 +189,44 @@ const envSchema = z.object({
    * paying customers, and beyond an hour lets abandoned carts sterilise a sold-out show.
    */
   BOOKING_HOLD_MINUTES: z.coerce.number().int().min(1).max(60).default(10),
+
+  /*
+    ── HOW MUCH ONE BUYER MAY HOLD AT ONCE ────────────────────────────────────────────
+    A hold takes seats off sale before anybody has paid, so it is the cheapest thing on the
+    platform to abuse: a script that opens checkouts and never pays can empty a show for as
+    long as the holds last, and a "pay at the venue" reservation lasts until the show starts.
+    These caps bound that without getting in the way of a real customer. See
+    `bookings/booking-hold-limits.ts` for how each one is counted and why the defaults are
+    where they are.
+
+    Every cap is the number of ACTIVE holds: PENDING_PAYMENT with a deadline still in the
+    future. A hold that is paid, cancelled or expired stops counting at once, because it is
+    counted from the bookings themselves rather than from a counter that could drift.
+
+    0 switches a cap off. That is an operator's emergency lever (a venue that genuinely sells
+    from one address and is being refused), not a setting to ship with.
+
+    Counter sales by the organizer's own staff are never limited by any of these.
+  */
+  /** Tickets in one online order, across every line. Per-ticket-type limits still apply. */
+  BOOKING_MAX_SEATS_PER_ORDER: z.coerce.number().int().min(0).max(500).default(20),
+  /** Unpaid online checkouts open at once for one signed-in account. */
+  BOOKING_MAX_ACTIVE_HOLDS_PER_USER: z.coerce.number().int().min(0).max(100).default(3),
+  /** Unpaid online checkouts open at once for one guest email address. */
+  BOOKING_MAX_ACTIVE_HOLDS_PER_EMAIL: z.coerce.number().int().min(0).max(100).default(3),
+  /**
+   * Unpaid holds (online and pay-at-venue) open at once from one client IP address. Generous
+   * on purpose: a cinema lobby, a campus or a mobile carrier puts many real buyers behind one
+   * address, and this is the backstop against a script that changes its email every request,
+   * not the everyday limit.
+   */
+  BOOKING_MAX_ACTIVE_HOLDS_PER_IP: z.coerce.number().int().min(0).max(10_000).default(20),
+  /** Pay-at-venue reservations one buyer (account or guest email) may hold for one show. */
+  BOOKING_MAX_CASH_RESERVATIONS_PER_SHOW: z.coerce.number().int().min(0).max(100).default(1),
+  /** Pay-at-venue reservations one buyer may hold across every show at once. */
+  BOOKING_MAX_CASH_RESERVATIONS_TOTAL: z.coerce.number().int().min(0).max(100).default(2),
+  /** Tickets in one pay-at-venue reservation. Paying online has the ordinary order limit. */
+  BOOKING_MAX_SEATS_PER_CASH_RESERVATION: z.coerce.number().int().min(0).max(500).default(6),
   /*
     ── HOW LONG ORGANIZER MONEY IS HELD AFTER A SHOW ──────────────────────────────────
     Days after an event's LAST session ends before its revenue may be settled to the
