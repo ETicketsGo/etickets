@@ -10,12 +10,12 @@ item needs owner approval and its own PR. Paths are relative to the repository r
 The venue zone comes from `Venue.timezone` (`apps/api/prisma/schema.prisma:1007`), with
 `venueZone()` as the fallback for single-zone countries (`packages/shared-types/src/markets.ts:481`).
 
-| Response | Field | Source |
-|---|---|---|
-| Event cards on `/public/events` and discovery | `venue.timezone` | `events/public-events.service.ts:121` |
-| `/public/events/:slug` | `timeZone` on the event and on each session | `public-events.service.ts:453, :480` |
-| `/tickets` | `timezone` | `tickets/tickets.service.ts:347` |
-| `/public/movies/:slug/shows` | `cinema.timezone` and `localDate` | `movies/movies.service.ts:690-692` |
+| Response                                      | Field                                       | Source                                |
+| --------------------------------------------- | ------------------------------------------- | ------------------------------------- |
+| Event cards on `/public/events` and discovery | `venue.timezone`                            | `events/public-events.service.ts:121` |
+| `/public/events/:slug`                        | `timeZone` on the event and on each session | `public-events.service.ts:453, :480`  |
+| `/tickets`                                    | `timezone`                                  | `tickets/tickets.service.ts:347`      |
+| `/public/movies/:slug/shows`                  | `cinema.timezone` and `localDate`           | `movies/movies.service.ts:690-692`    |
 
 **What's wrong today**
 

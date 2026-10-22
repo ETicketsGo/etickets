@@ -8,16 +8,11 @@
       "runtimeMinutes": 142,
       "certificate": "UA13+",
       "language": "Kannada",
-      "genres": [
-        "Drama"
-      ],
+      "genres": ["Drama"],
       "releaseDate": "2026-10-16",
       "posterUrl": null,
       "trailerUrl": null,
-      "cast": [
-        "Anika Rao",
-        "Dev Shetty"
-      ],
+      "cast": ["Anika Rao", "Dev Shetty"],
       "director": "Meera Kulkarni"
     },
     "shows": [
@@ -224,17 +219,11 @@
       "runtimeMinutes": 118,
       "certificate": "U",
       "language": "Marathi",
-      "genres": [
-        "Drama",
-        "Family"
-      ],
+      "genres": ["Drama", "Family"],
       "releaseDate": "2026-10-16",
       "posterUrl": null,
       "trailerUrl": null,
-      "cast": [
-        "Sai Patil",
-        "Ravi Joshi"
-      ],
+      "cast": ["Sai Patil", "Ravi Joshi"],
       "director": "Omkar Desai"
     },
     "shows": [
@@ -441,16 +430,11 @@
       "runtimeMinutes": 131,
       "certificate": "UA16+",
       "language": "Hindi",
-      "genres": [
-        "Thriller"
-      ],
+      "genres": ["Thriller"],
       "releaseDate": "2026-10-16",
       "posterUrl": null,
       "trailerUrl": null,
-      "cast": [
-        "Kabir Mehta",
-        "Zoya Ahmed"
-      ],
+      "cast": ["Kabir Mehta", "Zoya Ahmed"],
       "director": "Arjun Bhalla"
     },
     "shows": [
