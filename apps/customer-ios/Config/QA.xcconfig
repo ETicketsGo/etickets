@@ -5,6 +5,10 @@
 APP_ENV = qa
 API_BASE_URL = https:/$()/api-qa.eticketsgo.com/api
 ALLOW_MUTATIONS = YES
+// QA writes — including sign-in, sign-up and OTP — are allowed only for these identities.
+// Space-separated; exact address, `*@domain` suffix, or `+9190000*` phone prefix.
+// Empty means no account may sign in to QA from this app. The list needs owner approval.
+QA_TEST_ACCOUNTS =
 APP_DISPLAY_NAME = ETicketsGo QA
 PRODUCT_BUNDLE_IDENTIFIER = com.eticketsgo.customer.native.qa
 

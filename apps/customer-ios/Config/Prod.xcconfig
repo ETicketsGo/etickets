@@ -5,6 +5,7 @@
 APP_ENV = prod
 API_BASE_URL = https:/$()/api.eticketsgo.com/api
 ALLOW_MUTATIONS = NO
+QA_TEST_ACCOUNTS =
 APP_DISPLAY_NAME = ETicketsGo
 // Placeholder: the Expo app ships as com.eticketsgo.customer. Whether the native app takes
 // over that identifier is an open release decision (see README).

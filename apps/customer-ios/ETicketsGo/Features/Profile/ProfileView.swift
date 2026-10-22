@@ -1,23 +1,7 @@
 import SwiftUI
 import Observation
 
-@MainActor
-@Observable
-final class ProfileViewModel {
-    private(set) var state: Loadable<AuthenticatedUser?> = .idle
-    private let account: any AccountRepository
-
-    init(account: any AccountRepository) { self.account = account }
-
-    func load() async {
-        if state.value == nil { state = .loading }
-        do {
-            state = .loaded(try await account.currentUser())
-        } catch {
-            state = .failed(error.userMessage)
-        }
-    }
-
+enum ProfileFormat {
     static func initials(_ name: String) -> String {
         let letters = name.split(separator: " ").prefix(2).compactMap(\.first)
         return letters.isEmpty ? "?" : String(letters).uppercased()
@@ -26,26 +10,27 @@ final class ProfileViewModel {
 
 struct ProfileView: View {
     @Environment(AppContainer.self) private var container
-    @State private var model: ProfileViewModel?
+    @State private var confirmingSignOut = false
 
     var body: some View {
         List {
-            if let model {
-                Section {
-                    switch model.state {
-                    case .idle, .loading:
-                        ProgressView().frame(maxWidth: .infinity)
-                    case let .failed(message):
-                        Text(message).foregroundStyle(ETGColor.critical)
-                    case .loaded(nil):
-                        VStack(alignment: .leading, spacing: ETGSpace.sm) {
-                            Text("You're browsing as a guest").font(ETGFont.headline)
-                            Text("Sign-in arrives in the next release.").font(ETGFont.subheadline).foregroundStyle(ETGColor.muted)
+            Section {
+                switch container.auth.state {
+                case .restoring:
+                    ProgressView().frame(maxWidth: .infinity)
+                case .signedOut:
+                    VStack(alignment: .leading, spacing: ETGSpace.md) {
+                        Text("You're browsing as a guest").font(ETGFont.headline).foregroundStyle(ETGColor.ink)
+                        if container.auth.sessionExpired {
+                            Text("Your session ended. Please sign in again.")
+                                .font(ETGFont.subheadline).foregroundStyle(ETGColor.critical)
                         }
-                        .padding(.vertical, ETGSpace.xs)
-                    case let .loaded(user?):
-                        identity(user)
+                        Button("Sign in or create account") { container.auth.isPresentingSignIn = true }
+                            .buttonStyle(.etgPrimary)
                     }
+                    .padding(.vertical, ETGSpace.xs)
+                case let .signedIn(user):
+                    identity(user)
                 }
             }
 
@@ -70,20 +55,28 @@ struct ProfileView: View {
             } footer: {
                 Text("Business rules — prices, availability, ticket validity — are always decided by the ETicketsGo server.")
             }
+
+            if container.auth.user != nil {
+                Section {
+                    Button("Sign out", role: .destructive) { confirmingSignOut = true }
+                        .frame(maxWidth: .infinity)
+                }
+            }
+        }
+        .confirmationDialog("Sign out of ETicketsGo?", isPresented: $confirmingSignOut, titleVisibility: .visible) {
+            Button("Sign out", role: .destructive) { Task { await container.auth.logout() } }
+        } message: {
+            Text("Your tickets stay in your account. You'll need to sign in again to see them.")
         }
         .scrollContentBackground(.hidden)
         .etgScreenBackground()
         .navigationTitle("Profile")
-        .refreshable { await model?.load() }
-        .task {
-            if model == nil { model = ProfileViewModel(account: container.account) }
-            if model?.state.value == nil { await model?.load() }
-        }
+
     }
 
     private func identity(_ user: AuthenticatedUser) -> some View {
         HStack(spacing: ETGSpace.md) {
-            Text(ProfileViewModel.initials(user.fullName))
+            Text(ProfileFormat.initials(user.fullName))
                 .font(.system(.headline, weight: .bold))
                 .foregroundStyle(ETGColor.onAction)
                 .frame(width: 52, height: 52)

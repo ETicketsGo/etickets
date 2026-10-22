@@ -48,9 +48,11 @@ final class AppRouter {
 
 struct RootTabView: View {
     @Environment(AppRouter.self) private var router
+    @Environment(AppContainer.self) private var container
 
     var body: some View {
         @Bindable var router = router
+        @Bindable var auth = container.auth
         TabView(selection: $router.selectedTab) {
             tab(.home, "Home", "house") { HomeView() }
             tab(.explore, "Explore", "magnifyingglass") { ExploreView() }
@@ -59,6 +61,13 @@ struct RootTabView: View {
             tab(.profile, "Profile", "person.crop.circle") { ProfileView() }
         }
         .tint(ETGColor.ink)
+        .sheet(isPresented: $auth.isPresentingSignIn) { SignInView() }
+        .task {
+            await container.auth.start()
+            #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("-ETGSignIn") { container.auth.isPresentingSignIn = true }
+            #endif
+        }
     }
 
     private func tab<Content: View>(

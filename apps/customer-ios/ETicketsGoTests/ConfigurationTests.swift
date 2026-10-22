@@ -38,6 +38,31 @@ struct ConfigurationTests {
         }
     }
 
+    @Test("QA test-account allowlist: exact, domain suffix and phone prefix")
+    func qaAllowlist() {
+        let config = AppConfiguration.load(from: [
+            "ETGEnvironment": "qa", "ETGAPIBaseURL": "https://api-qa.eticketsgo.com/api", "ETGAllowMutations": "YES",
+            "ETGQATestAccounts": "qa.lead@eticketsgo.com *@qa.eticketsgo.test +9190000*",
+        ])
+        #expect(config.isApprovedTestAccount("QA.Lead@ETicketsGo.com"))
+        #expect(config.isApprovedTestAccount("tester1@qa.eticketsgo.test"))
+        #expect(config.isApprovedTestAccount("+91 90000 12345"))
+        #expect(!config.isApprovedTestAccount("someone@gmail.com"))
+        #expect(!config.isApprovedTestAccount("tester@eticketsgo.test"))  // not the qa. subdomain
+        #expect(!config.isApprovedTestAccount("+919876543210"))
+        #expect(!config.isApprovedTestAccount(""))
+    }
+
+    @Test("An empty allowlist approves nobody in QA; PROD approves nobody; MOCK approves anyone")
+    func allowlistDefaults() {
+        let qa = AppConfiguration(environment: .qa, apiBaseURL: URL(string: "https://api-qa.eticketsgo.com/api"), allowsMutations: true)
+        #expect(!qa.isApprovedTestAccount("anyone@example.com"))
+        let prod = AppConfiguration(environment: .prod, apiBaseURL: URL(string: "https://api.eticketsgo.com/api"), allowsMutations: true,
+                                    qaTestAccounts: ["*@example.com"])
+        #expect(!prod.isApprovedTestAccount("anyone@example.com"))
+        #expect(AppConfiguration.mock.isApprovedTestAccount("anyone@example.com"))
+    }
+
     @Test("MOCK permits no writes")
     func mockIsReadOnly() {
         #expect(!AppConfiguration.mock.permits(.post))

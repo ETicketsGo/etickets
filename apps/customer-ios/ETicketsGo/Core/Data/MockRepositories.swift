@@ -70,18 +70,15 @@ struct MockCatalogRepository: CatalogRepository {
     }
 }
 
+/// Like GET /tickets, answers only for a signed-in session.
 struct MockTicketsRepository: TicketsRepository {
+    let session: AuthSession
     var fixtures = FixtureStore()
     var latency: Duration = .milliseconds(350)
 
     func tickets() async throws -> [Ticket] {
         try await simulatedLatency(latency)
+        guard await session.accessToken() != nil else { throw APIError.unauthorized }
         return try fixtures.load("tickets")
     }
-}
-
-struct MockAccountRepository: AccountRepository {
-    var fixtures = FixtureStore()
-
-    func currentUser() async throws -> AuthenticatedUser? { try fixtures.load("me") }
 }
