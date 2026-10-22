@@ -1,5 +1,6 @@
-import { ScrollView, View } from 'react-native';
+import { RefreshControl, ScrollView, View } from 'react-native';
 import { useRouter } from 'expo-router';
+import { BrandMark } from '@/components/brand-mark';
 import { Screen } from '@/components/screen';
 import { OfflineBanner } from '@/components/states';
 import { useOnline } from '@/hooks/use-online';
@@ -7,6 +8,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { Text } from '@/ui';
 import { SearchEntry } from '@/features/discovery/search-entry';
 import { DiscoverySections } from '@/features/discovery/discovery-sections';
+import { useDiscovery } from '@/features/discovery/api';
 
 /**
  * Home — the discovery surface. Browsable without an account: the API serves
@@ -18,6 +20,8 @@ export default function HomeScreen() {
   const { user } = useAuth();
   const router = useRouter();
   const firstName = user?.fullName?.trim().split(/\s+/)[0];
+  // Same query DiscoverySections reads, so pull-to-refresh reloads the shelves in place.
+  const { refetch, isRefetching } = useDiscovery();
 
   return (
     <Screen padded={false}>
@@ -28,10 +32,16 @@ export default function HomeScreen() {
         showsVerticalScrollIndicator={false}
         // Lets the user dismiss the keyboard by scrolling rather than hunting for Done.
         keyboardDismissMode="on-drag"
+        refreshControl={
+          <RefreshControl refreshing={isRefetching} onRefresh={() => void refetch()} />
+        }
       >
-        <View className="gap-1 px-5 pb-4 pt-2">
+        <View className="px-5 pb-3 pt-2">
+          <BrandMark />
+        </View>
+        <View className="gap-1 px-5 pb-4">
           <Text variant="largeTitle" accessibilityRole="header">
-            {firstName ? `Hi, ${firstName}` : 'Discover'}
+            {firstName ? `Hi, ${firstName}` : "What's on"}
           </Text>
           <Text variant="subhead" tone="muted">
             Movies, concerts and live events near you

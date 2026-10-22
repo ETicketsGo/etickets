@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { Alert, ScrollView, View } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '@/components/screen';
 import { ErrorState, OfflineBanner } from '@/components/states';
 import { useOnline } from '@/hooks/use-online';
@@ -30,6 +31,7 @@ import { HoldCountdown } from '@/features/checkout/hold-countdown';
  * the single worst bug this screen could have.
  */
 export default function CheckoutScreen() {
+  const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{
     eventId?: string;
     sessionId?: string;
@@ -194,7 +196,11 @@ export default function CheckoutScreen() {
         </Text>
       </View>
 
-      <ScrollView contentContainerClassName="gap-5 px-5 pb-6 pt-2" keyboardDismissMode="on-drag">
+      <ScrollView
+        contentContainerClassName="gap-5 px-5 pb-6 pt-2"
+        keyboardDismissMode="on-drag"
+        automaticallyAdjustKeyboardInsets
+      >
         {booking?.holdExpiresAt ? (
           <HoldCountdown
             expiresAt={booking.holdExpiresAt}
@@ -313,7 +319,12 @@ export default function CheckoutScreen() {
         </View>
       </ScrollView>
 
-      <View className="border-t border-border bg-background-surface px-5 pb-2 pt-3">
+      <View
+        className="border-t border-border bg-background-surface px-5 pt-3"
+        // Clear the home indicator: this screen opts out of the bottom safe-area edge
+        // so the bar's surface runs to the bottom of the display.
+        style={{ paddingBottom: Math.max(insets.bottom, 8) }}
+      >
         <Button
           label={fees ? `Pay ${formatMoney(fees.totalMinor, currency)}` : 'Continue to payment'}
           size="lg"

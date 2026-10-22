@@ -92,7 +92,7 @@ export function Button({
       {...rest}
     >
       {loading ? (
-        <ActivityIndicator size="small" color={iconColor ?? '#2563EB'} />
+        <ActivityIndicator size="small" color={iconColor ?? '#16130F'} />
       ) : (
         <>
           {icon ? (

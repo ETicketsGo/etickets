@@ -35,7 +35,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   android: {
     package: bundleId,
-    adaptiveIcon: { foregroundImage: './assets/adaptive-icon.png', backgroundColor: '#0B0E15' },
+    adaptiveIcon: { foregroundImage: './assets/adaptive-icon.png', backgroundColor: '#F6F2EA' },
     // Only what the customer app actually uses. expo-camera was removed: nothing in
     // this app scans a QR code — customers DISPLAY one, staff scan it, and that is the
     // organizer app's job. It was pulling in CAMERA and RECORD_AUDIO.
@@ -84,11 +84,11 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       {
         image: './assets/splash.png',
         resizeMode: 'contain',
-        backgroundColor: '#0B0E15',
+        backgroundColor: '#F6F2EA',
         imageWidth: 200,
       },
     ],
-    ['expo-notifications', { icon: './assets/notification-icon.png', color: '#2563EB' }],
+    ['expo-notifications', { icon: './assets/notification-icon.png', color: '#B8955A' }],
     'expo-image',
     'expo-localization',
     'expo-web-browser',

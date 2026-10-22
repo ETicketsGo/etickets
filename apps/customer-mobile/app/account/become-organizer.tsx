@@ -72,7 +72,11 @@ export default function BecomeOrganizerScreen() {
     <Screen padded={false}>
       <Stack.Screen options={{ title: 'Become an organizer' }} />
       {!online ? <OfflineBanner /> : null}
-      <ScrollView contentContainerClassName="gap-6 p-5 pb-10" showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerClassName="gap-6 p-5 pb-10"
+        showsVerticalScrollIndicator={false}
+        automaticallyAdjustKeyboardInsets
+      >
         {settled ? (
           <Card className="gap-3">
             <Text variant="title3">
