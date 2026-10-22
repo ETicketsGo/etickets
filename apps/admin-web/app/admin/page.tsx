@@ -83,8 +83,8 @@ export default function AdminDashboard() {
   const caps = useMemo(() => new Set(user?.adminPermissions ?? []), [user?.adminPermissions]);
   /*
     ── THE FIGURES ARE NOT EVERY OPERATOR'S ───────────────────────────────────────────
-    `GET /admin/dashboard`, `/admin/platform-analytics` and `/admin/audit` all require
-    `BOOKING_READ`, and the moderation duty does not grant it. So somebody whose job is
+    `GET /admin/dashboard` and `/admin/platform-analytics` require `BOOKING_READ`
+    (`/admin/audit` now needs `AUDIT_READ`), and the moderation duty does not grant it. So somebody whose job is
     reviewing organizers and events signed in and the first thing they saw was "We couldn't
     load this. Please try again." - a dead end, on the landing page, with a retry button that
     could never work.
@@ -93,6 +93,8 @@ export default function AdminDashboard() {
     them. Asking only when the capability is held fixes the screen and stops the refusals.
   */
   const mayReadFigures = caps.has('BOOKING_READ');
+  // The activity timeline reads the audit log, which needs its own duty (AUDIT_READ) now.
+  const mayReadAudit = caps.has('AUDIT_READ');
 
   const dash = useQuery({
     queryKey: ['admin', 'dashboard'],
@@ -293,7 +295,7 @@ export default function AdminDashboard() {
             <QuickLinks capabilities={caps} />
             {caps.has('OPS_READ') && <PlatformHealth />}
             {caps.has('PLATFORM_CONFIG_READ') && <CinemaPricingSummary />}
-            {mayReadFigures && <RecentActivity />}
+            {mayReadAudit && <RecentActivity />}
           </aside>
         </div>
 

@@ -8,6 +8,7 @@ import { AuditService } from '../audit/audit.service';
 import { AdminAudienceService } from '../notifications/admin-audience.service';
 import { currentRequest } from '../common/request-context';
 import { AppException, ErrorCodes } from '../common/errors';
+import { SUSPENDED_BANK_MESSAGE, assertOrganizationMayMoveMoney } from './organization-money-gate';
 import type { RequestUser } from '../common/decorators';
 import {
   BankSecretKeyMissing,
@@ -252,6 +253,10 @@ export class PayoutAccountsService {
       bankCode: input.bankCode.trim().toUpperCase(),
       accountLast4: last4(accountNumber),
     };
+
+    // A suspended organizer cannot redirect where its money goes; reading stays open. Checked
+    // after validation, which never touches the database, and before anything is written.
+    await assertOrganizationMayMoveMoney(this.prisma, organizationId, SUSPENDED_BANK_MESSAGE);
 
     const outcome = await this.prisma.$transaction(async (tx) => {
       // Serialise concurrent saves of one account, so two owners cannot both think they made

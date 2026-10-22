@@ -68,6 +68,14 @@ describe('integration-real-postgres: admin permissions', () => {
         record: async (e: { action: string; metadata?: Record<string, unknown> }) => {
           audited.push(e);
         },
+        // Permission changes are audited inside their own transaction (the row and the change
+        // commit together); admin-users.service.spec.ts holds the rollback. Recorded the same way.
+        recordInTransaction: async (
+          _tx: unknown,
+          e: { action: string; metadata?: Record<string, unknown> },
+        ) => {
+          audited.push(e);
+        },
       } as never,
       // Only reached by inviteStaff, which this suite does not exercise.
       { issueInvitation: async () => 'http://localhost:3001/invite/unused' } as never,
@@ -183,6 +191,23 @@ describe('integration-real-postgres: admin permissions', () => {
       expect(entries[1].metadata?.before).toEqual(['REFUND_REVIEW']);
       expect(entries[1].metadata?.after).toEqual(['REFUND_APPROVE']);
       expect(entries[0].metadata?.note).toBe('rota change');
+    },
+    60_000,
+  );
+
+  maybe(
+    'refuses to let a staff manager change their own duties, and changes nothing',
+    async () => {
+      // ADMIN_MANAGE used to be able to grant itself REFUND_APPROVE or PAYOUT_EXECUTE.
+      const before = await heldBy(deskId, ['ADMIN']);
+      const selfActor = { id: deskId, email: 'd@t.test', fullName: 'D', roles: [] } as never;
+      await expect(
+        staff.setPermissions(selfActor, deskId, [
+          AdminPermission.ADMIN_MANAGE,
+          AdminPermission.REFUND_APPROVE,
+        ]),
+      ).rejects.toThrow(/your own duties/i);
+      expect(await heldBy(deskId, ['ADMIN'])).toEqual(before);
     },
     60_000,
   );

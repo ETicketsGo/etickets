@@ -15,6 +15,7 @@ import {
   useToast,
   errorMessage,
   type AdminStaffMember,
+  useAuthUser,
 } from '@eticketsgo/web-kit';
 import { AccountContact, accountContactText } from '../../../components/account-contact';
 import { dutyLabel, dutyWhat } from '@/lib/duty-words';
@@ -56,6 +57,9 @@ const RISKY = new Set([
 const ADD_DEFAULT: string[] = [];
 
 export default function StaffPage() {
+  // The API refuses a change to your own duties (it needs a second person), so your own card
+  // says so instead of offering a button that can only fail.
+  const { user: me } = useAuthUser();
   const qc = useQueryClient();
   const toast = useToast();
   const [editing, setEditing] = useState<AdminStaffMember | null>(null);
@@ -218,6 +222,11 @@ export default function StaffPage() {
                   */
                   <span className="text-caption text-text-muted">
                     Holds every permission. Change this at the database level, deliberately.
+                  </span>
+                ) : person.id === me?.id ? (
+                  <span className="text-caption text-text-muted">
+                    These are your own duties. Another member of staff who manages staff can change
+                    them.
                   </span>
                 ) : (
                   <div className="flex gap-2">

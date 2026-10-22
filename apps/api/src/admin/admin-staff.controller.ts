@@ -13,6 +13,7 @@ import {
 import { MfaService } from '../auth/mfa/mfa.service';
 import type { Request } from 'express';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { auditIpFor } from '../common/client-ip';
 
 const permissionsBody = z.object({
   permissions: z.array(z.enum(ALL_ADMIN_PERMISSIONS as [string, ...string[]])).max(50),
@@ -62,12 +63,14 @@ export class AdminStaffController {
     @CurrentUser() actor: RequestUser,
     @Param('userId') userId: string,
     @Body(new ZodValidationPipe(permissionsBody)) body: z.infer<typeof permissionsBody>,
+    @Req() req: Request,
   ) {
     return this.staff.setPermissions(
       actor,
       userId,
       body.permissions as AdminPermission[],
       body.note,
+      { ip: auditIpFor(req) },
     );
   }
 

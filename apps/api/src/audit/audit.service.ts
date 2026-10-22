@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 export interface AuditEntry {
@@ -21,21 +22,36 @@ export class AuditService {
 
   async record(entry: AuditEntry): Promise<void> {
     try {
-      await this.prisma.auditLog.create({
-        data: {
-          actorUserId: entry.actorUserId ?? null,
-          organizationId: entry.organizationId ?? null,
-          action: entry.action,
-          entityType: entry.entityType,
-          entityId: entry.entityId ?? null,
-          metadata: entry.metadata ? (entry.metadata as object) : undefined,
-          correlationId: entry.correlationId ?? null,
-          ip: entry.ip ?? null,
-        },
-      });
+      await this.prisma.auditLog.create({ data: rowFor(entry) });
     } catch (err) {
       // Auditing must never break the primary operation.
       this.logger.error(`Failed to write audit log for ${entry.action}`, err as Error);
     }
   }
+
+  /**
+   * Write the audit row inside the caller's transaction, and let a failure fail the action.
+   *
+   * `record` swallows its errors on purpose: a checkout must not fail because the log is slow.
+   * That trade is wrong for the few actions whose whole point is accountability - changing what
+   * a member of staff may do, suspending an account, signing somebody out everywhere. An
+   * unaudited change of who holds power is worse than no change, so for those the row and the
+   * change commit together or not at all. Opt-in per call site; `record` is unchanged.
+   */
+  async recordInTransaction(tx: Prisma.TransactionClient, entry: AuditEntry): Promise<void> {
+    await tx.auditLog.create({ data: rowFor(entry) });
+  }
+}
+
+function rowFor(entry: AuditEntry) {
+  return {
+    actorUserId: entry.actorUserId ?? null,
+    organizationId: entry.organizationId ?? null,
+    action: entry.action,
+    entityType: entry.entityType,
+    entityId: entry.entityId ?? null,
+    metadata: entry.metadata ? (entry.metadata as object) : undefined,
+    correlationId: entry.correlationId ?? null,
+    ip: entry.ip ?? null,
+  };
 }

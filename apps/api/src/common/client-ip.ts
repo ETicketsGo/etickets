@@ -85,3 +85,20 @@ export function clientIpFor(req: Request, header: string | null): string {
 export function clientIpTracker(header: string | null): (req: Record<string, unknown>) => string {
   return (req) => clientIpFor(req as unknown as Request, header);
 }
+
+/**
+ * The client address to write on an audit row, by the same rule the rate limiter counts by.
+ *
+ * `req.ip` behind Railway is the edge node, not the person, so an audit row that recorded it
+ * would name a proxy as the place a suspension was ordered from. The header decision is read
+ * from the environment exactly as `throttlerOptions` reads it at boot.
+ */
+export function auditIpFor(req: Request, env: NodeJS.ProcessEnv = process.env): string {
+  return clientIpFor(
+    req,
+    resolveClientIpHeader({
+      THROTTLE_CLIENT_IP_HEADER: env.THROTTLE_CLIENT_IP_HEADER,
+      RAILWAY_ENVIRONMENT_ID: env.RAILWAY_ENVIRONMENT_ID,
+    }),
+  );
+}

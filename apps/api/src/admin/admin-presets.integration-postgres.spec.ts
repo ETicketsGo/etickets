@@ -67,6 +67,8 @@ const PROBES: { capability: AdminPermission; method: string; path: string; body?
   { capability: AdminPermission.EVENT_REVIEW, method: 'GET', path: '/admin/events' },
   { capability: AdminPermission.ORGANIZER_REVIEW, method: 'GET', path: '/admin/organizers' },
   { capability: AdminPermission.ADMIN_MANAGE, method: 'GET', path: '/admin/staff' },
+  // The audit log left BOOKING_READ: the support bundles hold that and must now be refused.
+  { capability: AdminPermission.AUDIT_READ, method: 'GET', path: '/admin/audit' },
   // Writes: a record that does not exist, or a body validation refuses. Nothing changes.
   {
     capability: AdminPermission.FINANCE_APPROVE,
@@ -96,6 +98,12 @@ const PROBES: { capability: AdminPermission; method: string; path: string; body?
     capability: AdminPermission.PLATFORM_CONFIG,
     method: 'POST',
     path: '/admin/fee-rules',
+    body: {},
+  },
+  {
+    capability: AdminPermission.USER_SUSPEND,
+    method: 'POST',
+    path: `/admin/users/${MISSING}/revoke-sessions`,
     body: {},
   },
 ];
