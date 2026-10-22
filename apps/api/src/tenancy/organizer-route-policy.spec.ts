@@ -72,6 +72,8 @@ export const ORGANIZER_ROUTE_POLICY: Record<string, StaffPolicy> = {
   'POST /auth/phone/attach/request-code': 'SELF',
   'POST /auth/phone/attach/verify': 'SELF',
   'GET /auth/me': 'SELF',
+  // Sign out everywhere: revokes the caller's own sessions only; no organization is involved.
+  'POST /auth/logout-all': 'SELF',
   // Admin MFA: the caller's own sign-in security. No organization is involved.
   'GET /auth/mfa/status': 'SELF',
   'POST /auth/mfa/enroll/start': 'SELF',
