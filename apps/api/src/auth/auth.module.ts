@@ -3,6 +3,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { AuthController } from './auth.controller';
 import { PhoneOtpService } from './phone-otp.service';
+import { OtpSmsGuard } from './otp-sms-guard';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
 import { MfaController } from './mfa/mfa.controller';
@@ -14,7 +15,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
 @Module({
   imports: [PassportModule, JwtModule.register({}), NotificationsModule],
   controllers: [AuthController, MfaController],
-  providers: [AuthService, JwtStrategy, PhoneOtpService, MfaService, MfaGuard],
+  providers: [AuthService, JwtStrategy, PhoneOtpService, OtpSmsGuard, MfaService, MfaGuard],
   exports: [AuthService, MfaService],
 })
 export class AuthModule {}

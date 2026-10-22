@@ -1,4 +1,5 @@
 import { PhoneOtpService } from './phone-otp.service';
+import { withTransactions } from './test-support/otp-sms-memory-store';
 
 /**
  * A log-mode send is not a send.
@@ -22,14 +23,14 @@ import { PhoneOtpService } from './phone-otp.service';
 describe('a sign-in code that was never sent', () => {
   function makeService(env: { APP_ENV: string; NODE_ENV?: string }, provider: string) {
     const updateMany = jest.fn().mockResolvedValue({ count: 1 });
-    const prisma = {
+    const prisma = withTransactions({
       phoneOtp: {
         count: jest.fn().mockResolvedValue(0),
         create: jest.fn().mockResolvedValue({}),
         updateMany,
       },
       user: { findUnique: jest.fn().mockResolvedValue(null) },
-    };
+    });
     const sms = { deliver: jest.fn().mockResolvedValue({ provider }) };
     const config = {
       get: (k: string) => (env as Record<string, string | undefined>)[k],
@@ -43,7 +44,7 @@ describe('a sign-in code that was never sent', () => {
 
   it('refuses to report a code as sent when production is in log mode', async () => {
     const { service } = makeService(PROD, 'log');
-    await expect(service.requestCode('+15551234567')).rejects.toMatchObject({
+    await expect(service.requestCode('+14155550132')).rejects.toMatchObject({
       // Says the channel is unavailable and points at email, rather than claiming success.
       message: expect.stringContaining('email address'),
     });
@@ -55,7 +56,7 @@ describe('a sign-in code that was never sent', () => {
       sitting in the database with no owner, for as long as its TTL.
     */
     const { service, updateMany } = makeService(PROD, 'log');
-    await service.requestCode('+15551234567').catch(() => undefined);
+    await service.requestCode('+14155550132').catch(() => undefined);
     expect(updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ consumedAt: expect.any(Date) }) }),
     );
@@ -64,18 +65,18 @@ describe('a sign-in code that was never sent', () => {
   it('still reports sent when a real provider handled it', async () => {
     // The fix must not break the working case: a provider that accepted the message is a send.
     const { service } = makeService(PROD, 'twilio');
-    await expect(service.requestCode('+15551234567')).resolves.toMatchObject({ sent: true });
+    await expect(service.requestCode('+14155550132')).resolves.toMatchObject({ sent: true });
   });
 
   it('treats a skipped delivery as not sent either', async () => {
     const { service } = makeService(PROD, 'twilio');
     const svc = service as unknown as { sms: { deliver: jest.Mock } };
     svc.sms.deliver = jest.fn().mockResolvedValue({ provider: 'none', skipped: true });
-    await expect(service.requestCode('+15551234567')).rejects.toBeDefined();
+    await expect(service.requestCode('+14155550132')).rejects.toBeDefined();
   });
 
   it('LOCAL keeps working, because there the console is the delivery channel', async () => {
     const { service } = makeService(LOCAL, 'log');
-    await expect(service.requestCode('+15551234567')).resolves.toMatchObject({ sent: true });
+    await expect(service.requestCode('+14155550132')).resolves.toMatchObject({ sent: true });
   });
 });
