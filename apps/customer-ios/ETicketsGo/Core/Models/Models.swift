@@ -5,10 +5,13 @@ import Foundation
 // (apps/customer-mobile/src/features/**/schema.ts). They double as Phase 1's domain models;
 // keep them in step with the API rather than reshaping them here.
 
+/// A card's venue (public-events.service.ts `cardVenue`). `country` is the market's name and
+/// can be null; `timezone` is the venue's IANA zone, which every time on the card is shown in.
 struct Venue: Codable, Hashable, Sendable {
     let name: String
     let city: String
-    let country: String
+    let country: String?
+    let timezone: String?
 }
 
 struct EventImageVariants: Codable, Hashable, Sendable {
@@ -111,6 +114,8 @@ struct EventSession: Codable, Hashable, Identifiable, Sendable {
     let status: String
     let seatBased: Bool?
     let ticketTypes: [TicketTypeOption]
+    /// The zone this session is shown in: the cinema's for a screening, else the venue's.
+    let timeZone: String?
 }
 
 /// GET /public/events/:slug
@@ -119,7 +124,7 @@ struct EventDetail: Codable, Hashable, Identifiable, Sendable, HasEventImage {
         let id: String
         let name: String
         let city: String
-        let country: String
+        let country: String?
         let address: String?
     }
 
@@ -141,6 +146,8 @@ struct EventDetail: Codable, Hashable, Identifiable, Sendable, HasEventImage {
     let sessions: [EventSession]
     let imagePath: String?
     let imageVariants: EventImageVariants?
+    /// The venue's zone (public-events.service.ts); sessions may carry their own.
+    let timeZone: String?
 }
 
 struct Movie: Codable, Hashable, Identifiable, Sendable {
@@ -164,13 +171,15 @@ struct MovieShow: Codable, Hashable, Identifiable, Sendable {
         let id: String
         let name: String
         let city: String
-        let country: String
+        let country: String?
     }
 
     struct Cinema: Codable, Hashable, Sendable {
         let id: String
         let name: String
         let brand: String?
+        /// The only zone a show carries today (movies.service.ts); a show without a cinema has none.
+        let timezone: String?
     }
 
     struct Screen: Codable, Hashable, Sendable {
@@ -194,8 +203,11 @@ struct MovieShow: Codable, Hashable, Identifiable, Sendable {
     let availability: String
     let seatsAvailable: Int?
     let seatsTotal: Int?
+    /// The show's calendar date in the cinema's zone, when the API knows it.
+    let localDate: String?
 
     var id: String { sessionId }
+    var timeZone: String? { cinema?.timezone }
 }
 
 /// GET /public/movies/:slug/shows
@@ -236,6 +248,12 @@ struct Ticket: Codable, Hashable, Identifiable, Sendable {
     let attendeeName: String?
     let ownedByViewer: Bool
     let assignedToViewer: Bool
+    /// The zone the ticket's time is printed in (tickets.service.ts `showTimezone`).
+    let timezone: String?
+    /// A third-party gate code that replaces ours, and its symbology. When the format is not
+    /// QR the server sends no qrDataUrl; rendering other symbologies is a later phase.
+    let vendorBarcode: String?
+    let vendorBarcodeFormat: String?
 }
 
 /// GET /auth/me — `AuthenticatedUser` in packages/shared-types/src/api.ts.

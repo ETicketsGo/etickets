@@ -74,6 +74,40 @@ struct ModelAndMockTests {
         #expect(Formatters.category("live-music") == "Live Music")
     }
 
+    @Test("Times show in the venue's zone, named when it differs from the device's")
+    func venueTimeZone() {
+        let show = ISO8601DateFormatter().date(from: "2026-11-07T14:00:00Z")!  // 7:30 PM in India
+        let locale = Locale(identifier: "en_US")
+        let denver = TimeZone(identifier: "America/Denver")!
+        let kolkata = TimeZone(identifier: "Asia/Kolkata")!
+
+        let abroad = Formatters.time(show, timeZone: "Asia/Kolkata", locale: locale, deviceZone: denver)
+        #expect(abroad.hasPrefix("7:30\u{202F}PM") || abroad.hasPrefix("7:30 PM"))
+        #expect(abroad.count > "7:30 PM".count)  // zone named
+
+        let atHome = Formatters.time(show, timeZone: "Asia/Kolkata", locale: locale, deviceZone: kolkata)
+        #expect(atHome.count <= "7:30 PM".count)  // same zone: no suffix
+
+        // No or unknown zone: the device's clock, as before.
+        #expect(Formatters.venueZone(nil, deviceZone: denver) == denver)
+        #expect(Formatters.venueZone("Not/AZone", deviceZone: denver) == denver)
+    }
+
+    @Test("Showtimes group by the cinema's calendar day, not the device's")
+    func showDaysUseCinemaZone() async throws {
+        let shows = try await catalog.movieShows(slug: "the-long-monsoon").shows
+        let days = MovieDetailViewModel.days(shows, deviceZone: TimeZone(identifier: "America/Los_Angeles")!)
+        #expect(days.count == 2)
+        #expect(days.allSatisfy { $0.shows.count == 3 })
+    }
+
+    @Test("A card venue with a null country and no zone still decodes")
+    func nullableVenueFields() throws {
+        let json = #"{"name":"V","city":"C","country":null}"#
+        let venue = try JSONDecoder.etg.decode(Venue.self, from: Data(json.utf8))
+        #expect(venue.country == nil && venue.timezone == nil)
+    }
+
     @Test("Tickets split into upcoming and past around now")
     func ticketSplit() async throws {
         let tickets = try await MockTicketsRepository(latency: .zero).tickets()

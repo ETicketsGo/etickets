@@ -17,13 +17,41 @@ enum Formatters {
         return "From \(money(minor: minor, currency: currency, locale: locale))"
     }
 
-    static func eventDate(_ date: Date) -> String {
-        date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated).hour().minute())
+    /// "Sat, 7 Nov, 7:30 PM" in the venue's zone — the time printed on the ticket, wherever the
+    /// customer is. When that differs from the device's zone, the zone is named ("7:30 PM IST").
+    static func eventDate(_ date: Date, timeZone: String?, locale: Locale = .current, deviceZone: TimeZone = .current) -> String {
+        let zone = venueZone(timeZone, deviceZone: deviceZone)
+        var text = date.formatted(style(zone, locale).weekday(.abbreviated).day().month(.abbreviated).hour().minute())
+        if let suffix = zoneSuffix(zone, at: date, locale: locale, deviceZone: deviceZone) { text += " \(suffix)" }
+        return text
     }
 
-    static func dayAndTime(_ date: Date) -> (day: String, time: String) {
-        (date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated)),
-         date.formatted(.dateTime.hour().minute()))
+    static func dayAndTime(_ date: Date, timeZone: String?, locale: Locale = .current, deviceZone: TimeZone = .current) -> (day: String, time: String) {
+        let zone = venueZone(timeZone, deviceZone: deviceZone)
+        var time = date.formatted(style(zone, locale).hour().minute())
+        if let suffix = zoneSuffix(zone, at: date, locale: locale, deviceZone: deviceZone) { time += " \(suffix)" }
+        return (date.formatted(style(zone, locale).weekday(.abbreviated).day().month(.abbreviated)), time)
+    }
+
+    static func time(_ date: Date, timeZone: String?, locale: Locale = .current, deviceZone: TimeZone = .current) -> String {
+        dayAndTime(date, timeZone: timeZone, locale: locale, deviceZone: deviceZone).time
+    }
+
+    /// The venue's zone, or the device's when the API sent none or an unknown identifier.
+    static func venueZone(_ identifier: String?, deviceZone: TimeZone = .current) -> TimeZone {
+        identifier.flatMap(TimeZone.init(identifier:)) ?? deviceZone
+    }
+
+    private static func style(_ zone: TimeZone, _ locale: Locale) -> Date.FormatStyle {
+        var style = Date.FormatStyle(locale: locale)
+        style.timeZone = zone
+        return style
+    }
+
+    private static func zoneSuffix(_ zone: TimeZone, at date: Date, locale: Locale, deviceZone: TimeZone) -> String? {
+        guard zone.secondsFromGMT(for: date) != deviceZone.secondsFromGMT(for: date) else { return nil }
+        return zone.localizedName(for: zone.isDaylightSavingTime(for: date) ? .shortDaylightSaving : .shortStandard, locale: locale)
+            ?? zone.abbreviation(for: date)
     }
 
     static func runtime(_ minutes: Int?) -> String? {

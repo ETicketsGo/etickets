@@ -127,9 +127,9 @@ Other endpoints Phase 2 needs:
 
 ## Outstanding integration dependencies
 
-1. **Venue time zone.** Event and show responses carry UTC instants but no venue time zone, so times show in the device's zone. A customer outside India sees a 7:30 PM Hyderabad show as a US-time morning. Fix it in the API by adding `timeZone` to the venue, then format with it.
-2. **`qrToken` can be null.** `tickets.service.ts` withholds it from viewers who may not present a ticket, but the Expo app's `ticketSchema` declares it a non-null string. The native model treats it as optional. The Expo schema should be checked.
-3. **GET `/public/movies` response shape.** The endpoint exists, but its response contract wasn't confirmed, so the Movies tab lists `nowShowing` from discovery instead.
+1. **Venue time zone. Corrected after investigation.** The API does send zones: `venue.timezone` on event cards, `timeZone` on event detail and on each session, `timezone` on tickets, and `cinema.timezone` on movie shows. The app now shows every time in the venue's zone and names the zone when it differs from the device's. One gap is left: shows with no cinema carry no zone (see `docs/api-contract-proposals.md`).
+2. **`qrToken` can be null.** `tickets.service.ts` withholds it from viewers who may not present a ticket, such as a buyer who transferred it away. The native model treats it as optional. The Expo app's schema does not, so one such ticket empties its whole wallet (see `docs/api-contract-proposals.md`).
+3. **GET `/public/movies`.** It is now confirmed: a plain array of at most 60 items, the same shape as discovery's `nowShowing`, plus `rating` and `contentLabel`. Moving the Movies tab onto it, so it can filter by city, genre and search, is Phase 2.
 4. **QA availability.** The Railway QA environment is reported to be unreliable. The QA scheme hasn't been exercised end to end from this app.
 5. **Open decisions.**
    - The production bundle id: take over `com.eticketsgo.customer` from the Expo app, or ship a new one.

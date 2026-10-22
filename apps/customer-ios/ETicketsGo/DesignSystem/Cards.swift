@@ -75,7 +75,7 @@ struct EventCard: View {
                 .lineLimit(2)
             VStack(alignment: .leading, spacing: 2) {
                 if let date = event.nextSessionAt {
-                    Text(Formatters.eventDate(date))
+                    Text(Formatters.eventDate(date, timeZone: event.venue.timezone))
                 }
                 Text("\(event.venue.name) · \(event.venue.city)")
             }
@@ -110,7 +110,7 @@ struct EventRow: View {
                 Eyebrow(text: Formatters.category(event.category))
                 Text(event.title).font(ETGFont.headline).foregroundStyle(ETGColor.ink).lineLimit(2)
                 if let date = event.nextSessionAt {
-                    Text(Formatters.eventDate(date)).font(ETGFont.subheadline).foregroundStyle(ETGColor.muted)
+                    Text(Formatters.eventDate(date, timeZone: event.venue.timezone)).font(ETGFont.subheadline).foregroundStyle(ETGColor.muted)
                 }
                 Text(event.venue.name).font(ETGFont.subheadline).foregroundStyle(ETGColor.muted).lineLimit(1)
             }

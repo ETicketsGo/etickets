@@ -43,7 +43,8 @@
             "maxPerOrder": 10,
             "available": 0
           }
-        ]
+        ],
+        "timeZone": "Asia/Kolkata"
       },
       {
         "id": "ses-jazz-2",
@@ -68,11 +69,13 @@
             "maxPerOrder": 10,
             "available": 24
           }
-        ]
+        ],
+        "timeZone": "Asia/Kolkata"
       }
     ],
     "imagePath": null,
-    "imageVariants": null
+    "imageVariants": null,
+    "timeZone": "Asia/Kolkata"
   },
   {
     "id": "evt-comedy",
@@ -110,11 +113,13 @@
             "maxPerOrder": 10,
             "available": 120
           }
-        ]
+        ],
+        "timeZone": "Asia/Kolkata"
       }
     ],
     "imagePath": null,
-    "imageVariants": null
+    "imageVariants": null,
+    "timeZone": "Asia/Kolkata"
   },
   {
     "id": "evt-carnatic",
@@ -160,11 +165,13 @@
             "maxPerOrder": 10,
             "available": 120
           }
-        ]
+        ],
+        "timeZone": "Asia/Kolkata"
       }
     ],
     "imagePath": null,
-    "imageVariants": null
+    "imageVariants": null,
+    "timeZone": "Asia/Kolkata"
   },
   {
     "id": "evt-food",
@@ -202,7 +209,8 @@
             "maxPerOrder": 10,
             "available": 2000
           }
-        ]
+        ],
+        "timeZone": "Asia/Kolkata"
       },
       {
         "id": "ses-food-2",
@@ -219,11 +227,13 @@
             "maxPerOrder": 10,
             "available": 2000
           }
-        ]
+        ],
+        "timeZone": "Asia/Kolkata"
       }
     ],
     "imagePath": null,
-    "imageVariants": null
+    "imageVariants": null,
+    "timeZone": "Asia/Kolkata"
   },
   {
     "id": "evt-pottery",
@@ -261,11 +271,13 @@
             "maxPerOrder": 2,
             "available": 6
           }
-        ]
+        ],
+        "timeZone": "Asia/Kolkata"
       }
     ],
     "imagePath": null,
-    "imageVariants": null
+    "imageVariants": null,
+    "timeZone": "Asia/Kolkata"
   },
   {
     "id": "evt-run",
@@ -303,11 +315,13 @@
             "maxPerOrder": 4,
             "available": 800
           }
-        ]
+        ],
+        "timeZone": "Asia/Kolkata"
       }
     ],
     "imagePath": null,
-    "imageVariants": null
+    "imageVariants": null,
+    "timeZone": "Asia/Kolkata"
   },
   {
     "id": "evt-mov-monsoon",
@@ -329,6 +343,7 @@
       "id": "org-galaxy",
       "name": "Galaxy Cinemas"
     },
+    "timeZone": "Asia/Kolkata",
     "sessions": [
       {
         "id": "ses-mov-monsoon-2026-10-23-0",
@@ -336,6 +351,7 @@
         "endsAt": "2026-10-23T07:12:00.000Z",
         "status": "SCHEDULED",
         "seatBased": true,
+        "timeZone": "Asia/Kolkata",
         "ticketTypes": [
           {
             "id": "tt-ses-mov-monsoon-2026-10-23-0-std",
@@ -361,6 +377,7 @@
         "endsAt": "2026-10-23T11:42:00.000Z",
         "status": "SCHEDULED",
         "seatBased": true,
+        "timeZone": "Asia/Kolkata",
         "ticketTypes": [
           {
             "id": "tt-ses-mov-monsoon-2026-10-23-1-std",
@@ -386,6 +403,7 @@
         "endsAt": "2026-10-23T17:12:00.000Z",
         "status": "SCHEDULED",
         "seatBased": true,
+        "timeZone": "Asia/Kolkata",
         "ticketTypes": [
           {
             "id": "tt-ses-mov-monsoon-2026-10-23-2-std",
@@ -411,6 +429,7 @@
         "endsAt": "2026-10-24T07:12:00.000Z",
         "status": "SCHEDULED",
         "seatBased": true,
+        "timeZone": "Asia/Kolkata",
         "ticketTypes": [
           {
             "id": "tt-ses-mov-monsoon-2026-10-24-0-std",
@@ -436,6 +455,7 @@
         "endsAt": "2026-10-24T11:42:00.000Z",
         "status": "SCHEDULED",
         "seatBased": true,
+        "timeZone": "Asia/Kolkata",
         "ticketTypes": [
           {
             "id": "tt-ses-mov-monsoon-2026-10-24-1-std",
@@ -461,6 +481,7 @@
         "endsAt": "2026-10-24T17:12:00.000Z",
         "status": "SCHEDULED",
         "seatBased": true,
+        "timeZone": "Asia/Kolkata",
         "ticketTypes": [
           {
             "id": "tt-ses-mov-monsoon-2026-10-24-2-std",
@@ -504,6 +525,7 @@
       "id": "org-galaxy",
       "name": "Galaxy Cinemas"
     },
+    "timeZone": "Asia/Kolkata",
     "sessions": [
       {
         "id": "ses-mov-saltpan-2026-10-23-0",
@@ -511,6 +533,7 @@
         "endsAt": "2026-10-23T06:48:00.000Z",
         "status": "SCHEDULED",
         "seatBased": true,
+        "timeZone": "Asia/Kolkata",
         "ticketTypes": [
           {
             "id": "tt-ses-mov-saltpan-2026-10-23-0-std",
@@ -536,6 +559,7 @@
         "endsAt": "2026-10-23T11:18:00.000Z",
         "status": "SCHEDULED",
         "seatBased": true,
+        "timeZone": "Asia/Kolkata",
         "ticketTypes": [
           {
             "id": "tt-ses-mov-saltpan-2026-10-23-1-std",
@@ -561,6 +585,7 @@
         "endsAt": "2026-10-23T16:48:00.000Z",
         "status": "SCHEDULED",
         "seatBased": true,
+        "timeZone": "Asia/Kolkata",
         "ticketTypes": [
           {
             "id": "tt-ses-mov-saltpan-2026-10-23-2-std",
@@ -586,6 +611,7 @@
         "endsAt": "2026-10-24T06:48:00.000Z",
         "status": "SCHEDULED",
         "seatBased": true,
+        "timeZone": "Asia/Kolkata",
         "ticketTypes": [
           {
             "id": "tt-ses-mov-saltpan-2026-10-24-0-std",
@@ -611,6 +637,7 @@
         "endsAt": "2026-10-24T11:18:00.000Z",
         "status": "SCHEDULED",
         "seatBased": true,
+        "timeZone": "Asia/Kolkata",
         "ticketTypes": [
           {
             "id": "tt-ses-mov-saltpan-2026-10-24-1-std",
@@ -636,6 +663,7 @@
         "endsAt": "2026-10-24T16:48:00.000Z",
         "status": "SCHEDULED",
         "seatBased": true,
+        "timeZone": "Asia/Kolkata",
         "ticketTypes": [
           {
             "id": "tt-ses-mov-saltpan-2026-10-24-2-std",
@@ -679,6 +707,7 @@
       "id": "org-galaxy",
       "name": "Galaxy Cinemas"
     },
+    "timeZone": "Asia/Kolkata",
     "sessions": [
       {
         "id": "ses-mov-winter-2026-10-23-0",
@@ -686,6 +715,7 @@
         "endsAt": "2026-10-23T07:01:00.000Z",
         "status": "SCHEDULED",
         "seatBased": true,
+        "timeZone": "Asia/Kolkata",
         "ticketTypes": [
           {
             "id": "tt-ses-mov-winter-2026-10-23-0-std",
@@ -711,6 +741,7 @@
         "endsAt": "2026-10-23T11:31:00.000Z",
         "status": "SCHEDULED",
         "seatBased": true,
+        "timeZone": "Asia/Kolkata",
         "ticketTypes": [
           {
             "id": "tt-ses-mov-winter-2026-10-23-1-std",
@@ -736,6 +767,7 @@
         "endsAt": "2026-10-23T17:01:00.000Z",
         "status": "SCHEDULED",
         "seatBased": true,
+        "timeZone": "Asia/Kolkata",
         "ticketTypes": [
           {
             "id": "tt-ses-mov-winter-2026-10-23-2-std",
@@ -761,6 +793,7 @@
         "endsAt": "2026-10-24T07:01:00.000Z",
         "status": "SCHEDULED",
         "seatBased": true,
+        "timeZone": "Asia/Kolkata",
         "ticketTypes": [
           {
             "id": "tt-ses-mov-winter-2026-10-24-0-std",
@@ -786,6 +819,7 @@
         "endsAt": "2026-10-24T11:31:00.000Z",
         "status": "SCHEDULED",
         "seatBased": true,
+        "timeZone": "Asia/Kolkata",
         "ticketTypes": [
           {
             "id": "tt-ses-mov-winter-2026-10-24-1-std",
@@ -811,6 +845,7 @@
         "endsAt": "2026-10-24T17:01:00.000Z",
         "status": "SCHEDULED",
         "seatBased": true,
+        "timeZone": "Asia/Kolkata",
         "ticketTypes": [
           {
             "id": "tt-ses-mov-winter-2026-10-24-2-std",

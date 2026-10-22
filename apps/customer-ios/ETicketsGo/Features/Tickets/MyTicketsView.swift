@@ -93,8 +93,8 @@ struct TicketCard: View {
     var body: some View {
         HStack(spacing: 0) {
             VStack(spacing: 2) {
-                Text(ticket.startsAt.formatted(.dateTime.day())).font(.system(.title2, weight: .bold))
-                Text(ticket.startsAt.formatted(.dateTime.month(.abbreviated)).uppercased())
+                Text(Self.stub(ticket).day).font(.system(.title2, weight: .bold))
+                Text(Self.stub(ticket).month.uppercased())
                     .font(ETGFont.eyebrow).tracking(0.8)
             }
             .foregroundStyle(ETGColor.goldText)
@@ -107,7 +107,7 @@ struct TicketCard: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(ticket.event.title).font(ETGFont.headline).foregroundStyle(ETGColor.ink).lineLimit(2)
-                Text(ticket.startsAt.formatted(.dateTime.weekday(.abbreviated).hour().minute()))
+                Text(Formatters.eventDate(ticket.startsAt, timeZone: ticket.timezone))
                     .font(ETGFont.subheadline).foregroundStyle(ETGColor.muted)
                 Text(TicketDetailView.place(ticket)).font(ETGFont.subheadline).foregroundStyle(ETGColor.muted).lineLimit(1)
                 HStack(spacing: ETGSpace.sm) {
@@ -126,6 +126,13 @@ struct TicketCard: View {
         .accessibilityElement(children: .combine)
         .accessibilityHint("Shows the ticket's entry code")
     }
+
+    /// Day and month for the stub, in the ticket's own zone.
+    static func stub(_ ticket: Ticket) -> (day: String, month: String) {
+        var style = Date.FormatStyle()
+        style.timeZone = Formatters.venueZone(ticket.timezone)
+        return (ticket.startsAt.formatted(style.day()), ticket.startsAt.formatted(style.month(.abbreviated)))
+    }
 }
 
 struct TicketDetailView: View {
@@ -137,7 +144,7 @@ struct TicketDetailView: View {
                 VStack(spacing: ETGSpace.sm) {
                     Eyebrow(text: ticket.ticketType)
                     Text(ticket.event.title).font(ETGFont.title).multilineTextAlignment(.center)
-                    Text(Formatters.eventDate(ticket.startsAt)).font(ETGFont.subheadline).foregroundStyle(ETGColor.muted)
+                    Text(Formatters.eventDate(ticket.startsAt, timeZone: ticket.timezone)).font(ETGFont.subheadline).foregroundStyle(ETGColor.muted)
                 }
                 .foregroundStyle(ETGColor.ink)
 

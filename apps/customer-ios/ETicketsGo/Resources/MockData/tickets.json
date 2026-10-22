@@ -22,7 +22,10 @@
     "assignmentStatus": "UNASSIGNED",
     "attendeeName": null,
     "ownedByViewer": true,
-    "assignedToViewer": false
+    "assignedToViewer": false,
+    "timezone": "Asia/Kolkata",
+    "vendorBarcode": null,
+    "vendorBarcodeFormat": null
   },
   {
     "id": "tkt-2",
@@ -47,7 +50,10 @@
     "assignmentStatus": "UNASSIGNED",
     "attendeeName": null,
     "ownedByViewer": true,
-    "assignedToViewer": false
+    "assignedToViewer": false,
+    "timezone": "Asia/Kolkata",
+    "vendorBarcode": null,
+    "vendorBarcodeFormat": null
   },
   {
     "id": "tkt-3",
@@ -72,7 +78,10 @@
     "assignmentStatus": "UNASSIGNED",
     "attendeeName": null,
     "ownedByViewer": true,
-    "assignedToViewer": false
+    "assignedToViewer": false,
+    "timezone": "Asia/Kolkata",
+    "vendorBarcode": null,
+    "vendorBarcodeFormat": null
   },
   {
     "id": "tkt-4",
@@ -97,6 +106,9 @@
     "assignmentStatus": "UNASSIGNED",
     "attendeeName": null,
     "ownedByViewer": true,
-    "assignedToViewer": false
+    "assignedToViewer": false,
+    "timezone": "Asia/Kolkata",
+    "vendorBarcode": null,
+    "vendorBarcodeFormat": null
   }
 ]
