@@ -217,9 +217,15 @@ describe('integration-real-postgres: admin permissions', () => {
     async () => {
       // They already hold everything by role; editable-looking grants would invite somebody
       // to "tidy up" a super admin into having none.
+      // Asked by SOMEBODY ELSE: the super admin acting on their own row is refused earlier, by
+      // the no-self-change rule (asserted second), which would hide this one.
+      const otherActor = { id: deskId, email: 'd@t.test', fullName: 'D', roles: [] } as never;
+      await expect(
+        staff.setPermissions(otherActor, superId, [AdminPermission.BOOKING_READ]),
+      ).rejects.toThrow(/already holds every permission/i);
       await expect(
         staff.setPermissions(actor(), superId, [AdminPermission.BOOKING_READ]),
-      ).rejects.toThrow(/already holds every permission/i);
+      ).rejects.toThrow(/your own duties/i);
     },
     60_000,
   );
