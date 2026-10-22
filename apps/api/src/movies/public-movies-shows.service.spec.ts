@@ -288,7 +288,34 @@ describe('GET /public/movies/:slug/shows — the response', () => {
     });
     const [show] = (await service.shows('skyfront-protocol', { limit: 50 })).shows;
     expect(show.cinema?.timezone).toBe('America/Boise');
+    expect(show.venue.timezone).toBe('America/Boise');
     expect(show.localDate).toBe('2026-10-19');
+  });
+
+  it('gives a general-admission show, which has no cinema, its venue zone', async () => {
+    const { service } = makeService({
+      sessions: [
+        session({
+          screenId: null,
+          screen: null,
+          event: {
+            id: 'ev_1',
+            slug: 'skyfront-protocol-open-air',
+            venue: { id: 'v_1', name: 'Phoenix Arena', city: 'Bengaluru', country: 'India', timezone: 'Asia/Kolkata' },
+          },
+        }),
+      ],
+    });
+    const [show] = (await service.shows('skyfront-protocol', { limit: 50 })).shows;
+    expect(show.cinema).toBeNull();
+    expect(show.venue.timezone).toBe('Asia/Kolkata');
+  });
+
+  it('adds venue.timezone without changing any existing field', async () => {
+    const { service } = makeService({ sessions: [session()] });
+    const [show] = (await service.shows('skyfront-protocol', { limit: 50 })).shows;
+    expect(Object.keys(show.venue).sort()).toEqual(['city', 'country', 'id', 'name', 'timezone']);
+    expect(show.venue.timezone).toBe(show.cinema?.timezone);
   });
 
   it('reports a reserved-seating show with real seat counts', async () => {

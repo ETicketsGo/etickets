@@ -74,7 +74,12 @@ export interface PublicShowDto {
   eventSlug: string;
   startsAt: string;
   endsAt: string;
-  venue: { id: string; name: string; city: string; country: string | null };
+  /**
+   * `timezone`: the IANA zone the show is listed in — the same zone as `cinema.timezone` and
+   * the ticket's `timezone`. Added so a general-admission show, which has no cinema, still
+   * tells a client which clock to print. Additive and nullable: older clients ignore it.
+   */
+  venue: { id: string; name: string; city: string; country: string | null; timezone: string | null };
   cinema: { id: string; name: string; brand: string | null; timezone: string } | null;
   /**
    * The show's LOCAL calendar date at the cinema, e.g. "2026-08-09".
@@ -681,6 +686,7 @@ export class PublicMoviesService {
           name: session.event.venue.name,
           city: session.event.venue.city,
           country: session.event.venue.country,
+          timezone: zone,
         },
         cinema: session.screen?.cinema
           ? {
