@@ -5,6 +5,7 @@ endpoints. `RecordedContractTests` decodes them with the app's live decoder, so 
 drifts from what the server sends fails in CI instead of on a phone.
 
 **Re-recording rules**
+
 - GET requests only. Never record anything that needs sign-in.
 - Before committing, scan the files for emails, phone numbers and tokens.
 - The record command is below.

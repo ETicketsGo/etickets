@@ -1,1 +1,98 @@
-{"id":"cmv6mdw2301ft118o7hsppnux","contentLabel":"DEMO","title":"Snowbound: A Winter Comedy","slug":"snowbound-a-winter-comedy-a146aa","imagePath":"/public/events/cmv6mdw2301ft118o7hsppnux/images/cmv6mdz6w01g8118owq3jf1eo?v=616d82450e64517b","imageVariants":{"thumb":"/public/events/cmv6mdw2301ft118o7hsppnux/images/cmv6mdz6w01g8118owq3jf1eo/thumb?v=e262ecb86cf2ca54","card-sm":"/public/events/cmv6mdw2301ft118o7hsppnux/images/cmv6mdz6w01g8118owq3jf1eo/card-sm?v=e262ecb86cf2ca54","card":"/public/events/cmv6mdw2301ft118o7hsppnux/images/cmv6mdz6w01g8118owq3jf1eo/card?v=e262ecb86cf2ca54","banner-sm":"/public/events/cmv6mdw2301ft118o7hsppnux/images/cmv6mdz6w01g8118owq3jf1eo/banner-sm?v=e262ecb86cf2ca54","banner":"/public/events/cmv6mdw2301ft118o7hsppnux/images/cmv6mdz6w01g8118owq3jf1eo/banner?v=e262ecb86cf2ca54","full":"/public/events/cmv6mdw2301ft118o7hsppnux/images/cmv6mdz6w01g8118owq3jf1eo/full?v=e262ecb86cf2ca54"},"images":[{"id":"cmv6mdz6w01g8118owq3jf1eo","path":"/public/events/cmv6mdw2301ft118o7hsppnux/images/cmv6mdz6w01g8118owq3jf1eo?v=616d82450e64517b","variants":{"thumb":"/public/events/cmv6mdw2301ft118o7hsppnux/images/cmv6mdz6w01g8118owq3jf1eo/thumb?v=e262ecb86cf2ca54","card-sm":"/public/events/cmv6mdw2301ft118o7hsppnux/images/cmv6mdz6w01g8118owq3jf1eo/card-sm?v=e262ecb86cf2ca54","card":"/public/events/cmv6mdw2301ft118o7hsppnux/images/cmv6mdz6w01g8118owq3jf1eo/card?v=e262ecb86cf2ca54","banner-sm":"/public/events/cmv6mdw2301ft118o7hsppnux/images/cmv6mdz6w01g8118owq3jf1eo/banner-sm?v=e262ecb86cf2ca54","banner":"/public/events/cmv6mdw2301ft118o7hsppnux/images/cmv6mdz6w01g8118owq3jf1eo/banner?v=e262ecb86cf2ca54","full":"/public/events/cmv6mdw2301ft118o7hsppnux/images/cmv6mdz6w01g8118owq3jf1eo/full?v=e262ecb86cf2ca54"},"focalPoint":{"x":0.4,"y":0.55}}],"experienceType":"EVENT","category":"Theatre","description":"A family cottage, a blizzard and one bathroom. A new comedy in two acts, suitable for ages 12 and up.\n\nShowcase listing: fictional, for demonstration on the QA environment.\nShowcase key: showcase/tor-snowbound","refundPolicy":null,"feeMode":"CUSTOMER_PAYS","isFree":false,"venue":{"id":"cmv6mcgyg00a1118ob8qxgrf6","organizationId":"cmv6mc10l006x118om7ipk5zr","name":"Queen West Theatre Loft","city":"Toronto","country":"CA","region":"Ontario","timezone":"America/Toronto","address":"880 Queen Street West","capacity":null,"status":"ACTIVE","createdAt":"2026-10-13T11:49:52.984Z","updatedAt":"2026-10-13T11:49:52.984Z"},"timeZone":"America/Toronto","organizer":{"id":"cmv6mc10l006x118om7ipk5zr","name":"Maple Room Live","verified":false,"logoUrl":null,"description":null,"website":null,"instagramUrl":null},"ageLimit":null,"termsAndConditions":null,"artists":[],"cashAccepted":false,"sessions":[{"id":"cmv6mdw6z01fy118ok5dlwgks","startsAt":"2026-12-11T00:30:00.000Z","endsAt":"2026-12-11T02:30:00.000Z","status":"SCHEDULED","timeZone":"America/Toronto","seatBased":false,"ticketTypes":[{"id":"cmv6mdwbq01g0118obmlgpofj","name":"General","priceMinor":3200,"currency":"CAD","maxPerOrder":10,"inventoryKind":"SEAT","saleState":"ON_SALE","salesStartAt":null,"available":180},{"id":"cmv6mdwe201g3118oetehd212","name":"Premium","priceMinor":5500,"currency":"CAD","maxPerOrder":4,"inventoryKind":"SEAT","saleState":"ON_SALE","salesStartAt":null,"available":40}]}]}
+{
+  "id": "cmv6mdw2301ft118o7hsppnux",
+  "contentLabel": "DEMO",
+  "title": "Snowbound: A Winter Comedy",
+  "slug": "snowbound-a-winter-comedy-a146aa",
+  "imagePath": "/public/events/cmv6mdw2301ft118o7hsppnux/images/cmv6mdz6w01g8118owq3jf1eo?v=616d82450e64517b",
+  "imageVariants": {
+    "thumb": "/public/events/cmv6mdw2301ft118o7hsppnux/images/cmv6mdz6w01g8118owq3jf1eo/thumb?v=e262ecb86cf2ca54",
+    "card-sm": "/public/events/cmv6mdw2301ft118o7hsppnux/images/cmv6mdz6w01g8118owq3jf1eo/card-sm?v=e262ecb86cf2ca54",
+    "card": "/public/events/cmv6mdw2301ft118o7hsppnux/images/cmv6mdz6w01g8118owq3jf1eo/card?v=e262ecb86cf2ca54",
+    "banner-sm": "/public/events/cmv6mdw2301ft118o7hsppnux/images/cmv6mdz6w01g8118owq3jf1eo/banner-sm?v=e262ecb86cf2ca54",
+    "banner": "/public/events/cmv6mdw2301ft118o7hsppnux/images/cmv6mdz6w01g8118owq3jf1eo/banner?v=e262ecb86cf2ca54",
+    "full": "/public/events/cmv6mdw2301ft118o7hsppnux/images/cmv6mdz6w01g8118owq3jf1eo/full?v=e262ecb86cf2ca54"
+  },
+  "images": [
+    {
+      "id": "cmv6mdz6w01g8118owq3jf1eo",
+      "path": "/public/events/cmv6mdw2301ft118o7hsppnux/images/cmv6mdz6w01g8118owq3jf1eo?v=616d82450e64517b",
+      "variants": {
+        "thumb": "/public/events/cmv6mdw2301ft118o7hsppnux/images/cmv6mdz6w01g8118owq3jf1eo/thumb?v=e262ecb86cf2ca54",
+        "card-sm": "/public/events/cmv6mdw2301ft118o7hsppnux/images/cmv6mdz6w01g8118owq3jf1eo/card-sm?v=e262ecb86cf2ca54",
+        "card": "/public/events/cmv6mdw2301ft118o7hsppnux/images/cmv6mdz6w01g8118owq3jf1eo/card?v=e262ecb86cf2ca54",
+        "banner-sm": "/public/events/cmv6mdw2301ft118o7hsppnux/images/cmv6mdz6w01g8118owq3jf1eo/banner-sm?v=e262ecb86cf2ca54",
+        "banner": "/public/events/cmv6mdw2301ft118o7hsppnux/images/cmv6mdz6w01g8118owq3jf1eo/banner?v=e262ecb86cf2ca54",
+        "full": "/public/events/cmv6mdw2301ft118o7hsppnux/images/cmv6mdz6w01g8118owq3jf1eo/full?v=e262ecb86cf2ca54"
+      },
+      "focalPoint": { "x": 0.4, "y": 0.55 }
+    }
+  ],
+  "experienceType": "EVENT",
+  "category": "Theatre",
+  "description": "A family cottage, a blizzard and one bathroom. A new comedy in two acts, suitable for ages 12 and up.\n\nShowcase listing: fictional, for demonstration on the QA environment.\nShowcase key: showcase/tor-snowbound",
+  "refundPolicy": null,
+  "feeMode": "CUSTOMER_PAYS",
+  "isFree": false,
+  "venue": {
+    "id": "cmv6mcgyg00a1118ob8qxgrf6",
+    "organizationId": "cmv6mc10l006x118om7ipk5zr",
+    "name": "Queen West Theatre Loft",
+    "city": "Toronto",
+    "country": "CA",
+    "region": "Ontario",
+    "timezone": "America/Toronto",
+    "address": "880 Queen Street West",
+    "capacity": null,
+    "status": "ACTIVE",
+    "createdAt": "2026-10-13T11:49:52.984Z",
+    "updatedAt": "2026-10-13T11:49:52.984Z"
+  },
+  "timeZone": "America/Toronto",
+  "organizer": {
+    "id": "cmv6mc10l006x118om7ipk5zr",
+    "name": "Maple Room Live",
+    "verified": false,
+    "logoUrl": null,
+    "description": null,
+    "website": null,
+    "instagramUrl": null
+  },
+  "ageLimit": null,
+  "termsAndConditions": null,
+  "artists": [],
+  "cashAccepted": false,
+  "sessions": [
+    {
+      "id": "cmv6mdw6z01fy118ok5dlwgks",
+      "startsAt": "2026-12-11T00:30:00.000Z",
+      "endsAt": "2026-12-11T02:30:00.000Z",
+      "status": "SCHEDULED",
+      "timeZone": "America/Toronto",
+      "seatBased": false,
+      "ticketTypes": [
+        {
+          "id": "cmv6mdwbq01g0118obmlgpofj",
+          "name": "General",
+          "priceMinor": 3200,
+          "currency": "CAD",
+          "maxPerOrder": 10,
+          "inventoryKind": "SEAT",
+          "saleState": "ON_SALE",
+          "salesStartAt": null,
+          "available": 180
+        },
+        {
+          "id": "cmv6mdwe201g3118oetehd212",
+          "name": "Premium",
+          "priceMinor": 5500,
+          "currency": "CAD",
+          "maxPerOrder": 4,
+          "inventoryKind": "SEAT",
+          "saleState": "ON_SALE",
+          "salesStartAt": null,
+          "available": 40
+        }
+      ]
+    }
+  ]
+}
