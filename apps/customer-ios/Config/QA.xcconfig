@@ -1,0 +1,16 @@
+// QA — reads from the Railway QA API (apps/customer-mobile/eas.json "qa" profile).
+// `//` starts a comment in xcconfig, hence the `$()` inside the scheme separator.
+#include "Base.xcconfig"
+
+APP_ENV = qa
+API_BASE_URL = https:/$()/api-qa.eticketsgo.com/api
+ALLOW_MUTATIONS = YES
+APP_DISPLAY_NAME = ETicketsGo QA
+PRODUCT_BUNDLE_IDENTIFIER = com.eticketsgo.customer.native.qa
+
+SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG
+SWIFT_OPTIMIZATION_LEVEL = -Onone
+GCC_OPTIMIZATION_LEVEL = 0
+ONLY_ACTIVE_ARCH = YES
+ENABLE_TESTABILITY = YES
+DEBUG_INFORMATION_FORMAT = dwarf
