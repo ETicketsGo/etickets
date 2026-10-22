@@ -52,6 +52,16 @@ export class EmailChannel implements NotificationChannel {
       return { provider: 'none', skipped: true, reason: 'no_deliverable_email' };
     }
     /*
+      Never hand a real provider an address in a domain that cannot receive mail. QA's seeded
+      accounts live at `@eticketsgo.test`; SES accepted every message to them and each one came
+      back as a bounce - 398 of them on QA by 2026-10-22 - which costs money and counts against the
+      sending account's reputation. The log transport sends nothing anyway, so local and test
+      runs that use these addresses are left exactly as they were.
+    */
+    if (this.transport.name !== 'log' && isSpecialUseEmailDomain(msg.toEmail)) {
+      return { provider: 'none', skipped: true, reason: 'no_deliverable_email' };
+    }
+    /*
       Reply-To only for the types allowed one, and only a plain address: see reply-to.ts. The
       payload never sets any other header.
     */
@@ -85,4 +95,19 @@ export class EmailChannel implements NotificationChannel {
       return null;
     }
   }
+}
+
+/**
+ * Domains reserved by RFC 2606 / RFC 6761 that can never receive mail: the `.test`, `.example`,
+ * `.invalid` and `.localhost` top-level domains, and `example.com` / `.net` / `.org` with any
+ * subdomain.
+ */
+export function isSpecialUseEmailDomain(email: string | null | undefined): boolean {
+  const domain = (email ?? '').trim().toLowerCase().split('@')[1] ?? '';
+  if (!domain) return false;
+  const tld = domain.split('.').pop() ?? '';
+  if (['test', 'example', 'invalid', 'localhost'].includes(tld)) return true;
+  return ['example.com', 'example.net', 'example.org'].some(
+    (d) => domain === d || domain.endsWith(`.${d}`),
+  );
 }
