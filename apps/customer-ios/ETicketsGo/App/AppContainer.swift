@@ -8,22 +8,26 @@ final class AppContainer {
     let configuration: AppConfiguration
     let catalog: any CatalogRepository
     let tickets: any TicketsRepository
+    let offlineTickets: any OfflineTicketStore
     let auth: AuthStore
 
     init(
         configuration: AppConfiguration,
         catalog: any CatalogRepository,
         tickets: any TicketsRepository,
+        offlineTickets: any OfflineTicketStore,
         auth: AuthStore
     ) {
         self.configuration = configuration
         self.catalog = catalog
         self.tickets = tickets
+        self.offlineTickets = offlineTickets
         self.auth = auth
     }
 
     static func make(for configuration: AppConfiguration) -> AppContainer {
         let store = KeychainTokenStore(environment: configuration.environment)
+        let offline = FileOfflineTicketStore(environment: configuration.environment)
         FreshInstallGuard.clearSessionIfNewInstall(store)
         switch configuration.environment {
         case .mock:
@@ -36,7 +40,7 @@ final class AppContainer {
                     identity: user.email, user: user))
             }
             #endif
-            return .mock(configuration: configuration, store: store)
+            return .mock(configuration: configuration, store: store, offline: offline)
         case .qa, .prod:
             // Two clients: auth-flow calls (and the refresh itself) go out with no bearer token;
             // everything else carries the session's token and refreshes it on a 401.
@@ -51,13 +55,15 @@ final class AppContainer {
                 configuration: configuration,
                 catalog: RemoteCatalogRepository(client: client),
                 tickets: RemoteTicketsRepository(client: client),
-                auth: AuthStore(service: service, session: session))
+                offlineTickets: offline,
+                auth: AuthStore(service: service, session: session, offlineTickets: offline))
         }
     }
 
     static func mock(
         configuration: AppConfiguration = .mock,
         store: any TokenStore = InMemoryTokenStore(),
+        offline: any OfflineTicketStore = InMemoryOfflineTicketStore(),
         latency: Duration = .milliseconds(350)
     ) -> AppContainer {
         let session = AuthSession(store: store, configuration: configuration) { _ in
@@ -67,7 +73,8 @@ final class AppContainer {
             configuration: configuration,
             catalog: MockCatalogRepository(latency: latency),
             tickets: MockTicketsRepository(session: session, latency: latency),
-            auth: AuthStore(service: MockAuthService(session: session, latency: latency), session: session))
+            offlineTickets: offline,
+            auth: AuthStore(service: MockAuthService(session: session, latency: latency), session: session, offlineTickets: offline))
     }
 
     /// For SwiftUI previews: fixtures, no delay, signed out.

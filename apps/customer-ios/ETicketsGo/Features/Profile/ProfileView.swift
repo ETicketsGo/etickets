@@ -37,7 +37,11 @@ struct ProfileView: View {
             Section("Account") {
                 comingSoon("Edit profile", "person")
                 comingSoon("Notifications", "bell")
-                comingSoon("Payment receipts", "doc.text")
+                if container.auth.user != nil {
+                    NavigationLink(value: Route.bookings) {
+                        Label("Booking history", systemImage: "doc.text").foregroundStyle(ETGColor.ink)
+                    }
+                }
             }
 
             Section("Support") {

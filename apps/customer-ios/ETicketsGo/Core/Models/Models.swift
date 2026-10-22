@@ -172,6 +172,8 @@ struct MovieShow: Codable, Hashable, Identifiable, Sendable {
         let name: String
         let city: String
         let country: String?
+        /// Additive field proposed in PR #462; absent from older servers.
+        let timezone: String?
     }
 
     struct Cinema: Codable, Hashable, Sendable {
@@ -207,7 +209,8 @@ struct MovieShow: Codable, Hashable, Identifiable, Sendable {
     let localDate: String?
 
     var id: String { sessionId }
-    var timeZone: String? { cinema?.timezone }
+    /// The cinema's zone, else the venue's (general admission has no cinema).
+    var timeZone: String? { cinema?.timezone ?? venue.timezone }
 }
 
 /// GET /public/movies/:slug/shows
@@ -232,7 +235,7 @@ struct Ticket: Codable, Hashable, Identifiable, Sendable {
     let startsAt: Date
     /// Optional on purpose: tickets.service.ts withholds the presentable value from a viewer
     /// who may see a ticket but not present it.
-    let qrToken: String?
+    var qrToken: String?
     /// The server-rendered code (PNG data URL). The only thing the app shows at the gate: the
     /// server decides what is presentable (it may be a vendor barcode), so the app never
     /// builds a code from the token itself.
@@ -254,6 +257,74 @@ struct Ticket: Codable, Hashable, Identifiable, Sendable {
     /// QR the server sends no qrDataUrl; rendering other symbologies is a later phase.
     let vendorBarcode: String?
     let vendorBarcodeFormat: String?
+    /// Never sent by the API. Set only on the offline copy, which drops `qrToken`, to remember
+    /// whether the server let this viewer present the ticket when it was saved.
+    var cachedPresentable: Bool?
+
+    /// Whether this viewer may present the ticket at the gate. The server withholds `qrToken`
+    /// (null) from a viewer who may see a ticket but not use it, e.g. the buyer of a ticket
+    /// they transferred. Missing or empty counts as withheld.
+    var isPresentable: Bool {
+        if let token = qrToken { return !token.isEmpty }
+        return cachedPresentable ?? false
+    }
+
+    /// The copy kept for offline use: the signed credential removed, the server-rendered
+    /// image (which is all the screen shows) and the presentability decision kept.
+    func offlineCopy() -> Ticket {
+        var copy = self
+        copy.cachedPresentable = isPresentable
+        copy.qrToken = nil
+        return copy
+    }
+}
+
+/// GET /bookings (paginated) and GET /bookings/:id — the fields the Expo app validates
+/// (apps/customer-mobile/src/features/bookings/schema.ts `bookingSchema`).
+struct Booking: Codable, Hashable, Identifiable, Sendable {
+    struct BookingEvent: Codable, Hashable, Sendable {
+        let title: String
+        let slug: String
+    }
+
+    struct BookingSession: Codable, Hashable, Sendable {
+        let startsAt: Date
+    }
+
+    struct Counts: Codable, Hashable, Sendable {
+        let tickets: Int
+    }
+
+    let id: String
+    let eventId: String
+    let eventSessionId: String
+    let reference: String?
+    let buyerName: String
+    let buyerEmail: String
+    let status: String
+    let currency: String
+    let subtotalMinor: Int
+    let bookingFeeMinor: Int
+    let paymentFeeMinor: Int
+    let discountMinor: Int
+    let customerFeeMinor: Int
+    let totalMinor: Int
+    let holdExpiresAt: Date?
+    let confirmedAt: Date?
+    let cancelledAt: Date?
+    let createdAt: Date
+    let event: BookingEvent
+    let eventSession: BookingSession
+    let counts: Counts?
+
+    enum CodingKeys: String, CodingKey {
+        case id, eventId, eventSessionId, reference, buyerName, buyerEmail, status, currency
+        case subtotalMinor, bookingFeeMinor, paymentFeeMinor, discountMinor, customerFeeMinor, totalMinor
+        case holdExpiresAt, confirmedAt, cancelledAt, createdAt, event, eventSession
+        case counts = "_count"
+    }
+
+    var ticketCount: Int { counts?.tickets ?? 0 }
 }
 
 /// GET /auth/me — `AuthenticatedUser` in packages/shared-types/src/api.ts.

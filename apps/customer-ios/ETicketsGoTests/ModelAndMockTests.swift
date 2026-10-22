@@ -12,7 +12,7 @@ struct ModelAndMockTests {
         let feed = try await catalog.discovery()
         #expect(!feed.nowShowing.isEmpty && !feed.trendingEvents.isEmpty)
         let tickets = try await MockTicketsRepository(session: await signedInSession(), latency: .zero).tickets()
-        #expect(tickets.count == 4)
+        #expect(tickets.count == 5)
         #expect(try FixtureStore().load("me", as: AuthenticatedUser.self).fullName == "Demo Customer")
     }
 
@@ -69,6 +69,8 @@ struct ModelAndMockTests {
     func money() {
         let india = Locale(identifier: "en_IN")
         #expect(Formatters.money(minor: 79900, currency: "INR", locale: india) == "₹799")
+        #expect(Formatters.money(minor: 49350, currency: "INR", locale: india) == "₹493.50")
+        #expect(Formatters.money(minor: 167790, currency: "INR", locale: india) == "₹1,677.90")
         #expect(Formatters.fromPrice(minor: 0, currency: "INR") == "Free")
         #expect(Formatters.fromPrice(minor: nil, currency: "INR") == nil)
         #expect(Formatters.category("live-music") == "Live Music")
@@ -112,10 +114,10 @@ struct ModelAndMockTests {
     func ticketSplit() async throws {
         let tickets = try await MockTicketsRepository(session: await signedInSession(), latency: .zero).tickets()
         let now = ISO8601DateFormatter().date(from: "2026-10-22T00:00:00Z")!
-        guard case let .tickets(upcoming, past) = MyTicketsViewModel.split(tickets, now: now) else {
+        guard case let .tickets(upcoming, past, _) = MyTicketsViewModel.split(tickets, now: now) else {
             Issue.record("expected tickets"); return
         }
-        #expect(upcoming.count == 3)
+        #expect(upcoming.count == 4)
         #expect(past.map(\.id) == ["tkt-4"])
         #expect(upcoming.map(\.startsAt) == upcoming.map(\.startsAt).sorted())
     }

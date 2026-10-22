@@ -84,6 +84,34 @@
     "vendorBarcodeFormat": null
   },
   {
+    "id": "tkt-5",
+    "serial": "ETG-5C1A-0001",
+    "status": "VALID",
+    "holderName": "Demo Customer",
+    "ticketType": "Stalls",
+    "event": {
+      "title": "Carnatic Evening with the Sruti Ensemble",
+      "slug": "carnatic-evening-bengaluru"
+    },
+    "startsAt": "2026-11-21T12:30:00.000Z",
+    "qrToken": null,
+    "qrDataUrl": null,
+    "bookingId": "bkg-3",
+    "bookingRef": "ETG-K4T7WB",
+    "experienceType": "event",
+    "seatLabel": null,
+    "venueName": "Ranga Auditorium",
+    "screenName": null,
+    "cinemaName": null,
+    "assignmentStatus": "UNASSIGNED",
+    "attendeeName": null,
+    "ownedByViewer": true,
+    "assignedToViewer": false,
+    "timezone": "Asia/Kolkata",
+    "vendorBarcode": null,
+    "vendorBarcodeFormat": null
+  },
+  {
     "id": "tkt-4",
     "serial": "ETG-2B8D-0001",
     "status": "USED",
