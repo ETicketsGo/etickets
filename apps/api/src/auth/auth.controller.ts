@@ -48,10 +48,14 @@ const phoneVerifySchema = z.object({
 type PhoneVerifyBody = z.infer<typeof phoneVerifySchema>;
 import { AllowMfaPending, CurrentUser, Public, type RequestUser } from '../common/decorators';
 import { AUTH_THROTTLE } from '../common/throttle';
-import { clientIpFor, resolveClientIpHeader } from '../common/client-ip';
+import { clientIpFor, requestClientIp, resolveClientIpHeader } from '../common/client-ip';
 
+/*
+  The CLIENT's address, not `req.ip`: behind Railway `req.ip` is the edge node, so every audit row
+  and every session row named one of a handful of proxies (see common/client-ip.ts).
+*/
 function meta(req: Request) {
-  return { userAgent: req.header('user-agent') ?? undefined, ip: req.ip };
+  return { userAgent: req.header('user-agent') ?? undefined, ip: requestClientIp(req) };
 }
 
 /*
@@ -232,6 +236,21 @@ export class AuthController {
   async logout(@Body(new ZodValidationPipe(refreshSchema)) body: RefreshInput) {
     await this.auth.logout(body.refreshToken);
     return { success: true };
+  }
+
+  /*
+    "Sign out everywhere": every refresh token this account holds, on every device, is revoked.
+
+    Needs a valid access token, and the account is taken from it - never from the body - so
+    nobody can sign somebody else out. Access tokens already issued are not revocable (they are
+    stateless) and run out within JWT_ACCESS_TTL, 15 minutes by default; no device can renew one.
+  */
+  @ApiBearerAuth()
+  @Post('logout-all')
+  @ApiOperation({ summary: 'Sign out on every device: end every session this account has.' })
+  async logoutAll(@CurrentUser() user: RequestUser, @Req() req: Request) {
+    const revoked = await this.auth.logoutAll(user.id, meta(req));
+    return { success: true, revoked };
   }
 
   @ApiBearerAuth()

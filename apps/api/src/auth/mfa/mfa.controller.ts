@@ -16,6 +16,7 @@ import {
 } from '../../common/decorators';
 import { AppException, ErrorCodes } from '../../common/errors';
 import { AUTH_THROTTLE } from '../../common/throttle';
+import { requestClientIp } from '../../common/client-ip';
 
 const code = z
   .string()
@@ -42,8 +43,9 @@ const verifySchema = z
 const enrollStartSchema = z.object({ password: z.string().min(1).max(200) });
 const enrollConfirmSchema = z.object({ code });
 
+// The client's address, not Railway's edge node (see common/client-ip.ts).
 function meta(req: Request) {
-  return { ip: req.ip, userAgent: req.header('user-agent') ?? undefined };
+  return { ip: requestClientIp(req), userAgent: req.header('user-agent') ?? undefined };
 }
 
 // Same per-client ceiling as every credential route (AUTH_THROTTLE, 10/min by default); the
