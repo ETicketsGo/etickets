@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { isReservedEmail } from '@eticketsgo/shared-types';
-import { Body, Controller, Get, Post, Req } from '@nestjs/common';
+import { Body, Controller, Get, Optional, Post, Req } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
@@ -47,7 +48,7 @@ const phoneVerifySchema = z.object({
 type PhoneVerifyBody = z.infer<typeof phoneVerifySchema>;
 import { AllowMfaPending, CurrentUser, Public, type RequestUser } from '../common/decorators';
 import { AUTH_THROTTLE } from '../common/throttle';
-import { requestClientIp } from '../common/client-ip';
+import { clientIpFor, requestClientIp, resolveClientIpHeader } from '../common/client-ip';
 
 /*
   The CLIENT's address, not `req.ip`: behind Railway `req.ip` is the edge node, so every audit row
@@ -55,6 +56,20 @@ import { requestClientIp } from '../common/client-ip';
 */
 function meta(req: Request) {
   return { userAgent: req.header('user-agent') ?? undefined, ip: requestClientIp(req) };
+}
+
+/*
+  The address a sign-in code request is recorded against (`PhoneOtp.requestedIp`, kept for
+  abuse investigation). It used to be `req.ip`, which behind Railway is the EDGE NODE that
+  carried the request, so every row named one of a handful of Railway proxies and an
+  investigation could not tell one attacker from ten thousand customers. The throttler had
+  already been moved to `clientIpFor` for the same reason; this records what it counts.
+
+  A function rather than a method so it is not mistaken for a route handler (auth-throttle.spec
+  enumerates the controller's prototype).
+*/
+export function requesterIp(req: Request, header: string | null): string {
+  return clientIpFor(req, header);
 }
 
 /*
@@ -66,10 +81,19 @@ function meta(req: Request) {
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
+  /** The trusted client-IP header, decided once at boot exactly as the throttler decides it. */
+  private readonly clientIpHeader: string | null;
+
   constructor(
     private readonly auth: AuthService,
     private readonly otp: PhoneOtpService,
-  ) {}
+    @Optional() config?: ConfigService,
+  ) {
+    this.clientIpHeader = resolveClientIpHeader({
+      THROTTLE_CLIENT_IP_HEADER: config?.get<string>('THROTTLE_CLIENT_IP_HEADER'),
+      RAILWAY_ENVIRONMENT_ID: process.env.RAILWAY_ENVIRONMENT_ID,
+    });
+  }
 
   /*
     Phone sign-in, in two steps.
@@ -86,7 +110,7 @@ export class AuthController {
     @Body(new ZodValidationPipe(phoneRequestSchema)) body: { phone: string },
     @Req() req: Request,
   ) {
-    return this.otp.requestCode(body.phone, meta(req).ip);
+    return this.otp.requestCode(body.phone, requesterIp(req, this.clientIpHeader));
   }
 
   @Public()
@@ -134,7 +158,7 @@ export class AuthController {
     @Body(new ZodValidationPipe(phoneRequestSchema)) body: { phone: string },
     @Req() req: Request,
   ) {
-    return this.otp.requestCode(body.phone, meta(req).ip);
+    return this.otp.requestCode(body.phone, requesterIp(req, this.clientIpHeader));
   }
 
   @Throttle(AUTH_THROTTLE)

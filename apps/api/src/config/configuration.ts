@@ -701,6 +701,41 @@ const envSchema = z.object({
 
   OTP_SMS_TEMPLATE: z.string().optional(),
 
+  /*
+    -- Sign-in code text limits (SMS pumping and OTP flooding) -------------------------
+    The request-code endpoint is public and every request is a text message we pay for. See
+    src/auth/otp-sms-guard.ts for how these are enforced (one atomic Redis script, with an
+    atomic Postgres fallback) and src/auth/otp-destination.ts for which numbers may be texted.
+
+    Per number: a resend cooldown, then an hourly and a daily cap. The defaults leave room for
+    somebody whose first text was slow (five in an hour, a minute apart) and refuse a script.
+  */
+  OTP_SMS_RESEND_COOLDOWN_SECONDS: z.coerce.number().int().min(0).max(3600).default(60),
+  OTP_SMS_MAX_PER_NUMBER_PER_HOUR: z.coerce.number().int().min(1).max(100).default(5),
+  OTP_SMS_MAX_PER_NUMBER_PER_DAY: z.coerce.number().int().min(1).max(500).default(10),
+  /*
+    The platform's daily budget of sign-in texts, per UTC day: a circuit breaker. When it is
+    spent, phone sign-in answers SMS_UNAVAILABLE (sign in with email) until the next day and
+    ONE ops alert is raised; another is raised once a day at OTP_SMS_BUDGET_WARN_PERCENT.
+    Set well above honest traffic: reaching it means somebody is spending our money. 0 turns
+    the total budget off (never do that in production).
+  */
+  OTP_SMS_DAILY_LIMIT_TOTAL: z.coerce.number().int().min(0).default(2000),
+  /*
+    Per-market daily budgets, `IN=1500,US=500,CA=250` (the default). A market with no entry is
+    limited only by the total. US and Canadian texts cost far more than Indian ones, which is
+    why their defaults are lower. Set to an empty value to have no per-market budgets at all.
+  */
+  OTP_SMS_DAILY_LIMIT_BY_MARKET: z
+    .string()
+    .trim()
+    .regex(
+      /^$|^[A-Za-z]{2}=\d+(\s*,\s*[A-Za-z]{2}=\d+)*$/,
+      'must look like IN=1500,US=500,CA=250 (two-letter market = whole number)',
+    )
+    .optional(),
+  OTP_SMS_BUDGET_WARN_PERCENT: z.coerce.number().int().min(0).max(100).default(80),
+
   // --- SMS (recipient = payload.phone) ---
   /*
     Where rate-limit counters live. Deliberately NO schema default: unset means "this
@@ -1161,6 +1196,20 @@ function assertDeliverabilityHardening(cfg: AppConfig): void {
       errors.push(
         '  - SMS_PROVIDER=log SENDS NO TEXT MESSAGES: phone sign-in codes would never arrive. ' +
           'Route SMS to a real provider, e.g. SMS_PROVIDER_BY_MARKET=IN=msg91,US=twilio,CA=twilio.',
+      );
+    } else {
+      /*
+        A real provider with no market table routes EVERY destination through that one
+        provider: routing only refuses an unknown or unsupported market once a table exists
+        (`routeNotificationProvider`). That is "text anywhere on Earth at whatever it costs",
+        which is what an SMS-pumping attack needs, and Indian operators drop non-DLT traffic
+        from a foreign provider anyway. The sign-in code path checks destinations itself
+        (auth/otp-destination.ts), but booking texts do not, so the table is required here.
+      */
+      errors.push(
+        `  - SMS_PROVIDER=${cfg.SMS_PROVIDER} with no SMS_PROVIDER_BY_MARKET would send text ` +
+          'messages to ANY country through one provider. Name the markets explicitly, e.g. ' +
+          'SMS_PROVIDER_BY_MARKET=IN=msg91,US=twilio,CA=twilio.',
       );
     }
   } else {

@@ -22,7 +22,9 @@ export type OpsAlertKind =
   | 'CONFIRMATION_FAILED_AFTER_PAYMENT'
   | 'WEBHOOK_DEAD_LETTERED'
   | 'NOTIFICATION_FAILED'
-  | 'PILOT_AUTO_PAUSED';
+  | 'PILOT_AUTO_PAUSED'
+  /** The daily sign-in-code SMS budget was reached (or neared). See auth/otp-sms-guard.ts. */
+  | 'OTP_SMS_BUDGET';
 
 /** A fact printed in the alert. Ids, amounts, codes and statuses only - never a person. */
 export type OpsAlertFact = string | number | boolean | null | undefined;
@@ -72,6 +74,12 @@ export const DEFAULT_THROTTLE_MS = 15 * 60 * 1000;
  * hours is enough to start a person on it.
  */
 const PER_ENTITY_THROTTLE_MS = 6 * 60 * 60 * 1000;
+/**
+ * The SMS budget alert is keyed by phase, budget and UTC day, so each distinct event already
+ * has its own key. A day-long window means an attack that keeps hitting a spent budget (or a
+ * Postgres fallback that cannot share the "already alerted" flag) is still ONE email that day.
+ */
+const PER_DAY_THROTTLE_MS = 24 * 60 * 60 * 1000;
 const THROTTLE_MS: Record<OpsAlertKind, number> = {
   WEBHOOK_SIGNATURE_REJECTED: DEFAULT_THROTTLE_MS,
   CAPTURE_NOT_APPLIED: PER_ENTITY_THROTTLE_MS,
@@ -82,6 +90,7 @@ const THROTTLE_MS: Record<OpsAlertKind, number> = {
   NOTIFICATION_FAILED: DEFAULT_THROTTLE_MS,
   // Grouped by trigger. Each pause is written to the audit log; the email is the nudge.
   PILOT_AUTO_PAUSED: DEFAULT_THROTTLE_MS,
+  OTP_SMS_BUDGET: PER_DAY_THROTTLE_MS,
 };
 
 /**
