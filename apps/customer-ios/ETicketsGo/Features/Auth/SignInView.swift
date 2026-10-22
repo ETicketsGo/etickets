@@ -170,6 +170,7 @@ struct SignInView: View {
                 }
                 .buttonStyle(.etgPrimary)
                 .disabled(!model.canSubmit)
+                .accessibilityIdentifier("signIn.submit")
                 .listRowBackground(Color.clear)
                 .listRowInsets(EdgeInsets())
 
@@ -212,6 +213,7 @@ struct SignInView: View {
                 // An explicit prompt: a bare email placeholder is styled as a link.
                 TextField("Email", text: $model.email, prompt: Text(verbatim: "you@example.com").foregroundStyle(ETGColor.muted))
                     .textContentType(.username)
+                    .accessibilityIdentifier("signIn.email")
                     .keyboardType(.emailAddress)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
@@ -222,6 +224,7 @@ struct SignInView: View {
             field("Password", error: model.error(for: "password")) {
                 SecureField(model.emailMode == .signUp ? "At least 10 characters" : "Password", text: $model.password)
                     .textContentType(model.emailMode == .signUp ? .newPassword : .password)
+                    .accessibilityIdentifier("signIn.password")
                     .submitLabel(.go)
                     .focused($focus, equals: .password)
                     .onSubmit { if model.canSubmit { Task { await model.submit() } } }

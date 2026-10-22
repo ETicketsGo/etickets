@@ -197,7 +197,8 @@ struct OfflineTicketTests {
         try offline.save(try await mockTickets(), userId: "usr-demo", now: .now)
 
         _ = await session.refreshAfterUnauthorized(rejected: "a")
-        for _ in 0..<50 where auth.state != .signedOut { try await Task.sleep(for: .milliseconds(10)) }
+        // Wait for the expiry event to reach the store (it is delivered asynchronously).
+        for _ in 0..<100 where !auth.sessionExpired { try await Task.sleep(for: .milliseconds(10)) }
         #expect(auth.sessionExpired)
         #expect(offline.load(userId: "usr-demo", now: .now) == nil)
     }

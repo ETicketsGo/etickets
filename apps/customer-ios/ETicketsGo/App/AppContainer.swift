@@ -32,7 +32,9 @@ final class AppContainer {
         switch configuration.environment {
         case .mock:
             #if DEBUG
-            // Debug MOCK builds only: `-ETGMockSignedIn` starts with the demo customer signed in.
+            // Debug MOCK builds only: `-ETGResetSession` starts signed out with nothing saved, so
+            // each UI test is independent; `-ETGMockSignedIn` starts with the demo customer signed in.
+            if ProcessInfo.processInfo.arguments.contains("-ETGResetSession") { store.clear(); offline.clear() }
             if ProcessInfo.processInfo.arguments.contains("-ETGMockSignedIn"),
                let user = try? FixtureStore().load("me", as: AuthenticatedUser.self) {
                 try? store.save(StoredSession(
