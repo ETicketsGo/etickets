@@ -12,7 +12,7 @@ import {
   type RequestUser,
 } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
-import { auditIpFor } from '../common/client-ip';
+import { requestClientIp } from '../common/client-ip';
 
 const suspendBody = z.object({ reason: z.string().trim().min(1).max(500) });
 const optionalReasonBody = z
@@ -45,7 +45,7 @@ export class AdminUsersController {
     @Body(new ZodValidationPipe(suspendBody)) body: z.infer<typeof suspendBody>,
     @Req() req: Request,
   ) {
-    return this.users.suspend(actor, id, body.reason, { ip: auditIpFor(req) });
+    return this.users.suspend(actor, id, body.reason, { ip: requestClientIp(req) });
   }
 
   @Post(':id/reinstate')
@@ -57,7 +57,7 @@ export class AdminUsersController {
     @Body(new ZodValidationPipe(optionalReasonBody)) body: { reason?: string },
     @Req() req: Request,
   ) {
-    return this.users.reinstate(actor, id, body?.reason, { ip: auditIpFor(req) });
+    return this.users.reinstate(actor, id, body?.reason, { ip: requestClientIp(req) });
   }
 
   @Post(':id/revoke-sessions')
@@ -69,6 +69,6 @@ export class AdminUsersController {
     @Body(new ZodValidationPipe(optionalReasonBody)) body: { reason?: string },
     @Req() req: Request,
   ) {
-    return this.users.revokeSessions(actor, id, body?.reason, { ip: auditIpFor(req) });
+    return this.users.revokeSessions(actor, id, body?.reason, { ip: requestClientIp(req) });
   }
 }

@@ -87,13 +87,15 @@ export function clientIpTracker(header: string | null): (req: Record<string, unk
 }
 
 /**
- * The client address to write on an audit row, by the same rule the rate limiter counts by.
+ * The client address for an AUDIT or SESSION record: the same address the throttle counts.
  *
- * `req.ip` behind Railway is the edge node, not the person, so an audit row that recorded it
- * would name a proxy as the place a suspension was ordered from. The header decision is read
- * from the environment exactly as `throttlerOptions` reads it at boot.
+ * Audit rows and refresh-token rows used to store `req.ip`, which behind Railway is the edge
+ * node (see the top of this file). A sign-in history that names the same two proxy addresses for
+ * every customer is not forensic evidence of anything, and a "new device" signal built on it
+ * would be noise. Resolved from the environment on each call, the way the throttler resolves it
+ * at boot, so both always agree on who the client is.
  */
-export function auditIpFor(req: Request, env: NodeJS.ProcessEnv = process.env): string {
+export function requestClientIp(req: Request, env: NodeJS.ProcessEnv = process.env): string {
   return clientIpFor(
     req,
     resolveClientIpHeader({

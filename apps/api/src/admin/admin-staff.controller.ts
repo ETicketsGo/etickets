@@ -13,7 +13,7 @@ import {
 import { MfaService } from '../auth/mfa/mfa.service';
 import type { Request } from 'express';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
-import { auditIpFor } from '../common/client-ip';
+import { requestClientIp } from '../common/client-ip';
 
 const permissionsBody = z.object({
   permissions: z.array(z.enum(ALL_ADMIN_PERMISSIONS as [string, ...string[]])).max(50),
@@ -70,7 +70,7 @@ export class AdminStaffController {
       userId,
       body.permissions as AdminPermission[],
       body.note,
-      { ip: auditIpFor(req) },
+      { ip: requestClientIp(req) },
     );
   }
 
@@ -107,7 +107,7 @@ export class AdminStaffController {
     @Param('userId') userId: string,
     @Req() req: Request,
   ) {
-    await this.mfa.resetForUser(actor, userId, { ip: req.ip });
+    await this.mfa.resetForUser(actor, userId, { ip: requestClientIp(req) });
     return { success: true };
   }
 
