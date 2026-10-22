@@ -101,3 +101,22 @@ export function requestClientIp(req: Request, env: NodeJS.ProcessEnv = process.e
 export function clientIpTracker(header: string | null): (req: Record<string, unknown>) => string {
   return (req) => clientIpFor(req as unknown as Request, header);
 }
+
+/**
+ * The client address for an AUDIT or SESSION record: the same address the throttle counts.
+ *
+ * Audit rows and refresh-token rows used to store `req.ip`, which behind Railway is the edge
+ * node (see the top of this file). A sign-in history that names the same two proxy addresses for
+ * every customer is not forensic evidence of anything, and a "new device" signal built on it
+ * would be noise. Resolved from the environment on each call, the way the throttler resolves it
+ * at boot, so both always agree on who the client is.
+ */
+export function requestClientIp(req: Request, env: NodeJS.ProcessEnv = process.env): string {
+  return clientIpFor(
+    req,
+    resolveClientIpHeader({
+      THROTTLE_CLIENT_IP_HEADER: env.THROTTLE_CLIENT_IP_HEADER,
+      RAILWAY_ENVIRONMENT_ID: env.RAILWAY_ENVIRONMENT_ID,
+    }),
+  );
+}

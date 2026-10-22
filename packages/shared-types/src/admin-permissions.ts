@@ -32,6 +32,15 @@ export const AdminPermission = {
   FINANCE_READ: 'FINANCE_READ',
   /** See queue depth, outbox, sync health and other operational internals. */
   OPS_READ: 'OPS_READ',
+  /**
+   * Search the platform audit log and read a record's history.
+   *
+   * It used to ride on BOOKING_READ, the support desk's floor. But the log is not a booking: it
+   * names who granted which duty, who revealed a bank number, who signed in from where and who
+   * approved which refund. A support desk that can read that can map who holds power and when
+   * they act, which is the thing separation of duties exists to keep from one pair of hands.
+   */
+  AUDIT_READ: 'AUDIT_READ',
 
   // ── Acting on what the reads show, split from them on purpose ──────────────────
   /*
@@ -111,6 +120,15 @@ export const AdminPermission = {
    * cannot be delegated casually.
    */
   ADMIN_MANAGE: 'ADMIN_MANAGE',
+  /**
+   * Suspend or reinstate any account, and sign it out everywhere (revoke every refresh token).
+   *
+   * Split from ADMIN_MANAGE because stopping an abusive customer is a support decision, not a
+   * question of who works in the back office. It is still granted person by person, in no
+   * bundle: an account that can lock others out can lock out the people who would stop it.
+   * Nobody may suspend themselves, and only a super admin may suspend a super admin.
+   */
+  USER_SUSPEND: 'USER_SUSPEND',
 } as const;
 
 export type AdminPermission = (typeof AdminPermission)[keyof typeof AdminPermission];
@@ -217,7 +235,16 @@ export const ADMIN_PRESETS: Record<
     label: 'Finance reviewer',
     description:
       'Reads revenue, the audit log and finance reports for independent oversight. Cannot see bank accounts and cannot move money.',
-    grants: [AdminPermission.BOOKING_READ, AdminPermission.FINANCE_READ],
+    /*
+      AUDIT_READ: the description has always promised "the audit log", and since the log left
+      BOOKING_READ this is the one bundle whose job is independent oversight. No other bundle
+      carries it - a desk that does the work is not the desk that reviews the record of it.
+    */
+    grants: [
+      AdminPermission.BOOKING_READ,
+      AdminPermission.FINANCE_READ,
+      AdminPermission.AUDIT_READ,
+    ],
   },
   OPS_ONCALL: {
     label: 'On-call operations',

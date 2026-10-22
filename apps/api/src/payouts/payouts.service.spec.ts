@@ -53,6 +53,8 @@ function makeService(
 ) {
   let created = 0;
   const prisma = withTransaction({
+    // An approved organizer: a SUSPENDED one may not raise payouts (suspended-organization-money.spec.ts).
+    organization: { findUnique: jest.fn().mockResolvedValue({ status: 'APPROVED' }) },
     // Read by `generate` to leave out events a provider transfer has already claimed, and by
     // the "why is nothing due" path. Empty is the ordinary case: no transfers, nothing held.
     settlement: { findMany: jest.fn().mockResolvedValue([]) },
@@ -337,6 +339,8 @@ describe('PayoutsService.generate — never pays the same revenue twice', () => 
     const settlements: Row[] = [];
     const allocations: Row[] = [];
     const prisma = withTransaction({
+      // An approved organizer: a SUSPENDED one may not raise payouts (suspended-organization-money.spec.ts).
+      organization: { findUnique: jest.fn().mockResolvedValue({ status: 'APPROVED' }) },
       settlement: {
         findMany: jest.fn(async ({ where }: { where: Row }) =>
           settlements.filter((row) => matches(row, where)),

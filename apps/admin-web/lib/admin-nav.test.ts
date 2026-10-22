@@ -134,6 +134,7 @@ describe('the menu lists only what the operator can open', () => {
     'PAYOUT_MANAGE',
     'PAYMENT_ADMIN',
     'ADMIN_MANAGE',
+    'AUDIT_READ',
   ];
   const hrefsFor = (perms: string[]) =>
     visibleNav(adminNavItems(), { roles: ['ADMIN'], adminPermissions: perms }).map((i) => i.href);
@@ -193,9 +194,14 @@ describe('the menu lists only what the operator can open', () => {
       'Events',
       'Bookings & payments',
       'Refunds & disputes',
-      'Audit history',
+      // Not 'Audit history': the log needs AUDIT_READ now, which the support desk does not hold.
       'My account',
     ]);
+  });
+
+  it('shows the audit log only to somebody holding AUDIT_READ', () => {
+    expect(hrefsFor(['BOOKING_READ'])).not.toContain('/admin/audit');
+    expect(hrefsFor(['AUDIT_READ'])).toContain('/admin/audit');
   });
 
   it('keeps platform configuration away from the support desk', () => {

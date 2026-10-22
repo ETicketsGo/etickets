@@ -68,6 +68,14 @@ describe('integration-real-postgres: admin permissions', () => {
         record: async (e: { action: string; metadata?: Record<string, unknown> }) => {
           audited.push(e);
         },
+        // Permission changes are audited inside their own transaction (the row and the change
+        // commit together); admin-users.service.spec.ts holds the rollback. Recorded the same way.
+        recordInTransaction: async (
+          _tx: unknown,
+          e: { action: string; metadata?: Record<string, unknown> },
+        ) => {
+          audited.push(e);
+        },
       } as never,
       // Only reached by inviteStaff, which this suite does not exercise.
       { issueInvitation: async () => 'http://localhost:3001/invite/unused' } as never,
@@ -188,13 +196,36 @@ describe('integration-real-postgres: admin permissions', () => {
   );
 
   maybe(
+    'refuses to let a staff manager change their own duties, and changes nothing',
+    async () => {
+      // ADMIN_MANAGE used to be able to grant itself REFUND_APPROVE or PAYOUT_EXECUTE.
+      const before = await heldBy(deskId, ['ADMIN']);
+      const selfActor = { id: deskId, email: 'd@t.test', fullName: 'D', roles: [] } as never;
+      await expect(
+        staff.setPermissions(selfActor, deskId, [
+          AdminPermission.ADMIN_MANAGE,
+          AdminPermission.REFUND_APPROVE,
+        ]),
+      ).rejects.toThrow(/your own duties/i);
+      expect(await heldBy(deskId, ['ADMIN'])).toEqual(before);
+    },
+    60_000,
+  );
+
+  maybe(
     'refuses to write grants for a super admin',
     async () => {
       // They already hold everything by role; editable-looking grants would invite somebody
       // to "tidy up" a super admin into having none.
+      // Asked by SOMEBODY ELSE: the super admin acting on their own row is refused earlier, by
+      // the no-self-change rule (asserted second), which would hide this one.
+      const otherActor = { id: deskId, email: 'd@t.test', fullName: 'D', roles: [] } as never;
+      await expect(
+        staff.setPermissions(otherActor, superId, [AdminPermission.BOOKING_READ]),
+      ).rejects.toThrow(/already holds every permission/i);
       await expect(
         staff.setPermissions(actor(), superId, [AdminPermission.BOOKING_READ]),
-      ).rejects.toThrow(/already holds every permission/i);
+      ).rejects.toThrow(/your own duties/i);
     },
     60_000,
   );

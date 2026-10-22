@@ -114,7 +114,14 @@ export class AdminReportsController {
     The rows themselves are untouched. An audit record is one action, and grouping rows away
     would destroy the thing the log exists for.
   */
+  /*
+    AUDIT_READ, not the class's BOOKING_READ. The log names who granted which duty, who revealed
+    a bank number and who approved which refund; the support desk's floor is reading bookings,
+    not mapping who holds power and when they use it. A handler's capability REPLACES the
+    class's (the guard resolves handler-then-class), so BOOKING_READ alone no longer opens it.
+  */
   @Get('audit')
+  @RequiresAdmin(AdminPermission.AUDIT_READ)
   @ApiOperation({ summary: 'Search the audit log (admin), filtered by action, organizer or date.' })
   audit(
     @Query(
@@ -128,6 +135,7 @@ export class AdminReportsController {
   }
 
   @Get('audit/summary')
+  @RequiresAdmin(AdminPermission.AUDIT_READ)
   @ApiOperation({
     summary: 'Audit activity grouped by organizer (with country) and by action, for a window.',
   })

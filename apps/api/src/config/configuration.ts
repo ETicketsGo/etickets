@@ -528,6 +528,10 @@ const envSchema = z.object({
    * exactly as before, so deploying this code can never lock the only administrator out. Set,
    * every administrator must enroll at their next sign-in. Once any authenticator exists the key
    * is mandatory (outside LOCAL and DEV the API refuses to boot without it; see MfaBootCheck).
+   *
+   * In STAGING and PRODUCTION it is mandatory from the start (assertAdminMfaArmed): "dormant"
+   * is a safe way to roll the feature out to QA, and an unacceptable way to run the back office
+   * of a platform that holds real customers' money.
    */
   MFA_ENCRYPTION_KEY: z
     .string()
@@ -543,6 +547,21 @@ const envSchema = z.object({
   MFA_ISSUER: z.string().trim().min(1).max(40).default('ETicketsGo'),
   /** How recent a second-factor check must be for the most sensitive back-office actions. */
   MFA_STEPUP_MINUTES: z.coerce.number().int().min(1).max(60).default(10),
+  /**
+   * Per-ACCOUNT password sign-in backoff (src/auth/login-backoff.ts). After THRESHOLD wrong
+   * passwords for one address inside WINDOW, that address waits BASE seconds before the next
+   * try, doubling per further failure up to MAX. Never a permanent lock. The per-client throttle
+   * (AUTH_THROTTLE) is separate and unchanged.
+   */
+  LOGIN_BACKOFF_THRESHOLD: z.coerce.number().int().min(1).max(100).default(5),
+  LOGIN_BACKOFF_WINDOW_MINUTES: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(24 * 60)
+    .default(15),
+  LOGIN_BACKOFF_BASE_SECONDS: z.coerce.number().int().min(1).max(3600).default(30),
+  LOGIN_BACKOFF_MAX_MINUTES: z.coerce.number().int().min(1).max(60).default(15),
   /**
    * Break-glass for a sole administrator who lost both device and recovery codes. The operator
    * sets BOTH, redeploys, and at boot that one account's authenticator is removed (so the next
@@ -719,6 +738,41 @@ const envSchema = z.object({
   PLATFORM_TAX_REGION: z.string().trim().max(60).optional(),
 
   OTP_SMS_TEMPLATE: z.string().optional(),
+
+  /*
+    -- Sign-in code text limits (SMS pumping and OTP flooding) -------------------------
+    The request-code endpoint is public and every request is a text message we pay for. See
+    src/auth/otp-sms-guard.ts for how these are enforced (one atomic Redis script, with an
+    atomic Postgres fallback) and src/auth/otp-destination.ts for which numbers may be texted.
+
+    Per number: a resend cooldown, then an hourly and a daily cap. The defaults leave room for
+    somebody whose first text was slow (five in an hour, a minute apart) and refuse a script.
+  */
+  OTP_SMS_RESEND_COOLDOWN_SECONDS: z.coerce.number().int().min(0).max(3600).default(60),
+  OTP_SMS_MAX_PER_NUMBER_PER_HOUR: z.coerce.number().int().min(1).max(100).default(5),
+  OTP_SMS_MAX_PER_NUMBER_PER_DAY: z.coerce.number().int().min(1).max(500).default(10),
+  /*
+    The platform's daily budget of sign-in texts, per UTC day: a circuit breaker. When it is
+    spent, phone sign-in answers SMS_UNAVAILABLE (sign in with email) until the next day and
+    ONE ops alert is raised; another is raised once a day at OTP_SMS_BUDGET_WARN_PERCENT.
+    Set well above honest traffic: reaching it means somebody is spending our money. 0 turns
+    the total budget off (never do that in production).
+  */
+  OTP_SMS_DAILY_LIMIT_TOTAL: z.coerce.number().int().min(0).default(2000),
+  /*
+    Per-market daily budgets, `IN=1500,US=500,CA=250` (the default). A market with no entry is
+    limited only by the total. US and Canadian texts cost far more than Indian ones, which is
+    why their defaults are lower. Set to an empty value to have no per-market budgets at all.
+  */
+  OTP_SMS_DAILY_LIMIT_BY_MARKET: z
+    .string()
+    .trim()
+    .regex(
+      /^$|^[A-Za-z]{2}=\d+(\s*,\s*[A-Za-z]{2}=\d+)*$/,
+      'must look like IN=1500,US=500,CA=250 (two-letter market = whole number)',
+    )
+    .optional(),
+  OTP_SMS_BUDGET_WARN_PERCENT: z.coerce.number().int().min(0).max(100).default(80),
 
   // --- SMS (recipient = payload.phone) ---
   /*
@@ -1086,6 +1140,35 @@ function assertProductionHardening(cfg: AppConfig): void {
 }
 
 /**
+ * STAGING and PRODUCTION must not run the back office on a password alone.
+ *
+ * ── THE FAILURE THIS CLOSES ────────────────────────────────────────────────────────
+ * `MFA_ENCRYPTION_KEY` is both the key for authenticator secrets and the switch that arms admin
+ * MFA. Unset, MfaService only WARNS and every administrator signs in with a password - which is
+ * right while the feature is being rolled out, and was the state any production could silently
+ * be left in by a forgotten variable. Nothing looked wrong: the API was healthy and the log line
+ * that said "MFA is NOT enforced" scrolled past at boot.
+ *
+ * ── WHY APP_ENV AND NOT NODE_ENV ───────────────────────────────────────────────────
+ * QA and UAT run NODE_ENV=production, and the deliverability guard below explains why keying a
+ * "real customers" rule on NODE_ENV is the wrong condition. Lower environments keep the dormant
+ * mode, which is how a new environment is brought up before its key is chosen.
+ *
+ * MfaService's own boot check (refuse when authenticators exist but the key does not) still
+ * applies everywhere outside LOCAL/DEV; this is the stricter rule for the two real tiers.
+ */
+function assertAdminMfaArmed(cfg: AppConfig): void {
+  if (!['STAGING', 'PRODUCTION'].includes(cfg.APP_ENV)) return;
+  if ((cfg.MFA_ENCRYPTION_KEY ?? '').trim()) return;
+  throw new Error(
+    `Admin sign-in is not protected in this environment:\n` +
+      `  - MFA_ENCRYPTION_KEY is not set, so administrators could sign in with a password only. ` +
+      `APP_ENV=${cfg.APP_ENV} requires it. Generate one with: openssl rand -base64 32 ` +
+      `(keep it in the secret store: losing it voids every enrolled authenticator).`,
+  );
+}
+
+/**
  * A production that cannot deliver a ticket must not start.
  *
  * ── THE FAILURE THIS EXISTS TO PREVENT ─────────────────────────────────────────────
@@ -1151,6 +1234,20 @@ function assertDeliverabilityHardening(cfg: AppConfig): void {
       errors.push(
         '  - SMS_PROVIDER=log SENDS NO TEXT MESSAGES: phone sign-in codes would never arrive. ' +
           'Route SMS to a real provider, e.g. SMS_PROVIDER_BY_MARKET=IN=msg91,US=twilio,CA=twilio.',
+      );
+    } else {
+      /*
+        A real provider with no market table routes EVERY destination through that one
+        provider: routing only refuses an unknown or unsupported market once a table exists
+        (`routeNotificationProvider`). That is "text anywhere on Earth at whatever it costs",
+        which is what an SMS-pumping attack needs, and Indian operators drop non-DLT traffic
+        from a foreign provider anyway. The sign-in code path checks destinations itself
+        (auth/otp-destination.ts), but booking texts do not, so the table is required here.
+      */
+      errors.push(
+        `  - SMS_PROVIDER=${cfg.SMS_PROVIDER} with no SMS_PROVIDER_BY_MARKET would send text ` +
+          'messages to ANY country through one provider. Name the markets explicitly, e.g. ' +
+          'SMS_PROVIDER_BY_MARKET=IN=msg91,US=twilio,CA=twilio.',
       );
     }
   } else {
@@ -1925,6 +2022,7 @@ export function loadConfig(): AppConfig {
     throw new Error(`Invalid environment configuration:\n${issues}`);
   }
   assertProductionHardening(parsed.data);
+  assertAdminMfaArmed(parsed.data);
   assertDeliverabilityHardening(parsed.data);
   assertSesProductionReadiness(parsed.data);
   assertOfflineCheckinWindow(parsed.data);

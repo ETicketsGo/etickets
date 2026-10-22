@@ -2,7 +2,13 @@ import { Body, Controller, Get, Ip, Param, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
 import { AdminPermission, Role } from '@eticketsgo/shared-types';
-import { RequiresAdmin, CurrentUser, Roles, type RequestUser } from '../../common/decorators';
+import {
+  RequiresAdmin,
+  RequiresRecentMfa,
+  CurrentUser,
+  Roles,
+  type RequestUser,
+} from '../../common/decorators';
 import { ZodValidationPipe } from '../../common/zod-validation.pipe';
 import { PAYMENT_ENVS, type PaymentEnvName } from '../configuration/payment-environment';
 import { PromotionService } from './promotion.service';
@@ -18,6 +24,9 @@ const createSchema = z.object({
  * Environment-promotion console (ADR-026). ADMIN/SUPER_ADMIN only. Preview a
  * promotion report, request a promotion, approve (two-person for production),
  * reject, and apply. All actions audited by the service.
+ *
+ * Approve and apply also need a fresh second-factor check: applying copies payment provider
+ * configuration into another environment, production included.
  */
 @ApiTags('admin-payment-promotion')
 @ApiBearerAuth()
@@ -62,6 +71,7 @@ export class PromotionController {
   }
 
   @Post(':id/approve')
+  @RequiresRecentMfa()
   @ApiOperation({ summary: 'Approve a promotion (two-person for production) (admin).' })
   approve(
     @CurrentUser() user: RequestUser,
@@ -83,6 +93,7 @@ export class PromotionController {
   }
 
   @Post(':id/apply')
+  @RequiresRecentMfa()
   @ApiOperation({ summary: 'Apply an approved promotion to the target env (admin).' })
   apply(@CurrentUser() user: RequestUser, @Ip() ip: string, @Param('id') id: string) {
     return this.promotion.apply(id, { userId: user.id, ip });

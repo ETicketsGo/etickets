@@ -10,6 +10,7 @@ import {
   matchDltSms,
   renderDltSms,
 } from '../notifications/templates/dlt-sms-templates';
+import { withTransactions } from './test-support/otp-sms-memory-store';
 
 /**
  * A sign-in code to an Indian number, through the real chain, once DLT is approved.
@@ -42,13 +43,13 @@ function build(values: Record<string, string | undefined>) {
   const resolver = new NotificationProviderResolver(config, new TemplateBindingService(config));
   const sms = new SmsChannel(resolver);
   const updateMany = jest.fn().mockResolvedValue({ count: 1 });
-  const prisma = {
+  const prisma = withTransactions({
     phoneOtp: {
       count: jest.fn().mockResolvedValue(0),
       create: jest.fn().mockResolvedValue({}),
       updateMany,
     },
-  };
+  });
   return { service: new PhoneOtpService(prisma as never, sms, config), updateMany };
 }
 

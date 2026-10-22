@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { AdminStaffController } from './admin-staff.controller';
 import { AdminStaffService } from './admin-staff.service';
+import { AdminUsersController } from './admin-users.controller';
+import { AdminUsersService } from './admin-users.service';
 import { AdminController } from './admin.controller';
 import { AdminBookingViewController } from './admin-booking-view.controller';
 import { TaxRulesService } from './tax-rules.service';
@@ -16,11 +18,17 @@ import { OrganizationsModule } from '../organizations/organizations.module';
 
 @Module({
   imports: [MoviesModule, OrganizationsModule, BookingsModule, AuthModule],
-  controllers: [AdminController, AdminBookingViewController, AdminStaffController],
+  controllers: [
+    AdminController,
+    AdminBookingViewController,
+    AdminStaffController,
+    AdminUsersController,
+  ],
   providers: [
     AdminService,
     AdminGroupingService,
     AdminStaffService,
+    AdminUsersService,
     FirstAdminBootstrap,
     TaxRulesService,
     CinemaPricingPoliciesService,

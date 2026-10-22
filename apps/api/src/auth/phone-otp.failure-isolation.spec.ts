@@ -4,6 +4,7 @@ import { PhoneOtpService } from './phone-otp.service';
 import { AppException } from '../common/errors';
 import { TransportError } from '../notifications/channels/transports/transport-http';
 import { classifyTwilioError } from '../notifications/channels/transports/sms.transport';
+import { withTransactions } from './test-support/otp-sms-memory-store';
 
 /**
  * Phone sign-in when the text message cannot be sent.
@@ -21,7 +22,7 @@ const DIGITS = '9704464007';
 const ACCOUNT = `AC${'b'.repeat(32)}`;
 
 function setup(failure: unknown) {
-  const prisma = {
+  const prisma = withTransactions({
     phoneOtp: {
       count: jest.fn().mockResolvedValue(0),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
@@ -30,7 +31,7 @@ function setup(failure: unknown) {
         ...data,
       })),
     },
-  };
+  });
   const sms = { deliver: jest.fn().mockRejectedValue(failure) };
   const config = { get: (key: string) => (key === 'APP_ENV' ? 'PRODUCTION' : undefined) };
   const service = new PhoneOtpService(prisma as never, sms as never, config as never);

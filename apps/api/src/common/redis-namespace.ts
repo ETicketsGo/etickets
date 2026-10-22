@@ -40,6 +40,18 @@ export function throttleKeyPrefix(appEnv: string | undefined): string {
 }
 
 /**
+ * Namespace for sign-in-code text-message counters: per-number limits and the daily budget.
+ *
+ * Separate from `throttle` because these count MONEY (one text message each), not requests,
+ * and somebody reading the keyspace during an SMS-pumping incident should be able to see the
+ * spend counters on their own. The per-number keys carry a keyed hash of the number, never the
+ * number itself (see `auth/otp-sms-guard.ts`).
+ */
+export function otpSmsKeyPrefix(appEnv: string | undefined): string {
+  return `${redisEnvRoot(appEnv)}:otp-sms`;
+}
+
+/**
  * BullMQ connection options parsed from a `REDIS_URL`.
  *
  * BullMQ needs a plain options object rather than a shared `ioredis` instance (passing an
