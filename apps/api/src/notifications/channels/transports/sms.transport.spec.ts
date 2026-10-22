@@ -2,7 +2,12 @@ import { Logger } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
 import { FailureClass, NotificationType, SuppressionReason } from '@eticketsgo/shared-types';
 import { RenderedNotification } from '../notification-channel.interface';
-import { SmsLogTransport, TwilioSmsTransport, selectSmsTransport } from './sms.transport';
+import {
+  SmsLogTransport,
+  TwilioSmsTransport,
+  selectSmsTransport,
+  withSenderName,
+} from './sms.transport';
 import { TransportError } from './transport-http';
 
 const mockMessagesCreate = jest.fn().mockResolvedValue({ sid: 'SM1' });
@@ -174,6 +179,25 @@ describe('TwilioSmsTransport', () => {
     expect(() => new TwilioSmsTransport(configFor({ TWILIO_AUTH_TOKEN: 't' }))).toThrow(
       /TWILIO_ACCOUNT_SID/,
     );
+  });
+});
+
+describe('TwilioSmsTransport: every text names ETicketsGo, as the A2P campaign registered', () => {
+  it('prefixes a body that does not name us, such as the show-cancelled text', async () => {
+    const body = 'We are sorry - Comedy Night has been cancelled. A refund will follow.';
+    await new TwilioSmsTransport(twilioConfig).send(msg({ body }));
+    expect(mockMessagesCreate.mock.calls[0][0].body).toBe(`ETicketsGo: ${body}`);
+  });
+
+  it('sends a body that already names ETicketsGo unchanged, such as the sign-in code', async () => {
+    const body = '123456 is your ETicketsGo sign-in code. It expires in 10 minutes.';
+    await new TwilioSmsTransport(twilioConfig).send(msg({ body }));
+    expect(mockMessagesCreate.mock.calls[0][0].body).toBe(body);
+  });
+
+  it('is a pure function of the body', () => {
+    expect(withSenderName('Hello')).toBe('ETicketsGo: Hello');
+    expect(withSenderName('ETicketsGo: Hello')).toBe('ETicketsGo: Hello');
   });
 });
 

@@ -94,6 +94,25 @@ export class SmsLogTransport implements SmsTransport {
  * sent: Twilio would choose between them, and the answer to "which sender carried this" must
  * be the configuration, not Twilio's precedence rules.
  */
+/** The brand every US/Canada text names, as registered in the A2P 10DLC campaign. */
+export const SMS_SENDER_NAME = 'ETicketsGo';
+
+/**
+ * The body as carriers expect to see it: naming who sent it.
+ *
+ * Every sample message registered for the A2P 10DLC campaign begins `ETicketsGo:`
+ * (docs/compliance/A2P_10DLC_READINESS.md), and US carriers filter traffic that does not match
+ * the approved campaign. The show-cancelled text is shared with email and begins "We are sorry -
+ * <event> has been cancelled", which names the event and not us. A body that already names
+ * ETicketsGo (the sign-in code does) is sent exactly as it is.
+ *
+ * Twilio only. India's MSG91 texts must match their DLT-registered wording character for
+ * character, so nothing is added there.
+ */
+export function withSenderName(body: string): string {
+  return body.includes(SMS_SENDER_NAME) ? body : `${SMS_SENDER_NAME}: ${body}`;
+}
+
 export class TwilioSmsTransport implements SmsTransport {
   readonly name = 'twilio' as const;
   readonly enforcesOptOut = true;
@@ -115,7 +134,7 @@ export class TwilioSmsTransport implements SmsTransport {
       const created = await this.client.messages.create({
         to,
         messagingServiceSid: this.messagingServiceSid,
-        body: msg.body,
+        body: withSenderName(msg.body),
       });
       return { provider: this.name, providerMessageId: created.sid };
     } catch (err) {
