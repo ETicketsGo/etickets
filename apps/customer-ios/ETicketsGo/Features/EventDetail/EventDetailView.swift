@@ -91,7 +91,7 @@ struct EventDetailView: View {
                     if sessions.isEmpty {
                         Text("No upcoming dates.").font(ETGFont.subheadline).foregroundStyle(ETGColor.muted)
                     }
-                    ForEach(sessions) { session in SessionCard(session: session) }
+                    ForEach(sessions) { session in SessionCard(session: session, timeZone: session.timeZone ?? event.timeZone) }
                 }
 
                 if let policy = event.refundPolicy, !policy.isEmpty {
@@ -138,10 +138,11 @@ struct EventDetailView: View {
 
 struct SessionCard: View {
     let session: EventSession
+    var timeZone: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: ETGSpace.sm) {
-            let when = Formatters.dayAndTime(session.startsAt)
+            let when = Formatters.dayAndTime(session.startsAt, timeZone: timeZone)
             HStack {
                 Text(when.day).font(ETGFont.headline)
                 Text(when.time).font(ETGFont.headline.monospacedDigit()).foregroundStyle(ETGColor.muted)

@@ -36,8 +36,10 @@
         "cinema": {
           "id": "cin-galaxy",
           "name": "Galaxy Cinemas Banjara Hills",
-          "brand": "Galaxy"
+          "brand": "Galaxy",
+          "timezone": "Asia/Kolkata"
         },
+        "localDate": null,
         "screen": {
           "id": "scr-1",
           "name": "Screen 1"
@@ -66,8 +68,10 @@
         "cinema": {
           "id": "cin-galaxy",
           "name": "Galaxy Cinemas Banjara Hills",
-          "brand": "Galaxy"
+          "brand": "Galaxy",
+          "timezone": "Asia/Kolkata"
         },
+        "localDate": null,
         "screen": {
           "id": "scr-2",
           "name": "Screen 2"
@@ -96,8 +100,10 @@
         "cinema": {
           "id": "cin-galaxy",
           "name": "Galaxy Cinemas Banjara Hills",
-          "brand": "Galaxy"
+          "brand": "Galaxy",
+          "timezone": "Asia/Kolkata"
         },
+        "localDate": null,
         "screen": {
           "id": "scr-3",
           "name": "Screen 3"
@@ -126,8 +132,10 @@
         "cinema": {
           "id": "cin-galaxy",
           "name": "Galaxy Cinemas Banjara Hills",
-          "brand": "Galaxy"
+          "brand": "Galaxy",
+          "timezone": "Asia/Kolkata"
         },
+        "localDate": null,
         "screen": {
           "id": "scr-1",
           "name": "Screen 1"
@@ -156,8 +164,10 @@
         "cinema": {
           "id": "cin-galaxy",
           "name": "Galaxy Cinemas Banjara Hills",
-          "brand": "Galaxy"
+          "brand": "Galaxy",
+          "timezone": "Asia/Kolkata"
         },
+        "localDate": null,
         "screen": {
           "id": "scr-2",
           "name": "Screen 2"
@@ -186,8 +196,10 @@
         "cinema": {
           "id": "cin-galaxy",
           "name": "Galaxy Cinemas Banjara Hills",
-          "brand": "Galaxy"
+          "brand": "Galaxy",
+          "timezone": "Asia/Kolkata"
         },
+        "localDate": null,
         "screen": {
           "id": "scr-3",
           "name": "Screen 3"
@@ -241,8 +253,10 @@
         "cinema": {
           "id": "cin-galaxy",
           "name": "Galaxy Cinemas Banjara Hills",
-          "brand": "Galaxy"
+          "brand": "Galaxy",
+          "timezone": "Asia/Kolkata"
         },
+        "localDate": null,
         "screen": {
           "id": "scr-1",
           "name": "Screen 1"
@@ -271,8 +285,10 @@
         "cinema": {
           "id": "cin-galaxy",
           "name": "Galaxy Cinemas Banjara Hills",
-          "brand": "Galaxy"
+          "brand": "Galaxy",
+          "timezone": "Asia/Kolkata"
         },
+        "localDate": null,
         "screen": {
           "id": "scr-2",
           "name": "Screen 2"
@@ -301,8 +317,10 @@
         "cinema": {
           "id": "cin-galaxy",
           "name": "Galaxy Cinemas Banjara Hills",
-          "brand": "Galaxy"
+          "brand": "Galaxy",
+          "timezone": "Asia/Kolkata"
         },
+        "localDate": null,
         "screen": {
           "id": "scr-3",
           "name": "Screen 3"
@@ -331,8 +349,10 @@
         "cinema": {
           "id": "cin-galaxy",
           "name": "Galaxy Cinemas Banjara Hills",
-          "brand": "Galaxy"
+          "brand": "Galaxy",
+          "timezone": "Asia/Kolkata"
         },
+        "localDate": null,
         "screen": {
           "id": "scr-1",
           "name": "Screen 1"
@@ -361,8 +381,10 @@
         "cinema": {
           "id": "cin-galaxy",
           "name": "Galaxy Cinemas Banjara Hills",
-          "brand": "Galaxy"
+          "brand": "Galaxy",
+          "timezone": "Asia/Kolkata"
         },
+        "localDate": null,
         "screen": {
           "id": "scr-2",
           "name": "Screen 2"
@@ -391,8 +413,10 @@
         "cinema": {
           "id": "cin-galaxy",
           "name": "Galaxy Cinemas Banjara Hills",
-          "brand": "Galaxy"
+          "brand": "Galaxy",
+          "timezone": "Asia/Kolkata"
         },
+        "localDate": null,
         "screen": {
           "id": "scr-3",
           "name": "Screen 3"
@@ -445,8 +469,10 @@
         "cinema": {
           "id": "cin-galaxy",
           "name": "Galaxy Cinemas Banjara Hills",
-          "brand": "Galaxy"
+          "brand": "Galaxy",
+          "timezone": "Asia/Kolkata"
         },
+        "localDate": null,
         "screen": {
           "id": "scr-1",
           "name": "Screen 1"
@@ -475,8 +501,10 @@
         "cinema": {
           "id": "cin-galaxy",
           "name": "Galaxy Cinemas Banjara Hills",
-          "brand": "Galaxy"
+          "brand": "Galaxy",
+          "timezone": "Asia/Kolkata"
         },
+        "localDate": null,
         "screen": {
           "id": "scr-2",
           "name": "Screen 2"
@@ -505,8 +533,10 @@
         "cinema": {
           "id": "cin-galaxy",
           "name": "Galaxy Cinemas Banjara Hills",
-          "brand": "Galaxy"
+          "brand": "Galaxy",
+          "timezone": "Asia/Kolkata"
         },
+        "localDate": null,
         "screen": {
           "id": "scr-3",
           "name": "Screen 3"
@@ -535,8 +565,10 @@
         "cinema": {
           "id": "cin-galaxy",
           "name": "Galaxy Cinemas Banjara Hills",
-          "brand": "Galaxy"
+          "brand": "Galaxy",
+          "timezone": "Asia/Kolkata"
         },
+        "localDate": null,
         "screen": {
           "id": "scr-1",
           "name": "Screen 1"
@@ -565,8 +597,10 @@
         "cinema": {
           "id": "cin-galaxy",
           "name": "Galaxy Cinemas Banjara Hills",
-          "brand": "Galaxy"
+          "brand": "Galaxy",
+          "timezone": "Asia/Kolkata"
         },
+        "localDate": null,
         "screen": {
           "id": "scr-2",
           "name": "Screen 2"
@@ -595,8 +629,10 @@
         "cinema": {
           "id": "cin-galaxy",
           "name": "Galaxy Cinemas Banjara Hills",
-          "brand": "Galaxy"
+          "brand": "Galaxy",
+          "timezone": "Asia/Kolkata"
         },
+        "localDate": null,
         "screen": {
           "id": "scr-3",
           "name": "Screen 3"

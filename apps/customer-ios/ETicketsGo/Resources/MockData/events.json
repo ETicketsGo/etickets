@@ -7,7 +7,8 @@
     "venue": {
       "name": "Riverside Amphitheatre",
       "city": "Hyderabad",
-      "country": "IN"
+      "country": "India",
+      "timezone": "Asia/Kolkata"
     },
     "organizer": "Riverside Live",
     "nextSessionAt": "2026-11-07T14:00:00.000Z",
@@ -24,7 +25,8 @@
     "venue": {
       "name": "Kalakshetram Hall",
       "city": "Vijayawada",
-      "country": "IN"
+      "country": "India",
+      "timezone": "Asia/Kolkata"
     },
     "organizer": "Open Mic Collective",
     "nextSessionAt": "2026-11-08T13:30:00.000Z",
@@ -41,7 +43,8 @@
     "venue": {
       "name": "Ranga Auditorium",
       "city": "Bengaluru",
-      "country": "IN"
+      "country": "India",
+      "timezone": "Asia/Kolkata"
     },
     "organizer": "Sruti Foundation",
     "nextSessionAt": "2026-11-21T12:30:00.000Z",
@@ -58,7 +61,8 @@
     "venue": {
       "name": "Lakeside Grounds",
       "city": "Hyderabad",
-      "country": "IN"
+      "country": "India",
+      "timezone": "Asia/Kolkata"
     },
     "organizer": "Taste of Deccan",
     "nextSessionAt": "2026-10-31T10:30:00.000Z",
@@ -75,7 +79,8 @@
     "venue": {
       "name": "Studio Mitti",
       "city": "Vijayawada",
-      "country": "IN"
+      "country": "India",
+      "timezone": "Asia/Kolkata"
     },
     "organizer": "Studio Mitti",
     "nextSessionAt": "2026-11-01T05:30:00.000Z",
@@ -92,7 +97,8 @@
     "venue": {
       "name": "Central Stadium",
       "city": "Bengaluru",
-      "country": "IN"
+      "country": "India",
+      "timezone": "Asia/Kolkata"
     },
     "organizer": "Run Bengaluru",
     "nextSessionAt": "2026-12-06T00:30:00.000Z",

@@ -80,11 +80,16 @@ final class MovieDetailViewModel {
         }
     }
 
-    /// Shows grouped by calendar day, in order.
-    static func days(_ shows: [MovieShow], calendar: Calendar = .current) -> [(day: Date, shows: [MovieShow])] {
-        Dictionary(grouping: shows) { calendar.startOfDay(for: $0.startsAt) }
-            .map { (day: $0.key, shows: $0.value.sorted { $0.startsAt < $1.startsAt }) }
-            .sorted { $0.day < $1.day }
+    /// Shows grouped by their calendar day in the cinema's zone (a 10:30 PM IST show is that
+    /// day's last show even for a customer reading in another zone), in order.
+    nonisolated static func days(_ shows: [MovieShow], deviceZone: TimeZone = .current) -> [(day: Date, shows: [MovieShow])] {
+        Dictionary(grouping: shows) { show in
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.timeZone = Formatters.venueZone(show.timeZone, deviceZone: deviceZone)
+            return calendar.startOfDay(for: show.startsAt)
+        }
+        .map { (day: $0.key, shows: $0.value.sorted { $0.startsAt < $1.startsAt }) }
+        .sorted { $0.day < $1.day }
     }
 }
 
@@ -148,7 +153,7 @@ struct MovieDetailView: View {
         }
         ForEach(MovieDetailViewModel.days(data.shows), id: \.day) { group in
             VStack(alignment: .leading, spacing: ETGSpace.sm) {
-                Text(group.day.formatted(.dateTime.weekday(.wide).day().month(.wide)))
+                Text(Formatters.dayAndTime(group.day, timeZone: group.shows.first?.timeZone).day)
                     .font(ETGFont.headline).foregroundStyle(ETGColor.ink)
                 ForEach(group.shows) { show in
                     NavigationLink(value: Route.event(slug: show.eventSlug)) { ShowtimeRow(show: show) }
@@ -165,7 +170,7 @@ struct ShowtimeRow: View {
 
     var body: some View {
         HStack(spacing: ETGSpace.md) {
-            Text(show.startsAt.formatted(.dateTime.hour().minute()))
+            Text(Formatters.time(show.startsAt, timeZone: show.timeZone))
                 .font(ETGFont.headline.monospacedDigit())
                 .foregroundStyle(ETGColor.ink)
                 .frame(minWidth: 72, alignment: .leading)
