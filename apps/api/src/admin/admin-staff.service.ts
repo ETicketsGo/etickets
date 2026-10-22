@@ -78,7 +78,24 @@ export class AdminStaffService {
     userId: string,
     permissions: AdminPermission[],
     note?: string,
+    meta: { ip?: string | null } = {},
   ) {
+    /*
+      ── NOBODY CHANGES THEIR OWN DUTIES ───────────────────────────────────────────────
+      ADMIN_MANAGE could grant capabilities to the account holding it, so "may manage staff" was
+      "may hold REFUND_APPROVE, PAYOUT_EXECUTE and PLATFORM_CONFIG whenever they like". The split
+      between the person who checks a bank account and the person who pays into it meant nothing
+      against one ADMIN_MANAGE holder. A change to your own set - adding OR removing - now needs a
+      second person, which is what makes the grant a decision rather than a self-service menu.
+      Checked first, before anything is read, so a refusal reveals nothing about the target.
+    */
+    if (userId === actor.id) {
+      throw new AppException(
+        ErrorCodes.FORBIDDEN,
+        'You cannot change your own duties. Ask another member of staff who manages staff to do it.',
+        HttpStatus.FORBIDDEN,
+      );
+    }
     const target = await this.prisma.user.findUnique({
       where: { id: userId },
       select: { id: true, email: true, roles: true, adminGrants: { select: { permission: true } } },
@@ -121,16 +138,18 @@ export class AdminStaffService {
           })),
         });
       }
-    });
-
-    await this.audit.record({
-      actorUserId: actor.id,
-      action: 'ADMIN_PERMISSIONS_CHANGED',
-      entityType: 'User',
-      entityId: userId,
-      // Both sides recorded: "what changed" is the question, and an after-only entry cannot
-      // answer it once the row has been overwritten again.
-      metadata: { email: target.email, before, after: [...wanted].sort(), note: note ?? null },
+      // In the same transaction: if the record of who changed whose duties cannot be written,
+      // the change is not made. A silent grant is the one thing this log must never miss.
+      await this.audit.recordInTransaction(tx, {
+        actorUserId: actor.id,
+        action: 'ADMIN_PERMISSIONS_CHANGED',
+        entityType: 'User',
+        entityId: userId,
+        // Both sides recorded: "what changed" is the question, and an after-only entry cannot
+        // answer it once the row has been overwritten again.
+        metadata: { email: target.email, before, after: [...wanted].sort(), note: note ?? null },
+        ip: meta.ip ?? null,
+      });
     });
 
     return { userId, permissions: wanted };

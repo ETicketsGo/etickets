@@ -27,7 +27,7 @@ accounts are `SUPER_ADMIN` and hold everything by role, so this column does not 
 
 | Capability                    | What it allows                                                                                                                                                                                      | Presets                                  | Added by the approved preset change (2026-10-10)         |
 | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- | -------------------------------------------------------- |
-| `BOOKING_READ`                | See bookings, payments, movies, the dashboard, the audit log, the support inbox, and the user directory                                                                                             | SUPPORT, REFUND_DESK, FINANCE            | -                                                        |
+| `BOOKING_READ`                | See bookings, payments, movies, the dashboard, the support inbox, and the user directory (no longer the audit log: see `AUDIT_READ`)                                                                | SUPPORT, REFUND_DESK, FINANCE            | -                                                        |
 | `ORGANIZER_READ`              | See organizations, their events and their status                                                                                                                                                    | SUPPORT, REFUND_DESK, MODERATOR          | -                                                        |
 | `FINANCE_READ`                | See revenue reports, analytics, compensations (and their dry run), discrepancies (list, CSV, aging), disputes, and notification costs                                                               | FINANCE                                  | -                                                        |
 | `OPS_READ`                    | See queue health, failed jobs, the outbox, inventory sync health and mappings, the maintenance flag, feature flags, and notification delivery and readiness                                         | OPERATIONS                               | OPERATIONS                                               |
@@ -46,12 +46,38 @@ accounts are `SUPER_ADMIN` and hold everything by role, so this column does not 
 | `FINANCE_APPROVE`             | Approve, retry or release the lease of a booking compensation, which lets it execute                                                                                                                | FINANCE                                  | FINANCE                                                  |
 | `FINANCE_RESOLVE`             | Run discrepancy detection; assign, resolve or ignore a discrepancy; park a compensation for manual review                                                                                           | FINANCE                                  | FINANCE                                                  |
 | `SUPPORT_MANAGE`              | Change the status (open, triaged, closed) of a support submission or complaint                                                                                                                      | SUPPORT                                  | SUPPORT                                                  |
+| `AUDIT_READ`                  | Search the audit log and read a record's history (`GET /admin/audit`, `/admin/audit/summary`)                                                                                                       | FINANCE_REVIEWER                         | sec/admin-authorization                                  |
+| `USER_SUSPEND`                | Suspend or reinstate any account, and sign it out everywhere (`POST /admin/users/:id/suspend`, `/reinstate`, `/revoke-sessions`). Step-up MFA. Not your own; a super admin only by a super admin    | none                                     | sec/admin-authorization                                  |
 
 Sensitive: `OPS_EXECUTE`, `FINANCE_APPROVE` and `FINANCE_RESOLVE` replay jobs and syncs, let
 compensations execute, or close money findings. When they were split out of the reads, nobody was
 granted them. The owner has since approved putting them in presets (see "Preset change approved
 by the owner"). A preset applies only when somebody assigns it on Staff & duties. No migration
 assigns a capability, and no existing account changed.
+
+## Admin authorization hardening (branch `sec/admin-authorization`)
+
+- **No self-grant.** `PUT /admin/staff/:userId/permissions` refuses a change to the caller's own
+  set (403), adding or removing. A second person who holds `ADMIN_MANAGE` must make it. The audit
+  row (`ADMIN_PERMISSIONS_CHANGED`, now with client IP) is written in the same transaction, so a
+  change the log cannot record is not made.
+- **Audit log needs `AUDIT_READ`.** `BOOKING_READ` alone now gets 403. Only `FINANCE_REVIEWER`
+  carries it among the presets (its description always promised the audit log). No migration:
+  existing accounts that read the log through `BOOKING_READ` lose it until somebody grants
+  `AUDIT_READ`. The console hides the menu link, the dashboard timeline and the "What happened"
+  cards without it.
+- **Accounts can be suspended.** `USER_SUSPEND` (no preset): suspend (status `SUSPENDED` and every
+  refresh token revoked), reinstate, and revoke-sessions. Each needs step-up MFA and writes its
+  audit row (`USER_SUSPENDED`, `USER_REINSTATED`, `USER_SESSIONS_REVOKED`: actor, target, reason,
+  client IP) in the same transaction as the change.
+- **Suspended organizers cannot move money.** Saving a bank account and raising a payout (manual
+  and the automatic run) are refused with 403 while the organization is `SUSPENDED`. Reads stay
+  open.
+- **More step-up MFA** (`@RequiresRecentMfa`, enforced for back-office accounts only):
+  `POST /refunds/:id/process`; fee rule, tax rule and cinema pricing policy writes; payment
+  provider config and route writes; outage suspensions, failover and maintenance; promotion
+  approve and apply; organizer suspension and deletion; the three account actions above.
+  Listed in `admin/step-up-routes.spec.ts`.
 
 ## Endpoints re-guarded in this change
 

@@ -45,7 +45,10 @@ function loadDatabaseUrl(): string | undefined {
 const { PrismaClient } = require('@prisma/client');
 type Client = InstanceType<typeof PrismaClient>;
 
-const noAudit = { record: async () => undefined } as never;
+const noAudit = {
+  record: async () => undefined,
+  recordInTransaction: async () => undefined,
+} as never;
 const noAudience = { notifyAdmins: async () => undefined } as never;
 /** Stands in for the deployed organizer console, so link-host assertions mean something. */
 const ORGANIZER_BASE = 'https://organizer.example.test';

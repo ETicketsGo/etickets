@@ -36,7 +36,14 @@ import {
 import { OrganizationsService } from './organizations.service';
 import { OrganizationLifecycleService } from './organization-lifecycle.service';
 import { ORG_REGISTRATION_THROTTLE } from './organization-limits';
-import { RequiresAdmin, CurrentUser, Public, Roles, type RequestUser } from '../common/decorators';
+import {
+  RequiresAdmin,
+  RequiresRecentMfa,
+  CurrentUser,
+  Public,
+  Roles,
+  type RequestUser,
+} from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { groupScopeFields, type GroupScope } from '../admin/group-scope';
 import { countryFilterField } from '../admin/country-filter';
@@ -366,6 +373,8 @@ export class AdminOrganizationsController {
     answer in that case, and it stops new sales the moment it is set - see the booking path.
   */
   @Post(':id/suspension')
+  // Step-up: it stops (or restarts) every sale an organizer makes, and their payouts with it.
+  @RequiresRecentMfa()
   @ApiOperation({ summary: 'Suspend an organizer, or reinstate one (admin).' })
   setSuspension(
     @CurrentUser() admin: RequestUser,
@@ -395,6 +404,7 @@ export class AdminOrganizationsController {
   }
 
   @Delete(':id')
+  @RequiresRecentMfa()
   @ApiOperation({ summary: 'Delete an organizer that never traded (admin).' })
   removeOrganization(@CurrentUser() admin: RequestUser, @Param('id') id: string) {
     return this.lifecycle.remove(admin, id);

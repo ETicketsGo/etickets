@@ -63,12 +63,14 @@ export class AdminStaffController {
     @CurrentUser() actor: RequestUser,
     @Param('userId') userId: string,
     @Body(new ZodValidationPipe(permissionsBody)) body: z.infer<typeof permissionsBody>,
+    @Req() req: Request,
   ) {
     return this.staff.setPermissions(
       actor,
       userId,
       body.permissions as AdminPermission[],
       body.note,
+      { ip: requestClientIp(req) },
     );
   }
 

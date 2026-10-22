@@ -18,7 +18,13 @@ import {
 import { TaxRulesService } from './tax-rules.service';
 import { CinemaPricingPoliciesService, type PolicyInput } from './cinema-pricing-policies.service';
 import { MoviesService } from '../movies/movies.service';
-import { RequiresAdmin, CurrentUser, Roles, type RequestUser } from '../common/decorators';
+import {
+  RequiresAdmin,
+  RequiresRecentMfa,
+  CurrentUser,
+  Roles,
+  type RequestUser,
+} from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 
 /**
@@ -317,8 +323,14 @@ export class AdminController {
     return this.admin.feeRules();
   }
 
+  /*
+    Every PLATFORM_CONFIG write below also needs a fresh second-factor check (@RequiresRecentMfa):
+    a fee, tax or regulated-price rule changes what every buyer pays from the next sale on, so
+    a console left open on an unlocked machine must not be able to change one.
+  */
   @Post('fee-rules')
   @RequiresAdmin(AdminPermission.PLATFORM_CONFIG)
+  @RequiresRecentMfa()
   @ApiOperation({ summary: 'Create a platform fee-rule band (admin).' })
   createFeeRule(
     @CurrentUser() user: { id: string },
@@ -329,6 +341,7 @@ export class AdminController {
 
   @Patch('fee-rules/:id')
   @RequiresAdmin(AdminPermission.PLATFORM_CONFIG)
+  @RequiresRecentMfa()
   @ApiOperation({ summary: 'Update a platform fee rule (admin).' })
   updateFeeRule(
     @CurrentUser() user: { id: string },
@@ -385,6 +398,7 @@ export class AdminController {
 
   @Post('cinema-pricing-policies')
   @RequiresAdmin(AdminPermission.PLATFORM_CONFIG)
+  @RequiresRecentMfa()
   @ApiOperation({ summary: 'Create a DRAFT cinema pricing policy (admin).' })
   createCinemaPricingPolicy(@CurrentUser() admin: RequestUser, @Body() body: PolicyInput) {
     return this.cinemaPolicies.create(admin.id, this.coercePolicyDates(body));
@@ -392,6 +406,7 @@ export class AdminController {
 
   @Patch('cinema-pricing-policies/:id')
   @RequiresAdmin(AdminPermission.PLATFORM_CONFIG)
+  @RequiresRecentMfa()
   @ApiOperation({ summary: 'Edit a DRAFT policy. Refused once it is ACTIVE (admin).' })
   updateCinemaPricingPolicy(
     @CurrentUser() admin: RequestUser,
@@ -412,6 +427,7 @@ export class AdminController {
 
   @Post('cinema-pricing-policies/:id/activate')
   @RequiresAdmin(AdminPermission.PLATFORM_CONFIG)
+  @RequiresRecentMfa()
   @ApiOperation({ summary: 'DRAFT to ACTIVE, refusing an ambiguous scope (admin).' })
   activateCinemaPricingPolicy(@CurrentUser() admin: RequestUser, @Param('id') id: string) {
     return this.cinemaPolicies.activate(admin.id, id);
@@ -419,6 +435,7 @@ export class AdminController {
 
   @Post('cinema-pricing-policies/:id/supersede')
   @RequiresAdmin(AdminPermission.PLATFORM_CONFIG)
+  @RequiresRecentMfa()
   @ApiOperation({ summary: 'Replace an ACTIVE policy with a new version (admin).' })
   supersedeCinemaPricingPolicy(
     @CurrentUser() admin: RequestUser,
@@ -430,6 +447,7 @@ export class AdminController {
 
   @Post('cinema-pricing-policies/:id/disable')
   @RequiresAdmin(AdminPermission.PLATFORM_CONFIG)
+  @RequiresRecentMfa()
   @ApiOperation({ summary: 'Withdraw a policy. Its scope then fails closed (admin).' })
   disableCinemaPricingPolicy(@CurrentUser() admin: RequestUser, @Param('id') id: string) {
     return this.cinemaPolicies.disable(admin.id, id);
@@ -455,6 +473,7 @@ export class AdminController {
 
   @Post('tax-rules')
   @RequiresAdmin(AdminPermission.PLATFORM_CONFIG)
+  @RequiresRecentMfa()
   @ApiOperation({ summary: 'Create a tax rule. Inactive unless explicitly activated (admin).' })
   createTaxRule(
     @CurrentUser() user: { id: string },
@@ -465,6 +484,7 @@ export class AdminController {
 
   @Patch('tax-rules/:id')
   @RequiresAdmin(AdminPermission.PLATFORM_CONFIG)
+  @RequiresRecentMfa()
   @ApiOperation({
     summary: 'Update a draft tax rule, or switch one on/off. A live rate must be superseded.',
   })
@@ -478,6 +498,7 @@ export class AdminController {
 
   @Post('tax-rules/:id/supersede')
   @RequiresAdmin(AdminPermission.PLATFORM_CONFIG)
+  @RequiresRecentMfa()
   @ApiOperation({ summary: 'Close a rule at a date and open its successor at a new rate.' })
   supersedeTaxRule(
     @CurrentUser() user: { id: string },
@@ -489,6 +510,7 @@ export class AdminController {
 
   @Delete('tax-rules/:id')
   @RequiresAdmin(AdminPermission.PLATFORM_CONFIG)
+  @RequiresRecentMfa()
   @ApiOperation({ summary: 'Delete a tax rule that is switched off (admin).' })
   deleteTaxRule(@CurrentUser() user: { id: string }, @Param('id') id: string) {
     return this.taxRules_.remove(user.id, id);

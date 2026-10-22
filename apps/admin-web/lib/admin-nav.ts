@@ -238,11 +238,12 @@ export const ADMIN_NAV: AdminNavGroup[] = [
     label: 'Audit history',
     icon: ScrollText,
     links: [
+      // GET /admin/audit needs AUDIT_READ: it left BOOKING_READ, the support desk's floor.
       {
         label: 'Audit log',
         href: '/admin/audit',
         icon: ScrollText,
-        needs: 'BOOKING_READ',
+        needs: 'AUDIT_READ',
         keywords: ['history'],
       },
     ],
