@@ -489,11 +489,16 @@ export default function BookingsPage() {
               const canAsk = REFUNDABLE.includes(b.status) && hasActive && !openRefund && offered;
 
               if (openRefund) {
+                // Approved and sent, but the bank has not finished: saying "the organizer is
+                // reviewing" here contradicted the Refunded badge right above it.
+                const sent = openRefund.status === 'PROCESSING';
                 return (
                   <div className={DRAWER_NOTE}>
-                    <p className="font-semibold text-brand-ink">{a('refundRequestedTitle')}</p>
+                    <p className="font-semibold text-brand-ink">
+                      {a(sent ? 'refundProcessingTitle' : 'refundRequestedTitle')}
+                    </p>
                     <p className="mt-1 text-brand-meta text-brand-ink-2">
-                      {a('refundRequestedBody', {
+                      {a(sent ? 'refundProcessingBody' : 'refundRequestedBody', {
                         amount: money(openRefund.amountMinor, b.currency),
                       })}
                     </p>
