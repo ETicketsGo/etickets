@@ -14,6 +14,7 @@ import {
   BrandFormPanel,
   BrandSkeleton,
 } from '@/components/brand-forms';
+import { appReturnUrl } from '@/lib/app-return';
 
 /**
  * Stripe returns the buyer here after a hosted Checkout session. The URL carries
@@ -27,13 +28,17 @@ function CheckoutSuccess() {
   const router = useRouter();
   const params = useSearchParams();
   const bookingId = params.get('booking');
+  // A checkout opened from the native app goes back to the app, which asks the server.
+  const appUrl = appReturnUrl(params, 'return');
 
   useEffect(() => {
-    if (bookingId) {
+    if (appUrl) {
+      window.location.replace(appUrl);
+    } else if (bookingId) {
       // Replace so the browser Back button doesn't return to the Stripe redirect.
       router.replace(`/booking/${bookingId}/confirmation`);
     }
-  }, [bookingId, router]);
+  }, [appUrl, bookingId, router]);
 
   if (!bookingId) {
     return (

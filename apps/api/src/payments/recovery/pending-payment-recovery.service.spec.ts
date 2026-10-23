@@ -102,6 +102,59 @@ describe('PendingPaymentRecoveryService', () => {
       bookingId: 'bk1',
       providerRef: 'pay_TkVxCS4BmDljlf',
       amountMinor: 51_918,
+      currency: 'INR',
+      checkoutSessionId: 'order_1',
+    });
+  });
+
+  describe('a checkout that can still be paid is closed before the stock goes back', () => {
+    const stripeOpened = {
+      id: 'bk2',
+      payment: { provider: 'stripe', status: 'PROCESSING', providerOrderId: 'cs_1' },
+    };
+
+    it('open session -> closed -> nobody paid -> release, in that order', async () => {
+      const calls: string[] = [];
+      const { service } = make({
+        closeOrder: jest.fn(async () => (calls.push('close'), 'closed')),
+        findOrderPayments: jest.fn(async () => (calls.push('find'), [])),
+      });
+      await expect(service.guardExpiry(stripeOpened)).resolves.toBe('release');
+      expect(calls).toEqual(['close', 'find']);
+    });
+
+    it('Stripe unreachable while closing -> hold back, and nothing is asked or released', async () => {
+      const findOrderPayments = jest.fn();
+      const { service, metrics } = make({
+        closeOrder: jest.fn().mockRejectedValue(new Error('ECONNRESET')),
+        findOrderPayments,
+      });
+      await expect(service.guardExpiry(stripeOpened)).resolves.toBe('hold_back');
+      expect(findOrderPayments).not.toHaveBeenCalled();
+      expect(metrics.recordPaymentWebhook).toHaveBeenCalledWith('stripe', 'expiry_close_failed');
+    });
+
+    it('paid just before the close -> recovered through confirm with currency and session', async () => {
+      const { service, processVerifiedEvent } = make({
+        closeOrder: jest.fn().mockResolvedValue('not_open'),
+        findOrderPayments: jest
+          .fn()
+          .mockResolvedValue([
+            { providerRef: 'pi_1', status: 'SUCCEEDED', amountMinor: 1000, currency: 'USD' },
+          ]),
+      });
+      await expect(service.guardExpiry(stripeOpened)).resolves.toBe('recovered');
+      expect(processVerifiedEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ currency: 'USD', checkoutSessionId: 'cs_1', amountMinor: 1000 }),
+      );
+    });
+
+    it('a delayed payment still processing -> hold back', async () => {
+      const { service } = make({
+        closeOrder: jest.fn().mockResolvedValue('not_open'),
+        findOrderPayments: jest.fn().mockRejectedValue(new Error('complete with payment unpaid')),
+      });
+      await expect(service.guardExpiry(stripeOpened)).resolves.toBe('hold_back');
     });
   });
 

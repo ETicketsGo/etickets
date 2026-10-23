@@ -35,6 +35,8 @@ export interface PaymentContext extends RequestPrincipal {
   bookingId: string;
   /** Guest payment route: a well-formed anonymous session token is mandatory (every mode). */
   requireAnonymousToken?: boolean;
+  /** Send the buyer back to the app after checkout (honoured only where enabled). */
+  returnTo?: 'app';
 }
 
 export interface StatusContext extends RequestPrincipal {
@@ -279,7 +281,9 @@ export class BookingExecutionRouter {
       await this.assertGuestSessionIfGuestBooking('begin_payment', ctx);
     }
     if (mode !== 'active') {
-      return this.payments.createIntent(ctx.bookingId, ctx.user ?? undefined);
+      return this.payments.createIntent(ctx.bookingId, ctx.user ?? undefined, {
+        returnToApp: ctx.returnTo === 'app',
+      });
     }
     const owner = this.owners.resolveForRequest({
       user: ctx.user,
