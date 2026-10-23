@@ -13,6 +13,7 @@ enum CustomerAPI {
         Endpoint(path: "/public/events", query: items([
             "q": query.text,
             "category": query.category,
+            "city": query.city,
             "page": String(query.page),
             "pageSize": String(query.pageSize),
         ]))
@@ -68,6 +69,7 @@ enum CustomerAPI {
 struct EventQuery: Sendable, Equatable {
     var text: String?
     var category: String?
+    var city: String?
     var page = 1
     var pageSize = 20
 }

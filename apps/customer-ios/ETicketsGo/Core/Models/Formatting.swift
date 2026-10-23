@@ -35,8 +35,15 @@ enum Formatters {
         return (date.formatted(style(zone, locale).weekday(.abbreviated).day().month(.abbreviated)), time)
     }
 
-    static func time(_ date: Date, timeZone: String?, locale: Locale = .current, deviceZone: TimeZone = .current) -> String {
-        dayAndTime(date, timeZone: timeZone, locale: locale, deviceZone: deviceZone).time
+    static func time(_ date: Date, timeZone: String?, namingZone: Bool = true, locale: Locale = .current, deviceZone: TimeZone = .current) -> String {
+        guard !namingZone else { return dayAndTime(date, timeZone: timeZone, locale: locale, deviceZone: deviceZone).time }
+        return date.formatted(style(venueZone(timeZone, deviceZone: deviceZone), locale).hour().minute())
+    }
+
+    /// "Times in GMT+5:30" when the venue's clock differs from the device's — said once for a
+    /// list of times instead of on every row.
+    static func zoneNote(_ timeZone: String?, at date: Date, locale: Locale = .current, deviceZone: TimeZone = .current) -> String? {
+        zoneSuffix(venueZone(timeZone, deviceZone: deviceZone), at: date, locale: locale, deviceZone: deviceZone).map { "Times in \($0)" }
     }
 
     /// The venue's zone, or the device's when the API sent none or an unknown identifier.

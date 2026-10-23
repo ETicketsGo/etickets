@@ -148,6 +148,8 @@ struct EventDetail: Codable, Hashable, Identifiable, Sendable, HasEventImage {
     let imageVariants: EventImageVariants?
     /// The venue's zone (public-events.service.ts); sessions may carry their own.
     let timeZone: String?
+    /// Whether the organiser takes payment at the venue (CASH reservations).
+    var cashAccepted: Bool?
 }
 
 struct Movie: Codable, Hashable, Identifiable, Sendable {

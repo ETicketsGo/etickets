@@ -206,6 +206,35 @@ Other endpoints Phase 2 needs:
 - **Where:** one file per user, named by a hash of the user ID, with complete file protection and excluded from backups.
 - **Expiry and clearing:** a copy older than 7 days isn't shown. Everything is cleared on sign-out and when the server ends the session.
 
+## Phase 3 (local): booking and checkout handoff
+
+Built on the backend's own contracts (`docs/phase-3-checkout-design.md`). The app sends the
+customer's choices and shows the server's answers. It computes **no** prices, fees, taxes or
+availability, and issues nothing.
+
+| Journey                                                                                                  | QA (real API)                         | MOCK                       |
+| -------------------------------------------------------------------------------------------------------- | ------------------------------------- | -------------------------- |
+| City choice: `GET /public/location/cities`, with `city` passed to discovery and Explore                  | ✅ verified in the simulator          | ✅                         |
+| Ticket selection and the live server quote (`POST /bookings/quote`, which is side-effect free)           | ✅ verified: real quote, nothing held | ✅                         |
+| Reserved seating (`GET /public/shows/:id/seats`, `view: seats`)                                          | ✅ verified: real seat map and quote  | ✅                         |
+| Reserve, i.e. create a hold (`POST /bookings` with `idempotency-key`)                                    | ⛔ off (`ALLOW_BOOKING_WRITES = NO`)  | ✅ simulated               |
+| Hold countdown from `holdExpiresAt`, expiry, release (`/cancel`)                                         | ⛔ off                                | ✅ simulated               |
+| Pay handoff (`POST /bookings/:id/pay`): hosted page via `ASWebAuthenticationSession`                     | ⛔ off                                | ✅ simulated provider page |
+| Confirmation by polling `GET /bookings/:id` (bounded schedule; returning from the provider is not proof) | ⛔ off                                | ✅ simulated webhook delay |
+| Resume an interrupted checkout from booking history                                                      | —                                     | ✅                         |
+
+**Still missing for real checkout** (the smallest changes, none made here):
+
+1. **Razorpay (INR).** `/pay` returns an order id, not a page. Either add a server-hosted Razorpay checkout page on customer-web (with the `callbackUrl` page that doesn't exist yet), or approve the native SDK. The app shows "pay on the website" for Razorpay today.
+2. **Returning to the app.** Add an `apple-app-site-association` file on customer-web, plus universal links for the Stripe success/cancel pages and the Razorpay callback, so the payment session closes itself.
+3. **Approval to write to QA:** set `ALLOW_BOOKING_WRITES` (with an approved test account) before any QA hold or payment.
+
+**Debug-only MOCK flags:**
+
+- `-ETGMockHoldSeconds N` sets a short hold.
+- `-ETGMockFailFirst` makes the first catalog call fail.
+- `-ETGMockOfflineAfterFirstLoad` simulates the wallet going offline.
+
 ## Phase 2 plan
 
 1. **Auth.** Done in 2A (above). Still to do: forgot and reset password, phone attach, and Sign in with Apple, which needs backend support.

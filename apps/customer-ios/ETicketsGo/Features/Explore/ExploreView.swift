@@ -13,9 +13,11 @@ final class ExploreViewModel {
     init(catalog: any CatalogRepository) { self.catalog = catalog }
 
     /// What the result list depends on; the view reloads when it changes.
+    var city: String?
+
     var queryKey: EventQuery {
         let text = searchText.trimmingCharacters(in: .whitespaces)
-        return EventQuery(text: text.isEmpty ? nil : text, category: category)
+        return EventQuery(text: text.isEmpty ? nil : text, category: category, city: city)
     }
 
     func loadCategories() async {
@@ -88,6 +90,7 @@ struct ExploreView: View {
         .scrollDismissesKeyboard(.immediately)
         .searchable(text: $model.searchText, placement: .navigationBarDrawer(displayMode: .always),
                     prompt: "Events, venues, cities")
+        .onChange(of: container.city.selected?.city, initial: true) { _, city in model.city = city }
         .task(id: model.queryKey) {
             // Debounce typing; a newer key cancels this task before it fires.
             try? await Task.sleep(for: .milliseconds(250))

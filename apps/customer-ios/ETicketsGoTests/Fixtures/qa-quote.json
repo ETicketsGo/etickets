@@ -1,0 +1,21 @@
+{
+  "fees": {
+    "currency": "INR",
+    "subtotalMinor": 25000,
+    "discountMinor": 0,
+    "netSubtotalMinor": 25000,
+    "bookingFeeMinor": 1000,
+    "paymentFeeMinor": 520,
+    "customerFeeMinor": 1520,
+    "organizerFeeMinor": 0,
+    "taxLines": [],
+    "taxMinor": 0,
+    "totalMinor": 26520,
+    "customerFeeInclusiveMinor": 1520,
+    "feeTaxRateBasisPoints": 0,
+    "feeTaxMinor": 0,
+    "maintenanceMinor": 0,
+    "maintenanceTreatment": "NOT_APPLICABLE"
+  },
+  "coupon": { "code": null, "applied": false }
+}

@@ -10,19 +10,27 @@ final class AppContainer {
     let tickets: any TicketsRepository
     let offlineTickets: any OfflineTicketStore
     let auth: AuthStore
+    let booking: any BookingRepository
+    let city = CityStore()
+    /// MOCK only: the in-memory commerce server, so the simulated provider page can approve.
+    let mockCommerce: MockCommerceServer?
 
     init(
         configuration: AppConfiguration,
         catalog: any CatalogRepository,
         tickets: any TicketsRepository,
         offlineTickets: any OfflineTicketStore,
-        auth: AuthStore
+        auth: AuthStore,
+        booking: any BookingRepository,
+        mockCommerce: MockCommerceServer? = nil
     ) {
         self.configuration = configuration
         self.catalog = catalog
         self.tickets = tickets
         self.offlineTickets = offlineTickets
         self.auth = auth
+        self.booking = booking
+        self.mockCommerce = mockCommerce
     }
 
     static func make(for configuration: AppConfiguration) -> AppContainer {
@@ -58,7 +66,8 @@ final class AppContainer {
                 catalog: RemoteCatalogRepository(client: client),
                 tickets: RemoteTicketsRepository(client: client),
                 offlineTickets: offline,
-                auth: AuthStore(service: service, session: session, offlineTickets: offline))
+                auth: AuthStore(service: service, session: session, offlineTickets: offline),
+                booking: RemoteBookingRepository(client: client))
         }
     }
 
@@ -71,12 +80,29 @@ final class AppContainer {
         let session = AuthSession(store: store, configuration: configuration) { _ in
             TokenPair(accessToken: "mock-access-\(UUID().uuidString)", refreshToken: "mock-refresh-\(UUID().uuidString)")
         }
+        let arguments = ProcessInfo.processInfo.arguments
+        #if DEBUG
+        // Debug MOCK only: `-ETGMockHoldSeconds 20` shortens holds to demonstrate expiry;
+        // `-ETGMockFailFirst` makes the first catalog call fail, to exercise error and retry.
+        let holdSeconds = arguments.firstIndex(of: "-ETGMockHoldSeconds").flatMap { i in
+            arguments.indices.contains(i + 1) ? TimeInterval(arguments[i + 1]) : nil } ?? 600
+        let failFirst = arguments.contains("-ETGMockFailFirst")
+        // `-ETGMockOfflineAfterFirstLoad`: the wallet loads once, then the "network" drops.
+        let offlineAfter: Int? = arguments.contains("-ETGMockOfflineAfterFirstLoad") ? 1 : nil
+        #else
+        let offlineAfter: Int? = nil
+        let holdSeconds: TimeInterval = 600
+        let failFirst = false
+        #endif
+        let commerce = MockCommerceServer(holdDuration: holdSeconds, confirmationDelay: latency == .zero ? .milliseconds(10) : .seconds(3))
         return AppContainer(
             configuration: configuration,
-            catalog: MockCatalogRepository(latency: latency),
-            tickets: MockTicketsRepository(session: session, latency: latency),
+            catalog: MockCatalogRepository(latency: latency, failOnce: FailOnce(armed: failFirst)),
+            tickets: MockTicketsRepository(session: session, latency: latency, server: commerce, network: GoesOffline(after: offlineAfter)),
             offlineTickets: offline,
-            auth: AuthStore(service: MockAuthService(session: session, latency: latency), session: session, offlineTickets: offline))
+            auth: AuthStore(service: MockAuthService(session: session, latency: latency), session: session, offlineTickets: offline),
+            booking: MockBookingRepository(server: commerce, session: session, latency: latency),
+            mockCommerce: commerce)
     }
 
     /// For SwiftUI previews: fixtures, no delay, signed out.

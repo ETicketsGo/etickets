@@ -157,7 +157,7 @@ struct TicketCard: View {
                 HStack(spacing: ETGSpace.sm) {
                     Pill(text: ticket.ticketType)
                     if let seat = ticket.seatLabel { Pill(text: "Seat \(seat)", tint: ETGColor.ink) }
-                    if !ticket.isPresentable { Pill(text: "Transferred", tint: ETGColor.muted) }
+                    if let status = Self.statusLabel(ticket) { Pill(text: status, tint: ETGColor.muted) }
                 }
                 .padding(.top, 2)
             }
@@ -170,6 +170,16 @@ struct TicketCard: View {
         .overlay(RoundedRectangle(cornerRadius: ETGRadius.card).strokeBorder(ETGColor.rule))
         .accessibilityElement(children: .combine)
         .accessibilityHint("Shows the ticket's entry code")
+    }
+
+    /// A short label for anything other than a usable ticket.
+    nonisolated static func statusLabel(_ ticket: Ticket) -> String? {
+        switch TicketCodeView.presentation(for: ticket) {
+        case .transferred: "Transferred"
+        case .void: ticket.status.uppercased() == "REFUNDED" ? "Refunded" : "Cancelled"
+        case .checkedIn: "Used"
+        case .code, .ended, .vendorCode, .unavailable: nil
+        }
     }
 
     /// Day and month for the stub, in the ticket's own zone.
@@ -292,12 +302,28 @@ struct TicketCodeView: View {
     enum Presentation: Equatable {
         case code
         case transferred
+        /// CANCELLED, REFUNDED or VOID: never a code, whatever else the response carries.
+        case void(String)
+        case checkedIn
+        case ended
         case vendorCode
         case unavailable
     }
 
-    nonisolated static func presentation(for ticket: Ticket) -> Presentation {
+    /// TicketStatus (schema.prisma): ACTIVE, TRANSFERRED, CHECKED_IN, CANCELLED, REFUNDED, VOID.
+    /// Status is checked before anything else: a refunded ticket must not show a code even if an
+    /// image arrives with it.
+    nonisolated static func presentation(for ticket: Ticket, now: Date = .now) -> Presentation {
+        switch ticket.status.uppercased() {
+        case "CANCELLED": return .void("This ticket was cancelled and can't be used for entry.")
+        case "REFUNDED": return .void("This ticket was refunded and can't be used for entry.")
+        case "VOID": return .void("This ticket is no longer valid.")
+        case "TRANSFERRED": return .transferred
+        case "CHECKED_IN": return .checkedIn
+        default: break
+        }
         guard ticket.isPresentable else { return .transferred }
+        if ticket.startsAt < now.addingTimeInterval(-OfflineTicketPolicy.graceAfterStart) { return .ended }
         if TicketDetailView.image(fromDataURL: ticket.qrDataUrl) != nil { return .code }
         if ticket.vendorBarcode != nil, (ticket.vendorBarcodeFormat ?? "QR") != "QR" { return .vendorCode }
         return .unavailable
@@ -315,6 +341,12 @@ struct TicketCodeView: View {
             }
         case .transferred:
             message("arrow.right.circle", "This ticket has been transferred. Only its current holder can show it at the door.")
+        case let .void(text):
+            message("xmark.circle", text)
+        case .checkedIn:
+            message("checkmark.seal", "Already used for entry. Enjoy the show!")
+        case .ended:
+            message("clock.badge.checkmark", "This event has ended.")
         case .vendorCode:
             message("barcode", "This venue uses its own barcode, which can't be shown here yet. Show your booking reference at the door.")
         case .unavailable:

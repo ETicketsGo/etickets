@@ -98,7 +98,7 @@ struct QALiveSignedInTests {
             switch TicketCodeView.presentation(for: ticket) {
             case .code: #expect(TicketDetailView.image(fromDataURL: ticket.qrDataUrl) != nil)
             case .transferred: #expect(!ticket.isPresentable)
-            case .vendorCode, .unavailable: break
+            case .vendorCode, .unavailable, .void, .checkedIn, .ended: break
             }
         }
         if let first = wallet.first {

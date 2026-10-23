@@ -13,6 +13,11 @@ struct Endpoint<Response: Decodable & Sendable>: Sendable {
     var query: [URLQueryItem] = []
     var body: Data?
     var requiresAuth = false
+    /// Extra request headers, e.g. `idempotency-key` on POST /bookings.
+    var headers: [String: String] = [:]
+    /// A POST that changes nothing on the server (POST /bookings/quote: no hold, no row).
+    /// Allowed wherever reads are, except PROD, which stays GET-only this phase.
+    var isSideEffectFree = false
     /// Sign-in, sign-up, OTP, refresh and logout. Never sends a bearer token and never
     /// triggers a refresh; its own 401s (wrong password, expired refresh) surface as server
     /// errors with the server's message. QA approval for these is checked by the auth service,
@@ -124,7 +129,7 @@ final class APIClient: Sendable {
     }
 
     func makeRequest<Response>(_ endpoint: Endpoint<Response>) async throws -> URLRequest {
-        if !endpoint.method.isSafe {
+        if !endpoint.method.isSafe, !(endpoint.isSideEffectFree && configuration.environment != .prod) {
             guard configuration.permits(endpoint.method) else {
                 throw APIError.mutationBlocked(configuration.environment)
             }
@@ -143,6 +148,7 @@ final class APIClient: Sendable {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         // Echoed by the API's correlation-id middleware; ties a support report to server logs.
         request.setValue(UUID().uuidString, forHTTPHeaderField: "x-correlation-id")
+        for (name, value) in endpoint.headers { request.setValue(value, forHTTPHeaderField: name) }
         if let body = endpoint.body {
             request.httpBody = body
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
