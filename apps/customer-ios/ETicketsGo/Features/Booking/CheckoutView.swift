@@ -18,6 +18,7 @@ final class CheckoutViewModel {
         case awaitingProvider(PaymentHandoff)
         case confirming(attempt: Int)
         case stillPending          // the poll budget ran out; the booking may yet confirm
+        case paymentNotCompleted   // the customer left the provider page and nothing has confirmed
         case confirmed(reference: String?)
         case expired
         case cancelled
@@ -36,17 +37,23 @@ final class CheckoutViewModel {
 
     private let repository: any BookingRepository
     private let environment: AppEnvironment
+    private let nativeCheckout: Bool
+    /// Told when payment starts and when the booking reaches a final state, so an interrupted
+    /// checkout can be resumed after the app is terminated.
+    var onPaymentStarted: () -> Void = {}
+    var onFinal: () -> Void = {}
     /// Seconds between polls: quick at first (webhooks usually land in seconds), then slower,
     /// for about three minutes in total.
     static let pollSchedule: [Double] = Array(repeating: 2, count: 15) + Array(repeating: 5, count: 30)
 
-    init(created: CreatedBooking, repository: any BookingRepository, environment: AppEnvironment) {
+    init(created: CreatedBooking, repository: any BookingRepository, environment: AppEnvironment, nativeCheckout: Bool = true) {
         bookingId = created.id
         fees = created.fees
         paymentMethod = created.paymentMethod
         holdExpiresAt = created.holdExpiresAt
         self.repository = repository
         self.environment = environment
+        self.nativeCheckout = nativeCheckout
         if created.status == "CONFIRMED" { phase = .confirmed(reference: nil) }
     }
 
@@ -62,15 +69,16 @@ final class CheckoutViewModel {
     }
 
     func pay() async {
-        guard phase == .held || phase == .stillPending else { return }
+        guard phase == .held || phase == .stillPending || phase == .paymentNotCompleted else { return }
         error = nil
         phase = .startingPayment
         do {
             let start = try await repository.startPayment(bookingId: bookingId)
-            let handoff = PaymentHandoff.from(start, bookingId: bookingId, environment: environment)
+            let handoff = PaymentHandoff.from(start, bookingId: bookingId, environment: environment, nativeCheckout: nativeCheckout)
             if case let .unsupported(reason) = handoff {
                 phase = .unsupported(reason)
             } else {
+                onPaymentStarted()
                 phase = .awaitingProvider(handoff)
             }
         } catch let APIError.server(_, code, message, _) where code == "BOOKING_NOT_PAYABLE" {
@@ -82,13 +90,23 @@ final class CheckoutViewModel {
         }
     }
 
-    /// The provider page closed, however it closed. Only the server's status counts.
-    func providerFinished() async {
-        await poll()
+    /// The provider page closed. Only the server's status counts. A return through the
+    /// provider's success path polls the full schedule; a page the customer cancelled gets a short
+    /// check (a payment may still land), then a clear "not completed" state — never a silent
+    /// three-minute wait, and never a confirmation the server hasn't given.
+    func providerFinished(cancelled: Bool = false) async {
+        if cancelled {
+            await poll(schedule: Self.cancelSchedule)
+            if phase == .stillPending { phase = .paymentNotCompleted }
+        } else {
+            await poll()
+        }
     }
 
-    func poll() async {
-        for (attempt, delay) in Self.pollSchedule.enumerated() {
+    static let cancelSchedule: [Double] = [1, 2, 2, 3]
+
+    func poll(schedule: [Double] = CheckoutViewModel.pollSchedule) async {
+        for (attempt, delay) in schedule.enumerated() {
             phase = .confirming(attempt: attempt + 1)
             if await refresh() { return }
             try? await Task.sleep(for: .seconds(delay))
@@ -104,9 +122,9 @@ final class CheckoutViewModel {
             let booking = try await repository.booking(id: bookingId)
             holdExpiresAt = booking.holdExpiresAt
             switch booking.status {
-            case "CONFIRMED": phase = .confirmed(reference: booking.reference); return true
-            case "EXPIRED": phase = .expired; return true
-            case "CANCELLED": phase = .cancelled; return true
+            case "CONFIRMED": phase = .confirmed(reference: booking.reference); onFinal(); return true
+            case "EXPIRED": phase = .expired; onFinal(); return true
+            case "CANCELLED": phase = .cancelled; onFinal(); return true
             default: return false
             }
         } catch {
@@ -121,6 +139,7 @@ final class CheckoutViewModel {
         do {
             try await repository.cancel(bookingId: bookingId)
             phase = .cancelled
+            onFinal()
         } catch {
             self.error = error.userMessage
             await refresh()
@@ -135,8 +154,11 @@ struct CheckoutView: View {
     @State private var model: CheckoutViewModel?
     @State private var presentingSimulatedProvider = false
     @State private var confirmingCancel = false
+    @State private var simulatedApproved = false
     let created: CreatedBooking
     let title: String
+    /// Recovery after a payment return or app relaunch: start by asking the server.
+    var resumePolling = false
     let onFinish: (CheckoutViewModel.Outcome) -> Void
 
     var body: some View {
@@ -153,8 +175,22 @@ struct CheckoutView: View {
         }
         .task {
             if model == nil {
-                model = CheckoutViewModel(created: created, repository: container.booking,
-                                          environment: container.configuration.environment)
+                let model = CheckoutViewModel(created: created, repository: container.booking,
+                                              environment: container.configuration.environment,
+                                              nativeCheckout: container.configuration.nativeCheckoutPermitted)
+                let store = container.pendingCheckout, bookingId = created.id
+                model.onPaymentStarted = { store.markPaymentStarted(bookingId: bookingId) }
+                model.onFinal = { store.clear(bookingId: bookingId) }
+                if let user = container.auth.user, created.status == "PENDING_PAYMENT" {
+                    var record = store.current?.bookingId == bookingId ? store.current! :
+                        PendingCheckout(bookingId: bookingId, userId: user.id, title: title, holdExpiresAt: created.holdExpiresAt)
+                    record.holdExpiresAt = created.holdExpiresAt
+                    store.record(record)
+                }
+                self.model = model
+                // Resumed after a return link or a relaunch: a short server check, then either the
+                // server's answer or an honest "not completed" — the link itself proves nothing.
+                if resumePolling { await model.providerFinished(cancelled: true) }
             }
         }
     }
@@ -191,8 +227,9 @@ struct CheckoutView: View {
             case .unsupported: break
             }
         }
-        .sheet(isPresented: $presentingSimulatedProvider, onDismiss: { Task { await model.providerFinished() } }) {
+        .sheet(isPresented: $presentingSimulatedProvider, onDismiss: { Task { await model.providerFinished(cancelled: !simulatedApproved) } }) {
             SimulatedProviderView(amount: Formatters.money(minor: model.fees.totalMinor, currency: model.fees.currency)) { approved in
+                simulatedApproved = approved
                 if approved { Task { await container.mockCommerce?.providerApproved(bookingId: model.bookingId) } }
                 presentingSimulatedProvider = false
             }
@@ -215,8 +252,15 @@ struct CheckoutView: View {
     private func openHosted(_ url: URL, _ model: CheckoutViewModel) async {
         // The provider's return URL points at the website today, so the session usually ends by
         // the customer closing it. Either way the next step is the same: ask the server.
-        _ = try? await webAuthenticationSession.authenticate(using: url, callbackURLScheme: "etickets")
-        await model.providerFinished()
+        // The app's own scheme, never the Expo app's `etickets`. A callback (or a universal link)
+        // only says "look again"; cancelling says the customer left. Neither proves payment.
+        let scheme = container.configuration.appURLScheme ?? "etgnative"
+        do {
+            _ = try await webAuthenticationSession.authenticate(using: url, callbackURLScheme: scheme)
+            await model.providerFinished(cancelled: false)
+        } catch {
+            await model.providerFinished(cancelled: true)
+        }
     }
 
     @ViewBuilder
@@ -232,6 +276,9 @@ struct CheckoutView: View {
             StatusCard(symbol: "hourglass", title: "Confirming your payment…",
                        message: "Waiting for the payment provider to confirm. This usually takes a few seconds.", progress: true)
                 .accessibilityValue("Check \(attempt)")
+        case .paymentNotCompleted:
+            StatusCard(symbol: "creditcard.trianglebadge.exclamationmark", title: "Payment not completed",
+                       message: "Nothing has been confirmed for this booking. Your tickets are still held — you can try paying again. If you did pay, it will confirm here shortly; you won't be charged twice for one booking.")
         case .stillPending:
             StatusCard(symbol: "clock.arrow.circlepath", title: "Still confirming",
                        message: "We haven't heard back from the payment provider yet. If you paid, your tickets will appear in My Tickets once it confirms — you won't be charged twice.")
@@ -273,6 +320,14 @@ struct CheckoutView: View {
                 }
             case .stillPending:
                 Button("Check again") { Task { await model.poll() } }.buttonStyle(.etgPrimary)
+            case .paymentNotCompleted:
+                Button("Try payment again") { Task { await model.pay() } }.buttonStyle(.etgPrimary)
+                    .accessibilityIdentifier("checkout.retryPay")
+                HStack(spacing: ETGSpace.xl) {
+                    Button("Check again") { Task { await model.poll(schedule: CheckoutViewModel.cancelSchedule) } }
+                    Button("Release tickets") { confirmingCancel = true }
+                }
+                .font(ETGFont.subheadline.weight(.semibold)).foregroundStyle(ETGColor.ink)
             case .confirmed:
                 Button("View my tickets") { close() }.buttonStyle(.etgPrimary).accessibilityIdentifier("checkout.viewTickets")
             case .expired, .cancelled, .unsupported:

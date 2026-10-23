@@ -6,9 +6,9 @@ import XCTest
 class JourneyUITestCase: XCTestCase {
     override func setUp() async throws { continueAfterFailure = false }
 
-    func launch(_ arguments: [String]) -> XCUIApplication {
+    func launch(_ arguments: [String], reset: Bool = true) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["-ETGResetSession"] + arguments
+        app.launchArguments = (reset ? ["-ETGResetSession"] : []) + arguments
         app.launch()
         return app
     }
@@ -143,6 +143,67 @@ final class BookingJourneyUITests: JourneyUITestCase {
         XCTAssertFalse(totalLabel(in: app).isEmpty)       // quotes work signed out (public)
         XCTAssertTrue(app.buttons["Sign in to book"].exists)
         snap("13-signed-out-quote")
+    }
+}
+
+final class CheckoutRecoveryUITests: JourneyUITestCase {
+    /// Reserve one comedy ticket in MOCK; leaves the checkout screen showing.
+    private func reserveOne(_ app: XCUIApplication) {
+        app.buttons["event.getTickets"].tap()
+        let add = app.buttons["Add one General admission"]
+        XCTAssertTrue(add.waitForExistence(timeout: 10))
+        add.tap()
+        XCTAssertFalse(totalLabel(in: app).isEmpty)
+        app.buttons["booking.reserve"].tap()
+        XCTAssertTrue(app.staticTexts["Tickets held for you"].waitForExistence(timeout: 10))
+    }
+
+    func testDeclinedPaymentThenRetry() {
+        let app = launch(["-ETGMockSignedIn", "-ETGTab", "home", "-ETGEvent", "laugh-riot-standup-vijayawada"])
+        reserveOne(app)
+        app.buttons["checkout.pay"].tap()
+        XCTAssertTrue(app.buttons["provider.decline"].waitForExistence(timeout: 10))
+        app.buttons["provider.decline"].tap()
+        XCTAssertTrue(app.staticTexts["Payment not completed"].waitForExistence(timeout: 20))
+        snap("22-payment-not-completed")
+        app.buttons["checkout.retryPay"].tap()
+        XCTAssertTrue(app.buttons["provider.approve"].waitForExistence(timeout: 10))
+        app.buttons["provider.approve"].tap()
+        XCTAssertTrue(app.staticTexts["You're going!"].waitForExistence(timeout: 20))
+        snap("23-retry-confirmed")
+    }
+
+    func testResumeAfterAppTermination() {
+        let first = launch(["-ETGMockSignedIn", "-ETGTab", "home", "-ETGEvent", "laugh-riot-standup-vijayawada"])
+        reserveOne(first)
+        first.terminate()                                   // the app is killed mid-checkout
+
+        let app = launch(["-ETGMockSignedIn", "-ETGTab", "home"], reset: false)
+        let banner = app.buttons["recovery.banner"]
+        XCTAssertTrue(banner.waitForExistence(timeout: 15), "no way back to the interrupted checkout")
+        XCTAssertTrue(any("Finish your booking", in: app).exists)
+        snap("24-resume-banner-after-relaunch")
+        banner.tap()
+        XCTAssertTrue(app.staticTexts["Tickets held for you"].waitForExistence(timeout: 10))
+        app.buttons["checkout.pay"].tap()
+        app.buttons["provider.approve"].tap()
+        XCTAssertTrue(app.staticTexts["You're going!"].waitForExistence(timeout: 20))
+        snap("25-resumed-and-confirmed")
+    }
+
+    func testPaymentReturnLinkIsNotProofOfPayment() {
+        let app = launch(["-ETGMockSignedIn", "-ETGTab", "home", "-ETGEvent", "laugh-riot-standup-vijayawada"])
+        reserveOne(app)
+        app.buttons["Close"].tap()
+        // Closing with tickets still held leaves a way back.
+        XCTAssertTrue(app.buttons["recovery.banner"].waitForExistence(timeout: 10))
+        // The app is closed, then opened by a "success" return link for a booking nobody paid for.
+        app.terminate()
+        let returned = launch(["-ETGMockSignedIn", "-ETGTab", "home",
+                               "-ETGOpenURL", "etgnative-mock://checkout/return?booking=bkg-mock-1"], reset: false)
+        XCTAssertTrue(returned.staticTexts["Payment not completed"].waitForExistence(timeout: 20))
+        XCTAssertFalse(returned.staticTexts["You're going!"].exists)
+        snap("26-return-link-not-proof")
     }
 }
 

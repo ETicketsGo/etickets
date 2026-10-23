@@ -212,7 +212,7 @@ struct BookingDetailView: View {
             fees: FeeBreakdown(currency: booking.currency, subtotalMinor: booking.subtotalMinor, discountMinor: booking.discountMinor,
                                netSubtotalMinor: booking.subtotalMinor, bookingFeeMinor: booking.bookingFeeMinor,
                                paymentFeeMinor: booking.paymentFeeMinor, customerFeeMinor: booking.customerFeeMinor, taxLines: [],
-                               taxMinor: 0, maintenanceMinor: nil, totalMinor: booking.totalMinor),
+                               taxMinor: 0, maintenanceMinor: nil, totalMinor: booking.totalMinor, isItemised: false),
             paymentMethod: .online, payment: nil)
     }
 
