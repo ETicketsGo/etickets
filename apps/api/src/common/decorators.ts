@@ -21,7 +21,11 @@ export const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
  * JwtStrategy from the signed token AND the database, never from the token alone.
  */
 export interface MfaSessionState {
-  /** True for back-office accounts while MFA is armed (MFA_ENCRYPTION_KEY set). */
+  /**
+   * The session must have passed the second factor to use ANY back-office route. True for
+   * back-office accounts while MFA is armed (MFA_ENCRYPTION_KEY set), except that with
+   * MFA_ENROLLMENT=deferred it is true only once the account has enrolled.
+   */
   required: boolean;
   /** The account has a confirmed authenticator. */
   enrolled: boolean;
@@ -29,6 +33,16 @@ export interface MfaSessionState {
   verified: boolean;
   /** Epoch ms of the check this session last made; null when not verified. */
   verifiedAt: number | null;
+  /**
+   * What a @RequiresRecentMfa route can expect of this server, for back-office accounts:
+   *   'available'    - a key is configured: enroll, prove a code, and the route opens;
+   *   'unconfigured' - no MFA_ENCRYPTION_KEY: nothing can be enrolled, so the route is refused;
+   *   'dormant'      - LOCAL/DEV, no key, MFA_ENROLLMENT=required: MFA is simply not armed on
+   *                    this machine and the check is skipped (laptops and the test suite).
+   * Absent (customers, organizers, a state built by hand) reads as 'unconfigured': the guard
+   * fails closed for staff.
+   */
+  stepUp?: 'available' | 'unconfigured' | 'dormant';
 }
 
 export interface RequestUser {

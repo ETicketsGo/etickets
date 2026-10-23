@@ -540,7 +540,12 @@ const envSchema = z.object({
    *
    * In STAGING and PRODUCTION it is mandatory from the start (assertAdminMfaArmed): "dormant"
    * is a safe way to roll the feature out to QA, and an unacceptable way to run the back office
-   * of a platform that holds real customers' money.
+   * of a platform that holds real customers' money. The one exception is MFA_ENROLLMENT=deferred,
+   * where a missing key BLOCKS the sensitive actions instead of skipping their check (below).
+   *
+   * Unset with MFA_ENROLLMENT=required, LOCAL and DEV keep the old dormant behaviour (no check
+   * at all, step-up included) so a laptop and the test suite need no key; everywhere else the
+   * step-up routes are refused (MFA_NOT_CONFIGURED). See MfaService.sessionState.
    */
   MFA_ENCRYPTION_KEY: z
     .string()
@@ -552,6 +557,25 @@ const envSchema = z.object({
       },
       { message: 'must be 32 bytes, base64 encoded (openssl rand -base64 32)' },
     ),
+  /**
+   * Whether back-office staff MUST enroll an authenticator before they can use the console.
+   *
+   *   required (default) - every ADMIN/SUPER_ADMIN must set up and pass the second factor to use
+   *                        any back-office route. This is the behaviour before the setting existed.
+   *   deferred           - the owner's launch decision: staff sign in with a password and use the
+   *                        ordinary back office without enrolling. The sensitive actions (every
+   *                        route marked @RequiresRecentMfa: refunds, payouts, payment, fee and tax
+   *                        configuration, staff and account changes) are NOT relaxed: they still
+   *                        need an enrolled factor checked within MFA_STEPUP_MINUTES, refuse
+   *                        MFA_SETUP_REQUIRED until the person enrolls, and refuse
+   *                        MFA_NOT_CONFIGURED when there is no MFA_ENCRYPTION_KEY at all. An account
+   *                        that HAS enrolled is held to the full `required` rules.
+   *
+   * Reversible by configuration alone: set it back to `required` (with the key) and every staff
+   * account that has not enrolled is walked into enrollment at its next request, exactly as when
+   * MFA was first armed. See docs/security/ADMIN-MFA.md.
+   */
+  MFA_ENROLLMENT: z.enum(['required', 'deferred']).default('required'),
   /** Name shown in the authenticator app. APP_ENV is appended outside PRODUCTION. */
   MFA_ISSUER: z.string().trim().min(1).max(40).default('ETicketsGo'),
   /** How recent a second-factor check must be for the most sensitive back-office actions. */
@@ -1203,11 +1227,21 @@ function assertProductionHardening(cfg: AppConfig): void {
 function assertAdminMfaArmed(cfg: AppConfig): void {
   if (!['STAGING', 'PRODUCTION'].includes(cfg.APP_ENV)) return;
   if ((cfg.MFA_ENCRYPTION_KEY ?? '').trim()) return;
+  /*
+    MFA_ENROLLMENT=deferred is the one exception, and it is safe to boot without the key for a
+    reason that does not depend on anybody reading a log: with no key, MfaGuard refuses every
+    @RequiresRecentMfa route (MFA_NOT_CONFIGURED) and MfaService cannot store a secret at all.
+    So the back office runs on a password for the ordinary work, which is what the owner chose,
+    and the money and configuration actions are blocked rather than open. MfaService logs that
+    at boot. Still refused: authenticators that exist without the key (MfaService.onModuleInit).
+  */
+  if (cfg.MFA_ENROLLMENT === 'deferred') return;
   throw new Error(
     `Admin sign-in is not protected in this environment:\n` +
       `  - MFA_ENCRYPTION_KEY is not set, so administrators could sign in with a password only. ` +
       `APP_ENV=${cfg.APP_ENV} requires it. Generate one with: openssl rand -base64 32 ` +
-      `(keep it in the secret store: losing it voids every enrolled authenticator).`,
+      `(keep it in the secret store: losing it voids every enrolled authenticator). ` +
+      `Or set MFA_ENROLLMENT=deferred to boot with sensitive admin actions blocked until it is set.`,
   );
 }
 

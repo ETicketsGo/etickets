@@ -46,6 +46,37 @@ describe('loadConfig admin MFA arming', () => {
   it('boots production with the key set', () => {
     process.env = env();
     expect(loadConfig().MFA_ENCRYPTION_KEY).toBe(KEY);
+    expect(loadConfig().MFA_ENROLLMENT).toBe('required');
+  });
+
+  it.each(['PRODUCTION', 'STAGING'])(
+    'MFA_ENROLLMENT=deferred boots %s without the key (sensitive actions are blocked instead)',
+    (appEnv) => {
+      process.env = env({
+        APP_ENV: appEnv,
+        MFA_ENCRYPTION_KEY: undefined,
+        MFA_ENROLLMENT: 'deferred',
+      });
+      expect(loadConfig().MFA_ENROLLMENT).toBe('deferred');
+    },
+  );
+
+  it('MFA_ENROLLMENT=required is the default and keeps refusing production without the key', () => {
+    process.env = env({ MFA_ENCRYPTION_KEY: undefined, MFA_ENROLLMENT: 'required' });
+    expect(() => loadConfig()).toThrow(/MFA_ENCRYPTION_KEY is not set/);
+  });
+
+  it('refuses an MFA_ENROLLMENT value it does not know rather than guessing', () => {
+    process.env = env({ MFA_ENROLLMENT: 'off' });
+    expect(() => loadConfig()).toThrow(/MFA_ENROLLMENT/);
+  });
+
+  it('a malformed key is still refused in deferred mode: the key is never optional-but-wrong', () => {
+    process.env = env({
+      MFA_ENROLLMENT: 'deferred',
+      MFA_ENCRYPTION_KEY: Buffer.alloc(8, 1).toString('base64'),
+    });
+    expect(() => loadConfig()).toThrow(/MFA_ENCRYPTION_KEY/);
   });
 
   it.each(['LOCAL', 'DEV', 'QA', 'UAT'])(

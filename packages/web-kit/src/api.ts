@@ -273,6 +273,19 @@ export function setStepUpHandler(fn: (() => Promise<boolean>) | null): void {
 }
 
 /*
+  MFA_ENROLLMENT=deferred: a sensitive action by staff with no authenticator comes back
+  MFA_SETUP_REQUIRED (they can fix it: set one up) or MFA_NOT_CONFIGURED (the server has no MFA
+  key; only an operator can fix it). The admin console registers ONE handler that explains this
+  and offers the setup screen. It is told, not asked: the request is NOT repeated and the error
+  still reaches the caller, so the page shows its own failure state as well.
+*/
+export type MfaSetupCode = 'MFA_SETUP_REQUIRED' | 'MFA_NOT_CONFIGURED';
+let mfaSetupHandler: ((code: MfaSetupCode, message: string) => void) | null = null;
+export function setMfaSetupHandler(fn: ((code: MfaSetupCode, message: string) => void) | null) {
+  mfaSetupHandler = fn;
+}
+
+/*
   The human check (Cloudflare Turnstile). On a few public routes (sign-in, sign-up, phone codes,
   password reset, guest checkout and lookup, the support form, organizer sign-up) the API can
   answer 428 HUMAN_CHECK_REQUIRED, or 403 HUMAN_CHECK_FAILED for a token that proved nothing.
@@ -383,6 +396,13 @@ async function request<T>(path: string, options: Options = {}): Promise<T> {
       (await stepUpHandler())
     ) {
       return request<T>(path, { ...options, _steppedUp: true });
+    }
+    if (
+      res.status === 403 &&
+      (err?.code === 'MFA_SETUP_REQUIRED' || err?.code === 'MFA_NOT_CONFIGURED') &&
+      mfaSetupHandler
+    ) {
+      mfaSetupHandler(err.code, err.message ?? '');
     }
     throw new ApiRequestError(
       err?.code ?? 'ERROR',
@@ -2863,9 +2883,17 @@ export interface AuthUser {
   /**
    * Where this session stands on the second factor. Only meaningful for back-office accounts:
    * `required` with `verified: false` means the console must send the person to enrollment
-   * (`enrolled: false`) or back to sign-in (`enrolled: true`).
+   * (`enrolled: false`) or back to sign-in (`enrolled: true`). `stepUp` says whether the server
+   * can hold an authenticator at all ('available'), cannot ('unconfigured': sensitive actions are
+   * blocked until an operator sets MFA up), or is a developer machine with MFA off ('dormant').
    */
-  mfa?: { required: boolean; enrolled: boolean; verified: boolean; verifiedAt: number | null };
+  mfa?: {
+    required: boolean;
+    enrolled: boolean;
+    verified: boolean;
+    verifiedAt: number | null;
+    stepUp?: 'available' | 'unconfigured' | 'dormant';
+  };
   /**
    * The state this customer last told us they were in, for the place-of-supply field.
    *
