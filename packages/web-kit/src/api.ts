@@ -59,6 +59,27 @@ export type {
 } from '@eticketsgo/shared-types';
 
 import { markApiReachable, markApiUnreachable } from './connectivity';
+import type {
+  CrmActivity,
+  CrmActivityReport,
+  CrmAgingReport,
+  CrmConversionReport,
+  CrmCsvReport,
+  CrmDuplicateMatch,
+  CrmEmployeeReport,
+  CrmFollowUp,
+  CrmFunnel,
+  CrmGroupRow,
+  CrmImportResult,
+  CrmLead,
+  CrmLeadDetail,
+  CrmLeadFilters,
+  CrmMe,
+  CrmOrganizationMatch,
+  CrmOverview,
+  CrmReportFilters,
+  CrmTeam,
+} from './crm-types';
 
 export const API_URL =
   (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_API_URL) ||
@@ -2207,6 +2228,147 @@ export const api = {
 
   admin: {
     dashboard: () => request<AdminDashboard>('/admin/dashboard'),
+
+    /**
+     * Organizer acquisition (sales CRM). Every call needs CRM_AGENT; the team routes also
+     * CRM_MANAGER. The server narrows each answer to the caller's teams.
+     */
+    crm: {
+      me: () => request<CrmMe>('/admin/crm/me'),
+      leads: (params: CrmLeadFilters = {}) =>
+        request<Paged<CrmLead>>(`/admin/crm/leads${qs(params as Record<string, unknown>)}`),
+      lead: (id: string) => request<CrmLeadDetail>(`/admin/crm/leads/${id}`),
+      createLead: (body: Record<string, unknown>) =>
+        request<CrmLead>('/admin/crm/leads', { method: 'POST', body: JSON.stringify(body) }),
+      checkDuplicates: (body: Record<string, unknown>) =>
+        request<{ matches: CrmDuplicateMatch[] }>('/admin/crm/leads/duplicates', {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      updateLead: (id: string, body: Record<string, unknown> & { version: number }) =>
+        request<{ lead: CrmLead; duplicates: CrmDuplicateMatch[] }>(`/admin/crm/leads/${id}`, {
+          method: 'PATCH',
+          body: JSON.stringify(body),
+        }),
+      assign: (
+        id: string,
+        body: { version: number; assignedToUserId: string | null; note?: string },
+      ) =>
+        request<CrmLead>(`/admin/crm/leads/${id}/assign`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      changeStage: (
+        id: string,
+        body: { version: number; stage: string; note?: string; lostReason?: string },
+      ) =>
+        request<CrmLead>(`/admin/crm/leads/${id}/stage`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      archive: (id: string, body: { version: number; archived: boolean }) =>
+        request<CrmLead>(`/admin/crm/leads/${id}/archive`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      searchOrganizations: (q: string) =>
+        request<CrmOrganizationMatch[]>(`/admin/crm/organizations${qs({ q })}`),
+      linkOrganization: (id: string, body: { version: number; organizationId: string }) =>
+        request<CrmLead>(`/admin/crm/leads/${id}/organization`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      unlinkOrganization: (id: string, body: { version: number }) =>
+        request<CrmLead>(`/admin/crm/leads/${id}/organization/unlink`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      logActivity: (id: string, body: Record<string, unknown>) =>
+        request<{ activity: CrmActivity; followUp: CrmFollowUp | null }>(
+          `/admin/crm/leads/${id}/activities`,
+          { method: 'POST', body: JSON.stringify(body) },
+        ),
+      createFollowUp: (id: string, body: Record<string, unknown>) =>
+        request<CrmFollowUp>(`/admin/crm/leads/${id}/follow-ups`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      activities: (params: Record<string, unknown> = {}) =>
+        request<Paged<CrmActivity>>(`/admin/crm/activities${qs(params)}`),
+      followUps: (params: Record<string, unknown> = {}) =>
+        request<Paged<CrmFollowUp>>(`/admin/crm/follow-ups${qs(params)}`),
+      completeFollowUp: (id: string, body: { version: number; note?: string }) =>
+        request<CrmFollowUp>(`/admin/crm/follow-ups/${id}/complete`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      cancelFollowUp: (id: string, body: { version: number }) =>
+        request<CrmFollowUp>(`/admin/crm/follow-ups/${id}/cancel`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      reassignFollowUp: (
+        id: string,
+        body: { version: number; ownerUserId: string; dueAt?: string },
+      ) =>
+        request<CrmFollowUp>(`/admin/crm/follow-ups/${id}/reassign`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      importLeads: (body: {
+        teamId: string;
+        csv: string;
+        commit: boolean;
+        onDuplicate?: 'skip' | 'create';
+      }) =>
+        request<CrmImportResult>('/admin/crm/leads/import', {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      downloadLeads: (params: CrmLeadFilters = {}) =>
+        downloadCsv(
+          `/admin/crm/leads/export${qs(params as Record<string, unknown>)}`,
+          'prospects.csv',
+        ),
+      teams: () => request<CrmTeam[]>('/admin/crm/teams'),
+      candidates: (teamId: string) =>
+        request<Array<{ id: string; fullName: string; email: string; holdsManager: boolean }>>(
+          `/admin/crm/teams/${teamId}/candidates`,
+        ),
+      setMember: (teamId: string, userId: string, role: 'AGENT' | 'MANAGER') =>
+        request<{ teamId: string; userId: string; role: string }>(
+          `/admin/crm/teams/${teamId}/members/${userId}`,
+          { method: 'PUT', body: JSON.stringify({ role }) },
+        ),
+      removeMember: (teamId: string, userId: string) =>
+        request<{ removed: boolean; stillAssigned: number }>(
+          `/admin/crm/teams/${teamId}/members/${userId}`,
+          { method: 'DELETE' },
+        ),
+      reports: {
+        overview: (f: CrmReportFilters = {}) =>
+          request<CrmOverview>(`/admin/crm/reports/overview${qs({ ...f })}`),
+        funnel: (f: CrmReportFilters = {}) =>
+          request<CrmFunnel>(`/admin/crm/reports/funnel${qs({ ...f })}`),
+        byCountry: (f: CrmReportFilters = {}) =>
+          request<{ rows: CrmGroupRow[] }>(`/admin/crm/reports/by-country${qs({ ...f })}`),
+        bySource: (f: CrmReportFilters = {}) =>
+          request<{ rows: CrmGroupRow[] }>(`/admin/crm/reports/by-source${qs({ ...f })}`),
+        byEmployee: (f: CrmReportFilters = {}) =>
+          request<CrmEmployeeReport>(`/admin/crm/reports/by-employee${qs({ ...f })}`),
+        activity: (f: CrmReportFilters = {}) =>
+          request<CrmActivityReport>(`/admin/crm/reports/activity${qs({ ...f })}`),
+        aging: (f: CrmReportFilters = {}) =>
+          request<CrmAgingReport>(`/admin/crm/reports/aging${qs({ ...f })}`),
+        conversion: (f: CrmReportFilters = {}) =>
+          request<CrmConversionReport>(`/admin/crm/reports/conversion${qs({ ...f })}`),
+        downloadCsv: (report: CrmCsvReport, f: CrmReportFilters = {}) =>
+          downloadCsv(
+            `/admin/crm/reports/${report}${qs({ ...f, format: 'csv' })}`,
+            `acquisition-${report}.csv`,
+          ),
+      },
+    },
 
     /** Back-office staff and what each of them may do. Needs ADMIN_MANAGE. */
     staff: {
