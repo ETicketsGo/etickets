@@ -1,4 +1,5 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { HttpStatus, Injectable, Optional } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { Role } from '@eticketsgo/shared-types';
 import type { CreateCouponInput, UpdateCouponInput } from '@eticketsgo/validation';
@@ -23,6 +24,8 @@ export class CouponsService {
     private readonly prisma: PrismaService,
     private readonly access: OrgAccessService,
     private readonly audit: AuditService,
+    // Optional so specs that build this service by hand need not supply one.
+    @Optional() private readonly config?: ConfigService,
   ) {}
 
   async list(user: RequestUser, organizationId: string, page = 1, pageSize = 25) {
@@ -51,6 +54,15 @@ export class CouponsService {
 
   async create(user: RequestUser, input: CreateCouponInput) {
     await this.access.assertMember(user, input.organizationId, ORGANIZER_ROLES);
+    // COUPONS_ENABLED=false: see BookingsService.couponsDisabled. A code that can be created but
+    // never accepted at checkout would only confuse the organizer who made it.
+    if (this.config?.get<string>('COUPONS_ENABLED') === 'false') {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'Discount codes are switched off on this platform for now.',
+        HttpStatus.CONFLICT,
+      );
+    }
     const currency = await this.currencyFor(input.organizationId, input.type, input.currency);
     try {
       const coupon = await this.prisma.coupon.create({
