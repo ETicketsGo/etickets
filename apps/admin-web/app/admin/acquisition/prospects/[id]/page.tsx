@@ -174,6 +174,8 @@ function ArchiveButton({ lead }: { lead: CrmLeadDetail }) {
 function LogActivity({ lead }: { lead: CrmLeadDetail }) {
   const [type, setType] = useState<string>('CALL');
   const [occurredAt, setOccurredAt] = useState(() => toLocalInput(new Date()));
+  // Untouched, "when" means now - the moment of logging, not the moment the page opened.
+  const [whenTouched, setWhenTouched] = useState(false);
   const [outcome, setOutcome] = useState('');
   const [notes, setNotes] = useState('');
   const [withFollowUp, setWithFollowUp] = useState(true);
@@ -184,7 +186,7 @@ function LogActivity({ lead }: { lead: CrmLeadDetail }) {
     () =>
       api.admin.crm.logActivity(lead.id, {
         type,
-        occurredAt: fromLocalInput(occurredAt),
+        occurredAt: whenTouched ? fromLocalInput(occurredAt) : new Date().toISOString(),
         outcome: outcome || null,
         notes,
         followUp: withFollowUp ? { dueAt: fromLocalInput(dueAt), title } : undefined,
@@ -216,7 +218,10 @@ function LogActivity({ lead }: { lead: CrmLeadDetail }) {
             type="datetime-local"
             value={occurredAt}
             max={toLocalInput(new Date())}
-            onChange={(e) => setOccurredAt(e.target.value)}
+            onChange={(e) => {
+              setOccurredAt(e.target.value);
+              setWhenTouched(true);
+            }}
           />
           <Select label="Outcome" value={outcome} onChange={(e) => setOutcome(e.target.value)}>
             <option value="">Not recorded</option>
