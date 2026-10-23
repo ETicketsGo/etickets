@@ -16,6 +16,8 @@ export interface SecurityAuditEntry {
   entityType: string;
   entityId?: string | null;
   metadata?: Record<string, unknown>;
+  /** Present on the entry, and deliberately never read: a client address is not mailed. */
+  ip?: string | null;
 }
 
 /**
