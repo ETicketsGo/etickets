@@ -60,6 +60,10 @@ const APPROVED: Record<string, AdminPermission[]> = {
     AdminPermission.AUDIT_READ,
   ],
   OPS_ONCALL: [AdminPermission.OPS_READ, AdminPermission.OPS_EXECUTE],
+  // New (organizer acquisition CRM): the CRM duties and NOTHING else - no booking, organizer,
+  // finance or audit read. An acquisition agent must not reach customers or money.
+  CRM_AGENT: [AdminPermission.CRM_AGENT],
+  CRM_MANAGER: [AdminPermission.CRM_AGENT, AdminPermission.CRM_MANAGER],
 };
 
 describe('the ready-made staff bundles', () => {
@@ -98,8 +102,17 @@ describe('the ready-made staff bundles', () => {
     expect(text).toMatch(/cannot change a booking, a refund or any money/i);
   });
 
+  it('keeps the CRM duties out of every other bundle, and everything else out of the CRM ones', () => {
+    const crm: string[] = [AdminPermission.CRM_AGENT, AdminPermission.CRM_MANAGER];
+    for (const [key, preset] of Object.entries(ADMIN_PRESETS)) {
+      const carries = preset.grants.filter((g) => crm.includes(g));
+      if (key.startsWith('CRM_')) expect(preset.grants.every((g) => crm.includes(g))).toBe(true);
+      else expect(carries).toEqual([]);
+    }
+  });
+
   it('writes the changed and new descriptions in plain ASCII', () => {
-    for (const key of ['SUPPORT', 'FINANCE', 'OPERATIONS']) {
+    for (const key of ['SUPPORT', 'FINANCE', 'OPERATIONS', 'CRM_AGENT', 'CRM_MANAGER']) {
       expect(ADMIN_PRESETS[key].description).toMatch(/^[\x20-\x7e]+$/);
       expect(ADMIN_PRESETS[key].label).toMatch(/^[\x20-\x7e]+$/);
     }
