@@ -25,13 +25,12 @@ test.describe('organizer acquisition', () => {
       timeout: 30_000,
     });
     await expect(page.getByText('Where leads are now')).toBeVisible();
-    // The menu has the section, grouped and named.
+    // The menu has the section, under Organizers, open on its own pages, with its pages as tabs.
+    const nav = page.getByRole('navigation', { name: 'Admin' });
     await expect(
-      page.getByRole('navigation', { name: 'Admin' }).getByRole('button', {
-        name: 'Organizer Acquisition',
-        exact: true,
-      }),
+      nav.getByRole('link', { name: 'Organizer Acquisition', exact: true }),
     ).toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Prospects', exact: true })).toBeVisible();
 
     await page.getByRole('button', { name: 'Add prospect' }).first().click();
     const dialog = page.getByRole('dialog', { name: 'Add a prospect' });

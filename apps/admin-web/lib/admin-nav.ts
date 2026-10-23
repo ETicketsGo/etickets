@@ -81,6 +81,10 @@ export interface AdminNavLink {
   alsoNeeds?: string[];
   /** Other words somebody might type into quick navigation. */
   keywords?: string[];
+  /** The section's own pages, folded under it in the menu and shown as tabs on each page. */
+  children?: AdminNavLink[];
+  /** This link's name as the first tab of its section, where `label` would repeat it. */
+  tabLabel?: string;
 }
 
 export interface AdminNavGroup {
@@ -165,69 +169,68 @@ export const ADMIN_NAV: AdminNavGroup[] = [
         needs: 'ORGANIZER_REVIEW',
         keywords: ['verification', 'kyc', 'approve'],
       },
-    ],
-  },
-  {
-    /*
-      The sales desk: prospects the platform would like to sell for. Every link needs CRM_AGENT
-      (GET /admin/crm/*); Team Performance and Reports also need CRM_MANAGER, as their API does.
-      An operator holding neither sees no part of this group.
-    */
-    key: 'acquisition',
-    label: 'Organizer Acquisition',
-    icon: Target,
-    links: [
+      /*
+        Organizer Acquisition, the sales desk: prospects the platform would like to sell for.
+        A SECTION of this group rather than a group of its own: one more group heading made the
+        expanded menu taller than a 768px window (console-navigation e2e). Its pages fold under
+        it, show as tabs on each page, and quick navigation finds every one.
+
+        Every page needs CRM_AGENT (GET /admin/crm/*); Team Performance and Reports also need
+        CRM_MANAGER, as their API does. An operator holding neither sees none of it.
+      */
       {
-        label: 'Overview',
+        label: 'Organizer Acquisition',
+        tabLabel: 'Overview',
         href: '/admin/acquisition',
-        exact: true,
         icon: Target,
         needs: 'CRM_AGENT',
-        keywords: ['crm', 'sales', 'acquisition', 'dashboard'],
-      },
-      {
-        label: 'Prospects',
-        href: '/admin/acquisition/prospects',
-        icon: UserRoundSearch,
-        needs: 'CRM_AGENT',
-        keywords: ['leads', 'crm', 'import', 'export'],
-      },
-      {
-        label: 'Pipeline',
-        href: '/admin/acquisition/pipeline',
-        icon: KanbanSquare,
-        needs: 'CRM_AGENT',
-        keywords: ['stages', 'funnel', 'crm'],
-      },
-      {
-        label: 'Follow-ups',
-        href: '/admin/acquisition/follow-ups',
-        icon: CalendarClock,
-        needs: 'CRM_AGENT',
-        keywords: ['tasks', 'overdue', 'crm'],
-      },
-      {
-        label: 'Activities',
-        href: '/admin/acquisition/activities',
-        icon: MessageSquareText,
-        needs: 'CRM_AGENT',
-        keywords: ['calls', 'outreach', 'crm'],
-      },
-      {
-        label: 'Team Performance',
-        href: '/admin/acquisition/team',
-        icon: UsersRound,
-        needs: 'CRM_AGENT',
-        alsoNeeds: ['CRM_MANAGER'],
-        keywords: ['agents', 'interns', 'crm team'],
-      },
-      {
-        label: 'Reports',
-        href: '/admin/acquisition/reports',
-        icon: Handshake,
-        needs: 'CRM_AGENT',
-        alsoNeeds: ['CRM_MANAGER'],
-        keywords: ['india', 'usa', 'conversion', 'crm reports'],
+        keywords: ['crm', 'sales', 'acquisition', 'prospects', 'leads'],
+        children: [
+          {
+            label: 'Prospects',
+            href: '/admin/acquisition/prospects',
+            icon: UserRoundSearch,
+            needs: 'CRM_AGENT',
+            keywords: ['leads', 'crm', 'import', 'export'],
+          },
+          {
+            label: 'Pipeline',
+            href: '/admin/acquisition/pipeline',
+            icon: KanbanSquare,
+            needs: 'CRM_AGENT',
+            keywords: ['stages', 'funnel', 'crm'],
+          },
+          {
+            label: 'Follow-ups',
+            href: '/admin/acquisition/follow-ups',
+            icon: CalendarClock,
+            needs: 'CRM_AGENT',
+            keywords: ['tasks', 'overdue', 'crm'],
+          },
+          {
+            label: 'Activities',
+            href: '/admin/acquisition/activities',
+            icon: MessageSquareText,
+            needs: 'CRM_AGENT',
+            keywords: ['calls', 'outreach', 'crm'],
+          },
+          {
+            label: 'Team Performance',
+            href: '/admin/acquisition/team',
+            icon: UsersRound,
+            needs: 'CRM_AGENT',
+            alsoNeeds: ['CRM_MANAGER'],
+            keywords: ['agents', 'interns', 'crm team'],
+          },
+          {
+            label: 'Reports',
+            href: '/admin/acquisition/reports',
+            icon: Handshake,
+            needs: 'CRM_AGENT',
+            alsoNeeds: ['CRM_MANAGER'],
+            keywords: ['india', 'usa', 'conversion', 'crm reports'],
+          },
+        ],
       },
     ],
   },
@@ -413,14 +416,19 @@ export const ADMIN_NAV: AdminNavGroup[] = [
  * carrying the group's name and rail icon, every one carrying its capability.
  */
 export function adminNavItems(nav: AdminNavGroup[] = ADMIN_NAV): NavItem[] {
+  const item = (l: AdminNavLink): NavItem => ({
+    label: l.label,
+    href: l.href,
+    icon: l.icon,
+    exact: l.exact,
+    capabilities: l.needs ? [l.needs, ...(l.alsoNeeds ?? [])] : undefined,
+    keywords: l.keywords,
+    tabLabel: l.tabLabel,
+    children: l.children?.map(item),
+  });
   return nav.flatMap((g) =>
     g.links.map((l, i) => ({
-      label: l.label,
-      href: l.href,
-      icon: l.icon,
-      exact: l.exact,
-      capabilities: l.needs ? [l.needs, ...(l.alsoNeeds ?? [])] : undefined,
-      keywords: l.keywords,
+      ...item(l),
       ...(i === 0 ? { group: g.label, groupIcon: g.icon } : {}),
     })),
   );
@@ -428,7 +436,7 @@ export function adminNavItems(nav: AdminNavGroup[] = ADMIN_NAV): NavItem[] {
 
 /** Every link, flattened, in menu order. */
 export function allNavLinks(nav: AdminNavGroup[] = ADMIN_NAV): AdminNavLink[] {
-  return nav.flatMap((g) => g.links);
+  return nav.flatMap((g) => g.links.flatMap((l) => [l, ...(l.children ?? [])]));
 }
 
 export function isLinkActive(pathname: string, link: Pick<AdminNavLink, 'href' | 'exact'>) {
@@ -456,5 +464,5 @@ export function activeHref(pathname: string, nav: AdminNavGroup[] = ADMIN_NAV): 
 export function activeGroupKey(pathname: string, nav: AdminNavGroup[] = ADMIN_NAV): string | null {
   const href = activeHref(pathname, nav);
   if (!href) return null;
-  return nav.find((g) => g.links.some((l) => l.href === href))?.key ?? null;
+  return nav.find((g) => allNavLinks([g]).some((l) => l.href === href))?.key ?? null;
 }

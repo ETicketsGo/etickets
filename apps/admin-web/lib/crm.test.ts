@@ -80,14 +80,18 @@ describe('report date filters', () => {
 });
 
 describe('the Organizer Acquisition menu', () => {
-  const group = ADMIN_NAV.find((g) => g.key === 'acquisition')!;
+  const section = ADMIN_NAV.flatMap((g) => g.links).find((l) => l.href === '/admin/acquisition')!;
   const who = (adminPermissions: string[], roles = ['ADMIN']) => ({ roles, adminPermissions });
+  /** Every page the viewer can reach from the menu, sections unfolded. */
   const hrefs = (user: { roles: string[]; adminPermissions: string[] }) =>
-    visibleNav(adminNavItems(), user).map((i) => i.href);
+    visibleNav(adminNavItems(), user).flatMap((i) => [
+      i.href,
+      ...(i.children ?? []).map((c) => c.href),
+    ]);
 
-  it('has the seven pages, in working order', () => {
-    expect(group.label).toBe('Organizer Acquisition');
-    expect(group.links.map((l) => l.label)).toEqual([
+  it('is a section with the seven pages, in working order', () => {
+    expect(section.label).toBe('Organizer Acquisition');
+    expect([section.tabLabel, ...(section.children ?? []).map((l) => l.label)]).toEqual([
       'Overview',
       'Prospects',
       'Pipeline',
