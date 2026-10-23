@@ -8,7 +8,7 @@ import {
   Role,
 } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
-import { AuditService } from '../audit/audit.service';
+import { AuditService, type AuditEntry } from '../audit/audit.service';
 import { OrganizationsService } from '../organizations/organizations.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import type { RequestUser } from '../common/decorators';
@@ -126,6 +126,16 @@ export class AdminStaffService {
     );
     const before = target.adminGrants.map((g) => g.permission).sort();
 
+    // Both sides recorded: "what changed" is the question, and an after-only entry cannot
+    // answer it once the row has been overwritten again.
+    const entry: AuditEntry = {
+      actorUserId: actor.id,
+      action: 'ADMIN_PERMISSIONS_CHANGED',
+      entityType: 'User',
+      entityId: userId,
+      metadata: { email: target.email, before, after: [...wanted].sort(), note: note ?? null },
+      ip: meta.ip ?? null,
+    };
     await this.prisma.$transaction(async (tx) => {
       await tx.adminGrant.deleteMany({ where: { userId } });
       if (wanted.length > 0) {
@@ -140,17 +150,10 @@ export class AdminStaffService {
       }
       // In the same transaction: if the record of who changed whose duties cannot be written,
       // the change is not made. A silent grant is the one thing this log must never miss.
-      await this.audit.recordInTransaction(tx, {
-        actorUserId: actor.id,
-        action: 'ADMIN_PERMISSIONS_CHANGED',
-        entityType: 'User',
-        entityId: userId,
-        // Both sides recorded: "what changed" is the question, and an after-only entry cannot
-        // answer it once the row has been overwritten again.
-        metadata: { email: target.email, before, after: [...wanted].sort(), note: note ?? null },
-        ip: meta.ip ?? null,
-      });
+      await this.audit.recordInTransaction(tx, entry);
     });
+    // Committed, so an operator hears about it now (ops alert ADMIN_ACCESS_CHANGED).
+    this.audit.afterCommit(entry);
 
     return { userId, permissions: wanted };
   }

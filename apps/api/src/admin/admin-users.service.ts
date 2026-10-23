@@ -1,7 +1,7 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { Role, UserStatus } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
-import { AuditService } from '../audit/audit.service';
+import { AuditService, type AuditEntry } from '../audit/audit.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import type { RequestUser } from '../common/decorators';
 
@@ -68,13 +68,13 @@ export class AdminUsersService {
       return { userId, status: UserStatus.SUSPENDED, sessionsRevoked: 0 };
     }
 
-    const sessionsRevoked = await this.prisma.$transaction(async (tx) => {
+    const done = await this.prisma.$transaction(async (tx) => {
       await tx.user.update({ where: { id: userId }, data: { status: UserStatus.SUSPENDED } });
       const { count } = await tx.refreshToken.updateMany({
         where: { userId, revokedAt: null },
         data: { revokedAt: new Date() },
       });
-      await this.audit.recordInTransaction(tx, {
+      const entry: AuditEntry = {
         actorUserId: actor.id,
         action: 'USER_SUSPENDED',
         entityType: 'User',
@@ -84,12 +84,17 @@ export class AdminUsersService {
           previousStatus: target.status,
           reason: why,
           sessionsRevoked: count,
+          // Read by the ops alert: a suspended member of staff is mailed, a customer is not.
+          backOffice: isBackOffice(target.roles),
         },
         ip: meta.ip ?? null,
-      });
-      return count;
+      };
+      await this.audit.recordInTransaction(tx, entry);
+      return { count, entry };
     });
-    return { userId, status: UserStatus.SUSPENDED, sessionsRevoked };
+    // Committed: raised now, never for a suspension that rolled back.
+    this.audit.afterCommit(done.entry);
+    return { userId, status: UserStatus.SUSPENDED, sessionsRevoked: done.count };
   }
 
   async reinstate(
@@ -106,17 +111,23 @@ export class AdminUsersService {
         HttpStatus.CONFLICT,
       );
     }
+    const entry: AuditEntry = {
+      actorUserId: actor.id,
+      action: 'USER_REINSTATED',
+      entityType: 'User',
+      entityId: userId,
+      metadata: {
+        email: target.email,
+        reason: reason?.trim() || null,
+        backOffice: isBackOffice(target.roles),
+      },
+      ip: meta.ip ?? null,
+    };
     await this.prisma.$transaction(async (tx) => {
       await tx.user.update({ where: { id: userId }, data: { status: UserStatus.ACTIVE } });
-      await this.audit.recordInTransaction(tx, {
-        actorUserId: actor.id,
-        action: 'USER_REINSTATED',
-        entityType: 'User',
-        entityId: userId,
-        metadata: { email: target.email, reason: reason?.trim() || null },
-        ip: meta.ip ?? null,
-      });
+      await this.audit.recordInTransaction(tx, entry);
     });
+    this.audit.afterCommit(entry);
     return { userId, status: UserStatus.ACTIVE };
   }
 
@@ -179,4 +190,9 @@ export class AdminUsersService {
     }
     return target;
   }
+}
+
+/** Holds a back-office role: suspending it changes who can run the platform. */
+function isBackOffice(roles: readonly string[]): boolean {
+  return roles.includes(Role.ADMIN) || roles.includes(Role.SUPER_ADMIN);
 }
