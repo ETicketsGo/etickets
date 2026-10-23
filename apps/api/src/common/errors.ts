@@ -24,6 +24,16 @@ export const ErrorCodes = {
   MFA_REQUIRED: 'MFA_REQUIRED',
   /** A sensitive action needs a second-factor check newer than the session has. */
   MFA_STEP_UP_REQUIRED: 'MFA_STEP_UP_REQUIRED',
+  /**
+   * MFA_ENROLLMENT=deferred: a sensitive action by staff who have not set up an authenticator
+   * yet. They can, from the same session; the console sends them to do it.
+   */
+  MFA_SETUP_REQUIRED: 'MFA_SETUP_REQUIRED',
+  /**
+   * A sensitive action on a server with no MFA_ENCRYPTION_KEY: no authenticator can exist, so
+   * the action is blocked (never skipped) until an operator configures MFA.
+   */
+  MFA_NOT_CONFIGURED: 'MFA_NOT_CONFIGURED',
   MFA_INVALID_CODE: 'MFA_INVALID_CODE',
   MFA_LOCKED: 'MFA_LOCKED',
   NOT_FOUND: 'NOT_FOUND',
