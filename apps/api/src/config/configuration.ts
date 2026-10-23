@@ -197,6 +197,12 @@ const envSchema = z.object({
    * Bounded deliberately: under a minute cannot survive a slow card page and would strand
    * paying customers, and beyond an hour lets abandoned carts sterilise a sold-out show.
    */
+  /*
+    Discount codes on or off for the whole platform. 'false' refuses every code at checkout with
+    a plain reason, hides public offers and blocks creating codes (see
+    BookingsService.couponsDisabled). On by default so nothing changes where it is not set.
+  */
+  COUPONS_ENABLED: z.enum(['true', 'false']).default('true'),
   BOOKING_HOLD_MINUTES: z.coerce.number().int().min(1).max(60).default(10),
 
   /*
