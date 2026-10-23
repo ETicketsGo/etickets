@@ -108,5 +108,13 @@ export const ErrorCodes = {
    */
   PAYOUT_ALLOCATION_MISMATCH: 'PAYOUT_ALLOCATION_MISMATCH',
   MAINTENANCE_MODE: 'MAINTENANCE_MODE',
+  /**
+   * The human check (Cloudflare Turnstile, see src/human-check). REQUIRED (428): send the
+   * request again with a solved token. FAILED (403): the token proved nothing; solve again.
+   * UNAVAILABLE (503): Cloudflare could not answer and this route fails closed.
+   */
+  HUMAN_CHECK_REQUIRED: 'HUMAN_CHECK_REQUIRED',
+  HUMAN_CHECK_FAILED: 'HUMAN_CHECK_FAILED',
+  HUMAN_CHECK_UNAVAILABLE: 'HUMAN_CHECK_UNAVAILABLE',
   INTERNAL: 'INTERNAL',
 } as const;

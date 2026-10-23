@@ -14,6 +14,7 @@ import { SupportService } from './support.service';
 import { OptionalJwtAuthGuard } from './optional-jwt-auth.guard';
 import { RequiresAdmin, CurrentUser, Public, Roles, type RequestUser } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { RequiresHumanCheck } from '../human-check/human-check.guard';
 import { countryFilterField } from '../admin/country-filter';
 import { dayField, idField, refineDateOrder, type ListFilters } from '../admin/list-filters';
 
@@ -41,6 +42,7 @@ export class SupportController {
   @Public()
   @Throttle(SUPPORT_THROTTLE)
   @UseGuards(OptionalJwtAuthGuard)
+  @RequiresHumanCheck('support')
   @ApiOperation({
     summary: 'Submit support/feedback (contact, bug, feature, general, CSAT). Public.',
   })

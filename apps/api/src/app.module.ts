@@ -17,6 +17,7 @@ import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { HealthModule } from './health/health.module';
 import { MetricsModule } from './metrics/metrics.module';
+import { HumanCheckModule } from './human-check/human-check.module';
 import { PricingModule } from './pricing/pricing.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { NotificationFeedModule } from './notifications/feed/notification-feed.module';
@@ -111,6 +112,7 @@ import { HttpObservationMiddleware } from './common/http-observation.middleware'
     CacheModule,
     AuditModule,
     MetricsModule,
+    HumanCheckModule,
     TenancyModule,
     NotificationsModule,
     PricingModule,
