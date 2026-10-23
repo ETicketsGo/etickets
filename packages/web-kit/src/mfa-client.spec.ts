@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { api, ApiRequestError, setStepUpHandler } from './api';
+import { api, ApiRequestError, setMfaSetupHandler, setStepUpHandler } from './api';
 
 /*
   The two client-side halves of admin MFA that are not the sign-in form itself:
@@ -11,6 +11,7 @@ const json = (status: number, body: unknown) =>
 
 afterEach(() => {
   setStepUpHandler(null);
+  setMfaSetupHandler(null);
   vi.unstubAllGlobals();
 });
 
@@ -86,6 +87,32 @@ describe('step-up retry', () => {
     setStepUpHandler(async () => false);
     await expect(api.admin.staff.resetMfa('u1')).rejects.toMatchObject({
       code: 'MFA_STEP_UP_REQUIRED',
+    });
+  });
+});
+
+describe('sensitive action without an authenticator (MFA_ENROLLMENT=deferred)', () => {
+  for (const code of ['MFA_SETUP_REQUIRED', 'MFA_NOT_CONFIGURED'] as const) {
+    it(`${code}: tells the console once, does not repeat the request, and still fails`, async () => {
+      const fetchMock = vi.fn(() => json(403, { code, message: 'Plain words.' }));
+      vi.stubGlobal('fetch', fetchMock);
+      const handler = vi.fn();
+      setMfaSetupHandler(handler);
+      setStepUpHandler(async () => true);
+      await expect(api.admin.staff.resetMfa('u1')).rejects.toMatchObject({ code });
+      expect(handler).toHaveBeenCalledWith(code, 'Plain words.');
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+  }
+
+  it('surfaces the refusal as before when no console registered a handler', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => json(403, { code: 'MFA_SETUP_REQUIRED', message: 'x' })),
+    );
+    await expect(api.admin.staff.resetMfa('u1')).rejects.toMatchObject({
+      code: 'MFA_SETUP_REQUIRED',
     });
   });
 });

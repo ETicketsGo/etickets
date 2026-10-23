@@ -61,6 +61,25 @@ export class MfaService implements OnModuleInit {
     return this.keyBytes !== null;
   }
 
+  /**
+   * MFA_ENROLLMENT: must staff enroll to use the console at all (`required`), or only before a
+   * sensitive action (`deferred`)? Anything but the literal `deferred` reads as `required`, so a
+   * hand-built config (tests) or a typo can only ever make this STRICTER.
+   */
+  get enrollment(): 'required' | 'deferred' {
+    return this.config.get<string>('MFA_ENROLLMENT') === 'deferred' ? 'deferred' : 'required';
+  }
+
+  /**
+   * The one case where a step-up route is still waved through with no key: a developer machine
+   * (LOCAL/DEV) in `required` mode, i.e. MFA simply not armed there. The test suite and laptops
+   * rely on it; every other environment, and `deferred` everywhere, refuses instead.
+   */
+  private get stepUpDormant(): boolean {
+    const appEnv = this.config.get<string>('APP_ENV') ?? 'LOCAL';
+    return !this.enabled && this.enrollment === 'required' && ['LOCAL', 'DEV'].includes(appEnv);
+  }
+
   get stepUpMs(): number {
     return Number(this.config.get('MFA_STEPUP_MINUTES') ?? 10) * 60_000;
   }
@@ -72,12 +91,20 @@ export class MfaService implements OnModuleInit {
    * what keeps the FIRST deploy of this feature from bricking the API.
    */
   async onModuleInit(): Promise<void> {
+    const appEnv = this.config.get<string>('APP_ENV') ?? 'LOCAL';
+    const real = !['LOCAL', 'DEV'].includes(appEnv);
     if (this.enabled) {
+      if (this.enrollment === 'deferred' && real) {
+        this.logger.warn(
+          'Admin MFA enrollment is DEFERRED (MFA_ENROLLMENT=deferred): staff without an authenticator ' +
+            'sign in with a password. Sensitive admin actions (refunds, payouts, payment, fee and tax ' +
+            'configuration, staff and account changes) still need an authenticator. Set ' +
+            'MFA_ENROLLMENT=required to make enrollment mandatory.',
+        );
+      }
       await this.runBreakGlass();
       return;
     }
-    const appEnv = this.config.get<string>('APP_ENV') ?? 'LOCAL';
-    const real = !['LOCAL', 'DEV'].includes(appEnv);
     const enrolled = await this.prisma.adminMfaCredential.count().catch((err: unknown) => {
       // A database without the table yet (migration not applied) is "nothing enrolled".
       if ((err as { code?: string })?.code === 'P2021') return 0;
@@ -89,9 +116,13 @@ export class MfaService implements OnModuleInit {
           'Refusing to start: restore the key the secrets were encrypted with.',
       );
     }
-    if (real) {
+    if (real || this.enrollment === 'deferred') {
+      // One line, at boot, that says what is blocked: the refusal itself is in MfaGuard.
       this.logger.warn(
-        'Admin MFA is NOT enforced: MFA_ENCRYPTION_KEY is not set. Set it to arm MFA for back-office accounts.',
+        'Admin MFA is NOT configured: MFA_ENCRYPTION_KEY is not set. Staff sign in with a password, ' +
+          'and every sensitive admin action (refunds, payouts, payment, fee and tax configuration, ' +
+          'staff and account changes) is BLOCKED until an operator sets MFA_ENCRYPTION_KEY and staff ' +
+          'set up an authenticator.',
       );
     }
     // Break-glass works with the key absent too: it only removes rows.
@@ -123,8 +154,22 @@ export class MfaService implements OnModuleInit {
     roles: readonly string[],
     claims: { mfaCid?: string; mfaAt?: number },
   ): Promise<MfaSessionState> {
-    if (!this.enabled || !isStaff(roles)) {
+    if (!isStaff(roles)) {
       return { required: false, enrolled: false, verified: false, verifiedAt: null };
+    }
+    if (!this.enabled) {
+      /*
+        No key: nobody can be enrolled, so nothing is required for the console as a whole. What
+        a step-up route does with that is NOT "skip the check" any more - it is refused, unless
+        this is a developer machine with MFA simply not armed (stepUpDormant).
+      */
+      return {
+        required: false,
+        enrolled: false,
+        verified: false,
+        verifiedAt: null,
+        stepUp: this.stepUpDormant ? 'dormant' : 'unconfigured',
+      };
     }
     const cred = await this.prisma.adminMfaCredential.findUnique({
       where: { userId },
@@ -137,11 +182,38 @@ export class MfaService implements OnModuleInit {
       claims.mfaCid === cred?.id &&
       typeof claims.mfaAt === 'number';
     return {
-      required: true,
+      /*
+        Deferred relaxes enrollment, not the factor: an account that HAS an authenticator is
+        challenged at sign-in (requiresChallenge) and held to the full rule on every route, so
+        enrolling can only ever make an account stronger, never leave a hole beside the factor.
+      */
+      required: this.enrollment === 'required' || enrolled,
       enrolled,
       verified,
       verifiedAt: verified ? (claims.mfaAt as number) * 1000 : null,
+      stepUp: 'available',
     };
+  }
+
+  /**
+   * Who tried a sensitive action without the second factor it needs, and which one. Written by
+   * MfaGuard before it refuses; never carries anything typed. AuditService.record never throws,
+   * so a failed write cannot turn the refusal into a pass.
+   */
+  async recordSensitiveRefusal(
+    userId: string,
+    reason: 'not_enrolled' | 'not_configured',
+    route: { operation: string; method: string; path: string },
+    meta: Meta,
+  ): Promise<void> {
+    await this.audit.record({
+      actorUserId: userId,
+      action: 'MFA_SENSITIVE_ACTION_REFUSED',
+      entityType: 'User',
+      entityId: userId,
+      metadata: { reason, enrollment: this.enrollment, ...route },
+      ip: meta.ip ?? null,
+    });
   }
 
   /** At password/phone success: does this account have to prove a second factor now? */
