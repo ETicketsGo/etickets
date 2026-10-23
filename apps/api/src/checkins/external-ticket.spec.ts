@@ -41,7 +41,7 @@ const ticket = (over: Record<string, unknown> = {}) => ({
   holderName: 'Ada',
   holderEmail: 'ada@example.test',
   ticketType: { name: 'General' },
-  booking: { reference: 'ETG-IND-2026-000001' },
+  booking: { reference: 'ETG-IND-2026-000001', status: 'CONFIRMED' },
   vendorBarcode: null,
   vendorBarcodeFormat: null,
   vendorName: null,
