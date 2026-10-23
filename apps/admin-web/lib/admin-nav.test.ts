@@ -61,6 +61,7 @@ describe('the admin menu', () => {
       'Overview',
       'Events',
       'Organizers & verification',
+      'Organizer Acquisition',
       'Bookings & payments',
       'Refunds & disputes',
       'Payouts & reconciliation',
@@ -135,6 +136,8 @@ describe('the menu lists only what the operator can open', () => {
     'PAYMENT_ADMIN',
     'ADMIN_MANAGE',
     'AUDIT_READ',
+    'CRM_AGENT',
+    'CRM_MANAGER',
   ];
   const hrefsFor = (perms: string[]) =>
     visibleNav(adminNavItems(), { roles: ['ADMIN'], adminPermissions: perms }).map((i) => i.href);

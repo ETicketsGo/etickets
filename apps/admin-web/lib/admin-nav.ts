@@ -3,15 +3,19 @@ import {
   Banknote,
   BarChart3,
   Building2,
+  CalendarClock,
   CalendarRange,
   ClipboardCheck,
   CreditCard,
   Film,
   GitBranch,
+  Handshake,
+  KanbanSquare,
   HandCoins,
   Landmark,
   LayoutDashboard,
   LifeBuoy,
+  MessageSquareText,
   Percent,
   KeyRound,
   Receipt,
@@ -23,8 +27,11 @@ import {
   SlidersHorizontal,
   Sparkles,
   Store,
+  Target,
   Ticket,
+  UserRoundSearch,
   Users,
+  UsersRound,
   Wrench,
   type LucideIcon,
 } from 'lucide-react';
@@ -67,6 +74,11 @@ export interface AdminNavLink {
    * Absent only for a page every operator can use.
    */
   needs?: string;
+  /**
+   * Further capabilities the page ALSO needs, when the API requires several (all-of), e.g. an
+   * acquisition manager page that needs CRM_AGENT and CRM_MANAGER.
+   */
+  alsoNeeds?: string[];
   /** Other words somebody might type into quick navigation. */
   keywords?: string[];
 }
@@ -152,6 +164,70 @@ export const ADMIN_NAV: AdminNavGroup[] = [
         icon: Building2,
         needs: 'ORGANIZER_REVIEW',
         keywords: ['verification', 'kyc', 'approve'],
+      },
+    ],
+  },
+  {
+    /*
+      The sales desk: prospects the platform would like to sell for. Every link needs CRM_AGENT
+      (GET /admin/crm/*); Team Performance and Reports also need CRM_MANAGER, as their API does.
+      An operator holding neither sees no part of this group.
+    */
+    key: 'acquisition',
+    label: 'Organizer Acquisition',
+    icon: Target,
+    links: [
+      {
+        label: 'Overview',
+        href: '/admin/acquisition',
+        exact: true,
+        icon: Target,
+        needs: 'CRM_AGENT',
+        keywords: ['crm', 'sales', 'acquisition', 'dashboard'],
+      },
+      {
+        label: 'Prospects',
+        href: '/admin/acquisition/prospects',
+        icon: UserRoundSearch,
+        needs: 'CRM_AGENT',
+        keywords: ['leads', 'crm', 'import', 'export'],
+      },
+      {
+        label: 'Pipeline',
+        href: '/admin/acquisition/pipeline',
+        icon: KanbanSquare,
+        needs: 'CRM_AGENT',
+        keywords: ['stages', 'funnel', 'crm'],
+      },
+      {
+        label: 'Follow-ups',
+        href: '/admin/acquisition/follow-ups',
+        icon: CalendarClock,
+        needs: 'CRM_AGENT',
+        keywords: ['tasks', 'overdue', 'crm'],
+      },
+      {
+        label: 'Activities',
+        href: '/admin/acquisition/activities',
+        icon: MessageSquareText,
+        needs: 'CRM_AGENT',
+        keywords: ['calls', 'outreach', 'crm'],
+      },
+      {
+        label: 'Team Performance',
+        href: '/admin/acquisition/team',
+        icon: UsersRound,
+        needs: 'CRM_AGENT',
+        alsoNeeds: ['CRM_MANAGER'],
+        keywords: ['agents', 'interns', 'crm team'],
+      },
+      {
+        label: 'Reports',
+        href: '/admin/acquisition/reports',
+        icon: Handshake,
+        needs: 'CRM_AGENT',
+        alsoNeeds: ['CRM_MANAGER'],
+        keywords: ['india', 'usa', 'conversion', 'crm reports'],
       },
     ],
   },
@@ -343,7 +419,7 @@ export function adminNavItems(nav: AdminNavGroup[] = ADMIN_NAV): NavItem[] {
       href: l.href,
       icon: l.icon,
       exact: l.exact,
-      capabilities: l.needs ? [l.needs] : undefined,
+      capabilities: l.needs ? [l.needs, ...(l.alsoNeeds ?? [])] : undefined,
       keywords: l.keywords,
       ...(i === 0 ? { group: g.label, groupIcon: g.icon } : {}),
     })),
