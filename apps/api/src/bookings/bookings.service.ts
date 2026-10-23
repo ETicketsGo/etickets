@@ -1097,6 +1097,7 @@ export class BookingsService {
    * must not advertise itself on another's checkout.
    */
   async publicOffers(eventSessionId: string) {
+    if (this.couponsDisabled()) return [];
     const session = await this.prisma.eventSession.findUnique({
       where: { id: eventSessionId },
       select: { event: { select: { organizationId: true } } },
@@ -1845,6 +1846,17 @@ export class BookingsService {
    * counted at confirmation, so concurrent unpaid bookings can each pass this check; making
    * the cap exact is the confirmation path's job, not this lookup's.
    */
+  /*
+    The platform-wide switch for discount codes (COUPONS_ENABLED). Off, every code is refused
+    with a plain reason and no discount is taken, the public offers list is empty, and
+    organizers cannot create new codes. It exists because a code with a redemption cap can be
+    over-redeemed when two checkouts race past the cap (the cap is checked at hold time and
+    counted at confirmation); until that is reserved atomically, production keeps codes off.
+  */
+  private couponsDisabled(): boolean {
+    return this.config?.get<string>('COUPONS_ENABLED') === 'false';
+  }
+
   private async resolveCoupon(
     code: string | undefined,
     subtotal: number,
@@ -1852,6 +1864,13 @@ export class BookingsService {
     currency: string,
   ): Promise<{ discountMinor: number; couponId: string | null; refusal?: string }> {
     if (!code) return { discountMinor: 0, couponId: null };
+    if (this.couponsDisabled()) {
+      return {
+        discountMinor: 0,
+        couponId: null,
+        refusal: 'Discount codes are not available right now.',
+      };
+    }
     const coupon = await this.prisma.coupon.findUnique({ where: { code } });
     const now = new Date();
     const valid =
