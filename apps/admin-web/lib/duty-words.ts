@@ -95,6 +95,14 @@ export const DUTY_WORDS: Record<string, { label: string; what: string }> = {
     label: 'Suspend accounts',
     what: 'Suspend or reinstate any account, and sign it out on every device.',
   },
+  CRM_AGENT: {
+    label: 'Acquisition agent',
+    what: 'Organizer Acquisition only: add prospects, work the leads assigned to you in your team, log outreach and keep follow-ups. Opens nothing else.',
+  },
+  CRM_MANAGER: {
+    label: 'Acquisition manager',
+    what: 'With Acquisition agent: every lead in the teams you manage, assign work, link prospects to organizer accounts, import, export and reports. Opens nothing else.',
+  },
 };
 
 /** "REFUND_APPROVE" -> its name; an unknown duty as plain words. */

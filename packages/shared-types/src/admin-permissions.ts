@@ -129,6 +129,26 @@ export const AdminPermission = {
    * Nobody may suspend themselves, and only a super admin may suspend a super admin.
    */
   USER_SUSPEND: 'USER_SUSPEND',
+
+  // ── Organizer acquisition (sales CRM) ──────────────────────────────────────────
+  /*
+    The acquisition desk works PROSPECTS - organizations the platform would like to sell for -
+    and never the platform's customers, bookings or money. Neither capability opens a single
+    route outside /admin/crm, and what each holder sees inside it is narrowed again by their
+    CRM team (country) membership, read from the database on every request.
+  */
+  /**
+   * Work organizer prospects: add a lead, edit and move the leads ASSIGNED TO YOU in your
+   * team, log outreach you did (logged, never sent) and keep your own follow-ups. Sees no
+   * other agent's leads and no other country's.
+   */
+  CRM_AGENT: 'CRM_AGENT',
+  /**
+   * Lead an acquisition team: every lead in the teams you manage, assign and reassign them,
+   * reopen lost leads, link a prospect to an existing organization, import and export leads,
+   * and read the team's reports. Always granted together with CRM_AGENT.
+   */
+  CRM_MANAGER: 'CRM_MANAGER',
 } as const;
 
 export type AdminPermission = (typeof AdminPermission)[keyof typeof AdminPermission];
@@ -251,6 +271,23 @@ export const ADMIN_PRESETS: Record<
     description:
       'Watches queues, the outbox and inventory sync and retries failed work during an incident. Cannot move money and cannot see bank data.',
     grants: [AdminPermission.OPS_READ, AdminPermission.OPS_EXECUTE],
+  },
+  /*
+    The acquisition desk. Deliberately NOTHING else: no booking, organizer, finance or audit
+    read. An intern contacting prospects must not be able to open a customer's booking or an
+    organizer's bank details, and the CRM routes are the only ones these grants open.
+  */
+  CRM_AGENT: {
+    label: 'Acquisition agent',
+    description:
+      'Adds organizer prospects, works the leads assigned to them in their team, logs outreach and keeps follow-ups. Cannot see bookings, customers, payouts or settings.',
+    grants: [AdminPermission.CRM_AGENT],
+  },
+  CRM_MANAGER: {
+    label: 'Acquisition manager',
+    description:
+      'Runs an acquisition team: sees every lead in the teams they manage, assigns work, links prospects to existing organizations, imports and exports leads and reads the reports. Cannot see bookings, customers, payouts or settings.',
+    grants: [AdminPermission.CRM_AGENT, AdminPermission.CRM_MANAGER],
   },
 };
 

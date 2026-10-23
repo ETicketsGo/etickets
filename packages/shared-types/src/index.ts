@@ -37,6 +37,7 @@ export * from './growth-recommendations';
 export * from './risk-signals';
 export * from './search-intent';
 export * from './admin-permissions';
+export * from './crm';
 export * from './venue-templates';
 export * from './space-kind';
 export * from './seat-reconciliation';

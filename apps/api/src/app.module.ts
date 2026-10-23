@@ -44,6 +44,7 @@ import { PayoutsModule } from './payouts/payouts.module';
 import { ReportsModule } from './reports/reports.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AdminModule } from './admin/admin.module';
+import { CrmModule } from './crm/crm.module';
 import { OpsModule } from './ops/ops.module';
 import { OpsAlertsModule } from './ops/alerts/ops-alerts.module';
 import { PilotModule } from './pilot/pilot.module';
@@ -143,6 +144,7 @@ import { HttpObservationMiddleware } from './common/http-observation.middleware'
     ReportsModule,
     AnalyticsModule,
     AdminModule,
+    CrmModule,
     OpsModule,
     OpsAlertsModule,
     PilotModule,
