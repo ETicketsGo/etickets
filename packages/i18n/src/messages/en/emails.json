@@ -41,7 +41,9 @@
   },
   "REFUND_COMPLETED": {
     "subject": "Your refund is complete",
-    "body": "A refund of {amount} for booking {reference} has been completed. It usually reaches your account within a few working days."
+    "body": "A refund of {amount} for booking {reference} has been completed. It usually reaches your account within a few working days.",
+    "subjectProcessing": "Your refund has been sent to your bank",
+    "bodyProcessing": "We have sent a refund of {amount} for booking {reference}. Your bank is now processing it. It usually reaches your account within 5 to 7 working days."
   },
   "REFUND_REQUESTED": {
     "subject": "A refund was requested for your booking",

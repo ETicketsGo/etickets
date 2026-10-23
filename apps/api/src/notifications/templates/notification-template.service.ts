@@ -396,13 +396,32 @@ const BUILDERS: Partial<Record<NotificationType, Builder>> = {
     };
   },
 
-  [NotificationType.REFUND_COMPLETED]: (l, p) => ({
-    subject: t(l, 'emails.REFUND_COMPLETED.subject'),
-    body: t(l, 'emails.REFUND_COMPLETED.body', {
-      amount: moneyValue(l, p, 'amountMinor'),
-      reference: bookingName(l, p),
-    }),
-  }),
+  /*
+    One notice per refund, sent when the provider accepts it. Razorpay often answers "processing"
+    rather than "processed", and nothing later sends a second notice when the bank finishes, so
+    the wording follows the stage the refund was really in: "sent to your bank" while it is
+    processing, "complete" only when the provider said so. Telling somebody their refund is
+    complete while it is still moving is the message they forward to support a week later.
+  */
+  [NotificationType.REFUND_COMPLETED]: (l, p) => {
+    const processing = p.stage === 'processing';
+    return {
+      subject: t(
+        l,
+        processing
+          ? 'emails.REFUND_COMPLETED.subjectProcessing'
+          : 'emails.REFUND_COMPLETED.subject',
+      ),
+      body: t(
+        l,
+        processing ? 'emails.REFUND_COMPLETED.bodyProcessing' : 'emails.REFUND_COMPLETED.body',
+        {
+          amount: moneyValue(l, p, 'amountMinor'),
+          reference: bookingName(l, p),
+        },
+      ),
+    };
+  },
 
   /*
     A refund has been ASKED for, which is not the same as paid — and this one may not have been
