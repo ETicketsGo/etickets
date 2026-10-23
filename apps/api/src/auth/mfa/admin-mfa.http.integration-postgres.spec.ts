@@ -248,11 +248,14 @@ describe('integration-real-postgres: admin MFA over HTTP', () => {
         preDeployRefresh = l.json.refreshToken;
         expect((await http('GET', '/admin/staff', l.json.accessToken)).status).toBe(200);
         const me = await http('GET', '/auth/me', l.json.accessToken);
+        // 'dormant': LOCAL with no key and MFA_ENROLLMENT=required, the one case where a step-up
+        // route is still not checked (anywhere else it is refused; see MfaService.sessionState).
         expect(me.json.mfa).toEqual({
           required: false,
           enrolled: false,
           verified: false,
           verifiedAt: null,
+          stepUp: 'dormant',
         });
       },
     );

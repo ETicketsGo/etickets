@@ -61,26 +61,40 @@ const NOT_STEP_UP: Array<[new (...a: never[]) => unknown, string[]]> = [
   [AdminOrganizationsController, ['list', 'reviewSignals']],
 ];
 
-function guardRun(
+/** A verified session whose last check was this long ago. */
+const verified = (agoMs: number): NonNullable<RequestUser['mfa']> => ({
+  required: true,
+  enrolled: true,
+  verified: true,
+  verifiedAt: Date.now() - agoMs,
+  stepUp: 'available',
+});
+/** MFA_ENROLLMENT=deferred, not enrolled (key set) or no key at all outside LOCAL/DEV. */
+const relaxed = (stepUp: 'available' | 'unconfigured'): NonNullable<RequestUser['mfa']> => ({
+  required: false,
+  enrolled: false,
+  verified: false,
+  verifiedAt: null,
+  stepUp,
+});
+
+async function guardRun(
   controller: new (...a: never[]) => unknown,
   handler: string,
-  verifiedAgoMs: number,
+  mfa: NonNullable<RequestUser['mfa']>,
 ) {
-  const guard = new MfaGuard(new Reflector(), { stepUpMs: 10 * 60_000 } as never);
-  const user = {
-    id: 'u',
-    email: 'e',
-    fullName: 'n',
-    roles: ['ADMIN'],
-    mfa: { required: true, enrolled: true, verified: true, verifiedAt: Date.now() - verifiedAgoMs },
-  } as RequestUser;
+  const guard = new MfaGuard(new Reflector(), {
+    stepUpMs: 10 * 60_000,
+    recordSensitiveRefusal: jest.fn().mockResolvedValue(undefined),
+  } as never);
+  const user = { id: 'u', email: 'e', fullName: 'n', roles: ['ADMIN'], mfa } as RequestUser;
   const ctx = {
     getHandler: () => (controller.prototype as Record<string, unknown>)[handler],
     getClass: () => controller,
-    switchToHttp: () => ({ getRequest: () => ({ user }) }),
+    switchToHttp: () => ({ getRequest: () => ({ user, method: 'POST', path: '/x', headers: {} }) }),
   };
   try {
-    return guard.canActivate(ctx as never) ? 'PASS' : 'REFUSED';
+    return (await guard.canActivate(ctx as never)) ? 'PASS' : 'REFUSED';
   } catch (e) {
     return (e as { code?: string }).code ?? 'ERROR';
   }
@@ -89,26 +103,32 @@ function guardRun(
 describe('staff writes that now need a recent second-factor check', () => {
   for (const [name, controller, handlers] of STEP_UP) {
     for (const h of handlers) {
-      it(`${name}: ${controller.name}.${h}`, () => {
+      it(`${name}: ${controller.name}.${h}`, async () => {
         const fn = (controller.prototype as Record<string, unknown>)[h];
         expect(typeof fn).toBe('function');
         expect(Reflect.getMetadata(MFA_RECENT_KEY, fn as object)).toBe(true);
         // Through the real guard: a check eleven minutes old is refused, one a minute old passes.
-        expect(guardRun(controller, h, 11 * 60_000)).toBe('MFA_STEP_UP_REQUIRED');
-        expect(guardRun(controller, h, 60_000)).toBe('PASS');
+        expect(await guardRun(controller, h, verified(11 * 60_000))).toBe('MFA_STEP_UP_REQUIRED');
+        expect(await guardRun(controller, h, verified(60_000))).toBe('PASS');
+        // MFA_ENROLLMENT=deferred is not a way round it: not enrolled asks for setup, and a
+        // server with no key blocks the action outright.
+        expect(await guardRun(controller, h, relaxed('available'))).toBe('MFA_SETUP_REQUIRED');
+        expect(await guardRun(controller, h, relaxed('unconfigured'))).toBe('MFA_NOT_CONFIGURED');
       });
     }
   }
 
   for (const [controller, handlers] of NOT_STEP_UP) {
     for (const h of handlers) {
-      it(`does not demand a fresh code to read: ${controller.name}.${h}`, () => {
-        expect(guardRun(controller, h, 11 * 60_000)).toBe('PASS');
+      it(`does not demand a fresh code to read: ${controller.name}.${h}`, async () => {
+        expect(await guardRun(controller, h, verified(11 * 60_000))).toBe('PASS');
+        // ...nor an authenticator at all while enrollment is deferred.
+        expect(await guardRun(controller, h, relaxed('available'))).toBe('PASS');
       });
     }
   }
 
-  it('does not ask an organizer refunding their own customer for a code they do not have', () => {
+  it('does not ask an organizer refunding their own customer for a code they do not have', async () => {
     const guard = new MfaGuard(new Reflector(), { stepUpMs: 10 * 60_000 } as never);
     const ctx = {
       getHandler: () => RefundsController.prototype.process,
@@ -119,6 +139,6 @@ describe('staff writes that now need a recent second-factor check', () => {
         }),
       }),
     };
-    expect(guard.canActivate(ctx as never)).toBe(true);
+    expect(await guard.canActivate(ctx as never)).toBe(true);
   });
 });
