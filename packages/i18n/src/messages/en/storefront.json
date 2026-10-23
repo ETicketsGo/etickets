@@ -396,6 +396,8 @@
     "refundsHeading": "Refunds",
     "refundRequestedTitle": "Refund requested",
     "refundRequestedBody": "The organizer is reviewing your refund of {amount}. We will email you their decision. You do not need to do anything.",
+    "refundProcessingTitle": "Refund on its way",
+    "refundProcessingBody": "The organizer approved your refund of {amount}. We have sent it to your bank, which usually takes 5 to 7 working days. You do not need to do anything.",
     "refundsNotOffered": "Refunds not offered",
     "refundsNotOfferedBody": "The organizer does not offer refunds for this event.",
     "contactOrganizer": "Contact them directly if something has gone wrong.",

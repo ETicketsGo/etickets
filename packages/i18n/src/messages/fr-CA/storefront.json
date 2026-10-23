@@ -396,6 +396,8 @@
     "refundsHeading": "Remboursements",
     "refundRequestedTitle": "Remboursement demandé",
     "refundRequestedBody": "L'organisateur examine votre remboursement de {amount}. Nous vous enverrons sa décision par courriel. Vous n'avez rien à faire.",
+    "refundProcessingTitle": "Remboursement en route",
+    "refundProcessingBody": "L'organisateur a approuvé votre remboursement de {amount}. Nous l'avons envoyé à votre banque, ce qui prend habituellement 5 à 7 jours ouvrables. Vous n'avez rien à faire.",
     "refundsNotOffered": "Aucun remboursement offert",
     "refundsNotOfferedBody": "L'organisateur n'offre pas de remboursement pour cet événement.",
     "contactOrganizer": "Communiquez directement avec lui en cas de problème.",
