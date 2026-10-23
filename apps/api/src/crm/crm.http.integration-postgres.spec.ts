@@ -48,6 +48,14 @@ describe('integration-real-postgres: organizer acquisition CRM', () => {
 
   afterAll(() => h.close(), 120_000);
 
+  maybe('has the default India and USA teams, even after a reset emptied the tables', async () => {
+    // The destructive seed truncates every table; the API's boot step puts the teams back.
+    const teams = await h.db.crmTeam.findMany({ where: { key: { in: ['IN', 'US'] } } });
+    expect(
+      teams.map((t: { key: string; country: string }) => `${t.key}:${t.country}`).sort(),
+    ).toEqual(['IN:IN', 'US:US']);
+  });
+
   // ── Leads ───────────────────────────────────────────────────────────────────
 
   let leadA = '';
@@ -353,13 +361,15 @@ describe('integration-real-postgres: organizer acquisition CRM', () => {
   });
 
   maybe('finds existing organizations for a manager only, and never creates one', async () => {
-    const before = await h.db.organization.count();
+    // Counted within this run's own rows: other spec files create organizations in parallel.
+    const mine = { name: { contains: s } };
+    const before = await h.db.organization.count({ where: mine });
     const r = await h.as('mgrIn').get(`/admin/crm/organizations?q=sunrise ${s}`);
     expect(r.status).toBe(200);
     expect(r.json[0]).toMatchObject({ id: orgPending, alreadyLinked: true });
     expect(r.json[0]).not.toHaveProperty('contactEmail');
     expect((await h.as('agentA').get(`/admin/crm/organizations?q=sunrise`)).status).toBe(403);
-    expect(await h.db.organization.count()).toBe(before);
+    expect(await h.db.organization.count({ where: mine })).toBe(before);
   });
 
   // ── Activities and follow-ups ───────────────────────────────────────────────

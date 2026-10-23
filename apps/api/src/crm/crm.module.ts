@@ -6,6 +6,7 @@ import { CrmActivitiesService } from './crm-activities.service';
 import { CrmImportService } from './crm-import.service';
 import { CrmTeamsService } from './crm-teams.service';
 import { CrmReportsService } from './crm-reports.service';
+import { CrmTeamsBootstrap } from './crm-teams.bootstrap';
 
 /**
  * Organizer acquisition (sales CRM) inside the admin console.
@@ -23,6 +24,7 @@ import { CrmReportsService } from './crm-reports.service';
     CrmImportService,
     CrmTeamsService,
     CrmReportsService,
+    CrmTeamsBootstrap,
   ],
 })
 export class CrmModule {}
