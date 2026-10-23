@@ -1295,6 +1295,8 @@ export class RefundsService {
           reference: booking.reference ?? '',
           currency: booking.currency,
           amountMinor: refund.amountMinor,
+          // The wording follows the real stage: see the REFUND_COMPLETED template.
+          stage: settledStatus === RefundStatus.COMPLETED ? 'completed' : 'processing',
         },
       });
     });
