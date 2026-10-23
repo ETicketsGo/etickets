@@ -1,10 +1,22 @@
-import type { AuditEntry } from '../../audit/audit.service';
 import type { OpsAlert } from './ops-alert.service';
 import {
   adminAccessChangedAlert,
   adminMfaLockoutAlert,
   refreshTokenReuseAlert,
 } from './ops-alert-messages';
+
+/**
+ * The fields of an AuditEntry (audit/audit.service.ts) this file reads. Declared here rather
+ * than imported, because AuditService imports this file and the repo forbids import cycles
+ * (madge, `npm run deps:check`), type-only ones included.
+ */
+export interface SecurityAuditEntry {
+  actorUserId?: string | null;
+  action: string;
+  entityType: string;
+  entityId?: string | null;
+  metadata?: Record<string, unknown>;
+}
 
 /**
  * The audit actions that should also wake a person, and the alert each one becomes.
@@ -22,7 +34,7 @@ import {
  *
  * Returns null for every other action, which is almost all of them.
  */
-export function securityAlertForAudit(entry: AuditEntry): OpsAlert | null {
+export function securityAlertForAudit(entry: SecurityAuditEntry): OpsAlert | null {
   const meta = entry.metadata ?? {};
   switch (entry.action) {
     case 'AUTH_TOKEN_REUSE_DETECTED':
