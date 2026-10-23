@@ -24,7 +24,20 @@ export type OpsAlertKind =
   | 'NOTIFICATION_FAILED'
   | 'PILOT_AUTO_PAUSED'
   /** The daily sign-in-code SMS budget was reached (or neared). See auth/otp-sms-guard.ts. */
-  | 'OTP_SMS_BUDGET';
+  | 'OTP_SMS_BUDGET'
+  /*
+    Security signals (security-audit-alerts.ts, auth/login-backoff.ts). Not money, but each one
+    is a moment where somebody may be inside an account, or changing who holds power, and the
+    audit log alone is read only after the fact.
+  */
+  /** A spent refresh token was presented again: a session secret is in two places. */
+  | 'AUTH_REFRESH_TOKEN_REUSE'
+  /** A back-office account was locked after too many wrong second-factor codes. */
+  | 'ADMIN_MFA_LOCKOUT'
+  /** Back-office duties granted, changed or removed, or a back-office account suspended. */
+  | 'ADMIN_ACCESS_CHANGED'
+  /** Many different accounts started a sign-in wait in one window: password guessing at scale. */
+  | 'LOGIN_BACKOFF_BURST';
 
 /** A fact printed in the alert. Ids, amounts, codes and statuses only - never a person. */
 export type OpsAlertFact = string | number | boolean | null | undefined;
@@ -91,6 +104,14 @@ const THROTTLE_MS: Record<OpsAlertKind, number> = {
   // Grouped by trigger. Each pause is written to the audit log; the email is the nudge.
   PILOT_AUTO_PAUSED: DEFAULT_THROTTLE_MS,
   OTP_SMS_BUDGET: PER_DAY_THROTTLE_MS,
+  // Grouped as one kind: a replay storm is one email with a count, not one per account.
+  AUTH_REFRESH_TOKEN_REUSE: DEFAULT_THROTTLE_MS,
+  // Keyed by account: each locked account is named at once, then counted.
+  ADMIN_MFA_LOCKOUT: DEFAULT_THROTTLE_MS,
+  // Keyed by the account changed: role, duties and suspension of one person in one email.
+  ADMIN_ACCESS_CHANGED: DEFAULT_THROTTLE_MS,
+  // Keyed by window, and raised once per window by the counter itself (login-backoff.ts).
+  LOGIN_BACKOFF_BURST: DEFAULT_THROTTLE_MS,
 };
 
 /**

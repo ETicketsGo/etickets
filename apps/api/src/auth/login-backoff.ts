@@ -3,6 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import { createHash } from 'node:crypto';
 import { RedisService } from '../redis/redis.service';
 import { redisEnvRoot } from '../common/redis-namespace';
+import { OpsAlertService } from '../ops/alerts/ops-alert.service';
+import { loginBackoffBurstAlert } from '../ops/alerts/ops-alert-messages';
 
 /**
  * Per-ACCOUNT password sign-in backoff.
@@ -61,6 +63,17 @@ export const LOGIN_BACKOFF_DEFAULTS: LoginBackoffSettings = {
   maxDelayMs: 15 * 60_000,
 };
 
+/**
+ * When to tell an operator that many DIFFERENT addresses are being made to wait.
+ *
+ * One person mistyping a password five times is ordinary. Twenty-five different addresses
+ * reaching that point inside fifteen minutes is not, on a platform of this size: it is somebody
+ * guessing passwords across a list of accounts. Generous on purpose, so the email means
+ * something when it comes. It cannot see guessing that stays under the per-address threshold;
+ * the per-client throttle and the AUTH_LOGIN_FAILED audit rows are for that.
+ */
+export const LOGIN_BACKOFF_BURST_DEFAULTS = { threshold: 25, windowMs: 15 * 60_000 };
+
 /** The most addresses the in-process fallback remembers before it forgets the oldest. */
 const MEMORY_LIMIT = 10_000;
 
@@ -116,11 +129,27 @@ export class LoginBackoff {
   /** The clock, replaceable by a test so a fifteen-minute wait does not take fifteen minutes. */
   now: () => number = Date.now;
 
+  /** Many addresses starting to wait in one window raises one ops alert. 0 turns it off. */
+  private readonly burst: { threshold: number; windowMs: number };
+  private burstMemory = { startMs: 0, count: 0 };
+
   constructor(
     // Optional so a harness with no Redis still gets a working (per-process) backoff.
     @Optional() private readonly redis?: RedisService,
     @Optional() config?: ConfigService,
+    // Optional and last: without it the backoff is unchanged and the burst is not counted.
+    @Optional() private readonly alerts?: OpsAlertService,
   ) {
+    this.burst = {
+      threshold: Number(
+        config?.get('LOGIN_BACKOFF_BURST_THRESHOLD') ?? LOGIN_BACKOFF_BURST_DEFAULTS.threshold,
+      ),
+      windowMs:
+        Number(
+          config?.get('LOGIN_BACKOFF_BURST_WINDOW_MINUTES') ??
+            LOGIN_BACKOFF_BURST_DEFAULTS.windowMs / 60_000,
+        ) * 60_000,
+    };
     const minutes = (key: string, fallback: number) =>
       Number(config?.get(key) ?? fallback / 60_000) * 60_000;
     this.settings = {
@@ -153,11 +182,58 @@ export class LoginBackoff {
 
   /** Count one wrong password (or unknown address). Returns the wait it started, if any. */
   async recordFailure(email: string): Promise<number> {
+    const { failures, delay } = await this.countFailure(email);
+    // Exactly at the threshold is the one failure that STARTS this address's wait, so each
+    // address is counted once however long it keeps guessing.
+    if (failures === this.settings.threshold) void this.countBurst();
+    return delay;
+  }
+
+  /**
+   * One more address has started to wait. Many in one window is password guessing across many
+   * accounts, which no per-account limit can see; raise ONE ops alert for that window.
+   *
+   * A fixed window (its start is part of the key) counted in Redis, so every replica adds to the
+   * same number and only the request that brings it to the threshold alerts. Without Redis it
+   * counts in this process, which can only under-count. Never throws and never delays sign-in:
+   * the caller does not wait for it.
+   */
+  private async countBurst(): Promise<void> {
+    const b = this.burst;
+    if (!this.alerts || b.threshold <= 0) return;
+    try {
+      const startMs = Math.floor(this.now() / b.windowMs) * b.windowMs;
+      let count: number;
+      if (this.redis && !this.degraded) {
+        const key = `${this.prefix}burst:${startMs}`;
+        count = Number(await this.redis.client.incr(key));
+        // Twice the window, so a clock skew between replicas cannot reopen a finished window.
+        // Set on every count, so a process that dies after the INCR cannot leave it forever.
+        await this.redis.client.pexpire(key, b.windowMs * 2);
+      } else {
+        if (this.burstMemory.startMs !== startMs) this.burstMemory = { startMs, count: 0 };
+        count = ++this.burstMemory.count;
+      }
+      if (count !== b.threshold) return;
+      void this.alerts.notify(
+        loginBackoffBurstAlert({
+          accounts: count,
+          threshold: b.threshold,
+          windowMinutes: Math.round(b.windowMs / 60_000),
+          windowStartUtc: new Date(startMs).toISOString(),
+        }),
+      );
+    } catch (err) {
+      this.logger.warn(`Sign-in backoff burst could not be counted: ${(err as Error)?.message}`);
+    }
+  }
+
+  private async countFailure(email: string): Promise<{ failures: number; delay: number }> {
     const subject = backoffSubject(email);
     const s = this.settings;
     if (this.redis) {
       try {
-        const [, delay] = (await this.redis.client.eval(
+        const [failures, delay] = (await this.redis.client.eval(
           FAIL_SCRIPT,
           2,
           `${this.prefix}${subject}:n`,
@@ -168,7 +244,7 @@ export class LoginBackoff {
           String(s.maxDelayMs),
         )) as [number, number];
         this.recovered();
-        return delay;
+        return { failures: Number(failures), delay: Number(delay) };
       } catch (err) {
         this.degrade(err);
       }
@@ -186,7 +262,7 @@ export class LoginBackoff {
     while (this.memory.size > MEMORY_LIMIT) {
       this.memory.delete(this.memory.keys().next().value as string);
     }
-    return delay;
+    return { failures, delay };
   }
 
   /** A correct password (or a completed reset) clears the count for that address. */

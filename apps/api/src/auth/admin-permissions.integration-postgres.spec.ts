@@ -76,6 +76,8 @@ describe('integration-real-postgres: admin permissions', () => {
         ) => {
           audited.push(e);
         },
+        // Raises the ops alert after the commit; nothing to alert here.
+        afterCommit: () => undefined,
       } as never,
       // Only reached by inviteStaff, which this suite does not exercise.
       { issueInvitation: async () => 'http://localhost:3001/invite/unused' } as never,

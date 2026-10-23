@@ -219,6 +219,45 @@ describe('RazorpayWebhookProcessor idempotency + dispatch', () => {
     expect(payments.processVerifiedEvent.mock.calls[0][0]).not.toHaveProperty('failure');
   });
 
+  it('payment.captured carries the currency of the payment, for the confirm check', async () => {
+    const { processor, payments } = makeProcessor({
+      record: rec({
+        payload: {
+          object: {
+            payment: {
+              entity: { id: 'pay_1', amount: 150000, currency: 'INR', notes: { bookingId: 'b1' } },
+            },
+            // An order in another currency must not be read as the payment's.
+            order: { entity: { id: 'order_1', amount: 150000, currency: 'USD', receipt: 'b1' } },
+          },
+        },
+      }),
+    });
+    await processor.process('w1');
+    expect(payments.processVerifiedEvent.mock.calls[0][0]).toMatchObject({ currency: 'INR' });
+  });
+
+  it('order.paid with no payment entity reads the order currency', async () => {
+    const { processor, payments } = makeProcessor({
+      record: rec({
+        eventType: 'order.paid',
+        payload: {
+          object: {
+            order: { entity: { id: 'order_1', amount: 150000, currency: 'INR', receipt: 'b1' } },
+          },
+        },
+      }),
+    });
+    await processor.process('w1');
+    expect(payments.processVerifiedEvent.mock.calls[0][0]).toMatchObject({ currency: 'INR' });
+  });
+
+  it('a payload with no currency adds none (nothing to check)', async () => {
+    const { processor, payments } = makeProcessor({ record: rec() });
+    await processor.process('w1');
+    expect(payments.processVerifiedEvent.mock.calls[0][0]).not.toHaveProperty('currency');
+  });
+
   it('order.paid resolves the booking from order receipt/notes', async () => {
     const { processor, payments } = makeProcessor({
       record: rec({

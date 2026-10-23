@@ -32,6 +32,15 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().min(0).max(65535).optional(),
   API_PORT: z.coerce.number().default(4000),
   API_GLOBAL_PREFIX: z.string().default('api'),
+  /*
+    HTTP server timeouts (common/http-timeouts.ts). Keep-alive must stay above Railway's 60 s
+    edge idle timeout or idle connections turn into 502s; headers is kept above keep-alive and
+    request at or above headers whatever is set here. Request bounds how long a request may take
+    to ARRIVE, not how long a report takes to answer.
+  */
+  HTTP_KEEP_ALIVE_TIMEOUT_MS: z.coerce.number().int().min(1000).max(600_000).default(65_000),
+  HTTP_HEADERS_TIMEOUT_MS: z.coerce.number().int().min(1000).max(600_000).default(66_000),
+  HTTP_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1000).max(900_000).default(120_000),
   CORS_ORIGINS: z.string().default('http://localhost:3000'),
   /*
     Organizations whose listings are curated DEMO content (comma-separated ids). Everything else
@@ -586,6 +595,18 @@ const envSchema = z.object({
     .default(15),
   LOGIN_BACKOFF_BASE_SECONDS: z.coerce.number().int().min(1).max(3600).default(30),
   LOGIN_BACKOFF_MAX_MINUTES: z.coerce.number().int().min(1).max(60).default(15),
+  /*
+    One ops alert (LOGIN_BACKOFF_BURST) when this many DIFFERENT addresses start a sign-in wait
+    inside one fixed window: password guessing across many accounts. 0 turns the alert off;
+    the backoff itself is unchanged either way.
+  */
+  LOGIN_BACKOFF_BURST_THRESHOLD: z.coerce.number().int().min(0).max(100_000).default(25),
+  LOGIN_BACKOFF_BURST_WINDOW_MINUTES: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(24 * 60)
+    .default(15),
   /**
    * Break-glass for a sole administrator who lost both device and recovery codes. The operator
    * sets BOTH, redeploys, and at boot that one account's authenticator is removed (so the next
