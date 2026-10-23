@@ -17,6 +17,7 @@ import { NotificationService } from '../notifications/notification.service';
 import { InventoryService } from '../inventory/inventory.service';
 import { AddOnInventoryService } from '../commerce/addon-inventory.service';
 import { MockPaymentProvider } from './provider/mock-payment.provider';
+import { checkoutExpiry } from './checkout-expiry';
 import {
   PAYMENT_PROVIDER,
   type PaymentEvent,
@@ -113,6 +114,21 @@ export class PaymentsService {
    * switch says, so the capability question has to be asked of the provider that will
    * actually take the money.
    */
+  /** The named adapter, when it can resume an open checkout; otherwise null. */
+  private resumableProvider(name: string): PaymentProvider | null {
+    try {
+      const adapter = this.resolver.get(name) as PaymentProvider;
+      return typeof adapter.resumeCheckout === 'function' ? adapter : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** `returnTo: 'app'` is honoured only where an environment opts in; off unless set. */
+  private appReturnEnabled(): boolean {
+    return this.config.get<string>('APP_CHECKOUT_RETURN_ENABLED') === 'true';
+  }
+
   private marketplaceProviderFor(booking: {
     currency: string;
     event?: { venue?: { country?: string | null } | null } | null;
@@ -190,7 +206,11 @@ export class PaymentsService {
     (process.env.PAYMENT_PROVIDER_NAME ?? 'mock') === 'mock';
 
   /** Create a payment intent for a pending booking (the buyer only). */
-  async createIntent(bookingId: string, user?: RequestUser) {
+  async createIntent(
+    bookingId: string,
+    user?: RequestUser,
+    options: { returnToApp?: boolean } = {},
+  ) {
     const booking = await this.prisma.booking.findUnique({
       where: { id: bookingId },
       include: {
@@ -354,6 +374,39 @@ export class PaymentsService {
     // For a Connect provider (Stripe) a paid booking requires the organizer to have a
     // charges-enabled connected account — otherwise there is nowhere to settle proceeds.
     // Non-Connect providers (mock/dev) skip this gate, preserving the existing flow.
+    /*
+      ── ONE PAYABLE CHECKOUT PER BOOKING ───────────────────────────────────────────────
+      A second "pay" (a retry, a second tab, the app and the website) must not open a second
+      payable checkout for the same hold: two open sessions are two ways to be charged once
+      each. When the booking already has a checkout the provider can resume, and it is still
+      open, the same one is handed back. If the provider cannot be asked, nothing new is
+      opened either - the buyer retries in a moment rather than risk a duplicate.
+    */
+    const existingOrder = booking.payment?.providerOrderId;
+    if (existingOrder && booking.payment?.status === PaymentStatus.PROCESSING) {
+      const adapter = this.resumableProvider(booking.payment.provider);
+      if (adapter) {
+        let url: string | null;
+        try {
+          url = await adapter.resumeCheckout!(existingOrder);
+        } catch {
+          throw new AppException(
+            ErrorCodes.PAYMENT_PROVIDER_UNAVAILABLE,
+            'The payment provider could not be reached. Please try again in a moment.',
+            HttpStatus.SERVICE_UNAVAILABLE,
+          );
+        }
+        if (url) {
+          return {
+            providerRef: booking.payment.providerRef ?? existingOrder,
+            clientActionUrl: url,
+            status: 'REQUIRES_PAYMENT' as const,
+            providerOrderId: existingOrder,
+          };
+        }
+      }
+    }
+
     let connectedAccountId: string | undefined;
     const marketplace = this.marketplaceProviderFor(booking);
     if (marketplace && booking.totalMinor > 0 && organizationId) {
@@ -394,6 +447,11 @@ export class PaymentsService {
             }
           : {}),
         metadata,
+        // The shortest checkout lifetime the provider accepts that still covers the hold; the
+        // hold itself is enforced by closing the checkout at expiry (checkout-expiry.ts).
+        expiresAt: checkoutExpiry(booking.holdExpiresAt),
+        // App return only where the environment opts in (APP_CHECKOUT_RETURN_ENABLED).
+        returnToApp: options.returnToApp === true && this.appReturnEnabled(),
       },
     );
     await this.prisma.payment.update({
@@ -405,6 +463,8 @@ export class PaymentsService {
         ...(provider ? { provider } : {}),
         // Snapshot the split + Connect linkage for reconciliation and settlement.
         providerPaymentIntentId: intent.providerRef,
+        // The checkout to close and consult when the hold lapses (Stripe: the Session id).
+        ...(intent.providerOrderId ? { providerOrderId: intent.providerOrderId } : {}),
         connectedAccountId: connectedAccountId ?? null,
         idempotencyKey: booking.id,
         subtotalMinor: split.subtotalMinor,
@@ -706,6 +766,8 @@ export class PaymentsService {
             screen: { select: SHOW_ZONE_SCREEN_SELECT },
           },
         },
+        // The checkout this booking opened, to tie a provider event to it (below).
+        payment: { select: { providerOrderId: true } },
       },
     });
     if (!booking)
@@ -804,7 +866,7 @@ export class PaymentsService {
       order bug that opened a USD order for an INR booking would then confirm it. Refused
       exactly like an amount mismatch: an audit entry, no tickets, and the webhook fails, so it
       retries, dead-letters and raises CONFIRMATION_FAILED_AFTER_PAYMENT for a person to settle.
-      A provider that does not report a currency (Stripe, the mock, cash and free) is unchecked,
+      A provider that does not report a currency (the mock, cash and free) is unchecked,
       as before.
     */
     if (
@@ -827,6 +889,40 @@ export class PaymentsService {
       throw new AppException(
         ErrorCodes.PAYMENT_WEBHOOK_INVALID,
         `Paid currency ${event.currency} does not match booking currency ${booking.currency}.`,
+        HttpStatus.CONFLICT,
+        { bookingId: booking.id },
+      );
+    }
+
+    /*
+      And the checkout. The booking id in a session's metadata is set by us, but a payment
+      for a checkout this booking did not open (a stale session from a replaced attempt, or
+      metadata copied onto another session) must not confirm it. Refused like a currency
+      mismatch. Only checked when both sides know the session: a provider that reports none
+      (the mock, Razorpay, a bare payment_intent event) is unchecked, as before.
+    */
+    const ownOrder = booking.payment?.providerOrderId;
+    if (
+      !options.withoutPayment &&
+      event.checkoutSessionId &&
+      ownOrder &&
+      event.checkoutSessionId !== ownOrder
+    ) {
+      await this.audit.record({
+        organizationId: booking.organizationId,
+        action: 'PAYMENT_SESSION_MISMATCH',
+        entityType: 'Booking',
+        entityId: booking.id,
+        metadata: {
+          expectedSession: ownOrder,
+          receivedSession: event.checkoutSessionId,
+          amountMinor: event.amountMinor,
+          providerRef: event.providerRef,
+        },
+      });
+      throw new AppException(
+        ErrorCodes.PAYMENT_WEBHOOK_INVALID,
+        'Payment belongs to a different checkout than this booking opened.',
         HttpStatus.CONFLICT,
         { bookingId: booking.id },
       );

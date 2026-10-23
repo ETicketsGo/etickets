@@ -18,8 +18,10 @@ const RETRY_BACKOFF_MS = 30_000;
 
 // ─── Minimal shapes of the Stripe objects we read (avoids importing SDK types here) ───
 interface SessionLike {
+  id?: string;
   /** 'paid' | 'unpaid' | 'no_payment_required'. A delayed method completes 'unpaid'. */
   payment_status?: string | null;
+  currency?: string | null;
   metadata?: Record<string, string> | null;
   client_reference_id?: string | null;
   amount_total?: number | null;
@@ -27,6 +29,7 @@ interface SessionLike {
 }
 interface PaymentIntentLike {
   id: string;
+  currency?: string | null;
   metadata?: Record<string, string> | null;
   amount_received?: number | null;
   amount?: number | null;
@@ -334,7 +337,19 @@ export class StripeWebhookProcessor {
       typeof session.payment_intent === 'string'
         ? session.payment_intent
         : (session.payment_intent?.id ?? '');
-    return { type, providerRef, bookingId, amountMinor };
+    /*
+      The currency Stripe charged, so confirm() checks it like the amount: 50000 of the wrong
+      currency is not 50000 of the booking's. And the session it was paid through, so confirm()
+      can check it is the checkout this booking opened.
+    */
+    return {
+      type,
+      providerRef,
+      bookingId,
+      amountMinor,
+      ...(session.currency ? { currency: session.currency.toUpperCase() } : {}),
+      ...(session.id ? { checkoutSessionId: session.id } : {}),
+    };
   }
 
   private fromPaymentIntent(
@@ -344,6 +359,12 @@ export class StripeWebhookProcessor {
     const bookingId = pi.metadata?.bookingId;
     const amountMinor = pi.amount_received || pi.amount;
     if (!bookingId || typeof amountMinor !== 'number') return null;
-    return { type, providerRef: pi.id, bookingId, amountMinor };
+    return {
+      type,
+      providerRef: pi.id,
+      bookingId,
+      amountMinor,
+      ...(pi.currency ? { currency: pi.currency.toUpperCase() } : {}),
+    };
   }
 }
