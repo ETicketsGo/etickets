@@ -1,6 +1,7 @@
 import * as bcrypt from 'bcryptjs';
 import { PhoneOtpService } from './phone-otp.service';
 import { normalisePhone, maskPhone } from './phone';
+import { withTransactions } from './test-support/otp-sms-memory-store';
 
 /**
  * Signing in with a six-digit code.
@@ -38,7 +39,7 @@ function setup(
     if (row && data.consumedAt) row.consumedAt = data.consumedAt;
   };
 
-  const prisma = {
+  const prisma = withTransactions({
     phoneOtp: {
       count: jest.fn().mockResolvedValue(over.recentSends ?? 0),
       updateMany: jest.fn(async (args: Write) => {
@@ -74,7 +75,7 @@ function setup(
         ...data,
       })),
     },
-  };
+  });
   const sms = {
     deliver: jest.fn(async (msg: { body: string; payload: Record<string, unknown> }) => {
       sent.push(msg);
@@ -85,7 +86,12 @@ function setup(
     }),
   };
   const config = {
-    get: (key: string) => (key === 'APP_ENV' ? 'PRODUCTION' : (over.template ?? undefined)),
+    get: (key: string) =>
+      key === 'APP_ENV'
+        ? 'PRODUCTION'
+        : key === 'OTP_SMS_TEMPLATE'
+          ? (over.template ?? undefined)
+          : undefined,
   };
   const service = new PhoneOtpService(prisma as never, sms as never, config as never);
   return { service, prisma, sms, sent, created, updates, row };

@@ -154,7 +154,8 @@ export function confirmationFailedAlert(input: {
     where:
       'The webhook is retried (up to 6 attempts) and then dead-lettered. Admin console > ' +
       'Bookings for this booking, and the API/worker log for the full error. If the amount ' +
-      'does not match, an audit entry PAYMENT_AMOUNT_MISMATCH was written.',
+      'or currency does not match, an audit entry PAYMENT_AMOUNT_MISMATCH or ' +
+      'PAYMENT_CURRENCY_MISMATCH was written.',
   };
 }
 
@@ -240,5 +241,147 @@ export function pilotAutoPausedAlert(input: {
       'Admin console > Events: each paused event shows as paused by an admin, and only an ' +
       'admin can put it back on sale. Audit log action EVENT_AUTO_PAUSED holds the reason. ' +
       'Find and fix the cause first (see the alert named in sourceAlert).',
+  };
+}
+
+/**
+ * The daily budget for sign-in-code text messages was reached (`tripped`) or neared
+ * (`warning`). Counts and the market only - never a phone number, not even masked: the point
+ * of the alert is the SHAPE of the traffic, and one number in an email is a person's data.
+ */
+export function otpSmsBudgetAlert(input: {
+  phase: 'tripped' | 'warning';
+  /** `total`, or the market whose own budget it is (IN, US, CA). */
+  scope: string;
+  sentToday: number;
+  dailyLimit: number;
+  warnPercent: number;
+  dayUtc: string;
+}): OpsAlert {
+  const where = input.scope === 'total' ? 'all markets' : input.scope;
+  return {
+    kind: 'OTP_SMS_BUDGET',
+    key: `${input.phase}:${input.scope}:${input.dayUtc}`,
+    summary:
+      input.phase === 'tripped'
+        ? `Sign-in text messages STOPPED: daily SMS budget reached (${where})`
+        : `Sign-in text messages at ${input.warnPercent}% of the daily SMS budget (${where})`,
+    facts: {
+      phase: input.phase,
+      budget: input.scope,
+      sentToday: input.sentToday,
+      dailyLimit: input.dailyLimit,
+      dayUtc: input.dayUtc,
+      effect:
+        input.phase === 'tripped'
+          ? 'Phone sign-in answers SMS_UNAVAILABLE until the next UTC day. Email sign-in works.'
+          : 'Nothing is blocked yet.',
+    },
+    where:
+      'Metric etg_otp_sms_requests_total by market and outcome. Many different numbers in one ' +
+      'market is the shape of SMS pumping. Limits: OTP_SMS_DAILY_LIMIT_TOTAL and ' +
+      'OTP_SMS_DAILY_LIMIT_BY_MARKET on the api service.',
+  };
+}
+
+/*
+  ── SECURITY SIGNALS ─────────────────────────────────────────────────────────────────
+  Account ids and permission codes only. Never an email address, a phone number, a client
+  address, a token or a code: the audit log row named in `where` holds the detail, behind the
+  admin console's own access control. An alert email goes to an inbox, and inboxes get forwarded.
+*/
+
+/** A refresh token that was already rotated or signed out was presented again. */
+export function refreshTokenReuseAlert(input: { userId: string | null }): OpsAlert {
+  return {
+    kind: 'AUTH_REFRESH_TOKEN_REUSE',
+    key: 'all',
+    summary: 'A used sign-in session token was presented again (possible stolen session)',
+    facts: {
+      userId: input.userId,
+      effect: 'Every session of that account was signed out. The account itself is unchanged.',
+    },
+    where:
+      'Audit log action AUTH_TOKEN_REUSE_DETECTED (it holds the client address). One now and ' +
+      'then is a device restored from a backup. Several accounts at once, or one account again ' +
+      'and again, means session tokens are leaking: check the client addresses, and suspend the ' +
+      'account in Admin console > Users if it is being taken over.',
+  };
+}
+
+/** A back-office account was locked after too many wrong second-factor codes. */
+export function adminMfaLockoutAlert(input: { userId: string | null; minutes: unknown }): OpsAlert {
+  return {
+    kind: 'ADMIN_MFA_LOCKOUT',
+    key: input.userId ?? 'unknown',
+    summary: 'A back-office account was locked: too many wrong second-factor codes',
+    facts: {
+      userId: input.userId,
+      lockedMinutes: typeof input.minutes === 'number' ? input.minutes : null,
+    },
+    where:
+      'Somebody had this account password and kept guessing the authenticator code. Audit log ' +
+      'actions MFA_VERIFY_FAILED and MFA_LOCKED_OUT for this user (they hold the client ' +
+      'address). Ask the account holder whether it was them. If not, their password is known: ' +
+      'revoke their sessions and have them reset it.',
+  };
+}
+
+/** What changed about one back-office account's power. */
+export function adminAccessChangedAlert(input: {
+  action: string;
+  actorUserId: string | null;
+  targetUserId: string | null;
+  added?: string[];
+  removed?: string[];
+}): OpsAlert {
+  const what: Record<string, string> = {
+    ADMIN_PERMISSIONS_CHANGED: 'Back-office duties changed',
+    ADMIN_ROLE_GRANTED: 'Back-office access granted',
+    ADMIN_ROLE_REVOKED: 'Back-office access removed',
+    USER_SUSPENDED: 'Back-office account suspended',
+    USER_REINSTATED: 'Back-office account reinstated',
+  };
+  return {
+    kind: 'ADMIN_ACCESS_CHANGED',
+    key: input.targetUserId ?? 'unknown',
+    summary: `${what[input.action] ?? input.action} (account ${input.targetUserId ?? 'unknown'})`,
+    facts: {
+      action: input.action,
+      changedBy: input.actorUserId,
+      account: input.targetUserId,
+      added: input.added && input.added.length > 0 ? input.added.join(' ') : undefined,
+      removed: input.removed && input.removed.length > 0 ? input.removed.join(' ') : undefined,
+    },
+    where:
+      `Audit log action ${input.action} for this account (before and after, and the reason). ` +
+      'Every change of who holds power is mailed, so a change nobody expected is seen the same ' +
+      'day. If it was not planned, ask the person in changedBy, and revoke it in Admin console > ' +
+      'Staff.',
+  };
+}
+
+/** Many different accounts started a sign-in wait inside one window. */
+export function loginBackoffBurstAlert(input: {
+  accounts: number;
+  threshold: number;
+  windowMinutes: number;
+  windowStartUtc: string;
+}): OpsAlert {
+  return {
+    kind: 'LOGIN_BACKOFF_BURST',
+    key: input.windowStartUtc,
+    summary: `${input.accounts} different accounts were made to wait after wrong passwords in ${input.windowMinutes} minutes`,
+    facts: {
+      accounts: input.accounts,
+      threshold: input.threshold,
+      windowMinutes: input.windowMinutes,
+      windowStartUtc: input.windowStartUtc,
+      effect: 'Each of those addresses already waits before its next try. Nothing else is blocked.',
+    },
+    where:
+      'This is the shape of password guessing across many accounts. Audit log actions ' +
+      'AUTH_LOGIN_FAILED and AUTH_LOGIN_BACKOFF show the client addresses. Limits: ' +
+      'LOGIN_BACKOFF_BURST_THRESHOLD and LOGIN_BACKOFF_BURST_WINDOW_MINUTES on the api service.',
   };
 }

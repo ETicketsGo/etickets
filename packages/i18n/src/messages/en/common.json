@@ -136,5 +136,13 @@
     "rights": "© {year} ETicketsGo, {entity} | All rights reserved.",
     "build": "Build {id}",
     "testEnvironment": "Test environment - payments are simulated."
+  },
+  "humanCheck": {
+    "title": "Confirm you are a person",
+    "description": "We ask this to stop automated sign-ups and messages. It usually takes a few seconds.",
+    "checking": "Checking. This takes a few seconds.",
+    "failed": "The check did not load. Check your connection, or turn off a content blocker for this site. Then try again.",
+    "retry": "Try again",
+    "cancel": "Cancel"
   }
 }

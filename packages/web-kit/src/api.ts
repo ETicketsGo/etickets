@@ -59,6 +59,27 @@ export type {
 } from '@eticketsgo/shared-types';
 
 import { markApiReachable, markApiUnreachable } from './connectivity';
+import type {
+  CrmActivity,
+  CrmActivityReport,
+  CrmAgingReport,
+  CrmConversionReport,
+  CrmCsvReport,
+  CrmDuplicateMatch,
+  CrmEmployeeReport,
+  CrmFollowUp,
+  CrmFunnel,
+  CrmGroupRow,
+  CrmImportResult,
+  CrmLead,
+  CrmLeadDetail,
+  CrmLeadFilters,
+  CrmMe,
+  CrmOrganizationMatch,
+  CrmOverview,
+  CrmReportFilters,
+  CrmTeam,
+} from './crm-types';
 
 export const API_URL =
   (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_API_URL) ||
@@ -257,6 +278,7 @@ interface Options extends RequestInit {
   auth?: boolean;
   _retried?: boolean;
   _steppedUp?: boolean;
+  _humanChecked?: boolean;
 }
 
 /*
@@ -269,6 +291,61 @@ interface Options extends RequestInit {
 let stepUpHandler: (() => Promise<boolean>) | null = null;
 export function setStepUpHandler(fn: (() => Promise<boolean>) | null): void {
   stepUpHandler = fn;
+}
+
+/*
+  MFA_ENROLLMENT=deferred: a sensitive action by staff with no authenticator comes back
+  MFA_SETUP_REQUIRED (they can fix it: set one up) or MFA_NOT_CONFIGURED (the server has no MFA
+  key; only an operator can fix it). The admin console registers ONE handler that explains this
+  and offers the setup screen. It is told, not asked: the request is NOT repeated and the error
+  still reaches the caller, so the page shows its own failure state as well.
+*/
+export type MfaSetupCode = 'MFA_SETUP_REQUIRED' | 'MFA_NOT_CONFIGURED';
+let mfaSetupHandler: ((code: MfaSetupCode, message: string) => void) | null = null;
+export function setMfaSetupHandler(fn: ((code: MfaSetupCode, message: string) => void) | null) {
+  mfaSetupHandler = fn;
+}
+
+/*
+  The human check (Cloudflare Turnstile). On a few public routes (sign-in, sign-up, phone codes,
+  password reset, guest checkout and lookup, the support form, organizer sign-up) the API can
+  answer 428 HUMAN_CHECK_REQUIRED, or 403 HUMAN_CHECK_FAILED for a token that proved nothing.
+  Both carry the action and the public site key. The app registers ONE handler (see
+  `HumanCheckProvider`) that draws the widget and returns a token, or null when the person
+  cancels or the widget cannot load; the request is then repeated ONCE with the token in a
+  header. With no handler, or with the check switched off on the API, nothing changes.
+*/
+export const HUMAN_CHECK_HEADER = 'x-turnstile-token';
+export const HUMAN_CHECK_REQUIRED_CODE = 'HUMAN_CHECK_REQUIRED';
+export const HUMAN_CHECK_FAILED_CODE = 'HUMAN_CHECK_FAILED';
+
+export interface HumanCheckChallenge {
+  /** The Turnstile action the API will check the token against. */
+  action: string;
+  /** Public widget key for this environment. Null when the API did not say. */
+  siteKey: string | null;
+}
+
+let humanCheckHandler: ((challenge: HumanCheckChallenge) => Promise<string | null>) | null = null;
+export function setHumanCheckHandler(
+  fn: ((challenge: HumanCheckChallenge) => Promise<string | null>) | null,
+): void {
+  humanCheckHandler = fn;
+}
+
+/** The challenge in an API refusal, or null when the refusal is something else. */
+export function humanCheckChallengeFrom(
+  status: number,
+  body: Pick<ApiError, 'code' | 'details'> | null | undefined,
+): HumanCheckChallenge | null {
+  const asked =
+    (status === 428 && body?.code === HUMAN_CHECK_REQUIRED_CODE) ||
+    (status === 403 && body?.code === HUMAN_CHECK_FAILED_CODE);
+  if (!asked) return null;
+  const details = (body?.details ?? {}) as Record<string, unknown>;
+  const action = typeof details.action === 'string' ? details.action : '';
+  const siteKey = typeof details.siteKey === 'string' && details.siteKey ? details.siteKey : null;
+  return action ? { action, siteKey } : null;
 }
 
 async function request<T>(path: string, options: Options = {}): Promise<T> {
@@ -322,6 +399,16 @@ async function request<T>(path: string, options: Options = {}): Promise<T> {
 
   if (!res.ok) {
     const err = data as ApiError;
+    const challenge = humanCheckChallengeFrom(res.status, err);
+    if (challenge && humanCheckHandler && !options._humanChecked) {
+      const token = await humanCheckHandler(challenge);
+      if (token) {
+        // Only once: a second refusal surfaces as an error, so a broken widget cannot loop.
+        const retryHeaders = new Headers(options.headers);
+        retryHeaders.set(HUMAN_CHECK_HEADER, token);
+        return request<T>(path, { ...options, headers: retryHeaders, _humanChecked: true });
+      }
+    }
     if (
       res.status === 403 &&
       err?.code === 'MFA_STEP_UP_REQUIRED' &&
@@ -330,6 +417,13 @@ async function request<T>(path: string, options: Options = {}): Promise<T> {
       (await stepUpHandler())
     ) {
       return request<T>(path, { ...options, _steppedUp: true });
+    }
+    if (
+      res.status === 403 &&
+      (err?.code === 'MFA_SETUP_REQUIRED' || err?.code === 'MFA_NOT_CONFIGURED') &&
+      mfaSetupHandler
+    ) {
+      mfaSetupHandler(err.code, err.message ?? '');
     }
     throw new ApiRequestError(
       err?.code ?? 'ERROR',
@@ -412,9 +506,15 @@ const discovery = Object.assign(
  * `phoneSignInCountries` is absent from an API older than it; a caller treats absent as "not
  * known" and keeps its previous behaviour rather than as "nowhere".
  */
-export type PlatformCapabilities = Record<string, boolean | string[] | undefined> & {
+export type PlatformCapabilities = Record<
+  string,
+  boolean | string | string[] | null | undefined
+> & {
   phoneSignIn?: boolean;
   phoneSignInCountries?: string[];
+  /** The human check's mode on this deployment, and its public widget key (null when off). */
+  humanCheckMode?: 'off' | 'adaptive' | 'always';
+  humanCheckSiteKey?: string | null;
 };
 
 function refuseChallenge<T extends object>(r: T | MfaChallengeResponse): T {
@@ -2129,6 +2229,147 @@ export const api = {
   admin: {
     dashboard: () => request<AdminDashboard>('/admin/dashboard'),
 
+    /**
+     * Organizer acquisition (sales CRM). Every call needs CRM_AGENT; the team routes also
+     * CRM_MANAGER. The server narrows each answer to the caller's teams.
+     */
+    crm: {
+      me: () => request<CrmMe>('/admin/crm/me'),
+      leads: (params: CrmLeadFilters = {}) =>
+        request<Paged<CrmLead>>(`/admin/crm/leads${qs(params as Record<string, unknown>)}`),
+      lead: (id: string) => request<CrmLeadDetail>(`/admin/crm/leads/${id}`),
+      createLead: (body: Record<string, unknown>) =>
+        request<CrmLead>('/admin/crm/leads', { method: 'POST', body: JSON.stringify(body) }),
+      checkDuplicates: (body: Record<string, unknown>) =>
+        request<{ matches: CrmDuplicateMatch[] }>('/admin/crm/leads/duplicates', {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      updateLead: (id: string, body: Record<string, unknown> & { version: number }) =>
+        request<{ lead: CrmLead; duplicates: CrmDuplicateMatch[] }>(`/admin/crm/leads/${id}`, {
+          method: 'PATCH',
+          body: JSON.stringify(body),
+        }),
+      assign: (
+        id: string,
+        body: { version: number; assignedToUserId: string | null; note?: string },
+      ) =>
+        request<CrmLead>(`/admin/crm/leads/${id}/assign`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      changeStage: (
+        id: string,
+        body: { version: number; stage: string; note?: string; lostReason?: string },
+      ) =>
+        request<CrmLead>(`/admin/crm/leads/${id}/stage`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      archive: (id: string, body: { version: number; archived: boolean }) =>
+        request<CrmLead>(`/admin/crm/leads/${id}/archive`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      searchOrganizations: (q: string) =>
+        request<CrmOrganizationMatch[]>(`/admin/crm/organizations${qs({ q })}`),
+      linkOrganization: (id: string, body: { version: number; organizationId: string }) =>
+        request<CrmLead>(`/admin/crm/leads/${id}/organization`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      unlinkOrganization: (id: string, body: { version: number }) =>
+        request<CrmLead>(`/admin/crm/leads/${id}/organization/unlink`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      logActivity: (id: string, body: Record<string, unknown>) =>
+        request<{ activity: CrmActivity; followUp: CrmFollowUp | null }>(
+          `/admin/crm/leads/${id}/activities`,
+          { method: 'POST', body: JSON.stringify(body) },
+        ),
+      createFollowUp: (id: string, body: Record<string, unknown>) =>
+        request<CrmFollowUp>(`/admin/crm/leads/${id}/follow-ups`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      activities: (params: Record<string, unknown> = {}) =>
+        request<Paged<CrmActivity>>(`/admin/crm/activities${qs(params)}`),
+      followUps: (params: Record<string, unknown> = {}) =>
+        request<Paged<CrmFollowUp>>(`/admin/crm/follow-ups${qs(params)}`),
+      completeFollowUp: (id: string, body: { version: number; note?: string }) =>
+        request<CrmFollowUp>(`/admin/crm/follow-ups/${id}/complete`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      cancelFollowUp: (id: string, body: { version: number }) =>
+        request<CrmFollowUp>(`/admin/crm/follow-ups/${id}/cancel`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      reassignFollowUp: (
+        id: string,
+        body: { version: number; ownerUserId: string; dueAt?: string },
+      ) =>
+        request<CrmFollowUp>(`/admin/crm/follow-ups/${id}/reassign`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      importLeads: (body: {
+        teamId: string;
+        csv: string;
+        commit: boolean;
+        onDuplicate?: 'skip' | 'create';
+      }) =>
+        request<CrmImportResult>('/admin/crm/leads/import', {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      downloadLeads: (params: CrmLeadFilters = {}) =>
+        downloadCsv(
+          `/admin/crm/leads/export${qs(params as Record<string, unknown>)}`,
+          'prospects.csv',
+        ),
+      teams: () => request<CrmTeam[]>('/admin/crm/teams'),
+      candidates: (teamId: string) =>
+        request<Array<{ id: string; fullName: string; email: string; holdsManager: boolean }>>(
+          `/admin/crm/teams/${teamId}/candidates`,
+        ),
+      setMember: (teamId: string, userId: string, role: 'AGENT' | 'MANAGER') =>
+        request<{ teamId: string; userId: string; role: string }>(
+          `/admin/crm/teams/${teamId}/members/${userId}`,
+          { method: 'PUT', body: JSON.stringify({ role }) },
+        ),
+      removeMember: (teamId: string, userId: string) =>
+        request<{ removed: boolean; stillAssigned: number }>(
+          `/admin/crm/teams/${teamId}/members/${userId}`,
+          { method: 'DELETE' },
+        ),
+      reports: {
+        overview: (f: CrmReportFilters = {}) =>
+          request<CrmOverview>(`/admin/crm/reports/overview${qs({ ...f })}`),
+        funnel: (f: CrmReportFilters = {}) =>
+          request<CrmFunnel>(`/admin/crm/reports/funnel${qs({ ...f })}`),
+        byCountry: (f: CrmReportFilters = {}) =>
+          request<{ rows: CrmGroupRow[] }>(`/admin/crm/reports/by-country${qs({ ...f })}`),
+        bySource: (f: CrmReportFilters = {}) =>
+          request<{ rows: CrmGroupRow[] }>(`/admin/crm/reports/by-source${qs({ ...f })}`),
+        byEmployee: (f: CrmReportFilters = {}) =>
+          request<CrmEmployeeReport>(`/admin/crm/reports/by-employee${qs({ ...f })}`),
+        activity: (f: CrmReportFilters = {}) =>
+          request<CrmActivityReport>(`/admin/crm/reports/activity${qs({ ...f })}`),
+        aging: (f: CrmReportFilters = {}) =>
+          request<CrmAgingReport>(`/admin/crm/reports/aging${qs({ ...f })}`),
+        conversion: (f: CrmReportFilters = {}) =>
+          request<CrmConversionReport>(`/admin/crm/reports/conversion${qs({ ...f })}`),
+        downloadCsv: (report: CrmCsvReport, f: CrmReportFilters = {}) =>
+          downloadCsv(
+            `/admin/crm/reports/${report}${qs({ ...f, format: 'csv' })}`,
+            `acquisition-${report}.csv`,
+          ),
+      },
+    },
+
     /** Back-office staff and what each of them may do. Needs ADMIN_MANAGE. */
     staff: {
       catalogue: () =>
@@ -2164,6 +2405,28 @@ export const api = {
         request<{ userId: string; removed: boolean }>(`/admin/staff/${userId}/admin-role`, {
           method: 'DELETE',
         }),
+    },
+    /**
+     * Stopping an account and ending its sessions. Needs USER_SUSPEND and a fresh authenticator
+     * code (the shared step-up handler asks for one). Not your own account; a super admin only
+     * by a super admin.
+     */
+    accounts: {
+      suspend: (userId: string, reason: string) =>
+        request<{ userId: string; status: string; sessionsRevoked: number }>(
+          `/admin/users/${userId}/suspend`,
+          { method: 'POST', body: JSON.stringify({ reason }) },
+        ),
+      reinstate: (userId: string, reason?: string) =>
+        request<{ userId: string; status: string }>(`/admin/users/${userId}/reinstate`, {
+          method: 'POST',
+          body: JSON.stringify({ reason }),
+        }),
+      revokeSessions: (userId: string, reason?: string) =>
+        request<{ userId: string; sessionsRevoked: number }>(
+          `/admin/users/${userId}/revoke-sessions`,
+          { method: 'POST', body: JSON.stringify({ reason }) },
+        ),
     },
     platformAnalytics: () => request<PlatformAnalytics>('/admin/analytics/platform'),
     aiStatus: () => request<AiStatus>('/admin/ai/status'),
@@ -2782,9 +3045,17 @@ export interface AuthUser {
   /**
    * Where this session stands on the second factor. Only meaningful for back-office accounts:
    * `required` with `verified: false` means the console must send the person to enrollment
-   * (`enrolled: false`) or back to sign-in (`enrolled: true`).
+   * (`enrolled: false`) or back to sign-in (`enrolled: true`). `stepUp` says whether the server
+   * can hold an authenticator at all ('available'), cannot ('unconfigured': sensitive actions are
+   * blocked until an operator sets MFA up), or is a developer machine with MFA off ('dormant').
    */
-  mfa?: { required: boolean; enrolled: boolean; verified: boolean; verifiedAt: number | null };
+  mfa?: {
+    required: boolean;
+    enrolled: boolean;
+    verified: boolean;
+    verifiedAt: number | null;
+    stepUp?: 'available' | 'unconfigured' | 'dormant';
+  };
   /**
    * The state this customer last told us they were in, for the place-of-supply field.
    *

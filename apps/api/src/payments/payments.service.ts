@@ -799,6 +799,40 @@ export class PaymentsService {
     }
 
     /*
+      The same check for the currency. Razorpay reports the currency it charged in, and the
+      amount check alone would accept 50000 of the wrong currency as 50000 paise. A route or
+      order bug that opened a USD order for an INR booking would then confirm it. Refused
+      exactly like an amount mismatch: an audit entry, no tickets, and the webhook fails, so it
+      retries, dead-letters and raises CONFIRMATION_FAILED_AFTER_PAYMENT for a person to settle.
+      A provider that does not report a currency (Stripe, the mock, cash and free) is unchecked,
+      as before.
+    */
+    if (
+      !options.skipAmountCheck &&
+      event.currency &&
+      event.currency.toUpperCase() !== booking.currency.toUpperCase()
+    ) {
+      await this.audit.record({
+        organizationId: booking.organizationId,
+        action: 'PAYMENT_CURRENCY_MISMATCH',
+        entityType: 'Booking',
+        entityId: booking.id,
+        metadata: {
+          expectedCurrency: booking.currency,
+          receivedCurrency: event.currency,
+          amountMinor: event.amountMinor,
+          providerRef: event.providerRef,
+        },
+      });
+      throw new AppException(
+        ErrorCodes.PAYMENT_WEBHOOK_INVALID,
+        `Paid currency ${event.currency} does not match booking currency ${booking.currency}.`,
+        HttpStatus.CONFLICT,
+        { bookingId: booking.id },
+      );
+    }
+
+    /*
       The booking's OWN seating, not its event's kind.
 
       Confirmation has to settle inventory the same way the hold took it. Re-deriving that

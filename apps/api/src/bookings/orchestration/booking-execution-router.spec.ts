@@ -11,7 +11,12 @@ import { AnonymousSessionService, BookingOwnerResolver } from './booking-owner';
 import { GuestSessionVerifier } from '../guest-session';
 import { BookingWorkflowState as WS } from './booking-workflow-state';
 
-function make(mode: 'disabled' | 'shadow' | 'active', sessionHash: string | null = null) {
+function make(
+  mode: 'disabled' | 'shadow' | 'active',
+  sessionHash: string | null = null,
+  // Whose booking the stub is: the signed-in user's unless it carries a guest session.
+  userId: string | null = sessionHash ? null : 'u1',
+) {
   const config = {
     get: jest.fn((k: string, d?: unknown) => {
       if (k === 'BOOKING_ORCHESTRATOR_ENABLED') return mode !== 'disabled';
@@ -50,6 +55,7 @@ function make(mode: 'disabled' | 'shadow' | 'active', sessionHash: string | null
         payment: { id: 'p1', status: 'REQUIRES_PAYMENT' },
         // Read by the guest payment route's session check as well as the response shaper.
         guestSessionHash: sessionHash,
+        userId,
       }),
       // The guest session binding: a conditional update on the booking, made in every mode.
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
@@ -71,6 +77,8 @@ function make(mode: 'disabled' | 'shadow' | 'active', sessionHash: string | null
       },
     ),
     getForUser: jest.fn().mockResolvedValue({ id: 'b1', status: 'PENDING_PAYMENT' }),
+    extendHold: jest.fn().mockResolvedValue({ holdExtensions: 1 }),
+    applyCoupon: jest.fn().mockResolvedValue({ applied: true }),
     cancelUnpaid: jest
       .fn()
       .mockResolvedValue({ id: 'b1', status: 'CANCELLED', refundPending: false }),
@@ -472,5 +480,75 @@ describe('BookingExecutionRouter.beginPayment / cancel / status', () => {
     );
     await router.getStatus({ user, bookingId: 'b1' });
     expect(bookings.getForUser).toHaveBeenCalledWith(user, 'b1');
+  });
+});
+
+/*
+  ── A SIGNED-IN USER ON SOMEBODY ELSE'S GUEST BOOKING ─────────────────────────────────────
+  The account routes for pay, extend-hold and coupon skipped every check when the booking had
+  no account, so any signed-in user who knew a guest booking's id could pay it, keep its seats
+  held, or re-price it. Each now needs the guest booking's own checkout session.
+*/
+describe('guest-booking mutations from a signed-in caller', () => {
+  const anon = new AnonymousSessionService();
+  const token = anon.issueToken();
+  const stranger = { id: 'u-stranger', email: '', fullName: '', roles: [] };
+
+  for (const mode of ['disabled', 'shadow', 'active'] as const) {
+    it(`refuses pay, extend and coupon without the guest session (${mode})`, async () => {
+      const { router, payments, orchestrator, bookings } = make(mode, anon.hash(token));
+      await expect(router.beginPayment({ user: stranger, bookingId: 'b1' })).rejects.toThrow(
+        /not started in this browser/i,
+      );
+      await expect(router.extendHold({ user: stranger, bookingId: 'b1' })).rejects.toThrow(
+        /not started in this browser/i,
+      );
+      await expect(
+        router.applyCoupon({ user: stranger, bookingId: 'b1', code: 'SAVE' }),
+      ).rejects.toThrow(/not started in this browser/i);
+      // A self-minted, well-formed token is not the booking's session either.
+      await expect(
+        router.extendHold({ user: stranger, bookingId: 'b1', anonymousToken: anon.issueToken() }),
+      ).rejects.toThrow(/not started in this browser/i);
+      expect(payments.createIntent).not.toHaveBeenCalled();
+      expect(orchestrator.beginPayment).not.toHaveBeenCalled();
+      expect(bookings.extendHold).not.toHaveBeenCalled();
+      expect(bookings.applyCoupon).not.toHaveBeenCalled();
+    });
+  }
+
+  it('lets the browser that made the guest booking act on it while signed in', async () => {
+    const { router, payments, bookings } = make('shadow', anon.hash(token));
+    await router.beginPayment({ user: stranger, bookingId: 'b1', anonymousToken: token });
+    expect(payments.createIntent).toHaveBeenCalled();
+    await router.extendHold({ user: stranger, bookingId: 'b1', anonymousToken: token });
+    expect(bookings.extendHold).toHaveBeenCalledWith(stranger, 'b1', {
+      guestSessionVerified: true,
+    });
+    await router.applyCoupon({
+      user: stranger,
+      bookingId: 'b1',
+      code: null,
+      anonymousToken: token,
+    });
+    expect(bookings.applyCoupon).toHaveBeenCalledWith(stranger, 'b1', null, {
+      guestSessionVerified: true,
+    });
+  });
+
+  it('refuses a guest booking that records no session at all (nothing to prove against)', async () => {
+    const { router, bookings } = make('shadow', null, null);
+    await expect(
+      router.extendHold({ user: stranger, bookingId: 'b1', anonymousToken: token }),
+    ).rejects.toThrow(/not started in this browser/i);
+    expect(bookings.extendHold).not.toHaveBeenCalled();
+  });
+
+  it("leaves an account's own booking to the service's account check", async () => {
+    const { router, bookings, payments } = make('shadow');
+    await router.extendHold({ user, bookingId: 'b1' });
+    expect(bookings.extendHold).toHaveBeenCalledWith(user, 'b1', { guestSessionVerified: false });
+    await router.beginPayment({ user, bookingId: 'b1' });
+    expect(payments.createIntent).toHaveBeenCalledWith('b1', user);
   });
 });

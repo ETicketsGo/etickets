@@ -3,15 +3,18 @@
 import { useQuery } from '@tanstack/react-query';
 import { api, Card, Skeleton, recordedAt } from '@eticketsgo/web-kit';
 import { historyLines, type HistoryEntry } from '../lib/history';
+import { useHolds } from '../lib/capabilities';
 
 /** The audit entries for these records, as `Type:id` pairs. See `lib/history.ts`. */
 export function useRecordHistory(subjects: string[]) {
   const key = subjects.filter(Boolean).slice(0, 20).join(',');
+  // The log needs AUDIT_READ. Not asked for without it, so the network shows no refusal and
+  // the record's own page works exactly as before, minus its history card.
+  const mayRead = useHolds('AUDIT_READ');
   return useQuery({
     queryKey: ['admin', 'audit', 'subjects', key],
     queryFn: () => api.admin.audit({ subjects: key, page: 1, pageSize: 50 }),
-    enabled: key.length > 0,
-    // Somebody without BOOKING_READ is refused the log; the page still works without it.
+    enabled: mayRead && key.length > 0,
     retry: false,
   });
 }
@@ -30,7 +33,8 @@ export function RecordHistory({
   title?: string;
 }) {
   const q = useRecordHistory(subjects);
-  if (q.isError) return null;
+  const mayRead = useHolds('AUDIT_READ');
+  if (!mayRead || q.isError) return null;
   const lines = historyLines((q.data?.data ?? []) as HistoryEntry[]);
   return (
     <Card title={title}>

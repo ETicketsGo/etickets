@@ -41,7 +41,9 @@
   },
   "REFUND_COMPLETED": {
     "subject": "Votre remboursement est effectué",
-    "body": "Un remboursement de {amount} pour la réservation {reference} a été effectué. Il parvient habituellement à votre compte en quelques jours ouvrables."
+    "body": "Un remboursement de {amount} pour la réservation {reference} a été effectué. Il parvient habituellement à votre compte en quelques jours ouvrables.",
+    "subjectProcessing": "Votre remboursement a été envoyé à votre banque",
+    "bodyProcessing": "Nous avons envoyé un remboursement de {amount} pour la réservation {reference}. Votre banque le traite maintenant. Il parvient habituellement à votre compte en 5 à 7 jours ouvrables."
   },
   "REFUND_REQUESTED": {
     "subject": "Un remboursement a été demandé pour votre réservation",

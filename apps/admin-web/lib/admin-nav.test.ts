@@ -134,9 +134,16 @@ describe('the menu lists only what the operator can open', () => {
     'PAYOUT_MANAGE',
     'PAYMENT_ADMIN',
     'ADMIN_MANAGE',
+    'AUDIT_READ',
+    'CRM_AGENT',
+    'CRM_MANAGER',
   ];
+  // Sections unfolded: a section's own pages are reachable from the menu too.
   const hrefsFor = (perms: string[]) =>
-    visibleNav(adminNavItems(), { roles: ['ADMIN'], adminPermissions: perms }).map((i) => i.href);
+    visibleNav(adminNavItems(), { roles: ['ADMIN'], adminPermissions: perms }).flatMap((i) => [
+      i.href,
+      ...(i.children ?? []).map((c) => c.href),
+    ]);
 
   it('gives somebody holding every capability every page', () => {
     // A super admin: /auth/me returns every capability for SUPER_ADMIN.
@@ -193,9 +200,14 @@ describe('the menu lists only what the operator can open', () => {
       'Events',
       'Bookings & payments',
       'Refunds & disputes',
-      'Audit history',
+      // Not 'Audit history': the log needs AUDIT_READ now, which the support desk does not hold.
       'My account',
     ]);
+  });
+
+  it('shows the audit log only to somebody holding AUDIT_READ', () => {
+    expect(hrefsFor(['BOOKING_READ'])).not.toContain('/admin/audit');
+    expect(hrefsFor(['AUDIT_READ'])).toContain('/admin/audit');
   });
 
   it('keeps platform configuration away from the support desk', () => {

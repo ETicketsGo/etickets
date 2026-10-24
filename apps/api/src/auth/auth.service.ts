@@ -22,6 +22,7 @@ import { normalisePhone } from './phone';
 import { NotificationType } from '@eticketsgo/shared-types';
 import type { AccessTokenPayload } from './jwt.strategy';
 import { MfaService, type MfaBinding } from './mfa/mfa.service';
+import { LoginBackoff } from './login-backoff';
 
 interface RequestMeta {
   userAgent?: string;
@@ -36,6 +37,44 @@ interface RequestMeta {
  * left sitting in a mailbox is a standing key to the account.
  */
 const RESET_TTL_MINUTES = 30;
+
+/**
+ * The bcrypt hash a sign-in compares against when there is no real one to compare against.
+ *
+ * ── WHY A FAILED LOOKUP STILL PAYS FOR BCRYPT ──────────────────────────────────────
+ * An unknown address used to return after one SELECT, and a known one after a cost-12 bcrypt
+ * comparison - about 200 ms apart, which anybody can measure from outside. That made the login
+ * route a free "does this address have an account" oracle, the very question the identical error
+ * message exists not to answer. So every path that has no usable hash (no account; a phone-only
+ * or invited account whose hash is a placeholder; anything not shaped like bcrypt) compares the
+ * typed password against this instead, at the SAME cost (12) as every hash `register` writes.
+ *
+ * The value is a hash of 32 random bytes nobody kept: no password matches it. It is a literal
+ * rather than computed at boot so a cold start does not spend a quarter of a second on it.
+ * Residual: an older account hashed at cost 10 (organizer invite acceptance) still compares
+ * slightly faster than cost 12; that tells old accounts from new ones, not accounts from
+ * non-accounts.
+ */
+export const DUMMY_PASSWORD_HASH = '$2a$12$MwPauiGYW6Il9NW1KO1L5ehTL7QA1VD.7woTc.jbZQM.Y5rAWwdvm';
+
+/** A real bcrypt hash, as opposed to the placeholders phone-only and invited accounts carry. */
+const BCRYPT_HASH = /^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/;
+
+/**
+ * How long a password-reset request takes, whatever it finds.
+ *
+ * The reply was already identical for a known and an unknown address. The WORK was not: a real
+ * account writes a token row in a transaction and enqueues an email, and an unknown one returned
+ * after a SELECT. The same floor the guest booking lookup uses (bookings/guest-booking.service.ts,
+ * LOOKUP_FLOOR_MS) closes the same quiet hole here.
+ */
+const RESET_REQUEST_FLOOR_MS = 250;
+
+/**
+ * How long after a refresh token was ROTATED its second presentation is treated as a race
+ * rather than a theft. See `refresh`.
+ */
+export const REFRESH_REUSE_GRACE_MS = 10_000;
 
 @Injectable()
 export class AuthService {
@@ -62,7 +101,17 @@ export class AuthService {
       pre-MFA one; the running application always has it.
     */
     @Optional() private readonly mfa?: MfaService,
-  ) {}
+    /*
+      Also last and optional. A hand-built harness gets the per-process counter (the same thing
+      the running application falls back to when Redis is away), so sign-in is never left with
+      no per-account limit at all.
+    */
+    @Optional() backoff?: LoginBackoff,
+  ) {
+    this.loginBackoff = backoff ?? new LoginBackoff();
+  }
+
+  private readonly loginBackoff: LoginBackoff;
 
   /**
    * One email address, one account.
@@ -166,16 +215,48 @@ export class AuthService {
     }
   }
 
+  /**
+   * Password sign-in.
+   *
+   * Three things here exist to stop the route telling a stranger anything:
+   *   - every failure does the same work (one bcrypt comparison, see DUMMY_PASSWORD_HASH) and
+   *     gives the same answer, account or not;
+   *   - repeated failures for ONE address make that address wait (LoginBackoff), counted for
+   *     addresses with no account exactly as for real ones;
+   *   - a suspended or deleted account is refused only AFTER its password is proved, so the
+   *     refusal is news only to somebody who already holds the password.
+   */
   async login(input: LoginInput, meta: RequestMeta): Promise<AuthTokens | MfaChallengeResponse> {
+    const waitMs = await this.loginBackoff.waitFor(input.email);
+    if (waitMs > 0) {
+      await this.audit.record({
+        actorUserId: null,
+        action: 'AUTH_LOGIN_BACKOFF',
+        entityType: 'User',
+        entityId: null,
+        metadata: { email: input.email, waitSeconds: Math.ceil(waitMs / 1000) },
+        ip: meta.ip ?? null,
+      });
+      throw tooManySignInAttempts(waitMs);
+    }
+
     const user = await this.prisma.user.findUnique({ where: { email: input.email } });
-    if (!user || !(await bcrypt.compare(input.password, user.passwordHash))) {
+    const usableHash = user && BCRYPT_HASH.test(user.passwordHash) ? user.passwordHash : null;
+    // Always exactly one comparison, so an unknown address costs what a wrong password costs.
+    const matches = await bcrypt.compare(input.password, usableHash ?? DUMMY_PASSWORD_HASH);
+    if (!user || !usableHash || !matches) {
+      const startedWaitMs = await this.loginBackoff.recordFailure(input.email);
       // Forensic trail for credential-stuffing / brute-force (audit is fail-safe).
       await this.audit.record({
         actorUserId: user?.id ?? null,
         action: 'AUTH_LOGIN_FAILED',
         entityType: 'User',
         entityId: user?.id ?? null,
-        metadata: { email: input.email, reason: user ? 'bad_password' : 'unknown_user' },
+        metadata: {
+          email: input.email,
+          reason: !user ? 'unknown_user' : !usableHash ? 'no_password' : 'bad_password',
+          ...(startedWaitMs > 0 ? { backoffSeconds: Math.ceil(startedWaitMs / 1000) } : {}),
+        },
         ip: meta.ip ?? null,
       });
       throw new AppException(
@@ -184,6 +265,8 @@ export class AuthService {
         HttpStatus.UNAUTHORIZED,
       );
     }
+    // The password is right, so the count for this address starts again.
+    await this.loginBackoff.reset(input.email);
     await this.audit.record({
       actorUserId: user.id,
       action: 'AUTH_LOGIN',
@@ -204,9 +287,26 @@ export class AuthService {
    * walked into enrolling without ever being locked out. Everyone else is unaffected.
    */
   private async signInOrChallenge(
-    user: { id: string; email: string; fullName: string; roles: unknown },
+    user: { id: string; email: string; fullName: string; roles: unknown; status: string },
     meta: RequestMeta,
   ): Promise<AuthTokens | MfaChallengeResponse> {
+    /*
+      A suspended or deleted account gets nothing here: no tokens and no MFA challenge. Every
+      request with an existing access token is already refused for such an account (JwtStrategy),
+      but sign-in itself handed out fresh tokens, so a suspension did not stop somebody signing
+      straight back in. Same words as the second-factor route uses for the same case.
+    */
+    if (user.status !== 'ACTIVE') {
+      await this.audit.record({
+        actorUserId: user.id,
+        action: 'AUTH_LOGIN_REFUSED_INACTIVE',
+        entityType: 'User',
+        entityId: user.id,
+        metadata: { status: user.status },
+        ip: meta.ip ?? null,
+      });
+      throw accountCannotSignIn();
+    }
     const roles = user.roles as Role[];
     if (this.mfa && (await this.mfa.requiresChallenge(user.id, roles))) {
       return {
@@ -221,13 +321,7 @@ export class AuthService {
   /** Tokens for a session that has just passed the second factor. */
   async issueMfaSession(userId: string, meta: RequestMeta, binding: MfaBinding) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user || user.status !== 'ACTIVE') {
-      throw new AppException(
-        ErrorCodes.INVALID_CREDENTIALS,
-        'This account cannot sign in.',
-        HttpStatus.UNAUTHORIZED,
-      );
-    }
+    if (!user || user.status !== 'ACTIVE') throw accountCannotSignIn();
     return this.issueTokens(
       user.id,
       user.email,
@@ -248,46 +342,48 @@ export class AuthService {
     return this.signAccess(user.id, user.email, user.fullName, user.roles as Role[], binding);
   }
 
+  /**
+   * Trade a refresh token for a new pair, spending the old one.
+   *
+   * ── WHY THE SPEND IS ONE CONDITIONAL UPDATE ────────────────────────────────────────
+   * This used to read the row, check `revokedAt`, mint a new pair and then mark the old row
+   * revoked unconditionally. Two requests carrying the same token could both pass the check
+   * before either wrote, and both walked away with a live session: one stolen token became two
+   * sessions, and reuse detection never fired. Now the new pair's row is written first and the
+   * old row is claimed with `UPDATE ... WHERE revokedAt IS NULL`, which the database lets exactly
+   * one request win. The loser's freshly written row is revoked again before it is ever returned.
+   *
+   * The claim also stamps `replacedByTokenId` in the same write, so "revoked by rotation" (has a
+   * replacement) and "revoked by sign-out" (none) can always be told apart - including by a
+   * request that loses the race a millisecond later.
+   *
+   * ── WHY A RECENT ROTATION DOES NOT BURN THE FAMILY ─────────────────────────────────
+   * A token presented again after it was spent is normally a replay, and the response is to
+   * revoke every session the account has. But the commonest second presentation is innocent:
+   * two tabs, or an app and its background task, both noticing the access token has expired and
+   * refreshing with the token they share. Burning the family then signs a customer out
+   * everywhere for having two tabs open. So a token that was ROTATED within the last
+   * REFRESH_REUSE_GRACE_MS (10 s) is simply refused for that request - the other request already
+   * holds the new session - and nothing else is revoked. Outside the window, or for a token that
+   * was signed out rather than rotated, it is treated as theft exactly as before.
+   *
+   * The cost, accepted: somebody who has stolen a refresh token and presents it within ten
+   * seconds of its owner is refused without the family being burned. They still get nothing, and
+   * any later presentation burns it.
+   */
   async refresh(refreshToken: string, meta: RequestMeta): Promise<AuthTokens> {
     const tokenHash = this.hashToken(refreshToken);
     const record = await this.prisma.refreshToken.findUnique({
       where: { tokenHash },
       include: { mfa: true },
     });
-    if (!record || record.expiresAt < new Date()) {
-      throw new AppException(
-        ErrorCodes.INVALID_REFRESH_TOKEN,
-        'Your session has expired. Please sign in again.',
-        HttpStatus.UNAUTHORIZED,
-      );
-    }
-    // Reuse detection: a recognized-but-already-revoked token is a token that was
-    // already rotated (or explicitly logged out). Presenting it again is a replay
-    // and a compromise signal — the same secret is now in two places. Treat the
-    // whole family as burned: revoke every still-active refresh token for the user
-    // (forcing a fresh sign-in everywhere), then reject.
+    if (!record || record.expiresAt < new Date()) throw sessionExpired();
     if (record.revokedAt) {
-      await this.prisma.refreshToken.updateMany({
-        where: { userId: record.userId, revokedAt: null },
-        data: { revokedAt: new Date() },
-      });
-      // Replay of a rotated/revoked token = compromise signal; record the family burn.
-      await this.audit.record({
-        actorUserId: record.userId,
-        action: 'AUTH_TOKEN_REUSE_DETECTED',
-        entityType: 'RefreshToken',
-        entityId: record.id,
-        metadata: { familyRevoked: true },
-        ip: meta.ip ?? null,
-      });
-      throw new AppException(
-        ErrorCodes.INVALID_REFRESH_TOKEN,
-        'Your session has expired. Please sign in again.',
-        HttpStatus.UNAUTHORIZED,
-      );
+      await this.refuseSpentToken(record.id, record.userId, meta);
     }
     const user = await this.prisma.user.findUnique({ where: { id: record.userId } });
-    if (!user) {
+    // A suspended or deleted account cannot renew a session either, only end it.
+    if (!user || user.status !== 'ACTIVE') {
       throw new AppException(
         ErrorCodes.INVALID_REFRESH_TOKEN,
         'Session invalid.',
@@ -295,7 +391,6 @@ export class AuthService {
       );
     }
 
-    // Rotate: revoke the used token, then issue a fresh pair.
     const tokens = await this.issueTokens(
       user.id,
       user.email,
@@ -317,12 +412,72 @@ export class AuthService {
     );
     const replacement = await this.prisma.refreshToken.findUnique({
       where: { tokenHash: this.hashToken(tokens.refreshToken) },
+      select: { id: true },
     });
-    await this.prisma.refreshToken.update({
-      where: { id: record.id },
-      data: { revokedAt: new Date(), replacedByTokenId: replacement?.id },
+    // The claim. Exactly one request carrying this token gets count = 1.
+    const claimed = await this.prisma.refreshToken.updateMany({
+      where: { id: record.id, revokedAt: null },
+      data: { revokedAt: new Date(), replacedByTokenId: replacement?.id ?? null },
     });
+    if (claimed.count !== 1) {
+      // Lost the race: the pair just minted must never work.
+      await this.prisma.refreshToken.updateMany({
+        where: { tokenHash: this.hashToken(tokens.refreshToken), revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+      await this.refuseSpentToken(record.id, record.userId, meta);
+    }
     return tokens;
+  }
+
+  /**
+   * A token that is already spent: refuse it, and decide whether that is a race or a theft.
+   * Always throws.
+   */
+  private async refuseSpentToken(
+    recordId: string,
+    userId: string,
+    meta: RequestMeta,
+  ): Promise<never> {
+    // Re-read: in a race the winner's write is what decides, not what this request saw earlier.
+    const spent = await this.prisma.refreshToken.findUnique({
+      where: { id: recordId },
+      select: { revokedAt: true, replacedByTokenId: true },
+    });
+    const rotatedRecently = Boolean(
+      spent?.revokedAt &&
+      spent.replacedByTokenId &&
+      Date.now() - spent.revokedAt.getTime() <= REFRESH_REUSE_GRACE_MS,
+    );
+    if (rotatedRecently) {
+      await this.audit.record({
+        actorUserId: userId,
+        action: 'AUTH_REFRESH_SUPERSEDED',
+        entityType: 'RefreshToken',
+        entityId: recordId,
+        metadata: { familyRevoked: false, graceMs: REFRESH_REUSE_GRACE_MS },
+        ip: meta.ip ?? null,
+      });
+      throw sessionExpired();
+    }
+    // Reuse detection: a recognized-but-already-revoked token is a token that was
+    // already rotated (or explicitly logged out). Presenting it again is a replay
+    // and a compromise signal — the same secret is now in two places. Treat the
+    // whole family as burned: revoke every still-active refresh token for the user
+    // (forcing a fresh sign-in everywhere), then reject.
+    await this.prisma.refreshToken.updateMany({
+      where: { userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    await this.audit.record({
+      actorUserId: userId,
+      action: 'AUTH_TOKEN_REUSE_DETECTED',
+      entityType: 'RefreshToken',
+      entityId: recordId,
+      metadata: { familyRevoked: true },
+      ip: meta.ip ?? null,
+    });
+    throw sessionExpired();
   }
 
   async logout(refreshToken: string): Promise<void> {
@@ -330,6 +485,29 @@ export class AuthService {
     await this.prisma.refreshToken
       .updateMany({ where: { tokenHash, revokedAt: null }, data: { revokedAt: new Date() } })
       .catch(() => undefined);
+  }
+
+  /**
+   * "Sign out everywhere": revoke every refresh token the account holds.
+   *
+   * No device can renew a session afterwards. Access tokens already issued are stateless and
+   * run out on their own within JWT_ACCESS_TTL (15 minutes by default); a password reset does
+   * the same revocation as part of its own transaction.
+   */
+  async logoutAll(userId: string, meta: RequestMeta): Promise<number> {
+    const { count } = await this.prisma.refreshToken.updateMany({
+      where: { userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    await this.audit.record({
+      actorUserId: userId,
+      action: 'AUTH_LOGOUT_ALL',
+      entityType: 'User',
+      entityId: userId,
+      metadata: { revoked: count },
+      ip: meta.ip ?? null,
+    });
+    return count;
   }
 
   /**
@@ -500,6 +678,17 @@ export class AuthService {
    * convenience; it would be account takeover with extra steps.
    */
   async requestPasswordReset(email: string, meta: RequestMeta): Promise<void> {
+    const startedAt = Date.now();
+    try {
+      await this.startPasswordReset(email, meta);
+    } finally {
+      // Known or unknown, the caller waits out the same budget (RESET_REQUEST_FLOOR_MS).
+      const remaining = RESET_REQUEST_FLOOR_MS - (Date.now() - startedAt);
+      if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, remaining));
+    }
+  }
+
+  private async startPasswordReset(email: string, meta: RequestMeta): Promise<void> {
     const user = await this.prisma.user.findUnique({
       where: { email: email.trim().toLowerCase() },
       select: { id: true, email: true, status: true },
@@ -638,6 +827,13 @@ export class AuthService {
       payload: {},
     });
 
+    /*
+      Proving control of the mailbox is a stronger proof than a password, so it also ends any
+      sign-in wait for this address. This is the owner's way out when somebody else has been
+      making their account wait by guessing at it.
+    */
+    await this.loginBackoff.reset(row.user.email);
+
     await this.audit.record({
       actorUserId: row.userId,
       action: 'PASSWORD_RESET_COMPLETED',
@@ -766,6 +962,36 @@ export class AuthService {
 function parseTtlDays(ttl: string): number {
   const match = /^(\d+)\s*d$/.exec(ttl.trim());
   return match ? Number(match[1]) : 30;
+}
+
+function sessionExpired(): AppException {
+  return new AppException(
+    ErrorCodes.INVALID_REFRESH_TOKEN,
+    'Your session has expired. Please sign in again.',
+    HttpStatus.UNAUTHORIZED,
+  );
+}
+
+function accountCannotSignIn(): AppException {
+  return new AppException(
+    ErrorCodes.INVALID_CREDENTIALS,
+    'This account cannot sign in.',
+    HttpStatus.UNAUTHORIZED,
+  );
+}
+
+/**
+ * The answer while an address is waiting. It says nothing about whether the address has an
+ * account - addresses with none wait exactly the same way - and it tells the person what to do.
+ */
+function tooManySignInAttempts(waitMs: number): AppException {
+  const minutes = Math.max(1, Math.ceil(waitMs / 60_000));
+  return new AppException(
+    ErrorCodes.RATE_LIMITED,
+    `Too many wrong passwords for this email. Wait ${minutes} ${minutes === 1 ? 'minute' : 'minutes'} and try again, or reset your password.`,
+    HttpStatus.TOO_MANY_REQUESTS,
+    { retryAfterSeconds: Math.ceil(waitMs / 1000) },
+  );
 }
 
 function emailAlreadyRegistered(): AppException {

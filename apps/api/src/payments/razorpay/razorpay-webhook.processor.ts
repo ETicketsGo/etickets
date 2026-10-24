@@ -35,6 +35,7 @@ interface RzpOrder {
   id?: string;
   receipt?: string;
   amount?: number;
+  currency?: string;
   notes?: Record<string, string | number> | null;
 }
 interface RzpRefund {
@@ -282,11 +283,14 @@ export class RazorpayWebhookProcessor {
       strOrNull(order?.receipt);
     const amountMinor = payment?.amount ?? order?.amount;
     if (!bookingId || typeof amountMinor !== 'number') return null;
+    // Read from the same entity as the amount, so the pair always describes one charge.
+    const currency = payment?.amount !== undefined ? payment?.currency : order?.currency;
     return {
       type,
       providerRef: payment?.id ?? order?.id ?? bookingId,
       bookingId,
       amountMinor,
+      ...(typeof currency === 'string' && currency ? { currency } : {}),
       /*
         Why it failed, reduced to our own reason. Razorpay said "this business accepts domestic
         (Indian) card payments only" and the buyer was told to "try again" with the same card.

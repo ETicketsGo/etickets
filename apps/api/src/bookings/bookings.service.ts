@@ -30,6 +30,19 @@ import { cancelPendingBooking, expirePendingBooking } from '../inventory/expire-
 import { AddOnInventoryService, type AddOnLine } from '../commerce/addon-inventory.service';
 import { onSale } from '../commerce/addons.service';
 import { AppException, ErrorCodes } from '../common/errors';
+import { isUniqueViolation } from '../events/request-key';
+import {
+  BookingHoldLimitsService,
+  aggregateTicketQuantities,
+  assertOrderSize,
+  holdLimitsFrom,
+} from './booking-hold-limits';
+import {
+  IDEMPOTENCY_IN_PROGRESS,
+  IDEMPOTENCY_KEY_REUSED,
+  bookingIdempotency,
+  type BookingIdempotency,
+} from './booking-idempotency';
 import { resolveCommerceCurrency } from '../common/commerce-currency';
 import type { RequestUser } from '../common/decorators';
 import { MetricsService } from '../metrics/metrics.service';
@@ -56,6 +69,15 @@ import {
   type CinemaPolicyOutcome,
   type PolicyCinema,
 } from '../pricing/cinema-policy/sale-eligibility';
+
+/**
+ * Proof, established by the caller, that the request comes from the guest checkout session
+ * that created a guest booking. Only `BookingExecutionRouter` sets it, after
+ * `GuestSessionVerifier` answered BOUND. See `BookingsService.assertMayChangeUnpaid`.
+ */
+export interface GuestMutationAccess {
+  guestSessionVerified?: boolean;
+}
 
 /** A resolved BookingItem row plus the holds it needs, produced by commerce expansion. */
 interface CommerceResolution {
@@ -91,6 +113,14 @@ const DEFAULT_HOLD_MINUTES = 10;
  * argument for an auditor to accept rather than for us to assert.
  */
 const DEFAULT_MAX_HOLD_EXTENSIONS = 10;
+
+/**
+ * How long a request waits for an earlier one with the same idempotency key to finish, and how
+ * often it looks. A booking create normally takes well under a second; five covers a slow one
+ * without holding a request open for long when the first one has died.
+ */
+const IDEMPOTENCY_WAIT_MS = 5_000;
+const IDEMPOTENCY_POLL_MS = 150;
 
 @Injectable()
 export class BookingsService {
@@ -174,6 +204,14 @@ export class BookingsService {
       present with PILOT_MODE unset, the quote and the booking are exactly what they were.
     */
     @Optional() private readonly pilot?: PilotGuardService,
+
+    /*
+      ON THE END, as above. The active-hold limits (booking-hold-limits.ts): how many unpaid
+      holds one account, guest address or client IP may have open at once. `BookingsModule`
+      provides it, so the running application always has it (bookings.module.spec.ts pins
+      that); absent, only the hand-built test harnesses run, and they book one order at a time.
+    */
+    @Optional() private readonly holdLimits?: BookingHoldLimitsService,
   ) {}
 
   /**
@@ -192,15 +230,33 @@ export class BookingsService {
      * request body: only that service passes it, after checking the caller is staff of the
      * session's organization.
      */
-    opts?: { counterSale?: boolean },
+    opts?: {
+      counterSale?: boolean;
+      /**
+       * The caller's address, for the per-IP hold limit. Resolved by the controller with the
+       * same trusted-header rule the rate limiter uses (`common/client-ip.ts`); absent for a
+       * caller that is not an HTTP request, which is then not counted by address.
+       */
+      clientIp?: string | null;
+    },
   ) {
-    if (idempotencyKey) {
-      const existing = await this.prisma.idempotencyRecord.findUnique({
-        where: { scope_key: { scope: 'booking:create', key: idempotencyKey } },
-      });
-      if (existing?.status === 'COMPLETED' && existing.responseJson) {
-        return existing.responseJson as Prisma.JsonObject;
-      }
+    /*
+      Scoped to the buyer and bound to the body - see booking-idempotency.ts for the two bugs a
+      global scope caused. A completed replay is answered here; one still in progress is waited
+      for. The key is CLAIMED inside the transaction below.
+    */
+    const idem: BookingIdempotency | null = idempotencyKey
+      ? bookingIdempotency({
+          rawKey: idempotencyKey,
+          userId: user?.id ?? null,
+          buyerEmail: input.buyerEmail,
+          body: input,
+          counterSale: opts?.counterSale,
+        })
+      : null;
+    if (idem) {
+      const earlier = await this.replayFor(idem);
+      if (earlier) return earlier;
     }
 
     const session = await this.prisma.eventSession.findUnique({
@@ -306,6 +362,12 @@ export class BookingsService {
     const byId = new Map(ticketTypes.map((t) => [t.id, t]));
 
     const now = new Date();
+    /*
+      `maxPerOrder` is a limit on the ORDER, so it is checked against the order's total for the
+      type. Checked per line it was bypassed by sending one ticket type as several lines - see
+      `aggregateTicketQuantities` for why the lines are added up rather than refused or merged.
+    */
+    const quantityByType = aggregateTicketQuantities(input.items);
     for (const item of input.items) {
       const tt = byId.get(item.ticketTypeId);
       if (!tt) {
@@ -316,7 +378,7 @@ export class BookingsService {
         );
       }
       this.assertTicketTypeActive(tt);
-      if (item.quantity > tt.maxPerOrder) {
+      if ((quantityByType.get(item.ticketTypeId) ?? item.quantity) > tt.maxPerOrder) {
         throw new AppException(
           ErrorCodes.VALIDATION_FAILED,
           `You can book at most ${tt.maxPerOrder} of ${tt.name} per order.`,
@@ -617,6 +679,18 @@ export class BookingsService {
         ? session.startsAt
         : new Date(now.getTime() + this.holdMinutes * 60 * 1000);
 
+    /*
+      The whole order's size, bundle tickets included, against the online ceilings: one order,
+      and one pay-at-venue reservation, which holds its seats until showtime and so is smaller.
+      Counter sales are not limited. Read from the same configuration the hold limits use.
+    */
+    assertOrderSize(
+      input.items.reduce((sum, i) => sum + i.quantity, 0) +
+        commerce.ticketHolds.reduce((sum, h) => sum + h.quantity, 0),
+      this.holdLimits?.limits() ?? holdLimitsFrom(this.config),
+      { counterSale: opts?.counterSale, wantsCash },
+    );
+
     // The inventory model is chosen by the experience type — general admission
     // for events today, seat-based for movies in a later PR — without this
     // engine changing. See ADR-010.
@@ -628,12 +702,44 @@ export class BookingsService {
       seatIds: i.seatIds,
     }));
 
-    const booking = await this.prisma.$transaction(async (tx) => {
+    const held = this.prisma.$transaction(async (tx) => {
       // The pilot's daily cap, serialized: see `PilotGuardService.reserveDailyCapacity`. A
       // refusal here rolls back before the booking row or any hold exists.
       if (this.pilot?.active()) {
         await this.pilot.reserveDailyCapacity(tx, { currency, totalMinor: fees.totalMinor });
       }
+      /*
+        Claim the idempotency key FIRST, before anything is held. A concurrent request with the
+        same key blocks here on the unique index until this transaction ends, then fails with a
+        unique violation and reads this one's answer (the catch below) - it never builds a second
+        booking, and never reaches the `Booking.idempotencyKey` constraint as a 500.
+      */
+      if (idem) {
+        await tx.idempotencyRecord.create({
+          data: {
+            scope: idem.scope,
+            key: idem.key,
+            requestHash: idem.requestHash,
+            status: 'IN_PROGRESS',
+          },
+        });
+      }
+      /*
+        The active-hold limits, counted and enforced under a per-buyer lock in THIS transaction,
+        so two requests at once cannot both pass and a refusal leaves nothing behind. Not for a
+        counter sale: that is the organizer's staff selling in person, collected at once.
+      */
+      const holdReceipt =
+        this.holdLimits && !opts?.counterSale
+          ? await this.holdLimits.enforce(tx, {
+              userId: user?.id ?? null,
+              buyerEmail: input.buyerEmail,
+              clientIp: opts?.clientIp ?? null,
+              eventSessionId: session.id,
+              wantsCash,
+              now,
+            })
+          : null;
       // Create the pending booking first so the strategy can bind held seats to
       // it, then perform the atomic, oversell-/double-book-proof hold. If the
       // hold fails the whole transaction (booking + items + payment) rolls back.
@@ -715,7 +821,9 @@ export class BookingsService {
           },
           totalMinor: fees.totalMinor,
           holdExpiresAt,
-          idempotencyKey: idempotencyKey ?? null,
+          // The actor-scoped key, not the raw header: two buyers who send the same header are
+          // two different requests and must not collide on this unique column.
+          idempotencyKey: idem?.key ?? null,
           items: {
             create: [
               ...priceQuote.lines.map((pl) => ({
@@ -780,8 +888,22 @@ export class BookingsService {
       // capacity guard + held-consumption event here, so a guard failure rolls the whole hold
       // back (oversell-proof) and the allocation ledger commits atomically with the booking.
       if (hooks?.inHoldTx) await hooks.inHoldTx(tx, created.id);
+      if (holdReceipt) await holdReceipt.record(created.id, holdExpiresAt);
       return created;
     });
+    const outcome = await held.then(
+      (created) => ({ created }),
+      async (err: unknown) => {
+        // Another request with this key got there first: answer with its booking.
+        if (idem && isUniqueViolation(err)) {
+          const earlier = await this.replayFor(idem, { afterConflict: true });
+          if (earlier) return { replay: earlier };
+        }
+        throw err;
+      },
+    );
+    if ('replay' in outcome) return outcome.replay;
+    const booking = outcome.created;
 
     await this.audit.record({
       actorUserId: user?.id ?? null,
@@ -843,16 +965,26 @@ export class BookingsService {
     */
     let freeStatus: BookingStatus | undefined;
     if (isFree) {
-      if (!this.payments) {
-        throw new AppException(
-          ErrorCodes.INTERNAL,
-          'Free bookings are not available in this configuration.',
-          HttpStatus.INTERNAL_SERVER_ERROR,
-        );
-      }
-      const outcome = await this.payments.confirmFreeBooking(booking.id);
-      if (outcome.status === 'confirmed' || outcome.status === 'already_confirmed') {
-        freeStatus = BookingStatus.CONFIRMED;
+      try {
+        if (!this.payments) {
+          throw new AppException(
+            ErrorCodes.INTERNAL,
+            'Free bookings are not available in this configuration.',
+            HttpStatus.INTERNAL_SERVER_ERROR,
+          );
+        }
+        const outcome = await this.payments.confirmFreeBooking(booking.id);
+        if (outcome.status === 'confirmed' || outcome.status === 'already_confirmed') {
+          freeStatus = BookingStatus.CONFIRMED;
+        }
+      } catch (err) {
+        /*
+          The booking exists and its hold will expire on its own, but its key will never be
+          completed. Released, so a retry with the same key starts afresh - what a retry did
+          before keys were claimed - instead of waiting on a record that cannot finish.
+        */
+        if (idem) await this.releaseIdempotencyKey(idem, booking.id);
+        throw err;
       }
     }
 
@@ -869,22 +1001,67 @@ export class BookingsService {
         isFree || wantsCash ? null : { id: booking.payment?.id, status: booking.payment?.status },
     };
 
-    if (idempotencyKey) {
+    if (idem) {
       await this.prisma.idempotencyRecord
-        .upsert({
-          where: { scope_key: { scope: 'booking:create', key: idempotencyKey } },
-          create: {
-            scope: 'booking:create',
-            key: idempotencyKey,
-            status: 'COMPLETED',
-            responseJson: result as unknown as Prisma.InputJsonValue,
-          },
-          update: { status: 'COMPLETED', responseJson: result as unknown as Prisma.InputJsonValue },
+        .update({
+          where: { scope_key: { scope: idem.scope, key: idem.key } },
+          data: { status: 'COMPLETED', responseJson: result as unknown as Prisma.InputJsonValue },
         })
         .catch(() => undefined);
     }
 
     return result;
+  }
+
+  /**
+   * The answer an earlier request with this key produced, or null when the key is new.
+   *
+   * A key used for a DIFFERENT body is refused rather than answered: replaying a booking that
+   * does not match what was sent would be a wrong answer dressed as an idempotent one. A key
+   * still being worked on is waited for, briefly - the first request is usually a second or two
+   * from done - and then answered with a plain "still being created" rather than a 500.
+   *
+   * `afterConflict` is the path from a unique violation: the record existed when the insert
+   * failed, so finding nothing now means the first request failed and released it. The caller
+   * is told to try again rather than racing a second time inside this request.
+   */
+  private async replayFor(
+    idem: BookingIdempotency,
+    opts: { afterConflict?: boolean } = {},
+  ): Promise<Prisma.JsonObject | null> {
+    const deadline = Date.now() + IDEMPOTENCY_WAIT_MS;
+    for (;;) {
+      const record = await this.prisma.idempotencyRecord.findUnique({
+        where: { scope_key: { scope: idem.scope, key: idem.key } },
+      });
+      if (!record) {
+        if (!opts.afterConflict) return null;
+        throw new AppException(ErrorCodes.CONFLICT, IDEMPOTENCY_IN_PROGRESS, HttpStatus.CONFLICT);
+      }
+      if (record.requestHash !== idem.requestHash) {
+        throw new AppException(ErrorCodes.CONFLICT, IDEMPOTENCY_KEY_REUSED, HttpStatus.CONFLICT);
+      }
+      if (record.status === 'COMPLETED' && record.responseJson) {
+        return record.responseJson as Prisma.JsonObject;
+      }
+      if (Date.now() >= deadline) {
+        throw new AppException(ErrorCodes.CONFLICT, IDEMPOTENCY_IN_PROGRESS, HttpStatus.CONFLICT);
+      }
+      await new Promise((resolve) => setTimeout(resolve, IDEMPOTENCY_POLL_MS));
+    }
+  }
+
+  /** Free a key whose booking failed after it was held, so a retry can begin again. */
+  private async releaseIdempotencyKey(idem: BookingIdempotency, bookingId: string) {
+    await this.prisma
+      .$transaction(async (tx) => {
+        await tx.idempotencyRecord.deleteMany({ where: { scope: idem.scope, key: idem.key } });
+        await tx.booking.updateMany({
+          where: { id: bookingId, idempotencyKey: idem.key },
+          data: { idempotencyKey: null },
+        });
+      })
+      .catch(() => undefined);
   }
 
   /**
@@ -920,6 +1097,7 @@ export class BookingsService {
    * must not advertise itself on another's checkout.
    */
   async publicOffers(eventSessionId: string) {
+    if (this.couponsDisabled()) return [];
     const session = await this.prisma.eventSession.findUnique({
       where: { id: eventSessionId },
       select: { event: { select: { organizationId: true } } },
@@ -1316,7 +1494,7 @@ export class BookingsService {
    * with nine minutes remaining does not accumulate nineteen. The purpose is "give me time to
    * finish", not "let me sit on this".
    */
-  async extendHold(user: RequestUser | null, bookingId: string) {
+  async extendHold(user: RequestUser | null, bookingId: string, access?: GuestMutationAccess) {
     const booking = await this.prisma.booking.findUnique({
       where: { id: bookingId },
       select: {
@@ -1333,17 +1511,7 @@ export class BookingsService {
       throw new AppException(ErrorCodes.NOT_FOUND, 'Booking not found.', HttpStatus.NOT_FOUND);
     }
 
-    /*
-      A guest booking has no owner and is reached by its unguessable id — the same rule the
-      payment path uses. An authenticated user may only extend their own.
-    */
-    if (booking.userId && user && booking.userId !== user.id) {
-      throw new AppException(
-        ErrorCodes.FORBIDDEN,
-        'You cannot change this booking.',
-        HttpStatus.FORBIDDEN,
-      );
-    }
+    this.assertMayChangeUnpaid(user, booking, access, 'You cannot change this booking.');
 
     if (booking.status !== BookingStatus.PENDING_PAYMENT) {
       throw new AppException(
@@ -1402,10 +1570,28 @@ export class BookingsService {
       it took seats this buyer was still paying for, and their payment then failed at seat
       confirmation. One transaction, so the two deadlines cannot disagree.
     */
+    /*
+      ── THE CAP IS ENFORCED BY THE UPDATE, NOT BY THE READ ABOVE ──────────────────────
+      The count check above answers the ordinary case with a helpful message, but it ran
+      outside any transaction, so ten requests sent at once all read "nine used" and all
+      extended. The write is now conditional - still unpaid, still in time, and under the cap -
+      so the database decides, one row at a time, and exactly `max` extensions can succeed
+      however many arrive together. The loser is told the same thing the check would have said.
+    */
     const updated = await this.prisma.$transaction(async (tx) => {
-      const row = await tx.booking.update({
-        where: { id: bookingId },
+      const claimed = await tx.booking.updateMany({
+        where: {
+          id: bookingId,
+          status: BookingStatus.PENDING_PAYMENT,
+          paymentMethod: 'ONLINE',
+          holdExpiresAt: { gt: new Date() },
+          holdExtensions: { lt: max },
+        },
         data: { holdExpiresAt, holdExtensions: { increment: 1 } },
+      });
+      if (claimed.count !== 1) return null;
+      const row = await tx.booking.findUniqueOrThrow({
+        where: { id: bookingId },
         select: { holdExpiresAt: true, holdExtensions: true },
       });
       await tx.showSeat.updateMany({
@@ -1414,6 +1600,14 @@ export class BookingsService {
       });
       return row;
     });
+    if (!updated) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        `This hold has already been extended ${max} times, or is no longer waiting for payment. Complete the payment or start again.`,
+        HttpStatus.CONFLICT,
+        { maxHoldExtensions: max },
+      );
+    }
 
     return {
       holdExpiresAt: updated.holdExpiresAt,
@@ -1424,7 +1618,46 @@ export class BookingsService {
     };
   }
 
-  async applyCoupon(user: RequestUser | null, bookingId: string, code: string | null) {
+  /**
+   * Who may change an unpaid booking: its account, or - for a guest booking - the browser that
+   * created it.
+   *
+   * ── THE HOLE THIS CLOSES ───────────────────────────────────────────────────────────
+   * Both callers skipped the check whenever the booking had no account (`userId` null), on the
+   * old reasoning that a guest booking is "reached by its unguessable id". Booking ids are not a
+   * credential: they appear in URLs, in support threads and in screenshots. So any signed-in
+   * account could extend somebody else's guest hold indefinitely or re-price it with a code.
+   * A guest booking now needs its checkout session, verified by the router against the hash
+   * stored on the booking, whoever is signed in. A booking that belongs to an account still
+   * needs that account, and no longer accepts a caller with no account at all.
+   */
+  private assertMayChangeUnpaid(
+    user: RequestUser | null,
+    booking: { userId: string | null },
+    access: GuestMutationAccess | undefined,
+    message: string,
+  ): void {
+    if (booking.userId) {
+      if (!user || booking.userId !== user.id) {
+        throw new AppException(ErrorCodes.FORBIDDEN, message, HttpStatus.FORBIDDEN);
+      }
+      return;
+    }
+    if (!access?.guestSessionVerified) {
+      throw new AppException(
+        ErrorCodes.FORBIDDEN,
+        'This booking was not started in this browser.',
+        HttpStatus.FORBIDDEN,
+      );
+    }
+  }
+
+  async applyCoupon(
+    user: RequestUser | null,
+    bookingId: string,
+    code: string | null,
+    access?: GuestMutationAccess,
+  ) {
     const booking = await this.prisma.booking.findUnique({
       where: { id: bookingId },
       include: {
@@ -1458,9 +1691,7 @@ export class BookingsService {
     if (!booking) {
       throw new AppException(ErrorCodes.NOT_FOUND, 'Booking not found.', HttpStatus.NOT_FOUND);
     }
-    if (user && booking.userId && booking.userId !== user.id) {
-      throw new AppException(ErrorCodes.FORBIDDEN, 'Forbidden.', HttpStatus.FORBIDDEN);
-    }
+    this.assertMayChangeUnpaid(user, booking, access, 'Forbidden.');
     if (booking.status !== BookingStatus.PENDING_PAYMENT) {
       throw new AppException(
         ErrorCodes.CONFLICT,
@@ -1615,6 +1846,17 @@ export class BookingsService {
    * counted at confirmation, so concurrent unpaid bookings can each pass this check; making
    * the cap exact is the confirmation path's job, not this lookup's.
    */
+  /*
+    The platform-wide switch for discount codes (COUPONS_ENABLED). Off, every code is refused
+    with a plain reason and no discount is taken, the public offers list is empty, and
+    organizers cannot create new codes. It exists because a code with a redemption cap can be
+    over-redeemed when two checkouts race past the cap (the cap is checked at hold time and
+    counted at confirmation); until that is reserved atomically, production keeps codes off.
+  */
+  private couponsDisabled(): boolean {
+    return this.config?.get<string>('COUPONS_ENABLED') === 'false';
+  }
+
   private async resolveCoupon(
     code: string | undefined,
     subtotal: number,
@@ -1622,6 +1864,13 @@ export class BookingsService {
     currency: string,
   ): Promise<{ discountMinor: number; couponId: string | null; refusal?: string }> {
     if (!code) return { discountMinor: 0, couponId: null };
+    if (this.couponsDisabled()) {
+      return {
+        discountMinor: 0,
+        couponId: null,
+        refusal: 'Discount codes are not available right now.',
+      };
+    }
     const coupon = await this.prisma.coupon.findUnique({ where: { code } });
     const now = new Date();
     const valid =

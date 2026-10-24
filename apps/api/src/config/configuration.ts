@@ -32,6 +32,15 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().min(0).max(65535).optional(),
   API_PORT: z.coerce.number().default(4000),
   API_GLOBAL_PREFIX: z.string().default('api'),
+  /*
+    HTTP server timeouts (common/http-timeouts.ts). Keep-alive must stay above Railway's 60 s
+    edge idle timeout or idle connections turn into 502s; headers is kept above keep-alive and
+    request at or above headers whatever is set here. Request bounds how long a request may take
+    to ARRIVE, not how long a report takes to answer.
+  */
+  HTTP_KEEP_ALIVE_TIMEOUT_MS: z.coerce.number().int().min(1000).max(600_000).default(65_000),
+  HTTP_HEADERS_TIMEOUT_MS: z.coerce.number().int().min(1000).max(600_000).default(66_000),
+  HTTP_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1000).max(900_000).default(120_000),
   CORS_ORIGINS: z.string().default('http://localhost:3000'),
   /*
     Organizations whose listings are curated DEMO content (comma-separated ids). Everything else
@@ -188,7 +197,51 @@ const envSchema = z.object({
    * Bounded deliberately: under a minute cannot survive a slow card page and would strand
    * paying customers, and beyond an hour lets abandoned carts sterilise a sold-out show.
    */
+  /*
+    Discount codes on or off for the whole platform. 'false' refuses every code at checkout with
+    a plain reason, hides public offers and blocks creating codes (see
+    BookingsService.couponsDisabled). On by default so nothing changes where it is not set.
+  */
+  COUPONS_ENABLED: z.enum(['true', 'false']).default('true'),
   BOOKING_HOLD_MINUTES: z.coerce.number().int().min(1).max(60).default(10),
+
+  /*
+    ── HOW MUCH ONE BUYER MAY HOLD AT ONCE ────────────────────────────────────────────
+    A hold takes seats off sale before anybody has paid, so it is the cheapest thing on the
+    platform to abuse: a script that opens checkouts and never pays can empty a show for as
+    long as the holds last, and a "pay at the venue" reservation lasts until the show starts.
+    These caps bound that without getting in the way of a real customer. See
+    `bookings/booking-hold-limits.ts` for how each one is counted and why the defaults are
+    where they are.
+
+    Every cap is the number of ACTIVE holds: PENDING_PAYMENT with a deadline still in the
+    future. A hold that is paid, cancelled or expired stops counting at once, because it is
+    counted from the bookings themselves rather than from a counter that could drift.
+
+    0 switches a cap off. That is an operator's emergency lever (a venue that genuinely sells
+    from one address and is being refused), not a setting to ship with.
+
+    Counter sales by the organizer's own staff are never limited by any of these.
+  */
+  /** Tickets in one online order, across every line. Per-ticket-type limits still apply. */
+  BOOKING_MAX_SEATS_PER_ORDER: z.coerce.number().int().min(0).max(500).default(20),
+  /** Unpaid online checkouts open at once for one signed-in account. */
+  BOOKING_MAX_ACTIVE_HOLDS_PER_USER: z.coerce.number().int().min(0).max(100).default(3),
+  /** Unpaid online checkouts open at once for one guest email address. */
+  BOOKING_MAX_ACTIVE_HOLDS_PER_EMAIL: z.coerce.number().int().min(0).max(100).default(3),
+  /**
+   * Unpaid holds (online and pay-at-venue) open at once from one client IP address. Generous
+   * on purpose: a cinema lobby, a campus or a mobile carrier puts many real buyers behind one
+   * address, and this is the backstop against a script that changes its email every request,
+   * not the everyday limit.
+   */
+  BOOKING_MAX_ACTIVE_HOLDS_PER_IP: z.coerce.number().int().min(0).max(10_000).default(20),
+  /** Pay-at-venue reservations one buyer (account or guest email) may hold for one show. */
+  BOOKING_MAX_CASH_RESERVATIONS_PER_SHOW: z.coerce.number().int().min(0).max(100).default(1),
+  /** Pay-at-venue reservations one buyer may hold across every show at once. */
+  BOOKING_MAX_CASH_RESERVATIONS_TOTAL: z.coerce.number().int().min(0).max(100).default(2),
+  /** Tickets in one pay-at-venue reservation. Paying online has the ordinary order limit. */
+  BOOKING_MAX_SEATS_PER_CASH_RESERVATION: z.coerce.number().int().min(0).max(500).default(6),
   /*
     ── HOW LONG ORGANIZER MONEY IS HELD AFTER A SHOW ──────────────────────────────────
     Days after an event's LAST session ends before its revenue may be settled to the
@@ -490,6 +543,15 @@ const envSchema = z.object({
    * exactly as before, so deploying this code can never lock the only administrator out. Set,
    * every administrator must enroll at their next sign-in. Once any authenticator exists the key
    * is mandatory (outside LOCAL and DEV the API refuses to boot without it; see MfaBootCheck).
+   *
+   * In STAGING and PRODUCTION it is mandatory from the start (assertAdminMfaArmed): "dormant"
+   * is a safe way to roll the feature out to QA, and an unacceptable way to run the back office
+   * of a platform that holds real customers' money. The one exception is MFA_ENROLLMENT=deferred,
+   * where a missing key BLOCKS the sensitive actions instead of skipping their check (below).
+   *
+   * Unset with MFA_ENROLLMENT=required, LOCAL and DEV keep the old dormant behaviour (no check
+   * at all, step-up included) so a laptop and the test suite need no key; everywhere else the
+   * step-up routes are refused (MFA_NOT_CONFIGURED). See MfaService.sessionState.
    */
   MFA_ENCRYPTION_KEY: z
     .string()
@@ -501,10 +563,56 @@ const envSchema = z.object({
       },
       { message: 'must be 32 bytes, base64 encoded (openssl rand -base64 32)' },
     ),
+  /**
+   * Whether back-office staff MUST enroll an authenticator before they can use the console.
+   *
+   *   required (default) - every ADMIN/SUPER_ADMIN must set up and pass the second factor to use
+   *                        any back-office route. This is the behaviour before the setting existed.
+   *   deferred           - the owner's launch decision: staff sign in with a password and use the
+   *                        ordinary back office without enrolling. The sensitive actions (every
+   *                        route marked @RequiresRecentMfa: refunds, payouts, payment, fee and tax
+   *                        configuration, staff and account changes) are NOT relaxed: they still
+   *                        need an enrolled factor checked within MFA_STEPUP_MINUTES, refuse
+   *                        MFA_SETUP_REQUIRED until the person enrolls, and refuse
+   *                        MFA_NOT_CONFIGURED when there is no MFA_ENCRYPTION_KEY at all. An account
+   *                        that HAS enrolled is held to the full `required` rules.
+   *
+   * Reversible by configuration alone: set it back to `required` (with the key) and every staff
+   * account that has not enrolled is walked into enrollment at its next request, exactly as when
+   * MFA was first armed. See docs/security/ADMIN-MFA.md.
+   */
+  MFA_ENROLLMENT: z.enum(['required', 'deferred']).default('required'),
   /** Name shown in the authenticator app. APP_ENV is appended outside PRODUCTION. */
   MFA_ISSUER: z.string().trim().min(1).max(40).default('ETicketsGo'),
   /** How recent a second-factor check must be for the most sensitive back-office actions. */
   MFA_STEPUP_MINUTES: z.coerce.number().int().min(1).max(60).default(10),
+  /**
+   * Per-ACCOUNT password sign-in backoff (src/auth/login-backoff.ts). After THRESHOLD wrong
+   * passwords for one address inside WINDOW, that address waits BASE seconds before the next
+   * try, doubling per further failure up to MAX. Never a permanent lock. The per-client throttle
+   * (AUTH_THROTTLE) is separate and unchanged.
+   */
+  LOGIN_BACKOFF_THRESHOLD: z.coerce.number().int().min(1).max(100).default(5),
+  LOGIN_BACKOFF_WINDOW_MINUTES: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(24 * 60)
+    .default(15),
+  LOGIN_BACKOFF_BASE_SECONDS: z.coerce.number().int().min(1).max(3600).default(30),
+  LOGIN_BACKOFF_MAX_MINUTES: z.coerce.number().int().min(1).max(60).default(15),
+  /*
+    One ops alert (LOGIN_BACKOFF_BURST) when this many DIFFERENT addresses start a sign-in wait
+    inside one fixed window: password guessing across many accounts. 0 turns the alert off;
+    the backoff itself is unchanged either way.
+  */
+  LOGIN_BACKOFF_BURST_THRESHOLD: z.coerce.number().int().min(0).max(100_000).default(25),
+  LOGIN_BACKOFF_BURST_WINDOW_MINUTES: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(24 * 60)
+    .default(15),
   /**
    * Break-glass for a sole administrator who lost both device and recovery codes. The operator
    * sets BOTH, redeploys, and at boot that one account's authenticator is removed (so the next
@@ -682,6 +790,41 @@ const envSchema = z.object({
 
   OTP_SMS_TEMPLATE: z.string().optional(),
 
+  /*
+    -- Sign-in code text limits (SMS pumping and OTP flooding) -------------------------
+    The request-code endpoint is public and every request is a text message we pay for. See
+    src/auth/otp-sms-guard.ts for how these are enforced (one atomic Redis script, with an
+    atomic Postgres fallback) and src/auth/otp-destination.ts for which numbers may be texted.
+
+    Per number: a resend cooldown, then an hourly and a daily cap. The defaults leave room for
+    somebody whose first text was slow (five in an hour, a minute apart) and refuse a script.
+  */
+  OTP_SMS_RESEND_COOLDOWN_SECONDS: z.coerce.number().int().min(0).max(3600).default(60),
+  OTP_SMS_MAX_PER_NUMBER_PER_HOUR: z.coerce.number().int().min(1).max(100).default(5),
+  OTP_SMS_MAX_PER_NUMBER_PER_DAY: z.coerce.number().int().min(1).max(500).default(10),
+  /*
+    The platform's daily budget of sign-in texts, per UTC day: a circuit breaker. When it is
+    spent, phone sign-in answers SMS_UNAVAILABLE (sign in with email) until the next day and
+    ONE ops alert is raised; another is raised once a day at OTP_SMS_BUDGET_WARN_PERCENT.
+    Set well above honest traffic: reaching it means somebody is spending our money. 0 turns
+    the total budget off (never do that in production).
+  */
+  OTP_SMS_DAILY_LIMIT_TOTAL: z.coerce.number().int().min(0).default(2000),
+  /*
+    Per-market daily budgets, `IN=1500,US=500,CA=250` (the default). A market with no entry is
+    limited only by the total. US and Canadian texts cost far more than Indian ones, which is
+    why their defaults are lower. Set to an empty value to have no per-market budgets at all.
+  */
+  OTP_SMS_DAILY_LIMIT_BY_MARKET: z
+    .string()
+    .trim()
+    .regex(
+      /^$|^[A-Za-z]{2}=\d+(\s*,\s*[A-Za-z]{2}=\d+)*$/,
+      'must look like IN=1500,US=500,CA=250 (two-letter market = whole number)',
+    )
+    .optional(),
+  OTP_SMS_BUDGET_WARN_PERCENT: z.coerce.number().int().min(0).max(100).default(80),
+
   // --- SMS (recipient = payload.phone) ---
   /*
     Where rate-limit counters live. Deliberately NO schema default: unset means "this
@@ -700,6 +843,28 @@ const envSchema = z.object({
     See src/common/client-ip.ts for why `req.ip` alone counted Railway's edge nodes, not people.
   */
   THROTTLE_CLIENT_IP_HEADER: z.string().trim().max(64).optional(),
+
+  /*
+    The human check (Cloudflare Turnstile) on abuse-prone public routes. OFF unless set: the
+    guard is then a pass-through. `adaptive` asks for a token only after a network has made a
+    few attempts in a window; `always` asks every time. A switched-on mode with no keys refuses
+    to boot. Full rules: src/human-check/human-check.settings.ts. Parsed loosely there too, so
+    these entries are kept as plain strings and numbers.
+  */
+  TURNSTILE_MODE: z.enum(['off', 'adaptive', 'always']).default('off'),
+  // Public: drawn into the page. Also served by GET /capabilities so it is per environment.
+  TURNSTILE_SITE_KEY: z.string().trim().optional(),
+  TURNSTILE_SECRET_KEY: z.string().trim().optional(),
+  // Comma list of the hostnames a token may have been solved on. Required when deployed.
+  TURNSTILE_ALLOWED_HOSTNAMES: z.string().optional(),
+  // Unset: each route's own choice (OTP and register fail closed, the rest open). Set: all.
+  TURNSTILE_FAIL_OPEN: z.enum(['true', 'false']).optional(),
+  TURNSTILE_VERIFY_TIMEOUT_MS: z.coerce.number().int().min(500).max(10000).default(3000),
+  TURNSTILE_MAX_TOKEN_AGE_SECONDS: z.coerce.number().int().min(30).max(300).default(300),
+  TURNSTILE_ADAPTIVE_WINDOW_SECONDS: z.coerce.number().int().min(60).max(86400).default(600),
+  // Attempts per window before a token is asked for: code/sign-up/email sends, then sign-in/checkout.
+  TURNSTILE_ADAPTIVE_STRICT_LIMIT: z.coerce.number().int().min(0).max(1000).default(3),
+  TURNSTILE_ADAPTIVE_LENIENT_LIMIT: z.coerce.number().int().min(0).max(1000).default(5),
 
   /*
     How "use my current location" turns coordinates into a city. `offline` uses the bundled
@@ -1048,6 +1213,45 @@ function assertProductionHardening(cfg: AppConfig): void {
 }
 
 /**
+ * STAGING and PRODUCTION must not run the back office on a password alone.
+ *
+ * ── THE FAILURE THIS CLOSES ────────────────────────────────────────────────────────
+ * `MFA_ENCRYPTION_KEY` is both the key for authenticator secrets and the switch that arms admin
+ * MFA. Unset, MfaService only WARNS and every administrator signs in with a password - which is
+ * right while the feature is being rolled out, and was the state any production could silently
+ * be left in by a forgotten variable. Nothing looked wrong: the API was healthy and the log line
+ * that said "MFA is NOT enforced" scrolled past at boot.
+ *
+ * ── WHY APP_ENV AND NOT NODE_ENV ───────────────────────────────────────────────────
+ * QA and UAT run NODE_ENV=production, and the deliverability guard below explains why keying a
+ * "real customers" rule on NODE_ENV is the wrong condition. Lower environments keep the dormant
+ * mode, which is how a new environment is brought up before its key is chosen.
+ *
+ * MfaService's own boot check (refuse when authenticators exist but the key does not) still
+ * applies everywhere outside LOCAL/DEV; this is the stricter rule for the two real tiers.
+ */
+function assertAdminMfaArmed(cfg: AppConfig): void {
+  if (!['STAGING', 'PRODUCTION'].includes(cfg.APP_ENV)) return;
+  if ((cfg.MFA_ENCRYPTION_KEY ?? '').trim()) return;
+  /*
+    MFA_ENROLLMENT=deferred is the one exception, and it is safe to boot without the key for a
+    reason that does not depend on anybody reading a log: with no key, MfaGuard refuses every
+    @RequiresRecentMfa route (MFA_NOT_CONFIGURED) and MfaService cannot store a secret at all.
+    So the back office runs on a password for the ordinary work, which is what the owner chose,
+    and the money and configuration actions are blocked rather than open. MfaService logs that
+    at boot. Still refused: authenticators that exist without the key (MfaService.onModuleInit).
+  */
+  if (cfg.MFA_ENROLLMENT === 'deferred') return;
+  throw new Error(
+    `Admin sign-in is not protected in this environment:\n` +
+      `  - MFA_ENCRYPTION_KEY is not set, so administrators could sign in with a password only. ` +
+      `APP_ENV=${cfg.APP_ENV} requires it. Generate one with: openssl rand -base64 32 ` +
+      `(keep it in the secret store: losing it voids every enrolled authenticator). ` +
+      `Or set MFA_ENROLLMENT=deferred to boot with sensitive admin actions blocked until it is set.`,
+  );
+}
+
+/**
  * A production that cannot deliver a ticket must not start.
  *
  * ── THE FAILURE THIS EXISTS TO PREVENT ─────────────────────────────────────────────
@@ -1113,6 +1317,20 @@ function assertDeliverabilityHardening(cfg: AppConfig): void {
       errors.push(
         '  - SMS_PROVIDER=log SENDS NO TEXT MESSAGES: phone sign-in codes would never arrive. ' +
           'Route SMS to a real provider, e.g. SMS_PROVIDER_BY_MARKET=IN=msg91,US=twilio,CA=twilio.',
+      );
+    } else {
+      /*
+        A real provider with no market table routes EVERY destination through that one
+        provider: routing only refuses an unknown or unsupported market once a table exists
+        (`routeNotificationProvider`). That is "text anywhere on Earth at whatever it costs",
+        which is what an SMS-pumping attack needs, and Indian operators drop non-DLT traffic
+        from a foreign provider anyway. The sign-in code path checks destinations itself
+        (auth/otp-destination.ts), but booking texts do not, so the table is required here.
+      */
+      errors.push(
+        `  - SMS_PROVIDER=${cfg.SMS_PROVIDER} with no SMS_PROVIDER_BY_MARKET would send text ` +
+          'messages to ANY country through one provider. Name the markets explicitly, e.g. ' +
+          'SMS_PROVIDER_BY_MARKET=IN=msg91,US=twilio,CA=twilio.',
       );
     }
   } else {
@@ -1887,6 +2105,7 @@ export function loadConfig(): AppConfig {
     throw new Error(`Invalid environment configuration:\n${issues}`);
   }
   assertProductionHardening(parsed.data);
+  assertAdminMfaArmed(parsed.data);
   assertDeliverabilityHardening(parsed.data);
   assertSesProductionReadiness(parsed.data);
   assertOfflineCheckinWindow(parsed.data);

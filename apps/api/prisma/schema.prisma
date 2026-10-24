@@ -546,6 +546,13 @@ model User {
   notificationCertifications NotificationCertification[]
   adminGrants                AdminGrant[]                @relation("AdminGrantHolder")
   adminGrantsIssued          AdminGrant[]                @relation("AdminGrantIssuer")
+  /// Organizer acquisition (CRM). Staff only; a customer account never has any of these.
+  crmTeamMemberships         CrmTeamMember[]             @relation("CrmTeamMemberUser")
+  crmLeadsAssigned           CrmLead[]                   @relation("CrmLeadAssignee")
+  crmLeadsCreated            CrmLead[]                   @relation("CrmLeadCreator")
+  crmActivities              CrmActivity[]               @relation("CrmActivityResponsible")
+  crmFollowUps               CrmFollowUp[]               @relation("CrmFollowUpOwner")
+  crmStageChanges            CrmLeadStageChange[]        @relation("CrmStageChangeActor")
 
   @@index([status])
 }
@@ -950,6 +957,9 @@ model Organization {
   /// collecting it, what a settlement can promise, and what a receipt can honestly say.
   /// Somebody has to choose that deliberately.
   cashPaymentsEnabled     Boolean                   @default(false)
+  /// The acquisition lead this organization was won from, if any. Set by the CRM linking an
+  /// EXISTING organization; nothing about the organization itself changes.
+  crmLead                 CrmLead?
 
   @@index([status])
 }
@@ -5273,4 +5283,240 @@ model ShowZone {
   @@unique([eventSessionId, zoneId])
   @@index([eventSessionId])
   @@index([zoneId])
+}
+
+// ─────────────────────────── Organizer acquisition (CRM) ───────────────────────────
+//
+// Prospects the platform would like to sell for, and the outreach to them. ADDITIVE ONLY:
+// nothing here writes to an organization, a booking, a payment or a customer. A lead is linked
+// to an Organization that already exists (the organizer signed up and was verified by the
+// ordinary flow); the link is the only column that points outside these tables, and the
+// activation metrics are DERIVED from the organization's own status and events, never typed.
+//
+// Access is the AdminPermission catalogue (CRM_AGENT / CRM_MANAGER) narrowed by team
+// membership below; see apps/api/src/crm/crm-scope.service.ts.
+
+enum CrmLeadStage {
+  IDENTIFIED
+  CONTACTED
+  RESPONDED_INTERESTED
+  DEMO_SCHEDULED
+  DEMO_COMPLETED
+  NEGOTIATION
+  ONBOARDING
+  ACTIVATED
+  LOST
+}
+
+enum CrmLeadPriority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+/// Outreach a person LOGGED. The platform never sends any of these.
+enum CrmActivityType {
+  EMAIL
+  CALL
+  LINKEDIN
+  MEETING
+  VISIT
+}
+
+enum CrmActivityOutcome {
+  NO_RESPONSE
+  LEFT_MESSAGE
+  CONNECTED
+  INTERESTED
+  NOT_INTERESTED
+  DEMO_BOOKED
+  FOLLOW_UP_NEEDED
+  OTHER
+}
+
+enum CrmFollowUpStatus {
+  OPEN
+  DONE
+  CANCELLED
+}
+
+enum CrmTeamRole {
+  AGENT
+  MANAGER
+}
+
+/// An acquisition team, scoped to one country. India and USA exist from the migration; a new
+/// team (another market, or a second team in one) is a row, not a code change.
+model CrmTeam {
+  id        String   @id @default(cuid())
+  /// Short stable handle, e.g. "IN", "US".
+  key       String   @unique
+  name      String
+  /// ISO-3166 alpha-2. Every lead in the team is in this country.
+  country   String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members CrmTeamMember[]
+  leads   CrmLead[]
+
+  @@index([country])
+}
+
+/// Who works in a team, and as what. Scope, not power: the power is the AdminGrant
+/// (CRM_AGENT / CRM_MANAGER); a MANAGER row without CRM_MANAGER manages nothing.
+model CrmTeamMember {
+  id            String      @id @default(cuid())
+  teamId        String
+  team          CrmTeam     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User        @relation("CrmTeamMemberUser", fields: [userId], references: [id], onDelete: Cascade)
+  role          CrmTeamRole @default(AGENT)
+  /// Who added them. An id only: the audit row carries the history.
+  addedByUserId String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@unique([teamId, userId])
+  @@index([userId])
+}
+
+model CrmLead {
+  id     String  @id @default(cuid())
+  teamId String
+  team   CrmTeam @relation(fields: [teamId], references: [id], onDelete: Restrict)
+  /// ISO-3166 alpha-2, always the team's country.
+  country String
+
+  organizationName String
+  category         String?
+  website          String?
+  city             String?
+  state            String?
+  timezone         String?
+
+  contactName  String?
+  contactTitle String?
+  email        String?
+  phone        String?
+  /// Profile links (LinkedIn, Instagram...). Short list, read and written whole.
+  socialLinks  String[] @default([])
+
+  /// One of CRM_LEAD_SOURCES in shared-types. Text so a new source needs no migration.
+  source   String
+  priority CrmLeadPriority @default(MEDIUM)
+  notes    String?
+  tags     String[]        @default([])
+
+  /// Normalized keys for duplicate detection. Derived on every write, never shown.
+  nameKey   String?
+  domainKey String?
+  emailKey  String?
+  phoneKey  String?
+
+  /// The stage a PERSON set. Activation as the platform sees it is derived, never this.
+  stage          CrmLeadStage @default(IDENTIFIED)
+  stageChangedAt DateTime     @default(now())
+  lostReason     String?
+
+  assignedToUserId String?
+  assignedTo       User?   @relation("CrmLeadAssignee", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  createdByUserId  String?
+  createdBy        User?   @relation("CrmLeadCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  /// The EXISTING organization this prospect became. One organization, at most one lead.
+  organizationId String?       @unique
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  linkedAt       DateTime?
+  linkedByUserId String?
+
+  /// Earliest OPEN follow-up, kept in step in the same transaction as every follow-up write.
+  nextFollowUpAt DateTime?
+  lastActivityAt DateTime?
+
+  archivedAt DateTime?
+  /// Optimistic concurrency: every edit names the version it read; a stale one is refused.
+  version    Int       @default(1)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  stageChanges CrmLeadStageChange[]
+  activities   CrmActivity[]
+  followUps    CrmFollowUp[]
+
+  @@index([teamId, stage])
+  @@index([assignedToUserId, stage])
+  @@index([country, stage])
+  @@index([nameKey])
+  @@index([domainKey])
+  @@index([emailKey])
+  @@index([phoneKey])
+  @@index([nextFollowUpAt])
+  @@index([createdAt])
+  @@index([source])
+}
+
+/// Every stage a lead has been in, including the one it was created in (fromStage null).
+model CrmLeadStageChange {
+  id              String        @id @default(cuid())
+  leadId          String
+  lead            CrmLead       @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  fromStage       CrmLeadStage?
+  toStage         CrmLeadStage
+  changedByUserId String?
+  changedBy       User?         @relation("CrmStageChangeActor", fields: [changedByUserId], references: [id], onDelete: SetNull)
+  note            String?
+  createdAt       DateTime      @default(now())
+
+  @@index([leadId, createdAt])
+  @@index([toStage, createdAt])
+}
+
+/// Outreach somebody did and logged. Not a message the platform sent.
+model CrmActivity {
+  id                String              @id @default(cuid())
+  leadId            String
+  lead              CrmLead             @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  type              CrmActivityType
+  occurredAt        DateTime
+  outcome           CrmActivityOutcome?
+  notes             String?
+  responsibleUserId String
+  responsible       User                @relation("CrmActivityResponsible", fields: [responsibleUserId], references: [id], onDelete: Restrict)
+  createdByUserId   String?
+  createdAt         DateTime            @default(now())
+
+  @@index([leadId, occurredAt])
+  @@index([responsibleUserId, occurredAt])
+  @@index([occurredAt])
+}
+
+model CrmFollowUp {
+  id          String            @id @default(cuid())
+  leadId      String
+  lead        CrmLead           @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  ownerUserId String
+  owner       User              @relation("CrmFollowUpOwner", fields: [ownerUserId], references: [id], onDelete: Restrict)
+  dueAt       DateTime
+  title       String
+  notes       String?
+  status      CrmFollowUpStatus @default(OPEN)
+  /// "<leadId>:<ownerUserId>:<YYYY-MM-DD>" while OPEN, null otherwise. Unique, so two open
+  /// follow-ups for the same lead, owner and day cannot both exist, even under a race.
+  openKey     String?           @unique
+  /// The activity that scheduled it, when it was set while logging one.
+  activityId  String?
+
+  createdByUserId   String?
+  completedAt       DateTime?
+  completedByUserId String?
+  completionNote    String?
+  version           Int       @default(1)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([ownerUserId, status, dueAt])
+  @@index([leadId, status])
+  @@index([status, dueAt])
 }

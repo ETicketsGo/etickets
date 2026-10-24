@@ -19,6 +19,8 @@ describe('loadConfig: SMS', () => {
     NODE_ENV: 'production',
     DATABASE_URL: 'postgres://u:p@db/x',
     JWT_ACCESS_SECRET: STRONG,
+    // STAGING/PRODUCTION refuse to boot without the admin MFA key (assertAdminMfaArmed).
+    MFA_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64'),
     JWT_REFRESH_SECRET: STRONG,
     QR_SIGNING_SECRET: STRONG,
     PAYMENT_WEBHOOK_SECRET: STRONG,
@@ -60,6 +62,37 @@ describe('loadConfig: SMS', () => {
       expect(() => loadConfig()).toThrow(/SENDS NO TEXT MESSAGES/);
     });
 
+    /*
+      A real provider with NO market table texts any country through one provider - the
+      routing layer only refuses an unknown market once a table exists - which is exactly the
+      opening an SMS-pumping attack needs.
+    */
+    it.each(['twilio', 'msg91'])(
+      'refuses production with SMS_PROVIDER=%s and no SMS_PROVIDER_BY_MARKET',
+      (provider) => {
+        process.env = env({ SMS_PROVIDER_BY_MARKET: undefined, SMS_PROVIDER: provider });
+        expect(() => loadConfig()).toThrow(/would send text messages to ANY country/);
+      },
+    );
+
+    it('still boots a production that declared text messages off, with no market table', () => {
+      process.env = env({
+        SMS_PROVIDER_BY_MARKET: undefined,
+        SMS_PROVIDER: 'twilio',
+        SMS_ENABLED: 'false',
+      });
+      expect(() => loadConfig()).not.toThrow();
+    });
+
+    it('leaves QA alone with a single provider and no market table', () => {
+      process.env = env({
+        APP_ENV: 'QA',
+        SMS_PROVIDER_BY_MARKET: undefined,
+        SMS_PROVIDER: 'twilio',
+      });
+      expect(() => loadConfig()).not.toThrow();
+    });
+
     it('boots production with every enabled market on a real provider', () => {
       process.env = env();
       expect(() => loadConfig()).not.toThrow();
@@ -88,6 +121,37 @@ describe('loadConfig: SMS', () => {
         NOTIFICATION_MARKETS: 'IN,US,CA',
       });
       expect(() => loadConfig()).not.toThrow();
+    });
+  });
+
+  describe('sign-in code text limits', () => {
+    it('defaults every limit when nothing is set', () => {
+      process.env = env();
+      const cfg = loadConfig();
+      expect(cfg.OTP_SMS_RESEND_COOLDOWN_SECONDS).toBe(60);
+      expect(cfg.OTP_SMS_MAX_PER_NUMBER_PER_HOUR).toBe(5);
+      expect(cfg.OTP_SMS_MAX_PER_NUMBER_PER_DAY).toBe(10);
+      expect(cfg.OTP_SMS_DAILY_LIMIT_TOTAL).toBe(2000);
+      expect(cfg.OTP_SMS_BUDGET_WARN_PERCENT).toBe(80);
+      expect(cfg.OTP_SMS_DAILY_LIMIT_BY_MARKET).toBeUndefined();
+    });
+
+    it('accepts a per-market budget table', () => {
+      process.env = env({ OTP_SMS_DAILY_LIMIT_BY_MARKET: 'IN=100, US=20,CA=5' });
+      expect(() => loadConfig()).not.toThrow();
+    });
+
+    it.each(['IN=lots', 'India=100', 'IN:100', 'IN=100,'])(
+      'refuses a malformed per-market budget table (%s)',
+      (value) => {
+        process.env = env({ OTP_SMS_DAILY_LIMIT_BY_MARKET: value });
+        expect(() => loadConfig()).toThrow(/OTP_SMS_DAILY_LIMIT_BY_MARKET/);
+      },
+    );
+
+    it('refuses an hourly cap of zero, which would lock every phone user out', () => {
+      process.env = env({ OTP_SMS_MAX_PER_NUMBER_PER_HOUR: '0' });
+      expect(() => loadConfig()).toThrow(/OTP_SMS_MAX_PER_NUMBER_PER_HOUR/);
     });
   });
 
