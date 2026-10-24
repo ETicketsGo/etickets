@@ -118,6 +118,27 @@ describe('followPaymentAction with a Razorpay order', () => {
     expect(result).toEqual({ kind: 'failed', reason: null });
   });
 
+  it.each([
+    [
+      'JSON-wrapped',
+      { code: 2, description: JSON.stringify({ error: { description: 'undefined' } }) },
+    ],
+    ['nested', { code: 2, error: { description: 'undefined' } }],
+    [
+      'blank inside JSON',
+      { code: 2, description: JSON.stringify({ error: { description: ' ' } }) },
+    ],
+  ])(
+    'never shows a %s "undefined" as the reason (seen on a moto g31 after a decline)',
+    async (_n, err) => {
+      mockOpen.mockRejectedValue(err);
+
+      const result = await followPaymentAction(intent(), 'etickets://booking/bk_1', 'bk_1');
+
+      expect(result).toEqual({ kind: 'failed', reason: null });
+    },
+  );
+
   it('does not verify a success that carries no signature', async () => {
     mockOpen.mockResolvedValue({ razorpay_payment_id: 'pay_1' });
 
