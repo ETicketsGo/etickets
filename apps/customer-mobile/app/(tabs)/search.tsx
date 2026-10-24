@@ -88,7 +88,7 @@ export default function ExploreScreen() {
           horizontal
           // A ScrollView grows by default; in this column it would take half the height
           // from the results below.
-          style={{ flexGrow: 0 }}
+          style={{ flexGrow: 0, flexShrink: 0 }}
           showsHorizontalScrollIndicator={false}
           contentContainerClassName="gap-2 px-4 py-4"
           accessibilityLabel="Filter by category"

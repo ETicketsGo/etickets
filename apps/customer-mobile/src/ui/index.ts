@@ -23,4 +23,5 @@ export {
 export { Field, type FieldProps } from './input';
 export { Badge, Chip, StageTag, type BadgeTone } from './badge';
 export { Sheet } from './sheet';
+export { Toggle } from './toggle';
 export { haptics } from './haptics';

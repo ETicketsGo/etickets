@@ -64,6 +64,26 @@ export const locationKeys = {
   resolve: (region: string) => [...locationKeys.all, 'resolve', region] as const,
 };
 
+/**
+ * Every city with something on sale, most events first; `q` narrows by name. The sheet
+ * offers these as well as the nearby ones, because the nearby list is scoped to the country
+ * the server resolved: a customer in the United States could not otherwise choose Bengaluru.
+ */
+export function useSellableCities(q: string, enabled: boolean) {
+  const term = q.trim();
+  return useQuery({
+    queryKey: [...locationKeys.all, 'cities', term] as const,
+    queryFn: () =>
+      getParsed(
+        '/public/location/cities',
+        z.array(sellableCitySchema.extend({ countryCode: z.string().nullish() })),
+        term ? { q: term } : undefined,
+      ),
+    enabled,
+    staleTime: 10 * 60_000,
+  });
+}
+
 /** The server's guess, with the device's region as the fallback hint. */
 export function useResolvedLocation() {
   return useQuery({

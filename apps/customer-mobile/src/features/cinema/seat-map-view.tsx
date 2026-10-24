@@ -27,7 +27,9 @@ const MIN_SCALE = 1;
 const MAX_SCALE = 3;
 /** Below this on-screen size a seat is not a reliable tap target, so we zoom instead. */
 const MIN_SEAT_PX = 18;
-const SEAT_GAP = 4;
+const SEAT_GAP = 3;
+/** The row-letter column. One or two characters, so 28 is enough. */
+const ROW_GUTTER = 28;
 
 export function SeatMapView({
   map,
@@ -63,8 +65,10 @@ export function SeatMapView({
     return max;
   }, [map.sections]);
 
-  // 44 = row-label gutter, 32 = horizontal padding.
-  const available = windowWidth - 44 - 32;
+  // The page padding (2 x 16) plus the stage card's own (2 x 4) and its edge. With a 44px
+  // gutter and 4px gaps a 16-seat row did not fit a 411dp phone at the 18px minimum, and
+  // the last column was cut off at rest.
+  const available = windowWidth - ROW_GUTTER - 42;
   const seatSize = Math.max(MIN_SEAT_PX, Math.min(30, available / maxCol - SEAT_GAP));
   const rowWidth = maxCol * (seatSize + SEAT_GAP);
 
@@ -147,14 +151,14 @@ export function SeatMapView({
           {map.sections.map((section) => (
             <View key={section.name} className="gap-1.5">
               {map.sections.length > 1 ? (
-                <Text variant="eyebrow" tone="onStage3" className="pl-11">
+                <Text variant="eyebrow" tone="onStage3" style={{ paddingLeft: ROW_GUTTER }}>
                   {section.name}
                 </Text>
               ) : null}
 
               {section.rows.map((row) => (
                 <View key={`${section.name}-${row.label}`} className="flex-row items-center">
-                  <View style={{ width: 44 }}>
+                  <View style={{ width: ROW_GUTTER }}>
                     <Text variant="meta" tone="onStage3" className="text-center">
                       {row.label}
                     </Text>

@@ -217,7 +217,7 @@ export default function SeatSelectionScreen() {
             </View>
 
             {mode === 'map' ? (
-              <View className="gap-4 overflow-hidden rounded-card bg-stage px-2 pb-5 pt-2">
+              <View className="gap-4 overflow-hidden rounded-card bg-stage px-1 pb-5 pt-2">
                 <SeatMapView
                   map={map}
                   selectedSeatIds={selectedSeatIds}
