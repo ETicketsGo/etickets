@@ -100,9 +100,9 @@ with "Users interact" no and "Digital purchases" yes. The answers are the owner'
 ## Developer identity (organization account)
 
 Published from a DeepTrics organization account (see `docs/PLAY-RELEASE.md` section 4).
-Play shows the developer's legal name and address on the listing, so the entity chosen there
-must be one the privacy policy names: DeepTrics LLC, or DeepTrics Software Solutions Private
-Limited for India. Developer email: `support@eticketsgo.com` (public). Website:
+Developer (legal entity, subject to Google's verification): **DeepTrics Software Solutions
+Private Limited**, which the privacy policy names as the operator in India. Play shows its
+legal name and address on the listing. Developer email: `support@eticketsgo.com` (public). Website:
 `https://www.eticketsgo.com`.
 
 The 12-tester, 14-day closed test is a rule for personal accounts and does not apply. A short
