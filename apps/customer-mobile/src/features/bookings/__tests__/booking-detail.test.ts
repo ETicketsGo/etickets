@@ -35,7 +35,12 @@ const qaDetail = {
     id: 'cmv6mcnx60108118ooasz7964',
     title: 'Slow Coffee: A Home Brewing Masterclass',
     slug: 'slow-coffee-a-home-brewing-masterclass-144d29',
-    venue: { timezone: 'Asia/Kolkata', country: 'IN', name: 'The Roastery Room', city: 'Bengaluru' },
+    venue: {
+      timezone: 'Asia/Kolkata',
+      country: 'IN',
+      name: 'The Roastery Room',
+      city: 'Bengaluru',
+    },
   },
   eventSession: { id: 'cmv6mco1r010d118o2juqpwvc', startsAt: '2026-11-15T05:00:00.000Z' },
 };
@@ -69,9 +74,7 @@ describe('payment polling', () => {
   });
 
   it('stops after the window so an abandoned booking does not poll for ever', () => {
-    expect(paymentPollInterval('PENDING_PAYMENT', t0, t0 + PAYMENT_POLL_WINDOW_MS + 1)).toBe(
-      false,
-    );
+    expect(paymentPollInterval('PENDING_PAYMENT', t0, t0 + PAYMENT_POLL_WINDOW_MS + 1)).toBe(false);
   });
 });
 

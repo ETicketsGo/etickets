@@ -23,6 +23,8 @@ export const venueSchema = z.object({
   // Venue.country is nullable in the API. Required here, one venue with no country
   // failed the parse of the whole list.
   country: z.string().nullish(),
+  /** The venue's IANA zone; dates on the card are printed in it. */
+  timezone: z.string().nullish(),
 });
 
 /** A bookable event/experience as it appears in a list. */

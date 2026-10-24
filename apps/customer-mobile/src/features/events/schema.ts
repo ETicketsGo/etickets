@@ -49,6 +49,8 @@ export const eventDetailSchema = z.object({
    * always comes from the API's own quote.
    */
   feeMode: z.string(),
+  /** The venue's IANA zone. Session times are printed in it. */
+  timeZone: z.string().nullish(),
   venue: z.object({
     id: z.string(),
     name: z.string(),

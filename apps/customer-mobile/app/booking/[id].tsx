@@ -108,7 +108,7 @@ export default function BookingScreen() {
               {booking.event.title}
             </Text>
             <Text variant="subhead" tone="muted">
-              {formatDateTime(booking.eventSession.startsAt)}
+              {formatDateTime(booking.eventSession.startsAt, booking.timeZone ?? undefined)}
             </Text>
           </View>
 

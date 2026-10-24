@@ -109,6 +109,15 @@ describe('followPaymentAction with a Razorpay order', () => {
     expect(mockPost).not.toHaveBeenCalled();
   });
 
+  it('gives no reason when the buyer closes the sheet', async () => {
+    // Android sends description "undefined" on exit; it reached the alert as text.
+    mockOpen.mockRejectedValue({ code: 0, description: 'undefined' });
+
+    const result = await followPaymentAction(intent(), 'etickets://booking/bk_1', 'bk_1');
+
+    expect(result).toEqual({ kind: 'failed', reason: null });
+  });
+
   it('does not verify a success that carries no signature', async () => {
     mockOpen.mockResolvedValue({ razorpay_payment_id: 'pay_1' });
 

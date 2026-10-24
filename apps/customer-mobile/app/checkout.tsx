@@ -160,11 +160,7 @@ export default function CheckoutScreen() {
       }
 
       const intent = await startPayment.mutateAsync(created.id);
-      const outcome = await followPaymentAction(
-        intent,
-        paymentReturnUrl(created.id),
-        created.id,
-      );
+      const outcome = await followPaymentAction(intent, paymentReturnUrl(created.id), created.id);
 
       if (outcome.kind === 'unsupported') {
         Alert.alert('Payment unavailable', outcome.reason);
@@ -310,8 +306,8 @@ Your tickets are still held for a few minutes. You can try again.`
             // one). Its guest route needs a browser human check this app cannot run, so
             // offering guest checkout here led to a refusal after the buyer filled the form.
             <Text variant="footnote" tone="muted">
-              Sign in to book. Your tickets are kept in your account, so you can open them on
-              any device.
+              Sign in to book. Your tickets are kept in your account, so you can open them on any
+              device.
             </Text>
           ) : null}
         </View>

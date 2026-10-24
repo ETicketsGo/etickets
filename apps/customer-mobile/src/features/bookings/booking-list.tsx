@@ -8,7 +8,7 @@ import { useTheme } from '@/theme';
 import { useNow } from '@/hooks/use-now';
 import { formatDateTime, formatMoney } from '@/services/locale';
 import { useBookings } from './api';
-import { bookingTone, isLiveBooking, type Booking } from './schema';
+import { bookingStatusLabel, bookingTone, isLiveBooking, type Booking } from './schema';
 
 type Filter = 'upcoming' | 'past';
 
@@ -178,7 +178,7 @@ function BookingCard({ booking }: { booking: Booking }) {
   const tone = bookingTone(booking.status);
   const count = booking._count.tickets;
   const total = formatMoney(booking.totalMinor, booking.currency);
-  const when = formatDateTime(booking.eventSession.startsAt);
+  const when = formatDateTime(booking.eventSession.startsAt, booking.timeZone ?? undefined);
 
   return (
     <Pressable
@@ -205,7 +205,7 @@ function BookingCard({ booking }: { booking: Booking }) {
           <Text variant="headline" numberOfLines={1} className="flex-1">
             {booking.event.title}
           </Text>
-          <Badge label={booking.status} tone={tone} />
+          <Badge label={bookingStatusLabel(booking.status)} tone={tone} />
         </View>
         <Text variant="footnote" tone="muted">
           {when}

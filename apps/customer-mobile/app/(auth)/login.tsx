@@ -123,7 +123,8 @@ export default function Login() {
           className="items-center py-2"
         >
           <Text className="text-text-secondary">
-            New to ETicketsGo? <Text className="font-semibold text-text-primary">Create an account</Text>
+            New to ETicketsGo?{' '}
+            <Text className="font-semibold text-text-primary">Create an account</Text>
           </Text>
         </Pressable>
       </KeyboardAvoidingView>

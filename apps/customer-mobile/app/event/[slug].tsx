@@ -148,7 +148,7 @@ export default function EventDetailScreen() {
                   {event.sessions.map((s) => (
                     <Chip
                       key={s.id}
-                      label={formatDateTime(s.startsAt)}
+                      label={formatDateTime(s.startsAt, event.timeZone ?? undefined)}
                       selected={session?.id === s.id}
                       onPress={() => {
                         setSessionId(s.id);
@@ -164,7 +164,7 @@ export default function EventDetailScreen() {
             ) : session ? (
               <View className="px-5 pb-5">
                 <Text variant="subhead" tone="secondary">
-                  {formatDateTime(session.startsAt)}
+                  {formatDateTime(session.startsAt, event.timeZone ?? undefined)}
                 </Text>
               </View>
             ) : null}

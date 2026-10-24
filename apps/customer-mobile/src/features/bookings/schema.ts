@@ -33,6 +33,8 @@ export const bookingSchema = z.object({
   confirmedAt: z.string().nullable(),
   cancelledAt: z.string().nullable(),
   createdAt: z.string(),
+  /** The venue's IANA zone. The session time is printed in it. */
+  timeZone: z.string().nullish(),
   event: z.object({ title: z.string(), slug: z.string() }),
   eventSession: z.object({ startsAt: z.string() }),
   _count: z.object({ tickets: z.number() }),
@@ -43,19 +45,15 @@ export const bookingSchema = z.object({
  * the payment's own status and the issued tickets. Read directly rather than found in
  * page 1 of the list, which made any booking past the 50th "not found".
  */
-export const bookingDetailSchema = bookingSchema
-  .omit({ _count: true })
-  .extend({
-    event: z.object({
-      title: z.string(),
-      slug: z.string(),
-      venue: z
-        .object({ name: z.string().nullish(), city: z.string().nullish() })
-        .nullish(),
-    }),
-    payment: z.object({ status: z.string(), provider: z.string().nullish() }).nullish(),
-    tickets: z.array(z.object({ id: z.string() })).default([]),
-  });
+export const bookingDetailSchema = bookingSchema.omit({ _count: true }).extend({
+  event: z.object({
+    title: z.string(),
+    slug: z.string(),
+    venue: z.object({ name: z.string().nullish(), city: z.string().nullish() }).nullish(),
+  }),
+  payment: z.object({ status: z.string(), provider: z.string().nullish() }).nullish(),
+  tickets: z.array(z.object({ id: z.string() })).default([]),
+});
 
 export const bookingPageSchema = z.object({
   data: z.array(bookingSchema),

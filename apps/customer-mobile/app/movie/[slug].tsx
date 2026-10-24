@@ -15,6 +15,7 @@ import {
   groupShowsByCinema,
   isShowBookable,
   localDateKey,
+  showDateKey,
   type PublicShow,
 } from '@/features/cinema/movie-schema';
 
@@ -43,7 +44,7 @@ export default function MovieScreen() {
     selectedDate && dates.includes(selectedDate) ? selectedDate : (dates[0] ?? null);
 
   const groups = useMemo(
-    () => groupShowsByCinema(shows.filter((s) => localDateKey(s.startsAt) === activeDate)),
+    () => groupShowsByCinema(shows.filter((s) => showDateKey(s) === activeDate)),
     [shows, activeDate],
   );
 
@@ -234,7 +235,7 @@ function ShowtimeButton({ show, onPress }: { show: PublicShow; onPress: () => vo
       accessibilityRole="button"
       accessibilityState={{ disabled: !bookable }}
       accessibilityLabel={[
-        formatTime(show.startsAt),
+        formatTime(show.startsAt, show.cinema?.timezone),
         show.screen?.name,
         show.format,
         show.fromPriceMinor != null
@@ -257,7 +258,7 @@ function ShowtimeButton({ show, onPress }: { show: PublicShow; onPress: () => vo
       ].join(' ')}
     >
       <Text variant="callout" className="font-semibold">
-        {formatTime(show.startsAt)}
+        {formatTime(show.startsAt, show.cinema?.timezone)}
       </Text>
       <Text variant="caption" tone="muted">
         {[show.format, show.screen?.name].filter(Boolean).join(' · ') || 'Screening'}
@@ -288,8 +289,18 @@ function formatRuntime(minutes: number): string {
   return rest === 0 ? `${hours}h` : `${hours}h ${rest}m`;
 }
 
-function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+/** The show time at the cinema. A ticket says 10:30 at the door, whatever zone the phone is in. */
+function formatTime(iso: string, timeZone?: string | null): string {
+  const options: Intl.DateTimeFormatOptions = { hour: 'numeric', minute: '2-digit' };
+  try {
+    return new Date(iso).toLocaleTimeString(undefined, {
+      ...options,
+      timeZone: timeZone ?? undefined,
+    });
+  } catch {
+    // An unknown zone name throws a RangeError; the device's own zone is better than nothing.
+    return new Date(iso).toLocaleTimeString(undefined, options);
+  }
 }
 
 /** "2026-08-07" → "Fri 7 Aug", or "Today" / "Tomorrow" where that is clearer. */

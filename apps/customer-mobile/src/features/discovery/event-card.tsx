@@ -20,7 +20,9 @@ export function EventCard({ event, width = 260 }: { event: EventSummary; width?:
   const { colors } = useTheme();
   const price =
     event.fromPriceMinor != null ? formatMoney(event.fromPriceMinor, event.currency) : null;
-  const when = event.nextSessionAt ? formatDateTime(event.nextSessionAt) : 'Dates to be announced';
+  const when = event.nextSessionAt
+    ? formatDateTime(event.nextSessionAt, event.venue.timezone ?? undefined)
+    : 'Dates to be announced';
 
   return (
     <Pressable
@@ -86,7 +88,9 @@ export function EventRow({ event }: { event: EventSummary }) {
   const { colors } = useTheme();
   const price =
     event.fromPriceMinor != null ? formatMoney(event.fromPriceMinor, event.currency) : null;
-  const when = event.nextSessionAt ? formatDateTime(event.nextSessionAt) : 'Dates to be announced';
+  const when = event.nextSessionAt
+    ? formatDateTime(event.nextSessionAt, event.venue.timezone ?? undefined)
+    : 'Dates to be announced';
 
   return (
     <Pressable

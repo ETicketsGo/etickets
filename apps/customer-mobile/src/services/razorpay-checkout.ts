@@ -22,8 +22,7 @@ export interface RazorpaySuccess {
 }
 
 export type RazorpayResult =
-  | { kind: 'paid'; response: RazorpaySuccess }
-  | { kind: 'not-paid'; reason: string | null };
+  { kind: 'paid'; response: RazorpaySuccess } | { kind: 'not-paid'; reason: string | null };
 
 type Opener = (options: Record<string, unknown>) => Promise<unknown>;
 
@@ -99,6 +98,9 @@ function errorDescription(err: unknown): string | null {
   const e = err as { description?: unknown; error?: { description?: unknown } };
   const text = typeof e.description === 'string' ? e.description : e.error?.description;
   if (typeof text !== 'string' || text.trim().length === 0) return null;
+  // Closing the sheet sends the literal string "undefined" on Android, which the buyer
+  // saw as the reason: "undefined  Your tickets are still held". Seen on a moto g31.
+  if (/^(undefined|null)$/i.test(text.trim())) return null;
   // The Android SDK sometimes sends its whole error object as a JSON string.
   try {
     const parsed = JSON.parse(text) as { error?: { description?: unknown } };
