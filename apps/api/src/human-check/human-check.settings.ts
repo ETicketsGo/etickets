@@ -1,4 +1,4 @@
-import { normaliseDigest } from './play-integrity-verifier';
+import { normaliseDigest } from './play-integrity-digest';
 
 /**
  * Settings for the human check (Cloudflare Turnstile), read once at boot.
