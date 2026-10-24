@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { AxiosError } from 'axios';
@@ -41,7 +41,24 @@ export function PhoneSignIn({
   });
 
   const [chosenCountry, setChosenCountry] = useState<string | null>(null);
-  const country = chosenCountry ?? phoneCountryGuess(located.data?.country, deviceLocale.region);
+  const guess = phoneCountryGuess(located.data?.country, deviceLocale.region);
+  const country = chosenCountry ?? guess;
+  /*
+    The guessed country leads the row. Alphabetical put the United States last, off the right
+    edge of a phone, so the field said +1 while no chip showed which +1 country was chosen
+    (seen on an Android 14 emulator). Ordered by the guess, not the choice, so a tap never
+    makes the row jump.
+  */
+  const ordered = useMemo(
+    () =>
+      guess
+        ? [
+            ...PHONE_COUNTRIES.filter((c) => c.code === guess),
+            ...PHONE_COUNTRIES.filter((c) => c.code !== guess),
+          ]
+        : PHONE_COUNTRIES,
+    [guess],
+  );
   const [national, setNational] = useState('');
   const [sentTo, setSentTo] = useState<string | null>(null);
   const [code, setCode] = useState('');
@@ -148,7 +165,7 @@ export function PhoneSignIn({
           contentContainerClassName="gap-2"
           keyboardShouldPersistTaps="handled"
         >
-          {PHONE_COUNTRIES.map((c) => (
+          {ordered.map((c) => (
             <Chip
               key={c.code}
               label={`+${c.callingCode} ${c.name}`}
