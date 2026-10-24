@@ -4,7 +4,6 @@
 > current Play status and steps are in [PLAY-RELEASE.md](PLAY-RELEASE.md) and
 > [../store-listing/README.md](../store-listing/README.md). Kept below for history.
 
-
 **Verdict: not submittable.** Several items below are hard review rejections, not polish.
 
 ## Hard blockers

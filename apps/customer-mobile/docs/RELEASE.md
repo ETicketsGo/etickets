@@ -4,7 +4,6 @@
 > on Windows); see [PLAY-RELEASE.md](PLAY-RELEASE.md) for the current runbook. Kept below for
 > history.
 
-
 ## Status
 
 **No build has been produced.** There is no EAS authentication, no Android SDK, no Java
