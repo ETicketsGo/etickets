@@ -1,0 +1,129 @@
+{
+  "nowShowing": [
+    {
+      "id": "mov-monsoon",
+      "title": "The Long Monsoon",
+      "slug": "the-long-monsoon",
+      "posterUrl": null,
+      "certificate": "UA13+",
+      "language": "Kannada",
+      "genres": ["Drama"],
+      "runtimeMinutes": 142
+    },
+    {
+      "id": "mov-saltpan",
+      "title": "Saltpan",
+      "slug": "saltpan",
+      "posterUrl": null,
+      "certificate": "U",
+      "language": "Marathi",
+      "genres": ["Drama", "Family"],
+      "runtimeMinutes": 118
+    },
+    {
+      "id": "mov-winter",
+      "title": "Winter Signal",
+      "slug": "winter-signal",
+      "posterUrl": null,
+      "certificate": "UA16+",
+      "language": "Hindi",
+      "genres": ["Thriller"],
+      "runtimeMinutes": 131
+    }
+  ],
+  "trendingEvents": [
+    {
+      "id": "evt-jazz",
+      "title": "Monsoon Jazz Nights",
+      "slug": "monsoon-jazz-nights-hyderabad",
+      "category": "live-music",
+      "venue": {
+        "name": "Riverside Amphitheatre",
+        "city": "Hyderabad",
+        "country": "India",
+        "timezone": "Asia/Kolkata"
+      },
+      "organizer": "Riverside Live",
+      "nextSessionAt": "2026-11-07T14:00:00.000Z",
+      "fromPriceMinor": 79900,
+      "currency": "INR",
+      "imagePath": null,
+      "imageVariants": null
+    },
+    {
+      "id": "evt-comedy",
+      "title": "Laugh Riot: Stand-up Night",
+      "slug": "laugh-riot-standup-vijayawada",
+      "category": "comedy",
+      "venue": {
+        "name": "Kalakshetram Hall",
+        "city": "Vijayawada",
+        "country": "India",
+        "timezone": "Asia/Kolkata"
+      },
+      "organizer": "Open Mic Collective",
+      "nextSessionAt": "2026-11-08T13:30:00.000Z",
+      "fromPriceMinor": 49900,
+      "currency": "INR",
+      "imagePath": null,
+      "imageVariants": null
+    },
+    {
+      "id": "evt-carnatic",
+      "title": "Carnatic Evening with the Sruti Ensemble",
+      "slug": "carnatic-evening-bengaluru",
+      "category": "live-music",
+      "venue": {
+        "name": "Ranga Auditorium",
+        "city": "Bengaluru",
+        "country": "India",
+        "timezone": "Asia/Kolkata"
+      },
+      "organizer": "Sruti Foundation",
+      "nextSessionAt": "2026-11-21T12:30:00.000Z",
+      "fromPriceMinor": 35000,
+      "currency": "INR",
+      "imagePath": null,
+      "imageVariants": null
+    }
+  ],
+  "thisWeekend": [
+    {
+      "id": "evt-food",
+      "title": "Deccan Street Food Festival",
+      "slug": "deccan-street-food-festival-hyderabad",
+      "category": "food",
+      "venue": {
+        "name": "Lakeside Grounds",
+        "city": "Hyderabad",
+        "country": "India",
+        "timezone": "Asia/Kolkata"
+      },
+      "organizer": "Taste of Deccan",
+      "nextSessionAt": "2026-10-31T10:30:00.000Z",
+      "fromPriceMinor": 0,
+      "currency": "INR",
+      "imagePath": null,
+      "imageVariants": null
+    },
+    {
+      "id": "evt-pottery",
+      "title": "Wheel & Clay Pottery Workshop",
+      "slug": "wheel-and-clay-pottery-vijayawada",
+      "category": "workshop",
+      "venue": {
+        "name": "Studio Mitti",
+        "city": "Vijayawada",
+        "country": "India",
+        "timezone": "Asia/Kolkata"
+      },
+      "organizer": "Studio Mitti",
+      "nextSessionAt": "2026-11-01T05:30:00.000Z",
+      "fromPriceMinor": 180000,
+      "currency": "INR",
+      "imagePath": null,
+      "imageVariants": null
+    }
+  ],
+  "categories": ["live-music", "comedy", "food", "workshop", "sports"]
+}

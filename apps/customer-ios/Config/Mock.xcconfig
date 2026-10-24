@@ -1,0 +1,15 @@
+// MOCK — the default. Reads bundled fixtures only; makes no network calls at all.
+#include "Base.xcconfig"
+
+APP_ENV = mock
+API_BASE_URL =
+ALLOW_MUTATIONS = NO
+APP_DISPLAY_NAME = ETicketsGo Mock
+PRODUCT_BUNDLE_IDENTIFIER = com.eticketsgo.customer.native.mock
+
+SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG
+SWIFT_OPTIMIZATION_LEVEL = -Onone
+GCC_OPTIMIZATION_LEVEL = 0
+ONLY_ACTIVE_ARCH = YES
+ENABLE_TESTABILITY = YES
+DEBUG_INFORMATION_FORMAT = dwarf
