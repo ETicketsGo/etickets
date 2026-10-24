@@ -25,8 +25,14 @@ import { isSelectable, seatName, seatVisualState, type SeatMap, type Seat } from
 
 const MIN_SCALE = 1;
 const MAX_SCALE = 3;
-/** Below this on-screen size a seat is not a reliable tap target, so we zoom instead. */
-const MIN_SEAT_PX = 18;
+/**
+ * The smallest a seat is drawn at rest. The whole auditorium must FIT at rest: at an 18px
+ * floor a 16-seat row overflowed a 360dp phone, centred, so the row letters fell off the
+ * left and the last column off the right. Below 18px a seat is a less reliable target, so
+ * the map then says "double-tap to zoom" (zoom and the list view both exist for this).
+ */
+const MIN_SEAT_PX = 11;
+const COMFORTABLE_SEAT_PX = 18;
 const SEAT_GAP = 3;
 /** The row-letter column. One or two characters, so 28 is enough. */
 const ROW_GUTTER = 28;
@@ -138,6 +144,11 @@ export function SeatMapView({
         className="overflow-hidden py-4"
         accessibilityLabel="Seat map. Pinch to zoom, drag with two fingers to move."
       >
+        {seatSize < COMFORTABLE_SEAT_PX ? (
+          <Text variant="meta" tone="onStage3" className="pb-3 text-center">
+            Double-tap to zoom in, or use the list view.
+          </Text>
+        ) : null}
         <Animated.View style={mapStyle} className="items-center gap-5">
           {/* Screen indicator — the map is meaningless without knowing which way the
               audience faces. */}

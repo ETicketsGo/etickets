@@ -1,4 +1,4 @@
-import { Pressable, View } from 'react-native';
+import { Pressable, View, useWindowDimensions } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
@@ -278,13 +278,15 @@ export function MovieCard({
  * text side, the gold "Book tickets" (the single gold moment on the page) and its price.
  */
 export function StageHero({ event }: { event: EventSummary }) {
+  const { height } = useWindowDimensions();
   const facts = eventFacts(event);
   const open = useOpenEvent(event.slug);
   const eyebrow = [event.category, event.venue.city].filter(Boolean).join(' / ');
   const date = facts.when?.split(', ');
 
   return (
-    <View className="overflow-hidden bg-stage" style={{ minHeight: 470 }}>
+    // 470 on an ordinary phone, less on a small one, so "Book tickets" is on the first screen.
+    <View className="overflow-hidden bg-stage" style={{ minHeight: Math.min(470, height * 0.62) }}>
       <View className="absolute inset-0">
         <EventPicture event={event} use="banner" className="h-full w-full" fallback={null} />
       </View>
@@ -301,7 +303,7 @@ export function StageHero({ event }: { event: EventSummary }) {
           </Text>
           <ContentLabelPill label={event.contentLabel} onStage />
         </View>
-        <Text variant="hero" tone="onStage" numberOfLines={3}>
+        <Text variant={height < 700 ? 'd1' : 'hero'} tone="onStage" numberOfLines={3}>
           {event.title}
         </Text>
         {date ? (

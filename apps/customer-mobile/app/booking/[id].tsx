@@ -176,7 +176,7 @@ function TicketPass({ ticket, timeZone }: { ticket: CachedTicket; timeZone?: str
           {ticket.event.title}
         </Text>
         <Text variant="meta" tone="onStage2">
-          {formatEventWhen(ticket.startsAt, timeZone)}
+          {formatEventWhen(ticket.startsAt, ticket.timezone ?? timeZone)}
           {where ? ` - ${where}` : ''}
         </Text>
         {ticket.seatLabel ? (

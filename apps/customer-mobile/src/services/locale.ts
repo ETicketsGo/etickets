@@ -81,13 +81,29 @@ function parts(
 }
 
 /**
- * The storefront's short date: "Sat 14 Nov". In the VENUE's zone, as every event time is.
+ * A date's parts, each formatted on its own: "Sat", "14", "Nov". Built from parts rather
+ * than by splitting a formatted string, because the ORDER depends on the phone's language:
+ * en-US prints "Fri, Oct 30" and en-GB "Fri 30 Oct", and splitting by position put the
+ * month where the day goes on a US phone.
+ */
+export function dateParts(
+  value: string | Date,
+  timeZone?: string,
+): { weekday: string; day: string; month: string } {
+  return {
+    weekday: parts(value, { weekday: 'short' }, timeZone),
+    day: parts(value, { day: 'numeric' }, timeZone),
+    month: parts(value, { month: 'short' }, timeZone),
+  };
+}
+
+/**
+ * The storefront's short date, "Sat 14 Nov", in that order whatever the phone's language,
+ * so a ticket reads the same in the app and on the website. In the VENUE's zone.
  */
 export function formatShortDate(value: string | Date, timeZone?: string): string {
-  return parts(value, { weekday: 'short', day: 'numeric', month: 'short' }, timeZone).replace(
-    ',',
-    '',
-  );
+  const p = dateParts(value, timeZone);
+  return `${p.weekday} ${p.day} ${p.month}`;
 }
 
 /**

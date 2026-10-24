@@ -96,6 +96,11 @@ export const ticketSchema = z.object({
   qrDataUrl: z.string().nullable(),
   bookingId: z.string(),
   bookingRef: z.string().nullable(),
+  /**
+   * The venue's IANA zone. Kept in the offline cache too, so a saved ticket shows the time
+   * at the venue with no signal; without it the time fell back to the phone's zone.
+   */
+  timezone: z.string().nullish(),
   experienceType: z.string(),
   seatLabel: z.string().nullable(),
   venueName: z.string().nullable(),

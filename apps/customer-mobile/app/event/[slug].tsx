@@ -9,7 +9,13 @@ import { ErrorState, OfflineBanner, Skeleton } from '@/components/states';
 import { useOnline } from '@/hooks/use-online';
 import { palette } from '@/theme';
 import { Button, Card, Eyebrow, GoldRule, IconButton, Separator, Text, haptics } from '@/ui';
-import { formatEventWhen, formatMoney, formatShortDate, formatShortTime } from '@/services/locale';
+import {
+  formatEventWhen,
+  formatMoney,
+  formatShortDate,
+  formatShortTime,
+  dateParts,
+} from '@/services/locale';
 import { env } from '@/services/env';
 import { useEvent } from '@/features/events/api';
 import { QuantityStepper } from '@/features/events/quantity-stepper';
@@ -469,7 +475,7 @@ function DateTile({
   selected: boolean;
   onPress: () => void;
 }) {
-  const [weekday, day, month] = formatShortDate(startsAt, timeZone).split(' ');
+  const { weekday, day, month } = dateParts(startsAt, timeZone);
   return (
     <Pressable
       accessibilityRole="button"

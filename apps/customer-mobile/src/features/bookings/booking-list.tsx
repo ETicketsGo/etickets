@@ -5,8 +5,10 @@ import { EmptyState, ErrorState, Skeleton } from '@/components/states';
 import { Badge, Button, Chip, Text, haptics } from '@/ui';
 import { useTheme } from '@/theme';
 import { useNow } from '@/hooks/use-now';
-import { formatEventWhen, formatMoney, formatShortDate, formatShortTime } from '@/services/locale';
+import { formatEventWhen, formatMoney, formatShortTime, dateParts } from '@/services/locale';
 import { useBookings } from './api';
+import { useOfflineTickets } from './use-offline-tickets';
+import { OfflineWallet } from './offline-wallet';
 import { bookingStatusLabel, bookingTone, isLiveBooking, type Booking } from './schema';
 
 type Filter = 'upcoming' | 'past';
@@ -26,6 +28,7 @@ export function BookingList() {
   const { colors } = useTheme();
   const [filter, setFilter] = useState<Filter>('upcoming');
   const { data, isPending, isError, isPaused, refetch, isRefetching } = useBookings();
+  const saved = useOfflineTickets();
 
   // A minute's granularity is ample for an upcoming/past split, and keeps this list
   // from re-partitioning once a second while the user scrolls it.
@@ -72,6 +75,15 @@ export function BookingList() {
    * The check is on `isPaused` rather than a general offline flag, so a genuinely slow
    * request still gets skeletons.
    */
+  // No signal and nothing fetched, or the fetch failed: show what is saved on the phone.
+  if ((isPending && isPaused) || isError) {
+    if (saved.tickets.length > 0) {
+      return (
+        <OfflineWallet tickets={saved.tickets} syncedAt={saved.syncedAt} stale={saved.stale} />
+      );
+    }
+  }
+
   if (isPending && isPaused) {
     return (
       <ErrorState
@@ -170,7 +182,7 @@ function BookingCard({ booking }: { booking: Booking }) {
   const total = formatMoney(booking.totalMinor, booking.currency);
   const tz = booking.timeZone ?? undefined;
   const when = formatEventWhen(booking.eventSession.startsAt, tz);
-  const [weekday, day, month] = formatShortDate(booking.eventSession.startsAt, tz).split(' ');
+  const { weekday, day, month } = dateParts(booking.eventSession.startsAt, tz);
   const live = isLiveBooking(booking.status);
 
   return (
