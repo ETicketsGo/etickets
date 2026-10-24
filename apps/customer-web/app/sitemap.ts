@@ -22,6 +22,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     '/changelog',
     '/events',
     '/privacy',
+    '/delete-account',
     '/terms',
     '/refunds',
     '/organizer-agreement',
