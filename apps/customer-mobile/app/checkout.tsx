@@ -15,10 +15,12 @@ import {
   newIdempotencyKey,
   paymentReturnUrl,
   useCreateBooking,
+  useQuote,
   useStartPayment,
   type CartItem,
 } from '@/features/checkout/api';
 import { HoldCountdown } from '@/features/checkout/hold-countdown';
+import { feeLines } from '@/features/checkout/fee-lines';
 import { readBookingStatus } from '@/features/checkout/booking-status';
 import { bookingKeys } from '@/features/bookings/api';
 
@@ -76,9 +78,15 @@ export default function CheckoutScreen() {
   const setBuyerEmail = setEmailOverride;
   const [errors, setErrors] = useState<{ name?: string; email?: string }>({});
 
+  /** What the buyer typed, and the code actually sent for pricing (set on Apply). */
+  const [couponInput, setCouponInput] = useState('');
+  const [couponCode, setCouponCode] = useState<string | null>(null);
+
   const createBooking = useCreateBooking();
   const startPayment = useStartPayment();
   const booking = createBooking.data;
+  const quote = useQuote(params.sessionId, items, couponCode);
+  const couponRejected = Boolean(couponCode) && quote.data?.coupon?.applied === false;
 
   /**
    * One key per checkout attempt, held in a ref so a re-render cannot mint a new one.
@@ -140,6 +148,9 @@ export default function CheckoutScreen() {
           items,
           buyerName: buyerName.trim(),
           buyerEmail: buyerEmail.trim(),
+          // Only a code the quote accepted. A rejected one would be refused again here,
+          // after seats are held, for no gain.
+          ...(couponCode && !couponRejected ? { couponCode } : {}),
           idempotencyKey: idempotencyKey.current,
         }));
 
@@ -205,7 +216,8 @@ Your tickets are still held for a few minutes. You can try again.`
     }
   };
 
-  const fees = booking?.fees;
+  // The booking's own figures once it exists; the quote's before. Never computed here.
+  const fees = booking?.fees ?? quote.data?.fees;
   const currency = fees?.currency ?? session?.ticketTypes[0]?.currency ?? 'INR';
   const estimatedSubtotal = lineItems.reduce(
     (n, r) => n + (r.type?.priceMinor ?? 0) * r.item.quantity,
@@ -314,21 +326,59 @@ Your tickets are still held for a few minutes. You can try again.`
 
         <View className="gap-2">
           <Text variant="title3" accessibilityRole="header">
+            Discount code
+          </Text>
+          <View className="gap-2">
+            <View>
+              <Field
+                label="Code"
+                value={couponInput}
+                onChangeText={setCouponInput}
+                autoCapitalize="characters"
+                autoCorrect={false}
+                // The code is fixed into the booking when seats are held.
+                editable={!booking && !paying}
+                error={couponRejected ? 'This code does not apply to these tickets.' : undefined}
+                hint={
+                  booking
+                    ? 'Codes can be changed only before your tickets are held.'
+                    : quote.data?.coupon?.applied
+                      ? `Code ${quote.data.coupon.code} applied.`
+                      : undefined
+                }
+              />
+            </View>
+            <Button
+              label="Apply code"
+              variant="secondary"
+              size="sm"
+              fullWidth={false}
+              disabled={Boolean(booking) || paying || couponInput.trim().length === 0}
+              loading={quote.isFetching && Boolean(couponCode)}
+              onPress={() => setCouponCode(couponInput.trim().toUpperCase())}
+            />
+          </View>
+        </View>
+
+        <View className="gap-2">
+          <Text variant="title3" accessibilityRole="header">
             Total
           </Text>
           <Card className="gap-2">
             {fees ? (
               <>
                 <Line label="Tickets" value={formatMoney(fees.subtotalMinor, currency)} />
-                {fees.discountMinor > 0 ? (
-                  <Line label="Discount" value={`−${formatMoney(fees.discountMinor, currency)}`} />
-                ) : null}
-                {fees.customerFeeMinor > 0 ? (
+                {feeLines(fees).map((line) => (
                   <Line
-                    label="Booking &amp; payment fees"
-                    value={formatMoney(fees.customerFeeMinor, currency)}
+                    key={line.label}
+                    label={line.label}
+                    value={
+                      line.minor < 0
+                        ? `-${formatMoney(-line.minor, currency)}`
+                        : formatMoney(line.minor, currency)
+                    }
                   />
-                ) : null}
+                ))}
                 <Separator />
                 <View className="flex-row items-center justify-between">
                   <Text variant="headline">Total</Text>
@@ -338,11 +388,12 @@ Your tickets are still held for a few minutes. You can try again.`
             ) : (
               <>
                 <Line label="Tickets" value={formatMoney(estimatedSubtotal, currency)} />
-                {/* Before the booking exists there is no server-calculated fee, and
-                    inventing one would mean showing a number that changes at the moment
-                    of payment. Saying so is better than guessing. */}
+                {/* The quote has not answered yet. Inventing a fee meanwhile would show a
+                    number that changes at the moment of payment. */}
                 <Text variant="footnote" tone="muted">
-                  Booking and payment fees are calculated when you continue.
+                  {quote.isError
+                    ? 'We could not get the final price. It is shown before you pay.'
+                    : 'Getting the final price...'}
                 </Text>
               </>
             )}

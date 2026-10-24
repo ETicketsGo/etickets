@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import * as Crypto from 'expo-crypto';
@@ -16,6 +16,7 @@ import {
 import {
   createBookingResponseSchema,
   paymentIntentSchema,
+  quoteSchema,
   type CreateBookingResponse,
   type PaymentIntent,
 } from './schema';
@@ -86,6 +87,33 @@ export function useCreateBooking() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: bookingKeys.all });
     },
+  });
+}
+
+/**
+ * The server's price for this cart, before anything is held. Public on the API, so it
+ * works before sign-in too. The total on the Pay button comes from here until the
+ * booking exists, and from the booking after: never from arithmetic in the app.
+ */
+export function useQuote(
+  eventSessionId: string | undefined,
+  items: CartItem[],
+  couponCode: string | null,
+) {
+  return useQuery({
+    queryKey: ['quote', eventSessionId, items, couponCode] as const,
+    queryFn: () =>
+      postParsed(
+        '/bookings/quote',
+        {
+          eventSessionId,
+          items,
+          ...(couponCode ? { couponCode } : {}),
+        },
+        quoteSchema,
+      ),
+    enabled: Boolean(eventSessionId) && items.length > 0,
+    staleTime: 30_000,
   });
 }
 
