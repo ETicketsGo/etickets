@@ -114,6 +114,26 @@ describe('TicketQr rendering', () => {
     expect(screen.getByText(/Show your booking reference at the door/)).toBeTruthy();
   });
 
+  it('renders the server-issued code for a valid ticket', async () => {
+    await render(<TicketQr ticket={ticket({ presentable: true })} />);
+
+    expect(screen.getByLabelText(/Entry code for Standard, seat A1/)).toBeTruthy();
+    expect(screen.queryByText(/transferred/)).toBeNull();
+  });
+
+  it('renders a ticket cached before `presentable` existed exactly as before', async () => {
+    await render(<TicketQr ticket={ticket()} />);
+
+    expect(screen.getByLabelText(/Entry code for Standard/)).toBeTruthy();
+  });
+
+  it('says a transferred ticket cannot be presented, and shows no code', async () => {
+    await render(<TicketQr ticket={ticket({ presentable: false, qrDataUrl: null })} />);
+
+    expect(screen.getByText(/This ticket has been transferred/)).toBeTruthy();
+    expect(screen.queryByLabelText(/Entry code/)).toBeNull();
+  });
+
   it('never renders the qrToken as text', async () => {
     const secret = 'signed.qr.token.value';
     await render(<TicketQr ticket={ticket({ qrToken: secret } as Partial<CachedTicket>)} />);

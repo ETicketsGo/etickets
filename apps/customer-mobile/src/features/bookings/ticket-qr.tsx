@@ -23,6 +23,17 @@ export function TicketQr({ ticket }: { ticket: CachedTicket }) {
 
   const usable = ticket.qrDataUrl?.startsWith('data:image');
 
+  // The server withheld the credential: this viewer can see the ticket but not use it.
+  if (ticket.presentable === false) {
+    return (
+      <View className="h-56 w-56 items-center justify-center rounded-md border border-border bg-background-subtle px-4">
+        <Text variant="subhead" tone="muted" className="text-center">
+          This ticket has been transferred. Only its current holder can show it at the door.
+        </Text>
+      </View>
+    );
+  }
+
   if (!usable) {
     return (
       <View className="h-56 w-56 items-center justify-center rounded-md border border-border bg-background-subtle px-4">
