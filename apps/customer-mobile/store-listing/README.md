@@ -97,21 +97,16 @@ lists films with their certificates (UA13+, A). Users can make purchases. No use
 communication, no user-generated content shown to others. Expected rating: Everyone / 3+,
 with "Users interact" no and "Digital purchases" yes. The answers are the owner's to submit.
 
-## Closed test (required before production)
+## Developer identity (organization account)
 
-Personal developer accounts created after 13 November 2023 need **12 or more testers opted in
-for 14 days in a row** on a closed track before applying for production.
+Published from a DeepTrics organization account (see `docs/PLAY-RELEASE.md` section 4).
+Play shows the developer's legal name and address on the listing, so the entity chosen there
+must be one the privacy policy names: DeepTrics LLC, or DeepTrics Software Solutions Private
+Limited for India. Developer email: `support@eticketsgo.com` (public). Website:
+`https://www.eticketsgo.com`.
 
-1. Internal testing first (up to 100 testers, no review): the owner and the team check that
-   the signed AAB installs and that Play Integrity passes (`pi_passed` on the API).
-2. A closed track with a Google Group as the tester list, so testers can be added without a
-   new release. Aim for 15 to 20 people: some drop out, and the count must stay at 12 or more
-   for the whole 14 days.
-3. Testers must opt in from the link AND install the app. Ask each for one booking journey
-   and one written note; Play asks about tester engagement when the owner applies.
-4. On day 15 or later: Play Console > Dashboard > Apply for production.
-
-A production smoke test, and any real-money payment, needs the owner's approval first.
+The 12-tester, 14-day closed test is a rule for personal accounts and does not apply. A short
+closed test with the team and a few organizers is still recommended before production.
 
 ## Target audience and other declarations
 

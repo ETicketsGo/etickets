@@ -97,17 +97,23 @@ function errorDescription(err: unknown): string | null {
   if (!err || typeof err !== 'object') return null;
   const e = err as { description?: unknown; error?: { description?: unknown } };
   const text = typeof e.description === 'string' ? e.description : e.error?.description;
-  if (typeof text !== 'string' || text.trim().length === 0) return null;
-  // Closing the sheet sends the literal string "undefined" on Android, which the buyer
-  // saw as the reason: "undefined  Your tickets are still held". Seen on a moto g31.
-  if (/^(undefined|null)$/i.test(text.trim())) return null;
-  // The Android SDK sometimes sends its whole error object as a JSON string.
+  if (typeof text !== 'string') return null;
+  // The Android SDK sometimes sends its whole error object as a JSON string. Its inner
+  // description is then the reason, and the envelope itself is never shown to a buyer.
+  let reason = text;
   try {
-    const parsed = JSON.parse(text) as { error?: { description?: unknown } };
-    const inner = parsed?.error?.description;
-    if (typeof inner === 'string' && inner.trim()) return inner.trim();
+    const parsed = JSON.parse(text) as { error?: { description?: unknown } } | null;
+    if (parsed && typeof parsed === 'object') {
+      const inner = parsed.error?.description;
+      reason = typeof inner === 'string' ? inner : '';
+    }
   } catch {
     // Not JSON: use as is.
   }
-  return text.trim();
+  // Closing or declining sends the literal string "undefined" (sometimes inside that JSON),
+  // which the buyer saw as the reason: "undefined  Your tickets are still held". Seen on a
+  // moto g31, twice, by two different routes; so every candidate goes through this check.
+  const trimmed = reason.trim();
+  if (!trimmed || /^(undefined|null)$/i.test(trimmed)) return null;
+  return trimmed;
 }
