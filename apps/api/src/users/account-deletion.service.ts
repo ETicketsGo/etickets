@@ -142,6 +142,13 @@ export class AccountDeletionService {
           status: UserStatus.DELETED,
           email: anonymousEmail,
           fullName: 'Deleted user',
+          /*
+            The verified phone number is personal data like the email, and it was left on
+            the row. It is also unique, so keeping it stopped anyone else from ever verifying
+            that number. Cleared with its verification time.
+          */
+          phone: null,
+          phoneVerifiedAt: null,
           passwordHash: unusablePasswordHash,
           roles: [Role.CUSTOMER],
         },
