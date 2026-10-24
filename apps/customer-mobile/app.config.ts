@@ -22,7 +22,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   scheme: 'etickets',
   version: '0.1.0',
   orientation: 'portrait',
-  userInterfaceStyle: 'automatic', // light + dark
+  // Light only, like the storefront: dark is a stage band inside a page, not a theme.
+  userInterfaceStyle: 'light',
   // New Architecture is the default in SDK 56; the field was removed from ExpoConfig.
   icon: './assets/icon.png',
   assetBundlePatterns: ['**/*'],
@@ -35,11 +36,19 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   android: {
     package: bundleId,
-    adaptiveIcon: { foregroundImage: './assets/adaptive-icon.png', backgroundColor: '#0B0E15' },
+    adaptiveIcon: { foregroundImage: './assets/adaptive-icon.png', backgroundColor: '#F6F2EA' },
     // Only what the customer app actually uses. expo-camera was removed: nothing in
     // this app scans a QR code — customers DISPLAY one, staff scan it, and that is the
     // organizer app's job. It was pulling in CAMERA and RECORD_AUDIO.
     permissions: ['POST_NOTIFICATIONS'],
+    /*
+      Push needs Firebase's config file on Android. It is supplied to the BUILD (an EAS file
+      environment variable, never committed), and push stays off in any build without it:
+      see src/services/push-registration.ts.
+    */
+    ...(process.env.GOOGLE_SERVICES_JSON
+      ? { googleServicesFile: process.env.GOOGLE_SERVICES_JSON }
+      : {}),
     /**
      * Permissions that libraries add and this app does not use. Verified by generating
      * the native project and reading the merged manifest — none of these is visible
@@ -67,7 +76,17 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
           {
             action: 'VIEW',
             autoVerify: true,
-            data: [{ scheme: 'https', host: process.env.EXPO_PUBLIC_WEB_HOST }],
+            /*
+              Only the pages the app can show: an event, a film, a booking. Claiming the whole
+              host would open the app for checkout, sign-in and every other page it has no
+              screen for. The same paths as the iOS association file (PR 470). Verified
+              against /.well-known/assetlinks.json on the host.
+            */
+            data: ['/events', '/movies', '/booking'].map((pathPrefix) => ({
+              scheme: 'https',
+              host: process.env.EXPO_PUBLIC_WEB_HOST,
+              pathPrefix,
+            })),
             category: ['BROWSABLE', 'DEFAULT'],
           },
         ]
@@ -84,11 +103,11 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       {
         image: './assets/splash.png',
         resizeMode: 'contain',
-        backgroundColor: '#0B0E15',
+        backgroundColor: '#F6F2EA',
         imageWidth: 200,
       },
     ],
-    ['expo-notifications', { icon: './assets/notification-icon.png', color: '#2563EB' }],
+    ['expo-notifications', { icon: './assets/notification-icon.png', color: '#B8955A' }],
     'expo-image',
     'expo-localization',
     'expo-web-browser',
@@ -119,6 +138,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     apiUrl: process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:4000/api',
     webHost: process.env.EXPO_PUBLIC_WEB_HOST ?? null,
     sentryDsn: process.env.EXPO_PUBLIC_SENTRY_DSN ?? null,
+    pushEnabled: Boolean(process.env.GOOGLE_SERVICES_JSON),
     env: process.env.EXPO_PUBLIC_ENV ?? 'development',
   },
 });

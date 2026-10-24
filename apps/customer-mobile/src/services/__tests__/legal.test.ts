@@ -10,9 +10,9 @@ jest.mock('@/services/env', () => ({
 
 describe('legal URLs', () => {
   it('builds every document from the configured host', () => {
-    expect(legalUrl('terms')).toBe('https://qa.eticketsgo.com/legal/terms');
-    expect(legalUrl('privacy')).toBe('https://qa.eticketsgo.com/legal/privacy');
-    expect(legalUrl('refunds')).toBe('https://qa.eticketsgo.com/legal/refund-policy');
+    expect(legalUrl('terms')).toBe('https://qa.eticketsgo.com/terms');
+    expect(legalUrl('privacy')).toBe('https://qa.eticketsgo.com/privacy');
+    expect(legalUrl('refunds')).toBe('https://qa.eticketsgo.com/refunds');
   });
 
   it('always uses https', () => {

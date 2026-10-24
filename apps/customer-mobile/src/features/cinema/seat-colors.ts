@@ -19,26 +19,25 @@ export interface SeatStyle {
   opacity: number;
 }
 
-const LIGHT: Record<SeatVisualState, SeatStyle> = {
-  available: { fill: '#FFFFFF', border: '#94A3B8', label: '#475569', opacity: 1 },
-  selected: { fill: '#2563EB', border: '#1D4ED8', label: '#FFFFFF', opacity: 1 },
-  // Held by someone else's in-flight checkout — same "you can't have it" as sold, but
-  // distinct because it may free up, and users do wait for exactly that.
-  held: { fill: '#FDE68A', border: '#D97706', label: '#92400E', opacity: 1 },
-  sold: { fill: '#CBD5E1', border: '#94A3B8', label: '#64748B', opacity: 1 },
-  unavailable: { fill: '#E2E8F0', border: '#CBD5E1', label: '#94A3B8', opacity: 0.55 },
+/*
+  The seat map is drawn on the storefront's stage band (brand.css data-brand-tone="stage"),
+  so seats are stage colours: an outlined dark seat is free, a gold one is yours (the
+  storefront's "seat selection animates the seat fill" in gold), a gold-ringed one is on
+  hold for someone else, a dim one is sold. Each state also differs in border weight.
+*/
+const STAGE: Record<SeatVisualState, SeatStyle> = {
+  available: { fill: '#2E2922', border: '#8A8276', label: '#CFC7BA', opacity: 1 },
+  selected: { fill: '#E3CFA5', border: '#EDDFC0', label: '#16130F', opacity: 1 },
+  // Held by someone else's checkout: "you can't have it" like sold, but distinct because
+  // it may free up, and people do wait for exactly that.
+  held: { fill: '#3A342C', border: '#B8955A', label: '#E3CFA5', opacity: 1 },
+  sold: { fill: '#3A342C', border: '#3A342C', label: '#6A6359', opacity: 0.55 },
+  unavailable: { fill: 'transparent', border: '#3A342C', label: '#4D463C', opacity: 0.45 },
 };
 
-const DARK: Record<SeatVisualState, SeatStyle> = {
-  available: { fill: '#1E293B', border: '#64748B', label: '#CBD5E1', opacity: 1 },
-  selected: { fill: '#2563EB', border: '#60A5FA', label: '#FFFFFF', opacity: 1 },
-  held: { fill: '#78350F', border: '#D97706', label: '#FDE68A', opacity: 1 },
-  sold: { fill: '#334155', border: '#475569', label: '#64748B', opacity: 1 },
-  unavailable: { fill: '#1E293B', border: '#334155', label: '#475569', opacity: 0.5 },
-};
-
-export function seatStyle(state: SeatVisualState, scheme: 'light' | 'dark'): SeatStyle {
-  return (scheme === 'dark' ? DARK : LIGHT)[state];
+/** The app is light only; the map is always on a stage, so the scheme no longer matters. */
+export function seatStyle(state: SeatVisualState, _scheme?: 'light' | 'dark'): SeatStyle {
+  return STAGE[state];
 }
 
 /** Plain-language state, used for screen readers and the legend. */

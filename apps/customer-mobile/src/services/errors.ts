@@ -37,7 +37,7 @@ export function messageForError(error: unknown): string {
       case 404:
         return "We couldn't find that.";
       case 409:
-        return 'Someone got there first — please try again.';
+        return 'Someone got there first. Please try again.';
       case 429:
         return "That's a lot of requests. Wait a moment and try again.";
       default:

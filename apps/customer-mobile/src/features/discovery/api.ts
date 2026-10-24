@@ -14,7 +14,7 @@ import { z } from 'zod';
  */
 export const discoveryKeys = {
   all: ['discovery'] as const,
-  home: () => [...discoveryKeys.all, 'home'] as const,
+  home: (scope: DiscoveryScope = {}) => [...discoveryKeys.all, 'home', scope] as const,
   categories: () => [...discoveryKeys.all, 'categories'] as const,
   search: (filters: EventFilters) => [...discoveryKeys.all, 'search', filters] as const,
 };
@@ -22,14 +22,32 @@ export const discoveryKeys = {
 export interface EventFilters {
   q?: string;
   city?: string;
+  /** The visitor's country, applied only when no city is chosen (the server's scope rule). */
+  country?: string;
   category?: string;
 }
 
+/**
+ * Where Home looks. A chosen city wins; without one, the country the server resolved for
+ * this visitor (its scope rule: a customer in the United States is not shown a comedy night
+ * in Hyderabad). Both absent means everywhere.
+ */
+export interface DiscoveryScope {
+  city?: string | null;
+  country?: string | null;
+}
+
 /** Home's composed sections: now showing, trending, this weekend, categories. */
-export function useDiscovery() {
+export function useDiscovery(scope: DiscoveryScope = {}, enabled = true) {
+  const params = scope.city
+    ? { city: scope.city }
+    : scope.country
+      ? { country: scope.country }
+      : {};
   return useQuery({
-    queryKey: discoveryKeys.home(),
-    queryFn: () => getParsed('/public/discovery', discoverySchema),
+    queryKey: discoveryKeys.home(params),
+    queryFn: () => getParsed('/public/discovery', discoverySchema, params),
+    enabled,
     // Discovery changes on the scale of hours, not seconds. A longer window means
     // returning to Home from an event does not re-fetch the whole shelf.
     staleTime: 5 * 60_000,
@@ -61,7 +79,11 @@ export function useEventSearch(filters: EventFilters, enabled = true) {
         // Empty strings would be sent as `?q=` and are not the same as omitting the
         // filter — the API would search for the empty string.
         ...(filters.q ? { q: filters.q } : {}),
-        ...(filters.city ? { city: filters.city } : {}),
+        ...(filters.city
+          ? { city: filters.city }
+          : filters.country
+            ? { country: filters.country }
+            : {}),
         ...(filters.category ? { category: filters.category } : {}),
       }),
     getNextPageParam: (last) =>

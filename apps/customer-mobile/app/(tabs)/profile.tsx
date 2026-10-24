@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import Constants from 'expo-constants';
 import * as WebBrowser from 'expo-web-browser';
 import { Screen } from '@/components/screen';
+import { BrandMark } from '@/components/brand-mark';
 import { OfflineBanner } from '@/components/states';
 import { useOnline } from '@/hooks/use-online';
 import { useAuth } from '@/hooks/use-auth';
@@ -31,33 +32,48 @@ export default function ProfileScreen() {
   };
 
   return (
-    <Screen padded={false}>
+    <Screen padded={false} edges={['top']}>
       {!online ? <OfflineBanner /> : null}
-      <ScrollView contentContainerClassName="pb-10" showsVerticalScrollIndicator={false}>
-        <View className="px-5 pb-4 pt-2">
-          <Text variant="largeTitle" accessibilityRole="header">
-            Profile
+      <ScrollView contentContainerClassName="pb-12" showsVerticalScrollIndicator={false}>
+        <View className="px-4 pb-5 pt-4">
+          <Text variant="d1" accessibilityRole="header">
+            Your account
           </Text>
         </View>
 
         {isAuthenticated && user ? (
-          <View className="mx-5 mb-6 gap-1 rounded-md border border-border bg-background-surface p-4">
-            <Text variant="title3">{user.fullName}</Text>
-            <Text variant="subhead" tone="muted">
-              {user.email}
-            </Text>
+          <View className="mx-4 mb-8 flex-row items-center gap-4 rounded-card border border-border bg-background-surface p-5">
+            {/* The storefront's avatar: initials on ink. */}
+            <View className="h-14 w-14 items-center justify-center rounded-full bg-ink">
+              <Text variant="uiStrong" tone="onAccent">
+                {initials(user.fullName)}
+              </Text>
+            </View>
+            <View className="flex-1 gap-0.5">
+              <Text variant="card" numberOfLines={1}>
+                {user.fullName}
+              </Text>
+              <Text variant="ui" tone="muted" numberOfLines={1}>
+                {user.email}
+              </Text>
+            </View>
           </View>
         ) : (
-          <View className="mx-5 mb-6 gap-3 rounded-md border border-border bg-background-surface p-4">
-            <Text variant="headline">You&rsquo;re browsing as a guest</Text>
-            <Text variant="subhead" tone="muted">
-              Sign in to keep your tickets in one place across devices.
+          <View className="mx-4 mb-8 gap-3 rounded-card bg-sunken p-5">
+            <Text variant="d3">You are browsing as a guest</Text>
+            <Text variant="ui" tone="secondary">
+              Sign in to keep your tickets in one place, on any device.
             </Text>
             <Button label="Sign in" onPress={() => router.push('/(auth)/login')} />
+            <Button
+              label="Create an account"
+              variant="secondary"
+              onPress={() => router.push('/(auth)/register')}
+            />
           </View>
         )}
 
-        <View className="gap-6">
+        <View className="gap-7">
           <Section title="Preferences">
             <ListRow label="Region" value={deviceLocale.region} showChevron={false} />
             <Separator inset />
@@ -102,7 +118,7 @@ export default function ProfileScreen() {
 
           <Section title="Support">
             <ListRow
-              label="Help & contact"
+              label="Help and contact"
               icon="help-circle-outline"
               onPress={() => router.push('/support')}
               accessibilityHint="Opens the support form"
@@ -142,14 +158,15 @@ export default function ProfileScreen() {
             </Section>
           ) : null}
 
-          <View className="items-center gap-1 px-5 pt-2">
-            <Text variant="caption" tone="muted">
-              ETicketsGo {Constants.expoConfig?.version ?? '—'}
+          <View className="items-center gap-2 px-4 pt-4">
+            <BrandMark />
+            <Text variant="meta" tone="muted">
+              ETicketsGo {Constants.expoConfig?.version ?? '-'}
             </Text>
             {/* The environment is worth surfacing on non-production builds: it is the
                 first question in every "it works on mine" support thread. */}
             {env.env !== 'production' ? (
-              <Text variant="caption" tone="muted">
+              <Text variant="eyebrow" tone="muted">
                 {env.env.toUpperCase()} build
               </Text>
             ) : null}
@@ -162,11 +179,19 @@ export default function ProfileScreen() {
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <View className="gap-2">
-      <Text variant="footnote" tone="muted" className="px-5 uppercase" accessibilityRole="header">
+    <View className="gap-2.5">
+      <Text variant="eyebrow" tone="muted" className="px-4" accessibilityRole="header">
         {title}
       </Text>
-      <ListGroup className="mx-5">{children}</ListGroup>
+      <ListGroup className="mx-4">{children}</ListGroup>
     </View>
   );
+}
+
+/** "Riya Rao" -> "RR"; a single name gives one letter. */
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  const first = parts[0]?.[0] ?? '';
+  const last = parts.length > 1 ? (parts[parts.length - 1]?.[0] ?? '') : '';
+  return (first + last).toUpperCase() || '?';
 }

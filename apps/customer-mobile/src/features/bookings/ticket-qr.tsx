@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Platform, View } from 'react-native';
+import { AppState, Platform, View } from 'react-native';
 import { Image } from 'expo-image';
 import * as Brightness from 'expo-brightness';
 import { Text } from '@/ui';
@@ -26,8 +26,8 @@ export function TicketQr({ ticket }: { ticket: CachedTicket }) {
   // The server withheld the credential: this viewer can see the ticket but not use it.
   if (ticket.presentable === false) {
     return (
-      <View className="h-56 w-56 items-center justify-center rounded-md border border-border bg-background-subtle px-4">
-        <Text variant="subhead" tone="muted" className="text-center">
+      <View className="h-56 w-56 items-center justify-center rounded-control bg-stage-surface px-4">
+        <Text variant="ui" tone="onStage2" className="text-center">
           This ticket has been transferred. Only its current holder can show it at the door.
         </Text>
       </View>
@@ -36,9 +36,9 @@ export function TicketQr({ ticket }: { ticket: CachedTicket }) {
 
   if (!usable) {
     return (
-      <View className="h-56 w-56 items-center justify-center rounded-md border border-border bg-background-subtle px-4">
-        <Text variant="subhead" tone="muted" className="text-center">
-          This ticket&rsquo;s code isn&rsquo;t available. Show your booking reference at the door.
+      <View className="h-56 w-56 items-center justify-center rounded-control bg-stage-surface px-4">
+        <Text variant="ui" tone="onStage2" className="text-center">
+          This ticket's code is not available. Show your booking reference at the door.
         </Text>
       </View>
     );
@@ -48,7 +48,7 @@ export function TicketQr({ ticket }: { ticket: CachedTicket }) {
     <View
       // White plate regardless of theme: a QR needs light quiet-zone contrast, and a
       // dark-mode card behind a dark code is the classic "scanner won't read it" bug.
-      className="rounded-md bg-white p-3"
+      className="rounded-control bg-white p-3"
       accessible
       accessibilityRole="image"
       accessibilityLabel={`Entry code for ${ticket.ticketType}${
@@ -58,7 +58,7 @@ export function TicketQr({ ticket }: { ticket: CachedTicket }) {
       <Image
         // Never null here: `usable` returned the fallback above for a missing image.
         source={{ uri: ticket.qrDataUrl ?? undefined }}
-        style={{ width: 216, height: 216 }}
+        style={{ width: 232, height: 232 }}
         contentFit="contain"
         // A data: URI carries its own bytes, so this works with no connection at all —
         // which is the point, since venue wifi is exactly where it will be needed.
@@ -113,11 +113,11 @@ function useMaxBrightnessWhileVisible() {
   const previousBrightness = useRef<number | null>(null);
 
   useEffect(() => {
+    if (Platform.OS === 'web') return;
     let cancelled = false;
 
-    void (async () => {
+    const boost = async () => {
       try {
-        if (Platform.OS === 'web') return;
         const previous = await Brightness.getBrightnessAsync();
         if (cancelled) return;
         previousBrightness.current = previous;
@@ -125,15 +125,30 @@ function useMaxBrightnessWhileVisible() {
       } catch {
         // Brightness is a nicety; a ticket that displays dim still gets someone in.
       }
-    })();
-
-    return () => {
-      cancelled = true;
+    };
+    const restore = () => {
       const previous = previousBrightness.current;
       previousBrightness.current = null;
       if (previous != null) {
         Brightness.setBrightnessAsync(previous).catch(() => undefined);
       }
+    };
+
+    void boost();
+    // On iOS the brightness is the device's, not the window's: it outlives the app.
+    // Hand it back when the app leaves the foreground and take it again on return.
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        if (previousBrightness.current == null) void boost();
+      } else {
+        restore();
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      sub.remove();
+      restore();
     };
   }, []);
 }

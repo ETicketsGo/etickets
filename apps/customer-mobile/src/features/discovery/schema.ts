@@ -20,12 +20,21 @@ import { eventImageFields } from '@/features/events/event-image';
 export const venueSchema = z.object({
   name: z.string(),
   city: z.string(),
-  country: z.string(),
+  // Venue.country is nullable in the API. Required here, one venue with no country
+  // failed the parse of the whole list.
+  country: z.string().nullish(),
+  /** The venue's IANA zone; dates on the card are printed in it. */
+  timezone: z.string().nullish(),
 });
 
 /** A bookable event/experience as it appears in a list. */
 export const eventSummarySchema = z.object({
   id: z.string(),
+  /**
+   * DEMO or TEST on catalogue the platform seeded for QA. The website labels it "Sample
+   * event" / "Test event"; the app does the same, so nobody books a showcase by mistake.
+   */
+  contentLabel: z.string().nullish(),
   title: z.string(),
   slug: z.string(),
   category: z.string(),
@@ -42,6 +51,11 @@ export const eventSummarySchema = z.object({
 
 export const movieSummarySchema = z.object({
   id: z.string(),
+  /**
+   * DEMO or TEST on catalogue the platform seeded for QA. The website labels it "Sample
+   * event" / "Test event"; the app does the same, so nobody books a showcase by mistake.
+   */
+  contentLabel: z.string().nullish(),
   title: z.string(),
   slug: z.string(),
   posterUrl: z.string().nullable(),

@@ -9,6 +9,11 @@ import { z } from 'zod';
  */
 
 export const publicMovieSchema = z.object({
+  /**
+   * DEMO or TEST on catalogue the platform seeded for QA. The website labels it "Sample
+   * event" / "Test event"; the app does the same, so nobody books a showcase by mistake.
+   */
+  contentLabel: z.string().nullish(),
   id: z.string(),
   title: z.string(),
   slug: z.string(),
@@ -41,9 +46,21 @@ export const publicShowSchema = z.object({
     id: z.string(),
     name: z.string(),
     city: z.string(),
-    country: z.string(),
+    // Venue.country is nullable in the API. Required here, one venue with no country
+    // failed the parse of the whole list or page.
+    country: z.string().nullish(),
   }),
-  cinema: z.object({ id: z.string(), name: z.string(), brand: z.string().nullable() }).nullable(),
+  cinema: z
+    .object({
+      id: z.string(),
+      name: z.string(),
+      brand: z.string().nullable(),
+      /** The cinema's IANA zone. Show times are printed in it, not the phone's. */
+      timezone: z.string().nullish(),
+    })
+    .nullable(),
+  /** The screening's calendar date at the venue, computed by the server. */
+  localDate: z.string().nullish(),
   screen: z.object({ id: z.string(), name: z.string() }).nullable(),
   format: z.string().nullable(),
   language: z.string(),
@@ -80,13 +97,8 @@ export type ShowGroup = {
 };
 
 /**
- * The calendar date of a screening, in the VIEWER's timezone.
- *
- * The API returns instants and no venue timezone, so it cannot supply a local date and
- * deliberately does not try. Grouping therefore happens here, against the device's own
- * zone — which is right for the overwhelmingly common case of someone booking a cinema
- * near them, and wrong only for a traveller booking across a date boundary in another
- * country. Fixing that properly needs `Venue.timezone` on the API.
+ * The calendar date of an instant in the DEVICE's zone. Used for "today" and as the
+ * fallback for a show from an older API that sends no `localDate`.
  */
 export function localDateKey(iso: string): string {
   const date = new Date(iso);
@@ -96,9 +108,18 @@ export function localDateKey(iso: string): string {
   return `${date.getFullYear()}-${month}-${day}`;
 }
 
-/** Distinct viewer-local dates present in a show list, ascending. */
+/**
+ * The screening's date AT THE VENUE. The server sends it as `localDate`; grouping by the
+ * phone's zone put a 10:30 Bengaluru show on the previous day for a buyer whose phone is
+ * set to Denver.
+ */
+export function showDateKey(show: Pick<PublicShow, 'startsAt' | 'localDate'>): string {
+  return show.localDate ?? localDateKey(show.startsAt);
+}
+
+/** Distinct venue-local dates present in a show list, ascending. */
 export function availableDates(shows: PublicShow[]): string[] {
-  return [...new Set(shows.map((s) => localDateKey(s.startsAt)))].sort();
+  return [...new Set(shows.map(showDateKey))].sort();
 }
 
 /**
