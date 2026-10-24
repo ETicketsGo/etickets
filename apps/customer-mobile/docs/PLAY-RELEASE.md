@@ -23,9 +23,9 @@ Bradstreet (section 4).
 
 - `targetSdkVersion` 36, `compileSdkVersion` 36, `minSdkVersion` 24 (Expo SDK 57 defaults;
   verified in the built manifest).
-- `version` is `0.1.0` in `app.config.ts`. `versionCode` is owned by EAS
+- `version` is `1.0.0` in `app.config.ts` (owner, 2026-10-24: the first Play release). `versionCode` is owned by EAS
   (`appVersionSource: remote`, `autoIncrement` on production). A local Gradle build is
-  versionCode 1. Set `version` to `1.0.0` for the first public release.
+  versionCode 1. The first release is versionCode 4 (the remote counter was 3).
 - The production web host is `www.eticketsgo.com`: the bare `eticketsgo.com` returns 404 for
   `/privacy`, which is the URL Play checks.
 
@@ -99,11 +99,10 @@ Optional build inputs, never committed:
 
 ### 4.1 Before the account exists
 
-1. **Choose the legal entity that owns the app.** The website names two: DeepTrics LLC
-   ("ETicketsGo is operated by DeepTrics LLC") and, in India, DeepTrics Software Solutions
-   Private Limited. The Play account belongs to ONE of them. Its name is the one Play shows
-   under "Contains information about the developer" and must be consistent with the privacy
-   policy, which already names both.
+1. **The legal entity: DeepTrics Software Solutions Private Limited** (owner, 2026-10-24,
+   subject to Google's verification). Play shows this name under "Contains information about
+   the developer". The privacy policy, terms and contact page already name it as the
+   operator in India; they also name DeepTrics LLC for elsewhere, which stays true.
 2. **D-U-N-S number for that entity** (free from Dun & Bradstreet; up to 30 days if it does
    not have one). Play will not create an organization account without it.
 3. **Google payments profile** in the entity's exact legal name and address, matching the
@@ -166,7 +165,7 @@ Optional build inputs, never committed:
 - [ ] Store listing, data safety, content rating, deletion URL submitted.
 - [ ] DeepTrics organization account verified (D-U-N-S, payments profile, contacts).
 - [ ] Internal test passed on a physical phone; Play Integrity `pi_passed` seen.
-- [ ] `version` set to 1.0.0 for the production release (it is 0.1.0).
+- [x] `version` 1.0.0, versionCode 4 (owner, 2026-10-24).
 
 ## 6. Owner setup for push, crash reporting and phone sign-in
 

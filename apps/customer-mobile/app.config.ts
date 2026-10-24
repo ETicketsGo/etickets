@@ -20,7 +20,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   // from a static app.json, and refuses to resolve the project without it.
   owner: 'srinivasdeeptrics',
   scheme: 'etickets',
-  version: '0.1.0',
+  version: '1.0.0',
   orientation: 'portrait',
   // Light only, like the storefront: dark is a stage band inside a page, not a theme.
   userInterfaceStyle: 'light',
