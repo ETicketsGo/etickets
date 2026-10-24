@@ -6,6 +6,16 @@ import { redactSecretSegments } from '../common/request-path';
 const logger = new Logger('Sentry');
 let initialised = false;
 
+/** Credentials, and the bot-check tokens: one-use proofs a replayed event must not hand out. */
+const SCRUBBED_HEADERS = new Set([
+  'authorization',
+  'cookie',
+  'set-cookie',
+  'x-turnstile-token',
+  'x-play-integrity-token',
+  'x-play-integrity-nonce',
+]);
+
 /**
  * Defensive PII scrubber (belt-and-suspenders on top of `sendDefaultPii: false`).
  * Strips anything that could carry secrets/PII from an outgoing event, regardless of
@@ -23,6 +33,7 @@ let initialised = false;
  * routes has one home. The query string is dropped from the URL for the same reason
  * `query_string` is deleted below.
  */
+
 export function scrubSensitiveData(event: ErrorEvent, _hint?: EventHint): ErrorEvent {
   try {
     if (typeof event.transaction === 'string') {
@@ -39,7 +50,7 @@ export function scrubSensitiveData(event: ErrorEvent, _hint?: EventHint): ErrorE
       if (headers) {
         for (const key of Object.keys(headers)) {
           const k = key.toLowerCase();
-          if (k === 'authorization' || k === 'cookie' || k === 'set-cookie') delete headers[key];
+          if (SCRUBBED_HEADERS.has(k)) delete headers[key];
         }
       }
     }

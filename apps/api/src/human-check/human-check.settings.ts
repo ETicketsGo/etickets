@@ -1,3 +1,5 @@
+import { normaliseDigest } from './play-integrity-verifier';
+
 /**
  * Settings for the human check (Cloudflare Turnstile), read once at boot.
  *
@@ -84,6 +86,24 @@ export interface HumanCheckSettings {
   adaptiveWindowSeconds: number;
   adaptiveStrictLimit: number;
   adaptiveLenientLimit: number;
+  /**
+   * The Android app's proof (Google Play Integrity), accepted in place of a Turnstile token.
+   * `null` = not configured: the app has no way to answer a challenge, exactly as before.
+   */
+  playIntegrity: PlayIntegritySettings | null;
+}
+
+export interface PlayIntegritySettings {
+  /** The application ids whose tokens we decode (production and the QA/UAT preview build). */
+  packageNames: string[];
+  /** Public: the app needs it to prepare Play's token provider. Sent in the 428 details. */
+  cloudProjectNumber: string;
+  /** The service account's JSON key. Secret. Needs no IAM role, only the API enabled. */
+  serviceAccountJson: string;
+  /** Accept UNRECOGNIZED_VERSION (a sideloaded build). For QA; refused at boot in PRODUCTION. */
+  allowUnrecognizedApp: boolean;
+  /** base64url SHA-256 signing-certificate digests. Empty = trust Play's recognition alone. */
+  certificateDigests: string[];
 }
 
 interface ConfigLike {
@@ -100,6 +120,36 @@ function bounded(raw: unknown, fallback: number, min: number, max: number): numb
 function text(raw: unknown): string | null {
   const v = typeof raw === 'string' ? raw.trim() : '';
   return v ? v : null;
+}
+
+function list(raw: unknown): string[] {
+  return (typeof raw === 'string' ? raw : '')
+    .split(',')
+    .map((v) => v.trim())
+    .filter(Boolean);
+}
+
+/** The three required values, read separately so a half-configured set can be reported. */
+function playIntegrityParts(config: ConfigLike) {
+  return {
+    packageNames: list(config.get<string>('PLAY_INTEGRITY_PACKAGE_NAMES')),
+    cloudProjectNumber: text(config.get<string>('PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER')),
+    serviceAccountJson: text(config.get<string>('PLAY_INTEGRITY_SERVICE_ACCOUNT_JSON')),
+  };
+}
+
+function playIntegritySettings(config: ConfigLike): PlayIntegritySettings | null {
+  const { packageNames, cloudProjectNumber, serviceAccountJson } = playIntegrityParts(config);
+  if (packageNames.length === 0 || !cloudProjectNumber || !serviceAccountJson) return null;
+  return {
+    packageNames,
+    cloudProjectNumber,
+    serviceAccountJson,
+    allowUnrecognizedApp:
+      (text(config.get<string>('PLAY_INTEGRITY_ALLOW_UNRECOGNIZED_APP')) ?? '').toLowerCase() ===
+      'true',
+    certificateDigests: list(config.get<string>('PLAY_INTEGRITY_CERT_SHA256')).map(normaliseDigest),
+  };
 }
 
 export function humanCheckSettings(config: ConfigLike): HumanCheckSettings {
@@ -128,7 +178,57 @@ export function humanCheckSettings(config: ConfigLike): HumanCheckSettings {
     ),
     adaptiveStrictLimit: bounded(config.get('TURNSTILE_ADAPTIVE_STRICT_LIMIT'), 3, 0, 1000),
     adaptiveLenientLimit: bounded(config.get('TURNSTILE_ADAPTIVE_LENIENT_LIMIT'), 5, 0, 1000),
+    playIntegrity: playIntegritySettings(config),
   };
+}
+
+/**
+ * Refuse to boot with Play Integrity half set up. Checked whatever TURNSTILE_MODE is, because
+ * "I set the key but forgot the package" otherwise looks configured and silently is not.
+ */
+export function assertPlayIntegritySettings(
+  config: ConfigLike,
+  settings: HumanCheckSettings,
+  appEnv?: string,
+): void {
+  const parts = playIntegrityParts(config);
+  const given = [
+    parts.packageNames.length > 0,
+    Boolean(parts.cloudProjectNumber),
+    Boolean(parts.serviceAccountJson),
+  ];
+  const errors: string[] = [];
+  if (given.some(Boolean) && !given.every(Boolean)) {
+    errors.push(
+      '  - Play Integrity needs all three of PLAY_INTEGRITY_PACKAGE_NAMES, ' +
+        'PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER and PLAY_INTEGRITY_SERVICE_ACCOUNT_JSON.',
+    );
+  }
+  const pi = settings.playIntegrity;
+  if (pi) {
+    if (!/^\d{6,20}$/.test(pi.cloudProjectNumber)) {
+      errors.push('  - PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER must be the numeric project number.');
+    }
+    try {
+      const key = JSON.parse(pi.serviceAccountJson) as Record<string, unknown>;
+      if (typeof key.client_email !== 'string' || typeof key.private_key !== 'string') {
+        throw new Error('incomplete');
+      }
+    } catch {
+      // Never echo the value: it is a private key.
+      errors.push('  - PLAY_INTEGRITY_SERVICE_ACCOUNT_JSON is not a service-account JSON key.');
+    }
+    const env = (appEnv ?? 'LOCAL').trim().toUpperCase() || 'LOCAL';
+    if (env === 'PRODUCTION' && pi.allowUnrecognizedApp) {
+      errors.push(
+        '  - PLAY_INTEGRITY_ALLOW_UNRECOGNIZED_APP=true in APP_ENV=PRODUCTION would accept ' +
+          'any modified copy of the app. It is for sideloaded QA builds only.',
+      );
+    }
+  }
+  if (errors.length > 0) {
+    throw new Error(`Play Integrity cannot work as configured:\n${errors.join('\n')}`);
+  }
 }
 
 /** Environments with no public hostname of their own: a laptop, or a test run. */

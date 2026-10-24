@@ -1,5 +1,6 @@
 import axios, { AxiosError, type InternalAxiosRequestConfig } from 'axios';
 import { env } from './env';
+import { playIntegrityChallenge, playIntegrityHeaders } from './human-check';
 import { isUnreachable } from './network-error';
 import { tokenStore, type AuthTokens } from './secure-store';
 
@@ -56,15 +57,40 @@ async function refreshTokens(): Promise<AuthTokens | null> {
 
 // Endpoints that must never trigger a refresh retry (they ARE the auth flow) —
 // prevents any recursive refresh loop.
-const AUTH_PATHS = ['/auth/login', '/auth/refresh', '/auth/register', '/auth/logout'];
+const AUTH_PATHS = [
+  '/auth/login',
+  '/auth/refresh',
+  '/auth/register',
+  '/auth/logout',
+  '/auth/phone/request-code',
+  '/auth/phone/verify',
+];
 const isAuthPath = (url?: string) => !!url && AUTH_PATHS.some((p) => url.includes(p));
 
 apiClient.interceptors.response.use(
   (res) => res,
   async (error: AxiosError) => {
     const original = error.config as
-      (InternalAxiosRequestConfig & { _retried?: boolean }) | undefined;
+      (InternalAxiosRequestConfig & { _retried?: boolean; _humanChecked?: boolean }) | undefined;
     const status = error.response?.status;
+
+    /*
+      The API's human check (sign-in, sign-up, phone codes, guest checkout): answered ONCE with
+      Play's verdict about this install, then left to the server. A second refusal is final,
+      so a device Play does not vouch for gets the server's message, never a retry loop.
+      See services/human-check.ts.
+    */
+    if ((status === 428 || status === 403) && original && !original._humanChecked) {
+      const challenge = playIntegrityChallenge(error.response?.data);
+      if (challenge) {
+        original._humanChecked = true;
+        const headers = await playIntegrityHeaders(challenge);
+        if (headers) {
+          for (const [name, value] of Object.entries(headers)) original.headers.set(name, value);
+          return apiClient(original);
+        }
+      }
+    }
 
     if (status === 401 && original && !original._retried && !isAuthPath(original.url)) {
       original._retried = true;
