@@ -104,6 +104,11 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   logout: async () => {
+    // While the session still exists, so the server accepts it. Imported lazily: the push
+    // module reaches the API client, which reads this store.
+    await import('@/services/push-registration')
+      .then((m) => m.forgetPushDevice())
+      .catch(() => undefined);
     const tokens = await tokenStore.get();
     if (tokens) await authRepository.logout(tokens.refreshToken).catch(() => undefined);
     await tokenStore.clear();

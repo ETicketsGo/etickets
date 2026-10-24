@@ -1,8 +1,9 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { RefreshControl, ScrollView, View } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { Screen } from '@/components/screen';
 import { TopBar } from '@/components/top-bar';
+import { askForPushAfterBooking } from '@/services/push-registration';
 import { EmptyState, ErrorState, LoadingState, OfflineBanner } from '@/components/states';
 import { useOnline } from '@/hooks/use-online';
 import { Badge, Card, Eyebrow, Text } from '@/ui';
@@ -32,6 +33,11 @@ export default function BookingScreen() {
   const tickets = useOfflineTickets();
 
   const booking = bookingQuery.data;
+  const confirmed = booking?.status.toUpperCase() === 'CONFIRMED';
+  // The moment a person sees why updates matter: their first confirmed booking. Asked once.
+  useEffect(() => {
+    if (confirmed) void askForPushAfterBooking();
+  }, [confirmed]);
   const pending = booking?.status.toUpperCase() === 'PENDING_PAYMENT';
   // True while the screen is still re-reading the booking by itself.
   const waitingForConfirmation = pending && bookingQuery.polling;

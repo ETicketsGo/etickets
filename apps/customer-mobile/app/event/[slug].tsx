@@ -16,7 +16,7 @@ import {
   formatShortTime,
   dateParts,
 } from '@/services/locale';
-import { env } from '@/services/env';
+import { webUrl } from '@/services/legal';
 import { useEvent } from '@/features/events/api';
 import { QuantityStepper } from '@/features/events/quantity-stepper';
 import { EventPicture } from '@/features/events/event-picture';
@@ -578,7 +578,7 @@ function EventSkeleton() {
 }
 
 async function shareEvent(event: EventDetail) {
-  const url = `https://${env.webHost ?? 'eticketsgo.com'}/events/${event.slug}`;
+  const url = webUrl(`/events/${event.slug}`);
   try {
     await Share.share({ message: `${event.title} - ${url}`, url, title: event.title });
   } catch {

@@ -41,6 +41,14 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     // this app scans a QR code — customers DISPLAY one, staff scan it, and that is the
     // organizer app's job. It was pulling in CAMERA and RECORD_AUDIO.
     permissions: ['POST_NOTIFICATIONS'],
+    /*
+      Push needs Firebase's config file on Android. It is supplied to the BUILD (an EAS file
+      environment variable, never committed), and push stays off in any build without it:
+      see src/services/push-registration.ts.
+    */
+    ...(process.env.GOOGLE_SERVICES_JSON
+      ? { googleServicesFile: process.env.GOOGLE_SERVICES_JSON }
+      : {}),
     /**
      * Permissions that libraries add and this app does not use. Verified by generating
      * the native project and reading the merged manifest — none of these is visible
@@ -68,7 +76,17 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
           {
             action: 'VIEW',
             autoVerify: true,
-            data: [{ scheme: 'https', host: process.env.EXPO_PUBLIC_WEB_HOST }],
+            /*
+              Only the pages the app can show: an event, a film, a booking. Claiming the whole
+              host would open the app for checkout, sign-in and every other page it has no
+              screen for. The same paths as the iOS association file (PR 470). Verified
+              against /.well-known/assetlinks.json on the host.
+            */
+            data: ['/events', '/movies', '/booking'].map((pathPrefix) => ({
+              scheme: 'https',
+              host: process.env.EXPO_PUBLIC_WEB_HOST,
+              pathPrefix,
+            })),
             category: ['BROWSABLE', 'DEFAULT'],
           },
         ]
@@ -120,6 +138,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     apiUrl: process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:4000/api',
     webHost: process.env.EXPO_PUBLIC_WEB_HOST ?? null,
     sentryDsn: process.env.EXPO_PUBLIC_SENTRY_DSN ?? null,
+    pushEnabled: Boolean(process.env.GOOGLE_SERVICES_JSON),
     env: process.env.EXPO_PUBLIC_ENV ?? 'development',
   },
 });

@@ -26,7 +26,9 @@ export type LegalDocument = keyof typeof LEGAL_PATHS;
  * that 404s is worse than one pointing at the canonical published document, and these
  * pages are public, static and identical in content across environments.
  */
-const FALLBACK_HOST = 'eticketsgo.com';
+// www, not the bare domain: eticketsgo.com/privacy is a 404 (only the bare root redirects),
+// so every legal link in a production build pointed at a missing page. Checked 2026-10-24.
+const FALLBACK_HOST = 'www.eticketsgo.com';
 
 export function legalUrl(document: LegalDocument): string {
   const host = env.webHost ?? FALLBACK_HOST;

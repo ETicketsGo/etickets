@@ -57,7 +57,7 @@
       "env": {
         "EXPO_PUBLIC_ENV": "production",
         "EXPO_PUBLIC_API_URL": "https://api.eticketsgo.com/api",
-        "EXPO_PUBLIC_WEB_HOST": "eticketsgo.com"
+        "EXPO_PUBLIC_WEB_HOST": "www.eticketsgo.com"
       },
       "android": {
         "buildType": "app-bundle"

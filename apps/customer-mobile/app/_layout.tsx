@@ -20,6 +20,7 @@ import { AppProviders } from '@/components/providers';
 import { useAuthStore } from '@/application/auth-store';
 import { initSentry, Sentry } from '@/services/sentry';
 import { useDeepLinks } from '@/hooks/use-deep-links';
+import { syncPushRegistration } from '@/services/push-registration';
 
 initSentry();
 SplashScreen.preventAutoHideAsync().catch(() => undefined);
@@ -86,5 +87,14 @@ export default Sentry.wrap(RootLayout);
  */
 function DeepLinkHandler() {
   useDeepLinks();
+  usePushSync();
   return null;
+}
+
+/** Register this phone for push once a session exists (no prompt; see push-registration). */
+function usePushSync() {
+  const status = useAuthStore((s) => s.status);
+  useEffect(() => {
+    if (status === 'authenticated') void syncPushRegistration();
+  }, [status]);
 }
