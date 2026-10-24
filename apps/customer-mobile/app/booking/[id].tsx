@@ -11,7 +11,12 @@ import { formatEventWhen, formatMoney } from '@/services/locale';
 import { useBooking } from '@/features/bookings/api';
 import { useOfflineTickets } from '@/features/bookings/use-offline-tickets';
 import { OfflineTicketNotice } from '@/features/bookings/offline-notice';
-import { bookingStatusLabel, bookingTone, ticketState } from '@/features/bookings/schema';
+import {
+  bookingStatusLabel,
+  bookingTone,
+  ticketCount,
+  ticketState,
+} from '@/features/bookings/schema';
 import type { CachedTicket } from '@/services/ticket-cache';
 import { TicketQr } from '@/features/bookings/ticket-qr';
 import { BookingManage } from '@/features/bookings/booking-manage';
@@ -148,7 +153,7 @@ export default function BookingScreen() {
           <Card className="gap-3 p-5">
             <Eyebrow>Booking details</Eyebrow>
             {booking.reference ? <Row label="Reference" value={booking.reference} /> : null}
-            <Row label="Tickets" value={String(booking.tickets.length)} />
+            <Row label="Tickets" value={String(ticketCount(booking))} />
             <Row
               label={pending ? 'Total' : 'Paid'}
               value={formatMoney(booking.totalMinor, booking.currency)}
