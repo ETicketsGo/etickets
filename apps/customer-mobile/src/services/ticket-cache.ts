@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { z } from 'zod';
-import { ticketSchema, type Ticket } from '@/features/bookings/schema';
+import { canPresentTicket, ticketSchema, type Ticket } from '@/features/bookings/schema';
 
 /**
  * On-device cache of issued tickets, so someone at a venue with no signal can still
@@ -31,8 +31,13 @@ import { ticketSchema, type Ticket } from '@/features/bookings/schema';
 const KEY_PREFIX = 'etg.tickets.v1.';
 const key = (userId: string) => `${KEY_PREFIX}${userId}`;
 
-/** Ticket as cached: the API shape minus the credential. */
-export const cachedTicketSchema = ticketSchema.omit({ qrToken: true });
+/**
+ * Ticket as cached: the API shape minus the credential, plus whether this viewer may present
+ * it. Optional so caches written before the field existed still parse.
+ */
+export const cachedTicketSchema = ticketSchema
+  .omit({ qrToken: true })
+  .extend({ presentable: z.boolean().optional() });
 export type CachedTicket = z.infer<typeof cachedTicketSchema>;
 
 const cacheEnvelopeSchema = z.object({
@@ -57,10 +62,10 @@ export type TicketCacheEnvelope = z.infer<typeof cacheEnvelopeSchema>;
  */
 export const MAX_CACHE_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
-function stripCredential(ticket: Ticket): CachedTicket {
+export function stripCredential(ticket: Ticket): CachedTicket {
   // Destructured out rather than deleted, so a future field is not silently retained.
-  const { qrToken: _qrToken, ...rest } = ticket;
-  return rest;
+  const { qrToken, ...rest } = ticket;
+  return { ...rest, presentable: canPresentTicket({ qrToken }) };
 }
 
 /**

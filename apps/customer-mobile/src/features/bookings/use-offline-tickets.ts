@@ -4,6 +4,7 @@ import { useOnline } from '@/hooks/use-online';
 import {
   readTickets,
   saveTickets,
+  stripCredential,
   type CacheReadResult,
   type CachedTicket,
 } from '@/services/ticket-cache';
@@ -87,7 +88,7 @@ export function useOfflineTickets(): OfflineTicketsResult {
       // The live payload includes qrToken; the screens only ever read qrDataUrl, and
       // the cached shape omits it. Narrowing here keeps both paths on one type so a
       // component cannot accidentally depend on the credential being present.
-      tickets: live.map(({ qrToken: _qrToken, ...rest }) => rest),
+      tickets: live.map(stripCredential),
       fromCache: false,
       syncedAt: cache?.status === 'ok' || cache?.status === 'stale' ? cache.syncedAt : null,
       stale: false,

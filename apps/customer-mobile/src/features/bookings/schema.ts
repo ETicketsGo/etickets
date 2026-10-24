@@ -57,8 +57,13 @@ export const ticketSchema = z.object({
    * Display uses `qrDataUrl`, which the API renders server-side; generating a code from
    * this token client-side would mean inventing a QR encoding the scanner never agreed
    * to, and the first anyone would know is a queue that will not move.
+   *
+   * NULL when this viewer may see the ticket but not present it — e.g. the buyer of a
+   * ticket they transferred to someone else (tickets.service.ts `mayPresent`). It was a
+   * required string, so one transferred ticket failed the parse of the WHOLE wallet and
+   * the customer saw no tickets at all. Missing and empty are treated the same as null.
    */
-  qrToken: z.string(),
+  qrToken: z.string().nullish(),
   /**
    * Server-rendered QR as a data: URI. This is what gets displayed and cached.
    *
@@ -135,4 +140,13 @@ export function isLiveBooking(status: string): boolean {
     default:
       return true;
   }
+}
+
+/**
+ * Whether this viewer can present the ticket at the gate. The server withholds the token
+ * (null) from a viewer who may see a ticket but not use it; missing or empty counts as
+ * withheld.
+ */
+export function canPresentTicket(ticket: { qrToken?: string | null }): boolean {
+  return typeof ticket.qrToken === 'string' && ticket.qrToken.length > 0;
 }
