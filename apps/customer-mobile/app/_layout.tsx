@@ -10,6 +10,12 @@ import {
   Inter_600SemiBold,
   Inter_700Bold,
 } from '@expo-google-fonts/inter';
+import {
+  BricolageGrotesque_600SemiBold,
+  BricolageGrotesque_700Bold,
+  BricolageGrotesque_800ExtraBold,
+} from '@expo-google-fonts/bricolage-grotesque';
+import { palette } from '@/theme';
 import { AppProviders } from '@/components/providers';
 import { useAuthStore } from '@/application/auth-store';
 import { initSentry, Sentry } from '@/services/sentry';
@@ -24,6 +30,11 @@ function RootLayout() {
     Inter_500Medium,
     Inter_600SemiBold,
     Inter_700Bold,
+    // The storefront's display face (DESIGN-SYSTEM.md section 2): titles only. Bundled
+    // into the binary by the package, so nothing is fetched from Google at run time.
+    BricolageGrotesque_600SemiBold,
+    BricolageGrotesque_700Bold,
+    BricolageGrotesque_800ExtraBold,
   });
   const status = useAuthStore((s) => s.status);
   const hydrate = useAuthStore((s) => s.hydrate);
@@ -49,6 +60,8 @@ function RootLayout() {
         screenOptions={{
           headerShown: false,
           animation: Platform.OS === 'ios' ? 'default' : 'fade',
+          // Paper behind every screen, so a transition never flashes white.
+          contentStyle: { backgroundColor: palette.canvas },
         }}
       >
         <Stack.Screen name="index" options={{ animation: 'fade' }} />

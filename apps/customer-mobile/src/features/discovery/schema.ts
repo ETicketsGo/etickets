@@ -30,6 +30,11 @@ export const venueSchema = z.object({
 /** A bookable event/experience as it appears in a list. */
 export const eventSummarySchema = z.object({
   id: z.string(),
+  /**
+   * DEMO or TEST on catalogue the platform seeded for QA. The website labels it "Sample
+   * event" / "Test event"; the app does the same, so nobody books a showcase by mistake.
+   */
+  contentLabel: z.string().nullish(),
   title: z.string(),
   slug: z.string(),
   category: z.string(),
@@ -46,6 +51,11 @@ export const eventSummarySchema = z.object({
 
 export const movieSummarySchema = z.object({
   id: z.string(),
+  /**
+   * DEMO or TEST on catalogue the platform seeded for QA. The website labels it "Sample
+   * event" / "Test event"; the app does the same, so nobody books a showcase by mistake.
+   */
+  contentLabel: z.string().nullish(),
   title: z.string(),
   slug: z.string(),
   posterUrl: z.string().nullable(),

@@ -3,6 +3,7 @@ import { ScrollView, Switch, View } from 'react-native';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { Screen } from '@/components/screen';
+import { TopBar } from '@/components/top-bar';
 import { ErrorState, LoadingState, OfflineBanner } from '@/components/states';
 import { useOnline } from '@/hooks/use-online';
 import { ListGroup, ListRow, SectionHeader, Separator, Text } from '@/ui';
@@ -84,11 +85,12 @@ export default function NotificationSettingsScreen() {
   }
 
   return (
-    <Screen padded={false}>
+    <Screen padded={false} edges={['top']}>
+      <TopBar />
       {!online ? <OfflineBanner /> : null}
       <ScrollView contentContainerClassName="pb-10" showsVerticalScrollIndicator={false}>
-        <View className="px-5 pb-4 pt-2">
-          <Text variant="largeTitle" accessibilityRole="header">
+        <View className="px-4 pb-4 pt-1">
+          <Text variant="d1" accessibilityRole="header">
             Notifications
           </Text>
           <Text variant="subhead" tone="muted" className="mt-1">
@@ -151,7 +153,7 @@ export default function NotificationSettingsScreen() {
                   <View key={c.channel}>
                     {i > 0 ? <Separator inset /> : null}
                     <ListRow
-                      label={`${label} — ${CHANNEL_LABELS[c.channel] ?? c.channel}`}
+                      label={`${label} - ${CHANNEL_LABELS[c.channel] ?? c.channel}`}
                       showChevron={false}
                       /*
                         The emergency SMS is not a preference: it opens only if a cancelled

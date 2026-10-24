@@ -2,12 +2,16 @@ import { useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Alert, ScrollView, View } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '@/components/screen';
+import { TopBar } from '@/components/top-bar';
+import { BookingBar } from '@/components/booking-bar';
+import { palette } from '@/theme';
 import { ErrorState, OfflineBanner } from '@/components/states';
 import { useOnline } from '@/hooks/use-online';
 import { useAuth } from '@/hooks/use-auth';
-import { Button, Card, Field, IconButton, Separator, Text } from '@/ui';
-import { formatMoney } from '@/services/locale';
+import { Button, Card, Eyebrow, Field, Separator, Text } from '@/ui';
+import { formatEventWhen, formatMoney } from '@/services/locale';
 import { messageForError } from '@/services/errors';
 import { useEvent } from '@/features/events/api';
 import {
@@ -128,7 +132,7 @@ export default function CheckoutScreen() {
     const next: typeof errors = {};
     if (buyerName.trim().length < 2) next.name = 'Enter the name on the booking.';
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(buyerEmail.trim()))
-      next.email = 'Enter a valid email address — your tickets are sent here.';
+      next.email = 'Enter a valid email address. Your tickets are sent here.';
     setErrors(next);
     return Object.keys(next).length === 0;
   };
@@ -224,23 +228,21 @@ Your tickets are still held for a few minutes. You can try again.`
     0,
   );
 
+  const when = session ? formatEventWhen(session.startsAt, event?.timeZone ?? undefined) : null;
+  const totalLabel = fees ? formatMoney(fees.totalMinor, currency) : null;
+
   return (
     <Screen padded={false} edges={['top']}>
       <Stack.Screen options={{ headerShown: false }} />
+      <TopBar title="Checkout" />
       {!online ? <OfflineBanner /> : null}
 
-      <View className="flex-row items-center gap-1 px-2 py-1">
-        <IconButton
-          icon="chevron-back"
-          accessibilityLabel="Go back"
-          onPress={() => router.back()}
-        />
-        <Text variant="callout" className="flex-1 font-semibold">
-          Checkout
-        </Text>
-      </View>
-
-      <ScrollView contentContainerClassName="gap-5 px-5 pb-6 pt-2" keyboardDismissMode="on-drag">
+      <ScrollView
+        contentContainerClassName="gap-7 px-4 pb-8 pt-2"
+        keyboardDismissMode="on-drag"
+        keyboardShouldPersistTaps="handled"
+        automaticallyAdjustKeyboardInsets
+      >
         {booking?.holdExpiresAt ? (
           <HoldCountdown
             expiresAt={booking.holdExpiresAt}
@@ -254,43 +256,43 @@ Your tickets are still held for a few minutes. You can try again.`
           />
         ) : null}
 
-        <View className="gap-2">
-          <Text variant="title3" accessibilityRole="header">
-            {event?.title ?? 'Your tickets'}
-          </Text>
-          {params.seatNames ? (
-            <Text variant="subhead" tone="muted">
-              Seats {params.seatNames}
+        <Card className="gap-4 p-5">
+          <View className="gap-1">
+            <Eyebrow>Your order</Eyebrow>
+            <Text variant="d3" accessibilityRole="header">
+              {event?.title ?? 'Your tickets'}
             </Text>
-          ) : null}
-          <Card padded={false}>
-            {lineItems.map((r, i) => (
-              <View key={r.item.ticketTypeId}>
-                {i > 0 ? <Separator /> : null}
-                <View className="flex-row items-center justify-between p-4">
-                  <View className="flex-1">
-                    <Text variant="body">
-                      {r.type?.name} × {r.item.quantity}
-                    </Text>
-                    {r.item.seatIds?.length ? (
-                      <Text variant="caption" tone="muted">
-                        Reserved seating
-                      </Text>
-                    ) : null}
-                  </View>
-                  <Text variant="body" className="font-semibold">
-                    {formatMoney((r.type?.priceMinor ?? 0) * r.item.quantity, currency)}
-                  </Text>
-                </View>
-              </View>
-            ))}
-          </Card>
-        </View>
+            {when ? (
+              <Text variant="meta" tone="secondary">
+                {when}
+                {event?.venue.name ? ` - ${event.venue.name}, ${event.venue.city}` : ''}
+              </Text>
+            ) : null}
+            {params.seatNames ? (
+              <Text variant="uiStrong" className="mt-1">
+                Seats {params.seatNames}
+              </Text>
+            ) : null}
+          </View>
+          <Separator />
+          {lineItems.map((r) => (
+            <View key={r.item.ticketTypeId} className="flex-row items-center justify-between gap-3">
+              <Text variant="body" className="flex-1">
+                {r.type?.name}
+                <Text variant="body" tone="muted">
+                  {'  x '}
+                  {r.item.quantity}
+                </Text>
+              </Text>
+              <Text variant="body" className="font-semibold" tabular>
+                {formatMoney((r.type?.priceMinor ?? 0) * r.item.quantity, currency)}
+              </Text>
+            </View>
+          ))}
+        </Card>
 
-        <View className="gap-3">
-          <Text variant="title3" accessibilityRole="header">
-            Where should we send them?
-          </Text>
+        <View className="gap-4">
+          <Eyebrow>Send tickets to</Eyebrow>
           <Field
             label="Full name"
             value={buyerName}
@@ -317,99 +319,110 @@ Your tickets are still held for a few minutes. You can try again.`
             // The API books only for a signed-in account (POST /bookings is 401 without
             // one). Its guest route needs a browser human check this app cannot run, so
             // offering guest checkout here led to a refusal after the buyer filled the form.
-            <Text variant="footnote" tone="muted">
-              Sign in to book. Your tickets are kept in your account, so you can open them on any
-              device.
-            </Text>
+            <Card tone="sunken" className="gap-1">
+              <Text variant="uiStrong">Sign in to book</Text>
+              <Text variant="ui" tone="secondary">
+                Your tickets are kept in your account, so you can open them on any device.
+              </Text>
+            </Card>
           ) : null}
         </View>
 
-        <View className="gap-2">
-          <Text variant="title3" accessibilityRole="header">
-            Discount code
-          </Text>
-          <View className="gap-2">
-            <View>
-              <Field
-                label="Code"
-                value={couponInput}
-                onChangeText={setCouponInput}
-                autoCapitalize="characters"
-                autoCorrect={false}
-                // The code is fixed into the booking when seats are held.
-                editable={!booking && !paying}
-                error={couponRejected ? 'This code does not apply to these tickets.' : undefined}
-                hint={
-                  booking
-                    ? 'Codes can be changed only before your tickets are held.'
-                    : quote.data?.coupon?.applied
-                      ? `Code ${quote.data.coupon.code} applied.`
-                      : undefined
-                }
-              />
-            </View>
-            <Button
-              label="Apply code"
-              variant="secondary"
-              size="sm"
-              fullWidth={false}
-              disabled={Boolean(booking) || paying || couponInput.trim().length === 0}
-              loading={quote.isFetching && Boolean(couponCode)}
-              onPress={() => setCouponCode(couponInput.trim().toUpperCase())}
-            />
-          </View>
+        <View className="gap-3">
+          <Field
+            label="Discount code"
+            placeholder="Optional"
+            value={couponInput}
+            onChangeText={setCouponInput}
+            autoCapitalize="characters"
+            autoCorrect={false}
+            // The code is fixed into the booking when seats are held.
+            editable={!booking && !paying}
+            error={couponRejected ? 'This code does not apply to these tickets.' : undefined}
+            hint={
+              booking
+                ? 'Codes can be changed only before your tickets are held.'
+                : quote.data?.coupon?.applied
+                  ? `Code ${quote.data.coupon.code} applied.`
+                  : undefined
+            }
+          />
+          <Button
+            label="Apply code"
+            variant="secondary"
+            fullWidth={false}
+            disabled={Boolean(booking) || paying || couponInput.trim().length === 0}
+            loading={quote.isFetching && Boolean(couponCode)}
+            onPress={() => setCouponCode(couponInput.trim().toUpperCase())}
+          />
         </View>
 
-        <View className="gap-2">
-          <Text variant="title3" accessibilityRole="header">
-            Total
+        <Card className="gap-3 p-5">
+          <Eyebrow>Price breakdown</Eyebrow>
+          {fees ? (
+            <>
+              <Line label="Tickets" value={formatMoney(fees.subtotalMinor, currency)} />
+              {feeLines(fees).map((line) => (
+                <Line
+                  key={line.label}
+                  label={line.label}
+                  value={
+                    line.minor < 0
+                      ? `-${formatMoney(-line.minor, currency)}`
+                      : formatMoney(line.minor, currency)
+                  }
+                />
+              ))}
+              <View className="h-[2px] bg-ink" />
+              <View className="flex-row items-center justify-between">
+                <Text variant="uiStrong">Total</Text>
+                <Text variant="figureSm">{formatMoney(fees.totalMinor, currency)}</Text>
+              </View>
+              <Text variant="meta" tone="muted">
+                This is the total you will be charged. Every fee is listed above.
+              </Text>
+            </>
+          ) : (
+            <>
+              <Line label="Tickets" value={formatMoney(estimatedSubtotal, currency)} />
+              {/* The quote has not answered yet. Inventing a fee meanwhile would show a
+                  number that changes at the moment of payment. */}
+              <Text variant="meta" tone="muted">
+                {quote.isError
+                  ? 'We could not get the final price. It is shown before you pay.'
+                  : 'Getting the final price...'}
+              </Text>
+            </>
+          )}
+        </Card>
+
+        <View className="flex-row items-center gap-2 px-1">
+          <Ionicons name="lock-closed-outline" size={15} color={palette.textMuted} />
+          <Text variant="meta" tone="muted" className="flex-1">
+            Payment is handled by our payment partner. We never see your card number.
           </Text>
-          <Card className="gap-2">
-            {fees ? (
-              <>
-                <Line label="Tickets" value={formatMoney(fees.subtotalMinor, currency)} />
-                {feeLines(fees).map((line) => (
-                  <Line
-                    key={line.label}
-                    label={line.label}
-                    value={
-                      line.minor < 0
-                        ? `-${formatMoney(-line.minor, currency)}`
-                        : formatMoney(line.minor, currency)
-                    }
-                  />
-                ))}
-                <Separator />
-                <View className="flex-row items-center justify-between">
-                  <Text variant="headline">Total</Text>
-                  <Text variant="title3">{formatMoney(fees.totalMinor, currency)}</Text>
-                </View>
-              </>
-            ) : (
-              <>
-                <Line label="Tickets" value={formatMoney(estimatedSubtotal, currency)} />
-                {/* The quote has not answered yet. Inventing a fee meanwhile would show a
-                    number that changes at the moment of payment. */}
-                <Text variant="footnote" tone="muted">
-                  {quote.isError
-                    ? 'We could not get the final price. It is shown before you pay.'
-                    : 'Getting the final price...'}
-                </Text>
-              </>
-            )}
-          </Card>
         </View>
       </ScrollView>
 
-      <View className="border-t border-border bg-background-surface px-5 pb-2 pt-3">
+      <BookingBar>
         {isAuthenticated ? (
-          <Button
-            label={fees ? `Pay ${formatMoney(fees.totalMinor, currency)}` : 'Continue to payment'}
-            size="lg"
-            loading={paying}
-            disabled={!online}
-            onPress={() => void onPay()}
-          />
+          <View className="flex-row items-center gap-4">
+            <View className="flex-1">
+              <Text variant="meta" tone="muted">
+                Total
+              </Text>
+              <Text variant="figureSm">{totalLabel ?? '...'}</Text>
+            </View>
+            <Button
+              label={fees ? 'Pay now' : 'Continue to payment'}
+              accessibilityLabel={totalLabel ? `Pay ${totalLabel}` : 'Continue to payment'}
+              size="lg"
+              fullWidth={false}
+              loading={paying}
+              disabled={!online}
+              onPress={() => void onPay()}
+            />
+          </View>
         ) : (
           <Button
             label="Sign in to continue"
@@ -419,22 +432,24 @@ Your tickets are still held for a few minutes. You can try again.`
           />
         )}
         {!online ? (
-          <Text variant="footnote" tone="muted" className="mt-2 text-center">
+          <Text variant="meta" tone="muted" className="mt-2 text-center">
             You need a connection to complete a booking.
           </Text>
         ) : null}
-      </View>
+      </BookingBar>
     </Screen>
   );
 }
 
 function Line({ label, value }: { label: string; value: string }) {
   return (
-    <View className="flex-row items-center justify-between">
-      <Text variant="subhead" tone="secondary">
+    <View className="flex-row items-center justify-between gap-3">
+      <Text variant="ui" tone="secondary">
         {label}
       </Text>
-      <Text variant="subhead">{value}</Text>
+      <Text variant="ui" className="font-medium" tabular>
+        {value}
+      </Text>
     </View>
   );
 }

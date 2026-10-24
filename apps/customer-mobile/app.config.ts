@@ -22,7 +22,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   scheme: 'etickets',
   version: '0.1.0',
   orientation: 'portrait',
-  userInterfaceStyle: 'automatic', // light + dark
+  // Light only, like the storefront: dark is a stage band inside a page, not a theme.
+  userInterfaceStyle: 'light',
   // New Architecture is the default in SDK 56; the field was removed from ExpoConfig.
   icon: './assets/icon.png',
   assetBundlePatterns: ['**/*'],

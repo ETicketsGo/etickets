@@ -1,7 +1,7 @@
 import { forwardRef, useId, useState } from 'react';
 import { Pressable, TextInput, View, type TextInputProps } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useTheme } from '@/theme';
+import { palette } from '@/theme';
 import { Text } from './text';
 
 export interface FieldProps extends Omit<TextInputProps, 'className' | 'style'> {
@@ -43,20 +43,22 @@ export const Field = forwardRef<TextInput, FieldProps>(function Field(
   },
   ref,
 ) {
-  const { colors } = useTheme();
+  const colors = palette;
   const [focused, setFocused] = useState(false);
   const [revealed, setRevealed] = useState(false);
   const errorId = useId();
 
+  // The storefront's field (DESIGN-SYSTEM.md section 4): an outline at 3:1 on every surface,
+  // a 2px gold focus ring in its text strength, a 2px critical outline with words below.
   const border = error
-    ? 'border-status-error'
+    ? 'border-2 border-critical'
     : focused
-      ? 'border-action-primary'
-      : 'border-border';
+      ? 'border-2 border-gold-text'
+      : 'border border-border-field';
 
   return (
     <View className={`gap-1.5 ${containerClassName}`}>
-      <Text variant="subhead" tone="secondary" className="font-medium">
+      <Text variant="ui" className="font-semibold">
         {label}
       </Text>
 
@@ -84,12 +86,12 @@ export const Field = forwardRef<TextInput, FieldProps>(function Field(
          * never changes parent. The cost is one always-present view per field.
          */
         collapsable={false}
-        className={`flex-row gap-2 rounded-md border bg-background-surface px-3 ${border} ${
+        className={`flex-row gap-2 rounded-control bg-background-surface px-3 ${border} ${
           // A multiline field's icon and reveal button belong at the top, beside the
           // first line, not floating in the vertical middle of a growing box.
           multiline ? 'items-start pt-3' : 'items-center'
         } ${editable ? '' : 'opacity-50'}`}
-        style={{ minHeight: multiline ? (minHeight ?? 120) : 48 }}
+        style={{ minHeight: multiline ? (minHeight ?? 120) : 46 }}
       >
         {icon ? <Ionicons name={icon} size={18} color={colors.textMuted} /> : null}
         <TextInput
@@ -116,7 +118,7 @@ export const Field = forwardRef<TextInput, FieldProps>(function Field(
           // Android centres multiline text vertically by default, which looks like a
           // rendering fault in a tall box. iOS ignores this.
           textAlignVertical={multiline ? 'top' : 'auto'}
-          className="flex-1 py-3 font-sans text-body text-text-primary"
+          className="flex-1 py-2.5 font-text text-body text-ink"
           maxFontSizeMultiplier={1.6}
           {...rest}
         />
@@ -136,11 +138,17 @@ export const Field = forwardRef<TextInput, FieldProps>(function Field(
       {error ? (
         // `alert` so the message is announced when it appears, not only when the user
         // navigates back to the field.
-        <Text nativeID={errorId} accessibilityRole="alert" variant="footnote" tone="danger">
+        <Text
+          nativeID={errorId}
+          accessibilityRole="alert"
+          variant="meta"
+          tone="danger"
+          className="font-medium"
+        >
           {error}
         </Text>
       ) : hint ? (
-        <Text variant="footnote" tone="muted">
+        <Text variant="meta" tone="muted">
           {hint}
         </Text>
       ) : null}

@@ -9,6 +9,11 @@ import { z } from 'zod';
  */
 
 export const publicMovieSchema = z.object({
+  /**
+   * DEMO or TEST on catalogue the platform seeded for QA. The website labels it "Sample
+   * event" / "Test event"; the app does the same, so nobody books a showcase by mistake.
+   */
+  contentLabel: z.string().nullish(),
   id: z.string(),
   title: z.string(),
   slug: z.string(),

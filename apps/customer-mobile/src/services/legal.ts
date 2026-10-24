@@ -41,3 +41,11 @@ export function legalLinks(): { key: LegalDocument; label: string; url: string }
     { key: 'refunds', label: 'Refund & cancellation policy', url: legalUrl('refunds') },
   ];
 }
+
+/**
+ * A page on the storefront, from the same configured host as the legal links. For flows
+ * that live on the website and are not rebuilt in the app (password reset).
+ */
+export function webUrl(path: `/${string}`): string {
+  return `https://${env.webHost ?? FALLBACK_HOST}${path}`;
+}

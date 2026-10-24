@@ -41,7 +41,7 @@ export function SeatMapView({
   /** Called when the user taps a seat they cannot have, so the screen can explain why. */
   onSeatBlocked: (seat: Seat, rowLabel: string) => void;
 }) {
-  const { scheme, colors } = useTheme();
+  const { scheme } = useTheme();
   const { width: windowWidth } = useWindowDimensions();
   const selected = useMemo(() => new Set(selectedSeatIds), [selectedSeatIds]);
   const categoryById = useMemo(
@@ -138,16 +138,16 @@ export function SeatMapView({
           {/* Screen indicator — the map is meaningless without knowing which way the
               audience faces. */}
           <View className="items-center gap-1" style={{ width: rowWidth }}>
-            <View className="h-1 w-3/5 rounded-full" style={{ backgroundColor: colors.border }} />
-            <Text variant="caption" tone="muted">
-              SCREEN
+            <View className="h-1 w-3/5 rounded-full bg-gold-on-ink" />
+            <Text variant="eyebrow" tone="goldOnStage">
+              Screen
             </Text>
           </View>
 
           {map.sections.map((section) => (
             <View key={section.name} className="gap-1.5">
               {map.sections.length > 1 ? (
-                <Text variant="caption" tone="muted" className="pl-11 uppercase">
+                <Text variant="eyebrow" tone="onStage3" className="pl-11">
                   {section.name}
                 </Text>
               ) : null}
@@ -155,7 +155,7 @@ export function SeatMapView({
               {section.rows.map((row) => (
                 <View key={`${section.name}-${row.label}`} className="flex-row items-center">
                   <View style={{ width: 44 }}>
-                    <Text variant="caption" tone="muted" className="text-center">
+                    <Text variant="meta" tone="onStage3" className="text-center">
                       {row.label}
                     </Text>
                   </View>

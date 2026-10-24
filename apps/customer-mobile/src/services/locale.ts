@@ -46,7 +46,11 @@ export const REGION_CURRENCY: Record<Region, string> = { IN: 'INR', US: 'USD', C
 
 /** Format an integer minor-unit amount in the currency the API supplied. */
 export function formatMoney(minor: number | null | undefined, currency: string): string {
-  return money(minor, currency, deviceLocale.tag);
+  // The CURRENCY picks the conventions, exactly as on the website (shared-types `money`):
+  // a rupee price prints "Rs 1,499" with Indian grouping and no ".00" on whole rupees, a
+  // dollar price "$35.00", whoever is looking. Passing the phone's locale here printed
+  // "US$35.00" on an English (UK) phone, and an Indian price differently from the site.
+  return money(minor, currency);
 }
 
 /**
@@ -60,4 +64,43 @@ export function formatDateTime(value: string | Date | null | undefined, timeZone
 
 export function formatDate(value: string | Date | null | undefined, timeZone?: string): string {
   return dateOnly(value, deviceLocale.tag, timeZone);
+}
+
+function parts(
+  value: string | Date,
+  options: Intl.DateTimeFormatOptions,
+  timeZone?: string,
+): string {
+  const date = typeof value === 'string' ? new Date(value) : value;
+  try {
+    return date.toLocaleString(deviceLocale.tag, { ...options, timeZone });
+  } catch {
+    // An unknown zone name throws a RangeError; the device's zone beats nothing.
+    return date.toLocaleString(deviceLocale.tag, options);
+  }
+}
+
+/**
+ * The storefront's short date: "Sat 14 Nov". In the VENUE's zone, as every event time is.
+ */
+export function formatShortDate(value: string | Date, timeZone?: string): string {
+  return parts(value, { weekday: 'short', day: 'numeric', month: 'short' }, timeZone).replace(
+    ',',
+    '',
+  );
+}
+
+/**
+ * The storefront's time: "9:00 pm". Twelve-hour with a lower-case suffix, as the website
+ * prints it, whatever the phone's own clock setting, so a ticket reads the same on both.
+ */
+export function formatShortTime(value: string | Date, timeZone?: string): string {
+  return parts(value, { hour: 'numeric', minute: '2-digit', hour12: true }, timeZone)
+    .replace(/\s?([AP])\.?M\.?/i, (_m, ap: string) => ` ${ap.toLowerCase()}m`)
+    .trim();
+}
+
+/** "Sat 14 Nov, 9:00 pm": the line under an event title on the storefront. */
+export function formatEventWhen(value: string | Date, timeZone?: string): string {
+  return `${formatShortDate(value, timeZone)}, ${formatShortTime(value, timeZone)}`;
 }

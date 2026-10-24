@@ -74,10 +74,10 @@ export function SeatListView({
             <View key={`${row.sectionName}-${row.label}`} className="mb-3 gap-1">
               <Text variant="footnote" tone="muted" accessibilityRole="header">
                 Row {row.label}
-                {map.sections.length > 1 ? ` · ${row.sectionName}` : ''} · {row.seats.length}{' '}
+                {map.sections.length > 1 ? ` - ${row.sectionName}` : ''} - {row.seats.length}{' '}
                 {row.seats.length === 1 ? 'seat' : 'seats'}
               </Text>
-              <View className="overflow-hidden rounded-md border border-border">
+              <View className="overflow-hidden rounded-card border border-border bg-background-surface">
                 {row.seats.map((seat) => {
                   const category = categoryById.get(seat.categoryId);
                   const isSelected = selected.has(seat.id);
@@ -91,8 +91,8 @@ export function SeatListView({
                       label={`Seat ${name}`}
                       value={
                         selectable
-                          ? `${category?.name ?? ''} · ${formatMoney(category?.priceMinor ?? 0, currency)}${
-                              isSelected ? ' · selected' : ''
+                          ? `${category?.name ?? ''} - ${formatMoney(category?.priceMinor ?? 0, currency)}${
+                              isSelected ? ', selected' : ''
                             }`
                           : SEAT_STATE_LABEL[state]
                       }

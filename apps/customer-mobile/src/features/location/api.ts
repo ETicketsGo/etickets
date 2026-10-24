@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useQuery } from '@tanstack/react-query';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect } from 'react';
+import { create } from 'zustand';
 import { z } from 'zod';
 import { getParsed } from '@/services/http';
 import { deviceLocale } from '@/services/locale';
@@ -83,47 +84,74 @@ export interface CityPreference {
   topCities: SellableCity[];
   /** A guess not yet applied, worth offering. Null once accepted, dismissed, or chosen. */
   suggestion: ResolvedLocation | null;
+  /**
+   * The country to scope to when no city is chosen, set whether or not we sell there
+   * (the server's rule). Null until the server has answered.
+   */
+  scopeCountry: string | null;
   setCity: (city: string | null) => void;
   dismissSuggestion: () => void;
   /** False until storage has been read, so nothing renders a wrong city first. */
   ready: boolean;
 }
 
+/**
+ * ONE preference for the whole app. It was per-hook state, so Home and Explore each kept
+ * their own copy and a city chosen on one screen did not exist on the other. Loaded from
+ * storage once, on first use.
+ */
+interface CityState {
+  city: string | null;
+  ready: boolean;
+  chosen: boolean;
+  dismissed: boolean;
+  loading: boolean;
+}
+
+const initialCityState: CityState = {
+  city: null,
+  ready: false,
+  chosen: false,
+  dismissed: false,
+  loading: false,
+};
+
+const useCityStore = create<CityState>(() => ({ ...initialCityState }));
+
+/** Tests start each case from an empty store, as a fresh app launch would. */
+export function resetCityStoreForTests(): void {
+  useCityStore.setState({ ...initialCityState });
+}
+
+function loadStoredCity(): void {
+  const state = useCityStore.getState();
+  if (state.ready || state.loading) return;
+  useCityStore.setState({ loading: true });
+  AsyncStorage.getItem(STORAGE_KEY)
+    .then((stored) => {
+      if (stored) {
+        useCityStore.setState({ city: stored === ALL_CITIES ? null : stored, chosen: true });
+      }
+    })
+    .catch(() => {
+      /* an unreadable preference is not worth a crash; browse everywhere */
+    })
+    .finally(() => useCityStore.setState({ ready: true, loading: false }));
+}
+
 export function useCityPreference(): CityPreference {
-  const [city, setCityState] = useState<string | null>(null);
-  const [ready, setReady] = useState(false);
-  const [chosen, setChosen] = useState(false);
-  const [dismissed, setDismissed] = useState(false);
+  const { city, ready, chosen, dismissed } = useCityStore();
   const resolved = useResolvedLocation();
 
-  // AsyncStorage is genuinely async on a phone, so unlike the web there is a moment where
-  // the stored city is unknown. `ready` exists so a screen can wait rather than render
-  // "All cities" and then visibly change its mind.
+  // AsyncStorage is genuinely async on a phone, so there is a moment where the stored city
+  // is unknown. `ready` exists so a screen can wait rather than render "All cities" and
+  // then visibly change its mind.
   useEffect(() => {
-    let cancelled = false;
-    AsyncStorage.getItem(STORAGE_KEY)
-      .then((stored) => {
-        if (cancelled) return;
-        if (stored) {
-          setCityState(stored === ALL_CITIES ? null : stored);
-          setChosen(true);
-        }
-      })
-      .catch(() => {
-        /* an unreadable preference is not worth a crash; browse everywhere */
-      })
-      .finally(() => {
-        if (!cancelled) setReady(true);
-      });
-    return () => {
-      cancelled = true;
-    };
+    loadStoredCity();
   }, []);
 
   const setCity = useCallback((next: string | null) => {
-    setCityState(next);
-    setChosen(true);
-    setDismissed(true);
+    useCityStore.setState({ city: next, chosen: true, dismissed: true });
     void AsyncStorage.setItem(STORAGE_KEY, next ?? ALL_CITIES).catch(() => {
       /* honoured for this session even if it cannot be persisted */
     });
@@ -136,8 +164,9 @@ export function useCityPreference(): CityPreference {
     // Only ever a suggestion on mobile: neither the device region nor the network is
     // precise enough to silently filter what somebody sees.
     suggestion: !ready || chosen || dismissed || !guess?.city ? null : guess,
+    scopeCountry: guess?.scopeCountry ?? null,
     setCity,
-    dismissSuggestion: () => setDismissed(true),
+    dismissSuggestion: () => useCityStore.setState({ dismissed: true }),
     ready,
   };
 }

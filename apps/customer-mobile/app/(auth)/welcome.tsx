@@ -1,37 +1,39 @@
-import { Text, View, Pressable } from 'react-native';
-import { Link } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import { View } from 'react-native';
+import { useRouter } from 'expo-router';
 import { Screen } from '@/components/screen';
+import { BrandMark } from '@/components/brand-mark';
+import { Button, GoldRule, Text } from '@/ui';
 
 /**
- * Welcome — the entry screen. Premium, minimal, large brand mark. The full auth
- * journey (OTP, forgot password, profile setup) is built in Phase 2 on this shell.
+ * Welcome: the brand on a stage, one line, two ways in. Not routed to today (the app opens
+ * on Home, browsable without an account), kept in the storefront's look for when it is.
  */
 export default function Welcome() {
+  const router = useRouter();
   return (
-    <Screen>
-      <View className="flex-1 justify-between py-8">
-        <View className="mt-16 items-center gap-4">
-          <View className="h-20 w-20 items-center justify-center rounded-xl bg-action-primary">
-            <Ionicons name="ticket" size={40} color="#FFFFFF" />
-          </View>
-          <Text className="text-3xl font-bold tracking-tight text-text-primary">ETicketsGo</Text>
-          <Text className="px-8 text-center text-base text-text-muted">
-            Movies, events, and experiences — booked in seconds, in your pocket.
+    <Screen tone="stage">
+      <View className="flex-1 justify-between py-10">
+        <View className="mt-24 gap-5">
+          <BrandMark size="lg" onStage />
+          <GoldRule />
+          <Text variant="d2" tone="onStage">
+            Films, live shows and experiences, with every fee shown before you pay.
           </Text>
         </View>
-
-        <Link href="/(auth)/login" asChild>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Get started"
-            className="items-center rounded-md bg-action-primary py-4 active:opacity-80"
-          >
-            <Text className="text-base font-semibold text-action-primary-foreground">
-              Get started
-            </Text>
-          </Pressable>
-        </Link>
+        <View className="gap-3">
+          <Button
+            label="Browse what is on"
+            variant="gold"
+            size="lg"
+            onPress={() => router.replace('/(tabs)')}
+          />
+          <Button
+            label="Sign in"
+            variant="secondary"
+            size="lg"
+            onPress={() => router.replace('/(auth)/login')}
+          />
+        </View>
       </View>
     </Screen>
   );

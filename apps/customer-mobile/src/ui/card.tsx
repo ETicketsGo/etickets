@@ -1,29 +1,31 @@
 import { type ReactNode } from 'react';
 import { Pressable, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useTheme } from '@/theme';
-import { Text } from './text';
+import { palette } from '@/theme';
+import { Text, type TextTone } from './text';
 import { haptics } from './haptics';
 
 /**
- * A raised surface. Elevation is a hairline border rather than a shadow: shadows are
- * expensive to rasterise in long scrolling lists, render differently on the two
- * platforms, and all but vanish on the dark canvas. The border reads the same
- * everywhere and costs nothing.
+ * A surface: white, 16px corners, a hairline edge, NO shadow (DESIGN-SYSTEM.md section 3:
+ * two levels only, flat for everything on the page and one overlay shadow for what floats).
+ * `tone="sunken"` is the inset panel a step below the paper (the website's "Buy as a guest").
  */
 export function Card({
   children,
   className = '',
   padded = true,
+  tone = 'surface',
 }: {
   children: ReactNode;
   className?: string;
   padded?: boolean;
+  tone?: 'surface' | 'sunken';
 }) {
   return (
     <View
       className={[
-        'overflow-hidden rounded-md border border-border bg-background-surface',
+        'overflow-hidden rounded-card',
+        tone === 'surface' ? 'border border-border bg-background-surface' : 'bg-sunken',
         padded ? 'p-4' : '',
         className,
       ].join(' ')}
@@ -33,7 +35,43 @@ export function Card({
   );
 }
 
-/** Section heading with an optional trailing action ("Near you" / "See all"). */
+/** Capitalised section label: "BEFORE YOU PAY", "RESERVATION". */
+export function Eyebrow({
+  children,
+  tone = 'muted',
+  className = '',
+}: {
+  children: string;
+  tone?: TextTone;
+  className?: string;
+}) {
+  return (
+    <Text variant="eyebrow" tone={tone} className={className}>
+      {children}
+    </Text>
+  );
+}
+
+/** The short gold rule under an event title. Decorative gold: a fill, never text. */
+export function GoldRule({ className = '' }: { className?: string }) {
+  return <View className={`h-[2px] w-12 bg-gold ${className}`} />;
+}
+
+/**
+ * A stage band: "the lights go down" (brand.css data-brand-tone="stage"). Not a dark mode, a
+ * lighting change inside a light page, for a film header, the seat map, the ticket pass.
+ */
+export function StageBand({
+  children,
+  className = '',
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return <View className={`bg-stage ${className}`}>{children}</View>;
+}
+
+/** Section heading in the display face, with an optional "See all" link on the right. */
 export function SectionHeader({
   title,
   actionLabel,
@@ -46,22 +84,22 @@ export function SectionHeader({
   className?: string;
 }) {
   return (
-    <View className={`flex-row items-center justify-between ${className}`}>
-      <Text variant="title3" accessibilityRole="header">
+    <View className={`flex-row items-end justify-between gap-4 ${className}`}>
+      <Text variant="d2" accessibilityRole="header" className="flex-1">
         {title}
       </Text>
       {actionLabel && onAction ? (
         <Pressable
-          accessibilityRole="button"
+          accessibilityRole="link"
           accessibilityLabel={`${actionLabel}, ${title}`}
           onPress={() => {
             haptics.tap();
             onAction();
           }}
           hitSlop={12}
-          className="active:opacity-60"
+          className="border-b border-gold pb-0.5 active:opacity-60"
         >
-          <Text variant="subhead" tone="accent" className="font-semibold">
+          <Text variant="ui" className="font-semibold">
             {actionLabel}
           </Text>
         </Pressable>
@@ -89,23 +127,21 @@ export function ListRow({
   showChevron?: boolean;
   accessibilityHint?: string;
   /**
-   * A control at the trailing edge — a switch, usually.
+   * A control at the trailing edge, usually a switch.
    *
-   * The row itself stays non-interactive when one is present: two hit targets stacked on top
-   * of each other means a tap near the switch does whichever the layout happened to put on
-   * top, and a screen reader announces one element that does two different things.
+   * The row itself stays non-interactive when one is present: two hit targets stacked on
+   * top of each other means a tap near the switch does whichever the layout put on top,
+   * and a screen reader announces one element that does two different things.
    */
   right?: ReactNode;
 }) {
-  const { colors } = useTheme();
   // A row with its own control is not itself a button; see `right`.
   const interactive = Boolean(onPress) && !right;
 
   return (
     <Pressable
       accessibilityRole={interactive ? 'button' : 'text'}
-      // Screen readers read one string per element, so the label and its value are
-      // joined here — otherwise "Currency" and "INR" arrive as two unrelated stops.
+      // One string per element, so "Currency" and "INR" are not two unrelated stops.
       accessibilityLabel={value ? `${label}, ${value}` : label}
       accessibilityHint={accessibilityHint}
       disabled={!interactive}
@@ -113,29 +149,29 @@ export function ListRow({
         haptics.tap();
         onPress?.();
       }}
-      style={{ minHeight: 48 }}
-      className="flex-row items-center gap-3 px-4 py-3 active:bg-background-subtle"
+      style={{ minHeight: 52 }}
+      className="flex-row items-center gap-3 px-4 py-3 active:bg-sunken"
     >
       {icon ? (
-        <Ionicons name={icon} size={20} color={destructive ? '#DC2626' : colors.textMuted} />
+        <Ionicons name={icon} size={20} color={destructive ? palette.critical : palette.text} />
       ) : null}
-      <Text variant="body" tone={destructive ? 'danger' : 'primary'} className="flex-1">
+      <Text variant="body" tone={destructive ? 'danger' : 'primary'} className="flex-1 font-medium">
         {label}
       </Text>
       {value ? (
-        <Text variant="subhead" tone="muted" numberOfLines={1}>
+        <Text variant="ui" tone="muted" numberOfLines={1}>
           {value}
         </Text>
       ) : null}
       {right}
       {interactive && showChevron ? (
-        <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+        <Ionicons name="chevron-forward" size={18} color={palette.textMuted} />
       ) : null}
     </Pressable>
   );
 }
 
-/** Groups ListRows into an inset card with hairline separators between them. */
+/** Groups ListRows into one card with hairline separators between them. */
 export function ListGroup({
   children,
   className = '',
@@ -145,7 +181,7 @@ export function ListGroup({
 }) {
   return (
     <View
-      className={`overflow-hidden rounded-md border border-border bg-background-surface ${className}`}
+      className={`overflow-hidden rounded-card border border-border bg-background-surface ${className}`}
     >
       {children}
     </View>

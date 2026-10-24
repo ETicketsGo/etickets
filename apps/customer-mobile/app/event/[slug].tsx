@@ -1,36 +1,44 @@
-import { useMemo, useState } from 'react';
-import { ScrollView, View } from 'react-native';
+import { useMemo, useRef, useState } from 'react';
+import { Linking, Pressable, ScrollView, Share, View } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '@/components/screen';
-import { ErrorState, LoadingState, OfflineBanner } from '@/components/states';
+import { TopBar } from '@/components/top-bar';
+import { BookingBar } from '@/components/booking-bar';
+import { ErrorState, OfflineBanner, Skeleton } from '@/components/states';
 import { useOnline } from '@/hooks/use-online';
-import { useTheme } from '@/theme';
-import { Badge, Button, Card, Chip, IconButton, Separator, Text } from '@/ui';
-import { formatDateTime, formatMoney } from '@/services/locale';
+import { palette } from '@/theme';
+import { Button, Card, Eyebrow, GoldRule, IconButton, Separator, Text, haptics } from '@/ui';
+import { formatEventWhen, formatMoney, formatShortDate, formatShortTime } from '@/services/locale';
+import { env } from '@/services/env';
 import { useEvent } from '@/features/events/api';
 import { QuantityStepper } from '@/features/events/quantity-stepper';
 import { EventPicture } from '@/features/events/event-picture';
-import type { EventSession, TicketType } from '@/features/events/schema';
+import { ContentLabelPill } from '@/features/events/content-label';
+import {
+  isOnSale,
+  type EventDetail,
+  type EventSession,
+  type TicketType,
+} from '@/features/events/schema';
 import { requiresSeatSelection } from '@/features/events/seating';
 
 /**
- * Event detail and ticket selection.
+ * Event page and ticket selection, laid out as the storefront's event page on a phone: the
+ * title block, the picture, the facts grid, the story, then "Choose your tickets", with a
+ * sticky booking bar.
  *
- * The running total shown here is the ticket subtotal ONLY, and says so. Platform and
- * payment fees depend on the event's feeMode and on the payment route the backend
- * picks, so the amount that will actually be charged is the API's quote at checkout.
- * Showing a confident "Total" here that later changes is worse than showing a subtotal
- * that was always labelled as one.
+ * The figure in the bar is the ticket SUBTOTAL and says so. Fees depend on the event's fee
+ * mode and the payment route the server picks, so the amount charged is the server's quote
+ * at checkout, shown there before anything is held.
  */
 export default function EventDetailScreen() {
-  const insets = useSafeAreaInsets();
   const { slug } = useLocalSearchParams<{ slug: string }>();
   const router = useRouter();
   const online = useOnline();
-  const { colors } = useTheme();
   const { data: event, isPending, isError, refetch } = useEvent(slug ?? '');
+  const scroll = useRef<ScrollView>(null);
+  const [panelY, setPanelY] = useState(0);
 
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [quantities, setQuantities] = useState<Record<string, number>>({});
@@ -49,280 +57,534 @@ export default function EventDetailScreen() {
   );
 
   /**
-   * Whether this session is booked by choosing seats — decided by the session, not the kind
-   * of event. A seated theatre or arena show is an EVENT, and keying this on `MOVIE` offered
-   * it a quantity stepper the API refuses at the last step. The server's `seatBased` answers;
-   * only an older API without it falls back to the experience type.
+   * Booked by choosing seats is a fact about the session, not the kind of event: a seated
+   * theatre show is an EVENT. The server's `seatBased` answers; only an older API without it
+   * falls back to the experience type.
    */
   const reservedSeating = requiresSeatSelection(session, event?.experienceType);
 
   const totalQty = selected.reduce((n, r) => n + r.qty, 0);
   const subtotalMinor = selected.reduce((n, r) => n + r.type.priceMinor * r.qty, 0);
   const currency = session?.ticketTypes[0]?.currency ?? 'INR';
+  const fromMinor = useMemo(() => {
+    const prices = (session?.ticketTypes ?? []).filter(isOnSale).map((t) => t.priceMinor);
+    return prices.length ? Math.min(...prices) : null;
+  }, [session]);
 
-  if (isPending) {
-    return (
-      <Screen>
-        <Stack.Screen options={{ headerShown: false }} />
-        <LoadingState label="Loading event…" />
-      </Screen>
-    );
-  }
+  if (isPending) return <EventSkeleton />;
 
   if (isError || !event) {
     return (
       <Screen>
+        <Stack.Screen options={{ headerShown: false }} />
+        <TopBar />
         <ErrorState
-          title="Couldn't load this event"
-          message={online ? 'Please try again.' : "You're offline. Reconnect and try again."}
+          title="We could not load this event"
+          message={online ? 'Please try again.' : 'You are offline. Reconnect and try again.'}
           onRetry={() => void refetch()}
         />
       </Screen>
     );
   }
 
+  const tz = event.timeZone ?? undefined;
+  const toTickets = () => scroll.current?.scrollTo({ y: Math.max(panelY - 12, 0), animated: true });
+
+  const goToCheckout = () => {
+    if (!session) return;
+    router.push({
+      pathname: '/checkout',
+      params: {
+        eventId: event.id,
+        sessionId: session.id,
+        slug: event.slug,
+        // Serialised because route params are strings; checkout re-reads prices from the API.
+        items: JSON.stringify(selected.map((r) => ({ ticketTypeId: r.type.id, quantity: r.qty }))),
+      },
+    });
+  };
+  const goToSeats = () => {
+    if (!session) return;
+    router.push({ pathname: '/session/[id]/seats', params: { id: session.id, slug: event.slug } });
+  };
+
   return (
     <Screen padded={false} edges={['top']}>
       <Stack.Screen options={{ headerShown: false }} />
+      <TopBar
+        right={
+          <IconButton
+            icon="share-outline"
+            accessibilityLabel="Share this event"
+            tone="outlined"
+            size={20}
+            onPress={() => void shareEvent(event)}
+          />
+        }
+      />
       {!online ? <OfflineBanner /> : null}
 
-      <View className="flex-row items-center gap-1 px-2 py-1">
-        <IconButton
-          icon="chevron-back"
-          accessibilityLabel="Go back"
-          onPress={() => router.back()}
-        />
-        <Text variant="callout" numberOfLines={1} className="flex-1 font-semibold">
-          {event.title}
-        </Text>
-      </View>
+      <ScrollView
+        ref={scroll}
+        contentContainerClassName="pb-10"
+        showsVerticalScrollIndicator={false}
+      >
+        <TitleBlock event={event} session={session} fromMinor={fromMinor} currency={currency} />
 
-      <ScrollView contentContainerClassName="pb-6" showsVerticalScrollIndicator={false}>
-        {/* The organizer's banner, when there is one. Without one the page opens on the title,
-            as it always has: a placeholder this large would only push the tickets down. */}
-        <EventPicture event={event} use="banner" fallback={null} className="mb-4" />
-        <View className="gap-2 px-5 pb-4">
-          <Badge label={event.category} tone="accent" />
-          <Text variant="title1" accessibilityRole="header">
-            {event.title}
-          </Text>
-          <View className="flex-row items-center gap-1.5">
-            <Ionicons name="location-outline" size={15} color={colors.textMuted} />
-            <Text variant="subhead" tone="muted" className="flex-1">
-              {event.venue.name}, {event.venue.city}
-            </Text>
-          </View>
-          <View className="flex-row items-center gap-1.5">
-            <Ionicons name="person-outline" size={15} color={colors.textMuted} />
-            <Text variant="subhead" tone="muted">
-              {event.organizer.name}
-            </Text>
-          </View>
+        <View className="px-4">
+          <EventPicture event={event} use="banner" fallback={null} className="rounded-card" />
         </View>
 
+        {session ? <FactsGrid event={event} session={session} /> : null}
+
         {event.description ? (
-          <View className="px-5 pb-5">
+          <View className="gap-3 px-4 pt-8">
+            <Text variant="d2" accessibilityRole="header">
+              About this event
+            </Text>
             <Text variant="body" tone="secondary">
               {event.description}
             </Text>
           </View>
         ) : null}
 
-        {event.sessions.length === 0 ? (
-          <Card className="mx-5">
-            <Text variant="headline">No dates scheduled</Text>
-            <Text variant="subhead" tone="muted" className="mt-1">
-              Tickets aren&rsquo;t on sale for this event yet.
+        {event.artists && event.artists.length > 0 ? (
+          <View className="gap-2 px-4 pt-8">
+            <Eyebrow>Line-up</Eyebrow>
+            <Text variant="body">{event.artists.map((a) => a.name).join(', ')}</Text>
+          </View>
+        ) : null}
+
+        <View className="gap-4 px-4 pt-8">
+          <Separator />
+          <View className="gap-1.5">
+            <Eyebrow>Venue</Eyebrow>
+            <Text variant="card">{event.venue.name}</Text>
+            <Text variant="ui" tone="secondary">
+              {venueLine(event)}
             </Text>
-          </Card>
-        ) : (
-          <>
-            {event.sessions.length > 1 ? (
-              <View className="gap-2 px-5 pb-5">
-                <Text variant="title3" accessibilityRole="header">
-                  Choose a date
-                </Text>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerClassName="gap-2"
-                >
-                  {event.sessions.map((s) => (
-                    <Chip
-                      key={s.id}
-                      label={formatDateTime(s.startsAt, event.timeZone ?? undefined)}
-                      selected={session?.id === s.id}
-                      onPress={() => {
-                        setSessionId(s.id);
-                        // Quantities are per ticket-type and ticket-type ids differ per
-                        // session, so carrying them across would silently keep a
-                        // selection for tickets that are not on this date.
-                        setQuantities({});
-                      }}
-                    />
-                  ))}
-                </ScrollView>
-              </View>
-            ) : session ? (
-              <View className="px-5 pb-5">
-                <Text variant="subhead" tone="secondary">
-                  {formatDateTime(session.startsAt, event.timeZone ?? undefined)}
-                </Text>
-              </View>
-            ) : null}
-
-            {reservedSeating && session ? (
-              /**
-               * Reserved seating: the ticket types here are price CATEGORIES, not
-               * quantities to pick. Offering a stepper would let someone choose "3
-               * Premium" without choosing which three, and the API requires seatIds for
-               * a seat-based session — so selection has to happen on the seat map.
-               */
-              <View className="gap-3 px-5">
-                <Text variant="title3" accessibilityRole="header">
-                  Seats
-                </Text>
-                <Card className="gap-3">
-                  <Text variant="subhead" tone="secondary">
-                    This screening has reserved seating. Pick your exact seats from the seat map.
-                  </Text>
-                  <View className="gap-1">
-                    {session.ticketTypes.map((t) => (
-                      <View key={t.id} className="flex-row items-center justify-between">
-                        <Text variant="footnote" tone="muted">
-                          {t.name}
-                        </Text>
-                        <Text variant="footnote" tone="muted">
-                          {formatMoney(t.priceMinor, t.currency)}
-                        </Text>
-                      </View>
-                    ))}
-                  </View>
-                  <Button
-                    label="Choose seats"
-                    icon="grid-outline"
-                    onPress={() =>
-                      router.push({
-                        pathname: '/session/[id]/seats',
-                        params: { id: session.id, slug: event.slug },
-                      })
-                    }
-                  />
-                </Card>
-              </View>
-            ) : (
-              <View className="gap-3 px-5">
-                <Text variant="title3" accessibilityRole="header">
-                  Tickets
-                </Text>
-                <Card padded={false}>
-                  {(session?.ticketTypes ?? []).map((t, i) => (
-                    <View key={t.id}>
-                      {i > 0 ? <Separator /> : null}
-                      <TicketTypeRow
-                        ticketType={t}
-                        quantity={quantities[t.id] ?? 0}
-                        onChange={(q) => setQuantities((cur) => ({ ...cur, [t.id]: q }))}
-                      />
-                    </View>
-                  ))}
-                </Card>
-              </View>
-            )}
-
-            {event.refundPolicy ? (
-              <View className="gap-1 px-5 pt-6">
-                <Text variant="footnote" tone="muted" className="uppercase">
-                  Refund policy
-                </Text>
-                <Text variant="subhead" tone="secondary">
+            <Button
+              label="Get directions"
+              variant="secondary"
+              icon="navigate-outline"
+              fullWidth={false}
+              className="mt-2"
+              onPress={() => void openDirections(event)}
+            />
+          </View>
+          <Separator />
+          <View className="gap-1.5">
+            <Eyebrow>Organizer</Eyebrow>
+            <View className="flex-row items-center gap-1.5">
+              <Text variant="card">{event.organizer.name}</Text>
+              {event.organizer.verified ? (
+                <Ionicons
+                  name="checkmark-circle"
+                  size={17}
+                  color={palette.positive}
+                  accessibilityLabel="Verified organizer"
+                />
+              ) : null}
+            </View>
+          </View>
+          {event.refundPolicy ? (
+            <>
+              <Separator />
+              <View className="gap-1.5">
+                <Eyebrow>Refunds</Eyebrow>
+                <Text variant="ui" tone="secondary">
                   {event.refundPolicy}
                 </Text>
               </View>
-            ) : null}
-          </>
-        )}
+            </>
+          ) : null}
+          {event.termsAndConditions ? (
+            <>
+              <Separator />
+              <View className="gap-1.5">
+                <Eyebrow>Terms</Eyebrow>
+                <Text variant="ui" tone="secondary">
+                  {event.termsAndConditions}
+                </Text>
+              </View>
+            </>
+          ) : null}
+        </View>
+
+        <View className="px-4 pt-10" onLayout={(e) => setPanelY(e.nativeEvent.layout.y)}>
+          <Card className="gap-5 p-5">
+            <View className="items-center gap-1.5">
+              <Eyebrow>Reservation</Eyebrow>
+              <Text variant="d3" accessibilityRole="header" className="text-center">
+                {reservedSeating ? 'Choose your seats' : 'Choose your tickets'}
+              </Text>
+              {session ? (
+                <Text variant="meta" tone="secondary" className="text-center">
+                  {formatEventWhen(session.startsAt, tz)} - {event.venue.name}
+                </Text>
+              ) : null}
+            </View>
+
+            {event.sessions.length === 0 ? (
+              <Text variant="ui" tone="secondary" className="text-center">
+                Tickets are not on sale for this event yet.
+              </Text>
+            ) : (
+              <>
+                {event.sessions.length > 1 ? (
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerClassName="gap-2"
+                  >
+                    {event.sessions.map((s) => (
+                      <DateTile
+                        key={s.id}
+                        startsAt={s.startsAt}
+                        timeZone={tz}
+                        selected={session?.id === s.id}
+                        onPress={() => {
+                          setSessionId(s.id);
+                          // Ticket-type ids differ per session, so a selection cannot carry over.
+                          setQuantities({});
+                        }}
+                      />
+                    ))}
+                  </ScrollView>
+                ) : null}
+
+                {reservedSeating && session ? (
+                  /*
+                    Reserved seating: the ticket types are price CATEGORIES. A stepper would let
+                    someone choose "3 Premium" without choosing which three, and the API requires
+                    seat ids for a seated session, so seats are picked on the seat map.
+                  */
+                  <View className="gap-3">
+                    {session.ticketTypes.map((t, i) => (
+                      <View key={t.id}>
+                        {i > 0 ? <Separator /> : null}
+                        <View className="flex-row items-center justify-between py-2">
+                          <Text variant="card">{t.name}</Text>
+                          <Text variant="body" className="font-semibold" tabular>
+                            {formatMoney(t.priceMinor, t.currency)}
+                          </Text>
+                        </View>
+                      </View>
+                    ))}
+                    <Text variant="meta" tone="muted">
+                      Pick your exact seats on the seat map.
+                    </Text>
+                  </View>
+                ) : (
+                  <View>
+                    {(session?.ticketTypes ?? []).map((t, i) => (
+                      <View key={t.id}>
+                        {i > 0 ? <Separator /> : null}
+                        <TicketTypeRow
+                          ticketType={t}
+                          timeZone={tz}
+                          quantity={quantities[t.id] ?? 0}
+                          onChange={(q) => setQuantities((cur) => ({ ...cur, [t.id]: q }))}
+                        />
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </>
+            )}
+          </Card>
+        </View>
       </ScrollView>
 
-      {totalQty > 0 && session ? (
-        <View
-          className="border-t border-border bg-background-surface px-5 pt-3"
-          // Clear the home indicator: this screen opts out of the bottom safe-area edge
-          // so the bar's surface runs to the bottom of the display.
-          style={{ paddingBottom: Math.max(insets.bottom, 8) }}
-        >
-          <View className="mb-2 flex-row items-end justify-between">
-            <View>
-              <Text variant="footnote" tone="muted">
-                {totalQty} {totalQty === 1 ? 'ticket' : 'tickets'} · subtotal
-              </Text>
-              <Text variant="title3">{formatMoney(subtotalMinor, currency)}</Text>
+      {session ? (
+        <BookingBar>
+          <View className="flex-row items-center gap-4">
+            <View className="flex-1">
+              {totalQty > 0 ? (
+                <>
+                  <Text variant="meta" tone="muted">
+                    {totalQty} {totalQty === 1 ? 'ticket' : 'tickets'}, before fees
+                  </Text>
+                  <Text variant="figureSm">{formatMoney(subtotalMinor, currency)}</Text>
+                </>
+              ) : fromMinor != null ? (
+                <Text variant="ui" tone="muted">
+                  {fromMinor === 0 ? '' : 'From '}
+                  <Text variant="figureSm">
+                    {fromMinor === 0 ? 'Free' : formatMoney(fromMinor, currency)}
+                  </Text>
+                </Text>
+              ) : (
+                <Text variant="ui" tone="muted">
+                  Not on sale yet
+                </Text>
+              )}
             </View>
-            <Text variant="caption" tone="muted" className="max-w-[52%] text-right">
-              Fees and the final total are confirmed at checkout.
-            </Text>
+            {reservedSeating ? (
+              <Button label="Choose seats" size="lg" fullWidth={false} onPress={goToSeats} />
+            ) : totalQty > 0 ? (
+              <Button label="Continue" size="lg" fullWidth={false} onPress={goToCheckout} />
+            ) : (
+              <Button
+                label="Choose tickets"
+                size="lg"
+                fullWidth={false}
+                disabled={fromMinor == null}
+                onPress={toTickets}
+              />
+            )}
           </View>
-          <Button
-            label="Continue"
-            size="lg"
-            icon="arrow-forward"
-            onPress={() =>
-              router.push({
-                pathname: '/checkout',
-                params: {
-                  eventId: event.id,
-                  sessionId: session.id,
-                  slug: event.slug,
-                  // Serialised because Expo Router params are strings; the checkout
-                  // screen re-reads authoritative prices from the API regardless.
-                  items: JSON.stringify(
-                    selected.map((r) => ({ ticketTypeId: r.type.id, quantity: r.qty })),
-                  ),
-                },
-              })
-            }
-          />
-        </View>
+        </BookingBar>
       ) : null}
     </Screen>
   );
 }
 
+function TitleBlock({
+  event,
+  session,
+  fromMinor,
+  currency,
+}: {
+  event: EventDetail;
+  session?: EventSession;
+  fromMinor: number | null;
+  currency: string;
+}) {
+  const tz = event.timeZone ?? undefined;
+  const eyebrow = [
+    event.category,
+    event.venue.city,
+    session ? longDate(session.startsAt, tz) : null,
+  ]
+    .filter(Boolean)
+    .join('  -  ');
+  return (
+    <View className="items-center gap-3 px-6 pb-7 pt-4">
+      <Text variant="eyebrow" tone="gold" className="text-center">
+        {eyebrow}
+      </Text>
+      <ContentLabelPill label={event.contentLabel} centered />
+      <Text variant="d1" accessibilityRole="header" className="text-center">
+        {event.title}
+      </Text>
+      <GoldRule className="mt-1" />
+      {fromMinor != null ? (
+        <Text variant="ui" tone="muted" className="mt-1">
+          {fromMinor === 0 ? '' : 'From '}
+          <Text variant="figureSm">
+            {fromMinor === 0 ? 'Free' : formatMoney(fromMinor, currency)}
+          </Text>
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+/**
+ * The venue's address as one line. An organizer's address usually already names the city
+ * ("Whitefield, Bengaluru, KA"), so the city is added only when it is missing.
+ */
+function venueLine(event: EventDetail): string {
+  const { address, city, country } = event.venue;
+  if (!address) return [city, country].filter(Boolean).join(', ');
+  const parts = [address];
+  if (!address.toLowerCase().includes(city.toLowerCase())) parts.push(city);
+  if (country && !address.toLowerCase().includes(country.toLowerCase())) parts.push(country);
+  return parts.join(', ');
+}
+
+/** "Friday 30 October", in the venue's zone, for the eyebrow. */
+function longDate(iso: string, timeZone?: string): string {
+  try {
+    return new Date(iso)
+      .toLocaleDateString('en-GB', {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long',
+        timeZone,
+      })
+      .replace(',', '');
+  } catch {
+    return formatShortDate(iso);
+  }
+}
+
+/** The storefront's facts grid: two columns, hairlines between, a heavier rule on top. */
+function FactsGrid({ event, session }: { event: EventDetail; session: EventSession }) {
+  const tz = event.timeZone ?? undefined;
+  const minutes = Math.round(
+    (new Date(session.endsAt).getTime() - new Date(session.startsAt).getTime()) / 60_000,
+  );
+  const duration =
+    minutes > 0
+      ? minutes < 60
+        ? `${minutes} min`
+        : `${Math.floor(minutes / 60)}h${minutes % 60 ? ` ${minutes % 60}m` : ''}`
+      : null;
+  const cells: { label: string; value: string }[] = [
+    { label: 'Date', value: longDate(session.startsAt, tz) },
+    { label: 'Time', value: formatShortTime(session.startsAt, tz) },
+    { label: 'Venue', value: event.venue.name },
+    ...(duration ? [{ label: 'Duration', value: duration }] : []),
+    ...(event.ageLimit ? [{ label: 'Audience', value: `Age ${event.ageLimit}+` }] : []),
+  ];
+  const rows: (typeof cells)[] = [];
+  for (let i = 0; i < cells.length; i += 2) rows.push(cells.slice(i, i + 2));
+
+  return (
+    <View className="mx-4 mt-7 border-t-2 border-ink">
+      {rows.map((row, r) => (
+        <View key={r} className={`flex-row ${r > 0 ? 'border-t border-border' : ''}`}>
+          {row.map((c, i) => (
+            <View
+              key={c.label}
+              className={`flex-1 gap-1 py-4 ${i === 1 ? 'border-l border-border pl-4' : 'pr-4'}`}
+            >
+              <Eyebrow>{c.label}</Eyebrow>
+              <Text variant="card">{c.value}</Text>
+            </View>
+          ))}
+          {row.length === 1 ? <View className="flex-1" /> : null}
+        </View>
+      ))}
+      {tz ? (
+        <Text variant="meta" tone="muted" className="border-t border-border pt-3">
+          Times are at the venue, in its time zone.
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+/** A date tile, as on the storefront's film page: "FRI / 13 Nov / 8:00 pm", ink when selected. */
+function DateTile({
+  startsAt,
+  timeZone,
+  selected,
+  onPress,
+}: {
+  startsAt: string;
+  timeZone?: string;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  const [weekday, day, month] = formatShortDate(startsAt, timeZone).split(' ');
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      accessibilityLabel={`${formatEventWhen(startsAt, timeZone)}`}
+      onPress={() => {
+        haptics.select();
+        onPress();
+      }}
+      style={{ width: 84, minHeight: 84 }}
+      className={`items-center justify-center gap-0.5 rounded-control border ${
+        selected ? 'border-ink bg-ink' : 'border-border-strong bg-background-surface'
+      }`}
+    >
+      <Text variant="eyebrow" tone={selected ? 'onAccent' : 'secondary'}>
+        {weekday ?? ''}
+      </Text>
+      <Text variant="uiStrong" tone={selected ? 'onAccent' : 'primary'}>
+        {[day, month].filter(Boolean).join(' ')}
+      </Text>
+      <Text variant="meta" tone={selected ? 'onAccent' : 'secondary'}>
+        {formatShortTime(startsAt, timeZone)}
+      </Text>
+    </Pressable>
+  );
+}
+
 function TicketTypeRow({
   ticketType,
+  timeZone,
   quantity,
   onChange,
 }: {
   ticketType: TicketType;
+  timeZone?: string;
   quantity: number;
   onChange: (q: number) => void;
 }) {
-  const soldOut = ticketType.available <= 0;
-  // Whichever runs out first: what is left, or what one order is allowed to contain.
+  const onSale = isOnSale(ticketType);
+  const soldOut = onSale && ticketType.available <= 0;
+  // Whichever runs out first: what is left, or what one order may contain.
   const max = Math.min(ticketType.maxPerOrder, ticketType.available);
-  const lowStock = !soldOut && ticketType.available <= 10;
+  const note = !onSale
+    ? ticketType.salesStartAt
+      ? `Sales start ${formatEventWhen(ticketType.salesStartAt, timeZone)}`
+      : 'Sales closed'
+    : soldOut
+      ? 'Sold out'
+      : `${ticketType.available} left`;
 
   return (
-    <View className="flex-row items-center gap-3 p-4">
-      <View className="flex-1 gap-0.5">
-        <Text variant="headline">{ticketType.name}</Text>
-        <Text variant="subhead" tone="secondary">
-          {formatMoney(ticketType.priceMinor, ticketType.currency)}
+    <View className="flex-row items-center gap-3 py-4">
+      <View className="flex-1 gap-1">
+        <View className="flex-row items-baseline justify-between gap-3">
+          <Text variant="card" className="flex-1">
+            {ticketType.name}
+          </Text>
+          <Text variant="body" className="font-semibold" tabular>
+            {ticketType.priceMinor === 0
+              ? 'Free'
+              : formatMoney(ticketType.priceMinor, ticketType.currency)}
+          </Text>
+        </View>
+        <Text
+          variant="eyebrow"
+          tone={!onSale || soldOut ? 'muted' : ticketType.available <= 10 ? 'danger' : 'gold'}
+        >
+          {note}
         </Text>
-        {soldOut ? (
-          <Badge label="Sold out" tone="error" className="mt-1" />
-        ) : lowStock ? (
-          <Badge label={`Only ${ticketType.available} left`} tone="warning" className="mt-1" />
-        ) : null}
       </View>
-      {soldOut ? null : (
+      {onSale && !soldOut ? (
         <QuantityStepper
           value={quantity}
           onChange={onChange}
           max={max}
           label={`${ticketType.name} tickets`}
         />
-      )}
+      ) : null}
     </View>
+  );
+}
+
+function EventSkeleton() {
+  return (
+    <Screen padded={false} edges={['top']}>
+      <Stack.Screen options={{ headerShown: false }} />
+      <TopBar />
+      <View
+        accessibilityRole="progressbar"
+        accessibilityLabel="Loading event"
+        className="items-center gap-3 px-6 pt-4"
+      >
+        <Skeleton className="h-3 w-56" />
+        <Skeleton className="h-9 w-72" />
+        <Skeleton className="h-9 w-52" />
+        <Skeleton className="mt-4 aspect-video w-full rounded-card" />
+      </View>
+    </Screen>
+  );
+}
+
+async function shareEvent(event: EventDetail) {
+  const url = `https://${env.webHost ?? 'eticketsgo.com'}/events/${event.slug}`;
+  try {
+    await Share.share({ message: `${event.title} - ${url}`, url, title: event.title });
+  } catch {
+    // The customer closed the share sheet, or the platform has none: nothing to do.
+  }
+}
+
+async function openDirections(event: EventDetail) {
+  const query = encodeURIComponent(
+    [event.venue.name, event.venue.address, event.venue.city].filter(Boolean).join(', '),
+  );
+  await Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${query}`).catch(
+    () => undefined,
   );
 }

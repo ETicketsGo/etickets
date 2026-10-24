@@ -39,13 +39,14 @@ export function CityChip({
         accessibilityRole="button"
         accessibilityLabel={`City: ${city ?? 'all cities'}. Tap to change.`}
         onPress={() => setOpen(true)}
-        className={`flex-row items-center gap-1 ${className}`}
+        // The storefront's city button: an outlined pill, always visible in the top bar.
+        style={{ minHeight: 44 }}
+        className={`flex-row items-center gap-1.5 rounded-full border border-border-strong bg-paper px-3.5 active:bg-sunken ${className}`}
       >
-        <Ionicons name="location-outline" size={16} color={colors.textMuted} />
-        <Text variant="footnote" tone="muted" numberOfLines={1}>
+        <Ionicons name="location-outline" size={17} color={colors.text} />
+        <Text variant="ui" className="font-semibold" numberOfLines={1} style={{ maxWidth: 150 }}>
           {city ?? 'All cities'}
         </Text>
-        <Ionicons name="chevron-down" size={14} color={colors.textMuted} />
       </Pressable>
 
       <Modal
@@ -164,7 +165,7 @@ export function CitySuggestionBar({ preference }: { preference: CityPreference }
     >
       <Ionicons name="location-outline" size={18} color={colors.textMuted} />
       <Text variant="footnote" className="flex-1">
-        Looks like you&apos;re near {suggestion.city}.
+        Looks like you are near {suggestion.city}.
       </Text>
       <Pressable accessibilityRole="button" onPress={() => setCity(suggestion.city)} hitSlop={8}>
         <Text variant="footnote" className="font-semibold" style={{ color: colors.primary }}>
