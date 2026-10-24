@@ -57,7 +57,21 @@ export const bookingDetailSchema = bookingSchema.omit({ _count: true }).extend({
   }),
   payment: z.object({ status: z.string(), provider: z.string().nullish() }).nullish(),
   tickets: z.array(z.object({ id: z.string() })).default([]),
+  /** What was ordered. Tickets are issued only once paid, so an unpaid booking has none. */
+  items: z.array(z.object({ kind: z.string().nullish(), quantity: z.number() })).nullish(),
 });
+
+/**
+ * How many tickets a booking is for. Counted from what was ORDERED: an unpaid booking said
+ * "Tickets 0" because tickets are issued only after payment (seen on QA, 2026-10-24). Add-ons
+ * are not tickets. Falls back to the issued tickets when the order lines are not sent.
+ */
+export function ticketCount(booking: Pick<BookingDetail, 'items' | 'tickets'>): number {
+  const ordered = (booking.items ?? [])
+    .filter((i) => (i.kind ?? 'TICKET') === 'TICKET')
+    .reduce((sum, i) => sum + i.quantity, 0);
+  return ordered > 0 ? ordered : booking.tickets.length;
+}
 
 export const bookingPageSchema = z.object({
   data: z.array(bookingSchema),

@@ -10,14 +10,18 @@ import { Button, Card, Field, IconButton, Text, haptics } from '@/ui';
 import { useAuth } from '@/hooks/use-auth';
 import { messageForError } from '@/services/errors';
 import { webUrl } from '@/services/legal';
+import { authRepository } from '@/data/auth-repository';
+import { PhoneSignIn } from '@/features/auth/phone-sign-in';
+import { useQuery } from '@tanstack/react-query';
 
 /**
  * Sign in, laid out as the storefront's sign-in card: a title, the fields, one ink button,
  * and the two ways out (create an account, reset a password).
  *
- * Email and password only. The storefront also signs in by phone code, but the API guards
- * that route with a browser human check a native app cannot run; see the release notes.
- * Password reset happens on the website, which already has the whole flow.
+ * Mobile | Email, as on the storefront. Mobile (a texted code, features/auth/phone-sign-in)
+ * opens first wherever this environment can text a code; where it cannot (QA texts nobody),
+ * Email opens first and the Mobile tab says why. Password reset happens on the website,
+ * which already has the whole flow.
  */
 export default function Login() {
   const { login } = useAuth();
@@ -27,6 +31,19 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [errors, setErrors] = useState<{ email?: string; password?: string; form?: string }>({});
   const [submitting, setSubmitting] = useState(false);
+  const reachable = useQuery({
+    queryKey: ['capabilities', 'phoneSignInCountries'],
+    queryFn: authRepository.phoneSignInCountries,
+    staleTime: 10 * 60_000,
+  });
+  const [chosenTab, setChosenTab] = useState<'phone' | 'email' | null>(
+    params.email ? 'email' : null,
+  );
+  const tab = chosenTab ?? (reachable.data && reachable.data.length > 0 ? 'phone' : 'email');
+  const close = () => {
+    if (router.canGoBack()) router.back();
+    else router.replace('/(tabs)');
+  };
 
   const onSubmit = async () => {
     const parsed = loginSchema.safeParse({ email: email.trim(), password });
@@ -91,59 +108,105 @@ export default function Login() {
               </Text>
             </View>
 
-            <Field
-              label="Email"
-              value={email}
-              onChangeText={setEmail}
-              error={errors.email}
-              placeholder="you@example.com"
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoCorrect={false}
-              autoComplete="email"
-              textContentType="emailAddress"
-            />
-            <Field
-              label="Password"
-              value={password}
-              onChangeText={setPassword}
-              error={errors.password}
-              secure
-              autoCapitalize="none"
-              autoComplete="current-password"
-              textContentType="password"
-              returnKeyType="go"
-              onSubmitEditing={() => void onSubmit()}
-            />
-
-            {errors.form ? (
-              <Card tone="sunken" className="border-l-4 border-critical">
-                <Text variant="ui" tone="danger" accessibilityRole="alert" className="font-medium">
-                  {errors.form}
-                </Text>
-              </Card>
-            ) : null}
-
-            <Button
-              label="Sign in"
-              size="lg"
-              loading={submitting}
-              onPress={() => void onSubmit()}
-            />
-
-            <Pressable
-              accessibilityRole="link"
-              onPress={() => {
-                haptics.tap();
-                void WebBrowser.openBrowserAsync(webUrl('/forgot-password'));
-              }}
-              className="self-start border-b border-gold pb-0.5 active:opacity-60"
-              hitSlop={8}
+            <View
+              accessibilityRole="tablist"
+              className="flex-row rounded-control border border-border-strong p-1"
             >
-              <Text variant="ui" className="font-semibold">
-                Forgot your password?
-              </Text>
-            </Pressable>
+              {(
+                [
+                  ['phone', 'Mobile'],
+                  ['email', 'Email'],
+                ] as const
+              ).map(([key, label]) => (
+                <Pressable
+                  key={key}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: tab === key }}
+                  onPress={() => {
+                    haptics.select();
+                    setChosenTab(key);
+                  }}
+                  style={{ minHeight: 44 }}
+                  className={[
+                    'flex-1 items-center justify-center rounded-control',
+                    tab === key ? 'bg-ink' : 'active:bg-sunken',
+                  ].join(' ')}
+                >
+                  <Text
+                    variant="ui"
+                    tone={tab === key ? 'onAccent' : 'primary'}
+                    className="font-semibold"
+                  >
+                    {label}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+
+            {tab === 'phone' ? (
+              <PhoneSignIn onSignedIn={close} onUseEmail={() => setChosenTab('email')} />
+            ) : (
+              <>
+                <Field
+                  label="Email"
+                  value={email}
+                  onChangeText={setEmail}
+                  error={errors.email}
+                  placeholder="you@example.com"
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  autoComplete="email"
+                  textContentType="emailAddress"
+                />
+                <Field
+                  label="Password"
+                  value={password}
+                  onChangeText={setPassword}
+                  error={errors.password}
+                  secure
+                  autoCapitalize="none"
+                  autoComplete="current-password"
+                  textContentType="password"
+                  returnKeyType="go"
+                  onSubmitEditing={() => void onSubmit()}
+                />
+
+                {errors.form ? (
+                  <Card tone="sunken" className="border-l-4 border-critical">
+                    <Text
+                      variant="ui"
+                      tone="danger"
+                      accessibilityRole="alert"
+                      className="font-medium"
+                    >
+                      {errors.form}
+                    </Text>
+                  </Card>
+                ) : null}
+
+                <Button
+                  label="Sign in"
+                  size="lg"
+                  loading={submitting}
+                  onPress={() => void onSubmit()}
+                />
+
+                <Pressable
+                  accessibilityRole="link"
+                  onPress={() => {
+                    haptics.tap();
+                    void WebBrowser.openBrowserAsync(webUrl('/forgot-password'));
+                  }}
+                  className="self-start border-b border-gold pb-0.5 active:opacity-60"
+                  hitSlop={8}
+                >
+                  <Text variant="ui" className="font-semibold">
+                    Forgot your password?
+                  </Text>
+                </Pressable>
+              </>
+            )}
 
             <View className="h-px bg-border" />
 

@@ -1,21 +1,20 @@
 # Known limitations
 
-Everything known to be missing, unverified or blocked, as of 2026-10-24 (branch
-`feat/android-v1`, PR 476). Rewritten: the previous version predated movies, account
-deletion, the redesign and device testing.
+Everything known to be missing, unverified or blocked, as of 2026-10-24 (PRs 461, 476, 477 and
+478 merged; Play Integrity and phone sign-in in PR 479).
 
 ## Blocked on an owner credential or decision
 
-| Item                 | What exists                                                                        | What is needed                                                                                                                                                                      |
-| -------------------- | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Push notifications   | Registration, permission at the first booking, deregistration on sign-out (tested) | Firebase project; `GOOGLE_SERVICES_JSON` to the build                                                                                                                               |
-| Crash reporting      | Sentry wired, PII-scrubbed                                                         | A Sentry project; `EXPO_PUBLIC_SENTRY_DSN` (+ `SENTRY_AUTH_TOKEN`)                                                                                                                  |
-| Play upload          | Production AAB builds (debug-signed locally)                                       | Upload key: EAS-managed or self-held (PLAY-RELEASE.md section 2)                                                                                                                    |
-| App Links            | Intent filter scoped; web route in PR 477                                          | Signing fingerprint in `ANDROID_APP_LINKS` per environment                                                                                                                          |
-| Phone sign-in (OTP)  | API route exists                                                                   | It requires a browser human check (Turnstile) a native app cannot run. Needs a mobile-safe bot check (Play Integrity, or an attested exemption) decided by the owner. Not bypassed. |
-| Guest checkout       | Not offered                                                                        | Same human check as above, plus the guest session token                                                                                                                             |
-| Stripe (US) payments | Hosted page opens; the server's status decides                                     | Not exercised: no authorised Stripe test path on QA from this device                                                                                                                |
-| UPI                  | Razorpay shows it when the account has it                                          | UPI is off on the QA Razorpay account                                                                                                                                               |
+| Item                 | What exists                                                                               | What is needed                                                                                                                                                                                 |
+| -------------------- | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Push notifications   | Registration, permission at the first booking, deregistration on sign-out (tested)        | Firebase project; `GOOGLE_SERVICES_JSON` to the build                                                                                                                                          |
+| Crash reporting      | Sentry wired, PII-scrubbed                                                                | A Sentry project; `EXPO_PUBLIC_SENTRY_DSN` (+ `SENTRY_AUTH_TOKEN`)                                                                                                                             |
+| Play upload          | EAS-managed upload keystore CREATED on Expo (2026-10-24)                                  | An EAS build: the Free plan is used up until 2026-11-01. Upgrade (owner, costs money) or wait.                                                                                                 |
+| App Links            | Intent filter scoped; web route in PR 477                                                 | Signing fingerprint in `ANDROID_APP_LINKS` per environment                                                                                                                                     |
+| Phone sign-in (OTP)  | Mobile tab + Play Integrity answer to the human check (PR 479, tested with a stub Google) | Cloud project linked in Play Console, Play Integrity API on, a service-account key on the API (PLAY-RELEASE.md section 7); an SMS provider (QA texts nobody); a Play-installed build to verify |
+| Guest checkout       | Not offered                                                                               | A guest session token in the app; the human check is now answerable (PR 479)                                                                                                                   |
+| Stripe (US) payments | Hosted page opens; the server's status decides                                            | Not exercised: no authorised Stripe test path on QA from this device                                                                                                                           |
+| UPI                  | Razorpay shows it when the account has it                                                 | UPI is off on the QA Razorpay account                                                                                                                                                          |
 
 ## Built, not verified on a device
 

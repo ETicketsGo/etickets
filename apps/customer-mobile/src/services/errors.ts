@@ -27,6 +27,14 @@ export function messageForError(error: unknown): string {
     }
 
     const body = error.response.data as { message?: unknown; code?: unknown } | undefined;
+    // The server words these for the website, which can draw a check to solve. The app cannot,
+    // so it says what the person can actually do. See services/human-check.ts.
+    if (body?.code === 'HUMAN_CHECK_REQUIRED' || body?.code === 'HUMAN_CHECK_FAILED') {
+      return 'We could not confirm this request came from the ETicketsGo app on this phone. Update Google Play services and try again, or use the website.';
+    }
+    if (body?.code === 'HUMAN_CHECK_UNAVAILABLE') {
+      return 'We cannot check this request right now. Please try again in a few minutes.';
+    }
     if (typeof body?.message === 'string' && body.message.trim()) return body.message;
 
     switch (error.response.status) {

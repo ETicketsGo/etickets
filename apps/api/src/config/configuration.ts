@@ -867,6 +867,23 @@ const envSchema = z.object({
   TURNSTILE_ADAPTIVE_LENIENT_LIMIT: z.coerce.number().int().min(0).max(1000).default(5),
 
   /*
+    The Android app's answer to the same check: Google Play Integrity, accepted in place of a
+    Turnstile token on every guarded route (the app has no page to draw a widget on). Unset: the
+    app cannot answer a challenge, as before. All three of the first three, or the API refuses to
+    boot. Rules: src/human-check/play-integrity-verifier.ts.
+  */
+  // Comma list of application ids: com.eticketsgo.customer, com.eticketsgo.customer.preview.
+  PLAY_INTEGRITY_PACKAGE_NAMES: z.string().optional(),
+  // Public: the Google Cloud project NUMBER linked in Play Console > App integrity.
+  PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER: z.string().trim().optional(),
+  // Secret: a service-account JSON key in that project (no IAM role needed, only the API on).
+  PLAY_INTEGRITY_SERVICE_ACCOUNT_JSON: z.string().trim().optional(),
+  // QA only: accept a sideloaded build (UNRECOGNIZED_VERSION). Refused at boot in PRODUCTION.
+  PLAY_INTEGRITY_ALLOW_UNRECOGNIZED_APP: z.enum(['true', 'false']).optional(),
+  // Optional comma list of signing-certificate SHA-256 digests (hex with colons, or base64url).
+  PLAY_INTEGRITY_CERT_SHA256: z.string().optional(),
+
+  /*
     How "use my current location" turns coordinates into a city. `offline` uses the bundled
     GeoNames dataset (CC BY 4.0): no key, no cost, nothing leaves the server. `none` turns it
     off, and the storefront then says it could not find a city instead of guessing one.

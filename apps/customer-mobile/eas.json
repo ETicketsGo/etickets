@@ -7,6 +7,7 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
+      "environment": "development",
       "env": {
         "EXPO_PUBLIC_ENV": "development",
         "EXPO_PUBLIC_API_URL": "http://10.0.2.2:4000/api",
@@ -27,6 +28,7 @@
     },
     "qa": {
       "distribution": "internal",
+      "environment": "preview",
       "env": {
         "EXPO_PUBLIC_ENV": "staging",
         "EXPO_PUBLIC_API_URL": "https://api-qa.eticketsgo.com/api",
@@ -42,6 +44,7 @@
     },
     "preview": {
       "distribution": "internal",
+      "environment": "preview",
       "env": {
         "EXPO_PUBLIC_ENV": "staging",
         "EXPO_PUBLIC_API_URL": "https://api-uat.eticketsgo.com/api",
@@ -54,6 +57,7 @@
     },
     "production": {
       "autoIncrement": true,
+      "environment": "production",
       "env": {
         "EXPO_PUBLIC_ENV": "production",
         "EXPO_PUBLIC_API_URL": "https://api.eticketsgo.com/api",

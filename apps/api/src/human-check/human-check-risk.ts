@@ -39,6 +39,12 @@ if n == 1 then redis.call('PEXPIRE', KEYS[1], ARGV[1]) end
 return n
 `;
 
+/** Set-if-absent with an expiry: 1 the first time a key is claimed, 0 on every later try. */
+const CLAIM = `
+if redis.call('SET', KEYS[1], '1', 'NX', 'PX', ARGV[1]) then return 1 end
+return 0
+`;
+
 /** Expand an IPv6 address to eight groups, or null when it is not one. */
 function ipv6Groups(ip: string): string[] | null {
   if (isIP(ip) !== 6) return null;
@@ -104,6 +110,36 @@ export class HumanCheckRisk {
       }
     }
     return this.hitLocally(key, windowMs);
+  }
+
+  /**
+   * Claim a one-use value (a Play Integrity nonce) for `ttlSeconds`. True the first time only.
+   *
+   * With Redis away the claim is per process, like the counters: a replay to another replica
+   * would get through for the outage, which is weaker than shared and much better than none.
+   */
+  async claimOnce(kind: string, value: string, ttlSeconds: number): Promise<boolean> {
+    const key = `${this.prefix}:once:${kind}:${value}`;
+    const ttlMs = ttlSeconds * 1000;
+    try {
+      const n = Number(await this.redis.client.eval(CLAIM, 1, key, String(ttlMs)));
+      if (n === 0 || n === 1) return n === 1;
+    } catch {
+      if (!this.degraded) {
+        this.degraded = true;
+        this.logger.warn(
+          'Redis unavailable: human-check counters are per process until it returns.',
+        );
+      }
+    }
+    const now = Date.now();
+    const entry = this.local.get(key);
+    if (entry && entry.expiresAt > now) return false;
+    if (this.local.size > 10_000) {
+      for (const [k, v] of this.local) if (v.expiresAt <= now) this.local.delete(k);
+    }
+    this.local.set(key, { count: 1, expiresAt: now + ttlMs });
+    return true;
   }
 
   private hitLocally(key: string, windowMs: number): number {

@@ -165,6 +165,9 @@ describe('scrubSensitiveData — PII filter (beforeSend)', () => {
         headers: {
           Authorization: 'Bearer eyJhbGc.eyJzdWI.sig',
           Cookie: 'session=abc',
+          'x-turnstile-token': 'one-use-proof',
+          'x-play-integrity-token': 'one-use-proof',
+          'x-play-integrity-nonce': 'nonce-0000000000000',
           'content-type': 'application/json',
         },
       },
@@ -183,6 +186,9 @@ describe('scrubSensitiveData — PII filter (beforeSend)', () => {
     expect(out.request.query_string).toBeUndefined();
     expect(out.request.headers.Authorization).toBeUndefined();
     expect(out.request.headers.Cookie).toBeUndefined();
+    expect(out.request.headers['x-turnstile-token']).toBeUndefined();
+    expect(out.request.headers['x-play-integrity-token']).toBeUndefined();
+    expect(out.request.headers['x-play-integrity-nonce']).toBeUndefined();
     // Benign header is preserved.
     expect(out.request.headers['content-type']).toBe('application/json');
   });
