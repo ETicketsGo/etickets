@@ -53,7 +53,7 @@ time from Account, Delete account.
 
 **Category:** Events. **Contact email:** owner to provide (Play shows it publicly).
 **Privacy policy URL:** `https://www.eticketsgo.com/privacy`
-**Account deletion URL:** `https://www.eticketsgo.com/delete-account` (PR 477; live once merged)
+**Account deletion URL:** `https://www.eticketsgo.com/delete-account` (PR 477, merged 2026-10-24; live once deployed)
 
 ## Data safety (draft answers)
 
@@ -67,7 +67,7 @@ URL above).
 | ---------------------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------ | --------------------------------------------------------- | -------- |
 | Name                         | Yes                                                                                 | Yes, with the event organizer and the payment provider | Bookings, tickets, account                                | No       |
 | Email address                | Yes                                                                                 | Yes, as above                                          | Account, tickets and receipts                             | No       |
-| Phone number                 | Yes, when entered at payment or added to the account                                | Yes, with the payment provider                         | Payment (the provider requires a contact number), account | Yes      |
+| Phone number                 | Yes, when used to sign in, entered at payment, or added to the account              | Yes, with the payment provider                         | Payment (the provider requires a contact number), account | Yes      |
 | User IDs                     | Yes                                                                                 | No                                                     | Account                                                   | No       |
 | Purchase history             | Yes                                                                                 | Yes, with the organizer of the event                   | Bookings, refunds, receipts                               | No       |
 | User payment info            | Collected by the Razorpay SDK, never by ETicketsGo                                  | Razorpay                                               | Payment                                                   | No       |
@@ -76,6 +76,7 @@ URL above).
 | Installed apps               | Razorpay SDK, only to find installed UPI apps                                       | Razorpay                                               | UPI payment                                               | No       |
 | Crash logs, diagnostics      | Only when crash reporting is configured (Sentry); account id only, no email or name | No                                                     | App stability                                             | No       |
 | Device or other IDs          | Push token, once push is configured; Razorpay SDK device data                       | No (ETicketsGo); Razorpay                              | Notifications; payment                                    | No       |
+| App and device integrity     | Play Integrity verdict, only when the server asks for a bot check (sign-in, codes)  | Decoded by Google for us; no copy kept                 | Fraud prevention, security                                | No       |
 | Other user-generated content | Refund reasons and support messages                                                 | Refund reasons, with the organizer                     | Support, refunds                                          | Yes      |
 
 Not collected: precise location, contacts, photos, files, calendar, messages, health,
@@ -95,6 +96,22 @@ It sells tickets to events, some of which carry age limits (shown on the event p
 lists films with their certificates (UA13+, A). Users can make purchases. No user-to-user
 communication, no user-generated content shown to others. Expected rating: Everyone / 3+,
 with "Users interact" no and "Digital purchases" yes. The answers are the owner's to submit.
+
+## Closed test (required before production)
+
+Personal developer accounts created after 13 November 2023 need **12 or more testers opted in
+for 14 days in a row** on a closed track before applying for production.
+
+1. Internal testing first (up to 100 testers, no review): the owner and the team check that
+   the signed AAB installs and that Play Integrity passes (`pi_passed` on the API).
+2. A closed track with a Google Group as the tester list, so testers can be added without a
+   new release. Aim for 15 to 20 people: some drop out, and the count must stay at 12 or more
+   for the whole 14 days.
+3. Testers must opt in from the link AND install the app. Ask each for one booking journey
+   and one written note; Play asks about tester engagement when the owner applies.
+4. On day 15 or later: Play Console > Dashboard > Apply for production.
+
+A production smoke test, and any real-money payment, needs the owner's approval first.
 
 ## Target audience and other declarations
 

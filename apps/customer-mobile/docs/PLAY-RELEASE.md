@@ -24,7 +24,17 @@ least 12 testers opted in continuously for 14 days** before it can apply for pro
 - The production web host is `www.eticketsgo.com`: the bare `eticketsgo.com` returns 404 for
   `/privacy`, which is the URL Play checks.
 
-## 2. Signing (owner decision, required before any Play upload)
+## 2. Signing
+
+**Decided (owner, 2026-10-24): EAS-managed upload key + Play App Signing.** The upload
+keystore was created on Expo's servers on 2026-10-24 by the first
+`eas build --profile production` ("Using remote Android credentials (Expo server) - Created
+keystore"). It has never been on a laptop or in git. Its SHA-1/SHA-256 are shown by
+`npx eas-cli credentials` (interactive: Android > production) and in Play Console after the
+first upload. When enrolling the app in Play App Signing, choose **"Use Google-generated key"**;
+the EAS key is then only the upload key.
+
+Background, kept for reference:
 
 Play App Signing is mandatory for new apps: Google holds the key that signs what users
 install; we sign uploads with an **upload key**. Two ways to hold the upload key:
@@ -46,7 +56,11 @@ SHA-256 and set it in `ANDROID_APP_LINKS` on the production customer-web service
 
 ## 3. Building
 
-EAS (the supported path; needs build quota on the Expo account):
+EAS (the supported path; needs build quota on the Expo account). **Status 2026-10-24: the
+Free plan's Android builds are used up until 2026-11-01**, so no signed AAB exists yet. Either
+the owner upgrades (`eas billing:subscribe starter --account srinivasdeeptrics`, costs money)
+or the build runs on 1 November. The project, credentials and versionCode (remote, now 2) are
+ready; nothing else blocks it:
 
 ```
 cd apps/customer-mobile
@@ -94,9 +108,11 @@ Optional build inputs, never committed:
 
 ## 5. Release checklist
 
-- [ ] PRs merged: 461, 476 (app), 477 (web: assetlinks + deletion page), 478 (API: deletion
-      clears the phone number).
-- [ ] Signed AAB from the production profile; `version` 1.0.0.
+- [x] PRs merged: 461, 476 (app), 477 (web: assetlinks + deletion page), 478 (API: deletion
+      clears the phone number). 2026-10-24.
+- [ ] PR 479 merged (Play Integrity + phone sign-in).
+- [x] Upload keystore created, EAS-managed.
+- [ ] Signed AAB from the production profile (blocked on EAS build quota until 2026-11-01).
 - [ ] Production smoke on a physical phone: browse, sign up, buy a ticket with a real low
       amount only with the owner's approval, open the ticket offline, refund request.
 - [ ] Push credential and Sentry DSN set, or knowingly shipped without.
@@ -105,7 +121,53 @@ Optional build inputs, never committed:
 - [ ] Store listing, data safety, content rating, deletion URL submitted.
 - [ ] Closed test running 14 days with 12+ testers.
 
-## 6. Rollback and recovery
+## 6. Owner setup for push, crash reporting and phone sign-in
+
+None of these can be done from the repository: each needs the owner's Google, Firebase or
+Sentry account. The code for all three is merged or in PR 479 and stays off until configured.
+
+### Play Integrity (phone sign-in and every guarded route)
+
+1. Google Cloud console: create (or pick) a project; note its **project NUMBER**.
+2. Enable **Google Play Integrity API** in that project.
+3. Play Console > the app > Test and release > App integrity > Play Integrity API > **Link
+   cloud project** (the one above).
+4. IAM > Service accounts > create one (no role needed) > Keys > add a JSON key.
+5. On the API service of each environment that should accept it (QA first):
+   - `PLAY_INTEGRITY_PACKAGE_NAMES` = `com.eticketsgo.customer,com.eticketsgo.customer.preview`
+   - `PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER` = the number
+   - `PLAY_INTEGRITY_SERVICE_ACCOUNT_JSON` = the key (secret)
+   - QA only, for sideloaded APKs: `PLAY_INTEGRITY_ALLOW_UNRECOGNIZED_APP=true` (refused at
+     boot in production).
+6. The check only runs when `TURNSTILE_MODE` is `adaptive` or `always` (QA: unset = off).
+7. A live code also needs an SMS provider; QA has `SMS_PROVIDER=log` and answers
+   `SMS_UNAVAILABLE`, which the app shows as "use email instead".
+
+Verify: install from the internal-testing track, Account > Sign in > Mobile > send a code; the
+API metric `etg_human_check_total{outcome="pi_passed"}` counts it.
+
+### Firebase Cloud Messaging (push)
+
+1. Firebase console: add an Android app `com.eticketsgo.customer` (and
+   `com.eticketsgo.customer.preview` for QA) to a project; download `google-services.json`.
+2. `npx eas-cli env:create --environment production --name GOOGLE_SERVICES_JSON --type file
+--value ./google-services.json --visibility secret` (and `preview`). The build then turns
+   push on (`pushEnabled`); without it the app never asks for permission.
+3. Firebase > Project settings > Service accounts > generate a key; upload it to Expo as the
+   **FCM V1** credential: `npx eas-cli credentials` > Android > production > Push
+   notifications: FCM V1.
+4. API and worker: `PUSH_PROVIDER=expo` (QA first). On QA a variable change redeploys main.
+
+### Sentry (crash reporting)
+
+1. Sentry: create a React Native project `customer-mobile` in the `eticketsgo` org.
+2. EAS production env: `EXPO_PUBLIC_SENTRY_DSN` (plain) and `SENTRY_AUTH_TOKEN` (secret,
+   for source maps; then remove `SENTRY_DISABLE_AUTO_UPLOAD`).
+3. What is sent: `sendDefaultPii: false`; the user is reduced to the account id; no email,
+   name, phone, token, or payment field (`src/services/sentry.ts`). The API side also drops
+   the bot-check headers.
+
+## 7. Rollback and recovery
 
 - **A bad release on Play:** halt the staged rollout (Play Console > Release > Halt). Users
   who already updated keep it; fix forward with a higher versionCode. Play does not allow a
