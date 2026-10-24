@@ -1,9 +1,14 @@
 # Google Play release runbook
 
 What exists, what each step needs, and who does it. Checked against Google's help pages on
-2026-10-24: new apps must target **Android 16 (API 36)** (from 31 August 2026), and a
-personal developer account created after 13 November 2023 must run a **closed test with at
-least 12 testers opted in continuously for 14 days** before it can apply for production.
+2026-10-24: new apps must target **Android 16 (API 36)** (from 31 August 2026).
+
+**The app will be published from an ORGANIZATION developer account under DeepTrics (owner,
+2026-10-24), not a personal one.** Google's closed-testing rule (12 testers opted in for 14
+days before production) is written for "personal developer accounts created after November
+13, 2023" (Play Console Help 14151465), so it is not planned for. The organization's own
+gate is verification: a D-U-N-S number and a legal name and address that match Dun &
+Bradstreet (section 4).
 
 ## 1. Identity and versions
 
@@ -56,11 +61,8 @@ SHA-256 and set it in `ANDROID_APP_LINKS` on the production customer-web service
 
 ## 3. Building
 
-EAS (the supported path; needs build quota on the Expo account). **Status 2026-10-24: the
-Free plan's Android builds are used up until 2026-11-01**, so no signed AAB exists yet. Either
-the owner upgrades (`eas billing:subscribe starter --account srinivasdeeptrics`, costs money)
-or the build runs on 1 November. The project, credentials and versionCode (remote, now 2) are
-ready; nothing else blocks it:
+EAS (the supported path). The account is on the **Starter plan** (owner, 2026-10-24) with
+build credit. The first signed production AAB is listed in section 5.
 
 ```
 cd apps/customer-mobile
@@ -93,33 +95,78 @@ Optional build inputs, never committed:
 | `EXPO_PUBLIC_SENTRY_DSN`                   | Turns crash reporting on. Without it Sentry does nothing.                                                  |
 | `SENTRY_AUTH_TOKEN` (EAS secret)           | Uploads source maps. Production leaves auto-upload on, so set it or set `SENTRY_DISABLE_AUTO_UPLOAD=true`. |
 
-## 4. Play Console steps (owner)
+## 4. Play Console steps (owner): DeepTrics organization account
 
-1. Create the app: name ETicketsGo, default language English, app, free.
-2. App content: privacy policy URL, ads (none), app access (a test account for reviewers:
-   create a dedicated one on production; QA accounts do not exist there), content rating,
-   target audience, data safety, account deletion URL. Drafts in `store-listing/README.md`.
-3. Main store listing: text and assets in `store-listing/`.
-4. Internal testing: upload the signed AAB, add up to 100 testers by email, share the opt-in
-   link. Available within minutes, no review.
-5. Closed testing: a track with at least 12 testers who stay opted in for 14 days in a row.
-   Required before production for a personal account created after 13 November 2023.
-6. Production: apply for access after the closed test, then a staged rollout (start at 10%).
+### 4.1 Before the account exists
+
+1. **Choose the legal entity that owns the app.** The website names two: DeepTrics LLC
+   ("ETicketsGo is operated by DeepTrics LLC") and, in India, DeepTrics Software Solutions
+   Private Limited. The Play account belongs to ONE of them. Its name is the one Play shows
+   under "Contains information about the developer" and must be consistent with the privacy
+   policy, which already names both.
+2. **D-U-N-S number for that entity** (free from Dun & Bradstreet; up to 30 days if it does
+   not have one). Play will not create an organization account without it.
+3. **Google payments profile** in the entity's exact legal name and address, matching the
+   D-U-N-S record character for character. A mismatch is the usual reason verification fails.
+4. **Contact details, each verified by a one-time code and kept working:** a contact name,
+   email and phone (private, for Google), and a developer email and phone (public on the
+   listing). Use role addresses, for example `support@eticketsgo.com`, not a person's.
+5. **Organization website:** `https://www.eticketsgo.com`.
+6. Pay the one-time registration fee and wait for verification.
+7. **Users and permissions:** invite the release engineers with the least access they need
+   (Release manager for testing tracks; production releases stay with the owner).
+
+### 4.2 Creating the app
+
+1. Create the app: name ETicketsGo, default language English (United States) or English
+   (India), app, free. The tickets are paid in the app with Razorpay or Stripe: event tickets
+   are real-world services, so Google Play Billing is not used and none is declared.
+2. App content (drafts in `store-listing/README.md`):
+   - Privacy policy: `https://www.eticketsgo.com/privacy`.
+   - App access: a reviewer account. Create it on PRODUCTION (QA accounts do not exist
+     there) with email sign-in. Phone sign-in cannot be used by reviewers.
+   - Ads: none. Content rating questionnaire. Target audience: 18 and over.
+   - Data safety, and the account deletion URL `https://www.eticketsgo.com/delete-account`.
+   - Financial features: none (no loans, no wallet held by us).
+   - Government app: no. News app: no. Health: no.
+3. Main store listing: text and the assets in `store-listing/`. The screenshots are QA
+   drafts (approved as drafts only): retake them on the production build before the
+   production release.
+4. **Play App Signing:** at the first upload, accept **Google-generated app signing key**.
+   The EAS key in section 2 stays the upload key.
+5. **App integrity > Play Integrity API:** link the Google Cloud project (section 6).
+
+### 4.3 Releasing
+
+1. **Internal testing** (up to 100 testers by email, no review): upload the AAB from
+   section 5 and install from the opt-in link. Check:
+   - the app installs and opens on a physical phone;
+   - Play Integrity: `etg_human_check_total{outcome="pi_passed"}` on the API after a
+     sign-in challenge (only once section 6 is done);
+   - after this first upload: Setup > App integrity > copy the **app signing key SHA-256**
+     into `ANDROID_APP_LINKS` on production customer-web (needs the owner's approval to
+     change production), then `adb shell pm get-app-links com.eticketsgo.customer`.
+2. **Closed testing** is optional for an organization account. Recommended anyway, with the
+   team and a few organizers, for one to two weeks of real use before production.
+3. **Production:** owner approval, then a staged rollout starting at 10%. Halt from
+   Release > Production if crash or payment errors rise.
 
 ## 5. Release checklist
 
 - [x] PRs merged: 461, 476 (app), 477 (web: assetlinks + deletion page), 478 (API: deletion
       clears the phone number). 2026-10-24.
-- [ ] PR 479 merged (Play Integrity + phone sign-in).
+- [x] PR 479 merged (Play Integrity + phone sign-in): aaba4d48.
 - [x] Upload keystore created, EAS-managed.
-- [ ] Signed AAB from the production profile (blocked on EAS build quota until 2026-11-01).
+- [x] Signed AAB from the production profile: versionCode 3 from aaba4d48 (2026-10-24), EAS build 11a85cc4-9fda-44e5-b512-cff91cec74e4. Package com.eticketsgo.customer, versionName 0.1.0, targetSdk 36, minSdk 24, not debuggable (bundletool). Upload certificate SHA-256 86:D8:AE:AD:09:E7:46:5B:A8:3B:DC:79:56:A9:97:79:17:AD:A5:64:FE:56:78:7D:57:01:71:BC:F5:D5:E3:2A, SHA-1 F0:BD:24:C3:4F:F3:57:C1:DE:4B:D3:49:F6:86:F6:D9:34:9A:60:8C. This is the UPLOAD key: App Links need the app signing key from Play Console instead. Rebuild after the Razorpay reason fix merges.
 - [ ] Production smoke on a physical phone: browse, sign up, buy a ticket with a real low
       amount only with the owner's approval, open the ticket offline, refund request.
 - [ ] Push credential and Sentry DSN set, or knowingly shipped without.
 - [ ] App Links fingerprint set on www after the first Play upload; verify with
       `adb shell pm get-app-links com.eticketsgo.customer`.
 - [ ] Store listing, data safety, content rating, deletion URL submitted.
-- [ ] Closed test running 14 days with 12+ testers.
+- [ ] DeepTrics organization account verified (D-U-N-S, payments profile, contacts).
+- [ ] Internal test passed on a physical phone; Play Integrity `pi_passed` seen.
+- [ ] `version` set to 1.0.0 for the production release (it is 0.1.0).
 
 ## 6. Owner setup for push, crash reporting and phone sign-in
 
