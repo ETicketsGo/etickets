@@ -5,6 +5,7 @@ import * as Crypto from 'expo-crypto';
 import { apiClient } from '@/services/api-client';
 import { postParsed } from '@/services/http';
 import { bookingKeys } from '@/features/bookings/api';
+import { openRazorpayCheckout } from '@/services/razorpay-checkout';
 import { eventKeys } from '@/features/events/api';
 import type { EventDetail } from '@/features/events/schema';
 import {
@@ -105,8 +106,16 @@ export function useStartPayment() {
   });
 }
 
+/**
+ * What happened on the device. None of these says the booking is paid: 'completed' means
+ * the buyer finished the provider's steps, 'failed' that the provider said no. The
+ * booking's status on the server is the only answer, and the caller reads it next.
+ */
 export type PaymentOutcome =
-  { kind: 'completed' } | { kind: 'dismissed' } | { kind: 'unsupported'; reason: string };
+  | { kind: 'completed' }
+  | { kind: 'dismissed' }
+  | { kind: 'failed'; reason: string | null }
+  | { kind: 'unsupported'; reason: string };
 
 /**
  * Follow whatever `clientActionUrl` the backend returned.
@@ -121,7 +130,29 @@ export type PaymentOutcome =
 export async function followPaymentAction(
   action: PaymentIntent,
   returnUrl: string,
+  bookingId?: string,
 ): Promise<PaymentOutcome> {
+  /*
+    A Razorpay order. Checked before the URL because in this response clientActionUrl is
+    the order id, which the checks below would refuse as "not a secure web address".
+  */
+  if (action.razorpay) {
+    if (!bookingId) {
+      return { kind: 'unsupported', reason: 'The payment could not be linked to a booking.' };
+    }
+    const result = await openRazorpayCheckout(action.razorpay);
+    if (result.kind === 'not-paid') return { kind: 'failed', reason: result.reason };
+    try {
+      // The signature check. It records the attempt and does NOT issue tickets: the
+      // signed webhook confirms the booking. A failure here is not a failed payment
+      // either, because the webhook may still arrive.
+      await apiClient.post(`/bookings/${bookingId}/payments/razorpay/verify`, result.response);
+    } catch {
+      // Fall through: the booking status read that follows decides.
+    }
+    return { kind: 'completed' };
+  }
+
   const url = action.clientActionUrl;
   if (!url) {
     return { kind: 'unsupported', reason: 'The payment provider did not return an action.' };

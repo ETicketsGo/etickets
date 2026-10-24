@@ -38,6 +38,25 @@ export const bookingSchema = z.object({
   _count: z.object({ tickets: z.number() }),
 });
 
+/**
+ * GET /bookings/:id. The list row's money and status, plus what only the detail carries:
+ * the payment's own status and the issued tickets. Read directly rather than found in
+ * page 1 of the list, which made any booking past the 50th "not found".
+ */
+export const bookingDetailSchema = bookingSchema
+  .omit({ _count: true })
+  .extend({
+    event: z.object({
+      title: z.string(),
+      slug: z.string(),
+      venue: z
+        .object({ name: z.string().nullish(), city: z.string().nullish() })
+        .nullish(),
+    }),
+    payment: z.object({ status: z.string(), provider: z.string().nullish() }).nullish(),
+    tickets: z.array(z.object({ id: z.string() })).default([]),
+  });
+
 export const bookingPageSchema = z.object({
   data: z.array(bookingSchema),
   meta: paginationMetaSchema,
@@ -87,6 +106,7 @@ export const ticketSchema = z.object({
 });
 
 export type Booking = z.infer<typeof bookingSchema>;
+export type BookingDetail = z.infer<typeof bookingDetailSchema>;
 export type Ticket = z.infer<typeof ticketSchema>;
 
 /**
@@ -107,6 +127,8 @@ export function bookingTone(status: string): 'success' | 'warning' | 'error' | '
     // needs the user to act rendered in the neutral grey reserved for statuses this app
     // has never heard of. Seen on a real QA booking, not in a fixture.
     case 'PENDING_PAYMENT':
+    case 'PARTIALLY_REFUNDED':
+    case 'DISPUTED':
       return 'warning';
     case 'CANCELLED':
     case 'EXPIRED':
@@ -136,6 +158,8 @@ export function isLiveBooking(status: string): boolean {
     case 'CANCELLED':
     case 'EXPIRED':
     case 'FAILED':
+    // A fully refunded booking admits nobody, so it is not "upcoming" either.
+    case 'REFUNDED':
       return false;
     default:
       return true;
@@ -149,4 +173,60 @@ export function isLiveBooking(status: string): boolean {
  */
 export function canPresentTicket(ticket: { qrToken?: string | null }): boolean {
   return typeof ticket.qrToken === 'string' && ticket.qrToken.length > 0;
+}
+
+/** Words for a booking status, so the screen never shows a raw enum like PENDING_PAYMENT. */
+export function bookingStatusLabel(status: string): string {
+  switch (status.toUpperCase()) {
+    case 'CONFIRMED':
+      return 'Confirmed';
+    case 'PENDING_PAYMENT':
+      return 'Waiting for payment';
+    case 'PARTIALLY_REFUNDED':
+      return 'Partly refunded';
+    case 'REFUNDED':
+      return 'Refunded';
+    case 'CANCELLED':
+      return 'Cancelled';
+    case 'EXPIRED':
+      return 'Expired';
+    case 'DISPUTED':
+      return 'Payment disputed';
+    default:
+      return status;
+  }
+}
+
+/**
+ * What a ticket's status means at the door. The API's TicketStatus is ACTIVE,
+ * TRANSFERRED, CHECKED_IN, CANCELLED, REFUNDED or VOID. The app used to test for
+ * "VALID", which the API never sends, so every good ticket showed as grey; and it
+ * showed the QR for every status, so a refunded ticket looked usable.
+ *
+ * Only ACTIVE shows a code. CHECKED_IN keeps it hidden too: the ticket has been used,
+ * and a second scan would be refused at the gate anyway.
+ */
+export function ticketState(status: string): {
+  label: string;
+  tone: 'success' | 'warning' | 'error' | 'neutral';
+  showCode: boolean;
+} {
+  switch (status.toUpperCase()) {
+    case 'ACTIVE':
+      return { label: 'Valid', tone: 'success', showCode: true };
+    case 'CHECKED_IN':
+      return { label: 'Checked in', tone: 'neutral', showCode: false };
+    case 'TRANSFERRED':
+      return { label: 'Transferred', tone: 'neutral', showCode: false };
+    case 'CANCELLED':
+      return { label: 'Cancelled', tone: 'error', showCode: false };
+    case 'REFUNDED':
+      return { label: 'Refunded', tone: 'error', showCode: false };
+    case 'VOID':
+      return { label: 'Void', tone: 'error', showCode: false };
+    default:
+      // A status this build does not know. Show it as itself and do not offer a code
+      // the gate may refuse.
+      return { label: status, tone: 'neutral', showCode: false };
+  }
 }

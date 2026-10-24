@@ -1,15 +1,15 @@
 import { useMemo } from 'react';
-import { ScrollView, View } from 'react-native';
+import { RefreshControl, ScrollView, View } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { Screen } from '@/components/screen';
 import { EmptyState, ErrorState, LoadingState, OfflineBanner } from '@/components/states';
 import { useOnline } from '@/hooks/use-online';
 import { Badge, Card, IconButton, Separator, Text } from '@/ui';
 import { formatDateTime, formatMoney } from '@/services/locale';
-import { useBookings } from '@/features/bookings/api';
+import { useBooking } from '@/features/bookings/api';
 import { useOfflineTickets } from '@/features/bookings/use-offline-tickets';
 import { OfflineTicketNotice } from '@/features/bookings/offline-notice';
-import { bookingTone } from '@/features/bookings/schema';
+import { bookingStatusLabel, bookingTone, ticketState } from '@/features/bookings/schema';
 import type { CachedTicket } from '@/services/ticket-cache';
 import { TicketQr } from '@/features/bookings/ticket-qr';
 
@@ -26,16 +26,31 @@ export default function BookingScreen() {
   const router = useRouter();
   const online = useOnline();
 
-  const bookings = useBookings();
+  const bookingQuery = useBooking(id ?? '');
   const tickets = useOfflineTickets();
 
-  const booking = useMemo(() => bookings.data?.data.find((b) => b.id === id), [bookings.data, id]);
+  const booking = bookingQuery.data;
+  const pending = booking?.status.toUpperCase() === 'PENDING_PAYMENT';
+  // True while the screen is still re-reading the booking by itself.
+  const waitingForConfirmation = pending && bookingQuery.polling;
   const bookingTickets = useMemo(
     () => tickets.tickets.filter((t) => t.bookingId === id),
     [tickets.tickets, id],
   );
 
-  const loading = bookings.isPending || tickets.loading;
+  // Offline, React Query PAUSES the request rather than failing it, so it would stay
+  // "pending" for ever and the screen would spin until signal returned.
+  const paused = bookingQuery.isPending && bookingQuery.fetchStatus === 'paused';
+  const unreachable = bookingQuery.isError || paused;
+  // The booking itself cannot be read, but tickets saved on this device can still be
+  // shown. Someone at a venue with no signal needs the code, not an error.
+  const offlineOnly = unreachable && bookingTickets.length > 0;
+  const loading = (bookingQuery.isPending && !paused) || tickets.loading;
+
+  const refresh = () => {
+    void bookingQuery.refetch();
+    tickets.refetch();
+  };
 
   return (
     <Screen padded={false} edges={['top']}>
@@ -56,11 +71,20 @@ export default function BookingScreen() {
 
       {loading ? (
         <LoadingState label="Loading your booking…" />
-      ) : bookings.isError ? (
+      ) : offlineOnly ? (
+        <ScrollView contentContainerClassName="gap-5 px-5 pb-8 pt-2">
+          <OfflineTicketNotice syncedAt={tickets.syncedAt} stale={tickets.stale} />
+          <View className="gap-3">
+            {bookingTickets.map((t) => (
+              <TicketCard key={t.id} ticket={t} />
+            ))}
+          </View>
+        </ScrollView>
+      ) : unreachable ? (
         <ErrorState
           title="Couldn't load this booking"
           message={online ? 'Please try again.' : "You're offline and this isn't saved yet."}
-          onRetry={() => void bookings.refetch()}
+          onRetry={() => void bookingQuery.refetch()}
         />
       ) : !booking ? (
         <EmptyState
@@ -69,12 +93,17 @@ export default function BookingScreen() {
           message="It may belong to a different account, or it may have expired."
         />
       ) : (
-        <ScrollView contentContainerClassName="gap-5 px-5 pb-8 pt-2">
+        <ScrollView
+          contentContainerClassName="gap-5 px-5 pb-8 pt-2"
+          refreshControl={
+            <RefreshControl refreshing={bookingQuery.isRefetching} onRefresh={refresh} />
+          }
+        >
           {tickets.fromCache ? (
             <OfflineTicketNotice syncedAt={tickets.syncedAt} stale={tickets.stale} />
           ) : null}
           <View className="gap-1">
-            <Badge label={booking.status} tone={bookingTone(booking.status)} />
+            <Badge label={bookingStatusLabel(booking.status)} tone={bookingTone(booking.status)} />
             <Text variant="title2" accessibilityRole="header">
               {booking.event.title}
             </Text>
@@ -83,22 +112,30 @@ export default function BookingScreen() {
             </Text>
           </View>
 
-          {booking.status.toUpperCase() === 'PENDING_PAYMENT' ? (
+          {pending ? (
             <Card>
-              <Text variant="headline">Payment not completed</Text>
+              <Text variant="headline">Waiting for payment</Text>
               <Text variant="subhead" tone="muted" className="mt-1">
-                We haven&rsquo;t received payment for this booking yet. If you just paid, give it a
-                moment and pull to refresh — confirmation can take a few seconds.
+                {waitingForConfirmation
+                  ? 'If you paid, we are waiting for your bank to confirm. This page updates by itself. It usually takes a few seconds.'
+                  : 'We have not received payment for this booking. If you paid, pull down to check again.'}
               </Text>
             </Card>
           ) : null}
 
           <Card className="gap-2">
-            <Row label="Reference" value={booking.reference ?? 'Issued on confirmation'} />
+            {booking.reference ? (
+              <>
+                <Row label="Reference" value={booking.reference} />
+                <Separator />
+              </>
+            ) : null}
+            <Row label="Tickets" value={String(booking.tickets.length)} />
             <Separator />
-            <Row label="Tickets" value={String(booking._count.tickets)} />
-            <Separator />
-            <Row label="Paid" value={formatMoney(booking.totalMinor, booking.currency)} />
+            <Row
+              label={pending ? 'Total' : 'Paid'}
+              value={formatMoney(booking.totalMinor, booking.currency)}
+            />
             <Separator />
             <Row label="Booked by" value={booking.buyerName} />
           </Card>
@@ -126,6 +163,7 @@ export default function BookingScreen() {
 }
 
 function TicketCard({ ticket }: { ticket: CachedTicket }) {
+  const state = ticketState(ticket.status);
   const where = [ticket.venueName, ticket.cinemaName, ticket.screenName]
     .filter(Boolean)
     .join(' · ');
@@ -151,16 +189,21 @@ function TicketCard({ ticket }: { ticket: CachedTicket }) {
         ) : null}
       </View>
 
-      <TicketQr ticket={ticket} />
+      {state.showCode ? (
+        <TicketQr ticket={ticket} />
+      ) : (
+        <Text variant="subhead" tone="muted" className="text-center">
+          {state.label === 'Checked in'
+            ? 'This ticket has been used to enter.'
+            : 'This ticket cannot be used to enter.'}
+        </Text>
+      )}
 
       <View className="w-full flex-row items-center justify-between">
         <Text variant="caption" tone="muted">
           {ticket.serial}
         </Text>
-        <Badge
-          label={ticket.status}
-          tone={ticket.status.toUpperCase() === 'VALID' ? 'success' : 'neutral'}
-        />
+        <Badge label={state.label} tone={state.tone} />
       </View>
     </Card>
   );

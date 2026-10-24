@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Alert, ScrollView, View } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { Screen } from '@/components/screen';
@@ -18,6 +19,8 @@ import {
   type CartItem,
 } from '@/features/checkout/api';
 import { HoldCountdown } from '@/features/checkout/hold-countdown';
+import { readBookingStatus } from '@/features/checkout/booking-status';
+import { bookingKeys } from '@/features/bookings/api';
 
 /**
  * Checkout: confirm what's being bought, create the hold, then pay.
@@ -84,6 +87,13 @@ export default function CheckoutScreen() {
   const idempotencyKey = useRef(newIdempotencyKey());
 
   const [paying, setPaying] = useState(false);
+  /*
+    Set synchronously on the first tap. `paying` is React state, so it only takes effect
+    on the next render, and a fast second tap landed before it: two /pay calls, two
+    provider orders for one booking. A ref cannot be stale.
+  */
+  const inFlight = useRef(false);
+  const queryClient = useQueryClient();
 
   const lineItems = useMemo(
     () =>
@@ -116,7 +126,9 @@ export default function CheckoutScreen() {
   };
 
   const onPay = async () => {
+    if (inFlight.current) return;
     if (!validate()) return;
+    inFlight.current = true;
     setPaying(true);
     try {
       // Reuse an existing hold if the user already got this far and came back, rather
@@ -148,25 +160,51 @@ export default function CheckoutScreen() {
       }
 
       const intent = await startPayment.mutateAsync(created.id);
-      const outcome = await followPaymentAction(intent, paymentReturnUrl(created.id));
+      const outcome = await followPaymentAction(
+        intent,
+        paymentReturnUrl(created.id),
+        created.id,
+      );
 
       if (outcome.kind === 'unsupported') {
         Alert.alert('Payment unavailable', outcome.reason);
         return;
       }
-      if (outcome.kind === 'dismissed') {
-        // The hold is still alive; the user can try again until it lapses.
-        Alert.alert('Payment not completed', 'Your tickets are held for a few more minutes.');
+
+      const goToBooking = () => {
+        void queryClient.invalidateQueries({ queryKey: bookingKeys.all });
+        router.replace({ pathname: '/booking/[id]', params: { id: created.id } });
+      };
+
+      if (outcome.kind === 'completed') {
+        // The buyer finished the provider's steps. That proves nothing about money; the
+        // booking screen waits for the server to confirm it.
+        goToBooking();
         return;
       }
 
-      // The browser came back, or the internal action returned. Neither proves the
-      // booking is paid — the booking screen re-reads the server's status and is the
-      // only thing that decides what the user is told.
-      router.replace({ pathname: '/booking/[id]', params: { id: created.id } });
+      /*
+        Closed or refused on the device. Ask the server before saying so: a hosted page
+        that returns to the website (Stripe) leaves the buyer to close the browser
+        themselves, so "dismissed" is also what a successful payment looks like here.
+      */
+      const status = await readBookingStatus(created.id);
+      if (status && status !== 'PENDING_PAYMENT') {
+        goToBooking();
+        return;
+      }
+      Alert.alert(
+        'Payment not completed',
+        outcome.kind === 'failed' && outcome.reason
+          ? `${outcome.reason}
+
+Your tickets are still held for a few minutes. You can try again.`
+          : 'Your tickets are still held for a few minutes. You can try again.',
+      );
     } catch (err) {
       Alert.alert('Something went wrong', messageForError(err));
     } finally {
+      inFlight.current = false;
       setPaying(false);
     }
   };
@@ -268,9 +306,12 @@ export default function CheckoutScreen() {
             editable={!paying}
           />
           {!isAuthenticated ? (
+            // The API books only for a signed-in account (POST /bookings is 401 without
+            // one). Its guest route needs a browser human check this app cannot run, so
+            // offering guest checkout here led to a refusal after the buyer filled the form.
             <Text variant="footnote" tone="muted">
-              You&rsquo;re checking out as a guest. Create an account afterwards to keep this
-              booking with your others.
+              Sign in to book. Your tickets are kept in your account, so you can open them on
+              any device.
             </Text>
           ) : null}
         </View>
@@ -314,13 +355,22 @@ export default function CheckoutScreen() {
       </ScrollView>
 
       <View className="border-t border-border bg-background-surface px-5 pb-2 pt-3">
-        <Button
-          label={fees ? `Pay ${formatMoney(fees.totalMinor, currency)}` : 'Continue to payment'}
-          size="lg"
-          loading={paying}
-          disabled={!online}
-          onPress={() => void onPay()}
-        />
+        {isAuthenticated ? (
+          <Button
+            label={fees ? `Pay ${formatMoney(fees.totalMinor, currency)}` : 'Continue to payment'}
+            size="lg"
+            loading={paying}
+            disabled={!online}
+            onPress={() => void onPay()}
+          />
+        ) : (
+          <Button
+            label="Sign in to continue"
+            size="lg"
+            disabled={!online}
+            onPress={() => router.push('/(auth)/login')}
+          />
+        )}
         {!online ? (
           <Text variant="footnote" tone="muted" className="mt-2 text-center">
             You need a connection to complete a booking.

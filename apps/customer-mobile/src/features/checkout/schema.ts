@@ -44,13 +44,38 @@ export const createBookingResponseSchema = z.object({
  * Two shapes come back, and they are distinguished by the URL itself:
  *   - a RELATIVE path ("/api/payments/<id>/mock-pay") is an action on our own API
  *   - an ABSOLUTE https URL is a hosted provider page, opened in a browser
+ *
+ * A third shape exists, and it is still the server's choice, not the app's: for an
+ * order paid through Razorpay the API returns an ORDER (`razorpay` below) rather than a
+ * URL, because Razorpay checkout runs on the device, not on a hosted page. In that
+ * response `clientActionUrl` is the order id, which is neither a path nor a URL. The app
+ * opens the native checkout with exactly what the server sent and holds no key of its
+ * own: `keyId` is Razorpay's PUBLIC key id, which is designed to be shipped to clients.
  */
+export const razorpayOrderSchema = z.object({
+  keyId: z.string().min(1),
+  orderId: z.string().min(1),
+  amountMinor: minor,
+  currency: z.string(),
+  name: z.string().nullish(),
+  description: z.string().nullish(),
+  prefill: z
+    .object({
+      name: z.string().nullish(),
+      email: z.string().nullish(),
+      contact: z.string().nullish(),
+    })
+    .nullish(),
+});
+
 export const paymentIntentSchema = z.object({
   providerRef: z.string(),
   clientActionUrl: z.string().nullable(),
   status: z.string(),
+  razorpay: razorpayOrderSchema.nullish(),
 });
 
 export type FeeBreakdown = z.infer<typeof feeBreakdownSchema>;
 export type CreateBookingResponse = z.infer<typeof createBookingResponseSchema>;
 export type PaymentIntent = z.infer<typeof paymentIntentSchema>;
+export type RazorpayOrder = z.infer<typeof razorpayOrderSchema>;

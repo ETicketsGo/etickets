@@ -4,8 +4,11 @@ import { KeyboardAvoidingView, Platform } from 'react-native';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { loginSchema, type LoginInput } from '@eticketsgo/validation';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { AxiosError } from 'axios';
 import { Screen } from '@/components/screen';
 import { useAuth } from '@/hooks/use-auth';
+import { messageForError } from '@/services/errors';
 
 /**
  * Minimal, functional login proving the whole foundation end-to-end: React Hook Form
@@ -14,6 +17,8 @@ import { useAuth } from '@/hooks/use-auth';
  */
 export default function Login() {
   const { login } = useAuth();
+  const router = useRouter();
+  const params = useLocalSearchParams<{ email?: string }>();
   const [serverError, setServerError] = useState<string | null>(null);
   const {
     control,
@@ -21,15 +26,23 @@ export default function Login() {
     formState: { errors, isSubmitting },
   } = useForm<LoginInput>({
     resolver: zodResolver(loginSchema),
-    defaultValues: { email: '', password: '' },
+    defaultValues: { email: params.email ?? '', password: '' },
   });
 
   const onSubmit = async (values: LoginInput) => {
     setServerError(null);
     try {
-      await login(values); // success → the root gate redirects into the app
-    } catch {
-      setServerError('Invalid email or password.');
+      await login(values);
+      // Sign-in is a modal over whatever asked for it (checkout, tickets, profile).
+      // Closing it returns there; nothing else redirects.
+      if (router.canGoBack()) router.back();
+      else router.replace('/(tabs)');
+    } catch (err) {
+      // Only a refusal from the server means the password was wrong. "No signal" told
+      // as "wrong password" sends people to reset a password that works.
+      const refused =
+        err instanceof AxiosError && (err.response?.status === 401 || err.response?.status === 400);
+      setServerError(refused ? 'Invalid email or password.' : messageForError(err));
     }
   };
 
@@ -37,7 +50,7 @@ export default function Login() {
     <Screen>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        className="flex-1 justify-center gap-5"
+        className="flex-1 justify-start gap-5 pt-10"
       >
         <View className="gap-1">
           <Text className="text-2xl font-bold text-text-primary">Welcome back</Text>
@@ -103,6 +116,15 @@ export default function Login() {
           ) : (
             <Text className="text-base font-semibold text-action-primary-foreground">Sign in</Text>
           )}
+        </Pressable>
+        <Pressable
+          accessibilityRole="link"
+          onPress={() => router.replace('/(auth)/register')}
+          className="items-center py-2"
+        >
+          <Text className="text-text-secondary">
+            New to ETicketsGo? <Text className="font-semibold text-text-primary">Create an account</Text>
+          </Text>
         </Pressable>
       </KeyboardAvoidingView>
     </Screen>
