@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { ScrollView, View } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '@/components/screen';
 import { ErrorState, LoadingState, OfflineBanner } from '@/components/states';
 import { useOnline } from '@/hooks/use-online';
@@ -24,6 +25,7 @@ import { requiresSeatSelection } from '@/features/events/seating';
  * that was always labelled as one.
  */
 export default function EventDetailScreen() {
+  const insets = useSafeAreaInsets();
   const { slug } = useLocalSearchParams<{ slug: string }>();
   const router = useRouter();
   const online = useOnline();
@@ -243,7 +245,12 @@ export default function EventDetailScreen() {
       </ScrollView>
 
       {totalQty > 0 && session ? (
-        <View className="border-t border-border bg-background-surface px-5 pb-2 pt-3">
+        <View
+          className="border-t border-border bg-background-surface px-5 pt-3"
+          // Clear the home indicator: this screen opts out of the bottom safe-area edge
+          // so the bar's surface runs to the bottom of the display.
+          style={{ paddingBottom: Math.max(insets.bottom, 8) }}
+        >
           <View className="mb-2 flex-row items-end justify-between">
             <View>
               <Text variant="footnote" tone="muted">

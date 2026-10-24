@@ -3,25 +3,25 @@ import { radius, typeScale } from '@eticketsgo/design-tokens';
 
 /**
  * Imperative theme for non-className styling (StatusBar, ActivityIndicator, gradients).
- * Values mirror packages/design-tokens/src/tokens.css (single source); className-based
+ * Values mirror the storefront palette in packages/design-tokens/src/brand.css; className-based
  * styling uses the NativeWind tokens directly. Scales are reused from design-tokens.
  */
 const light = {
-  canvas: '#FAFAFB',
+  canvas: '#F6F2EA',
   surface: '#FFFFFF',
-  text: '#0F172A',
-  textMuted: '#838A97',
-  primary: '#2563EB',
-  border: '#E5E8EE',
+  text: '#16130F',
+  textMuted: '#6A6359',
+  primary: '#16130F',
+  border: '#DDD5C7',
 };
 
 const dark = {
-  canvas: '#0B0E15',
-  surface: '#12151D',
-  text: '#F8FAFC',
-  textMuted: '#8A93A3',
-  primary: '#2563EB',
-  border: '#2A3140',
+  canvas: '#16130F',
+  surface: '#221E19',
+  text: '#F6F2EA',
+  textMuted: '#ADA497',
+  primary: '#E3CFA5',
+  border: '#3A342C',
 };
 
 export type ThemePalette = typeof light;

@@ -54,7 +54,7 @@ export function CityChip({
         presentationStyle="pageSheet"
         onRequestClose={() => setOpen(false)}
       >
-        <View className="flex-1 bg-canvas">
+        <View className="flex-1 bg-background-canvas">
           <View className="flex-row items-center justify-between border-b border-border px-5 py-4">
             <Text variant="title1" accessibilityRole="header">
               Choose your city
@@ -160,7 +160,7 @@ export function CitySuggestionBar({ preference }: { preference: CityPreference }
   return (
     <View
       accessibilityRole="alert"
-      className="flex-row items-center gap-3 border-b border-border bg-surface px-5 py-3"
+      className="flex-row items-center gap-3 border-b border-border bg-background-surface px-5 py-3"
     >
       <Ionicons name="location-outline" size={18} color={colors.textMuted} />
       <Text variant="footnote" className="flex-1">

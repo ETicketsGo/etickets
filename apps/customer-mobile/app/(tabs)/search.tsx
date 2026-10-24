@@ -68,6 +68,9 @@ export default function SearchScreen() {
       {categories && categories.length > 0 ? (
         <ScrollView
           horizontal
+          // A ScrollView grows by default; in this column it would take half the height
+          // from the results list below.
+          style={{ flexGrow: 0 }}
           showsHorizontalScrollIndicator={false}
           contentContainerClassName="gap-2 px-5 pb-3"
           accessibilityLabel="Filter by category"
@@ -106,6 +109,7 @@ export default function SearchScreen() {
         />
       ) : (
         <FlatList
+          automaticallyAdjustKeyboardInsets
           data={events}
           keyExtractor={(e) => e.id}
           renderItem={({ item }) => <EventRow event={item} />}

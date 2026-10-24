@@ -69,6 +69,7 @@ export default function DeleteAccountScreen() {
       </View>
 
       <ScrollView
+        automaticallyAdjustKeyboardInsets
         contentContainerClassName="gap-5 px-5 pb-8 pt-2"
         keyboardShouldPersistTaps="handled"
       >
