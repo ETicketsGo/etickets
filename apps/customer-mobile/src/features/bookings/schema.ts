@@ -50,6 +50,10 @@ export const bookingDetailSchema = bookingSchema.omit({ _count: true }).extend({
     title: z.string(),
     slug: z.string(),
     venue: z.object({ name: z.string().nullish(), city: z.string().nullish() }).nullish(),
+    /** The event's own refund rule: whether it offers refunds, and until how long before. */
+    refundsEnabled: z.boolean().nullish(),
+    refundCutoffHours: z.number().nullish(),
+    refundPolicy: z.string().nullish(),
   }),
   payment: z.object({ status: z.string(), provider: z.string().nullish() }).nullish(),
   tickets: z.array(z.object({ id: z.string() })).default([]),

@@ -13,6 +13,7 @@ import { OfflineTicketNotice } from '@/features/bookings/offline-notice';
 import { bookingStatusLabel, bookingTone, ticketState } from '@/features/bookings/schema';
 import type { CachedTicket } from '@/services/ticket-cache';
 import { TicketQr } from '@/features/bookings/ticket-qr';
+import { BookingManage } from '@/features/bookings/booking-manage';
 
 /**
  * A single booking and the tickets in it.
@@ -135,6 +136,8 @@ export default function BookingScreen() {
               </Text>
             </Card>
           ) : null}
+
+          <BookingManage booking={booking} />
 
           <Card className="gap-3 p-5">
             <Eyebrow>Booking details</Eyebrow>
