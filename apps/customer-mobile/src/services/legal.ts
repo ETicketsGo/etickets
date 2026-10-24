@@ -11,10 +11,10 @@ import { env } from './env';
  * The paths mirror the customer-web routes. If a page moves, it moves here once.
  */
 const LEGAL_PATHS = {
-  terms: '/legal/terms',
-  privacy: '/legal/privacy',
-  refunds: '/legal/refund-policy',
-  support: '/support',
+  terms: '/terms',
+  privacy: '/privacy',
+  refunds: '/refunds',
+  support: '/contact',
 } as const;
 
 export type LegalDocument = keyof typeof LEGAL_PATHS;
