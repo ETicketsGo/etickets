@@ -13,7 +13,12 @@ ivory) rendered at each size. The app icon is a full-bleed square because iOS ma
 
 Brand: Luxury Editorial - ink `#16130F`, gold `#B8955A`, on ivory `#F6F2EA`.
 
-## 🚫 BLOCKING GATE — placeholder assets must be replaced before any external release
+## Placeholder gate: CLEARED (PR 460, 2026-10)
+
+The flat placeholders were replaced by the brand mark above. The section below is kept for
+history.
+
+### Former gate
 
 The flat-colour placeholders are acceptable **only** for engineering compilation/CI. They MUST
 be replaced with real branded artwork before:
