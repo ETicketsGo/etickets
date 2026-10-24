@@ -118,6 +118,16 @@ describe('what is retained, and anonymised', () => {
     expect(data.roles).toEqual(['CUSTOMER']);
   });
 
+  it('removes the verified phone number', async () => {
+    const { service, tx } = makeService();
+
+    await service.deleteMe('u_1');
+
+    const data = tx.user.update.mock.calls[0][0].data;
+    expect(data.phone).toBeNull();
+    expect(data.phoneVerifiedAt).toBeNull();
+  });
+
   it('leaves a password hash that is valid bcrypt but matches nothing', async () => {
     const { service, tx } = makeService();
 
