@@ -20,7 +20,9 @@ import { eventImageFields } from '@/features/events/event-image';
 export const venueSchema = z.object({
   name: z.string(),
   city: z.string(),
-  country: z.string(),
+  // Venue.country is nullable in the API. Required here, one venue with no country
+  // failed the parse of the whole list.
+  country: z.string().nullish(),
 });
 
 /** A bookable event/experience as it appears in a list. */

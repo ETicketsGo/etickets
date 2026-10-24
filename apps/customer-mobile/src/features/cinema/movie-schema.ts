@@ -41,7 +41,9 @@ export const publicShowSchema = z.object({
     id: z.string(),
     name: z.string(),
     city: z.string(),
-    country: z.string(),
+    // Venue.country is nullable in the API. Required here, one venue with no country
+    // failed the parse of the whole list or page.
+    country: z.string().nullish(),
   }),
   cinema: z.object({ id: z.string(), name: z.string(), brand: z.string().nullable() }).nullable(),
   screen: z.object({ id: z.string(), name: z.string() }).nullable(),
