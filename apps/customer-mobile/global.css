@@ -3,45 +3,54 @@
 @tailwind utilities;
 
 /*
- * Color values mirror the canonical tokens in
- * packages/design-tokens/src/tokens.css (single source of truth). HSL channels so
- * NativeWind can compose alpha. Dark mode follows the device (prefers-color-scheme).
+ * Color values mirror the customer storefront's "Luxury Editorial" palette in
+ * packages/design-tokens/src/brand.css (--brand-* / --etg-*): ivory paper, ink and gold.
+ * Dark mode is the storefront's stage tone. HSL channels so NativeWind can compose alpha.
  */
 :root {
-  --background-canvas: 240 20% 98.5%;
+  --background-canvas: 40 40% 94.1%; /* ivory #F6F2EA */
   --background-surface: 0 0% 100%;
-  --background-subtle: 220 24% 96%;
+  --background-subtle: 40 34% 91.2%; /* sunken #F0EBE1 */
   --background-elevated: 0 0% 100%;
-  --text-primary: 222 47% 11%;
-  --text-secondary: 220 12% 38%;
-  --text-muted: 220 9% 44%; /* AA on subtle+white; mirrors design-tokens */
-  --border-default: 220 18% 91%;
-  --border-strong: 220 16% 84%;
-  --action-primary: 221 83% 51%; /* AA on its own 10% tint; mirrors design-tokens */
-  --action-primary-foreground: 0 0% 100%;
-  --action-secondary: 220 20% 96%;
-  --action-secondary-foreground: 222 40% 16%;
-  --action-danger: 0 72% 51%;
+  --text-primary: 34.3 18.9% 7.3%; /* ink #16130F */
+  --text-secondary: 36.9 11.9% 21.4%; /* body-soft #3D3830 */
+  --text-muted: 35.3 8.7% 38.2%; /* muted #6A6359 */
+  --border-default: 38.2 24.4% 82.4%; /* rule #DDD5C7 */
+  --border-strong: 37.8 20% 73.5%; /* rule-strong #C9BFAE */
+  --action-primary: 34.3 18.9% 7.3%; /* the primary button is ink */
+  --action-primary-foreground: 40 40% 94.1%;
+  --action-secondary: 40 34% 91.2%;
+  --action-secondary-foreground: 34.3 18.9% 7.3%;
+  --action-danger: 356 72% 41%;
   --action-danger-foreground: 0 0% 100%;
-  --status-success: 142 68% 36%;
-  --status-warning: 32 92% 44%;
-  --status-error: 0 72% 51%;
-  --status-info: 221 83% 53%;
-  --ring: 221 83% 53%;
+  --status-success: 148.1 33.3% 27.6%;
+  --status-warning: 38.1 47.5% 35.1%;
+  --status-error: 356 72% 41%;
+  --status-info: 220 58% 39%;
+  --ring: 38.1 47.5% 35.1%; /* gold-text */
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background-canvas: 224 32% 7%;
-    --background-surface: 223 26% 11%;
-    --background-subtle: 222 22% 16%;
-    --background-elevated: 223 24% 13%;
-    --text-primary: 210 24% 98%;
-    --text-secondary: 217 15% 72%;
-    --text-muted: 218 12% 58%;
-    --border-default: 220 16% 22%;
-    --border-strong: 220 14% 28%;
-    --action-secondary: 222 22% 18%;
-    --action-secondary-foreground: 210 24% 96%;
+    --background-canvas: 34.3 18.9% 7.3%; /* ink #16130F */
+    --background-surface: 33.3 15.3% 11.6%; /* #221E19 */
+    --background-subtle: 35 15% 15.7%; /* #2E2922 */
+    --background-elevated: 33.3 15.3% 11.6%;
+    --text-primary: 40 40% 94.1%;
+    --text-secondary: 37.1 17.9% 77.1%;
+    --text-muted: 35.5 11.8% 63.5%;
+    --border-default: 34.3 13.7% 20%;
+    --border-strong: 35.3 12.4% 26.9%;
+    --action-primary: 40.6 52.5% 76.9%; /* on the dark band the action is gold */
+    --action-primary-foreground: 34.3 18.9% 7.3%;
+    --action-secondary: 35 15% 15.7%;
+    --action-secondary-foreground: 40 40% 94.1%;
+    --action-danger: 358 85% 72%;
+    --action-danger-foreground: 34.3 18.9% 7.3%;
+    --status-success: 144 28.7% 65.9%;
+    --status-warning: 40.6 52.5% 76.9%;
+    --status-error: 358 85% 72%;
+    --status-info: 218 85% 76%;
+    --ring: 40.6 52.5% 76.9%;
   }
 }

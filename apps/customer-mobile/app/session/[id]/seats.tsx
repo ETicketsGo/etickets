@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { Alert, ScrollView, View } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '@/components/screen';
 import { ErrorState, LoadingState, OfflineBanner } from '@/components/states';
 import { useOnline } from '@/hooks/use-online';
@@ -34,6 +35,7 @@ import { seatName, seatVisualState, type Seat } from '@/features/cinema/schema';
  * device has never meant it is yours.
  */
 export default function SeatSelectionScreen() {
+  const insets = useSafeAreaInsets();
   const { id: sessionId } = useLocalSearchParams<{ id: string }>();
   const { slug } = useLocalSearchParams<{ slug?: string }>();
   const router = useRouter();
@@ -246,7 +248,12 @@ export default function SeatSelectionScreen() {
             />
           </ScrollView>
 
-          <View className="border-t border-border bg-background-surface px-5 pb-2 pt-3">
+          <View
+            className="border-t border-border bg-background-surface px-5 pt-3"
+            // Clear the home indicator: this screen opts out of the bottom safe-area edge
+            // so the bar's surface runs to the bottom of the display.
+            style={{ paddingBottom: Math.max(insets.bottom, 8) }}
+          >
             <View
               className="mb-2 flex-row items-end justify-between"
               accessibilityLiveRegion="polite"

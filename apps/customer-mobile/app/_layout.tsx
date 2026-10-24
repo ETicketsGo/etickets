@@ -1,5 +1,6 @@
 import '../global.css';
 import { useEffect } from 'react';
+import { Platform } from 'react-native';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import {
@@ -43,9 +44,15 @@ function RootLayout() {
   return (
     <AppProviders>
       <DeepLinkHandler />
-      <Stack screenOptions={{ headerShown: false, animation: 'fade' }}>
-        <Stack.Screen name="index" />
-        <Stack.Screen name="(tabs)" />
+      {/* iOS pushes slide like every other iPhone app; Android keeps the fade it has always had. */}
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          animation: Platform.OS === 'ios' ? 'default' : 'fade',
+        }}
+      >
+        <Stack.Screen name="index" options={{ animation: 'fade' }} />
+        <Stack.Screen name="(tabs)" options={{ animation: 'fade' }} />
         {/* Auth is a modal presented over whatever the user was doing, so signing in
             returns them to that screen instead of resetting them to Home. */}
         <Stack.Screen
