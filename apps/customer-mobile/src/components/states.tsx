@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect } from 'react';
-import { ActivityIndicator, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, View, type StyleProp, type ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, {
   useAnimatedStyle,
@@ -7,40 +7,48 @@ import Animated, {
   withRepeat,
   withTiming,
 } from 'react-native-reanimated';
-import { useTheme } from '@/theme';
+import { palette } from '@/theme';
+import { Button, Text } from '@/ui';
 
 /**
- * The five reusable screen states every screen composes: Loading, Skeleton, Empty,
- * Error, Offline. All are accessible (roles + live regions) and theme-aware.
+ * The reusable screen states: Loading, Skeleton, Empty, Error, Offline. Accessible (roles
+ * and live regions) and in the storefront's paper and ink.
  */
 
-export function LoadingState({ label = 'Loading…' }: { label?: string }) {
-  const { colors } = useTheme();
+export function LoadingState({ label = 'Loading...' }: { label?: string }) {
   return (
     <View
       className="flex-1 items-center justify-center gap-3"
       accessibilityRole="progressbar"
       accessibilityLabel={label}
     >
-      <ActivityIndicator size="large" color={colors.primary} />
-      <Text className="text-text-muted">{label}</Text>
+      <ActivityIndicator size="large" color={palette.text} />
+      <Text variant="ui" tone="muted">
+        {label}
+      </Text>
     </View>
   );
 }
 
-/** Pulsing skeleton block; compose several to mimic a screen's layout while loading. */
-export function Skeleton({ className = 'h-4 w-full' }: { className?: string }) {
-  const opacity = useSharedValue(0.5);
+/** Pulsing block in the sunken paper colour; compose several to mimic a screen's layout. */
+export function Skeleton({
+  className = 'h-4 w-full',
+  style,
+}: {
+  className?: string;
+  style?: StyleProp<ViewStyle>;
+}) {
+  const opacity = useSharedValue(0.55);
   useEffect(() => {
     opacity.value = withRepeat(withTiming(1, { duration: 800 }), -1, true);
   }, [opacity]);
-  const style = useAnimatedStyle(() => ({ opacity: opacity.value }));
+  const animated = useAnimatedStyle(() => ({ opacity: opacity.value }));
   return (
     <Animated.View
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
-      style={style}
-      className={`rounded-md bg-background-subtle ${className}`}
+      style={[animated, style]}
+      className={`rounded-control bg-sunken ${className}`}
     />
   );
 }
@@ -58,17 +66,28 @@ function CenteredState({
   action?: ReactNode;
   tone?: 'muted' | 'error';
 }) {
-  const { colors } = useTheme();
   return (
     <View
       className="flex-1 items-center justify-center gap-3 px-8"
       accessibilityRole="summary"
       accessibilityLabel={`${title}. ${message ?? ''}`}
     >
-      <Ionicons name={icon} size={40} color={tone === 'error' ? '#DC2626' : colors.textMuted} />
-      <Text className="text-center text-lg font-semibold text-text-primary">{title}</Text>
-      {message ? <Text className="text-center text-text-muted">{message}</Text> : null}
-      {action}
+      <View className="mb-1 h-16 w-16 items-center justify-center rounded-full bg-sunken">
+        <Ionicons
+          name={icon}
+          size={28}
+          color={tone === 'error' ? palette.critical : palette.textSecondary}
+        />
+      </View>
+      <Text variant="d3" className="text-center">
+        {title}
+      </Text>
+      {message ? (
+        <Text variant="body" tone="secondary" className="text-center">
+          {message}
+        </Text>
+      ) : null}
+      {action ? <View className="mt-2">{action}</View> : null}
     </View>
   );
 }
@@ -79,7 +98,7 @@ export function EmptyState(props: {
   message?: string;
   action?: ReactNode;
 }) {
-  return <CenteredState icon={props.icon ?? 'file-tray-outline'} {...props} />;
+  return <CenteredState {...props} icon={props.icon ?? 'file-tray-outline'} />;
 }
 
 export function ErrorState({
@@ -106,35 +125,28 @@ export function OfflineState({ onRetry }: { onRetry?: () => void }) {
   return (
     <CenteredState
       icon="cloud-offline-outline"
-      title="You're offline"
+      title="You are offline"
       message="Check your connection and try again."
       action={onRetry ? <RetryButton onPress={onRetry} label="Retry" /> : undefined}
     />
   );
 }
 
-/** Thin inline offline banner for screens that still show cached content. */
+/** Thin offline banner for screens that still show saved content. */
 export function OfflineBanner() {
   return (
     <View
       accessibilityRole="alert"
-      className="flex-row items-center justify-center gap-2 bg-status-warning/15 py-2"
+      className="flex-row items-center justify-center gap-2 bg-caution-tint px-4 py-2"
     >
-      <Ionicons name="cloud-offline-outline" size={14} color="#D97706" />
-      <Text className="text-caption text-status-warning">You're offline — showing saved data.</Text>
+      <Ionicons name="cloud-offline-outline" size={15} color={palette.goldText} />
+      <Text variant="meta" className="font-medium">
+        You are offline. Showing what is saved on this phone.
+      </Text>
     </View>
   );
 }
 
 function RetryButton({ onPress, label = 'Try again' }: { onPress: () => void; label?: string }) {
-  return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      className="mt-2 rounded-md bg-action-primary px-4 py-2 active:opacity-80"
-    >
-      <Text className="font-semibold text-action-primary-foreground">{label}</Text>
-    </Pressable>
-  );
+  return <Button label={label} variant="secondary" fullWidth={false} onPress={onPress} />;
 }

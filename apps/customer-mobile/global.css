@@ -3,45 +3,34 @@
 @tailwind utilities;
 
 /*
- * Color values mirror the canonical tokens in
- * packages/design-tokens/src/tokens.css (single source of truth). HSL channels so
- * NativeWind can compose alpha. Dark mode follows the device (prefers-color-scheme).
+ * The customer storefront's palette (packages/design-tokens/src/brand.css, data-brand="customer"):
+ * ivory paper, ink and gold. LIGHT ONLY, like the storefront (docs/design/DESIGN-SYSTEM.md):
+ * dark is not a theme here but a "stage" band inside a light page (a film header, the seat
+ * map, the ticket pass), drawn with the stage-* colours in tailwind.config.js.
+ *
+ * The names are the app's older semantic ones so every screen picks the palette up; the
+ * values are brand.css's, channel for channel. HSL channels so NativeWind can compose alpha.
  */
 :root {
-  --background-canvas: 240 20% 98.5%;
-  --background-surface: 0 0% 100%;
-  --background-subtle: 220 24% 96%;
+  --background-canvas: 40 40% 94.1%; /* --etg-bg #F6F2EA */
+  --background-surface: 0 0% 100%; /* --etg-surface */
+  --background-subtle: 40 34% 91.2%; /* brand-sunken #F0EBE1 */
   --background-elevated: 0 0% 100%;
-  --text-primary: 222 47% 11%;
-  --text-secondary: 220 12% 38%;
-  --text-muted: 220 9% 44%; /* AA on subtle+white; mirrors design-tokens */
-  --border-default: 220 18% 91%;
-  --border-strong: 220 16% 84%;
-  --action-primary: 221 83% 51%; /* AA on its own 10% tint; mirrors design-tokens */
-  --action-primary-foreground: 0 0% 100%;
-  --action-secondary: 220 20% 96%;
-  --action-secondary-foreground: 222 40% 16%;
-  --action-danger: 0 72% 51%;
+  --text-primary: 34.3 18.9% 7.3%; /* --etg-ink #16130F */
+  --text-secondary: 36.9 11.9% 21.4%; /* --etg-body-soft #3D3830 */
+  --text-muted: 35.3 8.7% 38.2%; /* --etg-muted #6A6359 */
+  --border-default: 38.2 24.4% 82.4%; /* --etg-rule #DDD5C7: decoration only */
+  --border-strong: 37.8 20% 73.5%; /* --etg-rule-strong #C9BFAE */
+  --border-field: 30 6% 50%; /* a field's outline: 3:1 on every surface (WCAG 1.4.11) */
+  --action-primary: 34.3 18.9% 7.3%; /* the primary button is ink */
+  --action-primary-foreground: 40 40% 94.1%;
+  --action-secondary: 40 34% 91.2%;
+  --action-secondary-foreground: 34.3 18.9% 7.3%;
+  --action-danger: 356 72% 41%; /* brand-critical #B51D29 */
   --action-danger-foreground: 0 0% 100%;
-  --status-success: 142 68% 36%;
-  --status-warning: 32 92% 44%;
-  --status-error: 0 72% 51%;
-  --status-info: 221 83% 53%;
-  --ring: 221 83% 53%;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background-canvas: 224 32% 7%;
-    --background-surface: 223 26% 11%;
-    --background-subtle: 222 22% 16%;
-    --background-elevated: 223 24% 13%;
-    --text-primary: 210 24% 98%;
-    --text-secondary: 217 15% 72%;
-    --text-muted: 218 12% 58%;
-    --border-default: 220 16% 22%;
-    --border-strong: 220 14% 28%;
-    --action-secondary: 222 22% 18%;
-    --action-secondary-foreground: 210 24% 96%;
-  }
+  --status-success: 148.1 33.3% 27.6%; /* #2F5E45 */
+  --status-warning: 38.1 47.5% 35.1%; /* #84652F */
+  --status-error: 356 72% 41%;
+  --status-info: 220 58% 39%;
+  --ring: 38.1 47.5% 35.1%; /* gold, in its text strength */
 }

@@ -1,6 +1,6 @@
 import { Pressable, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useTheme } from '@/theme';
+import { palette } from '@/theme';
 import { Text, haptics } from '@/ui';
 
 /**
@@ -25,7 +25,7 @@ export function QuantityStepper({
   /** What is being counted, for the screen reader — "General admission tickets". */
   label: string;
 }) {
-  const { colors } = useTheme();
+  const colors = palette;
   const canDecrease = value > min;
   const canIncrease = value < max;
 
@@ -41,7 +41,8 @@ export function QuantityStepper({
 
   return (
     <View
-      className="flex-row items-center gap-1"
+      // The storefront's stepper: one outlined box, "- 0 +", not three loose controls.
+      className="flex-row items-center rounded-control border border-border-field bg-background-surface"
       // Announced as a single adjustable control rather than three separate elements,
       // so a screen-reader user can change it with swipe up/down.
       accessibilityRole="adjustable"
@@ -61,8 +62,9 @@ export function QuantityStepper({
         color={colors.text}
       />
       <Text
-        variant="callout"
-        className="min-w-8 text-center font-semibold"
+        variant="body"
+        tabular
+        className="min-w-7 text-center font-semibold"
         // The parent already announces the value; repeating it here reads it twice.
         accessibilityElementsHidden
       >
@@ -100,7 +102,7 @@ function StepButton({
       disabled={!enabled}
       onPress={onPress}
       style={{ minHeight: 44, minWidth: 44 }}
-      className={`items-center justify-center rounded-full border border-border active:opacity-60 ${
+      className={`items-center justify-center rounded-control active:bg-sunken ${
         enabled ? '' : 'opacity-30'
       }`}
     >

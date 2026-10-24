@@ -25,8 +25,23 @@ export function useDeepLinks() {
 
   /** A link that arrived while signed out and needs a session. Replayed after sign-in. */
   const pending = useRef<ReturnType<typeof targetToHref> | null>(null);
-  /** Guards against handling the same cold-start URL twice. */
+  /** Guards against handling the same URL twice in a row. */
   const handled = useRef<string | null>(null);
+  /**
+   * The launch URL is handled ONCE per app run.
+   *
+   * This effect used to depend on the sign-in state, so signing in or out re-ran it and
+   * re-read getInitialURL(), which keeps returning the URL that launched the app. With a
+   * different link handled in between, the guard above no longer matched, and the app
+   * navigated to the launch link again: signing out of Account opened a film page. Seen on
+   * a moto g31.
+   */
+  const initialDone = useRef(false);
+  /** Read inside the listener, so the listener does not re-subscribe when it changes. */
+  const authenticated = useRef(isAuthenticated);
+  useEffect(() => {
+    authenticated.current = isAuthenticated;
+  }, [isAuthenticated]);
 
   useEffect(() => {
     const handle = (url: string | null) => {
@@ -44,7 +59,7 @@ export function useDeepLinks() {
 
       const href = targetToHref(resolution.target);
 
-      if (resolution.status === 'ok' && resolution.requiresAuth && !isAuthenticated) {
+      if (resolution.status === 'ok' && resolution.requiresAuth && !authenticated.current) {
         pending.current = href;
         router.push('/(auth)/login');
         return;
@@ -53,13 +68,16 @@ export function useDeepLinks() {
       router.push(href as never);
     };
 
-    // Cold start: the URL that launched the app.
-    void Linking.getInitialURL().then(handle);
+    // Cold start: the URL that launched the app, once.
+    if (!initialDone.current) {
+      initialDone.current = true;
+      void Linking.getInitialURL().then(handle);
+    }
 
     // Warm: the app was already running.
     const sub = Linking.addEventListener('url', (event) => handle(event.url));
     return () => sub.remove();
-  }, [router, isAuthenticated]);
+  }, [router]);
 
   // Replay a held link once a session exists.
   useEffect(() => {

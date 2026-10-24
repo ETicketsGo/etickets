@@ -21,24 +21,24 @@ export function OfflineTicketNotice({
   return (
     <View
       accessibilityRole="alert"
-      className={`mx-5 mb-3 flex-row items-start gap-2 rounded-md px-3 py-2.5 ${
-        stale ? 'bg-status-error/12' : 'bg-status-warning/15'
+      className={`flex-row items-start gap-3 rounded-card px-4 py-3 ${
+        stale ? 'bg-critical-tint' : 'bg-caution-tint'
       }`}
     >
       <Ionicons
         name={stale ? 'warning-outline' : 'cloud-offline-outline'}
         size={16}
-        color={stale ? '#DC2626' : '#D97706'}
+        color={stale ? '#B51D29' : '#84652F'}
       />
       <View className="flex-1">
-        <Text variant="subhead" tone={stale ? 'danger' : 'secondary'}>
+        <Text variant="uiStrong" tone={stale ? 'danger' : 'primary'}>
           {stale ? 'These saved tickets are out of date' : 'Showing saved tickets'}
         </Text>
-        <Text variant="caption" tone="muted">
+        <Text variant="meta" tone="secondary">
           {syncedAt ? describeFreshness(syncedAt) : 'Last sync time unknown'}
           {stale
-            ? ' — reconnect to confirm they are still valid before you travel.'
-            : ' — reconnect to check for changes.'}
+            ? '. Reconnect to confirm they are still valid before you travel.'
+            : '. Reconnect to check for changes.'}
         </Text>
       </View>
     </View>

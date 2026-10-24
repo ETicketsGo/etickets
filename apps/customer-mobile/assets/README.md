@@ -1,8 +1,7 @@
 # App assets
 
-These are **flat solid-colour placeholder PNGs** (brand blue, generated at the correct
-dimensions so the Expo asset pipeline / `expo export` processes them). They carry no logo or
-artwork. Replace with real branded art before any store build:
+These are the storefront's "E." mark (`apps/customer-web/public/icon.svg`: ink E, gold dot, on
+ivory) rendered at each size. The app icon is a full-bleed square because iOS masks the corners:
 
 | File                    | Purpose                           | Recommended size                              |
 | ----------------------- | --------------------------------- | --------------------------------------------- |
@@ -12,9 +11,14 @@ artwork. Replace with real branded art before any store build:
 | `favicon.png`           | Web favicon                       | 48×48                                         |
 | `notification-icon.png` | Android notification (monochrome) | 96×96                                         |
 
-Brand: premium, minimal, blue `#2563EB` on `#0B0E15` (dark) / white (light).
+Brand: Luxury Editorial - ink `#16130F`, gold `#B8955A`, on ivory `#F6F2EA`.
 
-## 🚫 BLOCKING GATE — placeholder assets must be replaced before any external release
+## Placeholder gate: CLEARED (PR 460, 2026-10)
+
+The flat placeholders were replaced by the brand mark above. The section below is kept for
+history.
+
+### Former gate
 
 The flat-colour placeholders are acceptable **only** for engineering compilation/CI. They MUST
 be replaced with real branded artwork before:

@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { ScrollView, View } from 'react-native';
+import { useMemo, useState, type ReactNode } from 'react';
+import { Platform, ScrollView, View } from 'react-native';
 import { Chip, ListRow, Text } from '@/ui';
 import { formatMoney } from '@/services/locale';
 import { SEAT_STATE_LABEL } from './seat-colors';
@@ -66,15 +66,18 @@ export function SeatListView({
           No seats are available for this screening.
         </Text>
       ) : (
-        <ScrollView className="max-h-[420px]" nestedScrollEnabled>
+        // iOS: no inner scroller — nestedScrollEnabled is Android-only, so on iOS an inner
+        // list captures the drag and the page feels stuck. Android keeps its capped,
+        // independently scrolling list.
+        <SeatRowsContainer>
           {visibleRows.map((row) => (
             <View key={`${row.sectionName}-${row.label}`} className="mb-3 gap-1">
               <Text variant="footnote" tone="muted" accessibilityRole="header">
                 Row {row.label}
-                {map.sections.length > 1 ? ` · ${row.sectionName}` : ''} · {row.seats.length}{' '}
+                {map.sections.length > 1 ? ` - ${row.sectionName}` : ''} - {row.seats.length}{' '}
                 {row.seats.length === 1 ? 'seat' : 'seats'}
               </Text>
-              <View className="overflow-hidden rounded-md border border-border">
+              <View className="overflow-hidden rounded-card border border-border bg-background-surface">
                 {row.seats.map((seat) => {
                   const category = categoryById.get(seat.categoryId);
                   const isSelected = selected.has(seat.id);
@@ -88,8 +91,8 @@ export function SeatListView({
                       label={`Seat ${name}`}
                       value={
                         selectable
-                          ? `${category?.name ?? ''} · ${formatMoney(category?.priceMinor ?? 0, currency)}${
-                              isSelected ? ' · selected' : ''
+                          ? `${category?.name ?? ''} - ${formatMoney(category?.priceMinor ?? 0, currency)}${
+                              isSelected ? ', selected' : ''
                             }`
                           : SEAT_STATE_LABEL[state]
                       }
@@ -111,8 +114,19 @@ export function SeatListView({
               </View>
             </View>
           ))}
-        </ScrollView>
+        </SeatRowsContainer>
       )}
     </View>
   );
+}
+
+function SeatRowsContainer({ children }: { children: ReactNode }) {
+  if (Platform.OS === 'android') {
+    return (
+      <ScrollView className="max-h-[420px]" nestedScrollEnabled>
+        {children}
+      </ScrollView>
+    );
+  }
+  return <View>{children}</View>;
 }

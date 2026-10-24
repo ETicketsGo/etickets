@@ -1,5 +1,10 @@
 # Release
 
+> **Superseded (2026-10-24).** Builds are produced (EAS QA builds, and local Gradle builds
+> on Windows); see [PLAY-RELEASE.md](PLAY-RELEASE.md) for the current runbook. Kept below for
+> history.
+
+
 ## Status
 
 **No build has been produced.** There is no EAS authentication, no Android SDK, no Java

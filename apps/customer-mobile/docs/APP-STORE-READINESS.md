@@ -1,5 +1,10 @@
 # App store readiness
 
+> **Superseded (2026-10-24).** Account deletion, legal links and device testing are done; the
+> current Play status and steps are in [PLAY-RELEASE.md](PLAY-RELEASE.md) and
+> [../store-listing/README.md](../store-listing/README.md). Kept below for history.
+
+
 **Verdict: not submittable.** Several items below are hard review rejections, not polish.
 
 ## Hard blockers

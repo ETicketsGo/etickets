@@ -1,12 +1,17 @@
 import { useMemo, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Alert, ScrollView, View } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '@/components/screen';
+import { TopBar } from '@/components/top-bar';
+import { BookingBar } from '@/components/booking-bar';
+import { palette } from '@/theme';
 import { ErrorState, OfflineBanner } from '@/components/states';
 import { useOnline } from '@/hooks/use-online';
 import { useAuth } from '@/hooks/use-auth';
-import { Button, Card, Field, IconButton, Separator, Text } from '@/ui';
-import { formatMoney } from '@/services/locale';
+import { Button, Card, Eyebrow, Field, Separator, Text } from '@/ui';
+import { formatEventWhen, formatMoney } from '@/services/locale';
 import { messageForError } from '@/services/errors';
 import { useEvent } from '@/features/events/api';
 import {
@@ -14,10 +19,14 @@ import {
   newIdempotencyKey,
   paymentReturnUrl,
   useCreateBooking,
+  useQuote,
   useStartPayment,
   type CartItem,
 } from '@/features/checkout/api';
 import { HoldCountdown } from '@/features/checkout/hold-countdown';
+import { feeLines } from '@/features/checkout/fee-lines';
+import { readBookingStatus } from '@/features/checkout/booking-status';
+import { bookingKeys } from '@/features/bookings/api';
 
 /**
  * Checkout: confirm what's being bought, create the hold, then pay.
@@ -73,9 +82,15 @@ export default function CheckoutScreen() {
   const setBuyerEmail = setEmailOverride;
   const [errors, setErrors] = useState<{ name?: string; email?: string }>({});
 
+  /** What the buyer typed, and the code actually sent for pricing (set on Apply). */
+  const [couponInput, setCouponInput] = useState('');
+  const [couponCode, setCouponCode] = useState<string | null>(null);
+
   const createBooking = useCreateBooking();
   const startPayment = useStartPayment();
   const booking = createBooking.data;
+  const quote = useQuote(params.sessionId, items, couponCode);
+  const couponRejected = Boolean(couponCode) && quote.data?.coupon?.applied === false;
 
   /**
    * One key per checkout attempt, held in a ref so a re-render cannot mint a new one.
@@ -84,6 +99,13 @@ export default function CheckoutScreen() {
   const idempotencyKey = useRef(newIdempotencyKey());
 
   const [paying, setPaying] = useState(false);
+  /*
+    Set synchronously on the first tap. `paying` is React state, so it only takes effect
+    on the next render, and a fast second tap landed before it: two /pay calls, two
+    provider orders for one booking. A ref cannot be stale.
+  */
+  const inFlight = useRef(false);
+  const queryClient = useQueryClient();
 
   const lineItems = useMemo(
     () =>
@@ -110,13 +132,15 @@ export default function CheckoutScreen() {
     const next: typeof errors = {};
     if (buyerName.trim().length < 2) next.name = 'Enter the name on the booking.';
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(buyerEmail.trim()))
-      next.email = 'Enter a valid email address — your tickets are sent here.';
+      next.email = 'Enter a valid email address. Your tickets are sent here.';
     setErrors(next);
     return Object.keys(next).length === 0;
   };
 
   const onPay = async () => {
+    if (inFlight.current) return;
     if (!validate()) return;
+    inFlight.current = true;
     setPaying(true);
     try {
       // Reuse an existing hold if the user already got this far and came back, rather
@@ -128,6 +152,9 @@ export default function CheckoutScreen() {
           items,
           buyerName: buyerName.trim(),
           buyerEmail: buyerEmail.trim(),
+          // Only a code the quote accepted. A rejected one would be refused again here,
+          // after seats are held, for no gain.
+          ...(couponCode && !couponRejected ? { couponCode } : {}),
           idempotencyKey: idempotencyKey.current,
         }));
 
@@ -148,53 +175,74 @@ export default function CheckoutScreen() {
       }
 
       const intent = await startPayment.mutateAsync(created.id);
-      const outcome = await followPaymentAction(intent, paymentReturnUrl(created.id));
+      const outcome = await followPaymentAction(intent, paymentReturnUrl(created.id), created.id);
 
       if (outcome.kind === 'unsupported') {
         Alert.alert('Payment unavailable', outcome.reason);
         return;
       }
-      if (outcome.kind === 'dismissed') {
-        // The hold is still alive; the user can try again until it lapses.
-        Alert.alert('Payment not completed', 'Your tickets are held for a few more minutes.');
+
+      const goToBooking = () => {
+        void queryClient.invalidateQueries({ queryKey: bookingKeys.all });
+        router.replace({ pathname: '/booking/[id]', params: { id: created.id } });
+      };
+
+      if (outcome.kind === 'completed') {
+        // The buyer finished the provider's steps. That proves nothing about money; the
+        // booking screen waits for the server to confirm it.
+        goToBooking();
         return;
       }
 
-      // The browser came back, or the internal action returned. Neither proves the
-      // booking is paid — the booking screen re-reads the server's status and is the
-      // only thing that decides what the user is told.
-      router.replace({ pathname: '/booking/[id]', params: { id: created.id } });
+      /*
+        Closed or refused on the device. Ask the server before saying so: a hosted page
+        that returns to the website (Stripe) leaves the buyer to close the browser
+        themselves, so "dismissed" is also what a successful payment looks like here.
+      */
+      const status = await readBookingStatus(created.id);
+      if (status && status !== 'PENDING_PAYMENT') {
+        goToBooking();
+        return;
+      }
+      Alert.alert(
+        'Payment not completed',
+        outcome.kind === 'failed' && outcome.reason
+          ? `${outcome.reason}
+
+Your tickets are still held for a few minutes. You can try again.`
+          : 'Your tickets are still held for a few minutes. You can try again.',
+      );
     } catch (err) {
       Alert.alert('Something went wrong', messageForError(err));
     } finally {
+      inFlight.current = false;
       setPaying(false);
     }
   };
 
-  const fees = booking?.fees;
+  // The booking's own figures once it exists; the quote's before. Never computed here.
+  const fees = booking?.fees ?? quote.data?.fees;
   const currency = fees?.currency ?? session?.ticketTypes[0]?.currency ?? 'INR';
   const estimatedSubtotal = lineItems.reduce(
     (n, r) => n + (r.type?.priceMinor ?? 0) * r.item.quantity,
     0,
   );
 
+  const when = session ? formatEventWhen(session.startsAt, event?.timeZone ?? undefined) : null;
+  const totalLabel = fees ? formatMoney(fees.totalMinor, currency) : null;
+
   return (
     <Screen padded={false} edges={['top']}>
       <Stack.Screen options={{ headerShown: false }} />
+      <TopBar title="Checkout" />
       {!online ? <OfflineBanner /> : null}
 
-      <View className="flex-row items-center gap-1 px-2 py-1">
-        <IconButton
-          icon="chevron-back"
-          accessibilityLabel="Go back"
-          onPress={() => router.back()}
-        />
-        <Text variant="callout" className="flex-1 font-semibold">
-          Checkout
-        </Text>
-      </View>
-
-      <ScrollView contentContainerClassName="gap-5 px-5 pb-6 pt-2" keyboardDismissMode="on-drag">
+      <ScrollView
+        contentContainerClassName="gap-7 px-4 pb-8 pt-2"
+        keyboardDismissMode="on-drag"
+        keyboardShouldPersistTaps="handled"
+        automaticallyAdjustKeyboardInsets
+      >
         {booking?.holdExpiresAt ? (
           <HoldCountdown
             expiresAt={booking.holdExpiresAt}
@@ -208,43 +256,43 @@ export default function CheckoutScreen() {
           />
         ) : null}
 
-        <View className="gap-2">
-          <Text variant="title3" accessibilityRole="header">
-            {event?.title ?? 'Your tickets'}
-          </Text>
-          {params.seatNames ? (
-            <Text variant="subhead" tone="muted">
-              Seats {params.seatNames}
+        <Card className="gap-4 p-5">
+          <View className="gap-1">
+            <Eyebrow>Your order</Eyebrow>
+            <Text variant="d3" accessibilityRole="header">
+              {event?.title ?? 'Your tickets'}
             </Text>
-          ) : null}
-          <Card padded={false}>
-            {lineItems.map((r, i) => (
-              <View key={r.item.ticketTypeId}>
-                {i > 0 ? <Separator /> : null}
-                <View className="flex-row items-center justify-between p-4">
-                  <View className="flex-1">
-                    <Text variant="body">
-                      {r.type?.name} × {r.item.quantity}
-                    </Text>
-                    {r.item.seatIds?.length ? (
-                      <Text variant="caption" tone="muted">
-                        Reserved seating
-                      </Text>
-                    ) : null}
-                  </View>
-                  <Text variant="body" className="font-semibold">
-                    {formatMoney((r.type?.priceMinor ?? 0) * r.item.quantity, currency)}
-                  </Text>
-                </View>
-              </View>
-            ))}
-          </Card>
-        </View>
+            {when ? (
+              <Text variant="meta" tone="secondary">
+                {when}
+                {event?.venue.name ? ` - ${event.venue.name}, ${event.venue.city}` : ''}
+              </Text>
+            ) : null}
+            {params.seatNames ? (
+              <Text variant="uiStrong" className="mt-1">
+                Seats {params.seatNames}
+              </Text>
+            ) : null}
+          </View>
+          <Separator />
+          {lineItems.map((r) => (
+            <View key={r.item.ticketTypeId} className="flex-row items-center justify-between gap-3">
+              <Text variant="body" className="flex-1">
+                {r.type?.name}
+                <Text variant="body" tone="muted">
+                  {'  x '}
+                  {r.item.quantity}
+                </Text>
+              </Text>
+              <Text variant="body" className="font-semibold" tabular>
+                {formatMoney((r.type?.priceMinor ?? 0) * r.item.quantity, currency)}
+              </Text>
+            </View>
+          ))}
+        </Card>
 
-        <View className="gap-3">
-          <Text variant="title3" accessibilityRole="header">
-            Where should we send them?
-          </Text>
+        <View className="gap-4">
+          <Eyebrow>Send tickets to</Eyebrow>
           <Field
             label="Full name"
             value={buyerName}
@@ -268,76 +316,140 @@ export default function CheckoutScreen() {
             editable={!paying}
           />
           {!isAuthenticated ? (
-            <Text variant="footnote" tone="muted">
-              You&rsquo;re checking out as a guest. Create an account afterwards to keep this
-              booking with your others.
-            </Text>
+            // The API books only for a signed-in account (POST /bookings is 401 without
+            // one). Its guest route needs a browser human check this app cannot run, so
+            // offering guest checkout here led to a refusal after the buyer filled the form.
+            <Card tone="sunken" className="gap-1">
+              <Text variant="uiStrong">Sign in to book</Text>
+              <Text variant="ui" tone="secondary">
+                Your tickets are kept in your account, so you can open them on any device.
+              </Text>
+            </Card>
           ) : null}
         </View>
 
-        <View className="gap-2">
-          <Text variant="title3" accessibilityRole="header">
-            Total
+        <View className="gap-3">
+          <Field
+            label="Discount code"
+            placeholder="Optional"
+            value={couponInput}
+            onChangeText={setCouponInput}
+            autoCapitalize="characters"
+            autoCorrect={false}
+            // The code is fixed into the booking when seats are held.
+            editable={!booking && !paying}
+            error={couponRejected ? 'This code does not apply to these tickets.' : undefined}
+            hint={
+              booking
+                ? 'Codes can be changed only before your tickets are held.'
+                : quote.data?.coupon?.applied
+                  ? `Code ${quote.data.coupon.code} applied.`
+                  : undefined
+            }
+          />
+          <Button
+            label="Apply code"
+            variant="secondary"
+            fullWidth={false}
+            disabled={Boolean(booking) || paying || couponInput.trim().length === 0}
+            loading={quote.isFetching && Boolean(couponCode)}
+            onPress={() => setCouponCode(couponInput.trim().toUpperCase())}
+          />
+        </View>
+
+        <Card className="gap-3 p-5">
+          <Eyebrow>Price breakdown</Eyebrow>
+          {fees ? (
+            <>
+              <Line label="Tickets" value={formatMoney(fees.subtotalMinor, currency)} />
+              {feeLines(fees).map((line) => (
+                <Line
+                  key={line.label}
+                  label={line.label}
+                  value={
+                    line.minor < 0
+                      ? `-${formatMoney(-line.minor, currency)}`
+                      : formatMoney(line.minor, currency)
+                  }
+                />
+              ))}
+              <View className="h-[2px] bg-ink" />
+              <View className="flex-row items-center justify-between">
+                <Text variant="uiStrong">Total</Text>
+                <Text variant="figureSm">{formatMoney(fees.totalMinor, currency)}</Text>
+              </View>
+              <Text variant="meta" tone="muted">
+                This is the total you will be charged. Every fee is listed above.
+              </Text>
+            </>
+          ) : (
+            <>
+              <Line label="Tickets" value={formatMoney(estimatedSubtotal, currency)} />
+              {/* The quote has not answered yet. Inventing a fee meanwhile would show a
+                  number that changes at the moment of payment. */}
+              <Text variant="meta" tone="muted">
+                {quote.isError
+                  ? 'We could not get the final price. It is shown before you pay.'
+                  : 'Getting the final price...'}
+              </Text>
+            </>
+          )}
+        </Card>
+
+        <View className="flex-row items-center gap-2 px-1">
+          <Ionicons name="lock-closed-outline" size={15} color={palette.textMuted} />
+          <Text variant="meta" tone="muted" className="flex-1">
+            Payment is handled by our payment partner. We never see your card number.
           </Text>
-          <Card className="gap-2">
-            {fees ? (
-              <>
-                <Line label="Tickets" value={formatMoney(fees.subtotalMinor, currency)} />
-                {fees.discountMinor > 0 ? (
-                  <Line label="Discount" value={`−${formatMoney(fees.discountMinor, currency)}`} />
-                ) : null}
-                {fees.customerFeeMinor > 0 ? (
-                  <Line
-                    label="Booking &amp; payment fees"
-                    value={formatMoney(fees.customerFeeMinor, currency)}
-                  />
-                ) : null}
-                <Separator />
-                <View className="flex-row items-center justify-between">
-                  <Text variant="headline">Total</Text>
-                  <Text variant="title3">{formatMoney(fees.totalMinor, currency)}</Text>
-                </View>
-              </>
-            ) : (
-              <>
-                <Line label="Tickets" value={formatMoney(estimatedSubtotal, currency)} />
-                {/* Before the booking exists there is no server-calculated fee, and
-                    inventing one would mean showing a number that changes at the moment
-                    of payment. Saying so is better than guessing. */}
-                <Text variant="footnote" tone="muted">
-                  Booking and payment fees are calculated when you continue.
-                </Text>
-              </>
-            )}
-          </Card>
         </View>
       </ScrollView>
 
-      <View className="border-t border-border bg-background-surface px-5 pb-2 pt-3">
-        <Button
-          label={fees ? `Pay ${formatMoney(fees.totalMinor, currency)}` : 'Continue to payment'}
-          size="lg"
-          loading={paying}
-          disabled={!online}
-          onPress={() => void onPay()}
-        />
+      <BookingBar>
+        {isAuthenticated ? (
+          <View className="flex-row items-center gap-4">
+            <View className="flex-1">
+              <Text variant="meta" tone="muted">
+                Total
+              </Text>
+              <Text variant="figureSm">{totalLabel ?? '...'}</Text>
+            </View>
+            <Button
+              label={fees ? 'Pay now' : 'Continue to payment'}
+              accessibilityLabel={totalLabel ? `Pay ${totalLabel}` : 'Continue to payment'}
+              size="lg"
+              fullWidth={false}
+              loading={paying}
+              disabled={!online}
+              onPress={() => void onPay()}
+            />
+          </View>
+        ) : (
+          <Button
+            label="Sign in to continue"
+            size="lg"
+            disabled={!online}
+            onPress={() => router.push('/(auth)/login')}
+          />
+        )}
         {!online ? (
-          <Text variant="footnote" tone="muted" className="mt-2 text-center">
+          <Text variant="meta" tone="muted" className="mt-2 text-center">
             You need a connection to complete a booking.
           </Text>
         ) : null}
-      </View>
+      </BookingBar>
     </Screen>
   );
 }
 
 function Line({ label, value }: { label: string; value: string }) {
   return (
-    <View className="flex-row items-center justify-between">
-      <Text variant="subhead" tone="secondary">
+    <View className="flex-row items-center justify-between gap-3">
+      <Text variant="ui" tone="secondary">
         {label}
       </Text>
-      <Text variant="subhead">{value}</Text>
+      <Text variant="ui" className="font-medium" tabular>
+        {value}
+      </Text>
     </View>
   );
 }

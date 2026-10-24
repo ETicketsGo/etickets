@@ -3,6 +3,7 @@ import { ScrollView, View } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { Screen } from '@/components/screen';
+import { TopBar } from '@/components/top-bar';
 import { OfflineBanner } from '@/components/states';
 import { Button, Card, Field, Text } from '@/ui';
 import { useAuth } from '@/hooks/use-auth';
@@ -69,10 +70,15 @@ export default function BecomeOrganizerScreen() {
   const settled = done || existing === true;
 
   return (
-    <Screen padded={false}>
-      <Stack.Screen options={{ title: 'Become an organizer' }} />
+    <Screen padded={false} edges={['top']}>
+      <Stack.Screen options={{ headerShown: false }} />
+      <TopBar title="Become an organizer" />
       {!online ? <OfflineBanner /> : null}
-      <ScrollView contentContainerClassName="gap-6 p-5 pb-10" showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerClassName="gap-6 p-5 pb-10"
+        showsVerticalScrollIndicator={false}
+        automaticallyAdjustKeyboardInsets
+      >
         {settled ? (
           <Card className="gap-3">
             <Text variant="title3">
@@ -80,7 +86,7 @@ export default function BecomeOrganizerScreen() {
             </Text>
             <Text variant="subhead" tone="muted">
               The organizer console is a separate sign-in on the web, so you will be asked for your
-              password once more. Same account — this one.
+              password once more. Same account, this one.
             </Text>
             <Button label="Open the organizer console" onPress={openConsole} />
             {done ? (
@@ -95,7 +101,7 @@ export default function BecomeOrganizerScreen() {
             <View className="gap-2">
               <Text variant="title3">Sell your own tickets</Text>
               <Text variant="subhead" tone="muted">
-                Use this same account. Tell us the name of the business that sells the tickets —
+                Use this same account. Tell us the name of the business that sells the tickets.
                 customers see it on their receipts.
               </Text>
             </View>
@@ -125,7 +131,7 @@ export default function BecomeOrganizerScreen() {
             </Card>
 
             <Text variant="footnote" tone="muted">
-              Setting up screens, seat layouts and showtimes is done on the web console — there is a
+              Setting up screens, seat layouts and showtimes is done on the web console. There is a
               lot of detail in a seating plan. This step is all that happens here.
             </Text>
           </>

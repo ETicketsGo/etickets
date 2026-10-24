@@ -35,7 +35,7 @@ export function AuthGate({
 
   // 'loading' is the pre-hydration state. Showing the sign-in prompt during it would
   // flash "Sign in" at a user who is already signed in, every cold start.
-  if (status === 'loading') return <LoadingState label="Loading your account…" />;
+  if (status === 'loading') return <LoadingState label="Loading your account..." />;
   if (isAuthenticated) return <>{children}</>;
 
   return (

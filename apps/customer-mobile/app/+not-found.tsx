@@ -1,20 +1,27 @@
-import { Link, Stack } from 'expo-router';
-import { Text, View } from 'react-native';
+import { Stack, useRouter } from 'expo-router';
 import { Screen } from '@/components/screen';
+import { EmptyState } from '@/components/states';
+import { Button } from '@/ui';
 
+/** A link to something that is not here: say so, and offer the way home. */
 export default function NotFound() {
+  const router = useRouter();
   return (
     <>
-      <Stack.Screen options={{ title: 'Not found' }} />
+      <Stack.Screen options={{ headerShown: false }} />
       <Screen>
-        <View className="flex-1 items-center justify-center gap-3">
-          <Text className="text-lg font-semibold text-text-primary">
-            This screen doesn&rsquo;t exist.
-          </Text>
-          <Link href="/" className="text-action-primary">
-            Go home
-          </Link>
-        </View>
+        <EmptyState
+          icon="compass-outline"
+          title="This page is not here"
+          message="The link may be old, or the event may have ended."
+          action={
+            <Button
+              label="Go to Home"
+              fullWidth={false}
+              onPress={() => router.replace('/(tabs)')}
+            />
+          }
+        />
       </Screen>
     </>
   );
