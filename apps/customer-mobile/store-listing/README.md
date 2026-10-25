@@ -122,38 +122,15 @@ and `READ_BASIC_PHONE_STATE` (Razorpay SDK), `USE_BIOMETRIC` and `USE_FINGERPRIN
 contacts and location permissions are not requested; `WRITE_SETTINGS` and
 `SYSTEM_ALERT_WINDOW` are removed in `app.config.ts`.
 
-## Privacy policy review (2026-10-24): two gaps, wording for the owner to approve
+## Privacy policy (version 2, effective 2026-10-25)
 
-The policy at `https://www.eticketsgo.com/privacy` (source
-`apps/customer-web/app/[locale]/privacy/page.tsx`) covers accounts, orders, payments,
-notifications, sharing with organizers and sub-processors, retention, rights and children.
-Two things the Data safety answers rely on are missing. Legal text is not changed in code
-without the owner's approval (it has an effective date and a policy version):
+Owner-approved in principle on 2026-10-24 and written in `apps/customer-web/app/[locale]/privacy/page.tsx` (registry: `packages/shared-types/src/legal.ts`, v1 kept as superseded). It now matches the Data safety answers above:
 
-1. **Nothing about the app.** Proposed new section, before "Children":
+- Section 1: approximate location (city from the network address; no GPS).
+- Section 4: self-service deletion in the app and at `/delete-account`, and what deletion keeps.
+- Section 9, the app: Razorpay (India) and Stripe (where we take payment elsewhere) collect payment and device data on their own screens; notifications, crash reports and the Google Play integrity check are described as **built in but not switched on**.
 
-   > **The ETicketsGo app.** The Android app sends us the same account, booking and payment
-   > details as the website. It does not use GPS: we estimate your city from your network
-   > address to show what is on near you. Payments are made in the payment provider's own
-   > screens (Razorpay in India, Stripe elsewhere), which collect your payment details and
-   > some device information under their own privacy policies; we never receive card
-   > numbers. To protect sign-in and sign-up from abuse, the app may ask Google Play to
-   > confirm that it is the genuine app on a genuine device; we receive only a yes or no.
-   > If you allow notifications, we store a push token to send you updates about your
-   > bookings. If crash reporting is on, a crash report contains your account number but not
-   > your name, email or phone number.
-
-2. **Deletion only "through the contact page".** Proposed addition to section 4:
-
-   > You can also delete your account yourself: in the app under Account > Delete account,
-   > or at www.eticketsgo.com/delete-account. Booking records that we must keep for tax and
-   > accounting are kept without your name and contact details.
-
-   (The second sentence must match what `account-deletion.service.ts` actually does; legal
-   review should confirm it before publishing.)
-
-Also: Razorpay is named only to visitors located in India (section 8), and a Play reviewer is
-usually not in India. The app section above names it for everyone.
+When push, crash reporting or the integrity check is switched on, update the Data safety form first, then this section if the behaviour differs from what it says.
 
 ## Content rating (IARC questionnaire, draft)
 

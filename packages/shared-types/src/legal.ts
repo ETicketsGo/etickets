@@ -147,6 +147,13 @@ export const POLICY_REGISTRY: readonly Policy[] = Object.freeze([
     jurisdiction: 'GLOBAL',
     version: 1,
     effectiveDate: '2026-10-06',
+    status: 'superseded',
+  },
+  {
+    type: 'PRIVACY',
+    jurisdiction: 'GLOBAL',
+    version: 2,
+    effectiveDate: '2026-10-25',
     status: 'current',
   },
   {
@@ -154,6 +161,13 @@ export const POLICY_REGISTRY: readonly Policy[] = Object.freeze([
     jurisdiction: 'US',
     version: 1,
     effectiveDate: '2026-10-06',
+    status: 'superseded',
+  },
+  {
+    type: 'PRIVACY',
+    jurisdiction: 'US',
+    version: 2,
+    effectiveDate: '2026-10-25',
     status: 'current',
   },
   {
@@ -161,6 +175,13 @@ export const POLICY_REGISTRY: readonly Policy[] = Object.freeze([
     jurisdiction: 'IN',
     version: 1,
     effectiveDate: '2026-10-06',
+    status: 'superseded',
+  },
+  {
+    type: 'PRIVACY',
+    jurisdiction: 'IN',
+    version: 2,
+    effectiveDate: '2026-10-25',
     status: 'current',
   },
   {
@@ -168,6 +189,13 @@ export const POLICY_REGISTRY: readonly Policy[] = Object.freeze([
     jurisdiction: 'CA',
     version: 1,
     effectiveDate: '2026-10-06',
+    status: 'superseded',
+  },
+  {
+    type: 'PRIVACY',
+    jurisdiction: 'CA',
+    version: 2,
+    effectiveDate: '2026-10-25',
     status: 'current',
   },
 
