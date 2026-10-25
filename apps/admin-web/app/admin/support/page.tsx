@@ -155,6 +155,7 @@ export default function AdminSupport() {
           {r.subject && <p className="font-medium text-text-primary">{r.subject}</p>}
           <p className="line-clamp-2 text-text-secondary">{r.message}</p>
           <p className="text-caption text-text-muted">
+            {r.reference ? <span className="font-mono">{r.reference} · </span> : null}
             {accountContactText(r.user?.email ?? r.email) ?? 'Anonymous'}
             {r.organizationName ? ` · about ${r.organizationName}` : ''}
             {r.bookingReference ? ` · ${r.bookingReference}` : ''}
@@ -189,7 +190,7 @@ export default function AdminSupport() {
           value={q}
           onChange={setQ}
           onSubmit={() => filters.set({ q: q.trim() })}
-          placeholder="Search message, subject, or email"
+          placeholder="Search reference, message, subject, or email"
         />
         <FilterBar
           filters={{ ...filters, clear: clearAll }}
@@ -268,6 +269,9 @@ export default function AdminSupport() {
               {selected.rating && <RatingStars value={selected.rating} size="sm" />}
             </div>
             <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-[0.9375rem]">
+              {/* The reference the sender was given, and the one in both support mails. */}
+              <dt className="text-text-muted">Reference</dt>
+              <dd className="font-mono text-text-primary">{selected.reference ?? selected.id}</dd>
               <dt className="text-text-muted">From</dt>
               <dd className="text-text-primary">
                 {selected.user
