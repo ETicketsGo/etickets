@@ -179,29 +179,55 @@ Optional build inputs, never committed:
 
 ## 5. Release checklist
 
-- [x] PRs merged: 461, 476 (app), 477 (web: assetlinks + deletion page), 478 (API: deletion
-      clears the phone number). 2026-10-24.
-- [x] PR 479 merged (Play Integrity + phone sign-in): aaba4d48.
-- [x] Upload keystore created, EAS-managed.
-- [x] Signed AAB 1.0.0 (versionCode 4) from d4ef7c83: section 0.
-- [x] QA payment regression on 1.0.0 code (moto g31, Razorpay test mode): declined and closed
-      payments show no "undefined"; retry confirmed ETG-IND-2026-000076.
-- [ ] Production smoke on a physical phone: browse, sign up, buy a ticket with a real low
-      amount only with the owner's approval, open the ticket offline, refund request.
-- [ ] Push credential and Sentry DSN set, or knowingly shipped without.
-- [ ] App Links fingerprint set on www after the first Play upload; verify with
-      `adb shell pm get-app-links com.eticketsgo.customer`.
-- [ ] **Production `/delete-account` returns 404**: production runs a build from before
-      PR 477. Play requires the account-deletion URL to work. Needs an approved production
-      deploy of customer-web.
-- [ ] Privacy policy: the app additions in `store-listing/README.md` ("Privacy policy
-      review") approved and published.
-- [ ] Store listing, data safety, content rating, deletion URL submitted.
-- [ ] DeepTrics organization account verified (D-U-N-S, payments profile, contacts).
-- [ ] Internal test passed on a physical phone; Play Integrity `pi_passed` seen.
-- [x] `version` 1.0.0, versionCode 4 (owner, 2026-10-24).
+### 5.1 Done
+
+- [x] PRs 461, 476-480, 482 merged; 1.0.0 (versionCode 4) built from d4ef7c83 (section 0).
+- [x] Upload keystore created, EAS-managed; durable AAB copy with checksum (section 0).
+- [x] QA payment regression on 1.0.0 code: declined and closed payments show no
+      "undefined"; retry confirmed ETG-IND-2026-000076.
+- [x] Account deletion verified on QA: in-app deletion, then the login is refused (401).
+- [x] Data safety reviewed against the 1.0.0 manifest (`store-listing/README.md`).
+- [x] Privacy policy v2 (the app, deletion, location, payments; push, crash reports and the
+      integrity check described as not switched on).
+- [x] Store screenshots retaken with labelled demonstration content and a synthetic account.
+
+### 5.2 Required for INTERNAL TESTING (owner)
+
+Internal testing has no Google review and reaches only invited testers.
+
+- [ ] DeepTrics Software Solutions Private Limited organization account created and verified
+      (D-U-N-S, matching payments profile, verified contacts). Never a personal account.
+- [ ] App created with package `com.eticketsgo.customer`; Play App Signing with a
+      Google-generated key.
+- [ ] The 1.0.0 AAB uploaded from `Documents/ETicketsGo-Releases/android-1.0.0-vc4/` after
+      `sha256sum -c SHA256SUMS`.
+- [ ] Testers' emails added; install from the opt-in link on a physical phone.
+- [ ] The minimum App content Play asks for before the first upload (privacy policy URL, app
+      access, ads declaration).
+
+### 5.3 Required for the PRODUCTION LAUNCH (owner approval for each)
+
+- [ ] Production `/delete-account` live (customer-web deploy) and `/privacy` v2 live.
+- [ ] Full App content submitted: Data safety, content rating (IARC, "Digital purchases: no"),
+      target audience 18+, financial features none, account deletion URL.
+- [ ] Main store listing: text, icon, feature graphic, screenshots (section above).
+- [ ] Reviewer account created on PRODUCTION (email sign-in) and entered under App access.
+- [ ] App Links: Play's app signing key SHA-256 in `ANDROID_APP_LINKS` on production
+      customer-web; verify with `adb shell pm get-app-links com.eticketsgo.customer`.
+- [ ] Decide for this release: push (6.2), crash reporting (6.3) and the integrity check
+      (6.1). Each needs a new build (versionCode 5+) and a Data safety update first.
+- [ ] Real events published on production, so a new user does not land on an empty app.
+- [ ] Production smoke on a physical phone with the Play build: browse, sign up, open a
+      ticket offline, delete an account. A real-money purchase only with the owner's
+      approval.
+- [ ] Staged rollout plan (start at 10%) and the rollback in section 7.
 
 ## 6. Owner configuration checklists
+
+Before building the next version, run `node scripts/release-preflight.mjs production` (from
+`apps/customer-mobile`). It lists the EAS variable NAMES (never values) and says which of push,
+crash reporting and the integrity check the next build will switch on, and fails on an unsafe
+Sentry combination. As of 2026-10-25 it reports all three off.
 
 Each needs an account only the owner holds. The code is merged and stays OFF until the values
 below exist; nothing fails while they are missing. Set QA first, check it, then production

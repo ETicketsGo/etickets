@@ -16,23 +16,36 @@ taken in Android's demo mode (clean status bar). They show QA content: "Sample e
 a test account and a QA test ticket. **Before production, retake them on the production build
 against real events**, or approve these knowingly.
 
-## Screenshots: not production-ready (blocked), and the drafts must not be published
+## Screenshots (retaken 2026-10-25, demonstration content)
 
-Checked 2026-10-24. **None of the seven drafts may be uploaded**:
+Seven phone screenshots, 1200 x 2400 (Play allows at most 2:1; the 1080 x 2400 captures are
+padded with the brand paper colour). Taken on an Android 14 emulator in demo mode (clean
+status bar) with the 1.0.0 code against QA, a controlled environment:
 
-- They show QA content. Every non-production environment stamps events `Test event` or
-  `Sample event` (`apps/api/src/common/content-label.ts`, by design), and the events are
-  fictional QA fixtures.
-- `05-checkout.png` shows the QA test account's name and email address.
-- `06-ticket-pass.png` shows a name, a booking reference and a **scannable QR code of a real
-  QA ticket**.
+| File                    | Shows                                            |
+| ----------------------- | ------------------------------------------------ |
+| `01-home.png`           | Home in Bengaluru, a featured event              |
+| `02-event.png`          | Event page: facts, time zone note, price from    |
+| `03-choose-tickets.png` | Choosing ticket types and quantities             |
+| `04-checkout.png`       | Checkout with the price breakdown, before paying |
+| `05-your-tickets.png`   | Your tickets (saved for offline use)             |
+| `06-film-times.png`     | A film's showtimes by date                       |
+| `07-seat-map.png`       | Choosing seats on a cinema seat map              |
 
-Production-ready screenshots need real published events on production, which has none today
-(`GET /public/events` returns 0 for India and the US). Hiding the QA labels would present
-fictional events as real, so it is not done. Once real events are live, capture on the 1.0.0
-build against production: signed-out screens (home, event, film times, seat map) need no
-account; checkout and ticket screens need the reviewer account and a purchase the owner
-approves. Use a placeholder name such as "Reviewer", never a customer's.
+Safety of the content:
+
+- **Demonstration events only**, each visibly labelled `Sample event` in the app. They belong
+  to the QA demo organization and are fictional; no screenshot claims a real, live event.
+- **Synthetic account**: name "Demo Customer", email `store-demo@eticketsgo.test` (a reserved
+  test domain). No personal email, name or phone anywhere.
+- **No usable ticket**: the ticket pass (QR code) is deliberately not included. The booking
+  shown in "Your tickets" (ETG-IND-2026-000077) is a Razorpay test-mode purchase on QA.
+- The previous drafts (QA test account email, a scannable QA ticket) were removed from this
+  folder; they remain in git history only.
+
+Before the PRODUCTION listing goes public, decide whether to keep demonstration screenshots
+or retake them with real published events on the production build. Play requires
+screenshots to show the app as it is; the "Sample event" label keeps these honest.
 
 ## Store listing text
 
