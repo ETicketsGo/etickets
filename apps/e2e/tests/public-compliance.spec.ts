@@ -134,7 +134,10 @@ test.describe('the public compliance surface', () => {
         expect(t, `${path} must not show a policy id`).not.toMatch(
           /(TERMS|PRIVACY|SMS|REFUNDS|COOKIES)\/[A-Z]+\/v\d/,
         );
-        expect(t).toMatch(/Last updated October 6, 2026/);
+        // Privacy v2 took effect on 2026-10-25 (packages/shared-types/src/legal.ts); the rest are v1.
+        expect(t).toMatch(
+          path === '/privacy' ? /Last updated October 25, 2026/ : /Last updated October 6, 2026/,
+        );
       }
     });
 
