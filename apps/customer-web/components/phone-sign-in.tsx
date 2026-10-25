@@ -17,6 +17,7 @@ import { PHONE_COUNTRIES } from '@/lib/phone-number';
 import { PhoneNumberField, usePhoneNumber } from '@/components/phone-number-field';
 import { useTranslations } from 'next-intl';
 import { BRAND_FOCUS } from '@eticketsgo/web-kit';
+import { phoneSignInOutcome } from '@eticketsgo/shared-types';
 
 /**
  * Signing in - or signing up - with a mobile number and a code.
@@ -88,6 +89,12 @@ export function PhoneSignIn({
   // The send was refused because text messages cannot be sent at all right now.
   const [unavailable, setUnavailable] = useState(false);
   const [loading, setLoading] = useState(false);
+  /*
+    The code was right, and the number ALREADY had an account: the person is now signed into
+    that account and is told so before going on. Without this a repeat "Create account" looked
+    exactly like a new account being made (owner report, 2026-10-25).
+  */
+  const [signedIntoExisting, setSignedIntoExisting] = useState(false);
   /*
     One id per copy of the form - see the note in the register page. The sign-in page keeps the
     plain `phone` / `phone-country` ids it always had.
@@ -166,6 +173,16 @@ export function PhoneSignIn({
       );
       tokenStore.set(tokens);
       /*
+        What the code proved is the API's answer, not the tab's: the Sign-up tab cannot know in
+        advance whether the number has an account (asking would make request-code an oracle).
+        A number that already had one signs into THAT account, and the API applied nothing from
+        this form to it - so the person is told, plainly, and continues when ready.
+      */
+      if (phoneSignInOutcome(signUp ? 'sign-up' : 'sign-in', tokens.isNewAccount) === 'existing') {
+        setSignedIntoExisting(true);
+        return;
+      }
+      /*
         Sign-in asks for nothing more: a brand-new account goes on where it was going, and the
         name is asked for at checkout, where it is needed. Sign-up has already asked.
       */
@@ -177,6 +194,27 @@ export function PhoneSignIn({
       setLoading(false);
     }
   };
+
+  if (signedIntoExisting) {
+    return (
+      <div
+        role="status"
+        data-testid="phone-existing-account"
+        className={`space-y-4 ${BRAND_INSET}`}
+      >
+        <p className="text-brand-body font-semibold text-brand-ink">
+          {a('existingAccountSignedIn')}
+        </p>
+        <BrandActionButton
+          size="lg"
+          className="w-full"
+          onClick={() => router.push(afterSignIn(next))}
+        >
+          {a('continueSignedIn')}
+        </BrandActionButton>
+      </div>
+    );
+  }
 
   if (!sentTo) {
     return (

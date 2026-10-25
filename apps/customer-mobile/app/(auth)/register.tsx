@@ -4,10 +4,13 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { registerSchema } from '@eticketsgo/validation';
 import { PASSWORD_MIN_LENGTH } from '@eticketsgo/shared-types';
 import { Screen } from '@/components/screen';
-import { Button, Card, Field, IconButton, Text } from '@/ui';
+import { useQuery } from '@tanstack/react-query';
+import { Button, Card, Field, IconButton, Text, haptics } from '@/ui';
 import { BrandMark } from '@/components/brand-mark';
 import { useAuth } from '@/hooks/use-auth';
 import { messageForError } from '@/services/errors';
+import { authRepository } from '@/data/auth-repository';
+import { PhoneSignIn } from '@/features/auth/phone-sign-in';
 
 /**
  * Create a customer account.
@@ -16,6 +19,11 @@ import { messageForError } from '@/services/errors';
  * API validates against. Re-stating the rules here (min length, email shape) is how a
  * client ends up rejecting a password the server would have accepted, or accepting one
  * it won't.
+ *
+ * Mobile | Email, as on the storefront's /register and on this app's sign-in. The Mobile tab is
+ * sign-UP by text code (`PhoneSignIn signUp`): it asks for a name, and when the number already
+ * has an account it says "You already have an account with this number. We signed you in."
+ * instead of behaving as if one had just been made.
  */
 export default function RegisterScreen() {
   const router = useRouter();
@@ -28,6 +36,20 @@ export default function RegisterScreen() {
   const [password, setPassword] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
+  const reachable = useQuery({
+    queryKey: ['capabilities', 'phoneSignInCountries'],
+    queryFn: authRepository.phoneSignInCountries,
+    staleTime: 10 * 60_000,
+  });
+  const [chosenTab, setChosenTab] = useState<'phone' | 'email' | null>(
+    prefillEmail ? 'email' : null,
+  );
+  // The same rule as sign-in: Mobile first wherever this environment can text a code.
+  const tab = chosenTab ?? (reachable.data && reachable.data.length > 0 ? 'phone' : 'email');
+  const close = () => {
+    if (router.canGoBack()) router.back();
+    else router.replace('/(tabs)');
+  };
 
   const onSubmit = async () => {
     const parsed = registerSchema.safeParse({ fullName, email: email.trim(), password });
@@ -99,55 +121,101 @@ export default function RegisterScreen() {
               </Text>
             </View>
 
-            <Field
-              label="Full name"
-              value={fullName}
-              onChangeText={setFullName}
-              error={errors.fullName}
-              autoComplete="name"
-              textContentType="name"
-              editable={!submitting}
-            />
-            <Field
-              label="Email"
-              value={email}
-              onChangeText={setEmail}
-              error={errors.email}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoCorrect={false}
-              autoComplete="email"
-              textContentType="emailAddress"
-              editable={!submitting}
-            />
-            <Field
-              label="Password"
-              value={password}
-              onChangeText={setPassword}
-              error={errors.password}
-              hint={`At least ${PASSWORD_MIN_LENGTH} characters. Do not use your name or email.`}
-              secure
-              autoCapitalize="none"
-              // `newPassword` prompts the OS to offer a strong password and save it.
-              autoComplete="new-password"
-              textContentType="newPassword"
-              editable={!submitting}
-            />
+            <View
+              accessibilityRole="tablist"
+              className="flex-row rounded-control border border-border-strong p-1"
+            >
+              {(
+                [
+                  ['phone', 'Mobile'],
+                  ['email', 'Email'],
+                ] as const
+              ).map(([key, label]) => (
+                <Pressable
+                  key={key}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: tab === key }}
+                  onPress={() => {
+                    haptics.select();
+                    setChosenTab(key);
+                  }}
+                  style={{ minHeight: 44 }}
+                  className={[
+                    'flex-1 items-center justify-center rounded-control',
+                    tab === key ? 'bg-ink' : 'active:bg-sunken',
+                  ].join(' ')}
+                >
+                  <Text
+                    variant="ui"
+                    tone={tab === key ? 'onAccent' : 'primary'}
+                    className="font-semibold"
+                  >
+                    {label}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
 
-            {errors.form ? (
-              <Card tone="sunken" className="border-l-4 border-critical">
-                <Text variant="ui" tone="danger" accessibilityRole="alert" className="font-medium">
-                  {errors.form}
-                </Text>
-              </Card>
-            ) : null}
+            {tab === 'phone' ? (
+              <PhoneSignIn signUp onSignedIn={close} onUseEmail={() => setChosenTab('email')} />
+            ) : (
+              <>
+                <Field
+                  label="Full name"
+                  value={fullName}
+                  onChangeText={setFullName}
+                  error={errors.fullName}
+                  autoComplete="name"
+                  textContentType="name"
+                  editable={!submitting}
+                />
+                <Field
+                  label="Email"
+                  value={email}
+                  onChangeText={setEmail}
+                  error={errors.email}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  autoComplete="email"
+                  textContentType="emailAddress"
+                  editable={!submitting}
+                />
+                <Field
+                  label="Password"
+                  value={password}
+                  onChangeText={setPassword}
+                  error={errors.password}
+                  hint={`At least ${PASSWORD_MIN_LENGTH} characters. Do not use your name or email.`}
+                  secure
+                  autoCapitalize="none"
+                  // `newPassword` prompts the OS to offer a strong password and save it.
+                  autoComplete="new-password"
+                  textContentType="newPassword"
+                  editable={!submitting}
+                />
 
-            <Button
-              label="Create account"
-              size="lg"
-              loading={submitting}
-              onPress={() => void onSubmit()}
-            />
+                {errors.form ? (
+                  <Card tone="sunken" className="border-l-4 border-critical">
+                    <Text
+                      variant="ui"
+                      tone="danger"
+                      accessibilityRole="alert"
+                      className="font-medium"
+                    >
+                      {errors.form}
+                    </Text>
+                  </Card>
+                ) : null}
+
+                <Button
+                  label="Create account"
+                  size="lg"
+                  loading={submitting}
+                  onPress={() => void onSubmit()}
+                />
+              </>
+            )}
 
             <Text variant="meta" tone="muted">
               By creating an account you agree to the terms of service and the privacy policy,

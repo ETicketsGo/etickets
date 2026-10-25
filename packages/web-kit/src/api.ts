@@ -734,6 +734,12 @@ export const api = {
     profile: () => request<UserProfile>('/users/me'),
     updateProfile: (fullName: string) =>
       request<AuthUser>('/users/me', { method: 'PATCH', body: JSON.stringify({ fullName }) }),
+    /** Where the person says they live, or null to clear it. Optional, never inferred. */
+    updateResidence: (countryOfResidence: string | null) =>
+      request<AuthUser & { countryOfResidence: string | null }>('/users/me', {
+        method: 'PATCH',
+        body: JSON.stringify({ countryOfResidence }),
+      }),
     adminList: (params: PageParams & UserDirectoryFilters) =>
       request<Paged<AdminUser>>(`/users${qs(params)}`),
     directorySummary: () => request<UserDirectorySummary>('/users/directory-summary'),
@@ -3079,6 +3085,8 @@ export interface AuthUser {
   phoneVerified?: boolean;
   memberSince?: string;
   locale?: string | null;
+  /** Where the person says they live (ISO alpha-2), or null. Absent from an older API. */
+  countryOfResidence?: string | null;
 }
 export interface UserProfile extends AuthUser {
   status: string;
@@ -3096,23 +3104,45 @@ export interface AdminUser {
   status: string;
   createdAt: string;
   /**
-   * The countries this account belongs to, derived from what it did.
-   *
-   * A `User` has no country column and should not get one: nobody is asked at sign-up, a locale
-   * is a language setting, and a calling code cannot tell the United States from Canada. These
-   * are the countries of the venues the account bought at, plus the countries of the
-   * organizations it belongs to. Empty means we do not know, which is a real answer.
+   * ACTIVITY countries: where the account bought tickets, plus where the organizations it belongs
+   * to are registered. Kept under its old name for compatibility; `activityCountries` is the same.
    */
   countries: string[];
+  /*
+    Country EVIDENCE, each kind kept apart and labelled by where it came from. All optional:
+    an API older than them sends none, and the console then shows activity only, as before.
+  */
+  /** Same as `countries`. */
+  activityCountries?: string[];
+  /** Where the person says they live (chosen in their profile), ISO alpha-2. Never inferred. */
+  countryOfResidence?: string | null;
+  /** The network's country at sign-up (edge header) - a hint, not a residence. */
+  detectedCountry?: string | null;
+  /** How `detectedCountry` was obtained ('network'). */
+  detectedCountrySource?: string | null;
+  /** The VERIFIED number's calling code, `+91` / `+1` - a fact about the number, not the person. */
+  phoneCallingCode?: string | null;
+  /** The same with the countries sharing it, `+1 (US/CA)`. */
+  phoneCallingCodeLabel?: string | null;
 }
 
 /** Account counts by country, role and status, for the directory overview. */
 export interface UserDirectorySummary {
   total: number;
-  /** Accounts no country could be derived for - the same rows the list shows as unknown. */
+  /** Accounts with no ACTIVITY country (no booking or organizer country). */
   withoutCountry: number;
-  /** An account active in two countries is counted in both, so these exceed `total`. */
+  /** ACTIVITY countries. An account active in two is counted in both, so these exceed `total`. */
   byCountry: { country: string; count: number }[];
+  /** Same as `withoutCountry`, under the name that says what it counts. */
+  withoutActivityCountry?: number;
+  /** Accounts with no country evidence of any kind (no residence, network, phone or activity). */
+  withoutAnyCountryEvidence?: number;
+  /** Residence, as chosen by the person. */
+  byResidence?: { country: string; count: number }[];
+  /** The network's country at sign-up. */
+  byDetected?: { country: string; count: number }[];
+  /** Verified numbers by calling code, `+1 (US/CA)`. */
+  byPhoneCallingCode?: { code: string; count: number }[];
   byRole: { role: string; count: number }[];
   byStatus: { status: string; count: number }[];
 }

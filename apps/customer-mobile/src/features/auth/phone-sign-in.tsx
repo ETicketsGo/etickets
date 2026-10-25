@@ -8,6 +8,7 @@ import { authRepository } from '@/data/auth-repository';
 import { messageForError } from '@/services/errors';
 import { deviceLocale } from '@/services/locale';
 import { useResolvedLocation } from '@/features/location/api';
+import { phoneSignInOutcome } from '@eticketsgo/shared-types';
 import { PHONE_COUNTRIES, phoneCountryGuess, readTypedNumber, toE164 } from './phone-number';
 
 /**
@@ -24,13 +25,22 @@ import { PHONE_COUNTRIES, phoneCountryGuess, readTypedNumber, toE164 } from './p
  *
  * NEVER A DEAD FORM: when no code can reach the chosen country (the capabilities say so in
  * advance; a 503 SMS_UNAVAILABLE says so after the fact) the tab says so and offers email.
+ *
+ * SIGN-UP (`signUp`): the same two steps plus a name. The form cannot know in advance whether
+ * the number already has an account (asking would let anybody test who is registered), so the
+ * answer comes with the verified code: `isNewAccount: false` means the person was signed into
+ * the account they already had - nothing from this form was applied to it - and the screen
+ * says so and waits for them to continue. It used to go on exactly as for a new account
+ * (owner report, 2026-10-25).
  */
 export function PhoneSignIn({
   onSignedIn,
   onUseEmail,
+  signUp = false,
 }: {
   onSignedIn: () => void;
   onUseEmail: () => void;
+  signUp?: boolean;
 }) {
   const { loginWithPhone } = useAuth();
   const located = useResolvedLocation();
@@ -65,6 +75,10 @@ export function PhoneSignIn({
   const [error, setError] = useState<string | null>(null);
   const [unavailable, setUnavailable] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [fullName, setFullName] = useState('');
+  const [nameError, setNameError] = useState<string | null>(null);
+  // The code was right and the number already had an account: signed into THAT one.
+  const [signedIntoExisting, setSignedIntoExisting] = useState(false);
 
   const market = PHONE_COUNTRIES.find((c) => c.code === country) ?? null;
   const countries = reachable.data;
@@ -76,6 +90,10 @@ export function PhoneSignIn({
 
   const sendCode = async () => {
     if (!e164) return;
+    if (signUp && fullName.trim().length < 2) {
+      setNameError('Please enter your name.');
+      return;
+    }
     setError(null);
     setLoading(true);
     try {
@@ -96,8 +114,16 @@ export function PhoneSignIn({
     setError(null);
     setLoading(true);
     try {
-      await loginWithPhone(sentTo, code);
+      const { isNewAccount } = await loginWithPhone(
+        sentTo,
+        code,
+        signUp ? { fullName: fullName.trim() } : undefined,
+      );
       haptics.success();
+      if (phoneSignInOutcome(signUp ? 'sign-up' : 'sign-in', isNewAccount) === 'existing') {
+        setSignedIntoExisting(true);
+        return;
+      }
       onSignedIn();
     } catch (err) {
       const refused =
@@ -109,6 +135,17 @@ export function PhoneSignIn({
       setLoading(false);
     }
   };
+
+  if (signedIntoExisting) {
+    return (
+      <Card tone="sunken" className="gap-4">
+        <Text variant="ui" accessibilityRole="alert" className="font-semibold">
+          You already have an account with this number. We signed you in.
+        </Text>
+        <Button label="Continue" size="lg" onPress={onSignedIn} />
+      </Card>
+    );
+  }
 
   if (sentTo) {
     return (
@@ -131,7 +168,7 @@ export function PhoneSignIn({
         />
         {error ? <FormError message={error} /> : null}
         <Button
-          label="Sign in"
+          label={signUp ? 'Create account' : 'Sign in'}
           size="lg"
           loading={loading}
           disabled={code.length !== 6}
@@ -154,6 +191,19 @@ export function PhoneSignIn({
 
   return (
     <View className="gap-5">
+      {signUp ? (
+        <Field
+          label="Full name"
+          value={fullName}
+          onChangeText={(v) => {
+            setFullName(v);
+            if (nameError) setNameError(null);
+          }}
+          error={nameError ?? undefined}
+          autoComplete="name"
+          textContentType="name"
+        />
+      ) : null}
       <View className="gap-2">
         <Text variant="ui" className="font-semibold">
           Country

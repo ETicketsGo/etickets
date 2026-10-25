@@ -103,8 +103,24 @@ describe('account directory: the summary', () => {
     const { service } = makeService({
       user: {
         count: jest.fn().mockResolvedValueOnce(120).mockResolvedValue(0),
-        findMany: jest.fn(),
-        groupBy: jest.fn().mockResolvedValue([{ status: 'ACTIVE', _count: { _all: 120 } }]),
+        // Verified numbers, for the calling-code card.
+        findMany: jest
+          .fn()
+          .mockResolvedValue([
+            { phone: '+14695884580' },
+            { phone: '+14167390000' },
+            { phone: '+919876543210' },
+          ]),
+        groupBy: jest.fn(async ({ by }: { by: string[] }) =>
+          by[0] === 'status'
+            ? [{ status: 'ACTIVE', _count: { _all: 120 } }]
+            : by[0] === 'countryOfResidence'
+              ? [{ countryOfResidence: 'CA', _count: { _all: 2 } }]
+              : [
+                  { detectedCountry: 'IN', _count: { _all: 6 } },
+                  { detectedCountry: 'US', _count: { _all: 1 } },
+                ],
+        ),
       },
       $queryRaw: jest
         .fn()
@@ -114,7 +130,9 @@ describe('account directory: the summary', () => {
           { country: 'IN', count: 5n },
           { country: 'Canada', count: 9n },
         ])
-        .mockResolvedValueOnce([{ count: 40n }]),
+        .mockResolvedValueOnce([{ count: 40n }])
+        // Accounts with no evidence of any kind.
+        .mockResolvedValueOnce([{ count: 71n }]),
     });
 
     const summary = await service.directorySummary();
@@ -130,6 +148,19 @@ describe('account directory: the summary', () => {
       membership, a different set: the card said 1 while four rows underneath said Not known.
     */
     expect(summary.withoutCountry).toBe(80);
+    expect(summary.withoutActivityCountry).toBe(80);
+
+    // Each kind of evidence is counted apart, and +1 is never split into a country.
+    expect(summary.byResidence).toEqual([{ country: 'CA', count: 2 }]);
+    expect(summary.byDetected).toEqual([
+      { country: 'IN', count: 6 },
+      { country: 'US', count: 1 },
+    ]);
+    expect(summary.byPhoneCallingCode).toEqual([
+      { code: '+1 (US/CA)', count: 2 },
+      { code: '+91 (IN)', count: 1 },
+    ]);
+    expect(summary.withoutAnyCountryEvidence).toBe(71);
   });
 });
 

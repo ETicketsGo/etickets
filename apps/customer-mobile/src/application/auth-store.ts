@@ -14,8 +14,16 @@ interface AuthState {
   hydrate: () => Promise<void>;
   login: (input: LoginInput) => Promise<void>;
   register: (input: RegisterInput) => Promise<void>;
-  /** Sign in (or sign up, for a new number) with a texted code. */
-  loginWithPhone: (phone: string, code: string) => Promise<{ isNewAccount: boolean }>;
+  /**
+   * Sign in (or sign up, for a new number) with a texted code. `signUp` carries the sign-up
+   * form's name; `isNewAccount: false` means the number already had an account and the session
+   * is for THAT account.
+   */
+  loginWithPhone: (
+    phone: string,
+    code: string,
+    signUp?: { fullName: string },
+  ) => Promise<{ isNewAccount: boolean }>;
   logout: () => Promise<void>;
   /** Called by the API client when a refresh fails — force logout. */
   expire: () => void;
@@ -105,8 +113,8 @@ export const useAuthStore = create<AuthState>((set) => ({
     await sessionUserStore.set(user);
   },
 
-  loginWithPhone: async (phone, code) => {
-    const result = await authRepository.verifyPhoneCode(phone, code);
+  loginWithPhone: async (phone, code, signUp) => {
+    const result = await authRepository.verifyPhoneCode(phone, code, signUp);
     if (!result.accessToken || !result.refreshToken) {
       // A second-factor challenge: back-office accounts sign in on the website, which has it.
       throw new Error('This account signs in on the ETicketsGo website.');

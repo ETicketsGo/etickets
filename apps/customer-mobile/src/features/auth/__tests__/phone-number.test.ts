@@ -34,3 +34,14 @@ describe('reading a phone number like the storefront', () => {
     expect(toE164('IN', '')).toBe('');
   });
 });
+
+describe('one number, however it is typed (phone identity)', () => {
+  it('+91 98765 43210, 09876543210 with India chosen, and +919876543210 are one E.164 number', () => {
+    const typed = ['+91 98765 43210', '09876543210', '+919876543210', '0091 98765 43210'];
+    const e164 = typed.map((t) => {
+      const read = readTypedNumber(t, 'IN');
+      return toE164(read.country ?? 'IN', read.national);
+    });
+    expect(new Set(e164)).toEqual(new Set(['+919876543210']));
+  });
+});

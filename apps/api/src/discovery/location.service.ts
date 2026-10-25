@@ -3,6 +3,7 @@ import { EventStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CacheService } from '../cache/cache.service';
 import { countryMatches } from '../common/country';
+import { COUNTRY_HEADERS } from './network-country';
 import { marketFor } from '@eticketsgo/shared-types';
 import {
   NoReverseGeocoder,
@@ -156,7 +157,6 @@ export interface ResolvedLocation {
  * sets them, which is why an unknown deployment resolves to 'none' rather than to whatever
  * a client chose to send.
  */
-const COUNTRY_HEADERS = ['cf-ipcountry', 'x-vercel-ip-country', 'x-appengine-country'] as const;
 const CITY_HEADERS = ['cf-ipcity', 'x-vercel-ip-city'] as const;
 
 const CITIES_CACHE_TTL_SECONDS = 300;

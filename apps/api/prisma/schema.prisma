@@ -518,6 +518,19 @@ model User {
   /// and an unrecognised value falls back rather than failing.
   locale String?
 
+  /// Where this person says they live: ISO-3166 alpha-2, one of the platform's markets.
+  ///
+  /// Only ever set by the person choosing it (profile). Never inferred - not from the phone
+  /// calling code (+1 is the United States AND Canada), not from the network, not from where
+  /// they bought a ticket. Null means "not said", which is a real answer, not a gap to fill.
+  countryOfResidence String?
+  /// The country the network placed this person in when the account was made (the edge
+  /// header the storefront's location resolver trusts, e.g. `cf-ipcountry`). A hint about
+  /// where they were on one day, not where they live; labelled with its source wherever shown.
+  detectedCountry       String?
+  /// How `detectedCountry` was obtained. 'network' is the only source today.
+  detectedCountrySource String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
