@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import { localizedMetadata, siteRobots } from '@/lib/seo';
 import { PageHero, Prose } from '@/components/marketing/blocks';
 import { Link } from '@/i18n/navigation';
 import {
@@ -24,12 +24,11 @@ import { BrandPage } from '@/components/storefront-brand';
  * its own kind of dishonesty. If a tracker is ever added, this page and that decision change
  * together.
  */
-export const metadata: Metadata = {
+export const generateMetadata = localizedMetadata('/cookies', {
   title: 'Cookies',
   description: 'What ETicketsGo stores on your device, and why.',
-  alternates: { canonical: '/cookies' },
-  robots: { index: true, follow: true },
-};
+  robots: siteRobots(),
+});
 
 export default async function CookiesPage({
   searchParams,

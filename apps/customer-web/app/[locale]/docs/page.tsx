@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import { localizedMetadata } from '@/lib/seo';
 import {
   Rocket,
   CalendarPlus,
@@ -17,12 +17,11 @@ import { PageHero } from '@/components/marketing/blocks';
 import { Link } from '@/i18n/navigation';
 import { BrandPage } from '@/components/storefront-brand';
 
-export const metadata: Metadata = {
+export const generateMetadata = localizedMetadata('/docs', {
   title: 'Documentation',
   description:
     'The ETicketsGo documentation portal - getting started, organizer and customer guides, API, offline operations, payments, reports, troubleshooting, release notes, and architecture.',
-  alternates: { canonical: '/docs' },
-};
+});
 
 const SECTIONS = [
   {

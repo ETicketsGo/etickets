@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import { localizedMetadata } from '@/lib/seo';
 import { PageHero, Prose } from '@/components/marketing/blocks';
 import { Link } from '@/i18n/navigation';
 import {
@@ -10,13 +10,12 @@ import {
 import { resolveJurisdiction } from '@/lib/market';
 import { BrandPage } from '@/components/storefront-brand';
 
-export const metadata: Metadata = {
+export const generateMetadata = localizedMetadata('/refunds', {
   title: 'Refund and Cancellation Policy',
   description:
     'When you can get a refund on ETicketsGo, what comes back, and what happens if an event is cancelled.',
-  alternates: { canonical: '/refunds' },
   robots: { index: false, follow: true },
-};
+});
 
 /*
   ── WHY THIS PAGE CHANGED ──────────────────────────────────────────────────────────

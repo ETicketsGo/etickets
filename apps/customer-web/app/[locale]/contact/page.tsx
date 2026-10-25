@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import { localizedMetadata } from '@/lib/seo';
 import {
   Building2,
   Mail,
@@ -19,11 +19,10 @@ import { INDIA_OPERATOR } from '@eticketsgo/shared-types';
 import { INDIA_OPERATOR_SENTENCE, LEGAL_INFORMATION_HREF } from '@/lib/legal-entity';
 import { BrandPage } from '@/components/storefront-brand';
 
-export const metadata: Metadata = {
+export const generateMetadata = localizedMetadata('/contact', {
   title: 'Contact',
   description: `Contact ETicketsGo, operated in India by ${INDIA_OPERATOR.legalName}: support and general enquiries.`,
-  alternates: { canonical: '/contact' },
-};
+});
 
 /*
   Every channel reads from the one place the business details live. A channel with no published

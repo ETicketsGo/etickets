@@ -15,8 +15,21 @@ import { inter } from '@eticketsgo/web-kit/fonts/inter';
 // The brand layer's display face (DESIGN-SYSTEM.md). Only sets --font-brand-display; nothing
 // renders in it until a page opts into `data-brand`.
 import { brandDisplay } from '@eticketsgo/web-kit/fonts/brand-display';
+import { PLATFORM_OPERATOR, PUBLISHED_SUPPORT_EMAIL } from '@eticketsgo/shared-types';
+import { canonicalSiteUrl } from '@/lib/site-url';
+import {
+  HOME_DESCRIPTION,
+  HOME_TITLE,
+  SHARE_IMAGE,
+  SITE_NAME,
+  TWITTER_IMAGE,
+  siteRobots,
+} from '@/lib/seo';
+import { TITLE_TEMPLATE } from '@/lib/page-title';
+import { buildOrganizationJsonLd, buildWebSiteJsonLd } from '@/lib/structured-data';
+import { JsonLd } from '@/components/json-ld';
 
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://eticketsgo.com';
+const SITE_URL = canonicalSiteUrl();
 
 /*
   A function rather than a constant so the build id is read when the request is handled, by the
@@ -27,26 +40,26 @@ export function generateMetadata(): Metadata {
   return { ...metadata, ...(build ? { other: { 'build-id': build } } : {}) };
 }
 
+/*
+  The storefront's defaults, written for the people who buy tickets.
+
+  These used to be the pitch to ORGANIZERS ("Sell tickets, check in guests, see your sales"),
+  so every buyer's page that did not set its own carried it into search results and shared
+  links. Organizer acquisition keeps its own pages (/organizers, /sell) with their own words.
+
+  There is deliberately no `alternates.canonical` here. One set at this level is inherited by
+  every page that does not set its own, and it was '/': every event and film page told search
+  engines the home page was the real version of it. Each page names itself instead
+  (`lib/seo.ts`).
+*/
 const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
-  title: {
-    default: 'ETicketsGo: Sell tickets, check in guests, see your sales',
-    template: '%s - ETicketsGo',
-  },
-  description:
-    'ETicketsGo is ticketing software for event organizers. Sell tickets, reserve seats, take payments, scan people in at the gate, and read your sales reports.',
-  applicationName: 'ETicketsGo',
-  keywords: [
-    'event ticketing',
-    'sell tickets online',
-    'reserved seating',
-    'offline check-in',
-    'event management platform',
-    'box office software',
-  ],
-  authors: [{ name: 'ETicketsGo' }],
+  title: { default: HOME_TITLE, template: TITLE_TEMPLATE },
+  description: HOME_DESCRIPTION,
+  applicationName: SITE_NAME,
+  authors: [{ name: SITE_NAME }],
   manifest: '/manifest.webmanifest',
-  appleWebApp: { capable: true, title: 'ETicketsGo', statusBarStyle: 'default' },
+  appleWebApp: { capable: true, title: SITE_NAME, statusBarStyle: 'default' },
   /*
     Drawn by scripts/brand/generate-favicons.mjs. The storefront's mark is the wordmark's own
     ending: an ink E and the marigold full stop, on paper.
@@ -62,23 +75,38 @@ const metadata: Metadata = {
     ],
     apple: '/apple-touch-icon.png',
   },
-  alternates: { canonical: '/' },
   openGraph: {
     type: 'website',
-    siteName: 'ETicketsGo',
-    title: 'ETicketsGo: Sell tickets, check in guests, see your sales',
-    description:
-      'Ticketing software for event organizers. Tickets, seating, payments, offline check-in and sales reports.',
-    url: SITE_URL,
+    siteName: SITE_NAME,
+    title: HOME_TITLE,
+    description: HOME_DESCRIPTION,
+    images: [SHARE_IMAGE],
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'ETicketsGo: Ticketing software for event organizers',
-    description:
-      'Tickets, reserved seating, payments, offline gate check-in and sales reports in one place.',
+    title: HOME_TITLE,
+    description: HOME_DESCRIPTION,
+    images: [TWITTER_IMAGE],
   },
-  robots: { index: true, follow: true },
+  /*
+    Indexable only on the production storefront; QA, UAT and anything unconfigured say
+    noindex (`lib/indexability.mjs`). A page that must never be indexed sets its own.
+  */
+  robots: siteRobots(),
 };
+
+/*
+  Who we are and how to search the site, for search engines. Facts from the entity registry
+  and the published support address only; nothing here is a guess.
+*/
+const SITE_JSON_LD = [
+  buildOrganizationJsonLd({
+    siteUrl: SITE_URL,
+    legalName: PLATFORM_OPERATOR.legalName,
+    email: PUBLISHED_SUPPORT_EMAIL,
+  }),
+  buildWebSiteJsonLd({ siteUrl: SITE_URL }),
+];
 
 export const viewport: Viewport = {
   themeColor: [
@@ -149,6 +177,9 @@ export default async function LocaleLayout({
       lang={HTML_LANG[locale as Locale]}
       className={`${inter.variable} ${brandDisplay.variable}`}
     >
+      <head>
+        <JsonLd data={SITE_JSON_LD} />
+      </head>
       <body>
         <NextIntlClientProvider>
           <SkipToContent />
