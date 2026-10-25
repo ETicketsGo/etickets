@@ -51,22 +51,28 @@ export const DLT_ID_PATTERN = /^\d{19}$/;
 export const DLT_VARIABLE = '{#var#}';
 
 /**
- * The header registered for DeepTrics Software Solutions Private Limited and APPROVED.
+ * The headers registered for DeepTrics Software Solutions Private Limited and APPROVED.
  *
- * Recorded for the docs and the readiness report only. It is NOT a default: the header that
+ * ETKTGO: approved, with the PE-TM chain and eight templates (owner statement, 2026-10-25).
+ * An earlier record said the portal had rejected it; the owner's statement supersedes that.
+ * DPTRCS: approved earlier and still accepted.
+ *
+ * Recorded for the docs and the readiness report only. Neither is a default: the header that
  * goes on the wire comes from DLT_SENDER_HEADER / MSG91_SENDER_ID, so a change of header is a
- * configuration change and never a build.
+ * configuration change and never a build. The templates must be linked to the SAME header
+ * that is configured, or the operator drops every message.
  */
-export const DOCUMENTED_APPROVED_SENDER_HEADER = 'DPTRCS';
+export const DOCUMENTED_APPROVED_SENDER_HEADERS: readonly string[] = ['ETKTGO', 'DPTRCS'];
 
 /**
- * Headers the DLT portal REJECTED for this entity.
+ * Headers the DLT portal REJECTED for this entity. Empty today.
  *
- * ETKTGO was applied for and refused. Configuring it would send every message under a header
- * the operator does not recognise, which is dropped exactly like unregistered wording. The
- * boot check refuses it by name so the mistake costs one deploy log line, not a launch day.
+ * Kept as a mechanism: if the portal ever rejects or withdraws a header, add it here. The boot
+ * check, the MSG91 transport and readiness then refuse it by name, so the mistake costs one
+ * deploy log line instead of a launch day of messages the carrier silently drops.
+ * (ETKTGO was listed here until the owner confirmed its approval on 2026-10-25.)
  */
-export const REJECTED_SENDER_HEADERS: readonly string[] = ['ETKTGO'];
+export const REJECTED_SENDER_HEADERS: readonly string[] = [];
 
 export interface DltSmsTemplate {
   kind: DltSmsKind;

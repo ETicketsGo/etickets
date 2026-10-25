@@ -10,7 +10,7 @@ import {
   DLT_SMS_REPLACEMENTS,
   DLT_SMS_TEMPLATES,
   DLT_VARIABLE,
-  DOCUMENTED_APPROVED_SENDER_HEADER,
+  DOCUMENTED_APPROVED_SENDER_HEADERS,
   OTP_SMS_KIND,
   REJECTED_SENDER_HEADERS,
 } from '../notifications/templates/dlt-sms-templates';
@@ -1880,7 +1880,7 @@ export function dltConfigContradictions(cfg: AppConfig): string[] {
   if (!msg91Sms) return errors;
 
   /*
-    A header the portal rejected. ETKTGO was applied for and refused, and messages under it are
+    A header the portal rejected (REJECTED_SENDER_HEADERS; empty today). Messages under one are
     dropped by the carrier exactly like unregistered wording -- while MSG91 reports them sent.
   */
   for (const key of ['DLT_SENDER_HEADER', 'MSG91_SENDER_ID'] as const) {
@@ -1888,12 +1888,12 @@ export function dltConfigContradictions(cfg: AppConfig): string[] {
     if (!header) continue;
     if (REJECTED_SENDER_HEADERS.includes(header.toUpperCase())) {
       errors.push(
-        `  - ${key}=${header} was REJECTED on the DLT portal. Use the approved header ` +
-          `(${DOCUMENTED_APPROVED_SENDER_HEADER}).`,
+        `  - ${key}=${header} was REJECTED on the DLT portal. Use an approved header ` +
+          `(${DOCUMENTED_APPROVED_SENDER_HEADERS.join(' or ')}).`,
       );
     } else if (!/^[A-Za-z]{6}$/.test(header)) {
       // A transactional or service header is exactly six letters; anything else is a typo.
-      errors.push(`  - ${key} must be the six-letter DLT header, e.g. DPTRCS.`);
+      errors.push(`  - ${key} must be the six-letter DLT header, e.g. ETKTGO.`);
     }
   }
 

@@ -6,7 +6,9 @@ import {
   DLT_SMS_TEMPLATES,
   DLT_VARIABLE,
   DLT_VARIABLE_MAX_LENGTH,
+  DOCUMENTED_APPROVED_SENDER_HEADERS,
   OTP_SMS_KIND,
+  REJECTED_SENDER_HEADERS,
   dltVariablesFromPayload,
   fitDltVariable,
   formatMinor,
@@ -189,9 +191,29 @@ describe('DLT SMS registry', () => {
       },
     );
 
-    it('names the approved header and says the rejected one is rejected', () => {
+    it('names both approved headers and records the owner statement for ETKTGO', () => {
       expect(DOC).toContain('DPTRCS');
-      expect(DOC).toMatch(/ETKTGO[^\n]*REJECTED/);
+      expect(DOC).toMatch(/ETKTGO[^\n]*APPROVED/);
+      expect(DOC).toContain('2026-10-25');
+      expect(DOC).not.toMatch(/ETKTGO[^\n]*REJECTED - never configure/);
+    });
+  });
+
+  /*
+    Owner, 2026-10-25: header ETKTGO, the PE-TM chain and eight templates are approved. The
+    rejected list stays as a mechanism, so a future rejection is one line to re-add.
+  */
+  describe('sender headers', () => {
+    it('treats ETKTGO and DPTRCS as approved', () => {
+      expect(DOCUMENTED_APPROVED_SENDER_HEADERS).toEqual(
+        expect.arrayContaining(['ETKTGO', 'DPTRCS']),
+      );
+    });
+
+    it('rejects neither approved header', () => {
+      for (const header of DOCUMENTED_APPROVED_SENDER_HEADERS) {
+        expect(REJECTED_SENDER_HEADERS).not.toContain(header);
+      }
     });
   });
 });
@@ -349,7 +371,8 @@ describe('replacement show-cancelled wording', () => {
     it('names the text it replaces and the approved header', () => {
       expect(REPLACEMENT_PACK).toContain(DLT_SMS_TEMPLATES[SHOW].text);
       expect(REPLACEMENT_PACK).toContain('DPTRCS');
-      expect(REPLACEMENT_PACK).toMatch(/ETKTGO[^\n]*rejected/i);
+      expect(REPLACEMENT_PACK).toContain('ETKTGO');
+      expect(REPLACEMENT_PACK).not.toMatch(/ETKTGO[^\n]*rejected/i);
     });
   });
 });

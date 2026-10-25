@@ -223,13 +223,30 @@ describe('loadConfig: SMS', () => {
       expect(() => loadConfig()).not.toThrow();
     });
 
-    it('refuses the rejected ETKTGO header by name', () => {
-      process.env = env({ DLT_SENDER_HEADER: 'ETKTGO', MSG91_SENDER_ID: 'ETKTGO' });
-      expect(() => loadConfig()).toThrow(/ETKTGO was REJECTED/);
+    // Owner, 2026-10-25: header ETKTGO, the PE-TM chain and eight templates are approved.
+    it('accepts ETKTGO when configured with valid ids', () => {
+      process.env = env({
+        DLT_SENDER_HEADER: 'ETKTGO',
+        MSG91_SENDER_ID: 'ETKTGO',
+        DLT_PRINCIPAL_ENTITY_ID: '1701179092181018311',
+        MSG91_SMS_TEMPLATE_OTP: 'tmpl-otp',
+        DLT_TEMPLATE_ID_OTP: '1707000000000000009',
+      });
+      expect(() => loadConfig()).not.toThrow();
+    });
+
+    it('refuses MSG91_SENDER_ID that differs from DLT_SENDER_HEADER', () => {
+      process.env = env({ DLT_SENDER_HEADER: 'ETKTGO', MSG91_SENDER_ID: 'DPTRCS' });
+      expect(() => loadConfig()).toThrow(/DLT_SENDER_HEADER and MSG91_SENDER_ID disagree/);
     });
 
     it('refuses a header that is not six letters', () => {
       process.env = env({ DLT_SENDER_HEADER: 'DPTRC5', MSG91_SENDER_ID: 'DPTRC5' });
+      expect(() => loadConfig()).toThrow(/six-letter DLT header/);
+    });
+
+    it('refuses an ETKTGO-like header that is not six letters', () => {
+      process.env = env({ DLT_SENDER_HEADER: 'ETKTG', MSG91_SENDER_ID: 'ETKTG' });
       expect(() => loadConfig()).toThrow(/six-letter DLT header/);
     });
 
