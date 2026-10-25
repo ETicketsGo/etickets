@@ -22,7 +22,10 @@ jest.mock('@/hooks/use-auth', () => ({
   useAuth: () => ({ loginWithPhone: mockLoginWithPhone }),
 }));
 
-const mockRequestPhoneCode = jest.fn(async () => ({ sent: true, expiresInMinutes: 10 }));
+const mockRequestPhoneCode = jest.fn(async (_phone: string) => ({
+  sent: true,
+  expiresInMinutes: 10,
+}));
 jest.mock('@/data/auth-repository', () => ({
   authRepository: {
     requestPhoneCode: (phone: string) => mockRequestPhoneCode(phone),
@@ -46,12 +49,12 @@ async function signUpWith(isNewAccount: boolean, onSignedIn = jest.fn()) {
       <PhoneSignIn signUp onSignedIn={onSignedIn} onUseEmail={() => undefined} />
     </QueryClientProvider>,
   );
-  fireEvent.changeText(screen.getByLabelText('Full name'), 'Asha Menon');
-  fireEvent.changeText(screen.getByLabelText('Mobile number'), '98765 43210');
-  fireEvent.press(screen.getByText('Send code'));
+  await fireEvent.changeText(screen.getByLabelText('Full name'), 'Asha Menon');
+  await fireEvent.changeText(screen.getByLabelText('Mobile number'), '98765 43210');
+  await fireEvent.press(screen.getByText('Send code'));
   await waitFor(() => expect(mockRequestPhoneCode).toHaveBeenCalledWith('+919876543210'));
-  fireEvent.changeText(await screen.findByLabelText('Code'), '123456');
-  fireEvent.press(screen.getByText('Create account'));
+  await fireEvent.changeText(await screen.findByLabelText('Code'), '123456');
+  await fireEvent.press(screen.getByText('Create account'));
   await waitFor(() => expect(mockLoginWithPhone).toHaveBeenCalled());
   return { onSignedIn };
 }
@@ -80,7 +83,7 @@ describe('Mobile sign-up with a number that already has an account', () => {
     expect(await screen.findByText(EXISTING)).toBeTruthy();
     // Not whisked away before the sentence can be read.
     expect(onSignedIn).not.toHaveBeenCalled();
-    fireEvent.press(screen.getByText('Continue'));
+    await fireEvent.press(screen.getByText('Continue'));
     expect(onSignedIn).toHaveBeenCalledTimes(1);
   });
 });
@@ -96,10 +99,10 @@ describe('Mobile sign-in (not sign-up) is unchanged', () => {
       </QueryClientProvider>,
     );
     expect(screen.queryByLabelText('Full name')).toBeNull();
-    fireEvent.changeText(screen.getByLabelText('Mobile number'), '98765 43210');
-    fireEvent.press(screen.getByText('Send code'));
-    fireEvent.changeText(await screen.findByLabelText('Code'), '123456');
-    fireEvent.press(screen.getByText('Sign in'));
+    await fireEvent.changeText(screen.getByLabelText('Mobile number'), '98765 43210');
+    await fireEvent.press(screen.getByText('Send code'));
+    await fireEvent.changeText(await screen.findByLabelText('Code'), '123456');
+    await fireEvent.press(screen.getByText('Sign in'));
     await waitFor(() => expect(onSignedIn).toHaveBeenCalledTimes(1));
     expect(mockLoginWithPhone).toHaveBeenCalledWith('+919876543210', '123456', undefined);
     expect(screen.queryByText(EXISTING)).toBeNull();

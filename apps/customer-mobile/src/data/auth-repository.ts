@@ -25,11 +25,14 @@ export const authRepository = {
    * Exchange the code for a session; a new number creates the account. A back-office account
    * gets a second-factor challenge instead of tokens (no accessToken), which this app refuses.
    */
-  verifyPhoneCode: (phone: string, code: string) =>
+  verifyPhoneCode: (phone: string, code: string, signUp?: { fullName: string }) =>
     apiClient
       .post<Partial<AuthResponse> & { isNewAccount?: boolean }>('/auth/phone/verify', {
         phone,
         code,
+        // Sign-up only. The API applies it to an account it has just CREATED, never to an
+        // existing one, and says which happened in `isNewAccount`.
+        ...signUp,
       })
       .then((r) => r.data),
   /** Which numbers a code can reach in this environment (empty = texting is off). */

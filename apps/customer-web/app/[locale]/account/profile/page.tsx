@@ -16,10 +16,12 @@ import {
   AccountHeading,
   AccountPage,
   BrandError,
+  BrandSelectField,
   BrandTextField,
   PANEL_TITLE,
 } from '@/components/account-brand';
 import { Placeholder } from '@/components/home/parts';
+import { RESIDENCE_COUNTRIES } from '@eticketsgo/shared-types';
 
 /*
   The profile on the brand layer: the same three panels (name and email, mobile number,
@@ -85,6 +87,25 @@ export default function ProfilePage() {
     mutationFn: () => api.updateProfile(fullName),
     onSuccess: () => {
       toast.push(t('updated'), 'success');
+      qc.invalidateQueries({ queryKey: ['me'] });
+      qc.invalidateQueries({ queryKey: ['auth', 'me'] });
+    },
+    onError: (e) => toast.push(errorMessage(e), 'error'),
+  });
+
+  /*
+    Where the person lives - OPTIONAL, and only ever what they choose here. Never filled in from
+    their phone number (+1 is the United States and Canada), where they browse from, or where
+    they bought a ticket. "Not said" is a real answer and stays one until they change it.
+  */
+  const [residence, setResidence] = useState('');
+  useEffect(() => {
+    if (me.data) setResidence(me.data.countryOfResidence ?? '');
+  }, [me.data]);
+  const saveResidence = useMutation({
+    mutationFn: () => api.updateResidence(residence || null),
+    onSuccess: () => {
+      toast.push(t('residenceSaved'), 'success');
       qc.invalidateQueries({ queryKey: ['me'] });
       qc.invalidateQueries({ queryKey: ['auth', 'me'] });
     },
@@ -245,6 +266,36 @@ export default function ProfilePage() {
                 </div>
               </div>
             )}
+          </section>
+
+          <section className={`${ACCOUNT_PANEL} p-5 sm:p-6`}>
+            <h2 className={PANEL_TITLE}>{t('residenceHeading')}</h2>
+            <p className="mt-1 text-brand-ui text-brand-ink-2">{t('residenceLead')}</p>
+            <div className="mt-4 space-y-3">
+              <BrandSelectField
+                id="residence"
+                label={t('residenceLabel')}
+                value={residence}
+                onChange={(e) => setResidence(e.target.value)}
+              >
+                <option value="">{t('residenceNotSaid')}</option>
+                {RESIDENCE_COUNTRIES.map((c) => (
+                  <option key={c.code} value={c.code}>
+                    {c.name}
+                  </option>
+                ))}
+              </BrandSelectField>
+              <BrandButton
+                variant="secondary"
+                aria-busy={saveResidence.isPending || undefined}
+                disabled={
+                  saveResidence.isPending || residence === (me.data?.countryOfResidence ?? '')
+                }
+                onClick={() => saveResidence.mutate()}
+              >
+                {t('residenceSave')}
+              </BrandButton>
+            </div>
           </section>
 
           {/* Facts about the account, stated rather than editable - nobody sets their own

@@ -76,6 +76,7 @@ export const api = {
   resetPassword: wk.auth.resetPassword,
   me: wk.auth.me,
   updateProfile: wk.users.updateProfile,
+  updateResidence: wk.users.updateResidence,
   listEvents: (params: Record<string, string | undefined>) => wk.publicEvents.list(params),
   getEvent: wk.publicEvents.get,
   createBooking: (body: BookingRequest) => wk.bookings.create(body),
