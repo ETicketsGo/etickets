@@ -142,11 +142,26 @@ describe('MSG91 SMS', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('refuses the rejected ETKTGO header', async () => {
-    const err = await templated({ MSG91_SENDER_ID: 'ETKTGO', DLT_SENDER_HEADER: 'ETKTGO' })
+  // Owner, 2026-10-25: header ETKTGO is approved, so it is sent under, not refused.
+  it('accepts ETKTGO when configured with valid ids', async () => {
+    respond(200, { type: 'success', message: 'req-etktgo' });
+    const out = await templated({ MSG91_SENDER_ID: 'ETKTGO', DLT_SENDER_HEADER: 'ETKTGO' }).send(
+      cancelled(),
+    );
+    expect(out).toEqual({ provider: 'msg91', providerMessageId: 'req-etktgo' });
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body);
+    expect(body.sender).toBe('ETKTGO');
+  });
+
+  it('still refuses ETKTGO, calling nobody, when its template ids are missing', async () => {
+    const err = await templated({
+      MSG91_SENDER_ID: 'ETKTGO',
+      DLT_SENDER_HEADER: 'ETKTGO',
+      DLT_TEMPLATE_ID_BOOKING_CANCELLED: '',
+    })
       .send(cancelled())
       .catch((e: unknown) => e as TransportError);
-    expect((err as TransportError).message).toContain('rejected');
+    expect((err as TransportError).failureClass).toBe(FailureClass.TEMPLATE_NOT_FOUND);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

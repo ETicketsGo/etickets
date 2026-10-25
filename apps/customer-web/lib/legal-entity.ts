@@ -31,7 +31,7 @@ export const INDIA_OPERATOR_SENTENCE = `ETicketsGo is operated in India by ${IND
 /**
  * The sender header registered on DLT under the Principal Entity above, and the signature
  * every India template ends with. Source: docs/notifications/INDIA-DLT-TEMPLATES.md (header
- * APPROVED) and `DOCUMENTED_APPROVED_SENDER_HEADER` in the API's dlt-sms-templates.ts. Every
+ * APPROVED) and `DOCUMENTED_APPROVED_SENDER_HEADERS` in the API's dlt-sms-templates.ts. Every
  * template there ends "- DeepTrics".
  */
 export const INDIA_SMS_SENDER_HEADER = 'DPTRCS';

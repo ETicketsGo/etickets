@@ -283,7 +283,8 @@ export class Msg91SmsTransport implements SmsTransport {
     /*
       The registered header, from configuration only. Startup refuses the two keys disagreeing,
       so either one is the same answer. There is deliberately no default: a header is granted
-      to one legal entity, and the one this code once assumed (ETKTGO) was rejected.
+      to one legal entity and the templates are linked to it, so only configuration can say
+      which approved header (ETKTGO or DPTRCS) this deployment's templates belong to.
     */
     this.senderHeader =
       (config.get<string>('DLT_SENDER_HEADER') || config.get<string>('MSG91_SENDER_ID'))?.trim() ||

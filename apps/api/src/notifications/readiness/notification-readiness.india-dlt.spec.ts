@@ -87,15 +87,22 @@ describe('readiness: India SMS and DLT templates', () => {
     expect(c.detail).not.toContain('REFUND_COMPLETED');
   });
 
-  it('flags the rejected ETKTGO header', async () => {
+  // Owner, 2026-10-25: header ETKTGO is approved.
+  it('accepts ETKTGO when configured with valid ids', async () => {
     const c = await sms({
       ...INDIA,
       ...ALL_REQUIRED_IDS,
       MSG91_SENDER_ID: 'ETKTGO',
       DLT_SENDER_HEADER: 'ETKTGO',
     });
+    expect(c.state).toBe('CONFIGURED');
+    expect(c.detail ?? '').not.toContain('rejected');
+  });
+
+  it('still reports BLOCKED_DLT for ETKTGO without the template ids', async () => {
+    const c = await sms({ ...INDIA, MSG91_SENDER_ID: 'ETKTGO', DLT_SENDER_HEADER: 'ETKTGO' });
     expect(c.state).toBe('BLOCKED_DLT');
-    expect(c.detail).toContain('ETKTGO was rejected');
+    expect(c.detail).toContain('DLT_TEMPLATE_ID_OTP');
   });
 
   it('never prints a configured value, only key names', async () => {

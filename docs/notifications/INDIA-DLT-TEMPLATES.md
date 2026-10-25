@@ -17,25 +17,74 @@ Nothing on this page is a secret. No template id appears in the repository, and 
 
 ## 1. Registration facts (public, supplied by the owner)
 
-| Item                  | Value                                        | Status                                         |
-| --------------------- | -------------------------------------------- | ---------------------------------------------- |
-| Principal Entity (PE) | DeepTrics Software Solutions Private Limited | registered                                     |
-| PE registration ID    | 1701179092181018311                          | registered                                     |
-| Sender header         | **DPTRCS** (header ID 1705179188054799869)   | **APPROVED**                                   |
-| Earlier header ETKTGO | ETKTGO                                       | **REJECTED - never configure it**              |
-| Content templates     | the five below                               | **none submitted or approved yet; no ids yet** |
+**Owner statement, 2026-10-25 (authoritative):** "ETicketsGo's India MSG91 PE-TM chain, ETKTGO
+header and eight templates are already approved. Do not classify those approvals as pending."
+This replaces the earlier record (2026-10-14) that the portal had rejected ETKTGO.
 
-A header approval does not approve any template. Until a template is approved and both of its
-ids are set, the platform refuses to send that kind of SMS (section 4).
+| Item                  | Value                                        | Status                                             |
+| --------------------- | -------------------------------------------- | -------------------------------------------------- |
+| Principal Entity (PE) | DeepTrics Software Solutions Private Limited | registered                                         |
+| PE registration ID    | 1701179092181018311                          | registered                                         |
+| PE-TM chain (MSG91)   | PE linked to MSG91 as telemarketer           | **APPROVED** (owner, 2026-10-25)                   |
+| Sender header         | **ETKTGO** (header ID: owner to supply)      | **APPROVED** (owner, 2026-10-25)                   |
+| Sender header         | **DPTRCS** (header ID 1705179188054799869)   | **APPROVED** (earlier; still accepted by the code) |
+| Content templates     | eight (section 1.1)                          | **APPROVED** (owner, 2026-10-25); ids not in repo  |
+
+A header approval does not approve any template, and a template is approved under ONE header.
+Configure the header the eight templates are linked to. Until a kind has both of its ids set,
+the platform refuses to send that kind of SMS and never calls MSG91 (section 4).
 
 The API refuses to boot, when MSG91 carries SMS, if `DLT_SENDER_HEADER` or `MSG91_SENDER_ID` is
-`ETKTGO` or is not six letters, or if any DLT id below is not 19 digits.
+not six letters, if the two differ, if either is a header in `REJECTED_SENDER_HEADERS` (empty
+today; kept so a future rejection is one line in `dlt-sms-templates.ts`), or if any DLT id below
+is not 19 digits. ETKTGO and DPTRCS are both accepted.
+
+### 1.1 What the repository knows, and what the owner must supply
+
+The repository knows: the PE ID, both header names, the DPTRCS header ID, the exact wording of
+each kind below, and the env key names. It holds **no template id**, and must not.
+
+The owner must supply (set as environment values out of band, never committed):
+
+| Value                                    | Where it goes                             |
+| ---------------------------------------- | ----------------------------------------- |
+| ETKTGO 19-digit header ID                | this page, section 1 (a record only)      |
+| `ETKTGO` as the configured header        | `DLT_SENDER_HEADER` and `MSG91_SENDER_ID` |
+| per approved template: 19-digit DLT id   | `DLT_TEMPLATE_ID_<KIND>`                  |
+| per approved template: MSG91 template id | `MSG91_SMS_TEMPLATE_<KIND>`               |
+
+The code supports seven kinds (`DLT_SMS_TEMPLATES` and `DLT_SMS_REPLACEMENTS`):
+
+| `<KIND>`                | Wording | Which of the owner's eight | DLT id key                              | MSG91 id key                               |
+| ----------------------- | ------- | -------------------------- | --------------------------------------- | ------------------------------------------ |
+| `OTP`                   | 2.1     | **OPEN - owner to say**    | `DLT_TEMPLATE_ID_OTP`                   | `MSG91_SMS_TEMPLATE_OTP`                   |
+| `SHOW_CANCELLED`        | 2.2     | **OPEN - owner to say**    | `DLT_TEMPLATE_ID_SHOW_CANCELLED`        | `MSG91_SMS_TEMPLATE_SHOW_CANCELLED`        |
+| `SHOW_CANCELLED_ONLINE` | pack A  | **OPEN - owner to say**    | `DLT_TEMPLATE_ID_SHOW_CANCELLED_ONLINE` | `MSG91_SMS_TEMPLATE_SHOW_CANCELLED_ONLINE` |
+| `SHOW_CANCELLED_CASH`   | pack B  | **OPEN - owner to say**    | `DLT_TEMPLATE_ID_SHOW_CANCELLED_CASH`   | `MSG91_SMS_TEMPLATE_SHOW_CANCELLED_CASH`   |
+| `BOOKING_CONFIRMED`     | 2.3     | **OPEN - owner to say**    | `DLT_TEMPLATE_ID_BOOKING_CONFIRMED`     | `MSG91_SMS_TEMPLATE_BOOKING_CONFIRMED`     |
+| `BOOKING_CANCELLED`     | 2.4     | **OPEN - owner to say**    | `DLT_TEMPLATE_ID_BOOKING_CANCELLED`     | `MSG91_SMS_TEMPLATE_BOOKING_CANCELLED`     |
+| `REFUND_COMPLETED`      | 2.5     | **OPEN - owner to say**    | `DLT_TEMPLATE_ID_REFUND_COMPLETED`      | `MSG91_SMS_TEMPLATE_REFUND_COMPLETED`      |
+
+("pack A/B" are in [INDIA-DLT-SHOW-CANCELLED-REPLACEMENT.md](INDIA-DLT-SHOW-CANCELLED-REPLACEMENT.md).)
+
+Open questions for the owner (not guessed here):
+
+1. Which of the eight approved templates is which kind above? Eight approvals against seven
+   kinds means at least one approved template has no kind in the code yet. Name it and what it
+   is for, so it can be added (wording here first) or left unused.
+2. Is each approved text **character for character** the wording in section 2 (or the pack)?
+   An operator drops a message whose fixed text differs, so do not set the ids of a kind whose
+   approved wording differs until the code carries that wording.
+3. Are all eight linked to header ETKTGO (not DPTRCS)? The configured header must be the one
+   the templates are linked to.
 
 ---
 
-## 2. Templates to register
+## 2. Template wording (what the code sends)
 
-Register each one under header **DPTRCS**, content category **Service Implicit**, type
+The owner reports eight templates approved (section 1.1). The wording below is what the code
+sends for each kind; it must match the approved text exactly. Each is under the configured header
+(**ETKTGO**, per the owner's 2026-10-25 statement; DPTRCS is also accepted), content category **Service Implicit**, type
 **Transactional (service)**. None is promotional. Every `{#var#}` is one DLT variable (at most
 30 characters; the platform shortens long event titles with "..." and refuses anything else that
 would not fit). Copy each text exactly: one changed character, space or full stop and the
@@ -113,11 +162,12 @@ alphabet and in one or two segments.
 
 ## 3. In MSG91
 
-1. Link MSG91 to the PE as its telemarketer on the DLT portal (PE-TM chain).
-2. Add header DPTRCS to the MSG91 account.
+1. Link MSG91 to the PE as its telemarketer on the DLT portal (PE-TM chain). Approved per the
+   owner, 2026-10-25.
+2. Add header ETKTGO to the MSG91 account (the header the templates are linked to).
 3. For each approved template: SMS > Templates > add, paste the DLT text with each `{#var#}`
    written as `##name##` using the variable names above, enter the DLT template ID, choose
-   sender DPTRCS. MSG91 then shows its own template id.
+   sender ETKTGO. MSG91 then shows its own template id.
 4. Delivery reports: set the DLR webhook to
    `https://<api host>/api/notifications/webhooks/msg91/<MSG91_WEBHOOK_SECRET>`.
 
@@ -128,29 +178,29 @@ parameter; the route is the template's (transactional/service).
 
 ## 4. Configuration (names only - set values out of band)
 
-| Env var                                    | What it holds                                                 |
-| ------------------------------------------ | ------------------------------------------------------------- |
-| `SMS_PROVIDER_BY_MARKET`                   | `IN=msg91` (keep `NOTIFICATION_MARKETS` consistent)           |
-| `SMS_ENABLED`                              | `true` only when the steps on this page are done              |
-| `MSG91_AUTH_KEY`                           | secret; sent as a header, never logged                        |
-| `DLT_SENDER_HEADER`                        | `DPTRCS`                                                      |
-| `MSG91_SENDER_ID`                          | `DPTRCS` (must equal `DLT_SENDER_HEADER`, or boot is refused) |
-| `DLT_PRINCIPAL_ENTITY_ID`                  | the 19-digit PE ID                                            |
-| `MSG91_WEBHOOK_SECRET`                     | secret, 32+ random characters, in the DLR URL                 |
-| `MSG91_SMS_TEMPLATE_OTP`                   | MSG91 template id for 2.1                                     |
-| `DLT_TEMPLATE_ID_OTP`                      | 19-digit DLT template ID for 2.1                              |
-| `MSG91_SMS_TEMPLATE_SHOW_CANCELLED`        | MSG91 template id for 2.2                                     |
-| `DLT_TEMPLATE_ID_SHOW_CANCELLED`           | 19-digit DLT template ID for 2.2                              |
-| `MSG91_SMS_TEMPLATE_SHOW_CANCELLED_ONLINE` | MSG91 id, show cancelled for online buyers (replacement pack) |
-| `DLT_TEMPLATE_ID_SHOW_CANCELLED_ONLINE`    | 19-digit DLT id for the same; turns that wording on           |
-| `MSG91_SMS_TEMPLATE_SHOW_CANCELLED_CASH`   | MSG91 id, show cancelled for cash buyers (replacement pack)   |
-| `DLT_TEMPLATE_ID_SHOW_CANCELLED_CASH`      | 19-digit DLT id for the same; turns that wording on           |
-| `MSG91_SMS_TEMPLATE_BOOKING_CONFIRMED`     | MSG91 template id for 2.3 (optional)                          |
-| `DLT_TEMPLATE_ID_BOOKING_CONFIRMED`        | 19-digit DLT template ID for 2.3 (optional)                   |
-| `MSG91_SMS_TEMPLATE_BOOKING_CANCELLED`     | MSG91 template id for 2.4 (optional)                          |
-| `DLT_TEMPLATE_ID_BOOKING_CANCELLED`        | 19-digit DLT template ID for 2.4 (optional)                   |
-| `MSG91_SMS_TEMPLATE_REFUND_COMPLETED`      | MSG91 template id for 2.5 (optional)                          |
-| `DLT_TEMPLATE_ID_REFUND_COMPLETED`         | 19-digit DLT template ID for 2.5 (optional)                   |
+| Env var                                    | What it holds                                                   |
+| ------------------------------------------ | --------------------------------------------------------------- |
+| `SMS_PROVIDER_BY_MARKET`                   | `IN=msg91` (keep `NOTIFICATION_MARKETS` consistent)             |
+| `SMS_ENABLED`                              | `true` only when the steps on this page are done                |
+| `MSG91_AUTH_KEY`                           | secret; sent as a header, never logged                          |
+| `DLT_SENDER_HEADER`                        | `ETKTGO` (or `DPTRCS`: the header the templates are linked to)  |
+| `MSG91_SENDER_ID`                          | same value (must equal `DLT_SENDER_HEADER`, or boot is refused) |
+| `DLT_PRINCIPAL_ENTITY_ID`                  | the 19-digit PE ID                                              |
+| `MSG91_WEBHOOK_SECRET`                     | secret, 32+ random characters, in the DLR URL                   |
+| `MSG91_SMS_TEMPLATE_OTP`                   | MSG91 template id for 2.1                                       |
+| `DLT_TEMPLATE_ID_OTP`                      | 19-digit DLT template ID for 2.1                                |
+| `MSG91_SMS_TEMPLATE_SHOW_CANCELLED`        | MSG91 template id for 2.2                                       |
+| `DLT_TEMPLATE_ID_SHOW_CANCELLED`           | 19-digit DLT template ID for 2.2                                |
+| `MSG91_SMS_TEMPLATE_SHOW_CANCELLED_ONLINE` | MSG91 id, show cancelled for online buyers (replacement pack)   |
+| `DLT_TEMPLATE_ID_SHOW_CANCELLED_ONLINE`    | 19-digit DLT id for the same; turns that wording on             |
+| `MSG91_SMS_TEMPLATE_SHOW_CANCELLED_CASH`   | MSG91 id, show cancelled for cash buyers (replacement pack)     |
+| `DLT_TEMPLATE_ID_SHOW_CANCELLED_CASH`      | 19-digit DLT id for the same; turns that wording on             |
+| `MSG91_SMS_TEMPLATE_BOOKING_CONFIRMED`     | MSG91 template id for 2.3 (optional)                            |
+| `DLT_TEMPLATE_ID_BOOKING_CONFIRMED`        | 19-digit DLT template ID for 2.3 (optional)                     |
+| `MSG91_SMS_TEMPLATE_BOOKING_CANCELLED`     | MSG91 template id for 2.4 (optional)                            |
+| `DLT_TEMPLATE_ID_BOOKING_CANCELLED`        | 19-digit DLT template ID for 2.4 (optional)                     |
+| `MSG91_SMS_TEMPLATE_REFUND_COMPLETED`      | MSG91 template id for 2.5 (optional)                            |
+| `DLT_TEMPLATE_ID_REFUND_COMPLETED`         | 19-digit DLT template ID for 2.5 (optional)                     |
 
 Leave unset: `OTP_SMS_TEMPLATE`. **Removed** (boot is refused if set while MSG91 carries SMS):
 `MSG91_SMS_TEMPLATE_ID` (one id for every type) and `MSG91_SMS_BODY_VAR` (the whole message as
@@ -181,8 +231,9 @@ DLT id is required either way.
 
 ## 5. Switch-on checklist
 
-1. Templates 2.1 and 2.2 approved on the DLT portal (3-5 optional).
-2. Each added in MSG91 under DPTRCS with the variable names above.
+1. Templates approved on the DLT portal (owner, 2026-10-25: eight approved). Confirm which is
+   2.1 and 2.2 (required) and that each text matches section 2 exactly (section 1.1).
+2. Each added in MSG91 under ETKTGO with the variable names above.
 3. Set the section 4 keys on the environment. Do not set `OTP_SMS_TEMPLATE`.
 4. Readiness for IN shows SMS with no `BLOCKED_DLT` gap.
 5. Add an SMS rate row so messages are costed.
