@@ -3154,6 +3154,18 @@ enum FeedbackKind {
 
 model Feedback {
   id     String       @id @default(cuid())
+
+  /// The readable reference the sender is given: `ETG-SUP-<YEAR>-<SEQ>`, e.g. ETG-SUP-2026-000142.
+  ///
+  /// The id stays the primary key and every relation and API field is unchanged; this is the name
+  /// a person reads, says on the phone and searches for. The year is the UTC year of `createdAt`
+  /// and the sequence restarts each year, taken from `ReadableReferenceCounter` (scope
+  /// `SUP-<YEAR>`) in the same transaction as the insert. See docs/support/REFERENCES.md.
+  ///
+  /// Nullable ON PURPOSE, for a live rollout: an API older than this column inserts without it.
+  /// A BEFORE INSERT trigger (migration 20261025120000) fills it for any insert that omits it, and
+  /// the migration backfilled every existing row, so in practice no row is without one.
+  reference String? @unique
   kind   FeedbackKind
   userId String?
   user   User?        @relation(fields: [userId], references: [id])
@@ -3227,6 +3239,19 @@ model IdempotencyRecord {
 // number issued. Incremented atomically inside the booking-confirm transaction so
 // references are collision-free and gap-tolerant under concurrency and multi-region.
 model BookingReferenceCounter {
+  scope     String   @id
+  value     Int      @default(0)
+  updatedAt DateTime @updatedAt
+}
+
+/// Per-scope counter for readable references that are not booking references.
+///
+/// Scope `SUP-<YEAR>` numbers support requests (ETG-SUP-<YEAR>-<SEQ>). Kept apart from
+/// BookingReferenceCounter so nothing about bookings changes. Incremented only by
+/// `INSERT ... ON CONFLICT DO UPDATE ... RETURNING` (the SQL function `etg_next_reference_value`),
+/// inside the transaction that inserts the row the number is for: the row lock serialises
+/// concurrent requests, and a rolled-back insert gives its number back.
+model ReadableReferenceCounter {
   scope     String   @id
   value     Int      @default(0)
   updatedAt DateTime @updatedAt

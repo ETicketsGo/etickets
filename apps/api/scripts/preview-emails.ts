@@ -131,7 +131,9 @@ const CASES: [NotificationType, Record<string, unknown>, string?][] = [
   [
     NotificationType.SUPPORT_REQUEST_RECEIVED,
     {
-      reference: 'cmgsupport0000example',
+      // The readable reference; the id rides along for tracing and no template shows it.
+      reference: 'ETG-SUP-2026-000142',
+      feedbackId: 'cmgsupport0000example',
       kind: 'CONTACT',
       topic: '[Support] Website enquiry',
       message:
@@ -142,12 +144,16 @@ const CASES: [NotificationType, Record<string, unknown>, string?][] = [
       accountEmail: '',
       organizationName: '',
       bookingReference: 'ETG-IND-2026-000024',
-      link: 'https://admin-qa.eticketsgo.com/admin/support?q=cmgsupport0000example',
+      link: 'https://admin.eticketsgo.com/admin/support?q=ETG-SUP-2026-000142',
     },
   ],
   [
     NotificationType.SUPPORT_REQUEST_ACKNOWLEDGED,
-    { reference: 'cmgsupport0000example', email: 'asha@example.com' },
+    {
+      reference: 'ETG-SUP-2026-000142',
+      feedbackId: 'cmgsupport0000example',
+      email: 'asha@example.com',
+    },
   ],
 ];
 

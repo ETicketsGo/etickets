@@ -120,8 +120,8 @@
     "body": "ETicketsGo lifted the pause on '{event}'. Tickets are on sale again."
   },
   "SUPPORT_REQUEST_RECEIVED": {
-    "subject": "New {kind} message: {topic}",
-    "subjectNoTopic": "New {kind} message from {sender}",
+    "subject": "New {kind} message [{reference}]: {topic}",
+    "subjectNoTopic": "New {kind} message [{reference}] from {sender}",
     "intro": "New {kind} message from {sender}.",
     "lead": "A message came in through a support form.",
     "replyHint": "Reply to this email to answer the sender. Your reply goes to {email}.",
@@ -148,7 +148,7 @@
     }
   },
   "SUPPORT_REQUEST_ACKNOWLEDGED": {
-    "subject": "We have your message",
+    "subject": "We have your message [{reference}]",
     "body": "Thank you for writing to ETicketsGo. We have your message and we will reply to {email}. Your reference is {reference}. If you write to us again about this, please give this reference."
   },
   "PAYOUT_ACCOUNT_AWAITING_VERIFICATION": {

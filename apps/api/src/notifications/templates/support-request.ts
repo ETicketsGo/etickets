@@ -92,6 +92,8 @@ export function supportRequestText(locale: Locale, p: Payload): { subject: strin
   const topic = text(p, 'topic');
   const { message, truncated } = supportMessage(p);
   const link = text(p, 'link');
+  // The readable reference (ETG-SUP-...), in the subject so the mailbox can be searched by it.
+  const reference = text(p, 'reference');
 
   const facts = supportRequestRows(locale, p)
     .map((row) => `${row.label}: ${row.value}`)
@@ -114,8 +116,8 @@ export function supportRequestText(locale: Locale, p: Payload): { subject: strin
   */
   const subject = (
     topic
-      ? t(locale, 'emails.SUPPORT_REQUEST_RECEIVED.subject', { kind, topic })
-      : t(locale, 'emails.SUPPORT_REQUEST_RECEIVED.subjectNoTopic', { kind, sender })
+      ? t(locale, 'emails.SUPPORT_REQUEST_RECEIVED.subject', { kind, topic, reference })
+      : t(locale, 'emails.SUPPORT_REQUEST_RECEIVED.subjectNoTopic', { kind, sender, reference })
   )
     .replace(/\s+/g, ' ')
     .trim()
