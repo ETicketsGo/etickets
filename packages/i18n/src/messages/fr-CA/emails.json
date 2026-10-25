@@ -120,8 +120,8 @@
     "body": "ETicketsGo a levé la suspension de « {event} ». Les billets sont de nouveau en vente."
   },
   "SUPPORT_REQUEST_RECEIVED": {
-    "subject": "Nouveau message ({kind}) : {topic}",
-    "subjectNoTopic": "Nouveau message ({kind}) de {sender}",
+    "subject": "Nouveau message ({kind}) [{reference}] : {topic}",
+    "subjectNoTopic": "Nouveau message ({kind}) [{reference}] de {sender}",
     "intro": "Nouveau message ({kind}) de {sender}.",
     "lead": "Un message est arrivé par un formulaire de soutien.",
     "replyHint": "Répondez à ce courriel pour répondre à l'expéditeur. Votre réponse ira à {email}.",
@@ -148,7 +148,7 @@
     }
   },
   "SUPPORT_REQUEST_ACKNOWLEDGED": {
-    "subject": "Nous avons bien reçu votre message",
+    "subject": "Nous avons bien reçu votre message [{reference}]",
     "body": "Merci d'avoir écrit à ETicketsGo. Nous avons bien reçu votre message et nous répondrons à {email}. Votre référence est {reference}. Si vous nous écrivez de nouveau à ce sujet, indiquez cette référence."
   },
   "PAYOUT_ACCOUNT_AWAITING_VERIFICATION": {

@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { z } from 'zod';
 import {
   parseEnabledMarkets,
@@ -18,6 +19,7 @@ import {
   OFFLINE_REVOCATION_WINDOW_MIN_MINUTES,
   offlineWindowContradictions,
 } from './offline-revocation-window';
+import { railwayEmailHostWarnings } from '../common/email-host-warnings';
 
 /** Validated environment. Fails fast on boot if misconfigured. */
 const envSchema = z.object({
@@ -2132,5 +2134,9 @@ export function loadConfig(): AppConfig {
   assertPlatformConfigConsistency(parsed.data);
   assertNotificationConfigConsistency(parsed.data);
   assertObjectStoreConsistency(parsed.data);
+  // Warned, never refused: a generated Railway host still answers (common/email-host-warnings.ts).
+  for (const warning of railwayEmailHostWarnings(process.env)) {
+    new Logger('Config').warn(warning);
+  }
   return parsed.data;
 }

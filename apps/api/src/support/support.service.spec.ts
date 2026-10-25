@@ -22,6 +22,8 @@ function setup() {
       findUnique: jest.fn().mockResolvedValue(null),
     },
     $executeRaw: jest.fn().mockResolvedValue(1),
+    // The support reference counter (etg_next_reference_value): next number 142.
+    $queryRaw: jest.fn().mockResolvedValue([{ value: 142 }]),
     // submit() runs in an interactive transaction (handed this same client); list() in a batch.
     $transaction: jest
       .fn()
@@ -171,8 +173,11 @@ describe('SupportService.list', () => {
     expect(findArgs.where.kind).toBe(FeedbackKind.BUG);
     expect(findArgs.where.status).toBe('OPEN');
     expect(findArgs.where.OR).toEqual([
-      // The reference a sender is given, and the support mail's admin link, match by id.
+      // The id: what mails sent before readable references quoted and linked to.
       { id: 'crash' },
+      // The readable reference, exactly (any case) or in part.
+      { reference: { equals: 'crash', mode: 'insensitive' } },
+      { reference: { contains: 'crash', mode: 'insensitive' } },
       { message: { contains: 'crash', mode: 'insensitive' } },
       { subject: { contains: 'crash', mode: 'insensitive' } },
       { email: { contains: 'crash', mode: 'insensitive' } },

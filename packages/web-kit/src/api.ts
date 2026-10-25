@@ -791,7 +791,12 @@ export const api = {
      * signed-in user; `auth` is left default so refresh-on-401 still applies.
      */
     submit: (body: FeedbackSubmission) =>
-      request<{ id: string; status: FeedbackStatusValue }>('/support', {
+      request<{
+        id: string;
+        /** The readable reference the sender is given (ETG-SUP-2026-000142). */
+        reference: string | null;
+        status: FeedbackStatusValue;
+      }>('/support', {
         method: 'POST',
         body: JSON.stringify(body),
       }),
@@ -7408,6 +7413,8 @@ export interface FeedbackSubmission {
 /** A support submission row as returned by the admin inbox. */
 export interface FeedbackRow {
   id: string;
+  /** The readable reference the sender was given (ETG-SUP-2026-000142); null only on a row from before references. */
+  reference: string | null;
   kind: FeedbackKindValue;
   status: FeedbackStatusValue;
   email: string | null;

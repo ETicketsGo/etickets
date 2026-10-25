@@ -657,7 +657,9 @@ const BUILDERS: Partial<Record<NotificationType, Builder>> = {
     stranger send any text they liked to anybody, under our name.
   */
   [NotificationType.SUPPORT_REQUEST_ACKNOWLEDGED]: (l, p) => ({
-    subject: t(l, 'emails.SUPPORT_REQUEST_ACKNOWLEDGED.subject'),
+    subject: t(l, 'emails.SUPPORT_REQUEST_ACKNOWLEDGED.subject', {
+      reference: str(p, 'reference'),
+    }),
     body: t(l, 'emails.SUPPORT_REQUEST_ACKNOWLEDGED.body', {
       email: str(p, 'email'),
       reference: str(p, 'reference'),

@@ -1,0 +1,58 @@
+/**
+ * A production site URL that points at a generated Railway host, said out loud at boot.
+ *
+ * ── THE DEFECT ─────────────────────────────────────────────────────────────────────
+ * Production emails linked to `https://admin-web-prod-1594.up.railway.app/admin/support?...`
+ * and named `customer-web-prod.up.railway.app` in their footer, although the official domains
+ * (www., admin., organizer.eticketsgo.com) were live. The hosts come from configuration, not from
+ * code: every link in a message is built from CUSTOMER_WEB_URL, ADMIN_WEB_URL and
+ * ORGANIZER_WEB_URL (common/console-urls.ts, support-mail.service.ts, email.channel.ts), on the
+ * api AND the worker services, because the worker is what renders and sends the mail.
+ *
+ * ── WHY A WARNING AND NOT A REFUSAL ────────────────────────────────────────────────
+ * A refusal would take production down on its next deploy for a cosmetic fault: the generated
+ * hosts still answer. And a silent rewrite to the official domain would make the configuration
+ * lie about what the service uses. So this only names the variable, its host and the official
+ * origin it should be, every boot, until the variable is changed. Other environments are left
+ * alone: QA and UAT have their own hosts and are not read by customers.
+ */
+
+/** The official origin each email-facing site variable should hold in production. */
+export const OFFICIAL_PRODUCTION_ORIGINS = {
+  CUSTOMER_WEB_URL: 'https://www.eticketsgo.com',
+  ADMIN_WEB_URL: 'https://admin.eticketsgo.com',
+  ORGANIZER_WEB_URL: 'https://organizer.eticketsgo.com',
+} as const;
+
+/** True for a Railway-generated host (`*.up.railway.app`). */
+export function isRailwayGeneratedHost(hostname: string): boolean {
+  const host = hostname.trim().toLowerCase().replace(/\.$/, '');
+  return host === 'up.railway.app' || host.endsWith('.up.railway.app');
+}
+
+/**
+ * One warning per production site variable that points at a generated Railway host. Empty
+ * outside APP_ENV=PRODUCTION, for unset variables and for values that are not URLs (other checks
+ * own those).
+ */
+export function railwayEmailHostWarnings(env: Record<string, string | undefined>): string[] {
+  if ((env.APP_ENV ?? '').trim().toUpperCase() !== 'PRODUCTION') return [];
+  const warnings: string[] = [];
+  for (const [variable, official] of Object.entries(OFFICIAL_PRODUCTION_ORIGINS)) {
+    const raw = env[variable]?.trim();
+    if (!raw) continue;
+    let host: string;
+    try {
+      host = new URL(raw).hostname;
+    } catch {
+      continue;
+    }
+    if (!isRailwayGeneratedHost(host)) continue;
+    warnings.push(
+      `${variable} points at the generated Railway host ${host}, so emails link to and name ` +
+        `that host. Set ${variable}=${official} on the api and worker services ` +
+        `(see docs/support/REFERENCES.md; a variable change redeploys, use the pinned procedure).`,
+    );
+  }
+  return warnings;
+}
