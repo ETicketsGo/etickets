@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import { localizedMetadata, siteRobots } from '@/lib/seo';
 import { PrimaryLink } from '@/components/marketing/kit';
 import { PageHero, Prose } from '@/components/marketing/blocks';
 import { Link } from '@/i18n/navigation';
@@ -33,15 +33,14 @@ import { BrandPage } from '@/components/storefront-brand';
  * Every sentence below is true of the platform as built. Nothing here claims a legal review,
  * an approval, or a business detail that has not been published.
  */
-export const metadata: Metadata = {
+export const generateMetadata = localizedMetadata('/sms', {
   title: 'Text messages',
   description:
     'What text messages ETicketsGo sends, how often, how to agree to them, and how to stop them.',
-  alternates: { canonical: '/sms' },
   // Indexable, unlike the other legal pages: a campaign reviewer is told to find the opt-in
   // description from the public site, and a page excluded from search is harder to find.
-  robots: { index: true, follow: true },
-};
+  robots: siteRobots(),
+});
 
 export default async function SmsPage({
   searchParams,

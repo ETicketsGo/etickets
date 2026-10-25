@@ -1,15 +1,14 @@
-import type { Metadata } from 'next';
+import { localizedMetadata } from '@/lib/seo';
 import { Container, Section } from '@/components/marketing/kit';
 import { PageHero } from '@/components/marketing/blocks';
 import { FaqSearch, type FaqGroup } from '@/components/marketing/faq';
 import { BrandPage } from '@/components/storefront-brand';
 
-export const metadata: Metadata = {
+export const generateMetadata = localizedMetadata('/faq', {
   title: 'FAQ',
   description:
     'Answers about creating events, payments, refunds, offline check-in, security, pricing and accounts.',
-  alternates: { canonical: '/faq' },
-};
+});
 
 const GROUPS: FaqGroup[] = [
   {

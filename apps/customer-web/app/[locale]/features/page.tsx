@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import { localizedMetadata } from '@/lib/seo';
 import {
   CalendarDays,
   Ticket,
@@ -24,12 +24,11 @@ import {
 import { PageHero } from '@/components/marketing/blocks';
 import { BrandPage } from '@/components/storefront-brand';
 
-export const metadata: Metadata = {
+export const generateMetadata = localizedMetadata('/features', {
   title: 'Features',
   description:
     'Event setup, ticketing, reserved seating, payments, coupons, offline check-in, dashboards, reports, wallet passes, security, and accessibility.',
-  alternates: { canonical: '/features' },
-};
+});
 
 const FEATURES = [
   {

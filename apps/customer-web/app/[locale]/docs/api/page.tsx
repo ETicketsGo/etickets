@@ -1,13 +1,12 @@
-import type { Metadata } from 'next';
+import { localizedMetadata } from '@/lib/seo';
 import { Container, Section } from '@/components/marketing/kit';
 import { PageHero, Prose } from '@/components/marketing/blocks';
 import { BrandPage } from '@/components/storefront-brand';
 
-export const metadata: Metadata = {
+export const generateMetadata = localizedMetadata('/docs/api', {
   title: 'API reference',
   description:
     'ETicketsGo API conventions - authentication, pagination, errors, webhooks, and the interactive OpenAPI/Swagger reference.',
-  alternates: { canonical: '/docs/api' },
   /*
     Kept reachable, deliberately not advertised.
 
@@ -18,7 +17,7 @@ export const metadata: Metadata = {
     actually be given access to.
   */
   robots: { index: false, follow: true },
-};
+});
 
 export default function ApiDocsPage() {
   return (

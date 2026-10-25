@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import { localizedMetadata } from '@/lib/seo';
 import { PageHero, Prose } from '@/components/marketing/blocks';
 import {
   PolicyUpdated,
@@ -11,12 +11,11 @@ import { Link } from '@/i18n/navigation';
 import { INDIA_OPERATOR_SENTENCE, LEGAL_INFORMATION_HREF } from '@/lib/legal-entity';
 import { BrandPage } from '@/components/storefront-brand';
 
-export const metadata: Metadata = {
+export const generateMetadata = localizedMetadata('/terms', {
   title: 'Terms & Conditions',
   description: 'The terms governing use of the ETicketsGo platform.',
-  alternates: { canonical: '/terms' },
   robots: { index: false, follow: true },
-};
+});
 
 export default async function TermsPage({
   searchParams,

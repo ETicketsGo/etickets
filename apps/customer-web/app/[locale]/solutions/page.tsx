@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import { localizedMetadata } from '@/lib/seo';
 import {
   Film,
   Music,
@@ -15,12 +15,11 @@ import { Container, Section, SectionHeading, CtaBand } from '@/components/market
 import { PageHero } from '@/components/marketing/blocks';
 import { BrandPage } from '@/components/storefront-brand';
 
-export const metadata: Metadata = {
+export const generateMetadata = localizedMetadata('/solutions', {
   title: 'Solutions',
   description:
     'ETicketsGo powers movies, concerts, sports, comedy, theatre, festivals, conferences, college events, community events, and private events.',
-  alternates: { canonical: '/solutions' },
-};
+});
 
 const INDUSTRIES = [
   {

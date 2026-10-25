@@ -1,3 +1,5 @@
+import { normaliseSiteUrl } from './indexability.mjs';
+
 /**
  * An address on this site that is safe to hand to someone else.
  *
@@ -28,4 +30,17 @@ export function siteUrl(path: string): string {
 export function currentPageUrl(): string {
   if (typeof window === 'undefined') return '';
   return siteUrl(`${window.location.pathname}${window.location.search}`);
+}
+
+/**
+ * The site's own address for metadata, the sitemap and robots.txt: the configured one, else
+ * the production storefront (`https://www.eticketsgo.com`, never the bare apex, which only
+ * forwards). Unlike `siteOrigin` it never reads the browser, so a server render and a client
+ * render agree.
+ *
+ * The fallback is for URLs only. Whether a deployment may be INDEXED is decided by
+ * `isIndexableDeployment` from the configured value, and an unset value is not production.
+ */
+export function canonicalSiteUrl(): string {
+  return normaliseSiteUrl(process.env.NEXT_PUBLIC_SITE_URL);
 }

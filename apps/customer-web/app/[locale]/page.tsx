@@ -1,12 +1,11 @@
-import type { Metadata } from 'next';
 import { DiscoverHome } from '@/components/discover-home';
+import { HOME_DESCRIPTION, HOME_TITLE, localizedMetadata } from '@/lib/seo';
 
-export const metadata: Metadata = {
-  title: 'ETicketsGo - Book tickets for movies, concerts and live events',
-  description:
-    'Find what is on near you and book in a few taps. See every fee before you pay, and keep your ticket on your phone - it scans even without a signal.',
-  alternates: { canonical: '/' },
-};
+/** The owner's title and description, exactly, and the page names itself as canonical. */
+export const generateMetadata = localizedMetadata('/', {
+  title: { absolute: HOME_TITLE },
+  description: HOME_DESCRIPTION,
+});
 
 /**
  * The front door is a ticket shop.

@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import { localizedMetadata, siteRobots } from '@/lib/seo';
 import { Link } from '@/i18n/navigation';
 import { PageHero } from '@/components/marketing/blocks';
 import { OperatorLine } from '@/components/legal/policy-chrome';
@@ -18,12 +18,11 @@ import { BrandPage } from '@/components/storefront-brand';
  * Each link goes to the canonical document, which resolves the reader's market from the one
  * the product already resolved. The customer never picks a jurisdiction, here or anywhere.
  */
-export const metadata: Metadata = {
+export const generateMetadata = localizedMetadata('/legal', {
   title: 'Legal & Policies',
   description: 'The terms, privacy, refund, messaging and cookie policies for ETicketsGo.',
-  alternates: { canonical: '/legal' },
-  robots: { index: true, follow: true },
-};
+  robots: siteRobots(),
+});
 
 /**
  * Only documents that genuinely exist and are ready to be read by the public.
