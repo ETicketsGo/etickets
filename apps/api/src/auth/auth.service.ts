@@ -27,6 +27,8 @@ import { LoginBackoff } from './login-backoff';
 interface RequestMeta {
   userAgent?: string;
   ip?: string;
+  /** The network's country for this request (edge header), recorded only on account creation. */
+  networkCountry?: string | null;
 }
 
 /**
@@ -152,6 +154,9 @@ export class AuthService {
           passwordHash,
           fullName: input.fullName,
           roles: [Role.CUSTOMER],
+          ...(meta.networkCountry
+            ? { detectedCountry: meta.networkCountry, detectedCountrySource: 'network' }
+            : {}),
         },
       })
       .catch((err: unknown) => {
@@ -536,12 +541,12 @@ export class AuthService {
   /**
    * What the Mobile sign-up tab adds to a proven number: a name, and the text-message agreement.
    *
-   * ── WHY ONLY AN EMPTY NAME IS FILLED ───────────────────────────────────────────────
-   * The sign-up tab cannot know whether the number already has an account - saying so would make
-   * request-code an "is this person registered" oracle. So a number that does have one simply
-   * signs in, and its name is left alone: a sign-up form must never be a way to rename somebody
-   * else's account, or your own by accident. A phone-only account created by an earlier sign-in
-   * has an empty name, and that one is filled.
+   * ── ONLY EVER FOR AN ACCOUNT THE SAME REQUEST CREATED ───────────────────────────────
+   * The controller calls this only when `verifyCode` answered `isNewAccount: true`. A number that
+   * already has an account signs into it and nothing from the sign-up form is applied - not a
+   * name (even into an empty one) and not a sign-up consent (2026-10-25: repeat sign-ups used to
+   * fill an existing nameless account's name and record CUSTOMER_SIGNUP consent against it).
+   * The empty-name condition below stays as a second guard against a concurrent rename.
    *
    * ── WHY THE CONSENT IS RECORDED HERE AND NOT THROUGH THE SETTINGS ENDPOINT ──────────
    * Provenance. The settings endpoint records `account-settings:*`, which would claim the person
@@ -943,10 +948,17 @@ export class AuthService {
     phoneVerified: boolean;
     memberSince: string;
     locale: string | null;
+    countryOfResidence: string | null;
   }> {
     const row = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { phone: true, phoneVerifiedAt: true, createdAt: true, locale: true },
+      select: {
+        phone: true,
+        phoneVerifiedAt: true,
+        createdAt: true,
+        locale: true,
+        countryOfResidence: true,
+      },
     });
     return {
       phone: row?.phone ?? null,
@@ -955,6 +967,8 @@ export class AuthService {
       phoneVerified: Boolean(row?.phoneVerifiedAt),
       memberSince: (row?.createdAt ?? new Date()).toISOString(),
       locale: row?.locale ?? null,
+      // Only what the person chose in their profile; null means "not said".
+      countryOfResidence: row?.countryOfResidence ?? null,
     };
   }
 }

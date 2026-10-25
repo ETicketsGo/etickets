@@ -475,7 +475,15 @@ export class PhoneOtpService {
     return { phone };
   }
 
-  async verifyCode(rawPhone: string, code: string): Promise<{ id: string; isNewAccount: boolean }> {
+  async verifyCode(
+    rawPhone: string,
+    code: string,
+    /**
+     * What the request knew about where it came from. Written only onto an account this call
+     * CREATES (never onto an existing one), labelled with its source.
+     */
+    signup: { detectedCountry?: string | null } = {},
+  ): Promise<{ id: string; isNewAccount: boolean }> {
     const phone = await this.consumeCode(rawPhone, code);
 
     const existing = await this.prisma.user.findUnique({ where: { phone } });
@@ -506,6 +514,9 @@ export class PhoneOtpService {
           passwordHash: `phone-only$${await bcrypt.hash(`${phone}:${Date.now()}`, 10)}`,
           fullName: '',
           roles: ['CUSTOMER'],
+          ...(signup.detectedCountry
+            ? { detectedCountry: signup.detectedCountry, detectedCountrySource: 'network' }
+            : {}),
         },
         select: { id: true },
       });

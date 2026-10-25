@@ -50,13 +50,23 @@ import { AllowMfaPending, CurrentUser, Public, type RequestUser } from '../commo
 import { AUTH_THROTTLE } from '../common/throttle';
 import { RequiresHumanCheck } from '../human-check/human-check.guard';
 import { clientIpFor, requestClientIp, resolveClientIpHeader } from '../common/client-ip';
+import { networkCountry } from '../discovery/network-country';
 
 /*
   The CLIENT's address, not `req.ip`: behind Railway `req.ip` is the edge node, so every audit row
   and every session row named one of a handful of proxies (see common/client-ip.ts).
 */
 function meta(req: Request) {
-  return { userAgent: req.header('user-agent') ?? undefined, ip: requestClientIp(req) };
+  return {
+    userAgent: req.header('user-agent') ?? undefined,
+    ip: requestClientIp(req),
+    /*
+      Where the network placed this request, by the storefront's own trusted edge headers.
+      Recorded on an account only when the account is CREATED (`User.detectedCountry`), and
+      always shown as what it is - a network hint, not where somebody lives.
+    */
+    networkCountry: networkCountry(req.headers ?? {}),
+  };
 }
 
 /*
@@ -123,21 +133,37 @@ export class AuthController {
     @Body(new ZodValidationPipe(phoneVerifySchema)) body: PhoneVerifyBody,
     @Req() req: Request,
   ) {
-    const { id, isNewAccount } = await this.otp.verifyCode(body.phone, body.code);
+    const requestMeta = meta(req);
+    const { id, isNewAccount } = await this.otp.verifyCode(body.phone, body.code, {
+      detectedCountry: requestMeta.networkCountry,
+    });
     /*
       AFTER the code is proven and BEFORE the session is minted: the access token carries the
       name, so applying it afterwards would leave a brand-new account nameless until its first
       refresh. Nothing here runs for a wrong code - `verifyCode` has already thrown.
+
+      ── ONLY FOR AN ACCOUNT THIS REQUEST CREATED ───────────────────────────────────────
+      The sign-up form cannot know in advance whether the number has an account (saying so at
+      request-code time would make it a "who is registered" oracle). So a number that already
+      has one is signed into THAT account, and nothing typed on the sign-up form is applied to
+      it: not a name - not even into an empty one - and not a sign-up text-message agreement,
+      which would be evidence of a sign-up that never happened. The person is told they already
+      had an account (`isNewAccount: false`) and their profile is exactly as they left it.
     */
-    await this.auth.applyPhoneSignup(id, {
-      fullName: body.fullName,
-      smsConsent: body.smsConsent,
-      country: body.country,
-    });
-    const tokens = await this.auth.completePhoneSignIn(id, meta(req));
-    // The client uses this to decide whether to ask for a name — a brand-new account has
-    // none, and asking an existing customer again would be rude. (A back-office account gets a
-    // second-factor challenge here instead of tokens, exactly as on the password route.)
+    if (isNewAccount) {
+      await this.auth.applyPhoneSignup(id, {
+        fullName: body.fullName,
+        smsConsent: body.smsConsent,
+        country: body.country,
+      });
+    }
+    const tokens = await this.auth.completePhoneSignIn(id, requestMeta);
+    /*
+      The clients turn this into what the person reads: on the sign-up form, `false` means
+      "You already have an account with this number. We signed you in." (see
+      `phoneSignInOutcome` in shared-types). A back-office account gets a second-factor
+      challenge here instead of tokens, exactly as on the password route.
+    */
     return { ...tokens, isNewAccount };
   }
 

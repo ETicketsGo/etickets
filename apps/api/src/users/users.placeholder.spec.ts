@@ -27,7 +27,7 @@ describe('UsersService and placeholder addresses', () => {
   it('returns no email for a phone-only account', async () => {
     const svc = service('phone+14695884580@users.eticketsgo.internal');
     expect((await svc.profile('u1')).email).toBeNull();
-    expect((await svc.updateProfile('u1', 'Srinivas')).email).toBeNull();
+    expect((await svc.updateProfile('u1', { fullName: 'Srinivas' })).email).toBeNull();
   });
 
   it('returns a real email unchanged', async () => {

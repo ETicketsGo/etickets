@@ -6,6 +6,8 @@ import {
   countryAliases,
   isReservedEmail,
   marketFor,
+  phoneCallingCode,
+  phoneCallingCodeLabel,
 } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppException, ErrorCodes } from '../common/errors';
@@ -24,6 +26,7 @@ export class UsersService {
         roles: true,
         status: true,
         createdAt: true,
+        countryOfResidence: true,
         memberships: {
           select: { organizationId: true, role: true, status: true },
         },
@@ -36,11 +39,25 @@ export class UsersService {
     return { ...user, email: isReservedEmail(user.email) ? null : user.email };
   }
 
-  async updateProfile(userId: string, fullName: string) {
+  /**
+   * The person's own profile fields.
+   *
+   * `countryOfResidence` is the ONLY way that column is ever written: chosen here by the person,
+   * or cleared with `null`. It is never inferred from a phone number, the network or bookings.
+   */
+  async updateProfile(
+    userId: string,
+    input: { fullName?: string; countryOfResidence?: string | null },
+  ) {
     const user = await this.prisma.user.update({
       where: { id: userId },
-      data: { fullName },
-      select: { id: true, email: true, fullName: true, roles: true },
+      data: {
+        ...(input.fullName !== undefined ? { fullName: input.fullName } : {}),
+        ...(input.countryOfResidence !== undefined
+          ? { countryOfResidence: input.countryOfResidence }
+          : {}),
+      },
+      select: { id: true, email: true, fullName: true, roles: true, countryOfResidence: true },
     });
     return { ...user, email: isReservedEmail(user.email) ? null : user.email };
   }
@@ -172,13 +189,32 @@ export class UsersService {
           roles: true,
           status: true,
           createdAt: true,
+          phoneVerifiedAt: true,
+          countryOfResidence: true,
+          detectedCountry: true,
+          detectedCountrySource: true,
         },
       }),
     ]);
 
     const countries = await this.countriesFor(data.map((u) => u.id));
     return {
-      data: data.map((u) => ({ ...u, countries: countries.get(u.id) ?? [] })),
+      data: data.map(({ phoneVerifiedAt, ...u }) => {
+        const activity = countries.get(u.id) ?? [];
+        // Only a VERIFIED number says anything; an unverified one is a claim.
+        const verifiedPhone = phoneVerifiedAt ? u.phone : null;
+        return {
+          ...u,
+          /** @deprecated read `activityCountries`; kept for an admin console older than it. */
+          countries: activity,
+          /** Countries the account bought tickets in or belongs to an organizer in. */
+          activityCountries: activity,
+          /** The verified number's calling code (`+91`): a fact about the NUMBER, not the person. */
+          phoneCallingCode: phoneCallingCode(verifiedPhone),
+          /** The same with the countries sharing it: `+1 (US/CA)`. */
+          phoneCallingCodeLabel: phoneCallingCodeLabel(verifiedPhone),
+        };
+      }),
       meta: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) },
     };
   }
@@ -259,10 +295,86 @@ export class UsersService {
     // Never negative, even if a row is added between the two counts.
     const withoutCountry = Math.max(0, total - Number(placedRows[0]?.count ?? 0));
 
+    /*
+      ── THE OTHER KINDS OF COUNTRY EVIDENCE, EACH COUNTED APART ────────────────────────
+      Residence (what the person chose), the network at sign-up (a hint), and the verified
+      phone's calling code (a fact about the number). Never added together: +1 is two
+      countries, and a network hint is not a residence.
+    */
+    const [byResidenceRaw, byDetectedRaw, verifiedPhones, noEvidenceRows] = await Promise.all([
+      this.prisma.user.groupBy({
+        by: ['countryOfResidence'],
+        where: { countryOfResidence: { not: null } },
+        _count: { _all: true },
+      }),
+      this.prisma.user.groupBy({
+        by: ['detectedCountry'],
+        where: { detectedCountry: { not: null } },
+        _count: { _all: true },
+      }),
+      this.prisma.user.findMany({
+        where: { phone: { not: null }, phoneVerifiedAt: { not: null } },
+        select: { phone: true },
+      }),
+      /*
+        Accounts with NO evidence of any kind: no residence, no network country, no verified
+        number, and nowhere in the activity union. The honest "nothing known" figure.
+      */
+      this.prisma.$queryRaw<{ count: bigint }[]>`
+        SELECT COUNT(*)::bigint AS count
+        FROM "User" u
+        WHERE u."countryOfResidence" IS NULL
+          AND u."detectedCountry" IS NULL
+          AND (u."phone" IS NULL OR u."phoneVerifiedAt" IS NULL)
+          AND NOT EXISTS (
+            SELECT 1 FROM "Booking" b
+            JOIN "Event" e ON e."id" = b."eventId"
+            JOIN "Venue" v ON v."id" = e."venueId"
+            WHERE b."userId" = u."id" AND v."country" IS NOT NULL AND v."country" <> ''
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM "OrganizationMember" m
+            JOIN "Organization" o ON o."id" = m."organizationId"
+            WHERE m."userId" = u."id"
+              AND o."registeredCountry" IS NOT NULL AND o."registeredCountry" <> ''
+          )
+      `,
+    ]);
+    const byPhoneCode = new Map<string, number>();
+    for (const { phone } of verifiedPhones) {
+      const label = phoneCallingCodeLabel(phone) ?? 'Other';
+      byPhoneCode.set(label, (byPhoneCode.get(label) ?? 0) + 1);
+    }
+    const counted = (rows: { key: string | null; count: number }[]) =>
+      rows
+        .filter((r): r is { key: string; count: number } => Boolean(r.key))
+        .map((r) => ({ country: r.key, count: r.count }))
+        .sort((a, b) => b.count - a.count);
+
     return {
       total,
-      /** Accounts no country could be derived for - exactly the rows the list shows as unknown. */
+      /**
+       * Accounts with no ACTIVITY country (no booking, no organizer membership with one) -
+       * exactly the rows whose "Active in" is empty. Not "country not known": such an account
+       * may still have a residence, a network country or a verified number.
+       */
       withoutCountry,
+      /** Same number as `withoutCountry`, under the name that says what it counts. */
+      withoutActivityCountry: withoutCountry,
+      /** Accounts with no country evidence of ANY kind. */
+      withoutAnyCountryEvidence: Number(noEvidenceRows[0]?.count ?? 0),
+      /** Chosen by the person. */
+      byResidence: counted(
+        byResidenceRaw.map((r) => ({ key: r.countryOfResidence, count: r._count._all })),
+      ),
+      /** The network at sign-up - a hint. */
+      byDetected: counted(
+        byDetectedRaw.map((r) => ({ key: r.detectedCountry, count: r._count._all })),
+      ),
+      /** Verified numbers by calling code (`+1 (US/CA)`) - a fact about the number. */
+      byPhoneCallingCode: [...byPhoneCode.entries()]
+        .map(([code, count]) => ({ code, count }))
+        .sort((a, b) => b.count - a.count),
       byCountry: [...byCountry.entries()]
         .map(([country, count]) => ({ country, count }))
         .sort((a, b) => b.count - a.count),
