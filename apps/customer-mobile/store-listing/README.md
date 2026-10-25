@@ -16,6 +16,24 @@ taken in Android's demo mode (clean status bar). They show QA content: "Sample e
 a test account and a QA test ticket. **Before production, retake them on the production build
 against real events**, or approve these knowingly.
 
+## Screenshots: not production-ready (blocked), and the drafts must not be published
+
+Checked 2026-10-24. **None of the seven drafts may be uploaded**:
+
+- They show QA content. Every non-production environment stamps events or
+  (, by design), and the events are
+  fictional QA fixtures.
+- shows the QA test account's name and email address.
+- shows a name, a booking reference and a **scannable QR code of a real
+  QA ticket**.
+
+Production-ready screenshots need real published events on production, which has none today
+( returns 0 for India and the US). Hiding the QA labels would present
+fictional events as real, so it is not done. Once real events are live, capture on the 1.0.0
+build against production: signed-out screens (home, event, film times, seat map) need no
+account; checkout and ticket screens need the reviewer account and a purchase the owner
+approves. Use a placeholder name such as "Reviewer", never a customer's.
+
 ## Store listing text
 
 **App name** (30 max): `ETicketsGo`
