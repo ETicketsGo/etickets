@@ -44,12 +44,16 @@ invent one.
 
 ### Branch → environment flow
 
+> **Changed 2026-10-24: no branch deploys on push any more.** Pushing `develop` or a
+> `release/**` branch used to deploy QA or UAT automatically, so a branch NAME was a deploy
+> switch (a PR branch called `release/android-1.0.0` started an unintended UAT deploy).
+> Every deployment is now a manual dispatch with the environment name typed again to
+> confirm. Sections below that say "automatic on push" describe the old flow.
+
 ```
-feature/*  ──PR──▶  develop  ──▶  QA          (automatic on push)
-                       │
-                    release/*  ──▶  UAT       (automatic on push)
-                       │
-                      main    ──▶  Production (NOT automatic — dispatch only, §13)
+QA          dispatch: Deploy (Railway), environment=qa, confirm=qa
+UAT         dispatch: Deploy (Railway), environment=uat, confirm=uat
+Production  dispatch from main only: environment=production, confirm=production (§13)
 ```
 
 Every environment additionally requires its `DEPLOY_ENABLED_<ENV>` repository variable to
@@ -412,8 +416,8 @@ Environment **secrets and variables** work on every plan, so the environments ar
 worth creating: they scope `RAILWAY_TOKEN_<ENV>` so a QA run cannot read the production
 token.
 
-For `qa` and `uat`: no reviewers are needed by design — they deploy automatically from
-`develop` and `release/**`.
+For `qa` and `uat`: no reviewers are needed by design; they deploy only when dispatched
+with a typed confirmation (no push trigger since 2026-10-24).
 
 ### Environment variables (Settings → Environments → `<env>` → Variables)
 

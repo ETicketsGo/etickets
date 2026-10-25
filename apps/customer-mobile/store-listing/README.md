@@ -16,6 +16,24 @@ taken in Android's demo mode (clean status bar). They show QA content: "Sample e
 a test account and a QA test ticket. **Before production, retake them on the production build
 against real events**, or approve these knowingly.
 
+## Screenshots: not production-ready (blocked), and the drafts must not be published
+
+Checked 2026-10-24. **None of the seven drafts may be uploaded**:
+
+- They show QA content. Every non-production environment stamps events `Test event` or
+  `Sample event` (`apps/api/src/common/content-label.ts`, by design), and the events are
+  fictional QA fixtures.
+- `05-checkout.png` shows the QA test account's name and email address.
+- `06-ticket-pass.png` shows a name, a booking reference and a **scannable QR code of a real
+  QA ticket**.
+
+Production-ready screenshots need real published events on production, which has none today
+(`GET /public/events` returns 0 for India and the US). Hiding the QA labels would present
+fictional events as real, so it is not done. Once real events are live, capture on the 1.0.0
+build against production: signed-out screens (home, event, film times, seat map) need no
+account; checkout and ticket screens need the reviewer account and a purchase the owner
+approves. Use a placeholder name such as "Reviewer", never a customer's.
+
 ## Store listing text
 
 **App name** (30 max): `ETicketsGo`
@@ -55,47 +73,96 @@ time from Account, Delete account.
 **Privacy policy URL:** `https://www.eticketsgo.com/privacy`
 **Account deletion URL:** `https://www.eticketsgo.com/delete-account` (PR 477, merged 2026-10-24; live once deployed)
 
-## Data safety (draft answers)
+## Data safety (reviewed 2026-10-24 against the 1.0.0 AAB)
 
-Built from what the app sends to the ETicketsGo API (`apps/customer-mobile/src`) and from
+Answers for **Android 1.0.0 (versionCode 4) as built**: no `google-services.json` (push off)
+and no Sentry DSN (crash reporting off). When either is switched on, the rows marked "later"
+change and the form must be updated BEFORE that build is released. Sources: what the app
+sends to the API (`apps/customer-mobile/src`), the release manifest (bundletool), and
 Razorpay's published table for its Android SDK
 (razorpay.com/docs/payments/payment-gateway/android-integration/standard/google-data-safety).
-All data is encrypted in transit (HTTPS only). Users can request deletion (in app, and the
-URL above).
 
-| Data type                    | Collected                                                                           | Shared                                                 | Why                                                       | Optional |
-| ---------------------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------ | --------------------------------------------------------- | -------- |
-| Name                         | Yes                                                                                 | Yes, with the event organizer and the payment provider | Bookings, tickets, account                                | No       |
-| Email address                | Yes                                                                                 | Yes, as above                                          | Account, tickets and receipts                             | No       |
-| Phone number                 | Yes, when used to sign in, entered at payment, or added to the account              | Yes, with the payment provider                         | Payment (the provider requires a contact number), account | Yes      |
-| User IDs                     | Yes                                                                                 | No                                                     | Account                                                   | No       |
-| Purchase history             | Yes                                                                                 | Yes, with the organizer of the event                   | Bookings, refunds, receipts                               | No       |
-| User payment info            | Collected by the Razorpay SDK, never by ETicketsGo                                  | Razorpay                                               | Payment                                                   | No       |
-| Approximate location         | Yes: the city is estimated on the server from the network address, never from GPS   | No                                                     | Show what is on nearby                                    | No       |
-| App interactions             | Razorpay SDK, on its payment screens only                                           | Razorpay                                               | Payment, fraud prevention                                 | No       |
-| Installed apps               | Razorpay SDK, only to find installed UPI apps                                       | Razorpay                                               | UPI payment                                               | No       |
-| Crash logs, diagnostics      | Only when crash reporting is configured (Sentry); account id only, no email or name | No                                                     | App stability                                             | No       |
-| Device or other IDs          | Push token, once push is configured; Razorpay SDK device data                       | No (ETicketsGo); Razorpay                              | Notifications; payment                                    | No       |
-| App and device integrity     | Play Integrity verdict, only when the server asks for a bot check (sign-in, codes)  | Decoded by Google for us; no copy kept                 | Fraud prevention, security                                | No       |
-| Other user-generated content | Refund reasons and support messages                                                 | Refund reasons, with the organizer                     | Support, refunds                                          | Yes      |
+Security answers: data is encrypted in transit (HTTPS only; cleartext is off). Users can ask
+for their data to be deleted: in the app (Account > Delete account) and at
+`https://www.eticketsgo.com/delete-account` (**404 on production today**; see the release
+checklist).
 
-Not collected: precise location, contacts, photos, files, calendar, messages, health,
-browsing history, credit score.
+| Data type (Play)                                  | Collected in 1.0.0                                                                   | Shared                                         | Purpose                                        | Optional |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------ | ---------------------------------------------- | ---------------------------------------------- | -------- |
+| Personal info: Name                               | Yes                                                                                  | Yes: the event organizer; the payment provider | App functionality, account management          | No       |
+| Personal info: Email address                      | Yes                                                                                  | Yes: as above                                  | App functionality, account management          | No       |
+| Personal info: Phone number                       | Yes, when used to sign in, entered at payment, or added to the account               | Yes: the payment provider                      | App functionality, account management          | Yes      |
+| Personal info: User IDs                           | Yes                                                                                  | No                                             | Account management                             | No       |
+| Financial info: Purchase history                  | Yes                                                                                  | Yes: the organizer of the event                | App functionality                              | No       |
+| Financial info: User payment info                 | Collected by the Razorpay SDK on its own screens; never by ETicketsGo                | Razorpay                                       | App functionality (payments), fraud prevention | No       |
+| Location: Approximate location                    | Yes: the city is estimated on the server from the network address. GPS is never used | No                                             | App functionality (what is on nearby)          | No       |
+| App activity: App interactions                    | Razorpay SDK, on its payment screens only                                            | Razorpay                                       | Fraud prevention, security                     | No       |
+| App activity: Installed apps                      | Razorpay SDK, only to find installed UPI apps                                        | Razorpay                                       | App functionality (UPI)                        | No       |
+| App activity: Other user-generated content        | Refund reasons and support messages                                                  | Refund reasons: the organizer                  | App functionality, customer support            | Yes      |
+| Device or other IDs                               | Razorpay SDK device data. ETicketsGo: **no** in 1.0.0 (later: the push token)        | Razorpay                                       | Fraud prevention (Razorpay)                    | No       |
+| App info and performance: Crash logs, Diagnostics | **No** in 1.0.0 (later: Sentry, account id only, no name, email or phone)            | No                                             | (later) Analytics: app stability               | No       |
 
-**Permissions in the release manifest** (for the review questions): `INTERNET`,
-`POST_NOTIFICATIONS`, `VIBRATE`, network and Wi-Fi state; from the Razorpay SDK `NFC` and
-`READ_BASIC_PHONE_STATE`; from `androidx.biometric` `USE_BIOMETRIC` and `USE_FINGERPRINT`;
-from expo-notifications boot and badge permissions. None is a runtime "dangerous" permission.
-Camera, microphone, storage, contacts and location permissions are not requested;
-`WRITE_SETTINGS` and `SYSTEM_ALERT_WINDOW` are explicitly removed in `app.config.ts`.
+Not collected: precise location, contacts, photos and videos, files, calendar, messages,
+health and fitness, web browsing history, credit score.
+
+**Play Integrity** (bot check, used only when the server asks for one; off on QA and
+production today): Google Play processes the request under the Play terms and returns a
+verdict; ETicketsGo receives only that verdict, does not store it and gets no device
+identifier from it ([Google's data safety notes](https://developer.android.com/google/play/integrity/terms)).
+Google leaves the answer to the developer; the recommendation is no extra row, plus the
+privacy-policy sentence below. Owner decides.
+
+**Permissions in the 1.0.0 manifest** (all normal or signature permissions; none is a
+runtime "dangerous" permission): `INTERNET`, `ACCESS_NETWORK_STATE`, `ACCESS_WIFI_STATE`,
+`POST_NOTIFICATIONS` (asked only after a booking, and only in a build with push), `VIBRATE`,
+`WAKE_LOCK`, `RECEIVE_BOOT_COMPLETED` and the launcher badge permissions
+(expo-notifications), `com.google.android.c2dm.permission.RECEIVE` (push delivery), `NFC`
+and `READ_BASIC_PHONE_STATE` (Razorpay SDK), `USE_BIOMETRIC` and `USE_FINGERPRINT`
+(androidx.biometric), and the Play install referrer service. Camera, microphone, storage,
+contacts and location permissions are not requested; `WRITE_SETTINGS` and
+`SYSTEM_ALERT_WINDOW` are removed in `app.config.ts`.
+
+## Privacy policy review (2026-10-24): two gaps, wording for the owner to approve
+
+The policy at `https://www.eticketsgo.com/privacy` (source
+`apps/customer-web/app/[locale]/privacy/page.tsx`) covers accounts, orders, payments,
+notifications, sharing with organizers and sub-processors, retention, rights and children.
+Two things the Data safety answers rely on are missing. Legal text is not changed in code
+without the owner's approval (it has an effective date and a policy version):
+
+1. **Nothing about the app.** Proposed new section, before "Children":
+
+   > **The ETicketsGo app.** The Android app sends us the same account, booking and payment
+   > details as the website. It does not use GPS: we estimate your city from your network
+   > address to show what is on near you. Payments are made in the payment provider's own
+   > screens (Razorpay in India, Stripe elsewhere), which collect your payment details and
+   > some device information under their own privacy policies; we never receive card
+   > numbers. To protect sign-in and sign-up from abuse, the app may ask Google Play to
+   > confirm that it is the genuine app on a genuine device; we receive only a yes or no.
+   > If you allow notifications, we store a push token to send you updates about your
+   > bookings. If crash reporting is on, a crash report contains your account number but not
+   > your name, email or phone number.
+
+2. **Deletion only "through the contact page".** Proposed addition to section 4:
+
+   > You can also delete your account yourself: in the app under Account > Delete account,
+   > or at www.eticketsgo.com/delete-account. Booking records that we must keep for tax and
+   > accounting are kept without your name and contact details.
+
+   (The second sentence must match what `account-deletion.service.ts` actually does; legal
+   review should confirm it before publishing.)
+
+Also: Razorpay is named only to visitors located in India (section 8), and a Play reviewer is
+usually not in India. The app section above names it for everyone.
 
 ## Content rating (IARC questionnaire, draft)
 
 No violence, sexual content, profanity, controlled substances or gambling in the app itself.
-It sells tickets to events, some of which carry age limits (shown on the event page), and it
-lists films with their certificates (UA13+, A). Users can make purchases. No user-to-user
-communication, no user-generated content shown to others. Expected rating: Everyone / 3+,
-with "Users interact" no and "Digital purchases" yes. The answers are the owner's to submit.
+It sells tickets to real-world events, some with age limits (shown on the event page), and
+lists films with their certificates (UA13+, A). No user-to-user communication and no
+user-generated content shown to others. **Digital purchases: no** (event tickets are
+real-world services, not digital goods; an earlier draft said yes, which was wrong). Expected
+rating: Everyone / 3+. The answers are the owner's to submit.
 
 ## Developer identity (organization account)
 
