@@ -38,6 +38,7 @@ import { EmailChannel } from '../notifications/channels/email.channel';
 import { NotificationTemplateService } from '../notifications/templates/notification-template.service';
 import { messageContentLoggable } from '../notifications/channels/transports/content-logging';
 import { EmailVerificationService } from '../auth/email-verification.service';
+import { revokeReasonEntry } from '../checkins/offline/revocation-reasons';
 
 /**
  * How long an invitation stays valid: seven days.
@@ -1202,9 +1203,24 @@ export class OrganizationsService {
         if (devices.length > 0) {
           await tx.checkInDevice.updateMany({
             where: { id: { in: devices.map((d) => d.id) } },
-            data: { status: 'REVOKED' },
+            data: {
+              status: 'REVOKED',
+              revokedAt: now,
+              revokeReason: 'MEMBER_REMOVED',
+              revokeReasons: { push: revokeReasonEntry('MEMBER_REMOVED', now) },
+            },
           });
         }
+        // Their devices already revoked for another reason keep it; this reason is appended.
+        await tx.checkInDevice.updateMany({
+          where: {
+            organizationId: orgId,
+            status: 'REVOKED',
+            id: { notIn: devices.map((d) => d.id) },
+            OR: [{ createdByUserId: userId }, { assignedStaffUserId: userId }],
+          },
+          data: { revokeReasons: { push: revokeReasonEntry('MEMBER_REMOVED', now) } },
+        });
         const activations = await tx.offlineActivation.findMany({
           where: { organizationId: orgId, state: 'ACTIVE', approvedByUserId: userId },
           select: { id: true },

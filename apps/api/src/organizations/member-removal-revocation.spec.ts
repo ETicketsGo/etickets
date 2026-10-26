@@ -85,7 +85,19 @@ describe('removeMember revokes the member check-in devices', () => {
     );
     expect(tx.checkInDevice.updateMany).toHaveBeenCalledWith({
       where: { id: { in: ['dev1', 'dev2'] } },
-      data: { status: 'REVOKED' },
+      data: {
+        status: 'REVOKED',
+        revokedAt: expect.any(Date),
+        revokeReason: 'MEMBER_REMOVED',
+        revokeReasons: { push: expect.stringMatching(/^\d{4}-\d\d-\d\dT.*Z MEMBER_REMOVED$/) },
+      },
+    });
+    // Their devices already revoked for another reason keep it; this reason is appended.
+    expect(tx.checkInDevice.updateMany).toHaveBeenCalledWith({
+      where: expect.objectContaining({ status: 'REVOKED', id: { notIn: ['dev1', 'dev2'] } }),
+      data: {
+        revokeReasons: { push: expect.stringMatching(/^\d{4}-\d\d-\d\dT.*Z MEMBER_REMOVED$/) },
+      },
     });
     expect(tx.organizationMember.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: { status: 'REMOVED' } }),
@@ -117,10 +129,13 @@ describe('removeMember revokes the member check-in devices', () => {
     );
   });
 
-  it('writes nothing to devices when the member has none', async () => {
+  it('revokes no device when the member has no live one (only appends to already-revoked ones)', async () => {
     const { svc, tx, audit } = build({ devices: [] });
     const res = await svc.removeMember(OWNER as never, 'org1', 'm1');
-    expect(tx.checkInDevice.updateMany).not.toHaveBeenCalled();
+    for (const [arg] of tx.checkInDevice.updateMany.mock.calls) {
+      expect(arg.where.status).toBe('REVOKED');
+      expect(arg.data).not.toHaveProperty('status');
+    }
     expect(audit.record.mock.calls.map((c) => c[0].action)).not.toContain('CHECKIN_DEVICE_REVOKED');
     expect(res).toMatchObject({ revoked: { devices: 0 } });
   });

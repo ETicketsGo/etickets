@@ -113,8 +113,9 @@ const envSchema = z.object({
     .transform((v) => v === 'true' || v === '1'),
   MANIFEST_SIGNING_SECRET: z.string().optional(),
   // How long a signed offline ticket list stays valid, in minutes: the longest a revoked door
-  // phone can keep admitting from its cache. Unset = 45. STAGING/PRODUCTION must set it, at
-  // most 60, before OFFLINE_CHECKIN_ENABLED may be on (see config/offline-revocation-window.ts).
+  // phone can keep admitting from its cache. Unset = 45, and never more than 45 anywhere (larger
+  // values are clamped). STAGING/PRODUCTION must set it, at most 45, before OFFLINE_CHECKIN_ENABLED
+  // may be on (see config/offline-revocation-window.ts).
   OFFLINE_REVOCATION_WINDOW_MINUTES: z.coerce
     .number()
     .int()

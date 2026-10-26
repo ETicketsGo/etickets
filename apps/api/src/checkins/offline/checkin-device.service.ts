@@ -5,10 +5,31 @@ import { OrgAccessService } from '../../tenancy/org-access.service';
 import { AuditService } from '../../audit/audit.service';
 import { AppException, ErrorCodes } from '../../common/errors';
 import type { RequestUser } from '../../common/decorators';
+import { revokeReasonEntry } from './revocation-reasons';
 
 const MANAGER_ROLES = [Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER];
 const STAFF_ROLES = [Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER, Role.CHECKIN_STAFF];
 const DEVICE_TTL_MS = 30 * 86_400_000;
+
+/**
+ * The write that revokes a device. A device already revoked keeps the first time and reason -
+ * "revoked because the organization was suspended" must not turn into "revoked by hand" when a
+ * manager tidies the list later. Every reason, the first included, is appended to
+ * `revokeReasons` (owner decision 2026-10-26); the audit log keeps every action.
+ */
+function revocation(
+  device: { status: string; revokedAt?: Date | null; revokeReason?: string | null },
+  reason: string,
+) {
+  const already = device.status === CheckInDeviceStatus.REVOKED;
+  const now = new Date();
+  return {
+    status: CheckInDeviceStatus.REVOKED,
+    revokedAt: (already && device.revokedAt) || now,
+    revokeReason: (already && device.revokeReason) || reason,
+    revokeReasons: { push: revokeReasonEntry(reason, now) },
+  };
+}
 
 export interface RegisterDeviceInput {
   organizationId: string;
@@ -129,7 +150,7 @@ export class CheckInDeviceService {
     const device = await this.load(user, id, MANAGER_ROLES);
     const updated = await this.prisma.checkInDevice.update({
       where: { id },
-      data: { status: CheckInDeviceStatus.REVOKED },
+      data: revocation(device, 'MANUAL'),
     });
     await this.audit.record({
       actorUserId: user.id,
@@ -147,7 +168,7 @@ export class CheckInDeviceService {
     const device = await this.load(user, id, MANAGER_ROLES);
     const updated = await this.prisma.checkInDevice.update({
       where: { id },
-      data: { status: CheckInDeviceStatus.REVOKED },
+      data: revocation(device, 'LOST'),
     });
     await this.audit.record({
       actorUserId: user.id,

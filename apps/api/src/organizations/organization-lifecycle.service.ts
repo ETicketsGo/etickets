@@ -6,6 +6,10 @@ import { AppException, ErrorCodes } from '../common/errors';
 import type { RequestUser } from '../common/decorators';
 import { organizationReadiness, readinessSummary } from './organization-readiness';
 import { organizerActions, type OrganizerActionSummary } from './organizer-actions';
+import { revokeReasonEntry } from '../checkins/offline/revocation-reasons';
+
+/** `CheckInDevice.revokeReason` for a device revoked because its organization was suspended. */
+export const SUSPENSION_REVOKE_REASON = 'ORGANIZATION_SUSPENDED';
 
 /**
  * Stopping an organizer, and removing one.
@@ -84,12 +88,70 @@ export class OrganizationLifecycleService {
       a route back to PENDING - that would put them through review again for something the
       platform did to them.
     */
-    const updated = await this.prisma.organization.update({
-      where: { id: orgId },
-      data: {
-        status: suspended ? OrganizationStatus.SUSPENDED : OrganizationStatus.APPROVED,
+    /*
+      ── SUSPENSION TAKES THE DOOR PHONES OFF THE DOOR ────────────────────────────────
+      Owner decision (2026-10-26): a suspended organization loses check-in authorization.
+      Every check-in device it has is REVOKED in the same transaction as the status change,
+      and every live offline activation decision with it. A device that is offline right now
+      cannot hear this; what bounds it is the ticket list it holds (the offline lease, at most
+      the revocation window), and its queued scans are refused when it uploads them.
+
+      Reinstating does NOT bring the devices back. Revoked is final (CheckInDeviceService.
+      approve refuses it), so after a reinstatement each phone is registered and approved again
+      by a manager - a person decides the phone is trusted, not a side effect of an admin
+      lifting a suspension. Scans a revoked phone made while it was cut off are held for
+      review, never applied, before and after the reinstatement alike.
+    */
+    const now = new Date();
+    const { updated, deviceIds, activations, stillRevoked } = await this.prisma.$transaction(
+      async (tx) => {
+        const updated = await tx.organization.update({
+          where: { id: orgId },
+          data: {
+            status: suspended ? OrganizationStatus.SUSPENDED : OrganizationStatus.APPROVED,
+          },
+        });
+        if (!suspended) {
+          const stillRevoked = await tx.checkInDevice.count({
+            where: { organizationId: orgId, revokeReason: SUSPENSION_REVOKE_REASON },
+          });
+          return { updated, deviceIds: [] as string[], activations: 0, stillRevoked };
+        }
+        const devices = await tx.checkInDevice.findMany({
+          where: { organizationId: orgId, status: { not: 'REVOKED' } },
+          select: { id: true },
+        });
+        const deviceIds = devices.map((d: { id: string }) => d.id);
+        if (deviceIds.length > 0) {
+          await tx.checkInDevice.updateMany({
+            where: { id: { in: deviceIds } },
+            data: {
+              status: 'REVOKED',
+              revokedAt: now,
+              revokeReason: SUSPENSION_REVOKE_REASON,
+              revokeReasons: { push: revokeReasonEntry(SUSPENSION_REVOKE_REASON, now) },
+            },
+          });
+        }
+        // Already revoked (lost, by hand): the first reason stays and the suspension is appended.
+        await tx.checkInDevice.updateMany({
+          where: { organizationId: orgId, status: 'REVOKED', id: { notIn: deviceIds } },
+          data: { revokeReasons: { push: revokeReasonEntry(SUSPENSION_REVOKE_REASON, now) } },
+        });
+        const activations = (
+          await tx.offlineActivation.updateMany({
+            where: { organizationId: orgId, state: 'ACTIVE' },
+            data: {
+              state: 'REVOKED',
+              revokedByUserId: admin.id,
+              revokedAt: now,
+              revokeReason: 'The organization was suspended.',
+            },
+          })
+        ).count;
+        return { updated, deviceIds, activations, stillRevoked: 0 };
       },
-    });
+    );
 
     await this.audit.record({
       actorUserId: admin.id,
@@ -97,8 +159,25 @@ export class OrganizationLifecycleService {
       action: suspended ? 'ORGANIZATION_SUSPENDED' : 'ORGANIZATION_REINSTATED',
       entityType: 'Organization',
       entityId: orgId,
-      metadata: { previousStatus: org.status, reason: reason?.trim() ?? null },
+      metadata: {
+        previousStatus: org.status,
+        reason: reason?.trim() ?? null,
+        ...(suspended
+          ? { checkInDevicesRevoked: deviceIds.length, offlineActivationsRevoked: activations }
+          : { checkInDevicesStillRevoked: stillRevoked }),
+      },
     });
+    // One row per device too, so each phone's own history says why it stopped.
+    for (const id of deviceIds) {
+      await this.audit.record({
+        actorUserId: admin.id,
+        organizationId: orgId,
+        action: 'CHECKIN_DEVICE_REVOKED',
+        entityType: 'CheckInDevice',
+        entityId: id,
+        metadata: { reason: SUSPENSION_REVOKE_REASON },
+      });
+    }
     return updated;
   }
 

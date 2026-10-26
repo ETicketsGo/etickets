@@ -5,6 +5,8 @@ import {
   isOverridable,
   manifestNeedsRefresh,
   manifestValidity,
+  manifestValidityMessage,
+  MANIFEST_VALIDITY_MESSAGE,
   applyDelta,
   hasDeltaGap,
   deriveActivationVerdict,
@@ -174,6 +176,17 @@ describe('manifestValidity / manifestNeedsRefresh (H5)', () => {
     const mid = meta.validFrom + (meta.expiresAt - meta.validFrom) / 2;
     expect(manifestNeedsRefresh(meta, mid - 1)).toBe(false);
     expect(manifestNeedsRefresh(meta, mid)).toBe(true);
+  });
+
+  it('says plainly why it will not admit once the lease has run out', () => {
+    expect(manifestValidityMessage('VALID')).toBeNull();
+    const expired = manifestValidityMessage(manifestValidity(meta, 'dev1', meta.expiresAt + 1));
+    expect(expired).toMatch(/run out/);
+    expect(expired).toMatch(/cannot check tickets offline/);
+    // House style: ASCII only.
+    for (const m of Object.values(MANIFEST_VALIDITY_MESSAGE)) {
+      expect(m).toMatch(/^[\x20-\x7E]+$/);
+    }
   });
 });
 

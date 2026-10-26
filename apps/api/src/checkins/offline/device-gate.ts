@@ -13,6 +13,8 @@ import { AppException, ErrorCodes } from '../../common/errors';
 export interface GatedDevice {
   status: string;
   expiresAt: Date | null;
+  /** Why it was revoked, where that was recorded (CheckInDevice.revokeReason). */
+  revokeReason?: string | null;
 }
 
 export function deviceIsOperational(device: GatedDevice, now = Date.now()): boolean {
@@ -36,8 +38,16 @@ const PLAIN: Record<string, string> = {
   EXPIRED: 'The approval for this device has run out. A manager must approve it again.',
 };
 
+const REVOKED_BECAUSE: Record<string, string> = {
+  ORGANIZATION_SUSPENDED:
+    'This device was turned off because the organization was suspended. Register a new device to check tickets.',
+};
+
 /** The plain sentence for a device that may not work the door. */
-export function deviceNotActiveMessage(status: string): string {
+export function deviceNotActiveMessage(status: string, revokeReason?: string | null): string {
+  if (status === CheckInDeviceStatus.REVOKED && revokeReason && REVOKED_BECAUSE[revokeReason]) {
+    return REVOKED_BECAUSE[revokeReason];
+  }
   return PLAIN[status] ?? 'This device cannot check tickets. Ask a manager to look at it.';
 }
 
@@ -48,8 +58,12 @@ export function deviceNotActiveError(
   const status = effectiveDeviceStatus(device);
   return new AppException(
     ErrorCodes.DEVICE_NOT_ACTIVE,
-    deviceNotActiveMessage(status),
+    deviceNotActiveMessage(status, device.revokeReason),
     HttpStatus.FORBIDDEN,
-    { deviceStatus: status, ...extra },
+    {
+      deviceStatus: status,
+      ...(device.revokeReason ? { revokeReason: device.revokeReason } : {}),
+      ...extra,
+    },
   );
 }

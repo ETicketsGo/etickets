@@ -1,5 +1,6 @@
 import { loadConfig } from './configuration';
 import {
+  OFFLINE_LEASE_MAX_MINUTES,
   OFFLINE_REVOCATION_WINDOW_DEFAULT_MINUTES,
   OFFLINE_REVOCATION_WINDOW_PRODUCTION_MAX_MINUTES,
   offlineRevocationWindowMs,
@@ -20,6 +21,13 @@ describe('offline revocation window (pure rule)', () => {
     expect(OFFLINE_REVOCATION_WINDOW_DEFAULT_MINUTES).toBe(45);
     expect(offlineRevocationWindowMs(undefined)).toBe(45 * 60_000);
     expect(offlineRevocationWindowMs(20)).toBe(20 * 60_000);
+  });
+
+  it('never issues a lease longer than 45 minutes, whatever is configured (owner decision 2026-10-26)', () => {
+    expect(OFFLINE_LEASE_MAX_MINUTES).toBe(45);
+    expect(offlineRevocationWindowMs(45)).toBe(45 * 60_000);
+    expect(offlineRevocationWindowMs(60)).toBe(45 * 60_000);
+    expect(offlineRevocationWindowMs(360)).toBe(45 * 60_000);
   });
 
   it('has nothing to say while offline check-in is off, anywhere', () => {
@@ -57,7 +65,7 @@ describe('offline revocation window (pure rule)', () => {
 
   it('in STAGING and PRODUCTION, refuses a window over the maximum and accepts up to it', () => {
     const max = OFFLINE_REVOCATION_WINDOW_PRODUCTION_MAX_MINUTES;
-    expect(max).toBe(60);
+    expect(max).toBe(45);
     for (const APP_ENV of ['STAGING', 'PRODUCTION']) {
       const over = offlineWindowContradictions({
         APP_ENV,
@@ -65,7 +73,7 @@ describe('offline revocation window (pure rule)', () => {
         OFFLINE_REVOCATION_WINDOW_MINUTES: max + 1,
       });
       expect(over).toHaveLength(1);
-      expect(over[0]).toMatch(/longer than the 60 minutes allowed/);
+      expect(over[0]).toMatch(/longer than the 45 minutes allowed/);
       for (const ok of [5, 30, 45, max]) {
         expect(
           offlineWindowContradictions({
@@ -137,12 +145,12 @@ describe('loadConfig offline check-in guard (boot)', () => {
     );
   });
 
-  it('refuses to boot production with a window over 60 minutes', () => {
+  it('refuses to boot production with a window over 45 minutes', () => {
     expect(
       bootError(
         production({ OFFLINE_CHECKIN_ENABLED: 'true', OFFLINE_REVOCATION_WINDOW_MINUTES: '90' }),
       ),
-    ).toMatch(/longer than the 60 minutes allowed in PRODUCTION/);
+    ).toMatch(/longer than the 45 minutes allowed in PRODUCTION/);
   });
 
   it('boots production with offline check-in on and a window of 45', () => {
