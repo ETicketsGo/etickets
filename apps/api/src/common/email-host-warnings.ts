@@ -31,7 +31,19 @@ export function isRailwayGeneratedHost(hostname: string): boolean {
 }
 
 /**
- * One warning per production site variable that points at a generated Railway host. Empty
+ * True for the platform's bare apex (`eticketsgo.com`).
+ *
+ * In production the apex is a registrar forwarder, not the storefront: it answers every path with
+ * a 404 (owner evidence, 2026-10-25: `https://eticketsgo.com/register?intent=organizer`). Every
+ * link a message builds on it - a reset, a booking, an invitation - is dead on arrival.
+ */
+export function isBareApexHost(hostname: string): boolean {
+  return hostname.trim().toLowerCase().replace(/\.$/, '') === 'eticketsgo.com';
+}
+
+/**
+ * One warning per production site variable that points at a generated Railway host or at the
+ * bare apex. Empty
  * outside APP_ENV=PRODUCTION, for unset variables and for values that are not URLs (other checks
  * own those).
  */
@@ -47,11 +59,38 @@ export function railwayEmailHostWarnings(env: Record<string, string | undefined>
     } catch {
       continue;
     }
+    if (isBareApexHost(host)) {
+      warnings.push(
+        `${variable} points at the bare domain ${host}, which forwards and answers every path ` +
+          `with a 404, so every link built on it is dead. Set ${variable}=${official} on the ` +
+          `api and worker services (a variable change redeploys, use the pinned procedure).`,
+      );
+      continue;
+    }
     if (!isRailwayGeneratedHost(host)) continue;
     warnings.push(
       `${variable} points at the generated Railway host ${host}, so emails link to and name ` +
         `that host. Set ${variable}=${official} on the api and worker services ` +
         `(see docs/support/REFERENCES.md; a variable change redeploys, use the pinned procedure).`,
+    );
+  }
+  /*
+    The return addresses a deployment may set outright (see common/console-urls.ts). A buyer is
+    sent to these after paying, so a bare apex here strands them on a 404 - named, not rewritten.
+  */
+  for (const variable of ['RAZORPAY_CALLBACK_URL', 'STRIPE_SUCCESS_URL', 'STRIPE_CANCEL_URL']) {
+    const raw = env[variable]?.trim();
+    if (!raw) continue;
+    let host: string;
+    try {
+      host = new URL(raw).hostname;
+    } catch {
+      continue;
+    }
+    if (!isBareApexHost(host)) continue;
+    warnings.push(
+      `${variable} points at the bare domain ${host}, which forwards and answers every path ` +
+        `with a 404. Use https://www.eticketsgo.com in its place.`,
     );
   }
   return warnings;

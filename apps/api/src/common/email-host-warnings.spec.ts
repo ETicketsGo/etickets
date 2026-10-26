@@ -44,6 +44,33 @@ describe('railwayEmailHostWarnings', () => {
     );
   });
 
+  /*
+    The bare apex is a registrar forwarder in production that 404s every path (owner evidence,
+    2026-10-25), so a link built on it - a password reset, a booking, an invitation - is dead.
+  */
+  it('names a production storefront variable set to the bare apex, which 404s every path', () => {
+    const warnings = railwayEmailHostWarnings({
+      APP_ENV: 'PRODUCTION',
+      CUSTOMER_WEB_URL: 'https://eticketsgo.com/',
+      ADMIN_WEB_URL: 'https://admin.eticketsgo.com',
+      ORGANIZER_WEB_URL: 'https://organizer.eticketsgo.com',
+    });
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('CUSTOMER_WEB_URL');
+    expect(warnings[0]).toContain('bare domain');
+    expect(warnings[0]).toContain('CUSTOMER_WEB_URL=https://www.eticketsgo.com');
+  });
+
+  it('names a buyer return address on the bare apex too', () => {
+    const warnings = railwayEmailHostWarnings({
+      APP_ENV: 'PRODUCTION',
+      RAZORPAY_CALLBACK_URL: 'https://eticketsgo.com/checkout/razorpay/callback',
+      STRIPE_SUCCESS_URL: 'https://www.eticketsgo.com/checkout/success',
+    });
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('RAZORPAY_CALLBACK_URL');
+  });
+
   it('matches the generated suffix only, not a look-alike', () => {
     expect(isRailwayGeneratedHost('admin-web-prod-1594.up.railway.app')).toBe(true);
     expect(isRailwayGeneratedHost('X.UP.RAILWAY.APP.')).toBe(true);
