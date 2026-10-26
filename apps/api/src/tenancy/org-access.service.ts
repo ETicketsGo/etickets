@@ -1,5 +1,10 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
-import { AdminPermission, Role, permissionsFor } from '@eticketsgo/shared-types';
+import {
+  AdminPermission,
+  OrganizationStatus,
+  Role,
+  permissionsFor,
+} from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { AppException, ErrorCodes } from '../common/errors';
@@ -89,14 +94,40 @@ export class OrgAccessService {
   ): Promise<void> {
     const membership = await this.prisma.organizationMember.findUnique({
       where: { organizationId_userId: { organizationId, userId: user.id } },
+      include: { organization: { select: { status: true, name: true } } },
     });
     const active = !!membership && membership.status === 'ACTIVE';
-    const roleAllowed = active && (!allowedRoles || allowedRoles.includes(membership.role as Role));
+    /*
+      ── A SUSPENDED ORGANIZATION ANSWERS NOBODY AS A MEMBER ──────────────────────────
+      Owner decision (2026-10-26). Suspension used to stop selling, payouts and auto-approval
+      only; the members kept the console, by password, by phone and by any session they already
+      held. Every organizer API asks this method, so this is the one place the refusal can live
+      and cover them all - whatever made the session. The JWT strategy re-reads the user per
+      request, and this re-reads the organization per call, so a suspension bites on the very
+      next request, including one made with a token minted before it.
+
+      Platform staff are NOT exempted by holding a seat: a staff account that is a member of the
+      suspended organization falls through to the capability-checked, audited staff path below,
+      exactly like staff with no seat. The admin console keeps working on suspended organizers
+      through that path and through its own /admin routes, which never come here.
+    */
+    const suspended = active && membership.organization?.status === OrganizationStatus.SUSPENDED;
+    const roleAllowed =
+      active && !suspended && (!allowedRoles || allowedRoles.includes(membership.role as Role));
     if (roleAllowed) return;
 
     if (this.isPlatformAdmin(user)) {
       await this.assertPlatformAccess(user, organizationId, allowedRoles, platform);
       return;
+    }
+
+    if (suspended) {
+      throw new AppException(
+        ErrorCodes.ORGANIZATION_SUSPENDED,
+        'This organization is suspended, so its organizer console is closed. Contact ETicketsGo support to find out why or to appeal.',
+        HttpStatus.FORBIDDEN,
+        { organizationId, organizationName: membership.organization?.name ?? null },
+      );
     }
 
     if (!active) {
@@ -183,7 +214,12 @@ export class OrgAccessService {
    */
   async managedOrganizationIds(user: RequestUser): Promise<string[]> {
     const memberships = await this.prisma.organizationMember.findMany({
-      where: { userId: user.id, status: 'ACTIVE' },
+      // Not a suspended one: nobody works in a suspended organization (see assertMember).
+      where: {
+        userId: user.id,
+        status: 'ACTIVE',
+        organization: { status: { not: OrganizationStatus.SUSPENDED } },
+      },
       select: { organizationId: true },
     });
     return memberships.map((m) => m.organizationId);

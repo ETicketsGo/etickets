@@ -52,6 +52,7 @@ describe('OrgAccessService.assertMember - organization members (unchanged)', () 
     await expect(service.assertMember(user([Role.CUSTOMER]), 'org-1')).resolves.toBeUndefined();
     expect(prisma.organizationMember.findUnique).toHaveBeenCalledWith({
       where: { organizationId_userId: { organizationId: 'org-1', userId: 'u1' } },
+      include: { organization: { select: { status: true, name: true } } },
     });
   });
 
