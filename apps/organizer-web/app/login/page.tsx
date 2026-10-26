@@ -38,6 +38,33 @@ export default function OrganizerLogin() {
         here first could not find where to register, and an owner who forgot a password had no
         reset. Both live on the storefront, with the same account.
       */
+      /*
+        Mobile beside Email. A phone-only account - the commonest kind on the storefront - has
+        no email or password, and this page used to offer nothing else, so a customer who had
+        just become an organizer could not get in (production, 2026-10-25).
+      */
+      phoneSignIn
+      /*
+        The seamless way: the storefront mints a one-time code for the account already signed in
+        there and comes back to /handoff with it. Only a link to the storefront page that does
+        that - never a token, and nothing that works without signing in on one side or the other.
+      */
+      alternate={
+        store ? (
+          <div className="border-t border-border pt-4">
+            <a
+              href={`${store}/account/organizer-console`}
+              data-testid="continue-with-storefront"
+              className="flex min-h-11 w-full items-center justify-center rounded-lg border border-border-input bg-background-surface px-4 text-[0.9375rem] font-semibold text-text-primary hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            >
+              Continue with your ETicketsGo account
+            </a>
+            <p className="mt-2 text-center text-caption text-text-muted">
+              Already signed in on the ETicketsGo website? This opens the console with that account.
+            </p>
+          </div>
+        ) : null
+      }
       footer={
         store ? (
           <>

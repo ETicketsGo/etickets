@@ -670,6 +670,47 @@ export const api = {
         },
       ).then((r) => refuseChallenge<AuthTokens & { isNewAccount: boolean }>(r)),
     /**
+     * The organizer console's phone sign-in: tokens, or a back-office account's second-factor
+     * challenge to complete there - exactly what `signIn` answers for a password. Same route and
+     * the same human check as the storefront's `verifyPhoneCode`; only the answer is not refused.
+     */
+    verifyPhoneCodeOrChallenge: (phone: string, code: string) =>
+      request<(AuthTokens & { isNewAccount: boolean }) | MfaChallengeResponse>(
+        '/auth/phone/verify',
+        { method: 'POST', body: JSON.stringify({ phone, code }), auth: false },
+      ),
+    /**
+     * A one-time code that carries THIS signed-in session to a console (see the API's
+     * handoff.service.ts). The reply is a code, never a token; it lives 60 seconds and works once.
+     */
+    createHandoff: (audience: 'organizer') =>
+      request<{ code: string; expiresInSeconds: number }>('/auth/handoff', {
+        method: 'POST',
+        body: JSON.stringify({ audience }),
+      }),
+    /** On the console: spend a handoff code for a session of its own, or an MFA challenge. */
+    exchangeHandoff: (code: string, audience: 'organizer') =>
+      request<AuthTokens | MfaChallengeResponse>('/auth/handoff/exchange', {
+        method: 'POST',
+        body: JSON.stringify({ code, audience }),
+        auth: false,
+      }),
+    /** End every session this account has, on every device (POST /auth/logout-all). */
+    logoutAll: () =>
+      request<{ success: boolean; revoked: number }>('/auth/logout-all', { method: 'POST' }),
+    /** A phone-only account adding an email address: send a code to it. */
+    requestEmailCode: (email: string) =>
+      request<{ sent: true; expiresInMinutes: number }>('/auth/email/request-code', {
+        method: 'POST',
+        body: JSON.stringify({ email }),
+      }),
+    /** Prove the code; the address becomes the account's email. No password is involved. */
+    verifyEmailCode: (email: string, code: string) =>
+      request<{ email: string }>('/auth/email/verify', {
+        method: 'POST',
+        body: JSON.stringify({ email, code }),
+      }),
+    /**
      * Send a code to a number the SIGNED-IN customer wants to add to their account.
      *
      * `auth: true`, unlike the sign-in pair above: these two attach a number to the account the

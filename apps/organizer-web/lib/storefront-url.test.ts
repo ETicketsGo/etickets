@@ -22,12 +22,8 @@ describe('storefrontOrigin', () => {
     This case used to be pinned to the bare apex, which is how the broken link shipped green.
   */
   it('sends production to www, never to the bare apex', () => {
-    expect(storefrontOrigin(at('organizer.eticketsgo.com'), '')).toBe(
-      'https://www.eticketsgo.com',
-    );
-    expect(storefrontOrigin(at('organizer.eticketsgo.com'), '')).not.toBe(
-      'https://eticketsgo.com',
-    );
+    expect(storefrontOrigin(at('organizer.eticketsgo.com'), '')).toBe('https://www.eticketsgo.com');
+    expect(storefrontOrigin(at('organizer.eticketsgo.com'), '')).not.toBe('https://eticketsgo.com');
   });
 
   it('keeps a stripped host that already has a subdomain as it is', () => {

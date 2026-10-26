@@ -22,6 +22,9 @@ import {
 } from '@/components/account-brand';
 import { Placeholder } from '@/components/home/parts';
 import { RESIDENCE_COUNTRIES } from '@eticketsgo/shared-types';
+import { api as wk } from '@eticketsgo/web-kit';
+import { OrganizerEmailStep } from '@/components/organizer-email-step';
+import { useSignOut } from '@/lib/use-shell-auth';
 
 /*
   The profile on the brand layer: the same three panels (name and email, mobile number,
@@ -37,6 +40,18 @@ export default function ProfilePage() {
   const qc = useQueryClient();
   const toast = useToast();
   const [fullName, setFullName] = useState('');
+  const signOut = useSignOut();
+  /*
+    "Sign out everywhere". POST /auth/logout-all already existed and nothing offered it: a
+    customer who lost a phone, or used a shared computer, had no way to end those sessions.
+    Sessions are per site (storefront, console, app each hold their own), so this is the one
+    button that reaches all of them.
+  */
+  const signOutEverywhere = useMutation({
+    mutationFn: () => wk.auth.logoutAll(),
+    onSuccess: () => signOut(),
+    onError: () => toast.push(t('signOutEverywhereFailed'), 'error'),
+  });
   /*
     Adding a mobile number, in the two steps the platform already uses everywhere else.
 
@@ -298,6 +313,15 @@ export default function ProfilePage() {
             </div>
           </section>
 
+          {/*
+            A phone-only organizer has nowhere for organizer messages to go. The same step the
+            become-organizer page offers, for anyone who skipped it there.
+          */}
+          {!me.data?.email &&
+          me.data?.roles?.some((r) => r === 'ORGANIZER_OWNER' || r === 'ORGANIZER_MANAGER') ? (
+            <OrganizerEmailStep />
+          ) : null}
+
           {/* Facts about the account, stated rather than editable - nobody sets their own
               joining date, and a field that looks editable and is not is worse than a line
               of text. */}
@@ -310,6 +334,20 @@ export default function ProfilePage() {
               </dl>
             </section>
           )}
+
+          <section className={`${ACCOUNT_PANEL} space-y-3 p-5 sm:p-6`}>
+            <h2 className={PANEL_TITLE}>{t('signOutEverywhereHeading')}</h2>
+            <p className="text-brand-ui text-brand-ink-2">{t('signOutEverywhereLead')}</p>
+            <BrandButton
+              variant="secondary"
+              data-testid="sign-out-everywhere"
+              aria-busy={signOutEverywhere.isPending || undefined}
+              disabled={signOutEverywhere.isPending}
+              onClick={() => signOutEverywhere.mutate()}
+            >
+              {t('signOutEverywhere')}
+            </BrandButton>
+          </section>
         </>
       )}
     </AccountPage>
