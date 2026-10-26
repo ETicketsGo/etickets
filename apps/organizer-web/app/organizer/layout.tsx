@@ -1,7 +1,8 @@
 'use client';
 
 import { usePathname } from 'next/navigation';
-import { useQuery } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { Rocket } from 'lucide-react';
 import {
@@ -10,8 +11,13 @@ import {
   SectionTabs,
   api,
   brandButtonClasses,
+  setOrganizationSuspendedHandler,
+  useLogout,
   type ShellNotice,
 } from '@eticketsgo/web-kit';
+import { SuspendedOrganizationScreen } from '@/components/suspended-organization';
+import { consoleState, suspendedOrganizations } from '@/lib/suspension';
+import { storefrontOrigin } from '@/lib/storefront-url';
 import { navFor } from '@/components/organizer-nav';
 import { OrgProvider, OrgSwitcher } from '@/components/org-context';
 import { useOnboardingDismissed, useOnboardingProgress } from '@/lib/onboarding';
@@ -140,6 +146,44 @@ function OrganizerChrome({ children }: { children: React.ReactNode }) {
   );
 }
 
+/**
+ * The organizer console, or - when every organization this person belongs to is SUSPENDED - the
+ * suspended screen and nothing else (owner decision, 2026-10-26).
+ *
+ * The API is the enforcement: every organizer route answers 403 ORGANIZATION_SUSPENDED for a
+ * suspended organization, whatever made the session. This decides what to DRAW. It reads the
+ * same organization list the console already loads (the API lists a suspended organization by
+ * name and status only), and when any request comes back ORGANIZATION_SUSPENDED - the suspension
+ * landed while the console was open - it re-reads the list, which then closes the console.
+ */
+function SuspensionGate({ children }: { children: React.ReactNode }) {
+  const qc = useQueryClient();
+  const logout = useLogout();
+  const { data } = useQuery({
+    queryKey: ['organizations', 'mine'],
+    queryFn: () => api.organizations.listMine(),
+  });
+  const [store, setStore] = useState<string | null>(null);
+  useEffect(() => setStore(storefrontOrigin(window.location)), []);
+  useEffect(() => {
+    setOrganizationSuspendedHandler(() => {
+      void qc.invalidateQueries({ queryKey: ['organizations', 'mine'] });
+    });
+    return () => setOrganizationSuspendedHandler(null);
+  }, [qc]);
+
+  if (consoleState(data) === 'suspended') {
+    return (
+      <SuspendedOrganizationScreen
+        organizations={suspendedOrganizations(data).map((o) => ({ id: o.id, name: o.name }))}
+        storefront={store}
+        onSignOut={() => void logout()}
+      />
+    );
+  }
+  return <>{children}</>;
+}
+
 export default function OrganizerLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
@@ -149,7 +193,9 @@ export default function OrganizerLayout({ children }: { children: React.ReactNod
         roles={['ORGANIZER_OWNER', 'ORGANIZER_MANAGER', 'CHECKIN_STAFF', 'ADMIN', 'SUPER_ADMIN']}
         roleMismatchRedirect="/start"
       >
-        <OrgProvider>{children}</OrgProvider>
+        <SuspensionGate>
+          <OrgProvider>{children}</OrgProvider>
+        </SuspensionGate>
       </RequireAuth>
     );
   }
@@ -162,7 +208,9 @@ export default function OrganizerLayout({ children }: { children: React.ReactNod
       // there beats telling them their account cannot access the area that would fix it.
       roleMismatchRedirect="/start"
     >
-      <OrganizerChrome>{children}</OrganizerChrome>
+      <SuspensionGate>
+        <OrganizerChrome>{children}</OrganizerChrome>
+      </SuspensionGate>
     </RequireAuth>
   );
 }
