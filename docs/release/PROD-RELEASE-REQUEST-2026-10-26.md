@@ -1,6 +1,6 @@
 # Production release request (2026-10-26)
 
-**Status: prepared, NOT approved, NOT run.** Supersedes the scope of
+**Status: PRs merged and QA-certified (`e6d751e1`); production NOT approved, NOT run.** Supersedes the scope of
 `PROD-API-DEPLOY-REQUEST-2026-10-25.md`; its procedure, gates and kit commands still apply.
 
 ## 1. Where production is
@@ -15,10 +15,9 @@
 
 ## 2. Target
 
-`main` after these PRs are merged, in this order: **#493** (organizer identity), **#495**
-(invitation + suspension security, stacked on #493; retarget its base to `main` after #493
-merges), **#492** (notification sweep), **#494** (docs). The target SHA is fixed when the last
-one merges and main CI is green; re-run `git diff --stat` against section 1 before deploying.
+`main` at **`e6d751e1`**. Merged 2026-10-26, in order: #493 (7e7eacab), #495 (0ad5ef16), #492
+(74fee3f2), #494 (e6d751e1). Running on QA since 2026-10-26 09:11 UTC and certified there
+(`docs/auth/QA-CERT-ORGANIZER-2026-10-26.md`). Re-run `git diff --stat` against section 1 before deploying.
 
 ## 3. What reaches production
 
