@@ -2564,6 +2564,11 @@ model CheckInDevice {
   keyVersion          Int                 @default(1)
   expiresAt           DateTime?
   lastSeenAt          DateTime?
+  // When and why the device was revoked. Null on rows revoked before these were recorded; the
+  // status column alone says whether a device is revoked. Reasons in use: MANUAL, LOST,
+  // MEMBER_REMOVED, ORGANIZATION_SUSPENDED. A revoked device is never approved again.
+  revokedAt           DateTime?
+  revokeReason        String?
   approvedByUserId    String?
   createdByUserId     String?
   createdAt           DateTime            @default(now())

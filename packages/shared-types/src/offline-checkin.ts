@@ -168,6 +168,26 @@ export function manifestValidity(
 }
 
 /**
+ * What the door phone says when it will not admit offline from the list it holds. The list is
+ * the phone's offline lease: once it runs out the phone stops admitting offline, and only an
+ * online renewal - which the server refuses for a revoked device or a suspended organization -
+ * starts it again. Plain ASCII English, short sentences (house style).
+ */
+export const MANIFEST_VALIDITY_MESSAGE: Record<Exclude<ManifestValidity, 'VALID'>, string> = {
+  EXPIRED:
+    'The ticket list on this device has run out. Connect to the internet to get a new one. Until then this device cannot check tickets offline.',
+  NOT_YET_VALID:
+    'The ticket list on this device is not valid yet. Check that the device clock is right.',
+  OTHER_DEVICE:
+    'This ticket list was made for a different device. Connect to the internet to get a list for this one.',
+};
+
+/** The sentence to show for a held list, or null when the phone may admit from it. */
+export function manifestValidityMessage(v: ManifestValidity): string | null {
+  return v === 'VALID' ? null : MANIFEST_VALIDITY_MESSAGE[v];
+}
+
+/**
  * Whether a list should be replaced while there is signal: once half its life is gone. Fetching
  * early means an honest door with patchy signal always holds a list with time left on it.
  */

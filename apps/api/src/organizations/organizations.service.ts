@@ -1202,7 +1202,7 @@ export class OrganizationsService {
         if (devices.length > 0) {
           await tx.checkInDevice.updateMany({
             where: { id: { in: devices.map((d) => d.id) } },
-            data: { status: 'REVOKED' },
+            data: { status: 'REVOKED', revokedAt: now, revokeReason: 'MEMBER_REMOVED' },
           });
         }
         const activations = await tx.offlineActivation.findMany({

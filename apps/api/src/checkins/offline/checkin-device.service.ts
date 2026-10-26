@@ -10,6 +10,23 @@ const MANAGER_ROLES = [Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER];
 const STAFF_ROLES = [Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER, Role.CHECKIN_STAFF];
 const DEVICE_TTL_MS = 30 * 86_400_000;
 
+/**
+ * The write that revokes a device. A device already revoked keeps the first time and reason -
+ * "revoked because the organization was suspended" must not turn into "revoked by hand" when a
+ * manager tidies the list later. The audit log keeps every later action.
+ */
+function revocation(
+  device: { status: string; revokedAt?: Date | null; revokeReason?: string | null },
+  reason: string,
+) {
+  const already = device.status === CheckInDeviceStatus.REVOKED;
+  return {
+    status: CheckInDeviceStatus.REVOKED,
+    revokedAt: (already && device.revokedAt) || new Date(),
+    revokeReason: (already && device.revokeReason) || reason,
+  };
+}
+
 export interface RegisterDeviceInput {
   organizationId: string;
   eventId?: string;
@@ -129,7 +146,7 @@ export class CheckInDeviceService {
     const device = await this.load(user, id, MANAGER_ROLES);
     const updated = await this.prisma.checkInDevice.update({
       where: { id },
-      data: { status: CheckInDeviceStatus.REVOKED },
+      data: revocation(device, 'MANUAL'),
     });
     await this.audit.record({
       actorUserId: user.id,
@@ -147,7 +164,7 @@ export class CheckInDeviceService {
     const device = await this.load(user, id, MANAGER_ROLES);
     const updated = await this.prisma.checkInDevice.update({
       where: { id },
-      data: { status: CheckInDeviceStatus.REVOKED },
+      data: revocation(device, 'LOST'),
     });
     await this.audit.record({
       actorUserId: user.id,

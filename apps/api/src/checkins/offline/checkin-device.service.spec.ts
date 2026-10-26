@@ -47,7 +47,11 @@ describe('CheckInDeviceService lifecycle (audited)', () => {
   it('revokes with a reason recorded in the audit metadata', async () => {
     const { svc, update, audit } = build(activeDevice);
     await svc.revoke(USER, 'd1', 'Decommissioned');
-    expect(update).toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'REVOKED' } }));
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: { status: 'REVOKED', revokedAt: expect.any(Date), revokeReason: 'MANUAL' },
+      }),
+    );
     expect(audit.record).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'CHECKIN_DEVICE_REVOKED',
@@ -56,10 +60,30 @@ describe('CheckInDeviceService lifecycle (audited)', () => {
     );
   });
 
+  it('keeps the first revocation time and reason when a revoked device is revoked again', async () => {
+    const first = new Date('2026-10-26T10:00:00Z');
+    const { svc, update } = build({
+      ...activeDevice,
+      status: 'REVOKED',
+      revokedAt: first,
+      revokeReason: 'ORGANIZATION_SUSPENDED',
+    });
+    await svc.revoke(USER, 'd1', 'Tidying up');
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: { status: 'REVOKED', revokedAt: first, revokeReason: 'ORGANIZATION_SUSPENDED' },
+      }),
+    );
+  });
+
   it('reports lost — revokes and records a distinct audit action', async () => {
     const { svc, update, audit } = build(activeDevice);
     await svc.reportLost(USER, 'd1', 'Left in a taxi');
-    expect(update).toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'REVOKED' } }));
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: { status: 'REVOKED', revokedAt: expect.any(Date), revokeReason: 'LOST' },
+      }),
+    );
     expect(audit.record).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'CHECKIN_DEVICE_REPORTED_LOST',

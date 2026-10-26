@@ -85,7 +85,7 @@ describe('removeMember revokes the member check-in devices', () => {
     );
     expect(tx.checkInDevice.updateMany).toHaveBeenCalledWith({
       where: { id: { in: ['dev1', 'dev2'] } },
-      data: { status: 'REVOKED' },
+      data: { status: 'REVOKED', revokedAt: expect.any(Date), revokeReason: 'MEMBER_REMOVED' },
     });
     expect(tx.organizationMember.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: { status: 'REMOVED' } }),

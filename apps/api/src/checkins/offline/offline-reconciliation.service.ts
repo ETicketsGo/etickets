@@ -1,6 +1,12 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { timingSafeEqual } from 'node:crypto';
-import { CheckInResult, CheckInDeviceStatus, Role, TicketStatus } from '@eticketsgo/shared-types';
+import {
+  CheckInResult,
+  CheckInDeviceStatus,
+  OrganizationStatus,
+  Role,
+  TicketStatus,
+} from '@eticketsgo/shared-types';
 import {
   classifyReconciliation,
   initialReviewState,
@@ -63,6 +69,30 @@ export function manifestProblem(
   return null;
 }
 
+/** Why a whole upload was refused because of the organization, not the device. */
+export const ORGANIZATION_SUSPENDED = 'ORGANIZATION_SUSPENDED' as const;
+
+/** One scan of a refused upload, as the phone is told about it: nothing in it was applied. */
+export interface RejectedScan {
+  ticketId: string;
+  checkedInAt: number | null;
+  reason: typeof ORGANIZATION_SUSPENDED | 'DEVICE_NOT_ACTIVE';
+}
+
+/** Every scan of a refused upload, so the phone can mark each one as not accepted. */
+export function rejectedScans(
+  queued: QueuedCheckIn[],
+  reason: RejectedScan['reason'],
+): RejectedScan[] {
+  return queued
+    .filter((q) => typeof q?.ticketId === 'string')
+    .map((q) => ({
+      ticketId: q.ticketId,
+      checkedInAt: Number.isFinite(q.checkedInAt) ? q.checkedInAt : null,
+      reason,
+    }));
+}
+
 export interface ReconcileResultItem {
   ticketId: string;
   outcome: ReconcileOutcome;
@@ -90,6 +120,35 @@ export class OfflineReconciliationService {
     const device = await this.prisma.checkInDevice.findUnique({ where: { id: deviceId } });
     if (!device)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Device not found.', HttpStatus.NOT_FOUND);
+    /*
+      ── A SUSPENDED ORGANIZATION'S QUEUE IS REFUSED, AND SAYS WHICH SCANS ──────────────
+      Owner decision (2026-10-26). assertMember already refuses a suspended organization, but
+      with a bare 403: the phone learned nothing about the scans it was holding, and no record
+      of them was kept. Now a door-staff member of the suspended organization gets the same
+      403 ORGANIZATION_SUSPENDED, naming every scan it rejected and why, and the scans are kept
+      as evidence for review (never applied - see quarantine). Anybody without such a seat gets
+      exactly the answer assertMember gives them, and nothing is written.
+
+      Scans made offline BEFORE the suspension are rejected too. The device clock cannot be
+      trusted to say when a scan happened, and the suspension revoked the device, so the
+      ordinary revoked-device rule applies: held for a manager, the ticket left unspent.
+    */
+    if (await this.organizationSuspended(device.organizationId)) {
+      if (!(await this.holdsDoorSeat(user, device.organizationId))) {
+        await this.access.assertMember(user, device.organizationId, STAFF_ROLES);
+      }
+      const held = await this.quarantine(user, device, queued, ORGANIZATION_SUSPENDED);
+      throw new AppException(
+        ErrorCodes.ORGANIZATION_SUSPENDED,
+        'This organization is suspended, so its scans cannot be accepted. None of these scans were applied. Contact ETicketsGo support.',
+        HttpStatus.FORBIDDEN,
+        {
+          organizationId: device.organizationId,
+          heldForReview: held,
+          rejected: rejectedScans(queued, ORGANIZATION_SUSPENDED),
+        },
+      );
+    }
     await this.access.assertMember(user, device.organizationId, STAFF_ROLES);
     /*
       Only an ACTIVE, unexpired device's queue is applied (H5). This refused REVOKED only, so a
@@ -98,8 +157,13 @@ export class OfflineReconciliationService {
     */
     if (!deviceIsOperational(device)) {
       const held = await this.quarantine(user, device, queued);
-      throw deviceNotActiveError(device, { heldForReview: held });
+      throw deviceNotActiveError(device, {
+        heldForReview: held,
+        rejected: rejectedScans(queued, 'DEVICE_NOT_ACTIVE'),
+      });
     }
+    /** Set once a claim finds the organization suspended part-way through this upload. */
+    let suspendedMidUpload = false;
 
     const manifests = await this.issuedManifests(queued);
     const results: ReconcileResultItem[] = [];
@@ -154,17 +218,31 @@ export class OfflineReconciliationService {
         deviceId,
         manifests.get(`${q.eventSessionId}|${q.manifestVersion}`) ?? null,
       );
-      const outcome: ReconcileOutcome = problem
+      let outcome: ReconcileOutcome = problem
         ? 'MANIFEST_NOT_VALID'
         : classifyReconciliation(q, server);
+      if (outcome === 'ACCEPTED' && suspendedMidUpload) outcome = 'DEVICE_NOT_ACTIVE';
 
       if (outcome === 'ACCEPTED' && ticket) {
-        // Idempotent atomic claim — identical to online check-in.
+        /*
+          Idempotent atomic claim - identical to online check-in - and only while the
+          organization is not suspended. A suspension committed while this queue is being
+          worked through stops the rest of it here, in the same statement as the claim.
+        */
         const claim = await this.prisma.ticket.updateMany({
-          where: { id: ticket.id, status: TicketStatus.ACTIVE },
+          where: {
+            id: ticket.id,
+            status: TicketStatus.ACTIVE,
+            eventSession: {
+              event: { organization: { status: { not: OrganizationStatus.SUSPENDED } } },
+            },
+          },
           data: { status: TicketStatus.CHECKED_IN },
         });
-        if (claim.count === 1) {
+        if (claim.count !== 1 && (await this.organizationSuspended(device.organizationId))) {
+          suspendedMidUpload = true;
+          outcome = 'DEVICE_NOT_ACTIVE';
+        } else if (claim.count === 1) {
           await this.prisma.checkIn.create({
             data: {
               ticketId: ticket.id,
@@ -223,6 +301,30 @@ export class OfflineReconciliationService {
     return results;
   }
 
+  /** Whether the organization is suspended right now, read per call (never cached). */
+  private async organizationSuspended(organizationId: string): Promise<boolean> {
+    const org = await this.prisma.organization.findUnique({
+      where: { id: organizationId },
+      select: { status: true },
+    });
+    return org?.status === OrganizationStatus.SUSPENDED;
+  }
+
+  /**
+   * Whether the caller holds an ACTIVE door seat in the organization, suspension aside. Decides
+   * only whether a suspended organization's refused queue is kept as evidence; it authorizes
+   * nothing - the upload is refused either way.
+   */
+  private async holdsDoorSeat(user: RequestUser, organizationId: string): Promise<boolean> {
+    const seat = await this.prisma.organizationMember.findUnique({
+      where: { organizationId_userId: { organizationId, userId: user.id } },
+      select: { status: true, role: true },
+    });
+    return (
+      !!seat && seat.status === 'ACTIVE' && (STAFF_ROLES as Role[]).includes(seat.role as Role)
+    );
+  }
+
   /** The issued lists the queue cites, keyed `${eventSessionId}|${version}`. */
   private async issuedManifests(queued: QueuedCheckIn[]): Promise<Map<string, IssuedManifest>> {
     const keys = new Map<string, { eventSessionId: string; version: number }>();
@@ -278,8 +380,11 @@ export class OfflineReconciliationService {
       expiresAt: Date | null;
     },
     queued: QueuedCheckIn[],
+    /** Why the upload was refused, when it is not the device itself (a suspension). */
+    cause?: typeof ORGANIZATION_SUSPENDED,
   ): Promise<number> {
     const status = effectiveDeviceStatus(device);
+    const why = cause ? { cause } : {};
     if (device.status === CheckInDeviceStatus.PENDING) {
       await this.audit.record({
         actorUserId: user.id,
@@ -287,7 +392,7 @@ export class OfflineReconciliationService {
         action: 'OFFLINE_UPLOAD_REFUSED',
         entityType: 'CheckInDevice',
         entityId: device.id,
-        metadata: { deviceStatus: status, scans: queued.length, heldForReview: 0 },
+        metadata: { deviceStatus: status, ...why, scans: queued.length, heldForReview: 0 },
       });
       return 0;
     }
@@ -339,6 +444,7 @@ export class OfflineReconciliationService {
           ticketId: q.ticketId,
           outcome,
           deviceStatus: status,
+          ...why,
           manifestCheck: problem ?? 'COVERED',
           manifestVersion: q.manifestVersion ?? null,
           wasOverride: q.wasOverride === true,
@@ -352,7 +458,7 @@ export class OfflineReconciliationService {
       action: 'OFFLINE_UPLOAD_REFUSED',
       entityType: 'CheckInDevice',
       entityId: device.id,
-      metadata: { deviceStatus: status, scans: queued.length, heldForReview: held },
+      metadata: { deviceStatus: status, ...why, scans: queued.length, heldForReview: held },
     });
     return held;
   }
