@@ -392,6 +392,8 @@ enum NotificationType {
   // Account security, addressed to the account holder about their own credentials.
   PASSWORD_RESET_REQUESTED
   PASSWORD_CHANGED
+  /// A code proving somebody receives mail at an address they are adding to their account.
+  EMAIL_VERIFICATION_CODE
 
   /// A buyer with no account asking for their booking back. Its own type rather than a second
   /// BOOKING_CONFIRMED: this one answers an anonymous request, so it has to be rate-limited
@@ -501,6 +503,12 @@ model User {
   /// having proved you hold it are different facts, and only the second may sign you in.
   phone           String?    @unique
   phoneVerifiedAt DateTime?
+  /// When the person PROVED they receive mail at `email` (a code sent there and typed back).
+  ///
+  /// Null for every account made before this existed and for every phone-only account. It is
+  /// set today only when a phone-only account adds an address for organizer messages; an email
+  /// sign-up has never been asked to prove its address, and this column does not pretend it did.
+  emailVerifiedAt DateTime?
   passwordHash    String
   fullName        String
   roles           Role[]     @default([CUSTOMER])
@@ -566,6 +574,10 @@ model User {
   crmActivities              CrmActivity[]               @relation("CrmActivityResponsible")
   crmFollowUps               CrmFollowUp[]               @relation("CrmFollowUpOwner")
   crmStageChanges            CrmLeadStageChange[]        @relation("CrmStageChangeActor")
+  /// One-time codes that carry a signed-in storefront session to the organizer console.
+  authHandoffs               AuthHandoff[]
+  /// Codes sent to an email address somebody is adding to their own account.
+  emailVerificationCodes     EmailVerificationCode[]
 
   @@index([status])
 }
@@ -769,6 +781,59 @@ model PasswordResetToken {
   createdAt DateTime @default(now())
 
   @@index([userId])
+}
+
+/// A one-time code that carries a signed-in storefront session to the organizer console.
+///
+/// The storefront and the console are different origins, so a session in one is invisible to
+/// the other, and a phone-only customer who had just become an organizer was sent to a sign-in
+/// page that asked for an email and a password they never had. This is the bridge: the
+/// storefront asks for a code (authenticated, organizer members only), the browser carries it
+/// in the URL FRAGMENT (never sent to a server, removed from history at once), and the console
+/// exchanges it for an ordinary session of its own. Never a token in a URL.
+///
+/// Stored HASHED (SHA-256; the code is 32 random bytes, so a fast hash is enough), single-use
+/// (`consumedAt`), short-lived (60 seconds) and bound to one audience. Revoked by sign-out.
+model AuthHandoff {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  codeHash    String    @unique
+  /// Which console may redeem it. Only `organizer` today.
+  audience    String
+  expiresAt   DateTime
+  /// Set by the one exchange that wins. A second presentation is refused.
+  consumedAt  DateTime?
+  /// Set when a sign-out on the storefront ended the session that asked for it.
+  revokedAt   DateTime?
+  requestedIp String?
+  createdAt   DateTime  @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+/// A code sent to an email address somebody is adding to their own account.
+///
+/// Same rules as `PhoneOtp`: hashed at rest, guesses counted on the row, short-lived and
+/// single-use, and asking again kills the last one. Bound to the account that asked (the
+/// address is never taken over by whoever types the code) and to the address it was sent to.
+model EmailVerificationCode {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Lower-cased, as `User.email` is.
+  email       String
+  codeHash    String
+  expiresAt   DateTime
+  consumedAt  DateTime?
+  attempts    Int       @default(0)
+  requestedIp String?
+  createdAt   DateTime  @default(now())
+
+  @@index([userId, createdAt])
+  @@index([email, createdAt])
+  @@index([expiresAt])
 }
 
 model RefreshToken {

@@ -20,6 +20,10 @@ import {
 import { AuthService } from './auth.service';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { PhoneOtpService } from './phone-otp.service';
+import { AuthHandoffService, HANDOFF_AUDIENCES } from './handoff.service';
+import { EmailVerificationService } from './email-verification.service';
+import { AppException, ErrorCodes } from '../common/errors';
+import { HttpStatus } from '@nestjs/common';
 
 /*
   Kept loose on purpose: `normalisePhone` is the authority on what a number is, and a second
@@ -46,6 +50,27 @@ const phoneVerifySchema = z.object({
   country: z.string().trim().max(40).optional(),
 });
 type PhoneVerifyBody = z.infer<typeof phoneVerifySchema>;
+
+/*
+  A console handoff (see handoff.service.ts). The audience is a closed list; the code is the
+  base64url of 32 random bytes (43 characters), bounded loosely so a malformed one is a 400.
+*/
+const handoffCreateSchema = z.object({ audience: z.enum(HANDOFF_AUDIENCES) });
+const handoffExchangeSchema = z.object({
+  audience: z.enum(HANDOFF_AUDIENCES),
+  code: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z0-9_-]{32,128}$/, 'This sign-in link is not valid.'),
+});
+const emailRequestSchema = z.object({ email: z.string().trim().email().max(254) });
+const emailVerifySchema = z.object({
+  email: z.string().trim().email().max(254),
+  code: z
+    .string()
+    .trim()
+    .regex(/^\d{6}$/, 'The code is six digits.'),
+});
 import { AllowMfaPending, CurrentUser, Public, type RequestUser } from '../common/decorators';
 import { AUTH_THROTTLE } from '../common/throttle';
 import { RequiresHumanCheck } from '../human-check/human-check.guard';
@@ -99,6 +124,12 @@ export class AuthController {
     private readonly auth: AuthService,
     private readonly otp: PhoneOtpService,
     @Optional() config?: ConfigService,
+    /*
+      Last and optional, this codebase's rule for a new dependency: suites build this
+      controller by hand and positionally. The running application always has both.
+    */
+    @Optional() private readonly handoff?: AuthHandoffService,
+    @Optional() private readonly emailVerification?: EmailVerificationService,
   ) {
     this.clientIpHeader = resolveClientIpHeader({
       THROTTLE_CLIENT_IP_HEADER: config?.get<string>('THROTTLE_CLIENT_IP_HEADER'),
@@ -198,6 +229,75 @@ export class AuthController {
     @Body(new ZodValidationPipe(phoneVerifySchema)) body: { phone: string; code: string },
   ) {
     return this.otp.attachToAccount(user.id, body.phone, body.code);
+  }
+
+  /*
+    ── THE ORGANIZER CONSOLE HANDOFF ──────────────────────────────────────────────────
+    The storefront's "Organizer console" link. Needs a session (no @Public), and the account
+    and its organizer seat are re-read from the database inside the service - the token's
+    roles are not trusted for this. Returns a one-time code, never a token.
+
+    No human check on either route: the code is 256 bits, so there is nothing to guess, and
+    the create route already requires a signed-in session. Both are throttled like every other
+    credential route.
+  */
+  @ApiBearerAuth()
+  @Throttle(AUTH_THROTTLE)
+  @Post('handoff')
+  @ApiOperation({ summary: 'Mint a one-time code that signs this account in to a console.' })
+  createHandoff(
+    @CurrentUser() user: RequestUser,
+    @Body(new ZodValidationPipe(handoffCreateSchema)) body: z.infer<typeof handoffCreateSchema>,
+    @Req() req: Request,
+  ) {
+    return required(this.handoff).create(user.id, body.audience, meta(req));
+  }
+
+  /*
+    Spends the code for an ordinary session on the console: a new refresh token, the same
+    rotation rules, and - for a back-office account - the second-factor challenge instead of
+    tokens, exactly as `login` answers.
+  */
+  @Public()
+  @Throttle(AUTH_THROTTLE)
+  @Post('handoff/exchange')
+  @ApiOperation({ summary: 'Exchange a one-time console code for a session.' })
+  exchangeHandoff(
+    @Body(new ZodValidationPipe(handoffExchangeSchema))
+    body: z.infer<typeof handoffExchangeSchema>,
+    @Req() req: Request,
+  ) {
+    return required(this.handoff).exchange(body.code, body.audience, meta(req));
+  }
+
+  /*
+    A phone-only account adding an email address it proves it receives mail at (organizer
+    messages go to the owner's account email). Needs a session; the account comes from the
+    token, never the body. Human-checked like the phone attach route: each request sends mail.
+  */
+  @ApiBearerAuth()
+  @Throttle(AUTH_THROTTLE)
+  @RequiresHumanCheck('otp')
+  @Post('email/request-code')
+  @ApiOperation({ summary: 'Send a code to an email address this account wants to add.' })
+  requestEmailCode(
+    @CurrentUser() user: RequestUser,
+    @Body(new ZodValidationPipe(emailRequestSchema)) body: z.infer<typeof emailRequestSchema>,
+    @Req() req: Request,
+  ) {
+    return required(this.emailVerification).requestCode(user.id, body.email, meta(req));
+  }
+
+  @ApiBearerAuth()
+  @Throttle(AUTH_THROTTLE)
+  @Post('email/verify')
+  @ApiOperation({ summary: 'Prove the email code and add the address to this account.' })
+  verifyEmailCode(
+    @CurrentUser() user: RequestUser,
+    @Body(new ZodValidationPipe(emailVerifySchema)) body: z.infer<typeof emailVerifySchema>,
+    @Req() req: Request,
+  ) {
+    return required(this.emailVerification).verify(user.id, body.email, body.code, meta(req));
   }
 
   @Public()
@@ -333,4 +433,18 @@ export class AuthController {
       ...(unverifiedStaff ? { adminPermissions: [] } : {}),
     };
   }
+}
+
+/** A dependency the running application always has (see the constructor). */
+function required<T>(service: T | undefined): T {
+  if (!service) throw unavailable();
+  return service;
+}
+
+function unavailable(): AppException {
+  return new AppException(
+    ErrorCodes.INTERNAL,
+    'This sign-in option is not available.',
+    HttpStatus.SERVICE_UNAVAILABLE,
+  );
 }

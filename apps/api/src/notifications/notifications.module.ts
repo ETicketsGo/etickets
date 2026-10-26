@@ -150,6 +150,8 @@ import { PUSH_TRANSPORT, selectPushTransport } from './channels/transports/push.
     // Exported so phone sign-in can deliver an OTP WITHOUT going through
     // `NotificationService`, which would persist the live code in a Notification row.
     SmsChannel,
+    // Exported so adding an email address can send its code without persisting it (same reason).
+    EmailChannel,
     NotificationPreferencesService,
     AdminAudienceService,
     MarketingConsentService,

@@ -212,6 +212,10 @@
     "subject": "Réinitialisez votre mot de passe ETicketsGo",
     "body": "Ouvrez ce lien pour choisir un nouveau mot de passe : {link}. Il ne fonctionne qu'une fois et expire dans {minutes} minutes. Si vous n'avez rien demandé, ignorez ce message - votre mot de passe n'a pas changé."
   },
+  "EMAIL_VERIFICATION_CODE": {
+    "subject": "Votre code courriel ETicketsGo",
+    "body": "Votre code est {code}. Saisissez-le sur ETicketsGo pour ajouter cette adresse courriel à votre compte. Il expire dans {minutes} minutes. Si vous n'avez rien demandé, ignorez ce message - rien n'a changé."
+  },
   "PASSWORD_CHANGED": {
     "subject": "Votre mot de passe ETicketsGo a été modifié",
     "body": "Votre mot de passe vient d'être modifié et vous avez été déconnecté partout. Si ce n'était pas vous, réinitialisez-le immédiatement et contactez le soutien."

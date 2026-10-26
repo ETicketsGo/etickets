@@ -41,6 +41,7 @@ export const MESSAGE_CLASS: Record<NotificationType, MessageClass> = {
   */
   [NotificationType.PASSWORD_RESET_REQUESTED]: 'TRANSACTIONAL',
   [NotificationType.PASSWORD_CHANGED]: 'TRANSACTIONAL',
+  [NotificationType.EMAIL_VERIFICATION_CODE]: 'TRANSACTIONAL',
 
   // ── The customer's own transaction ──────────────────────────────────────────────
   [NotificationType.BOOKING_CONFIRMED]: 'TRANSACTIONAL',
@@ -170,6 +171,7 @@ export const MESSAGE_AUDIENCE: Record<NotificationType, MessageAudience> = {
   */
   [NotificationType.PASSWORD_RESET_REQUESTED]: 'CUSTOMER',
   [NotificationType.PASSWORD_CHANGED]: 'CUSTOMER',
+  [NotificationType.EMAIL_VERIFICATION_CODE]: 'CUSTOMER',
 
   // ── The person who bought, holds, or was given a ticket ─────────────────────────
   [NotificationType.BOOKING_CONFIRMED]: 'CUSTOMER',

@@ -354,6 +354,10 @@ export const NotificationType = {
   /// never promotional — see MESSAGE_CLASS, which will not compile until this is classified.
   PASSWORD_RESET_REQUESTED: 'PASSWORD_RESET_REQUESTED',
   PASSWORD_CHANGED: 'PASSWORD_CHANGED',
+  /// A six-digit code proving somebody receives mail at an address they are adding to their own
+  /// account (a phone-only organizer's address for organizer messages). Sent straight through
+  /// the email channel, never stored as a Notification row: the code is a credential.
+  EMAIL_VERIFICATION_CODE: 'EMAIL_VERIFICATION_CODE',
   // Onboarding + approval lifecycle (admin-directed, and their organizer replies).
   ORGANIZATION_REGISTERED: 'ORGANIZATION_REGISTERED',
   ORGANIZATION_APPROVED: 'ORGANIZATION_APPROVED',
