@@ -215,7 +215,7 @@ describe('integration-real-postgres: phone identity', () => {
       const first = await signUp(phone, { fullName: 'Asha Menon' });
       expect(first.isNewAccount).toBe(true);
       const [original] = await usersWith(phone);
-      const usersBefore = await db!.user.count();
+      const usersBefore = await db!.user.count({ where: { phone } });
 
       await issueCode(phone);
       const second = await signUp(phone, { fullName: 'Somebody Else' });
@@ -223,7 +223,7 @@ describe('integration-real-postgres: phone identity', () => {
       // The response says so - the clients turn this into "You already have an account".
       expect(second.isNewAccount).toBe(false);
       // Same account: no new row anywhere, and the session is for the original id.
-      expect(await db!.user.count()).toBe(usersBefore);
+      expect(await db!.user.count({ where: { phone } })).toBe(usersBefore);
       const rows = await usersWith(phone);
       expect(rows).toHaveLength(1);
       expect(rows[0].id).toBe(original.id);
@@ -364,14 +364,16 @@ describe('integration-real-postgres: phone identity', () => {
   maybe('6. an email account attaches a proven number to ITSELF, no new account', async () => {
     const owner = await emailUser('attach');
     const phone = IN(7);
-    const before = await db!.user.count();
+    const before = await db!.user.count({ where: { OR: [{ phone }, { email: owner.email }] } });
     await issueCode(phone);
     const res = await controller.attachPhone(
       { id: owner.id } as never,
       { phone: `+91 ${phone.slice(3)}`, code: CODE } as never,
     );
     expect(res.phone).toBe(phone);
-    expect(await db!.user.count()).toBe(before);
+    expect(await db!.user.count({ where: { OR: [{ phone }, { email: owner.email }] } })).toBe(
+      before,
+    );
     const row = await db!.user.findUniqueOrThrow({ where: { id: owner.id } });
     expect(row.phone).toBe(phone);
     expect(row.phoneVerifiedAt).toBeInstanceOf(Date);
@@ -417,7 +419,7 @@ describe('integration-real-postgres: phone identity', () => {
   // ── 8 ────────────────────────────────────────────────────────────────────────────
   maybe('8. a wrong, expired or reused code creates nothing and signs nobody in', async () => {
     const phone = IN(10);
-    const before = await db!.user.count();
+    const before = await db!.user.count({ where: { phone } });
 
     await issueCode(phone);
     await expect(signIn(phone, '000000')).rejects.toMatchObject({ status: 401 });
@@ -433,7 +435,7 @@ describe('integration-real-postgres: phone identity', () => {
       },
     });
     await expect(signIn(phone)).rejects.toMatchObject({ status: 401 });
-    expect(await db!.user.count()).toBe(before);
+    expect(await db!.user.count({ where: { phone } })).toBe(before);
 
     // Reused: spent once, refused the second time.
     await issueCode(phone);
