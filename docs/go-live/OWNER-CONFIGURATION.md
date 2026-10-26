@@ -72,7 +72,7 @@ affected by this step.
 
 ## 5. India SMS (DLT templates under DPTRCS) - optional for an email-only pilot
 
-The sender header `DPTRCS` is approved; `ETKTGO` was rejected and the API refuses it. **No template is
+The sender headers `ETKTGO` (owner-confirmed approved, 2026-10-25) and `DPTRCS` are both approved and accepted by the API (#489). **No template is
 approved yet.** The exact texts to register, the category (Service Implicit) and the variable format are
 in `docs/notifications/INDIA-DLT-TEMPLATES.md`.
 

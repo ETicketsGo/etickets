@@ -1,5 +1,7 @@
 # MSG91 and DLT checklist (India SMS), with WhatsApp and Twilio gates
 
+> **Status 2026-10-26 (supersedes the ETKTGO statements below):** the owner confirmed ETKTGO approved, along with the PE-TM chain and eight DLT templates (2026-10-25; not to be reopened). The code accepts ETKTGO since #489 (`68fe4907`); DPTRCS is still accepted. Gates 0 and 1 are DONE. Still open: the template id mapping (MASTER-READINESS M3), the MSG91 key rotation (M4) and QA routing (M5). PROD India SMS stays off until a cost review and explicit approval (M6).
+
 Owner requirements (2026-10-20):
 
 - "Prepare the MSG91/DLT configuration checklist using ETKTGO as the candidate header, but require
@@ -22,7 +24,7 @@ The email checklist is [PROD-SES-SNS-CHECKLIST.md](PROD-SES-SNS-CHECKLIST.md).
   **ETKTGO** as REJECTED (owner facts, 2026-10-14). The live site says DPTRCS.
 - PE: DeepTrics Software Solutions Private Limited, PE ID 1701179092181018311.
 
-## The code refuses ETKTGO today
+## The code refused ETKTGO until #489 (history)
 
 Setting ETKTGO in configuration today **stops the PROD API from booting** whenever MSG91 carries SMS.
 Three places hold the current decision:
@@ -237,7 +239,7 @@ Set with `C:\etg-wt\prod-deploy-kit\set-var.mjs` (skipDeploys), then a pinned de
 | `SMS_PROVIDER`                         | `log`; `SMS_PROVIDER_BY_MARKET` unset or without the market                                | same                         |
 | `WHATSAPP_PROVIDER`                    | `log`; `WHATSAPP_PROVIDER_BY_MARKET` unset                                                 | WhatsApp gate                |
 | Phone sign-in tab                      | hidden: `/api/capabilities` gives `phoneSignInCountries: []` (follows `SMS_ENABLED=false`) | India SMS gate               |
-| `DLT_SENDER_HEADER`, `MSG91_SENDER_ID` | unset (ETKTGO refused by the code today)                                                   | Gates 0 and 1                |
+| `DLT_SENDER_HEADER`, `MSG91_SENDER_ID` | unset; ETKTGO accepted by the code since #489, set it with the template ids (M3)           | Gates 0 and 1                |
 | Email                                  | `EMAIL_PROVIDER=log` until PROD-SES-SNS-CHECKLIST.md passes                                | SES gate                     |
 
 ## Evidence to attach (outside the repository)

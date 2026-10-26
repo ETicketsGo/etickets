@@ -23,7 +23,7 @@ Start here. Everything else can be done in an afternoon; this cannot.
 
 - [ ] **Principal Entity** registered on an operator portal (Jio / Airtel / VI TrueConnect)
 - [ ] **PE ID** issued → `DLT_PRINCIPAL_ENTITY_ID`
-- [x] **Sender header** registered: **DPTRCS is APPROVED** (ETKTGO was REJECTED; boot refuses it)
+- [x] **Sender header** registered: **ETKTGO is APPROVED** (owner, 2026-10-25) and accepted since #489; DPTRCS also approved
       → `DLT_SENDER_HEADER`, and it must equal `MSG91_SENDER_ID`
       _(the platform refuses to boot if the two disagree — the carrier believes the one we
       send, not the one we recorded)_
