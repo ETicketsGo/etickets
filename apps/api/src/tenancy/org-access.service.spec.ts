@@ -249,3 +249,77 @@ describe('OrgAccessService.assertPlatformCapability', () => {
     );
   });
 });
+
+/*
+  Owner decision (2026-10-26): members of a SUSPENDED organization get no organizer
+  functionality at all, by any route. The tenant check is where every organizer API asks, so it
+  is where the refusal lives - whatever made the session (password, phone, handoff, refresh).
+*/
+describe('OrgAccessService.assertMember - a suspended organization', () => {
+  const suspendedSeat = (role: string) => ({
+    status: 'ACTIVE',
+    role,
+    organization: { status: 'SUSPENDED', name: 'Closed Hall' },
+  });
+
+  it('refuses an ACTIVE owner with 403 ORGANIZATION_SUSPENDED', async () => {
+    const { service } = setup(suspendedSeat(Role.ORGANIZER_OWNER));
+    await expect(service.assertMember(user([Role.CUSTOMER]), 'org-1')).rejects.toMatchObject({
+      code: 'ORGANIZATION_SUSPENDED',
+      status: 403,
+    });
+  });
+
+  it('refuses whatever role the seat has, and whatever roles the route allows', async () => {
+    for (const role of [Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER, Role.CHECKIN_STAFF]) {
+      const { service } = setup(suspendedSeat(role));
+      await expect(
+        service.assertMember(user([Role.CUSTOMER]), 'org-1', [Role.ORGANIZER_OWNER]),
+      ).rejects.toMatchObject({ code: 'ORGANIZATION_SUSPENDED' });
+    }
+  });
+
+  it('still lets an APPROVED organization through, as before', async () => {
+    const { service } = setup({
+      status: 'ACTIVE',
+      role: Role.ORGANIZER_OWNER,
+      organization: { status: 'APPROVED', name: 'Open Hall' },
+    } as never);
+    await expect(service.assertMember(user([Role.CUSTOMER]), 'org-1')).resolves.toBeUndefined();
+  });
+
+  it('does not let platform staff use a seat to bypass it: they need the named capability', async () => {
+    const seated = setup(suspendedSeat(Role.ORGANIZER_OWNER));
+    await expect(
+      seated.service.assertMember(user([Role.ADMIN]), 'org-1', undefined, READ_POLICY),
+    ).rejects.toMatchObject({ code: ErrorCodes.FORBIDDEN });
+    await expect(seated.service.assertMember(user([Role.ADMIN]), 'org-1')).rejects.toMatchObject({
+      code: ErrorCodes.TENANT_FORBIDDEN,
+    });
+    expect(seated.audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: PLATFORM_ORGANIZER_ACCESS_DENIED }),
+    );
+
+    const granted = setup(suspendedSeat(Role.ORGANIZER_OWNER), [AdminPermission.ORGANIZER_READ]);
+    await expect(
+      granted.service.assertMember(user([Role.ADMIN]), 'org-1', undefined, READ_POLICY),
+    ).resolves.toBeUndefined();
+    expect(granted.audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: PLATFORM_ORGANIZER_ACCESS_ALLOWED }),
+    );
+  });
+
+  it('leaves the managed list without suspended organizations', async () => {
+    const { service, prisma } = setup(null);
+    prisma.organizationMember.findMany.mockResolvedValue([{ organizationId: 'org-2' }]);
+    await expect(service.managedOrganizationIds(user([Role.CUSTOMER]))).resolves.toEqual(['org-2']);
+    expect(prisma.organizationMember.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          status: 'ACTIVE',
+          organization: { status: { not: 'SUSPENDED' } },
+        }),
+      }),
+    );
+  });
+});
