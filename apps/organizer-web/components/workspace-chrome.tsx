@@ -8,6 +8,7 @@ import {
   WorkspaceAccent,
 } from '@eticketsgo/web-kit';
 import { useActiveOrgId } from './org-context';
+import { usableOrganizations } from '@/lib/suspension';
 
 /**
  * Who this workspace belongs to, read from above the organization provider.
@@ -50,7 +51,9 @@ export function useWorkspace(): {
     queryKey: ['organizations', 'mine'],
     queryFn: () => api.organizations.listMine(),
   });
-  const org = data?.find((o) => o.id === activeId) ?? data?.[0];
+  // Never a suspended organization: its name does not head a console it cannot use.
+  const usable = data ? usableOrganizations(data) : undefined;
+  const org = usable?.find((o) => o.id === activeId) ?? usable?.[0];
   /*
     A neutral placeholder rather than "ETicketsGo" while the name is in flight. Painting the
     platform's name into the organizer's masthead and then swapping it a moment later is worse

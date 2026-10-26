@@ -267,9 +267,35 @@ const BUILDERS: Partial<Record<NotificationType, Builder>> = {
   */
   [NotificationType.EMAIL_VERIFICATION_CODE]: (l, p) => ({
     subject: t(l, 'emails.EMAIL_VERIFICATION_CODE.subject'),
-    body: t(l, 'emails.EMAIL_VERIFICATION_CODE.body', {
-      code: str(p, 'code'),
-      minutes: str(p, 'minutes'),
+    /*
+      Two purposes, one code: ADDING an address to a phone-only account, or CONFIRMING the
+      address an account already has (asked before a team invitation can be accepted).
+    */
+    body: t(
+      l,
+      str(p, 'purpose') === 'confirm'
+        ? 'emails.EMAIL_VERIFICATION_CODE.confirmBody'
+        : 'emails.EMAIL_VERIFICATION_CODE.body',
+      { code: str(p, 'code'), minutes: str(p, 'minutes') },
+    ),
+  }),
+
+  /*
+    An invitation to join a team. The link is a credential, so it is in the BODY only - never
+    the subject, which a locked screen shows. It is useless without signing in as this address,
+    and the message says so, so a person who did not expect it knows nothing happens if they
+    ignore it.
+  */
+  [NotificationType.TEAM_INVITATION]: (l, p) => ({
+    subject: t(l, 'emails.TEAM_INVITATION.subject', {
+      organizationName: str(p, 'organizationName'),
+    }),
+    body: t(l, 'emails.TEAM_INVITATION.body', {
+      inviterName: str(p, 'inviterName'),
+      organizationName: str(p, 'organizationName'),
+      role: str(p, 'role'),
+      link: str(p, 'link'),
+      days: str(p, 'days'),
     }),
   }),
 

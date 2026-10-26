@@ -64,7 +64,85 @@ export class EmailVerificationService {
   ): Promise<{ sent: true; expiresInMinutes: number }> {
     const address = normaliseEmail(rawEmail);
     await this.assertMayAdd(userId, address);
+    return this.issueCode(userId, address, 'add', meta);
+  }
 
+  /**
+   * Send a code to the address the account ALREADY has, to prove it is theirs.
+   *
+   * Owner decision (2026-10-26): a team invitation is accepted only by the invited person, with
+   * their email proved. Every account made before `emailVerifiedAt` existed has it null, so this
+   * is how such an account proves it - the same code, the same limits, the same refusal when mail
+   * cannot be sent. Also used, without a session, for an account an invitation created (the
+   * caller has already tied the request to that invitation's token).
+   */
+  async requestOwnAddressCode(
+    userId: string,
+    meta: RequestMeta,
+  ): Promise<{ sent: true; expiresInMinutes: number; email: string }> {
+    const address = await this.ownAddress(userId);
+    const sent = await this.issueCode(userId, address, 'confirm', meta);
+    return { ...sent, email: address };
+  }
+
+  /** Spend a code sent by {@link requestOwnAddressCode}: the account's email is now proved. */
+  async confirmOwnAddress(
+    userId: string,
+    code: string,
+    meta: RequestMeta,
+  ): Promise<{ email: string; emailVerifiedAt: Date }> {
+    const address = await this.ownAddress(userId);
+    await this.spendCode(userId, address, code);
+    const emailVerifiedAt = new Date();
+    /*
+      Only if the address is still the one the code went to: an account whose email changed
+      between the code and now has proved nothing about its new address.
+    */
+    const updated = await this.prisma.user.updateMany({
+      where: { id: userId, email: { equals: address, mode: 'insensitive' } },
+      data: { emailVerifiedAt },
+    });
+    if (updated.count === 0) throw codeRejected();
+    await this.audit.record({
+      actorUserId: userId,
+      action: 'ACCOUNT_EMAIL_CONFIRMED',
+      entityType: 'User',
+      entityId: userId,
+      ip: meta.ip ?? null,
+    });
+    return { email: address, emailVerifiedAt };
+  }
+
+  /** The account's own, real address - or a refusal that says why there is nothing to prove. */
+  private async ownAddress(userId: string): Promise<string> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { email: true, status: true },
+    });
+    if (!user || user.status !== 'ACTIVE') {
+      throw new AppException(
+        ErrorCodes.FORBIDDEN,
+        'This account cannot be changed.',
+        HttpStatus.FORBIDDEN,
+      );
+    }
+    if (isReservedEmail(user.email)) {
+      throw new AppException(
+        ErrorCodes.VALIDATION_FAILED,
+        'Your account has no email address yet. Add one from your profile first.',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    return normaliseEmail(user.email);
+  }
+
+  /** Rate-limit, mint, store hashed, deliver - or spend it and say mail cannot be sent. */
+  private async issueCode(
+    userId: string,
+    address: string,
+    purpose: 'add' | 'confirm',
+    meta: RequestMeta,
+  ): Promise<{ sent: true; expiresInMinutes: number }> {
     const since = new Date(Date.now() - 60 * 60_000);
     const recent = await this.prisma.emailVerificationCode.findMany({
       where: { userId, createdAt: { gt: since } },
@@ -98,7 +176,7 @@ export class EmailVerificationService {
       select: { id: true },
     });
 
-    const payload = { code, minutes: String(CODE_TTL_MINUTES) };
+    const payload = { code, minutes: String(CODE_TTL_MINUTES), purpose };
     const rendered = this.templates.render(NotificationType.EMAIL_VERIFICATION_CODE, 'en', payload);
     let provider: string | undefined;
     let skipped = false;
@@ -130,7 +208,9 @@ export class EmailVerificationService {
         .catch(() => undefined);
       throw new AppException(
         ErrorCodes.EMAIL_UNAVAILABLE,
-        "We can't send email right now. You can add your email address later from your profile.",
+        purpose === 'add'
+          ? "We can't send email right now. You can add your email address later from your profile."
+          : "We can't send email right now, so we can't confirm your email address. Please try again later.",
         HttpStatus.SERVICE_UNAVAILABLE,
       );
     }
@@ -140,6 +220,7 @@ export class EmailVerificationService {
       action: 'ACCOUNT_EMAIL_CODE_SENT',
       entityType: 'User',
       entityId: userId,
+      metadata: { purpose },
       ip: meta.ip ?? null,
     });
     return { sent: true, expiresInMinutes: CODE_TTL_MINUTES };
@@ -152,36 +233,7 @@ export class EmailVerificationService {
     meta: RequestMeta,
   ): Promise<{ email: string }> {
     const address = normaliseEmail(rawEmail);
-    const rejected = () =>
-      new AppException(
-        ErrorCodes.INVALID_CREDENTIALS,
-        'That code is not valid. Ask for a new one.',
-        HttpStatus.BAD_REQUEST,
-      );
-
-    const row = await this.prisma.emailVerificationCode.findFirst({
-      where: { userId, email: address, consumedAt: null, expiresAt: { gt: new Date() } },
-      orderBy: { createdAt: 'desc' },
-    });
-    if (!row) throw rejected();
-    // The guess is paid for before it is checked (see PhoneOtpService.consumeCode).
-    const claimed = await this.prisma.emailVerificationCode.updateMany({
-      where: { id: row.id, consumedAt: null, attempts: { lt: MAX_ATTEMPTS } },
-      data: { attempts: { increment: 1 } },
-    });
-    if (claimed.count === 0) {
-      await this.prisma.emailVerificationCode.updateMany({
-        where: { id: row.id, consumedAt: null },
-        data: { consumedAt: new Date() },
-      });
-      throw rejected();
-    }
-    if (!(await bcrypt.compare(code, row.codeHash))) throw rejected();
-    const spent = await this.prisma.emailVerificationCode.updateMany({
-      where: { id: row.id, consumedAt: null },
-      data: { consumedAt: new Date() },
-    });
-    if (spent.count === 0) throw rejected();
+    await this.spendCode(userId, address, code);
 
     // Checked again: the account may have gained an address, or the address an account.
     await this.assertMayAdd(userId, address);
@@ -214,6 +266,37 @@ export class EmailVerificationService {
       ip: meta.ip ?? null,
     });
     return { email: address };
+  }
+
+  /**
+   * Spend the live code for this account and address, or refuse with ONE answer for every
+   * reason (none, wrong, expired, too many guesses) so a guesser learns nothing.
+   */
+  private async spendCode(userId: string, address: string, code: string): Promise<void> {
+    const rejected = codeRejected;
+    const row = await this.prisma.emailVerificationCode.findFirst({
+      where: { userId, email: address, consumedAt: null, expiresAt: { gt: new Date() } },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!row) throw rejected();
+    // The guess is paid for before it is checked (see PhoneOtpService.consumeCode).
+    const claimed = await this.prisma.emailVerificationCode.updateMany({
+      where: { id: row.id, consumedAt: null, attempts: { lt: MAX_ATTEMPTS } },
+      data: { attempts: { increment: 1 } },
+    });
+    if (claimed.count === 0) {
+      await this.prisma.emailVerificationCode.updateMany({
+        where: { id: row.id, consumedAt: null },
+        data: { consumedAt: new Date() },
+      });
+      throw rejected();
+    }
+    if (!(await bcrypt.compare(code, row.codeHash))) throw rejected();
+    const spent = await this.prisma.emailVerificationCode.updateMany({
+      where: { id: row.id, consumedAt: null },
+      data: { consumedAt: new Date() },
+    });
+    if (spent.count === 0) throw rejected();
   }
 
   private async assertMayAdd(userId: string, address: string): Promise<void> {
@@ -259,5 +342,13 @@ function addressTaken(): AppException {
     ErrorCodes.EMAIL_ALREADY_REGISTERED,
     'An account with this email already exists. Sign in with it, or use a different address.',
     HttpStatus.CONFLICT,
+  );
+}
+
+function codeRejected(): AppException {
+  return new AppException(
+    ErrorCodes.INVALID_CREDENTIALS,
+    'That code is not valid. Ask for a new one.',
+    HttpStatus.BAD_REQUEST,
   );
 }

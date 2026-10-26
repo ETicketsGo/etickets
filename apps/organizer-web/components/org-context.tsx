@@ -14,6 +14,7 @@ import {
   type Organization,
 } from '@eticketsgo/web-kit';
 import { orgPermissions, type OrgPermissions } from '@/lib/org-permissions';
+import { usableOrganizations } from '@/lib/suspension';
 
 interface OrgCtx {
   orgs: Organization[];
@@ -84,7 +85,7 @@ export function useActiveOrgId(): string | null {
 
 export function OrgProvider({ children }: { children: ReactNode }) {
   const {
-    data: orgs,
+    data: listed,
     isLoading,
     isError,
     refetch,
@@ -92,6 +93,12 @@ export function OrgProvider({ children }: { children: ReactNode }) {
     queryKey: ['organizations', 'mine'],
     queryFn: () => api.organizations.listMine(),
   });
+  /*
+    Suspended organizations are listed by the API (so the console can say so) but are never
+    worked in: the API refuses every organizer route for them. The layout shows the suspended
+    screen when nothing else is left; here they are simply not offered.
+  */
+  const orgs = listed ? usableOrganizations(listed) : undefined;
   const activeId = useActiveOrgId();
 
   useEffect(() => {

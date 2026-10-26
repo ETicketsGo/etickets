@@ -42,6 +42,16 @@ export const ErrorCodes = {
   INVALID_CREDENTIALS: 'INVALID_CREDENTIALS',
   INVALID_REFRESH_TOKEN: 'INVALID_REFRESH_TOKEN',
   TENANT_FORBIDDEN: 'TENANT_FORBIDDEN',
+  /**
+   * The caller's seat is fine but the ORGANIZATION is suspended, so no organizer API answers
+   * for it (owner decision, 2026-10-26). Stable: the organizer console shows its suspended
+   * screen on this code.
+   */
+  ORGANIZATION_SUSPENDED: 'ORGANIZATION_SUSPENDED',
+  /** A team invitation opened by a session of a different account than the one invited. */
+  INVITATION_WRONG_ACCOUNT: 'INVITATION_WRONG_ACCOUNT',
+  /** The account must prove its email address (a code sent there) before this step. */
+  EMAIL_NOT_VERIFIED: 'EMAIL_NOT_VERIFIED',
   BOOKING_INVENTORY_UNAVAILABLE: 'BOOKING_INVENTORY_UNAVAILABLE',
   BOOKING_EXPIRED: 'BOOKING_EXPIRED',
   BOOKING_NOT_PAYABLE: 'BOOKING_NOT_PAYABLE',

@@ -71,6 +71,12 @@ const emailVerifySchema = z.object({
     .trim()
     .regex(/^\d{6}$/, 'The code is six digits.'),
 });
+const emailConfirmSchema = z.object({
+  code: z
+    .string()
+    .trim()
+    .regex(/^\d{6}$/, 'The code is six digits.'),
+});
 import { AllowMfaPending, CurrentUser, Public, type RequestUser } from '../common/decorators';
 import { AUTH_THROTTLE } from '../common/throttle';
 import { RequiresHumanCheck } from '../human-check/human-check.guard';
@@ -298,6 +304,33 @@ export class AuthController {
     @Req() req: Request,
   ) {
     return required(this.emailVerification).verify(user.id, body.email, body.code, meta(req));
+  }
+
+  /*
+    Proving the address the account ALREADY has (a code sent there). Asked before a team
+    invitation can be accepted, because an account made before `emailVerifiedAt` existed has
+    never proved it. The account and the address both come from the token, never the body.
+    Human-checked and throttled exactly like the add-an-address pair above.
+  */
+  @ApiBearerAuth()
+  @Throttle(AUTH_THROTTLE)
+  @RequiresHumanCheck('otp')
+  @Post('email/confirm/request-code')
+  @ApiOperation({ summary: "Send a code to this account's own email address, to prove it." })
+  requestEmailConfirmCode(@CurrentUser() user: RequestUser, @Req() req: Request) {
+    return required(this.emailVerification).requestOwnAddressCode(user.id, meta(req));
+  }
+
+  @ApiBearerAuth()
+  @Throttle(AUTH_THROTTLE)
+  @Post('email/confirm/verify')
+  @ApiOperation({ summary: "Prove the code: this account's email address is confirmed." })
+  confirmEmail(
+    @CurrentUser() user: RequestUser,
+    @Body(new ZodValidationPipe(emailConfirmSchema)) body: z.infer<typeof emailConfirmSchema>,
+    @Req() req: Request,
+  ) {
+    return required(this.emailVerification).confirmOwnAddress(user.id, body.code, meta(req));
   }
 
   @Public()

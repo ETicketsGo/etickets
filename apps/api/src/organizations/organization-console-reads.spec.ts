@@ -36,7 +36,17 @@ const LEGAL = {
   grievanceOfficerPhone: '+91 98765 43211',
 };
 
-function setup({ managedIds }: { managedIds: string[] }) {
+function setup({
+  managedIds,
+  suspended = [],
+}: {
+  managedIds: string[];
+  suspended?: { role: string; organization: Record<string, unknown> }[];
+}) {
+  const seats = [
+    { organizationId: 'org-a', role: 'ORGANIZER_OWNER' },
+    { organizationId: 'org-b', role: 'CHECKIN_STAFF' },
+  ];
   const prisma = {
     organization: {
       findMany: jest.fn().mockResolvedValue([
@@ -46,10 +56,10 @@ function setup({ managedIds }: { managedIds: string[] }) {
       findUnique: jest.fn().mockResolvedValue(LEGAL),
     },
     organizationMember: {
-      findMany: jest.fn().mockResolvedValue([
-        { organizationId: 'org-a', role: 'ORGANIZER_OWNER' },
-        { organizationId: 'org-b', role: 'CHECKIN_STAFF' },
-      ]),
+      // The suspended-organization query names `organization` in its filter; the role query not.
+      findMany: jest.fn(async (args: { where?: { organization?: unknown } }) =>
+        args?.where?.organization ? suspended : seats,
+      ),
     },
   };
   const access = {
@@ -102,6 +112,28 @@ describe('the organizations a member can work in', () => {
     expect(prisma.organization.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: { in: [] } } }),
     );
+  });
+});
+
+describe('a suspended organization in the list', () => {
+  it('is listed by name and status only, so the console can say it is suspended', async () => {
+    const { service } = setup({
+      managedIds: ['org-a'],
+      suspended: [
+        {
+          role: 'ORGANIZER_MANAGER',
+          organization: { id: 'org-s', name: 'S', slug: 's', status: 'SUSPENDED' },
+        },
+      ],
+    });
+    const orgs = await service.listMine(MEMBER);
+    expect(orgs.at(-1)).toEqual({
+      id: 'org-s',
+      name: 'S',
+      slug: 's',
+      status: 'SUSPENDED',
+      myRole: 'ORGANIZER_MANAGER',
+    });
   });
 });
 

@@ -79,6 +79,11 @@ export const ORGANIZER_ROUTE_POLICY: Record<string, StaffPolicy> = {
   // Adding a proved email to the caller's own phone-only account.
   'POST /auth/email/request-code': 'SELF',
   'POST /auth/email/verify': 'SELF',
+  // Proving the caller's OWN current email (asked before a team invitation can be accepted).
+  'POST /auth/email/confirm/request-code': 'SELF',
+  'POST /auth/email/confirm/verify': 'SELF',
+  // Accepting a team invitation: only the INVITED account's own session; the service checks it.
+  'POST /public/invitations/:token/accept': 'SELF',
   // Admin MFA: the caller's own sign-in security. No organization is involved.
   'GET /auth/mfa/status': 'SELF',
   'POST /auth/mfa/enroll/start': 'SELF',

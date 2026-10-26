@@ -358,6 +358,10 @@ export const NotificationType = {
   /// account (a phone-only organizer's address for organizer messages). Sent straight through
   /// the email channel, never stored as a Notification row: the code is a credential.
   EMAIL_VERIFICATION_CODE: 'EMAIL_VERIFICATION_CODE',
+  /// A team (or back-office) invitation, sent to the invitee's own address - the only way the
+  /// link leaves the platform. Sent straight through the email channel, never stored as a
+  /// Notification row: the link is a credential.
+  TEAM_INVITATION: 'TEAM_INVITATION',
   // Onboarding + approval lifecycle (admin-directed, and their organizer replies).
   ORGANIZATION_REGISTERED: 'ORGANIZATION_REGISTERED',
   ORGANIZATION_APPROVED: 'ORGANIZATION_APPROVED',

@@ -8,6 +8,7 @@ import {
   Patch,
   Post,
   Query,
+  Req,
   Res,
   UploadedFile,
   UseInterceptors,
@@ -17,7 +18,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
 import { AdminPermission, OrganizationStatus, Role } from '@eticketsgo/shared-types';
 import {
-  acceptInvitationSchema,
+  claimInvitedAccountSchema,
   changeMemberRoleSchema,
   createOrganizationSchema,
   inviteMemberSchema,
@@ -25,7 +26,7 @@ import {
   reviewDecisionSchema,
   updateOrganizationLegalIdentitySchema,
   updateOrganizationProfileSchema,
-  type AcceptInvitationInput,
+  type ClaimInvitedAccountInput,
   type ChangeMemberRoleInput,
   type CreateOrganizationInput,
   type InviteMemberInput,
@@ -49,7 +50,9 @@ import { RequiresHumanCheck } from '../human-check/human-check.guard';
 import { groupScopeFields, type GroupScope } from '../admin/group-scope';
 import { countryFilterField } from '../admin/country-filter';
 import { FileInterceptor } from '@nestjs/platform-express';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
+import { AUTH_THROTTLE } from '../common/throttle';
+import { requestClientIp } from '../common/client-ip';
 import {
   ORG_COVER_MAX_BYTES,
   ORG_LOGO_MAX_BYTES,
@@ -269,15 +272,19 @@ export class OrganizationsController {
 }
 
 /**
- * Accepting an invitation, without being signed in.
+ * A team invitation, as its link reaches the invitee.
  *
- * Its own controller because the whole point is that the invitee may have NO ACCOUNT — the
- * organizations controller carries `@ApiBearerAuth()` and sits behind the global auth guard,
- * and an invite path that requires a session is a door that only opens from inside.
+ * Under `public/` for history and for the log redaction (the segment after
+ * `public/invitations` is a credential and is never logged). Not every route here is public:
  *
- * The token is the credential here. It is single-use, hashed at rest, and expires; and an
- * unknown token is answered exactly like a spent one, so the endpoint cannot be used to
- * discover which invitations exist.
+ *   - describe (public): what the link is for, so the page can render before sign-in;
+ *   - account/request-code and account (public): an account the invitation CREATED is claimed
+ *     with a code sent to the invited address - the person cannot sign in yet;
+ *   - accept (SIGNED IN): only the invited account's own session, with its email proved, can
+ *     accept. The link alone is never enough (owner decision, 2026-10-26).
+ *
+ * The token is single-use, hashed at rest, and expires; an unknown token is answered exactly
+ * like a spent one, so these routes cannot be used to discover which invitations exist.
  */
 @ApiTags('invitations')
 @Controller('public/invitations')
@@ -291,14 +298,42 @@ export class PublicInvitationsController {
     return this.orgs.describeInvitation(token);
   }
 
+  /*
+    Sends mail, so human-checked like every other code route, and throttled. The code goes only
+    to the invited address; the per-account email-code limits apply on top.
+  */
   @Public()
-  @Post(':token/accept')
-  @ApiOperation({ summary: 'Accept an invitation. The only route from INVITED to ACTIVE.' })
-  accept(
+  @Throttle(AUTH_THROTTLE)
+  @RequiresHumanCheck('otp')
+  @Post(':token/account/request-code')
+  @ApiOperation({ summary: 'Send a code to the invited address, to claim the account it made.' })
+  requestAccountCode(@Param('token') token: string, @Req() req: Request) {
+    return this.orgs.requestInvitationAccountCode(token, { ip: requestClientIp(req) });
+  }
+
+  @Public()
+  @Throttle(AUTH_THROTTLE)
+  @Post(':token/account')
+  @ApiOperation({ summary: 'Claim the account an invitation made: the code, a name, a password.' })
+  claimAccount(
     @Param('token') token: string,
-    @Body(new ZodValidationPipe(acceptInvitationSchema)) body: AcceptInvitationInput,
+    @Body(new ZodValidationPipe(claimInvitedAccountSchema)) body: ClaimInvitedAccountInput,
+    @Req() req: Request,
   ) {
-    return this.orgs.acceptInvitation(token, body);
+    return this.orgs.claimInvitedAccount(token, body, { ip: requestClientIp(req) });
+  }
+
+  /*
+    NOT @Public: the global auth guard requires a session, and the service requires it to be the
+    invited account's own, with its email proved. Any body is ignored - nothing the link holder
+    can type changes the answer.
+  */
+  @ApiBearerAuth()
+  @Throttle(AUTH_THROTTLE)
+  @Post(':token/accept')
+  @ApiOperation({ summary: 'Accept an invitation, signed in as the invited account.' })
+  accept(@CurrentUser() user: RequestUser, @Param('token') token: string, @Req() req: Request) {
+    return this.orgs.acceptInvitation(user, token, { ip: requestClientIp(req) });
   }
 }
 

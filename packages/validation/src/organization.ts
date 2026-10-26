@@ -143,19 +143,22 @@ export const changeMemberRoleSchema = z.object({
 export type ChangeMemberRoleInput = z.infer<typeof changeMemberRoleSchema>;
 
 /**
- * Accepting a team invitation.
+ * Claiming the account a team invitation CREATED: the code sent to the invited address (which
+ * proves the mailbox), the person's name, and the password they choose.
  *
- * Both fields are optional because the two kinds of invitee need different things. Somebody
- * who already had an account keeps the password they know and supplies neither; somebody the
- * invite created has no usable credential and must choose one. Which case applies is the
- * SERVER's judgement, not the client's — it is derived from the account, and the server
- * refuses a missing password when one is genuinely required.
+ * Accepting the invitation itself takes no body at all: it needs the invited account's own
+ * session and a proved email, never anything the link holder could type (owner decision,
+ * 2026-10-26).
  */
-export const acceptInvitationSchema = z.object({
-  fullName: z.string().trim().min(1).max(120).optional(),
-  password: passwordSchema.optional(),
+export const claimInvitedAccountSchema = z.object({
+  code: z
+    .string()
+    .trim()
+    .regex(/^\d{6}$/, 'The code is six digits.'),
+  fullName: z.string().trim().min(1).max(120),
+  password: passwordSchema,
 });
-export type AcceptInvitationInput = z.infer<typeof acceptInvitationSchema>;
+export type ClaimInvitedAccountInput = z.infer<typeof claimInvitedAccountSchema>;
 
 export const reviewDecisionSchema = z.object({
   decision: z.enum(['APPROVE', 'REJECT']),

@@ -215,6 +215,27 @@ export function apiAssetUrl(path: string | null | undefined): string | null {
 
 /** The API's code for a session that a team removal ended (see JwtStrategy). */
 export const ACCESS_REMOVED_CODE = 'ACCESS_REMOVED';
+/**
+ * The API's code for an organizer API refused because the ORGANIZATION is suspended (owner
+ * decision, 2026-10-26). The organizer console shows its suspended screen on it.
+ */
+export const ORGANIZATION_SUSPENDED_CODE = 'ORGANIZATION_SUSPENDED';
+/** A team invitation opened while signed in as a different account than the one invited. */
+export const INVITATION_WRONG_ACCOUNT_CODE = 'INVITATION_WRONG_ACCOUNT';
+/** The account must confirm its email address (a code sent there) before this step. */
+export const EMAIL_NOT_VERIFIED_CODE = 'EMAIL_NOT_VERIFIED';
+
+/*
+  An organization was suspended while its console was open. The console registers ONE handler
+  (it refetches the organization list, which then says SUSPENDED and shows the suspended screen).
+  The error still reaches the caller; nothing is retried.
+*/
+let organizationSuspendedHandler: ((organizationId: string | null) => void) | null = null;
+export function setOrganizationSuspendedHandler(
+  fn: ((organizationId: string | null) => void) | null,
+): void {
+  organizationSuspendedHandler = fn;
+}
 const SIGNED_OUT_NOTICE_KEY = 'etg_signed_out_notice';
 
 /*
@@ -424,6 +445,10 @@ async function request<T>(path: string, options: Options = {}): Promise<T> {
       mfaSetupHandler
     ) {
       mfaSetupHandler(err.code, err.message ?? '');
+    }
+    if (res.status === 403 && err?.code === ORGANIZATION_SUSPENDED_CODE) {
+      const id = (err.details as { organizationId?: unknown } | undefined)?.organizationId;
+      organizationSuspendedHandler?.(typeof id === 'string' ? id : null);
     }
     throw new ApiRequestError(
       err?.code ?? 'ERROR',
@@ -703,6 +728,20 @@ export const api = {
       request<{ sent: true; expiresInMinutes: number }>('/auth/email/request-code', {
         method: 'POST',
         body: JSON.stringify({ email }),
+      }),
+    /**
+     * Confirm the address this account ALREADY has: a code is sent there. Asked before a team
+     * invitation can be accepted, when the account has never proved its email.
+     */
+    requestEmailConfirmCode: () =>
+      request<{ sent: true; expiresInMinutes: number; email: string }>(
+        '/auth/email/confirm/request-code',
+        { method: 'POST' },
+      ),
+    confirmEmail: (code: string) =>
+      request<{ email: string; emailVerifiedAt: string }>('/auth/email/confirm/verify', {
+        method: 'POST',
+        body: JSON.stringify({ code }),
       }),
     /** Prove the code; the address becomes the account's email. No password is involved. */
     verifyEmailCode: (email: string, code: string) =>
@@ -1211,9 +1250,12 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(body),
       }),
-    /** A fresh link for somebody who has not accepted yet. Refused once they have joined. */
+    /**
+     * Email a fresh link to somebody who has not accepted yet; the old link stops working.
+     * Refused once they have joined. The answer says whether the email left - never the link.
+     */
     resendInvite: (id: string, memberId: string) =>
-      request<{ inviteUrl: string; email: string }>(
+      request<{ email: string; invitationEmail: InvitationEmailStatus }>(
         `/organizations/${id}/members/${memberId}/resend-invite`,
         { method: 'POST' },
       ),
@@ -1229,15 +1271,34 @@ export const api = {
   },
 
   /**
-   * Accepting a team invitation — unauthenticated, because the invitee may have no account.
-   * The token in the URL is the credential.
+   * A team invitation, as its link reaches the invitee.
+   *
+   * Owner decision (2026-10-26): only the invited person accepts. Describing the link is public;
+   * an account the invitation CREATED is claimed with a code sent to the invited address; and
+   * accepting needs the invited account's own session with its email confirmed. The link alone
+   * never signs anybody in or joins anybody to a team.
    */
   invitations: {
-    describe: (token: string) => request<InvitationSummary>(`/public/invitations/${token}`),
-    accept: (token: string, body: { fullName?: string; password?: string }) =>
-      request<AcceptedInvitation>(`/public/invitations/${token}/accept`, {
+    describe: (token: string) =>
+      request<InvitationSummary>(`/public/invitations/${token}`, { auth: false }),
+    /** Send a code to the invited address, to claim the account the invitation made. */
+    requestAccountCode: (token: string) =>
+      request<{ sent: true; expiresInMinutes: number; email: string }>(
+        `/public/invitations/${token}/account/request-code`,
+        { method: 'POST', auth: false },
+      ),
+    /** Claim it: the code, a name and a password. Joining a team is a separate step. */
+    claimAccount: (token: string, body: { code: string; fullName: string; password: string }) =>
+      request<{ email: string; accepted: boolean }>(`/public/invitations/${token}/account`, {
         method: 'POST',
         body: JSON.stringify(body),
+        auth: false,
+      }),
+    /** Accept, signed in as the invited account (sends the session; no body). */
+    accept: (token: string) =>
+      request<AcceptedInvitation>(`/public/invitations/${token}/accept`, {
+        method: 'POST',
+        body: JSON.stringify({}),
       }),
   },
 
@@ -2434,14 +2495,14 @@ export const api = {
       resetMfa: (userId: string) =>
         request<{ success: boolean }>(`/admin/staff/${userId}/mfa/reset`, { method: 'POST' }),
       /**
-       * Add somebody who has no account yet. Returns the link that lets them claim it and
-       * choose their own password, so no administrator ever sees a credential.
+       * Add somebody who has no account yet. The link that lets them claim it is EMAILED to
+       * them; the answer only says whether the email left, so no administrator ever holds it.
        */
       invite: (email: string, permissions: string[]) =>
-        request<{ id: string; email: string; inviteUrl: string }>('/admin/staff/invite', {
-          method: 'POST',
-          body: JSON.stringify({ email, permissions }),
-        }),
+        request<{ id: string; email: string; invitationEmail: InvitationEmailStatus }>(
+          '/admin/staff/invite',
+          { method: 'POST', body: JSON.stringify({ email, permissions }) },
+        ),
       setPermissions: (userId: string, permissions: string[], note?: string) =>
         request<{ userId: string; permissions: string[] }>(`/admin/staff/${userId}/permissions`, {
           method: 'PUT',
@@ -4007,14 +4068,18 @@ export interface RemovedMember extends OrgMember {
     signedOut: boolean;
   };
 }
-/** What `invite` returns: the member, plus the link to actually send them. */
+/**
+ * Whether an invitation email left. SENT: a provider took it. NOT_SENT: email is not working
+ * here right now; the member stays invited and "Send again" works once it is.
+ */
+export type InvitationEmailStatus = 'SENT' | 'NOT_SENT';
+/**
+ * What `invite` returns: the member, and whether the invitation email left. Never the link: it
+ * goes to the invitee's address only, so whoever invites cannot accept on their behalf.
+ */
 export interface InvitedMember extends OrgMember {
-  /**
-   * Returned as well as emailed, because `EMAIL_PROVIDER=log` swallows mail in every
-   * environment configured so far. The owner can copy this and send it themselves.
-   */
-  inviteUrl: string;
-  /** True when the invite created the account, so accepting must set a password. */
+  invitationEmail: InvitationEmailStatus;
+  /** True when the invite created the account, so the invitee must claim it first. */
   needsPassword: boolean;
 }
 export interface InvitationSummary {

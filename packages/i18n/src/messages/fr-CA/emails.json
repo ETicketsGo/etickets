@@ -214,7 +214,12 @@
   },
   "EMAIL_VERIFICATION_CODE": {
     "subject": "Votre code courriel ETicketsGo",
-    "body": "Votre code est {code}. Saisissez-le sur ETicketsGo pour ajouter cette adresse courriel à votre compte. Il expire dans {minutes} minutes. Si vous n'avez rien demandé, ignorez ce message - rien n'a changé."
+    "body": "Votre code est {code}. Saisissez-le sur ETicketsGo pour ajouter cette adresse courriel à votre compte. Il expire dans {minutes} minutes. Si vous n'avez rien demandé, ignorez ce message - rien n'a changé.",
+    "confirmBody": "Votre code est {code}. Saisissez-le sur ETicketsGo pour confirmer que cette adresse courriel est la vôtre. Il expire dans {minutes} minutes. Si vous n'avez rien demandé, ignorez ce message - rien n'a changé."
+  },
+  "TEAM_INVITATION": {
+    "subject": "Invitation à rejoindre {organizationName} sur ETicketsGo",
+    "body": "{inviterName} vous invite à rejoindre {organizationName} sur ETicketsGo comme {role}. Pour accepter, ouvrez ce lien et connectez-vous avec cette adresse courriel : {link}. Le lien ne fonctionne qu'une fois et expire dans {days} jours. Vous seul pouvez l'accepter. Si vous ne vous y attendiez pas, ignorez ce message - rien ne change."
   },
   "PASSWORD_CHANGED": {
     "subject": "Votre mot de passe ETicketsGo a été modifié",
