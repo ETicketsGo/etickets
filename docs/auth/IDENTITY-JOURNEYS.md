@@ -4,6 +4,11 @@ Status: implemented on branch `feat/organizer-identity-journey` (from `origin/ma
 Not merged, not deployed. Line numbers marked `@68fe4907` are on the base commit, before this
 branch; all others are on this branch.
 
+Update (2026-10-26): the two security findings in section 7 (team invitations, suspended
+organizations) were decided by the owner and are FIXED on the stacked branch
+`fix/invite-and-suspension-security`. See sections 2.6 and 2.7, the tests in section 4, QA
+steps 16 to 27 in section 5, and the migration in section 6.
+
 Owner evidence (production, 2026-10-25):
 
 1. `https://eticketsgo.com/register?intent=organizer` answered GoDaddy's 404.
@@ -174,11 +179,8 @@ phone-only account, and on the profile for a phone-only organizer.
   `GET /organizations/:id`, `/members` and `/actions`, and `[]` from `GET /organizations`.
 - A suspended **account** gets 401 on every route (its token stops working) and nothing from
   sign-in or the handoff.
-- A suspended **organization** is refused the handoff. It is **not** refused the organizer API in
-  general: its members can still sign in with password or phone and work in the console. Only
-  selling, payouts and auto-approval are blocked
-  (`bookings.service.ts:2407`, `payouts/organization-money-gate.ts:37`, sale eligibility).
-  That is existing behaviour and is left as it is. See open question 2.
+- A suspended **organization** is refused the handoff, and (since 2.7) every organizer API too:
+  `assertMember` answers 403 `ORGANIZATION_SUSPENDED` for it, whatever made the session.
 
 ### 2.5 Recovery, sign-out and multi-role (outcome F)
 
@@ -199,6 +201,97 @@ phone-only account, and on the profile for a phone-only organizer.
   "Sign out on all devices". Their access tokens (15 minutes) cannot be revoked and simply run
   out, and they can no longer be refreshed. A handoff cannot outlive the sign-out of the session
   that asked for it.
+
+### 2.6 Team invitations: only the invited person accepts (owner decision 1, FIXED)
+
+Root cause. `acceptInvitation` (`organizations.service.ts:734-801@6fbaa314`) took the token and
+nothing else. The route was `@Public`, so for an EXISTING account the link alone made it an
+ACTIVE member; for an account the invitation created, the link alone set its password. And
+`inviteMember` / `resendInvitation` returned `inviteUrl` to the inviting owner, and the console
+showed it to copy (no email was sent at all). So an owner could add any existing account to
+their organization without that person, or choose a new colleague's password and sign in as
+them. The back-office staff invite had the same shape (`admin-staff.service.ts:243-253@6fbaa314`).
+
+What changed:
+
+- **The link reaches the invitee only.** `issueInvitation` emails it (new
+  `NotificationType.TEAM_INVITATION`, straight through the email channel, never stored in a
+  Notification row) and returns only `invitationEmail: 'SENT' | 'NOT_SENT'`. No response carries
+  the token or URL: `POST /organizations/:id/members`, `.../resend-invite` and
+  `POST /admin/staff/invite`. There is no test-mode switch to bring it back; tests read the link
+  from the email channel, as the invitee does. The console shows "Invitation sent to X" or "We
+  could not email X" and offers "Send invitation again".
+- **Accepting needs the invited account's own session.** `POST /public/invitations/:token/accept`
+  is no longer `@Public` and takes no body. The service refuses:
+  - no session: 401;
+  - a session of any other account (the inviting owner, another member, a stranger): 403
+    `INVITATION_WRONG_ACCOUNT` (session user id must equal the invited user, and the emails must
+    match case-insensitively);
+  - an account whose email is not proved (`emailVerifiedAt` null): 403 `EMAIL_NOT_VERIFIED`.
+    The person proves it with the email-code flow from 2.3, for the address the account already
+    has: `POST /auth/email/confirm/request-code` then `POST /auth/email/confirm/verify` (same
+    hashed 6-digit code, 10 minutes, 5 guesses, 1 a minute and 5 an hour, human check, throttle).
+  - a used, expired or withdrawn link: 404 / 409, as before.
+- **An account the invitation created is CLAIMED first, with a code sent to the invited address.**
+  `POST /public/invitations/:token/account/request-code` (public, human check, throttle) sends the
+  code; `POST /public/invitations/:token/account` (code, name, password) proves the mailbox, sets
+  the password and `emailVerifiedAt`. Claiming does NOT join the team: the person then signs in
+  with that password and accepts like anybody else. For a back-office invitation (no team to
+  join, duties granted when sent) the claim is the acceptance.
+- **Single use under concurrency, expiry, revocation.** Tokens were already SHA-256 at rest. The
+  accept is now a guarded `updateMany` (`acceptedAt`, `revokedAt` null, not expired), so two
+  accepts with one link cannot both win. A resend replaces the hash (old link dead). Removing a
+  pending member (cancel) sets the new `AccountInvitation.revokedAt` and rotates the hash.
+- **Audit.** `MEMBER_INVITE_ACCEPTED` (`via: session`, `emailVerified: true`),
+  `MEMBER_INVITE_REFUSED` with `metadata.reason` (`wrong_account`, `email_not_verified`,
+  `invalid_or_used`, `expired`, `withdrawn`), `INVITED_ACCOUNT_CLAIMED`,
+  `BACK_OFFICE_INVITE_ACCEPTED`, `ACCOUNT_EMAIL_CONFIRMED`, `ACCOUNT_EMAIL_CODE_SENT`
+  (`metadata.purpose`).
+- **Duplicate accounts.** `inviteMember` looks the address up case-insensitively, so an
+  invitation to `asha@x.com` reaches the account registered as `Asha@x.com` instead of creating
+  a second one.
+
+UI: `apps/organizer-web/components/invite-acceptance.tsx` (the invite page): signed out, an
+existing account gets the console sign-in (email or mobile) and comes back to the page; a new
+account gets "Send me a code", then code, name and password, then is signed in and joined;
+signed in, "Accept invitation", with the confirm-email step or "You are signed in with a
+different account ... Sign out" when the API says so. `apps/admin-web/app/invite/[token]`: the
+claim flow, then the admin sign-in (and its MFA enrolment, unchanged).
+
+### 2.7 Suspended organizations: no console by any route (owner decision 2, FIXED)
+
+Root cause. `OrgAccessService.assertMember` (`tenancy/org-access.service.ts:84-112@6fbaa314`)
+checked the seat (ACTIVE, role) and never the organization's status. Suspension only stopped
+selling, payouts and auto-approval; the handoff refused it, but password and phone sign-in, and
+any session or refresh token already held, kept the whole organizer API.
+
+What changed:
+
+- `assertMember` reads the organization's status with the seat (one query). An ACTIVE member of
+  a SUSPENDED organization gets **403 `ORGANIZATION_SUSPENDED`** (details: `organizationId`,
+  `organizationName`) on every organizer route, whatever the role and however the session was
+  made. It is re-read per call, so a token minted before the suspension is refused on its next
+  request, and so is one refreshed after it.
+- **Staff cannot use a seat to bypass it.** A platform admin who holds a seat in the suspended
+  organization falls through to the staff path: the named capability (for example
+  `ORGANIZER_READ` on `GET /organizations/:id`), audited `PLATFORM_ORGANIZER_ACCESS_*`. Staff
+  with no seat are unchanged. The `/admin/organizers` routes (view, suspend, reinstate) never
+  call `assertMember` and are unchanged.
+- `managedOrganizationIds` leaves suspended organizations out. `GET /organizations` still LISTS
+  them, as `{ id, name, slug, status: 'SUSPENDED', myRole }` only (no counts, contact, legal or
+  payout fields), so the console can say what happened.
+- Sign-in is unchanged: password and phone still succeed (a customer identity), and buying
+  tickets is unaffected. Public event pages keep the existing rule (sales stop). The handoff
+  keeps refusing a member whose only organizations are suspended.
+- **A member of several organizations keeps the others.** Only the suspended one is refused.
+
+UI: `apps/organizer-web/app/organizer/layout.tsx` `SuspensionGate`. When every organization the
+person belongs to is suspended, the console renders only
+`components/suspended-organization.tsx`: "This organization is suspended", a message box that
+sends a support request (`POST /support`, kind CONTACT, filed under the organization), a link to
+the storefront contact page (`<storefront>/contact`, from `storefrontOrigin`), and Sign out - no
+navigation. Otherwise suspended organizations are simply not offered (switcher, masthead). Any
+`ORGANIZATION_SUSPENDED` answer while the console is open re-reads the organization list.
 
 ## 3. Entry-point inventory (outcome A)
 
@@ -229,7 +322,7 @@ B = behaviour now. D = defect found (fixed here unless marked OPEN).
 | Sign in         | `app/login/page.tsx`                                           | **Changed:** Email and Mobile tabs, "Continue with your ETicketsGo account", www storefront links                                                                                                                                                   |
 | Handoff (new)   | `app/handoff/page.tsx`                                         | Strips the fragment, exchanges the code, completes MFA on the card, goes to `/organizer` (`/back-office` for staff)                                                                                                                                 |
 | `/start`        | `app/start/page.tsx`                                           | B: a signed-in account with no seat creates an organization. D OPEN: `ORGANIZER_ROLES` leaves out CHECKIN_STAFF and counts a leftover global ORGANIZER_OWNER role, so a removed member is told "You are all set" and lands on "No organization yet" |
-| Team invitation | `app/invite/[token]/page.tsx`                                  | B: accept, then sign in by password when one was just chosen. D OPEN (security, see open question 1)                                                                                                                                                |
+| Team invitation | `app/invite/[token]/page.tsx`                                  | **Fixed (2.6):** sign in as the invited address (or claim a new account with an emailed code), confirm the email, then accept with the session                                                                                                      |
 | `/back-office`  | `app/back-office/page.tsx`                                     | B: an administrator chooses between the admin console and the organization                                                                                                                                                                          |
 | Guard           | `app/organizer/layout.tsx:143-168`, `web-kit hooks.tsx:47-107` | B: signed-out users go to `/login?next=`. D OPEN: the query is dropped from `next`. The role check is skipped if `/auth/me` fails (the API still enforces)                                                                                          |
 | Sign out        | `web-kit useLogout`                                            | B: server revoke, cache clear                                                                                                                                                                                                                       |
@@ -253,12 +346,12 @@ B = behaviour now. D = defect found (fixed here unless marked OPEN).
 
 ### 3.5 API
 
-| Area             | Behaviour                                                                                                                                                             |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Every sign-in    | Password, phone code, MFA verify and now the handoff all pass `signInOrChallenge`. Suspended and deleted accounts get nothing. Back-office accounts get the challenge |
-| Refresh          | Rotation with reuse detection, unchanged. A handoff session is an ordinary family                                                                                     |
-| Organizer routes | `OrgAccessService.assertMember` checks the ACTIVE seat in the database. `JwtStrategy` refuses a removed seat's old tokens with `ACCESS_REMOVED`                       |
-| Team invitations | `organizations.service.ts:542-801`. D OPEN (security), see open question 1                                                                                            |
+| Area             | Behaviour                                                                                                                                                                        |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Every sign-in    | Password, phone code, MFA verify and now the handoff all pass `signInOrChallenge`. Suspended and deleted accounts get nothing. Back-office accounts get the challenge            |
+| Refresh          | Rotation with reuse detection, unchanged. A handoff session is an ordinary family                                                                                                |
+| Organizer routes | `OrgAccessService.assertMember` checks the ACTIVE seat and (2.7) that the organization is not SUSPENDED. `JwtStrategy` refuses a removed seat's old tokens with `ACCESS_REMOVED` |
+| Team invitations | **Fixed (2.6):** link emailed to the invitee only; accept needs the invited account's session and a proved email; claim needs an emailed code                                    |
 
 ### 3.6 Multi-role and incomplete profiles
 
@@ -296,6 +389,31 @@ B = behaviour now. D = defect found (fixed here unless marked OPEN).
 | New routes throttled; organizer route policy lists them                | `auth-throttle.spec.ts` (enumerates the controller), `organizer-route-policy.spec.ts`                               | Fails if a route is added without a throttle or policy                                                                                                          |
 | App boots                                                              | `app-module-graph.integration-postgres.spec.ts`                                                                     | The first version had a circular import between AuthService and the handoff service. Nest could not resolve it, and the integration run caught it before commit |
 
+**Owner decisions 1 and 2 (branch `fix/invite-and-suspension-security`).** The reproduction was
+committed first (97acbf77) and failed against the old code: accept with no session answered
+201, the inviter's response carried `inviteUrl`, and suspended-org members got 200 from
+organizer APIs.
+
+| Requirement                                                                                                                                                                                          | Test                                                                                                    |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| Inviter response holds no token or URL; the email goes to the invitee only                                                                                                                           | `organizations/invite-and-suspension.http.integration-postgres.spec.ts` case 1; `team-invitations` spec |
+| Accept with no session refused (401), member stays INVITED                                                                                                                                           | HTTP case 2                                                                                             |
+| Accept by the inviting owner's session refused (403 INVITATION_WRONG_ACCOUNT, audited `wrong_account`)                                                                                               | HTTP case 3                                                                                             |
+| Accept by another member's or a stranger's session refused                                                                                                                                           | HTTP case 4                                                                                             |
+| Unverified email must be confirmed by code first; then member ACTIVE, invitation accepted, audit row                                                                                                 | HTTP case 5; `team-invitations` spec                                                                    |
+| Verified account joins in one step                                                                                                                                                                   | HTTP case 6                                                                                             |
+| Expired, reused, resent (old link) and cancelled links refused                                                                                                                                       | HTTP cases 5, 7, 8; `team-invitations` spec                                                             |
+| New address: link alone cannot set a password; wrong code sets nothing; claim, sign in, accept                                                                                                       | HTTP case 9; `team-invitations` spec; back-office claim in `team-invitations` spec                      |
+| Suspended org: password, phone, pre-suspension refresh token and pre-suspension access token all get 403 ORGANIZATION_SUSPENDED on org, members, events list, orders, payouts, analytics, and invite | HTTP cases 11-13                                                                                        |
+| Handoff still refused for a suspended-only member                                                                                                                                                    | HTTP case 14                                                                                            |
+| List shows a suspended org by name and status only                                                                                                                                                   | HTTP case 15; `organization-console-reads.spec.ts`                                                      |
+| Multi-org member keeps the other organization (API and handoff)                                                                                                                                      | HTTP case 16                                                                                            |
+| Sign-in works and the person can still buy a ticket                                                                                                                                                  | HTTP case 17                                                                                            |
+| Staff with ORGANIZER_READ still read a suspended org; a staff seat does not bypass; reinstating restores access                                                                                      | HTTP case 18; `org-access.service.spec.ts` (5 new)                                                      |
+| Suspended screen: title, contact link, no nav, sign out, appeal posted                                                                                                                               | `apps/organizer-web/components/suspended-organization.test.tsx`, `lib/suspension.test.ts`               |
+| Invite page: sign-in prompt, confirm-email step, wrong account, new-account claim                                                                                                                    | `apps/organizer-web/components/invite-acceptance.test.tsx`                                              |
+| New routes listed with a staff policy                                                                                                                                                                | `organizer-route-policy.spec.ts`                                                                        |
+
 Runs on this branch: see the PR description for exact counts.
 
 **Local browser walk (Playwright, Chromium, 1280 px and 390 px).** The built API ran on :4100
@@ -330,9 +448,9 @@ the phone tab being **hidden, with the reason given**, is the expected result.
 | 2   | Same account: storefront account menu, "Organizer console - <org>"                                                | Same as 1                                                                                                                                                                              |
 | 3   | Console sign-in, Mobile tab (where SMS works)                                                                     | Code, verify, `/organizer`. "Send a new code" and "Change number" work. A wrong code gives the generic error                                                                           |
 | 4   | Email organizer (email + password) on the console                                                                 | Unchanged                                                                                                                                                                              |
-| 5   | Invited organizer: accept invitation, sign in                                                                     | Unchanged. Lands in the inviting organization                                                                                                                                          |
+| 5   | Invited organizer: see steps 16 to 23                                                                             | Replaced by the invitation steps below                                                                                                                                                 |
 | 6   | Returning organizer signed in on the storefront: console sign-in, "Continue with your ETicketsGo account"         | Storefront `/account/organizer-console`, then back to the console signed in. Signed out on the storefront: storefront sign-in first, then back                                         |
-| 7   | Suspended organization (suspend in admin): storefront "Organizer console"                                         | Falls back to the console sign-in. `/account/organizer-console` shows "Your organization is suspended. Contact support for help."                                                      |
+| 7   | Suspended organization (suspend in admin): storefront "Organizer console"                                         | Falls back to the console sign-in. `/account/organizer-console` shows "Your organization is suspended. Contact support for help." See also steps 24 to 27                              |
 | 8   | Expired handoff: copy a `/handoff#code=` URL from devtools before load, wait 61 s, open it                        | "This sign-in link has expired or was already used..." with a Sign in button                                                                                                           |
 | 9   | Reused handoff: open the same URL again after a success                                                           | Same refusal                                                                                                                                                                           |
 | 10  | Non-member customer: `/account/organizer-console`                                                                 | "This account is not on an organizer team yet..." with "Become an organizer"                                                                                                           |
@@ -341,6 +459,31 @@ the phone tab being **hidden, with the reason given**, is the expected result.
 | 13  | Storefront "Sign out", then open a handoff URL minted just before                                                 | Refused (`revoked`)                                                                                                                                                                    |
 | 14  | Profile, "Sign out on all devices"                                                                                | Storefront signed out. Console tab's next refresh fails, then console sign-in                                                                                                          |
 | 15  | Production link check (read-only, no sign-in): `curl -sI https://organizer.eticketsgo.com/login` then load it     | "Create an organizer account" goes to `https://www.eticketsgo.com/register?intent=organizer` (200). "Forgot your password?" goes to `https://www.eticketsgo.com/forgot-password` (200) |
+
+**Team invitations (2.6).** QA email must be a real provider for steps 16 to 21; with `log`
+the console must say "We could not email ..." (step 22). Use two real mailboxes you control.
+
+| #   | Journey                                                                                          | Expected                                                                                                                                                                    |
+| --- | ------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 16  | Owner, Team, invite an EXISTING account's address                                                | "Invitation sent to X". No link anywhere on the page. In devtools, the `POST .../members` response has no `inviteUrl` and no `/invite/`                                     |
+| 17  | Same owner, still signed in: open the invite link from the invitee's mailbox in the same browser | "Accept invitation", then "You are signed in with a different account". Member still "Invitation pending". SQL: a `MEMBER_INVITE_REFUSED` row, reason `wrong_account`       |
+| 18  | Sign out, open the link signed out                                                               | Sign-in card for the invited address (email or mobile). No accept without signing in                                                                                        |
+| 19  | Sign in as the invitee (email not yet confirmed)                                                 | Back on the invite page. "Accept invitation" leads to "Confirm your email address first". Code arrives at that mailbox; enter it; joined, lands on `/organizer` of that org |
+| 20  | Open the same link again                                                                         | "This invitation cannot be used ... may already have been used"                                                                                                             |
+| 21  | Invite a brand-NEW address; open the link signed out                                             | "Send me a code", code arrives, enter code, name, password, "Create account and join"; lands in the organization                                                            |
+| 22  | (QA with `log` email) invite anybody                                                             | "We could not email X". Member listed as invited. No link shown                                                                                                             |
+| 23  | Owner: "Send invitation again" on a pending member, then open the FIRST email's link             | The old link is refused. The new email's link works. Removing a pending member, then opening its link: refused                                                              |
+
+**Suspended organizations (2.7).** Suspend an organization in the admin console first (with a
+reason). Use a member who signs in by password, one by phone (where SMS works), and one who
+also belongs to a second, approved organization.
+
+| #   | Journey                                                                                 | Expected                                                                                                                                                                                                       |
+| --- | --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 24  | Member of only the suspended org: console sign-in (password, and phone where SMS works) | Sign-in succeeds, then "This organization is suspended": message box, "Contact ETicketsGo support" (storefront `/contact`), "Sign out". No sidebar, no organization data                                       |
+| 25  | A console tab that was open before the suspension: click anything                       | The next request answers 403 `ORGANIZATION_SUSPENDED` and the tab switches to the suspended screen. Devtools: every `/organizations/<id>...`, `/events?organizationId=`, `/payouts?organizationId=` answer 403 |
+| 26  | Multi-org member                                                                        | Console opens on the approved organization. The suspended one is not in the switcher                                                                                                                           |
+| 27  | Admin: view the suspended organizer, then Reinstate                                     | Admin pages work as before. After reinstating, the member's console works again on the next load. The same member can buy a ticket on the storefront throughout                                                |
 
 ### 5.1 Read-only SQL for QA
 
@@ -371,6 +514,42 @@ FROM "RefreshToken" WHERE "userId" = '<user id>' ORDER BY "createdAt" DESC LIMIT
 -- Email codes: hashed, attempts counted, spent.
 SELECT id, email, "createdAt", "expiresAt", "consumedAt", attempts
 FROM "EmailVerificationCode" WHERE "userId" = '<user id>' ORDER BY "createdAt" DESC LIMIT 10;
+
+-- Team invitations (2.6): never a plain token (64 hex, or 'accepted:'/'revoked:' once spent),
+-- who invited whom, accepted / revoked once.
+SELECT i.id, u.email AS invitee, u."emailVerifiedAt", m.status AS seat, m.role,
+       i."createdAt", i."expiresAt", i."acceptedAt", i."revokedAt",
+       CASE WHEN i."tokenHash" ~ '^[0-9a-f]{64}$' THEN 'live-hash' ELSE split_part(i."tokenHash", ':', 1) END AS token_state,
+       inv.email AS invited_by
+FROM "AccountInvitation" i
+JOIN "User" u ON u.id = i."userId"
+LEFT JOIN "OrganizationMember" m ON m.id = i."organizationMemberId"
+JOIN "User" inv ON inv.id = i."invitedByUserId"
+WHERE m."organizationId" = '<org id>' ORDER BY i."createdAt" DESC LIMIT 20;
+
+-- Every accept and refusal, with its reason.
+SELECT "createdAt", action, "actorUserId", metadata->>'reason' AS reason, metadata->>'via' AS via
+FROM "AuditLog"
+WHERE "organizationId" = '<org id>'
+  AND action IN ('MEMBER_INVITED','MEMBER_INVITE_RESENT','MEMBER_INVITE_ACCEPTED',
+                 'MEMBER_INVITE_REFUSED','INVITED_ACCOUNT_CLAIMED','MEMBER_REMOVED')
+ORDER BY "createdAt" DESC LIMIT 50;
+
+-- Suspended organizations (2.7): who is still seated in one (they get the suspended screen).
+SELECT o.id, o.name, o.status, m.role, m.status AS seat, u.email, u.phone
+FROM "Organization" o
+JOIN "OrganizationMember" m ON m."organizationId" = o.id AND m.status = 'ACTIVE'
+JOIN "User" u ON u.id = m."userId"
+WHERE o.status = 'SUSPENDED' ORDER BY o.name;
+
+-- The suspension and reinstatement on record, and staff reads of the suspended organization.
+SELECT "createdAt", action, "actorUserId", metadata->>'reason' AS reason,
+       metadata->>'operation' AS operation, metadata->>'result' AS result
+FROM "AuditLog"
+WHERE "organizationId" = '<org id>'
+  AND action IN ('ORGANIZATION_SUSPENDED','ORGANIZATION_REINSTATED',
+                 'PLATFORM_ORGANIZER_ACCESS_ALLOWED','PLATFORM_ORGANIZER_ACCESS_DENIED')
+ORDER BY "createdAt" DESC LIMIT 50;
 ```
 
 ## 6. Migration
@@ -384,25 +563,41 @@ FROM "EmailVerificationCode" WHERE "userId" = '<user id>' ORDER BY "createdAt" D
 The deployed API ignores all of it, and nothing must be dropped to roll back. `prisma migrate
 diff` from the migrations to the schema shows no difference.
 
+`20261026150000_team_invitation_delivery` (fix branch). Additive and backward compatible:
+
+- one new enum value (`NotificationType.TEAM_INVITATION`), which no row holds
+- one nullable column (`AccountInvitation.revokedAt`), no default, no backfill
+
+Tokens were already hashed, so nothing moves. **Outstanding invitations keep working** (same
+hash, same expiry), but only under the new rule: the invitee must sign in as the invited
+address, confirm it, and accept. Links that owners copied before this change are therefore no
+longer a way in for anybody else. An account an old invitation created is claimed with an
+emailed code. Nothing is invalidated in bulk.
+
 ## 7. Open questions for the owner
 
-1. **Team invitations (security, found during the audit, not changed here).**
-   `organizations.service.ts:734-801` accepts an invitation for an **existing** account with no
-   sign-in and no password, and the inviting owner is shown the raw `inviteUrl`. An owner can
-   therefore make any existing email account an ACTIVE member without that person. Removing them
-   then revokes all of their sessions (`removeMember`, `:942-990`), so it can be repeated. For a
-   brand-new address, the owner can set the password through the link. Proposed fix: never return
-   the URL to the inviter in production, and require the invitee to be signed in as that account
-   (or to prove the mailbox) before acceptance. This needs a product decision.
-2. **Suspended organizations keep console access.** Should a suspended organization's members be
-   refused the organizer API entirely (read-only?), or keep the current behaviour where only
-   selling and payouts stop? The handoff refuses them now. Password and phone sign-in to the
-   console still work.
+1. ~~**Team invitations.**~~ **DECIDED and FIXED (2.6).** Only the invited person, signed in as
+   the invited address with it proved, can accept; the inviter never receives the link. Evidence:
+   section 4 (the reproduction failed first, then passed).
+2. ~~**Suspended organizations keep console access.**~~ **DECIDED and FIXED (2.7).** No organizer
+   API by any route (403 `ORGANIZATION_SUSPENDED`), a suspended screen with a support path,
+   sign-in and buying unchanged. Evidence: section 4.
 3. **Production email is log-mode.** The new email step answers "We can't send email right now"
    in production until SES is configured on api **and** worker.
 4. **Production variables.** Confirm that `CUSTOMER_WEB_URL` (api, worker) and
    `NEXT_PUBLIC_SITE_URL` (customer-web) are `https://www.eticketsgo.com`. Also confirm
    `RAZORPAY_CALLBACK_URL` if it is set explicitly. The API now names any bare-apex value at boot.
-5. **Android to console.** The app opens the console in the browser, and the person signs in
+5. **Invitations need real email where they are used.** Since the link is emailed only, an
+   environment whose email provider is `log` (production today, see 3) cannot deliver team or
+   back-office invitations: the console says "We could not email ..." and nobody holds a link.
+   Configure SES on api and worker before inviting there.
+6. **Door check-in devices of a suspended organization.** The organizer API (including the
+   check-in routes, which go through `assertMember`) is closed. A check-in device already
+   activated for offline use keeps its local list until it next syncs, and syncing is refused.
+   Should suspension also revoke devices immediately?
+7. **Phone-only invitee.** An invitation is to an email address. A person whose account is
+   phone-only gets a second account for that address (section 3.6, still OPEN). Invitations to a
+   phone number are not supported.
+8. **Android to console.** The app opens the console in the browser, and the person signs in
    there (phone now works). A handoff from the app would need the app to mint the code and open
    `/handoff#code=` in the browser. It is easy to add if wanted.
