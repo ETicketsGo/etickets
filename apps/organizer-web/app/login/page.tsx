@@ -55,7 +55,7 @@ export default function OrganizerLogin() {
             <a
               href={`${store}/account/organizer-console`}
               data-testid="continue-with-storefront"
-              className="flex min-h-11 w-full items-center justify-center rounded-lg border border-border-input bg-background-surface px-4 text-[0.9375rem] font-semibold text-text-primary hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+              className="flex min-h-11 w-full items-center justify-center rounded-lg border border-border-input bg-background-surface px-4 py-2 text-center text-[0.9375rem] font-semibold leading-snug text-text-primary hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
             >
               Continue with your ETicketsGo account
             </a>
