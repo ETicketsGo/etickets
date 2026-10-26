@@ -21,22 +21,30 @@
   - The old 6-hour list meant a phone revoked at the start of a festival kept admitting until
     the end of it.
 
-  Production allows at most 60 minutes, and it must be set on purpose: offline check-in cannot
-  be switched on in production with the default left implicit (see configuration.ts).
+  OWNER DECISION (2026-10-26): 45 minutes is the MAXIMUM, in every environment. A configured
+  value above it is clamped to 45 when a list is issued (so a stray value can never lengthen a
+  lease, and cannot stop a service from booting while offline check-in is off), and STAGING /
+  PRODUCTION refuse to boot with offline check-in on and a value above 45. Offline check-in
+  cannot be switched on in production with the default left implicit (see configuration.ts).
 */
 
 /** Used when OFFLINE_REVOCATION_WINDOW_MINUTES is not set (every environment but production). */
 export const OFFLINE_REVOCATION_WINDOW_DEFAULT_MINUTES = 45;
 /** The shortest window the schema accepts: shorter would expire a list mid-queue. */
 export const OFFLINE_REVOCATION_WINDOW_MIN_MINUTES = 5;
+/** The longest lease anywhere (owner decision 2026-10-26). Longer configured values are clamped. */
+export const OFFLINE_LEASE_MAX_MINUTES = 45;
 /** The longest window allowed where real customers are served (STAGING / PRODUCTION). */
-export const OFFLINE_REVOCATION_WINDOW_PRODUCTION_MAX_MINUTES = 60;
+export const OFFLINE_REVOCATION_WINDOW_PRODUCTION_MAX_MINUTES = OFFLINE_LEASE_MAX_MINUTES;
 /** The longest window the schema accepts anywhere (long rehearsals in lower environments). */
 export const OFFLINE_REVOCATION_WINDOW_MAX_MINUTES = 360;
 
 /** The effective window in milliseconds for a configured (or unset) value. */
 export function offlineRevocationWindowMs(minutes: number | undefined): number {
-  return (minutes ?? OFFLINE_REVOCATION_WINDOW_DEFAULT_MINUTES) * 60_000;
+  return (
+    Math.min(minutes ?? OFFLINE_REVOCATION_WINDOW_DEFAULT_MINUTES, OFFLINE_LEASE_MAX_MINUTES) *
+    60_000
+  );
 }
 
 export interface OfflineWindowConfig {

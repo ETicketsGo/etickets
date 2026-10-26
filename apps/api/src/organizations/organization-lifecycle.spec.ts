@@ -113,6 +113,18 @@ describe('suspending an organizer', () => {
         status: 'REVOKED',
         revokedAt: expect.any(Date),
         revokeReason: 'ORGANIZATION_SUSPENDED',
+        revokeReasons: {
+          push: expect.stringMatching(/^\d{4}-\d\d-\d\dT.*Z ORGANIZATION_SUSPENDED$/),
+        },
+      },
+    });
+    // Devices already revoked for another reason keep it; the suspension is appended.
+    expect(prisma.checkInDevice.updateMany).toHaveBeenCalledWith({
+      where: { organizationId: 'org-1', status: 'REVOKED', id: { notIn: ['dev-1', 'dev-2'] } },
+      data: {
+        revokeReasons: {
+          push: expect.stringMatching(/^\d{4}-\d\d-\d\dT.*Z ORGANIZATION_SUSPENDED$/),
+        },
       },
     });
     expect(prisma.offlineActivation.updateMany).toHaveBeenCalledWith({

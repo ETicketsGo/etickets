@@ -535,7 +535,7 @@ model User {
   /// Only ever set by the person choosing it (profile). Never inferred - not from the phone
   /// calling code (+1 is the United States AND Canada), not from the network, not from where
   /// they bought a ticket. Null means "not said", which is a real answer, not a gap to fill.
-  countryOfResidence String?
+  countryOfResidence    String?
   /// The country the network placed this person in when the account was made (the edge
   /// header the storefront's location resolver trusts, e.g. `cf-ipcountry`). A hint about
   /// where they were on one day, not where they live; labelled with its source wherever shown.
@@ -844,16 +844,16 @@ model EmailVerificationCode {
 }
 
 model RefreshToken {
-  id                String    @id @default(cuid())
+  id                String           @id @default(cuid())
   userId            String
-  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tokenHash         String    @unique
+  user              User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash         String           @unique
   expiresAt         DateTime
   revokedAt         DateTime?
   replacedByTokenId String?
   userAgent         String?
   ip                String?
-  createdAt         DateTime  @default(now())
+  createdAt         DateTime         @default(now())
   /// Present only when this session proved a second factor (admin MFA). Absent = never did.
   mfa               RefreshTokenMfa?
 
@@ -1259,11 +1259,11 @@ model Screen {
   createdAt  DateTime     @default(now())
   updatedAt  DateTime     @updatedAt
 
-  sessions EventSession[] @relation("SessionScreen")
+  sessions         EventSession[] @relation("SessionScreen")
   /// General-admission sessions held in this space when it is a standing floor.
   standingSessions EventSession[] @relation("SessionStandingSpace")
   /// A screen has MANY layout versions over its life, not one. See SeatMap.
-  seatMaps SeatMap[]
+  seatMaps         SeatMap[]
 
   @@index([cinemaId])
   @@index([venueId])
@@ -1733,9 +1733,9 @@ model Review {
 }
 
 model EventSession {
-  id        String        @id @default(cuid())
-  eventId   String
-  event     Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  id              String        @id @default(cuid())
+  eventId         String
+  event           Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
   /// The room this session happens in, when it happens in one with a seat map.
   ///
   /// Named `screen` for historical reasons — it began as "the screen a film plays on" — but
@@ -1745,15 +1745,15 @@ model EventSession {
   /// Null means general admission. That is the difference the booking path cares about, and
   /// it is a property of the ROOM rather than of the kind of event: the same concert is
   /// reserved seating in a theatre and general admission in a standing arena.
-  screenId  String?
-  screen    Screen?       @relation("SessionScreen", fields: [screenId], references: [id])
+  screenId        String?
+  screen          Screen?       @relation("SessionScreen", fields: [screenId], references: [id])
   /// The seat layout VERSION this show was scheduled against, pinned at scheduling time.
   ///
   /// Recoverable from ShowSeat → Seat → seatMapId, but recording it explicitly is what lets
   /// the schedule answer "which layout will tomorrow's show use" before a single seat has
   /// moved, and makes a re-layout auditable rather than inferred.
-  seatMapId String?
-  seatMap   SeatMap?      @relation(fields: [seatMapId], references: [id])
+  seatMapId       String?
+  seatMap         SeatMap?      @relation(fields: [seatMapId], references: [id])
   /// The STANDING space a general-admission session is held in, when the organizer said so.
   ///
   /// Not `screenId`: a session with a screen is reserved seating everywhere the booking path
@@ -1762,12 +1762,12 @@ model EventSession {
   /// never read it. Null - every session before this column, and any general-admission
   /// session not tied to one space - means no space-level cap, exactly as before.
   standingSpaceId String?
-  standingSpace   Screen? @relation("SessionStandingSpace", fields: [standingSpaceId], references: [id], onDelete: SetNull)
-  startsAt  DateTime
-  endsAt    DateTime
-  status    SessionStatus @default(SCHEDULED)
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
+  standingSpace   Screen?       @relation("SessionStandingSpace", fields: [standingSpaceId], references: [id], onDelete: SetNull)
+  startsAt        DateTime
+  endsAt          DateTime
+  status          SessionStatus @default(SCHEDULED)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 
   ticketTypes TicketType[]
   bookings    Booking[]
@@ -2336,11 +2336,11 @@ model PaymentAttempt {
 }
 
 model Refund {
-  id                       String       @id @default(cuid())
+  id                       String                  @id @default(cuid())
   bookingId                String
-  booking                  Booking      @relation(fields: [bookingId], references: [id])
+  booking                  Booking                 @relation(fields: [bookingId], references: [id])
   organizationId           String
-  organization             Organization @relation(fields: [organizationId], references: [id])
+  organization             Organization            @relation(fields: [organizationId], references: [id])
   amountMinor              Int
   /// The portion of `amountMinor` that is tax being returned.
   ///
@@ -2348,7 +2348,7 @@ model Refund {
   /// and apportioning it back out of a total afterwards reintroduces rounding error into a
   /// figure a tax authority may read. Zero on every refund taken before tax existed, and on
   /// every refund where no tax was charged — which is the default.
-  taxMinor                 Int          @default(0)
+  taxMinor                 Int                     @default(0)
   /// The part of `taxMinor` that was ADDED to the price rather than already inside it.
   ///
   /// Whose money a refund returns depends on this. Tax inside the ticket price was the
@@ -2356,7 +2356,7 @@ model Refund {
   /// retained by the platform, and charging it back to the organizer takes money they never
   /// received. Zero for every refund of an inclusive-tax market (India), which is why the
   /// ledger's old "deduct the whole refund" was right there and wrong everywhere else.
-  taxAddedMinor            Int          @default(0)
+  taxAddedMinor            Int                     @default(0)
   /// The part of `amountMinor` that is PLATFORM money rather than the organizer's.
   ///
   /// Settlement charges a refund to the organizer as `amountMinor - taxAddedMinor`, because a
@@ -2374,10 +2374,10 @@ model Refund {
   ///
   /// Zero on every refund written before this existed and on every buyer-requested refund, so
   /// the settlement arithmetic for those is exactly what it was.
-  platformFeeRefundedMinor Int          @default(0)
-  status                   RefundStatus @default(REQUESTED)
+  platformFeeRefundedMinor Int                     @default(0)
+  status                   RefundStatus            @default(REQUESTED)
   reason                   String
-  ticketIds                String[]     @default([])
+  ticketIds                String[]                @default([])
   requestedByUserId        String?
   processedByUserId        String?
   providerRef              String?
@@ -2569,6 +2569,10 @@ model CheckInDevice {
   // MEMBER_REMOVED, ORGANIZATION_SUSPENDED. A revoked device is never approved again.
   revokedAt           DateTime?
   revokeReason        String?
+  // Every revocation reason in order, the first included: "<ISO time> <REASON>". revokeReason
+  // keeps the FIRST; later revocations (a suspension of an already-lost phone, say) are
+  // appended here, never dropped (owner decision 2026-10-26).
+  revokeReasons       String[]            @default([])
   approvedByUserId    String?
   createdByUserId     String?
   createdAt           DateTime            @default(now())
@@ -3243,7 +3247,7 @@ enum FeedbackKind {
 }
 
 model Feedback {
-  id     String       @id @default(cuid())
+  id String @id @default(cuid())
 
   /// The readable reference the sender is given: `ETG-SUP-<YEAR>-<SEQ>`, e.g. ETG-SUP-2026-000142.
   ///
@@ -3255,10 +3259,10 @@ model Feedback {
   /// Nullable ON PURPOSE, for a live rollout: an API older than this column inserts without it.
   /// A BEFORE INSERT trigger (migration 20261025120000) fills it for any insert that omits it, and
   /// the migration backfilled every existing row, so in practice no row is without one.
-  reference String? @unique
-  kind   FeedbackKind
-  userId String?
-  user   User?        @relation(fields: [userId], references: [id])
+  reference String?      @unique
+  kind      FeedbackKind
+  userId    String?
+  user      User?        @relation(fields: [userId], references: [id])
 
   /// Which organizer this is about, where it is about one.
   ///
@@ -4649,10 +4653,10 @@ model Receipt {
   /// one receipt per booking" becomes a DATABASE constraint rather than a hope: a nullable
   /// unique column ignores the nulls, so any number of credit notes can coexist with exactly
   /// one sale document. Two concurrent confirmations cannot both issue.
-  saleForBookingId String?   @unique
+  saleForBookingId         String?   @unique
   /// Set on a credit note, and unique, so a retried refund cannot issue a second one.
-  refundId         String?   @unique
-  refund           Refund?   @relation(fields: [refundId], references: [id])
+  refundId                 String?   @unique
+  refund                   Refund?   @relation(fields: [refundId], references: [id])
   /// Set on a credit note that reverses the WHOLE sale of a booking cancelled with no refund:
   /// a cash sale at the counter whose show was then cancelled. The cash goes back across the
   /// counter, not through a provider, so there is no `Refund` row to hang the credit note on;
@@ -4661,9 +4665,9 @@ model Receipt {
   /// (a CHECK constraint holds that), and null on every other document.
   cancellationForBookingId String?   @unique
   /// The sale document a credit note reverses.
-  reversesId       String?
-  reverses         Receipt?  @relation("ReceiptReversal", fields: [reversesId], references: [id])
-  reversedBy       Receipt[] @relation("ReceiptReversal")
+  reversesId               String?
+  reverses                 Receipt?  @relation("ReceiptReversal", fields: [reversesId], references: [id])
+  reversedBy               Receipt[] @relation("ReceiptReversal")
 
   issuedAt DateTime @default(now())
   currency String
@@ -5498,9 +5502,9 @@ model CrmTeamMember {
 }
 
 model CrmLead {
-  id     String  @id @default(cuid())
-  teamId String
-  team   CrmTeam @relation(fields: [teamId], references: [id], onDelete: Restrict)
+  id      String  @id @default(cuid())
+  teamId  String
+  team    CrmTeam @relation(fields: [teamId], references: [id], onDelete: Restrict)
   /// ISO-3166 alpha-2, always the team's country.
   country String
 

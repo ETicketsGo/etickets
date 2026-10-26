@@ -24,7 +24,10 @@ import { OrganizationLifecycleService } from '../../organizations/organization-l
  *     queue (scans made during the suspension on a list from before it) is refused and not
  *     applied, and approving it again is refused;
  *  6. a phone registered and approved after reinstatement works;
- *  7. the lease is bounded: a scan claimed after its list expired is never applied.
+ *  7. the lease is bounded: a scan claimed after its list expired is never applied, and no list
+ *     lives longer than 45 minutes even when 60 is configured (owner decision 2026-10-26);
+ *  8. a phone already revoked (reported lost) keeps LOST as its reason; the suspension is
+ *     appended to its reason history, never dropped and never overwriting it.
  *
  * Every row is created here and deleted after. Skips (never fabricates a pass) without a DB.
  */
@@ -57,6 +60,7 @@ describe('integration-real-postgres: suspending an organization revokes check-in
   let lifecycle: OrganizationLifecycleService;
   let available = false;
   const previousFlag = process.env.OFFLINE_CHECKIN_ENABLED;
+  let previousWindow: string | undefined;
 
   const suffix = `suspdev-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
   let orgId = '';
@@ -67,7 +71,7 @@ describe('integration-real-postgres: suspending an organization revokes check-in
   let ownerToken = '';
   let doorToken = '';
   /** The phone at the door before the suspension, and one left PENDING. */
-  const door = { deviceId: '', pendingId: '', activationId: '' };
+  const door = { deviceId: '', pendingId: '', activationId: '', lostId: '' };
   let suspendedAt = 0;
 
   async function http(method: string, path: string, token?: string, body?: unknown) {
@@ -179,6 +183,9 @@ describe('integration-real-postgres: suspending an organization revokes check-in
     process.env.THROTTLE_LIMIT = '5000';
     process.env.AUTH_THROTTLE_LIMIT = '5000';
     process.env.OFFLINE_CHECKIN_ENABLED = 'true';
+    // Configured LONGER than the owner's 45-minute maximum: issued lists must still be clamped.
+    previousWindow = process.env.OFFLINE_REVOCATION_WINDOW_MINUTES;
+    process.env.OFFLINE_REVOCATION_WINDOW_MINUTES = '60';
     // Loaded only now: ConfigModule.forRoot reads process.env when app.module is first imported.
     const { AppModule } = await import('../../app.module');
     const mod = await Test.createTestingModule({ imports: [AppModule] }).compile();
@@ -270,6 +277,8 @@ describe('integration-real-postgres: suspending an organization revokes check-in
   afterAll(async () => {
     if (previousFlag === undefined) delete process.env.OFFLINE_CHECKIN_ENABLED;
     else process.env.OFFLINE_CHECKIN_ENABLED = previousFlag;
+    if (previousWindow === undefined) delete process.env.OFFLINE_REVOCATION_WINDOW_MINUTES;
+    else process.env.OFFLINE_REVOCATION_WINDOW_MINUTES = previousWindow;
     if (db && available) {
       const users = await db.user.findMany({
         where: { email: { contains: suffix } },
@@ -318,7 +327,22 @@ describe('integration-real-postgres: suspending an organization revokes check-in
     const list = await sync(doorToken, door.deviceId);
     expect(list.status).toBe(200);
     // The offline lease: the list carries its own expiry, bounded by the revocation window.
-    expect(list.data.meta.expiresAt - list.data.meta.validFrom).toBeLessThanOrEqual(6 * 3_600_000);
+    // 60 is configured above; the owner's maximum is 45 minutes and the list must say so.
+    expect(list.data.meta.expiresAt - list.data.meta.validFrom).toBeLessThanOrEqual(45 * 60_000);
+
+    // A third phone, approved and then reported lost BEFORE the suspension.
+    const lost = await register(doorToken, 'Gate 3 phone, lost');
+    door.lostId = lost.data.id;
+    expect(
+      (await http('POST', `/checkin/devices/${door.lostId}/approve`, ownerToken)).status,
+    ).toBeLessThan(300);
+    const lostRes = await http('POST', `/checkin/devices/${door.lostId}/report-lost`, ownerToken, {
+      reason: 'Left on the bus',
+    });
+    expect(lostRes.status).toBeLessThan(300);
+    const lostRow = await deviceRow(door.lostId);
+    expect(lostRow.revokeReason).toBe('LOST');
+    expect(lostRow.revokeReasons).toEqual([expect.stringMatching(/Z LOST$/)]);
 
     const activation = await db!.offlineActivation.create({
       data: {
@@ -344,11 +368,20 @@ describe('integration-real-postgres: suspending an organization revokes check-in
       expect(row.status).toBe('REVOKED');
       expect(row.revokedAt).toBeInstanceOf(Date);
       expect(row.revokeReason).toBe('ORGANIZATION_SUSPENDED');
+      expect(row.revokeReasons).toEqual([expect.stringMatching(/Z ORGANIZATION_SUSPENDED$/)]);
       const audit = await db!.auditLog.findFirst({
         where: { entityId: id, action: 'CHECKIN_DEVICE_REVOKED' },
       });
       expect(audit?.metadata).toMatchObject({ reason: 'ORGANIZATION_SUSPENDED' });
     }
+    // The lost phone keeps its FIRST reason; the suspension is appended to its history.
+    const lostRow = await deviceRow(door.lostId);
+    expect(lostRow.status).toBe('REVOKED');
+    expect(lostRow.revokeReason).toBe('LOST');
+    expect(lostRow.revokeReasons).toEqual([
+      expect.stringMatching(/Z LOST$/),
+      expect.stringMatching(/Z ORGANIZATION_SUSPENDED$/),
+    ]);
     const act = await db!.offlineActivation.findUnique({ where: { id: door.activationId } });
     expect(act.state).toBe('REVOKED');
     expect(act.revokedAt).toBeInstanceOf(Date);

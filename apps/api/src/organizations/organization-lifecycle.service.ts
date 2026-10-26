@@ -6,6 +6,7 @@ import { AppException, ErrorCodes } from '../common/errors';
 import type { RequestUser } from '../common/decorators';
 import { organizationReadiness, readinessSummary } from './organization-readiness';
 import { organizerActions, type OrganizerActionSummary } from './organizer-actions';
+import { revokeReasonEntry } from '../checkins/offline/revocation-reasons';
 
 /** `CheckInDevice.revokeReason` for a device revoked because its organization was suspended. */
 export const SUSPENSION_REVOKE_REASON = 'ORGANIZATION_SUSPENDED';
@@ -124,9 +125,19 @@ export class OrganizationLifecycleService {
         if (deviceIds.length > 0) {
           await tx.checkInDevice.updateMany({
             where: { id: { in: deviceIds } },
-            data: { status: 'REVOKED', revokedAt: now, revokeReason: SUSPENSION_REVOKE_REASON },
+            data: {
+              status: 'REVOKED',
+              revokedAt: now,
+              revokeReason: SUSPENSION_REVOKE_REASON,
+              revokeReasons: { push: revokeReasonEntry(SUSPENSION_REVOKE_REASON, now) },
+            },
           });
         }
+        // Already revoked (lost, by hand): the first reason stays and the suspension is appended.
+        await tx.checkInDevice.updateMany({
+          where: { organizationId: orgId, status: 'REVOKED', id: { notIn: deviceIds } },
+          data: { revokeReasons: { push: revokeReasonEntry(SUSPENSION_REVOKE_REASON, now) } },
+        });
         const activations = (
           await tx.offlineActivation.updateMany({
             where: { organizationId: orgId, state: 'ACTIVE' },

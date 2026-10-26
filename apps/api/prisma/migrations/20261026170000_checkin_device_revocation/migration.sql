@@ -9,3 +9,6 @@
 
 ALTER TABLE "CheckInDevice" ADD COLUMN "revokedAt" TIMESTAMP(3);
 ALTER TABLE "CheckInDevice" ADD COLUMN "revokeReason" TEXT;
+-- Every reason in order (the first is also kept in "revokeReason"; later ones are appended).
+-- A constant empty-array default: no table rewrite, and old code that never names it is unaffected.
+ALTER TABLE "CheckInDevice" ADD COLUMN "revokeReasons" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];

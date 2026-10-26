@@ -49,7 +49,12 @@ describe('CheckInDeviceService lifecycle (audited)', () => {
     await svc.revoke(USER, 'd1', 'Decommissioned');
     expect(update).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: { status: 'REVOKED', revokedAt: expect.any(Date), revokeReason: 'MANUAL' },
+        data: {
+          status: 'REVOKED',
+          revokedAt: expect.any(Date),
+          revokeReason: 'MANUAL',
+          revokeReasons: { push: expect.stringMatching(/^\d{4}-\d\d-\d\dT.*Z MANUAL$/) },
+        },
       }),
     );
     expect(audit.record).toHaveBeenCalledWith(
@@ -60,7 +65,7 @@ describe('CheckInDeviceService lifecycle (audited)', () => {
     );
   });
 
-  it('keeps the first revocation time and reason when a revoked device is revoked again', async () => {
+  it('keeps the first revocation time and reason, and appends the later reason, when revoked again', async () => {
     const first = new Date('2026-10-26T10:00:00Z');
     const { svc, update } = build({
       ...activeDevice,
@@ -71,7 +76,12 @@ describe('CheckInDeviceService lifecycle (audited)', () => {
     await svc.revoke(USER, 'd1', 'Tidying up');
     expect(update).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: { status: 'REVOKED', revokedAt: first, revokeReason: 'ORGANIZATION_SUSPENDED' },
+        data: {
+          status: 'REVOKED',
+          revokedAt: first,
+          revokeReason: 'ORGANIZATION_SUSPENDED',
+          revokeReasons: { push: expect.stringMatching(/^\d{4}-\d\d-\d\dT.*Z MANUAL$/) },
+        },
       }),
     );
   });
@@ -81,7 +91,12 @@ describe('CheckInDeviceService lifecycle (audited)', () => {
     await svc.reportLost(USER, 'd1', 'Left in a taxi');
     expect(update).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: { status: 'REVOKED', revokedAt: expect.any(Date), revokeReason: 'LOST' },
+        data: {
+          status: 'REVOKED',
+          revokedAt: expect.any(Date),
+          revokeReason: 'LOST',
+          revokeReasons: { push: expect.stringMatching(/^\d{4}-\d\d-\d\dT.*Z LOST$/) },
+        },
       }),
     );
     expect(audit.record).toHaveBeenCalledWith(
