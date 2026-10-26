@@ -300,23 +300,25 @@ export default function TeamPage() {
       <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_22rem] xl:gap-8">
         <div className="min-w-0 space-y-4">
           {sent && (
-            <Card data-testid="invitation-email-status">
-              <h2 className="text-title font-semibold text-text-primary">
-                {sent.status === 'SENT'
-                  ? `Invitation sent to ${sent.email}`
-                  : `We could not email ${sent.email}`}
-              </h2>
-              <p className="mt-1 text-[0.9375rem] text-text-secondary">
-                {sent.status === 'SENT'
-                  ? 'They open the link in that email and sign in with that address to join. Only they can accept it. It works once and expires in seven days.'
-                  : 'Email is not working right now, so nobody has the invitation link yet. They are listed as invited. Use "Send invitation again" later, or ask ETicketsGo support.'}
-              </p>
-              <div className="mt-3">
-                <Button variant="ghost" size="sm" onClick={() => setSent(null)}>
-                  Done
-                </Button>
-              </div>
-            </Card>
+            <div data-testid="invitation-email-status" role="status">
+              <Card>
+                <h2 className="text-title font-semibold text-text-primary">
+                  {sent.status === 'SENT'
+                    ? `Invitation sent to ${sent.email}`
+                    : `We could not email ${sent.email}`}
+                </h2>
+                <p className="mt-1 text-[0.9375rem] text-text-secondary">
+                  {sent.status === 'SENT'
+                    ? 'They open the link in that email and sign in with that address to join. Only they can accept it. It works once and expires in seven days.'
+                    : 'Email is not working right now, so nobody has the invitation link yet. They are listed as invited. Use "Send invitation again" later, or ask ETicketsGo support.'}
+                </p>
+                <div className="mt-3">
+                  <Button variant="ghost" size="sm" onClick={() => setSent(null)}>
+                    Done
+                  </Button>
+                </div>
+              </Card>
+            </div>
           )}
 
           <section aria-labelledby="team-members" className="min-w-0">
