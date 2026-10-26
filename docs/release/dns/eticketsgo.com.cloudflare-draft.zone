@@ -1,0 +1,60 @@
+; DRAFT Cloudflare import for eticketsgo.com - NOT COMPLETE, DO NOT IMPORT AS-IS.
+; Built 2026-10-26 from public DNS (8.8.8.8) plus the SES record list the owner downloaded
+; (dns-records.csv, 2026-09-08). Records only GoDaddy can show (hidden names) are missing until
+; the owner's GoDaddy zone export is reconciled: see docs/release/DNS-CLOUDFLARE-PLAN.md, Step 0.
+;
+; Cloudflare: Add site > Free > DNS > Records > Import (BIND). After import, set EVERY record to
+; "DNS only" (grey cloud) EXCEPT the apex A record, which must be "Proxied" (orange) for the
+; Redirect Rule (plan Step 1, items 3-4). Nameservers are NOT switched without owner approval.
+$ORIGIN eticketsgo.com.
+$TTL 3600
+
+; ---- apex ---------------------------------------------------------------------------------
+; Replaces GoDaddy forwarding (A 3.33.251.168 / 15.197.225.128). Placeholder address: the
+; Cloudflare proxy answers with the 301 Redirect Rule before this address is ever used.
+@                       IN A      192.0.2.1
+@                       IN MX     0 eticketsgo-com.mail.protection.outlook.com.
+@                       IN TXT    "v=spf1 include:spf.protection.outlook.com -all"
+@                       IN TXT    "google-site-verification=7raXg0p-Nx1F26PLL1VclSW57HgbZDhbBHRoTGw-0tk"
+@                       IN TXT    "v=verifydomain MS=2720010"
+
+; ---- mail: Microsoft 365 (support@ inbox) ----------------------------------------------------
+autodiscover            IN CNAME  autodiscover.outlook.com.
+enterpriseregistration  IN CNAME  enterpriseregistration.windows.net.
+enterpriseenrollment    IN CNAME  enterpriseenrollment-s.manage.microsoft.com.
+
+; ---- mail: DMARC ----------------------------------------------------------------------------
+_dmarc                  IN TXT    "v=DMARC1; p=quarantine; adkim=r; aspf=r; rua=mailto:dmarc_rua@onsecureserver.net;"
+
+; ---- mail: Amazon SES custom MAIL FROM (live values, ap-south-1 = the region the platform uses)
+mail                    IN MX     10 feedback-smtp.ap-south-1.amazonses.com.
+mail                    IN TXT    "v=spf1 include:amazonses.com ~all"
+
+; ---- mail: Amazon SES DKIM, ap-south-2 identity (from dns-records.csv; all three live today) ---
+n3w6og5dsxwnpwph46lvmxw4ihdr56me._domainkey IN CNAME n3w6og5dsxwnpwph46lvmxw4ihdr56me.dkim.ap-south-2.amazonses.com.
+afdw4hbnfoj35nztp74wu4nl4oisiu3a._domainkey IN CNAME afdw4hbnfoj35nztp74wu4nl4oisiu3a.dkim.ap-south-2.amazonses.com.
+fvp6x7tod5smdgxixmetivb24zcbapar._domainkey IN CNAME fvp6x7tod5smdgxixmetivb24zcbapar.dkim.ap-south-2.amazonses.com.
+
+; MISSING - must come from the GoDaddy export before import:
+;   * the three SES DKIM CNAMEs of the ap-south-1 (Mumbai) identity the platform sends from;
+;   * any other _domainkey, _amazonses, _acme-challenge, SRV, CAA or other hidden-name records.
+
+; ---- Railway: production (DNS only) ---------------------------------------------------------
+www                     IN CNAME  0es2hh9f.up.railway.app.
+api                     IN CNAME  n37igjrk.up.railway.app.
+admin                   IN CNAME  txc8niw0.up.railway.app.
+organizer               IN CNAME  8vaccm00.up.railway.app.
+_railway-verify.www       IN TXT  "railway-verify=3b178aff898086140e2b1c3367b148aedd88d57f4053051590ca12f9c2b2d533"
+_railway-verify.api       IN TXT  "railway-verify=adc278b4bef175e5a5a39b8783987926d035968e6a11fc9dfb0cd0aac72ca85c"
+_railway-verify.admin     IN TXT  "railway-verify=29906b879b126f629eb2d5c2bcf0b5ce976e5c5ea3285fea76b4f7031ba8b9e5"
+_railway-verify.organizer IN TXT  "railway-verify=c52063d95600755b044d4fa77d67b4ccdf8ccdbecc7924d508efb13917963208"
+
+; ---- Railway: QA (DNS only) -----------------------------------------------------------------
+qa                      IN CNAME  1fbkzr49.up.railway.app.
+api-qa                  IN CNAME  ktndx6oh.up.railway.app.
+admin-qa                IN CNAME  s8wvm98p.up.railway.app.
+organizer-qa            IN CNAME  31by3s2m.up.railway.app.
+_railway-verify.qa           IN TXT "railway-verify=1e92587be2d9631a41af710f8f021d01285fdb5c2a35bc9d9cb9a590c90b81c8"
+_railway-verify.api-qa       IN TXT "railway-verify=59027c75bd98414b205ed69e5bd608c633bfa9f55bd30830dffbc05a158958e7"
+_railway-verify.admin-qa     IN TXT "railway-verify=b4a56622e32f9282226fd39aed311518796a8596e05aec50ca5ad8b0d035c27c"
+_railway-verify.organizer-qa IN TXT "railway-verify=34fcc9acb0e34f4d4e96a016aca735cae2472ace98ea9d3d4b8074b0c9509a68"
