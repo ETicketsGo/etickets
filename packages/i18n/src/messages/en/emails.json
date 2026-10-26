@@ -214,7 +214,12 @@
   },
   "EMAIL_VERIFICATION_CODE": {
     "subject": "Your ETicketsGo email code",
-    "body": "Your code is {code}. Type it on ETicketsGo to add this email address to your account. It expires in {minutes} minutes. If you did not ask for this, ignore this message - nothing has changed."
+    "body": "Your code is {code}. Type it on ETicketsGo to add this email address to your account. It expires in {minutes} minutes. If you did not ask for this, ignore this message - nothing has changed.",
+    "confirmBody": "Your code is {code}. Type it on ETicketsGo to confirm that this email address is yours. It expires in {minutes} minutes. If you did not ask for this, ignore this message - nothing has changed."
+  },
+  "TEAM_INVITATION": {
+    "subject": "You are invited to join {organizationName} on ETicketsGo",
+    "body": "{inviterName} invited you to join {organizationName} on ETicketsGo as {role}. To accept, open this link and sign in with this email address: {link}. The link works once and expires in {days} days. Only you can accept it. If you did not expect this, ignore this message - nothing changes."
   },
   "PASSWORD_CHANGED": {
     "subject": "Your ETicketsGo password was changed",

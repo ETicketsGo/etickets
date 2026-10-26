@@ -394,6 +394,10 @@ enum NotificationType {
   PASSWORD_CHANGED
   /// A code proving somebody receives mail at an address they are adding to their account.
   EMAIL_VERIFICATION_CODE
+  /// A team (or back-office) invitation, sent to the invitee's own address. The ONLY way the
+  /// link leaves the platform: the inviter is never shown it. Sent straight through the email
+  /// channel, never stored as a Notification row, because the link is a credential.
+  TEAM_INVITATION
 
   /// A buyer with no account asking for their booking back. Its own type rather than a second
   /// BOOKING_CONFIRMED: this one answers an anonymous request, so it has to be rate-limited
@@ -705,6 +709,9 @@ model AccountInvitation {
 
   expiresAt  DateTime
   acceptedAt DateTime?
+  /// Set when the invitation was withdrawn (the pending member was removed). The token hash is
+  /// rotated at the same moment, so the link is dead either way; this keeps the WHEN.
+  revokedAt  DateTime?
 
   /// Who sent it, so "who let this person in" has an answer during an investigation.
   invitedByUserId String

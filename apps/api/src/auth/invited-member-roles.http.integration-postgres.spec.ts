@@ -7,6 +7,7 @@ import * as bcrypt from 'bcryptjs';
 import { AppModule } from '../app.module';
 import { QrService } from '../tickets/qr.service';
 import { AllExceptionsFilter } from '../common/all-exceptions.filter';
+import { EmailChannel } from '../notifications/channels/email.channel';
 import { effectiveRoles, JwtStrategy } from './jwt.strategy';
 
 /**
@@ -81,23 +82,50 @@ describe('integration-real-postgres: invited member roles over HTTP', () => {
 
   const login = async (email: string) => {
     const r = await http('POST', '/auth/login', undefined, { email, password: PASSWORD });
+    if (r.status >= 300) throw new Error(`login ${email} -> ${r.status} ${JSON.stringify(r.json)}`);
     expect(r.status).toBeLessThan(300);
     return (r.json.data ?? r.json).accessToken as string;
   };
 
-  /** Invite over HTTP as the owner, accept over HTTP, sign in. */
+  /*
+    The invitee's mailbox. Since 2026-10-26 an invitation link reaches ONLY the invitee, by
+    email (the inviter's response no longer carries it), and accepting needs the invitee's own
+    session with a proved email. So the test reads the link and the code from here, as a
+    person reads their inbox.
+  */
+  const mails: { toEmail: string; type: string; payload?: Record<string, unknown> }[] = [];
+  const lastMailTo = (to: string, type: string) =>
+    [...mails].reverse().find((m) => m.toEmail === to && m.type === type);
+  const inviteTokenFor = (to: string) =>
+    String(lastMailTo(to, 'TEAM_INVITATION')?.payload?.link ?? '')
+      .split('/')
+      .pop()!;
+  const emailCodeFor = (to: string) =>
+    String(lastMailTo(to, 'EMAIL_VERIFICATION_CODE')?.payload?.code ?? '');
+
+  /**
+   * Invite over HTTP as the owner; then, as the invitee, claim the account the invitation made
+   * (code from the mailbox, a password), sign in, and accept with that session.
+   */
   async function inviteAndAccept(email: string, role: string, accept = true) {
     const inv = await http('POST', `/organizations/${orgs.A}/members`, ownerToken, { email, role });
     expect(JSON.stringify(inv)).toMatch(/^{"status":2/);
     const data = inv.json.data ?? inv.json;
     if (!accept) return { memberId: data.id as string, token: '' };
-    const inviteToken = String(data.inviteUrl).split('/').pop()!;
-    const acc = await http('POST', `/public/invitations/${inviteToken}/accept`, undefined, {
+    const inviteToken = inviteTokenFor(email);
+    const ask = await http('POST', `/public/invitations/${inviteToken}/account/request-code`);
+    expect(ask.status).toBeLessThan(300);
+    const claim = await http('POST', `/public/invitations/${inviteToken}/account`, undefined, {
+      code: emailCodeFor(email),
       password: PASSWORD,
       fullName: 'Invitee Person',
     });
+    expect(claim.status).toBeLessThan(300);
+    const token = await login(email);
+    const acc = await http('POST', `/public/invitations/${inviteToken}/accept`, token, {});
     expect(acc.status).toBeLessThan(300);
-    return { memberId: data.id as string, token: await login(email) };
+    // The same session: seats are read per request, so it carries the new seat at once.
+    return { memberId: data.id as string, token };
   }
 
   beforeAll(async () => {
@@ -121,6 +149,11 @@ describe('integration-real-postgres: invited member roles over HTTP', () => {
     process.env.THROTTLE_LIMIT = '5000';
     process.env.AUTH_THROTTLE_LIMIT = '5000';
 
+    // Mail is captured, not sent (see the mailbox above).
+    jest.spyOn(EmailChannel.prototype, 'deliver').mockImplementation(async (m) => {
+      mails.push(m as never);
+      return { provider: 'ses' };
+    });
     const mod = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = mod.createNestApplication();
     app.setGlobalPrefix('api');
@@ -217,6 +250,7 @@ describe('integration-real-postgres: invited member roles over HTTP', () => {
   }, 180_000);
 
   afterAll(async () => {
+    jest.restoreAllMocks();
     if (db && available) {
       const users = await db.user.findMany({
         where: { email: { contains: suffix } },

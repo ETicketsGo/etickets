@@ -5,6 +5,9 @@ import { OrganizationsService } from './organizations.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
 import { AdminStaffService } from '../admin/admin-staff.service';
 import { AdminPermission } from '@eticketsgo/shared-types';
+import { NotificationTemplateService } from '../notifications/templates/notification-template.service';
+import { EmailVerificationService } from '../auth/email-verification.service';
+import type { RenderedNotification } from '../notifications/channels/notification-channel.interface';
 
 /**
  * integration-real-postgres — an invited team member can actually get in.
@@ -65,6 +68,17 @@ describe('integration-real-postgres: team invitations', () => {
   let available = false;
   let orgs: OrganizationsService;
   let access: OrgAccessService;
+  /*
+    The invitee's mailbox. Since 2026-10-26 the link reaches ONLY the invitee, by email - the
+    inviter's response no longer carries it - so this is where a test finds it, like a person.
+  */
+  const mails: RenderedNotification[] = [];
+  const emailStub = {
+    deliver: async (m: RenderedNotification) => {
+      mails.push(m);
+      return { provider: 'ses' };
+    },
+  };
 
   const suffix = `invite-${Date.now()}`;
   let orgId = '';
@@ -88,7 +102,24 @@ describe('integration-real-postgres: team invitations', () => {
     }
 
     access = new OrgAccessService(db as never, { record: async () => undefined } as never);
-    orgs = new OrganizationsService(db as never, access, noAudit, noAudience, cfg);
+    const templates = new NotificationTemplateService();
+    const codes = new EmailVerificationService(
+      db as never,
+      noAudit,
+      emailStub as never,
+      templates,
+      cfg,
+    );
+    orgs = new OrganizationsService(
+      db as never,
+      access,
+      noAudit,
+      noAudience,
+      cfg,
+      emailStub as never,
+      templates,
+      codes,
+    );
 
     const org = await db!.organization.create({
       data: { name: `Team ${suffix}`, slug: `team-${suffix}`, status: 'APPROVED' },
@@ -117,6 +148,7 @@ describe('integration-real-postgres: team invitations', () => {
       below would fail on the foreign key.
     */
     await db.accountInvitation.deleteMany({ where: { user: { email: { contains: suffix } } } });
+    await db.emailVerificationCode.deleteMany({ where: { user: { email: { contains: suffix } } } });
     await db.adminGrant.deleteMany({ where: { user: { email: { contains: suffix } } } });
     await db.organizationMember.deleteMany({ where: { organizationId: orgId } });
     await db.organization.deleteMany({ where: { id: orgId } });
@@ -134,8 +166,34 @@ describe('integration-real-postgres: team invitations', () => {
       timeout,
     );
 
-  /** The token is only ever returned inside the link; this is how a test gets at it. */
-  const tokenFrom = (inviteUrl: string) => inviteUrl.split('/').pop()!;
+  /** The newest invitation link mailed to an address. */
+  const linkFor = (to: string): string => {
+    const mail = [...mails]
+      .reverse()
+      .find((m) => m.toEmail === to && (m.type as string) === 'TEAM_INVITATION');
+    const link = (mail?.payload as { link?: string } | undefined)?.link;
+    if (!link) throw new Error(`no invitation mailed to ${to}`);
+    return link;
+  };
+  const tokenFrom = (to: string) => linkFor(to).split('/').pop()!;
+  const codeFor = (to: string) => {
+    const mail = [...mails]
+      .reverse()
+      .find((m) => m.toEmail === to && (m.type as string) === 'EMAIL_VERIFICATION_CODE');
+    return String((mail?.payload as { code?: string } | undefined)?.code);
+  };
+  const asUser = (id: string, email: string) => ({ id, email, fullName: '', roles: ['CUSTOMER'] });
+
+  /**
+   * What somebody the invitation CREATED does: a code to the invited address, a name and a
+   * password (the claim), then - signed in as that account - accept.
+   */
+  const claimAndAccept = async (to: string, userId: string, fullName: string, password: string) => {
+    const token = tokenFrom(to);
+    await orgs.requestInvitationAccountCode(token, {});
+    await orgs.claimInvitedAccount(token, { code: codeFor(to), fullName, password }, {});
+    return orgs.acceptInvitation(asUser(userId, to) as never, token);
+  };
 
   maybe(
     'somebody with no account can accept, and only then can they do anything',
@@ -152,7 +210,10 @@ describe('integration-real-postgres: team invitations', () => {
         The e2e missed it because it navigated by pathname, so the assertion lives here where
         the URL is built.
       */
-      expect(invited.inviteUrl.startsWith(`${ORGANIZER_BASE}/invite/`)).toBe(true);
+      expect(linkFor(email).startsWith(`${ORGANIZER_BASE}/invite/`)).toBe(true);
+      // The inviter is told the email left - never handed the link.
+      expect((invited as Record<string, unknown>).inviteUrl).toBeUndefined();
+      expect(invited.invitationEmail).toBe('SENT');
       expect(invited.needsPassword).toBe(true);
       expect(invited.status).toBe('INVITED');
 
@@ -168,10 +229,7 @@ describe('integration-real-postgres: team invitations', () => {
       const before = await db!.user.findUnique({ where: { id: invited.user.id } });
       expect(await bcrypt.compare('Blue-Lantern-Harbour-47', before.passwordHash)).toBe(false);
 
-      await orgs.acceptInvitation(tokenFrom(invited.inviteUrl), {
-        fullName: 'New Bie',
-        password: 'Blue-Lantern-Harbour-47',
-      } as never);
+      await claimAndAccept(email, invited.user.id, 'New Bie', 'Blue-Lantern-Harbour-47');
 
       // Now all three things that were broken are true at once.
       const after = await db!.user.findUnique({ where: { id: invited.user.id } });
@@ -208,12 +266,18 @@ describe('integration-real-postgres: team invitations', () => {
       } as never);
       expect(invited.needsPassword).toBe(false);
 
-      const summary = await orgs.describeInvitation(tokenFrom(invited.inviteUrl));
+      const summary = await orgs.describeInvitation(tokenFrom(email));
       expect(summary.needsPassword).toBe(false);
       expect(summary.organizationName).toBe(`Team ${suffix}`);
 
+      // Their own session, but the email is not proved yet: refused until it is.
+      const me = asUser(existing.id, email);
+      await expect(orgs.acceptInvitation(me as never, tokenFrom(email))).rejects.toMatchObject({
+        code: 'EMAIL_NOT_VERIFIED',
+      });
+      await db!.user.update({ where: { id: existing.id }, data: { emailVerifiedAt: new Date() } });
       // Accepted with no password at all, and theirs is untouched.
-      await orgs.acceptInvitation(tokenFrom(invited.inviteUrl), {} as never);
+      await orgs.acceptInvitation(me as never, tokenFrom(email));
 
       const after = await db!.user.findUnique({ where: { id: existing.id } });
       expect(await bcrypt.compare('TheirOwnPassword1!', after.passwordHash)).toBe(true);
@@ -237,21 +301,20 @@ describe('integration-real-postgres: team invitations', () => {
         email,
         role: 'CHECKIN_STAFF',
       } as never);
-      const first = tokenFrom(invited.inviteUrl);
+      const first = tokenFrom(email);
 
       const resent = await orgs.resendInvitation(owner as never, orgId, invited.id);
-      const second = tokenFrom(resent.inviteUrl);
+      expect((resent as Record<string, unknown>).inviteUrl).toBeUndefined();
+      expect(resent.invitationEmail).toBe('SENT');
+      const second = tokenFrom(email);
       expect(second).not.toBe(first);
 
       // The superseded link is dead even though nobody used it.
       await expect(orgs.describeInvitation(first)).rejects.toThrow(/not valid/i);
 
-      await orgs.acceptInvitation(second, {
-        fullName: 'Once Only',
-        password: 'Blue-Lantern-Harbour-47',
-      } as never);
+      await claimAndAccept(email, invited.user.id, 'Once Only', 'Blue-Lantern-Harbour-47');
       await expect(
-        orgs.acceptInvitation(second, { password: 'Blue-Lantern-Harbour-47' } as never),
+        orgs.acceptInvitation(asUser(invited.user.id, email) as never, second),
       ).rejects.toThrow(/not valid/i);
 
       // And there is nothing left to re-send.
@@ -277,9 +340,7 @@ describe('integration-real-postgres: team invitations', () => {
         data: { expiresAt: new Date(Date.now() - 1000) },
       });
 
-      await expect(orgs.describeInvitation(tokenFrom(invited.inviteUrl))).rejects.toThrow(
-        /expired/i,
-      );
+      await expect(orgs.describeInvitation(tokenFrom(email))).rejects.toThrow(/expired/i);
     },
     120_000,
   );
@@ -338,7 +399,9 @@ describe('integration-real-postgres: team invitations', () => {
         set a password inside a product they have no account in and then be told to sign in
         somewhere they were never shown.
       */
-      expect(invited.inviteUrl.startsWith(`${ADMIN_BASE}/invite/`)).toBe(true);
+      expect(linkFor(email).startsWith(`${ADMIN_BASE}/invite/`)).toBe(true);
+      expect((invited as Record<string, unknown>).inviteUrl).toBeUndefined();
+      expect(invited.invitationEmail).toBe('SENT');
 
       const account = await db!.user.findUnique({
         where: { id: invited.id },
@@ -352,13 +415,19 @@ describe('integration-real-postgres: team invitations', () => {
       expect(await bcrypt.compare('Blue-Lantern-Harbour-47', account.passwordHash)).toBe(false);
 
       // No organization membership involved — this invitation activates the account alone.
-      const summary = await orgs.describeInvitation(tokenFrom(invited.inviteUrl));
+      const summary = await orgs.describeInvitation(tokenFrom(email));
       expect(summary.organizationName).toBe('the ETicketsGo back office');
 
-      await orgs.acceptInvitation(tokenFrom(invited.inviteUrl), {
-        fullName: 'Back Officer',
-        password: 'Blue-Lantern-Harbour-47',
-      } as never);
+      // Claiming IS accepting here: there is no membership to join, only the account.
+      await orgs.requestInvitationAccountCode(tokenFrom(email), {});
+      const claimed = await orgs.claimInvitedAccount(
+        tokenFrom(email),
+        { code: codeFor(email), fullName: 'Back Officer', password: 'Blue-Lantern-Harbour-47' },
+        {},
+      );
+      expect(claimed.accepted).toBe(true);
+      const row = await db!.accountInvitation.findUnique({ where: { userId: invited.id } });
+      expect(row.acceptedAt).not.toBeNull();
 
       const after = await db!.user.findUnique({ where: { id: invited.id } });
       expect(await bcrypt.compare('Blue-Lantern-Harbour-47', after.passwordHash)).toBe(true);
@@ -395,7 +464,7 @@ describe('integration-real-postgres: team invitations', () => {
         email,
         role: 'CHECKIN_STAFF',
       } as never);
-      const token = tokenFrom(invited.inviteUrl);
+      const token = tokenFrom(email);
 
       const row = await db!.accountInvitation.findUnique({
         where: { organizationMemberId: invited.id },
@@ -419,10 +488,7 @@ describe('integration-real-postgres: team invitations', () => {
         email,
         role: 'CHECKIN_STAFF',
       } as never);
-      await orgs.acceptInvitation(tokenFrom(invited.inviteUrl), {
-        fullName: 'Lee Ver',
-        password: 'Copper-Kettle-Morning-81',
-      } as never);
+      await claimAndAccept(email, invited.user.id, 'Lee Ver', 'Copper-Kettle-Morning-81');
       const asMember = { id: invited.user.id, email, fullName: 'Lee Ver', roles: ['CUSTOMER'] };
       await expect(
         access.assertMember(asMember as never, orgId, ['ORGANIZER_MANAGER'] as never),

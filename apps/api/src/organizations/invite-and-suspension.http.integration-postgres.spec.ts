@@ -474,7 +474,17 @@ describe('integration-real-postgres: team invitations and suspended organization
       owner.access,
     );
     expect(removed.status).toBe(200);
-    const r = await http('POST', `/public/invitations/${fresh}/accept`, me.access, {});
+    /*
+      Removal ends the sessions of somebody on no other team (existing rule), so sign in again.
+      Token times are whole seconds, so the removal is moved a few seconds back first; otherwise
+      a sign-in in the same second still counts as "before the removal".
+    */
+    await db!.organizationMember.update({
+      where: { id: member!.id },
+      data: { updatedAt: new Date(Date.now() - 5000) },
+    });
+    const again = await login(email('invitee2'));
+    const r = await http('POST', `/public/invitations/${fresh}/accept`, again.access, {});
     expect([404, 409]).toContain(r.status);
     expect((await memberRow(teamOrg, ids.invitee2))!.status).toBe('REMOVED');
   });

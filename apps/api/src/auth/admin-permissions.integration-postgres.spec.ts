@@ -80,7 +80,7 @@ describe('integration-real-postgres: admin permissions', () => {
         afterCommit: () => undefined,
       } as never,
       // Only reached by inviteStaff, which this suite does not exercise.
-      { issueInvitation: async () => 'http://localhost:3001/invite/unused' } as never,
+      { issueInvitation: async () => 'SENT' } as never,
     );
 
     superId = (

@@ -6,6 +6,7 @@ import { Test } from '@nestjs/testing';
 import * as bcrypt from 'bcryptjs';
 import { QrService } from '../../tickets/qr.service';
 import { AllExceptionsFilter } from '../../common/all-exceptions.filter';
+import { EmailChannel } from '../../notifications/channels/email.channel';
 
 /**
  * integration-real-postgres, whole app over HTTP, offline check-in ON: taking somebody off the
@@ -101,15 +102,40 @@ describe('integration-real-postgres: removing a member revokes their check-in de
     return { access: r.data.accessToken as string, refresh: r.data.refreshToken as string };
   };
 
-  /** Invite over HTTP as the owner, accept the emailed link over HTTP, sign in. */
+  /*
+    The invitee's mailbox. Since 2026-10-26 an invitation link reaches ONLY the invitee, by
+    email (the inviter's response no longer carries it), and accepting needs the invitee's own
+    session with a proved email. So the test reads the link and the code from here, as a
+    person reads their inbox.
+  */
+  const mails: { toEmail: string; type: string; payload?: Record<string, unknown> }[] = [];
+  const lastMailTo = (to: string, type: string) =>
+    [...mails].reverse().find((m) => m.toEmail === to && m.type === type);
+  const inviteTokenFor = (to: string) =>
+    String(lastMailTo(to, 'TEAM_INVITATION')?.payload?.link ?? '')
+      .split('/')
+      .pop()!;
+  const emailCodeFor = (to: string) =>
+    String(lastMailTo(to, 'EMAIL_VERIFICATION_CODE')?.payload?.code ?? '');
+
+  /**
+   * Invite over HTTP as the owner; then, as the invitee, claim the account the invitation made
+   * (code from the mailbox, a password), sign in, and accept the emailed link with that session.
+   */
   async function inviteAndAccept(email: string, role: string) {
     const inv = await http('POST', `/organizations/${orgId}/members`, ownerToken, { email, role });
     expect(inv.status).toBe(201);
-    const inviteToken = String(inv.data.inviteUrl).split('/').pop()!;
-    const acc = await http('POST', `/public/invitations/${inviteToken}/accept`, undefined, {
+    const inviteToken = inviteTokenFor(email);
+    const ask = await http('POST', `/public/invitations/${inviteToken}/account/request-code`);
+    expect(ask.status).toBeLessThan(300);
+    const claim = await http('POST', `/public/invitations/${inviteToken}/account`, undefined, {
+      code: emailCodeFor(email),
       password: PASSWORD,
       fullName: 'Door Person',
     });
+    expect(claim.status).toBeLessThan(300);
+    const first = await login(email);
+    const acc = await http('POST', `/public/invitations/${inviteToken}/accept`, first.access, {});
     expect(acc.status).toBeLessThan(300);
     return { memberId: inv.data.id as string, ...(await login(email)) };
   }
@@ -205,6 +231,11 @@ describe('integration-real-postgres: removing a member revokes their check-in de
     // imported, so a static import would freeze the flag at its .env value (off).
     const { AppModule } = await import('../../app.module');
 
+    // Mail is captured, not sent (see the mailbox above).
+    jest.spyOn(EmailChannel.prototype, 'deliver').mockImplementation(async (m) => {
+      mails.push(m as never);
+      return { provider: 'ses' };
+    });
     const mod = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = mod.createNestApplication();
     app.setGlobalPrefix('api');
@@ -288,6 +319,7 @@ describe('integration-real-postgres: removing a member revokes their check-in de
   }, 180_000);
 
   afterAll(async () => {
+    jest.restoreAllMocks();
     if (previousFlag === undefined) delete process.env.OFFLINE_CHECKIN_ENABLED;
     else process.env.OFFLINE_CHECKIN_ENABLED = previousFlag;
     if (db && available) {
@@ -442,8 +474,16 @@ describe('integration-real-postgres: removing a member revokes their check-in de
     expect(inv.data.id).toBe(door.memberId); // the same seat row, reused
     expect((await deviceRow(door.deviceId)).status).toBe('REVOKED');
 
-    const inviteToken = String(inv.data.inviteUrl).split('/').pop()!;
-    const acc = await http('POST', `/public/invitations/${inviteToken}/accept`, undefined, {});
+    // They already have an account (and a proved email): sign in, then accept the new link.
+    await nextSecond();
+    const returning = await login(doorEmail);
+    const inviteToken = inviteTokenFor(doorEmail);
+    const acc = await http(
+      'POST',
+      `/public/invitations/${inviteToken}/accept`,
+      returning.access,
+      {},
+    );
     expect(acc.status).toBeLessThan(300);
     await nextSecond();
     const back = await login(doorEmail);

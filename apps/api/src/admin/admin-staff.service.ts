@@ -239,8 +239,17 @@ export class AdminStaffService {
     });
 
     await this.grantAdminRole(actor, user.id, permissions);
-    // The ADMIN console: a back-office invitee has no business in the organizer app.
-    const inviteUrl = await this.invitations.issueInvitation(user.id, actor.id, undefined, 'admin');
+    /*
+      The ADMIN console: a back-office invitee has no business in the organizer app. Emailed to
+      the invitee only - the inviting administrator is told whether it left, never the link
+      (owner decision, 2026-10-26: whoever invites must not hold the acceptance credential).
+    */
+    const invitationEmail = await this.invitations.issueInvitation(
+      user.id,
+      actor,
+      undefined,
+      'admin',
+    );
 
     await this.audit.record({
       actorUserId: actor.id,
@@ -250,7 +259,7 @@ export class AdminStaffService {
       metadata: { email: normalised, permissions },
     });
 
-    return { id: user.id, email: normalised, inviteUrl };
+    return { id: user.id, email: normalised, invitationEmail };
   }
 
   /** Remove back-office access entirely: the role and every capability with it. */

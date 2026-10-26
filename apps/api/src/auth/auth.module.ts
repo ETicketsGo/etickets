@@ -29,6 +29,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
     AuthHandoffService,
     EmailVerificationService,
   ],
-  exports: [AuthService, MfaService],
+  // EmailVerificationService: a team invitation is accepted only once the email is proved.
+  exports: [AuthService, MfaService, EmailVerificationService],
 })
 export class AuthModule {}

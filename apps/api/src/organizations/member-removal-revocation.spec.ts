@@ -40,6 +40,11 @@ function build(opts: {
       updateMany: jest.fn().mockResolvedValue({ count: (opts.activations ?? []).length }),
     },
     refreshToken: { updateMany: jest.fn().mockResolvedValue({ count: 2 }) },
+    // A pending invitation is withdrawn with the seat; these members have none.
+    accountInvitation: {
+      findFirst: jest.fn().mockResolvedValue(null),
+      update: jest.fn(),
+    },
   };
   const prisma = {
     organizationMember: {
