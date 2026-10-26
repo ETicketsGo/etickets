@@ -572,6 +572,14 @@ export class NotificationService {
     });
 
     const summary: DispatchSummary = { sent: 0, failed: 0, retried: 0 };
+    /*
+      Every per-row write below is `updateMany` on the row id, not `update`. A row can vanish
+      between the read above and the write (an account deletion purging its notifications, or
+      another process): `update` then throws "Record to update not found" and ABORTED THE WHOLE
+      SWEEP, so every other due message waited for the next tick. `updateMany` writes the same
+      data and simply matches nothing. Seen as a flaky CI failure (notification-atomicity), the
+      same race a busy worker can hit.
+    */
     for (const row of due) {
       const key = row.channel as ChannelKey;
       const channel = this.channels.resolve(row.channel);
@@ -626,7 +634,7 @@ export class NotificationService {
               ?.notAttempted(skipId, OutcomeClass.POLICY_SUPPRESSED, 'destination_suppressed')
               .catch(() => undefined);
           }
-          await this.prisma.notification.update({
+          await this.prisma.notification.updateMany({
             where: { id: row.id },
             data: { status: NotificationStatus.SKIPPED, lastError: 'destination_suppressed' },
           });
@@ -706,7 +714,7 @@ export class NotificationService {
           : logged
             ? NotificationStatus.LOGGED
             : NotificationStatus.SENT;
-        await this.prisma.notification.update({
+        await this.prisma.notification.updateMany({
           where: { id: row.id },
           data: {
             status,
@@ -771,7 +779,7 @@ export class NotificationService {
         */
         const permanent = !isRetryableFailure(failureClass);
         const failed = permanent || attempts >= maxAttempts;
-        await this.prisma.notification.update({
+        await this.prisma.notification.updateMany({
           where: { id: row.id },
           data: {
             attempts,
