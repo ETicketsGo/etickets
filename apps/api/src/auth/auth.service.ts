@@ -23,6 +23,7 @@ import { NotificationType } from '@eticketsgo/shared-types';
 import type { AccessTokenPayload } from './jwt.strategy';
 import { MfaService, type MfaBinding } from './mfa/mfa.service';
 import { LoginBackoff } from './login-backoff';
+import { revokeHandoffsForUser } from './handoff-revocation';
 
 interface RequestMeta {
   userAgent?: string;
@@ -490,6 +491,20 @@ export class AuthService {
     await this.prisma.refreshToken
       .updateMany({ where: { tokenHash, revokedAt: null }, data: { revokedAt: new Date() } })
       .catch(() => undefined);
+    /*
+      A console handoff code minted from this account is revoked with the session. It lives a
+      minute at most, but "I signed out" must mean nothing signed in behind it - not even a link
+      still in flight to the organizer console.
+    */
+    try {
+      const row = await this.prisma.refreshToken.findUnique({
+        where: { tokenHash },
+        select: { userId: true },
+      });
+      if (row) await revokeHandoffsForUser(this.prisma, row.userId);
+    } catch {
+      // Sign-out never fails on this: the refresh token above is what ends the session.
+    }
   }
 
   /**
@@ -504,6 +519,7 @@ export class AuthService {
       where: { userId, revokedAt: null },
       data: { revokedAt: new Date() },
     });
+    await revokeHandoffsForUser(this.prisma, userId);
     await this.audit.record({
       actorUserId: userId,
       action: 'AUTH_LOGOUT_ALL',
@@ -591,6 +607,22 @@ export class AuthService {
       );
     }
     // The same gate as the password route: a phone code must not be a way round the second factor.
+    return this.signInOrChallenge(user, meta);
+  }
+
+  /**
+   * Complete a console handoff, once its one-time code has been spent (see AuthHandoffService).
+   *
+   * The same gate as every other sign-in, deliberately: a suspended account gets nothing, and a
+   * back-office account gets its second-factor challenge instead of tokens. A handoff can never
+   * be a way round the second factor, any more than a phone code can.
+   */
+  async completeHandoffSignIn(
+    userId: string,
+    meta: RequestMeta,
+  ): Promise<AuthTokens | MfaChallengeResponse> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw accountCannotSignIn();
     return this.signInOrChallenge(user, meta);
   }
 
@@ -795,6 +827,7 @@ export class AuthService {
         where: { userId: row.userId, revokedAt: null },
         data: { revokedAt: new Date() },
       });
+      await revokeHandoffsForUser(tx, row.userId);
 
       /*
         An unclaimed invitation is completed by the same act.

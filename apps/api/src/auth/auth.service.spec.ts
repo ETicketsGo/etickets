@@ -100,6 +100,7 @@ function setup(users: Partial<UserRow>[] = [{}]) {
       }),
     },
     passwordResetToken: { updateMany: jest.fn(), create: jest.fn() },
+    authHandoff: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
     $transaction: jest.fn(async (fn: (tx: unknown) => Promise<unknown>): Promise<unknown> =>
       fn(prisma),
     ),
@@ -363,6 +364,30 @@ describe('AuthService.logoutAll', () => {
     expect(live('u2')).toHaveLength(1);
     expect(audit.record).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'AUTH_LOGOUT_ALL', ip: '203.0.113.7' }),
+    );
+  });
+
+  it('also revokes any organizer console handoff code the account has in flight', async () => {
+    const { service, prisma } = setup();
+    await service.logoutAll('u1', meta);
+    expect((prisma.authHandoff as { updateMany: jest.Mock }).updateMany).toHaveBeenCalledWith({
+      where: { userId: 'u1', consumedAt: null, revokedAt: null },
+      data: { revokedAt: expect.any(Date) },
+    });
+  });
+});
+
+describe('AuthService.logout', () => {
+  it('revokes the session and the handoff codes of the account it belonged to', async () => {
+    const { service, prisma, tokens } = setup();
+    const { refreshToken } = (await service.login(
+      { email: 'u1@example.com', password: PASSWORD },
+      meta,
+    )) as { refreshToken: string };
+    await service.logout(refreshToken);
+    expect(tokens.every((t) => t.revokedAt)).toBe(true);
+    expect((prisma.authHandoff as { updateMany: jest.Mock }).updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ userId: 'u1' }) }),
     );
   });
 });

@@ -108,6 +108,8 @@ export const ErrorCodes = {
   SMS_UNDELIVERABLE: 'SMS_UNDELIVERABLE',
   /** Text messaging is not working right now. Says nothing about which provider or why. */
   SMS_UNAVAILABLE: 'SMS_UNAVAILABLE',
+  /** Email cannot be sent right now (no real provider, or it refused). Same rule as SMS. */
+  EMAIL_UNAVAILABLE: 'EMAIL_UNAVAILABLE',
   /**
    * A payout's allocations did not add up to the payout. Our own ledger disagreed with itself,
    * so no payout was written.

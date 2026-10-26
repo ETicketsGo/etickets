@@ -24,7 +24,8 @@ import { BRAND_LINK } from '@/components/booking-brand';
 import { Link } from '@/i18n/navigation';
 import { useMounted } from '@/lib/use-mounted';
 
-const ORGANIZER_URL = process.env.NEXT_PUBLIC_ORGANIZER_URL ?? 'http://localhost:3001';
+import { ORGANIZER_LOGIN_URL, openOrganizerConsole } from '@/lib/organizer-console';
+import { OrganizerEmailStep } from '@/components/organizer-email-step';
 
 /**
  * Turn a customer account into an organizer account.
@@ -111,9 +112,10 @@ export default function BecomeOrganizerPage() {
       ),
   });
 
-  const consoleHref = `${ORGANIZER_URL}/login${
+  const consoleHref = `${ORGANIZER_LOGIN_URL}${
     user?.email ? `?email=${encodeURIComponent(user.email)}` : ''
   }`;
+  const [opening, setOpening] = useState(false);
 
   if (created || (mine.data && mine.data.length > 0)) {
     return (
@@ -122,13 +124,26 @@ export default function BecomeOrganizerPage() {
           <h1 className="text-balance font-brand-display text-brand-d2 text-brand-ink">
             {created ? t('readyTitle') : t('alreadyTitle')}
           </h1>
-          <p className="text-brand-ui text-brand-ink-2">{t('separateSignIn')}</p>
-          {/* A plain anchor, not next/link: this leaves the app for a different origin, and a
-            client-side navigation would not carry the session there anyway. */}
+          <p className="text-brand-ui text-brand-ink-2">{t('consoleSameAccount')}</p>
+          {/*
+            A phone-only organizer has no email for organizer messages - approval, payouts - to
+            reach. Asked here, proved by a code, never a password; skippable.
+          */}
+          {user && !user.email ? <OrganizerEmailStep /> : null}
+          {/* A plain anchor, not next/link: this leaves the app for a different origin. The
+            click carries THIS session across with a one-time code (lib/organizer-console.ts);
+            the href is the console's own sign-in, for a new tab or no script. */}
           <a
             href={consoleHref}
             data-testid="open-organizer-console"
+            aria-busy={opening || undefined}
             className={`${brandButtonClasses('primary', 'md')} w-full`}
+            onClick={(e) => {
+              if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+              e.preventDefault();
+              setOpening(true);
+              void openOrganizerConsole();
+            }}
           >
             {t('openConsole')}
           </a>

@@ -261,6 +261,18 @@ const BUILDERS: Partial<Record<NotificationType, Builder>> = {
     }),
   }),
 
+  /*
+    A code proving an address. Like the reset link it is a live credential, so it is in the BODY
+    only - never the subject, which a locked screen shows.
+  */
+  [NotificationType.EMAIL_VERIFICATION_CODE]: (l, p) => ({
+    subject: t(l, 'emails.EMAIL_VERIFICATION_CODE.subject'),
+    body: t(l, 'emails.EMAIL_VERIFICATION_CODE.body', {
+      code: str(p, 'code'),
+      minutes: str(p, 'minutes'),
+    }),
+  }),
+
   [NotificationType.PASSWORD_CHANGED]: (l) => ({
     subject: t(l, 'emails.PASSWORD_CHANGED.subject'),
     body: t(l, 'emails.PASSWORD_CHANGED.body'),

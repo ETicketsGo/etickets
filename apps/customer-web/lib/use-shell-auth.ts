@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useIsAuthenticated } from '@eticketsgo/web-kit';
+import { useQueryClient } from '@tanstack/react-query';
+import { api as wk, useIsAuthenticated } from '@eticketsgo/web-kit';
 import { useRouter } from '@/i18n/navigation';
 import { tokenStore } from '@/lib/api';
 import { currentUserId } from '@/lib/offline/identity';
@@ -42,10 +43,25 @@ export function useShellAuth(initialSignedIn: boolean): { authed: boolean; known
  */
 export function useSignOut(): () => void {
   const router = useRouter();
+  const queryClient = useQueryClient();
   return () => {
     const uid = currentUserId();
     if (uid) void purgeUser(uid);
+    /*
+      Ended on the SERVER too. This used to clear the browser's copy only, so the refresh token
+      stayed valid until it expired - and with it any organizer console handoff code this account
+      had in flight. `POST /auth/logout` revokes both. Fire-and-forget: signing out must never
+      wait on, or fail with, the network.
+    */
+    const refresh = tokenStore.refresh;
+    if (refresh) void wk.auth.logout(refresh).catch(() => undefined);
     tokenStore.clear();
+    /*
+      The cached "who am I" and "my organizations" answers belong to the person who just left.
+      Kept, the next person to sign in on this device could see the previous account's name and
+      organization in the menu for up to a minute.
+    */
+    queryClient.clear();
     router.push('/');
   };
 }

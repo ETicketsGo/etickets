@@ -14,7 +14,7 @@
 
 ARG NEXT_PUBLIC_API_URL=http://localhost:4000/api
 ARG NEXT_PUBLIC_ORGANIZER_URL=http://localhost:3001
-ARG NEXT_PUBLIC_SITE_URL=https://eticketsgo.com
+ARG NEXT_PUBLIC_SITE_URL=https://www.eticketsgo.com
 # Empty by default: absent means production, where the test-environment notice must not
 # appear. QA and UAT pass their own value.
 ARG NEXT_PUBLIC_APP_ENV=
