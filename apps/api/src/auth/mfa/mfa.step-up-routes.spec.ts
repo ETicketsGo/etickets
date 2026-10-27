@@ -3,6 +3,7 @@ import { AdminStaffController } from '../../admin/admin-staff.controller';
 import { SettlementController } from '../../payments/settlement/settlement.controller';
 import { MFA_RECENT_KEY } from '../../common/decorators';
 import { AdminBillingController } from '../../billing/billing-admin.controller';
+import { PlatformFeePoliciesController } from '../../admin/platform-fee-policies.controller';
 
 /*
   Which actions demand a fresh second-factor check. A list in a test is deliberate: dropping
@@ -34,6 +35,12 @@ const STEP_UP: Array<[string, new (...a: never[]) => unknown, string[]]> = [
       'grantOverride',
       'revokeOverride',
     ],
+  ],
+  // A fee waiver or override changes what buyers pay from the next sale on.
+  [
+    'platform fee policies',
+    PlatformFeePoliciesController,
+    ['createPlatformFeePolicy', 'deactivatePlatformFeePolicy'],
   ],
 ];
 

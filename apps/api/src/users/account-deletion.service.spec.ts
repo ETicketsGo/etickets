@@ -10,9 +10,17 @@ function makeService(
   opts: {
     user?: unknown;
     ownerCounts?: { organizationId: string; _count: { _all: number } }[];
+    consentRows?: unknown[];
   } = {},
 ) {
   const tx = {
+    organizerFollow: { deleteMany: jest.fn() },
+    organizerNotificationPreference: { deleteMany: jest.fn() },
+    communicationConsent: {
+      findMany: jest.fn().mockResolvedValue(opts.consentRows ?? []),
+      create: jest.fn(),
+      updateMany: jest.fn(),
+    },
     refreshToken: { deleteMany: jest.fn() },
     pushSubscription: { deleteMany: jest.fn() },
     userDevice: { deleteMany: jest.fn() },
@@ -31,7 +39,9 @@ function makeService(
       findUnique: jest
         .fn()
         .mockResolvedValue(
-          opts.user === undefined ? { id: 'u_1', status: 'ACTIVE', memberships: [] } : opts.user,
+          opts.user === undefined
+            ? { id: 'u_1', email: 'asha@example.test', status: 'ACTIVE', memberships: [] }
+            : opts.user,
         ),
     },
     organizationMember: { groupBy: jest.fn().mockResolvedValue(opts.ownerCounts ?? []) },
@@ -72,6 +82,60 @@ describe('what is removed', () => {
     await service.deleteMe('u_1');
 
     expect(tx.organizationMember.deleteMany).toHaveBeenCalledWith({ where: { userId: 'u_1' } });
+  });
+});
+
+describe('organizer follows and consent', () => {
+  it('deletes follows and per-organizer preferences', async () => {
+    const { service, tx } = makeService();
+
+    await service.deleteMe('u_1');
+
+    expect(tx.organizerFollow.deleteMany).toHaveBeenCalledWith({ where: { userId: 'u_1' } });
+    expect(tx.organizerNotificationPreference.deleteMany).toHaveBeenCalledWith({
+      where: { userId: 'u_1' },
+    });
+  });
+
+  it('closes an open organizer email grant, then unlinks the evidence from the account', async () => {
+    const at = (s: number) => new Date(Date.UTC(2026, 9, 1, 0, 0, s));
+    const row = (purpose: string, granted: boolean, second: number, organizationId = 'org_a') => ({
+      purpose,
+      organizationId,
+      channel: 'email',
+      granted,
+      source: 'x',
+      policyVersion: null,
+      createdAt: at(second),
+    });
+    const { service, tx } = makeService({
+      consentRows: [
+        row('ORGANIZER_UPDATES', true, 1),
+        // Already withdrawn: no second withdrawal is written for it.
+        row('OFFERS', true, 1),
+        row('OFFERS', false, 2),
+      ],
+    });
+
+    await service.deleteMe('u_1');
+
+    expect(tx.communicationConsent.create).toHaveBeenCalledTimes(1);
+    expect(tx.communicationConsent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        userId: null,
+        organizationId: 'org_a',
+        purpose: 'ORGANIZER_UPDATES',
+        granted: false,
+        source: 'withdrawn-on-account-deletion',
+        // The hash of the address, never the address.
+        subjectHash: expect.stringMatching(/^[0-9a-f]{64}$/),
+      }),
+    });
+    expect(tx.communicationConsent.updateMany).toHaveBeenCalledWith({
+      where: { userId: 'u_1' },
+      data: { userId: null },
+    });
+    expect(tx.communicationConsent).not.toHaveProperty('deleteMany');
   });
 });
 

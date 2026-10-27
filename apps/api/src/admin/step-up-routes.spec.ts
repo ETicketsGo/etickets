@@ -9,6 +9,7 @@ import { PaymentOutageController } from '../payments/outage/payment-outage.contr
 import { PromotionController } from '../payments/promotion/promotion.controller';
 import { AdminOrganizationsController } from '../organizations/organizations.controller';
 import { AdminBillingController } from '../billing/billing-admin.controller';
+import { PlatformFeePoliciesController } from './platform-fee-policies.controller';
 
 /*
   The staff writes that now also need a fresh second-factor check, beside the ones listed in
@@ -38,6 +39,11 @@ const STEP_UP: Array<[string, new (...a: never[]) => unknown, string[]]> = [
       'supersedeCinemaPricingPolicy',
       'disableCinemaPricingPolicy',
     ],
+  ],
+  [
+    'platform fee policies',
+    PlatformFeePoliciesController,
+    ['createPlatformFeePolicy', 'deactivatePlatformFeePolicy'],
   ],
   [
     'payment config',
@@ -80,6 +86,7 @@ const STEP_UP: Array<[string, new (...a: never[]) => unknown, string[]]> = [
 /** Reads on the same controllers: a fresh code must NOT be demanded to look. */
 const NOT_STEP_UP: Array<[new (...a: never[]) => unknown, string[]]> = [
   [AdminController, ['feeRules', 'taxRules', 'cinemaPricingPolicies']],
+  [PlatformFeePoliciesController, ['list', 'detail', 'preview']],
   [PaymentAdminController, ['overview', 'health']],
   [PaymentOutageController, ['status']],
   [AdminOrganizationsController, ['list', 'reviewSignals']],

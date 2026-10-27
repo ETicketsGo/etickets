@@ -64,6 +64,9 @@ const BRAND_FILES = [
   'components/assign-attendee-dialog.tsx',
   'components/push-toggle.tsx',
   'components/sign-in-required.tsx',
+  // Following organizers and the email unsubscribe link (workstream 1).
+  'components/follow-button.tsx',
+  'app/[locale]/unsubscribe/[token]/page.tsx',
   /*
     The marketing, legal and help pages (U1): the last storefront pages on the old blue
     MarketingShell, and the shared pieces they are built from.

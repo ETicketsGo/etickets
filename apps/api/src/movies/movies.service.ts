@@ -632,6 +632,7 @@ export class PublicMoviesService {
                   country: session.event.venue.country,
                   region: session.event.venue.region,
                 },
+                { eventId: session.event.id, organizationId: session.event.organizationId },
               ),
             ] as const,
         ),

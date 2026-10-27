@@ -2,22 +2,20 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { useParams } from 'next/navigation';
-import { useEffect, useState } from 'react';
-import { BadgeCheck, CalendarDays, Globe, Mail, Phone } from 'lucide-react';
-import { apiAssetUrl, BrandButton, useToast } from '@eticketsgo/web-kit';
+import { useTranslations } from 'next-intl';
+import { BadgeCheck, CalendarDays, Globe, Mail, Phone, Users } from 'lucide-react';
+import { apiAssetUrl } from '@eticketsgo/web-kit';
 import { api } from '@/lib/api';
 import { useFormat } from '@/lib/format';
 import { EventTile } from '@/components/home/parts';
 import { BRAND_WRAP, BrandEmpty, BrandPage } from '@/components/storefront-brand';
 import { MK_LINK, MK_PRIMARY } from '@/components/marketing/kit';
-
-const FOLLOW_KEY = 'etg_following';
+import { FollowButton } from '@/components/follow-button';
 
 export default function OrganizerProfilePage() {
   const { dateOnly } = useFormat();
   const { id } = useParams<{ id: string }>();
-  const toast = useToast();
-  const [following, setFollowing] = useState(false);
+  const tf = useTranslations('storefront.follow');
 
   const {
     data: org,
@@ -28,28 +26,6 @@ export default function OrganizerProfilePage() {
     queryKey: ['organizer', id],
     queryFn: () => api.organizerProfile(id),
   });
-
-  useEffect(() => {
-    try {
-      const list = JSON.parse(localStorage.getItem(FOLLOW_KEY) ?? '[]') as string[];
-      setFollowing(list.includes(id));
-    } catch {
-      /* ignore */
-    }
-  }, [id]);
-
-  const toggleFollow = () => {
-    try {
-      const list = JSON.parse(localStorage.getItem(FOLLOW_KEY) ?? '[]') as string[];
-      const next = list.includes(id) ? list.filter((x) => x !== id) : [...list, id];
-      localStorage.setItem(FOLLOW_KEY, JSON.stringify(next));
-      const nowFollowing = next.includes(id);
-      setFollowing(nowFollowing);
-      toast.push(nowFollowing ? 'Following' : 'Unfollowed', 'success');
-    } catch {
-      /* ignore */
-    }
-  };
 
   if (isError)
     return (
@@ -133,15 +109,19 @@ export default function OrganizerProfilePage() {
                   Organizer since {dateOnly(org.memberSince)} · {org.eventCount} live event
                   {org.eventCount === 1 ? '' : 's'}
                 </p>
+                {typeof org.followerCount === 'number' && (
+                  <p
+                    className="mt-1 flex items-center gap-1.5 text-brand-meta text-brand-ink-2"
+                    data-testid="follower-count"
+                  >
+                    <Users className="h-3.5 w-3.5" aria-hidden />
+                    {tf('followerCount', { count: org.followerCount })}
+                  </p>
+                )}
               </div>
             </div>
-            <BrandButton
-              variant={following ? 'secondary' : 'primary'}
-              onClick={toggleFollow}
-              aria-pressed={following}
-            >
-              {following ? 'Following' : 'Follow'}
-            </BrandButton>
+            {/* Real follows, on the account. Following never turns on email. */}
+            <FollowButton organizationId={org.id} organizationName={org.name} />
           </div>
           {(org.description || socials.length > 0 || org.contactEmail || org.contactPhone) && (
             <div className="space-y-3 border-t border-brand-line px-6 py-5">
@@ -190,10 +170,7 @@ export default function OrganizerProfilePage() {
               ))}
             </div>
           ) : (
-            <BrandEmpty
-              title="No live events right now"
-              hint="Follow to hear when new events go on sale."
-            />
+            <BrandEmpty title="No live events right now" hint={tf('emptyEventsHint')} />
           )}
         </section>
       </div>

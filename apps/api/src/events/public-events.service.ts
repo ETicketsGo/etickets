@@ -328,6 +328,7 @@ export class PublicEventsService {
             e.feeMode as FeeMode,
             currency,
             { country: e.venue.country, region: e.venue.region },
+            { eventId: e.id, organizationId: e.organizationId },
           ),
           currency,
         };
@@ -542,6 +543,8 @@ export class PublicEventsService {
         instagramUrl: true,
         facebookUrl: true,
         verified: true,
+        // A count only. Who follows an organizer is never part of a public response.
+        _count: { select: { followers: true } },
       },
     });
     if (!org) {
@@ -588,6 +591,7 @@ export class PublicEventsService {
                 e.feeMode as FeeMode,
                 e.sessions[0]?.ticketTypes[0]?.currency ?? 'INR',
                 { country: e.venue.country, region: e.venue.region },
+                { eventId: e.id, organizationId: e.organizationId },
               ),
             ] as const,
         ),
@@ -600,6 +604,7 @@ export class PublicEventsService {
       verified: org.verified,
       memberSince: org.createdAt,
       eventCount: events.length,
+      followerCount: org._count?.followers ?? 0,
       description: org.description,
       logoUrl: org.logoUrl,
       coverImageUrl: org.coverImageUrl,

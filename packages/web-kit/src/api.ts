@@ -1420,6 +1420,75 @@ export const api = {
       }),
   },
 
+  /**
+   * Following organizers (the signed-in person's own follows). Following grants NO email
+   * consent: the email switches live on the preferences and write their own consent rows.
+   */
+  following: {
+    list: (params: { page?: number; pageSize?: number } = {}) =>
+      request<FollowingList>(`/me/following${qs(params)}`),
+    status: (organizationId: string) =>
+      request<FollowStatus>(`/me/following/${encodeURIComponent(organizationId)}`),
+    follow: (organizationId: string, source: FollowSource = 'ORGANIZER_PAGE') =>
+      request<FollowStatus>(`/me/following/${encodeURIComponent(organizationId)}`, {
+        method: 'PUT',
+        body: JSON.stringify({ source }),
+      }),
+    unfollow: (organizationId: string) =>
+      request<FollowStatus>(`/me/following/${encodeURIComponent(organizationId)}`, {
+        method: 'DELETE',
+      }),
+    preferences: (organizationId: string) =>
+      request<FollowPreferences>(`/me/following/${encodeURIComponent(organizationId)}/preferences`),
+    setPreferences: (
+      organizationId: string,
+      body: Partial<Omit<FollowPreferences, 'organizationId'>>,
+    ) =>
+      request<FollowPreferences>(
+        `/me/following/${encodeURIComponent(organizationId)}/preferences`,
+        { method: 'PUT', body: JSON.stringify(body) },
+      ),
+  },
+
+  /** Marketing email from ETicketsGo, email from each organizer, and the full history. */
+  communicationConsent: {
+    get: () => request<CommunicationConsentView>('/me/communication-consent'),
+    setMarketingEmail: (granted: boolean) =>
+      request<CommunicationConsentView>('/me/communication-consent/marketing-email', {
+        method: 'PUT',
+        body: JSON.stringify({ granted }),
+      }),
+    setOrganizer: (organizationId: string, purpose: OrganizerConsentPurpose, granted: boolean) =>
+      request<CommunicationConsentView>(
+        `/me/communication-consent/organizers/${encodeURIComponent(organizationId)}`,
+        { method: 'PUT', body: JSON.stringify({ purpose, granted }) },
+      ),
+  },
+
+  /**
+   * The signed unsubscribe link. No session: the signature is the authority. `preview`
+   * changes nothing (mail scanners open links); `confirm` unsubscribes.
+   */
+  unsubscribe: {
+    preview: (token: string) =>
+      request<UnsubscribePreview>(`/public/unsubscribe/${encodeURIComponent(token)}`, {
+        auth: false,
+      }),
+    confirm: (token: string) =>
+      request<UnsubscribePreview & { unsubscribed: true }>(
+        `/public/unsubscribe/${encodeURIComponent(token)}`,
+        { method: 'POST', auth: false },
+      ),
+  },
+
+  /** The organizer's audience as counts. No follower is ever named. */
+  audience: {
+    summary: (organizationId: string) =>
+      request<AudienceSummary>(
+        `/organizations/${encodeURIComponent(organizationId)}/audience/summary`,
+      ),
+  },
+
   venues: {
     create: (body: {
       organizationId: string;
@@ -3670,6 +3739,8 @@ export interface BookingDetail {
     refundCutoffHours?: number;
     /** The organizer's own words about refunds, when they wrote any. */
     refundPolicy?: string | null;
+    /** Who ran it. The confirmation offers to follow them. */
+    organization?: { id: string; name: string };
   };
   eventSession: { id: string; startsAt: string };
   items: {
@@ -7741,7 +7812,101 @@ export interface OrganizerProfile {
   twitterUrl?: string | null;
   instagramUrl?: string | null;
   facebookUrl?: string | null;
+  /** How many people follow this organizer. A count only; never who. */
+  followerCount?: number;
   events: PublicEventCard[];
+}
+
+// ─── Following organizers and communication consent ───
+
+export type FollowSource =
+  'ORGANIZER_PAGE' | 'BOOKING_CONFIRMATION' | 'EVENT_PAGE' | 'LOCAL_MIGRATION';
+export type OrganizerConsentPurpose = 'ORGANIZER_UPDATES' | 'EARLY_ACCESS' | 'OFFERS';
+
+export interface FollowStatus {
+  organizationId: string;
+  following: boolean;
+  followedAt?: string | null;
+  created?: boolean;
+}
+
+export interface FollowPreferences {
+  organizationId: string;
+  /** In the account. On by default: the person asked by following. */
+  newEvents: boolean;
+  /** Email about presales. Off by default. */
+  earlyAccess: boolean;
+  /** Email with offers. Off by default. */
+  offers: boolean;
+  cadence: 'INSTANT' | 'WEEKLY_DIGEST';
+  /** Email about new events. Off by default. */
+  emailUpdates: boolean;
+}
+
+export interface FollowedOrganizer {
+  followedAt: string;
+  organization: {
+    id: string;
+    name: string;
+    logoUrl: string | null;
+    verified: boolean;
+    memberSince: string;
+    eventCount: number;
+  };
+  preferences: FollowPreferences;
+}
+
+export interface FollowingList {
+  items: FollowedOrganizer[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface CommunicationConsentView {
+  marketingEmail: { granted: boolean; decidedAt: string | null };
+  organizers: {
+    organizationId: string;
+    name: string;
+    following: boolean;
+    purposes: Record<OrganizerConsentPurpose, { granted: boolean; decidedAt: string | null }>;
+  }[];
+  history: {
+    purpose: string;
+    organizationId: string | null;
+    organizationName: string | null;
+    channel: string;
+    granted: boolean;
+    source: string;
+    createdAt: string;
+  }[];
+}
+
+export interface UnsubscribePreview {
+  scope: 'global' | 'organizer';
+  purposes: string[];
+  organization: { id: string; name: string } | null;
+  emailMask: string;
+}
+
+export interface AudienceSeriesPoint {
+  start: string;
+  newFollowers: number;
+  followers: number;
+}
+
+export interface AudienceSummary {
+  organizationId: string;
+  generatedAt: string;
+  followers: { total: number; new7d: number; new30d: number };
+  eligibleSubscribers: number;
+  returningBuyers: number;
+  growth: { daily: AudienceSeriesPoint[]; weekly: AudienceSeriesPoint[] };
+  cities: {
+    buckets: { city: string; country: string | null; followers: number }[];
+    hiddenBuckets: number;
+    threshold: number;
+  };
 }
 
 // ─── Internal operations console ───
