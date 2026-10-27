@@ -1223,7 +1223,17 @@
     "followerCount": "{count, plural, one {# follower} other {# followers}}",
     "emptyEventsHint": "Follow them to keep them in your account.",
     "confirmationTitle": "Follow {name}",
-    "confirmationLead": "See their events in your account. We do not email you unless you say yes."
+    "confirmationLead": "See their events in your account. We do not email you unless you say yes.",
+    "manageLabel": "Following {name}. Manage notifications or unfollow.",
+    "followedTitle": "You are following {name}",
+    "followedLead": "Choose what you hear from them. You can change this at any time.",
+    "manageTitle": "Notifications from {name}",
+    "manageLead": "Choose what you hear from them, or stop following.",
+    "unfollowAction": "Unfollow {name}",
+    "done": "Done",
+    "prefsLoading": "Loading your choices.",
+    "prefsLoadError": "We could not load your choices. Please try again.",
+    "retry": "Try again"
   },
   "unsubscribe": {
     "title": "Unsubscribe",

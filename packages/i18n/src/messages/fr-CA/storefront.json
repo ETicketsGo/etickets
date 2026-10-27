@@ -1223,7 +1223,17 @@
     "followerCount": "{count, plural, one {# abonné} other {# abonnés}}",
     "emptyEventsHint": "Suivez-le pour le garder dans votre compte.",
     "confirmationTitle": "Suivre {name}",
-    "confirmationLead": "Voyez ses événements dans votre compte. Nous ne vous écrivons pas sans votre accord."
+    "confirmationLead": "Voyez ses événements dans votre compte. Nous ne vous écrivons pas sans votre accord.",
+    "manageLabel": "Vous suivez {name}. Gérer les avis ou ne plus suivre.",
+    "followedTitle": "Vous suivez {name}",
+    "followedLead": "Choisissez ce que vous recevez. Vous pouvez changer cela à tout moment.",
+    "manageTitle": "Avis de {name}",
+    "manageLead": "Choisissez ce que vous recevez, ou arrêtez de suivre.",
+    "unfollowAction": "Ne plus suivre {name}",
+    "done": "Terminé",
+    "prefsLoading": "Chargement de vos choix.",
+    "prefsLoadError": "Nous n'avons pas pu charger vos choix. Veuillez réessayer.",
+    "retry": "Réessayer"
   },
   "unsubscribe": {
     "title": "Se désabonner",

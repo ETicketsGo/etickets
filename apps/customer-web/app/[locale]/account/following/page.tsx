@@ -5,16 +5,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
 import { BadgeCheck, ChevronDown, Users } from 'lucide-react';
 import { BRAND_FOCUS, brandButtonClasses, useToast } from '@eticketsgo/web-kit';
-import { api, type FollowPreferences, type FollowedOrganizer } from '@/lib/api';
+import { api, type FollowedOrganizer } from '@/lib/api';
 import { useFormat } from '@/lib/format';
 import { Link } from '@/i18n/navigation';
-import {
-  ACCOUNT_PANEL,
-  AccountHeading,
-  AccountPage,
-  BrandError,
-  BrandToggle,
-} from '@/components/account-brand';
+import { ACCOUNT_PANEL, AccountHeading, AccountPage, BrandError } from '@/components/account-brand';
+import { FollowPreferences } from '@/components/follow-preferences';
 import { Placeholder } from '@/components/home/parts';
 import { BrandEmpty } from '@/components/storefront-brand';
 import { BrandActionButton } from '@/components/brand-forms';
@@ -47,93 +42,6 @@ function clearLegacyFollows(): void {
   } catch {
     /* storage blocked: nothing to clear */
   }
-}
-
-function Preferences({
-  organizationId,
-  initial,
-}: {
-  organizationId: string;
-  initial: FollowPreferences;
-}) {
-  const t = useTranslations('storefront.following');
-  const qc = useQueryClient();
-  const toast = useToast();
-  const [prefs, setPrefs] = useState(initial);
-  useEffect(() => setPrefs(initial), [initial]);
-
-  const save = useMutation({
-    mutationFn: (body: Partial<Omit<FollowPreferences, 'organizationId'>>) =>
-      api.setFollowPreferences(organizationId, body),
-    onMutate: (body) => {
-      const before = prefs;
-      setPrefs({ ...prefs, ...body });
-      return { before };
-    },
-    onSuccess: (next) => {
-      setPrefs(next);
-      toast.push(t('saved'), 'success');
-      qc.invalidateQueries({ queryKey: ['following'] });
-      qc.invalidateQueries({ queryKey: ['communication-consent'] });
-    },
-    onError: (_e, _body, context) => {
-      if (context?.before) setPrefs(context.before);
-      toast.push(t('saveError'), 'error');
-    },
-  });
-
-  const row = (
-    key: 'newEvents' | 'emailUpdates' | 'earlyAccess' | 'offers',
-    label: string,
-    hint: string,
-  ) => (
-    <li className="flex items-start justify-between gap-4 py-3 first:pt-0 last:pb-0">
-      <span>
-        <span className="block text-brand-ui font-medium text-brand-ink">{label}</span>
-        <span className="block text-brand-meta text-brand-ink-2">{hint}</span>
-      </span>
-      <BrandToggle
-        checked={prefs[key]}
-        disabled={save.isPending}
-        aria-label={label}
-        onChange={(value) => save.mutate({ [key]: value })}
-      />
-    </li>
-  );
-
-  return (
-    <div className="mt-4 space-y-4 border-t border-brand-line pt-4">
-      <ul className="divide-y divide-brand-line">
-        {row('newEvents', t('prefNewEvents'), t('prefNewEventsHint'))}
-        {row('emailUpdates', t('prefEmailUpdates'), t('prefEmailUpdatesHint'))}
-        {row('earlyAccess', t('prefEarlyAccess'), t('prefEarlyAccessHint'))}
-        {row('offers', t('prefOffers'), t('prefOffersHint'))}
-      </ul>
-      <fieldset>
-        <legend className="text-brand-ui font-medium text-brand-ink">{t('cadenceLabel')}</legend>
-        <div className="mt-2 flex flex-wrap gap-x-6 gap-y-2">
-          {(['INSTANT', 'WEEKLY_DIGEST'] as const).map((cadence) => (
-            <label
-              key={cadence}
-              className="inline-flex min-h-11 items-center gap-2 text-brand-ui text-brand-ink"
-            >
-              <input
-                type="radio"
-                name={`cadence-${organizationId}`}
-                value={cadence}
-                checked={prefs.cadence === cadence}
-                disabled={save.isPending}
-                onChange={() => save.mutate({ cadence })}
-                className="h-4 w-4 accent-brand-action"
-              />
-              {cadence === 'INSTANT' ? t('cadenceInstant') : t('cadenceWeekly')}
-            </label>
-          ))}
-        </div>
-      </fieldset>
-      <p className="text-brand-meta text-brand-ink-3">{t('consentNote')}</p>
-    </div>
-  );
 }
 
 function FollowedCard({ item }: { item: FollowedOrganizer }) {
@@ -203,7 +111,11 @@ function FollowedCard({ item }: { item: FollowedOrganizer }) {
           {t('unfollow')}
         </BrandActionButton>
       </div>
-      {open && <Preferences organizationId={org.id} initial={item.preferences} />}
+      {open && (
+        <div className="mt-4 border-t border-brand-line pt-4">
+          <FollowPreferences organizationId={org.id} initial={item.preferences} />
+        </div>
+      )}
     </li>
   );
 }

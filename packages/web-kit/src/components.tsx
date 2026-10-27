@@ -1121,6 +1121,7 @@ export function Dialog({
   footer,
   size = 'md',
   brand = false,
+  sheetOnMobile = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -1147,16 +1148,39 @@ export function Dialog({
    * scrolling to read at all.
    */
   size?: 'md' | 'lg';
+  /**
+   * On a phone (below `sm`), draw the panel as a bottom sheet: full width, pinned to the
+   * bottom edge, top corners rounded, and padded clear of the gesture bar. From `sm` up it is
+   * the centred dialog as usual. Opt-in: every other caller keeps the centred panel.
+   */
+  sheetOnMobile?: boolean;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const descriptionId = useId();
   const onPanelKeyDown = useModalFocus(open, onClose, panelRef);
+  // Whole class names only: Tailwind finds classes by reading the source, not by running it.
+  const width = sheetOnMobile
+    ? size === 'lg'
+      ? 'sm:max-w-2xl'
+      : 'sm:max-w-md'
+    : size === 'lg'
+      ? 'max-w-2xl'
+      : 'max-w-md';
+  const frame = brand
+    ? `border border-brand-line bg-brand-surface font-brand-text text-brand-ink shadow-brand-overlay ${
+        sheetOnMobile ? 'rounded-t-brand-card sm:rounded-brand-card' : 'rounded-brand-card'
+      }`
+    : `border border-border bg-background-elevated shadow-lg ${
+        sheetOnMobile ? 'rounded-t-2xl sm:rounded-2xl' : 'rounded-2xl'
+      }`;
 
   return (
     <AnimatePresence>
       {open && (
         <motion.div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
+          className={`fixed inset-0 z-50 flex justify-center bg-black/40 backdrop-blur-sm ${
+            sheetOnMobile ? 'items-end sm:items-center sm:p-4' : 'items-center p-4'
+          }`}
           onClick={onClose}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -1172,11 +1196,10 @@ export function Dialog({
             tabIndex={-1}
             onKeyDown={onPanelKeyDown}
             data-brand={brand ? 'customer' : undefined}
-            className={`flex max-h-[90vh] w-full flex-col p-6 focus:outline-none ${
-              brand
-                ? 'rounded-brand-card border border-brand-line bg-brand-surface font-brand-text text-brand-ink shadow-brand-overlay'
-                : 'rounded-2xl border border-border bg-background-elevated shadow-lg'
-            } ${size === 'lg' ? 'max-w-2xl' : 'max-w-md'}`}
+            data-sheet={sheetOnMobile ? 'mobile' : undefined}
+            className={`flex max-h-[90vh] w-full flex-col p-6 focus:outline-none ${frame} ${width} ${
+              sheetOnMobile ? 'pb-[calc(1.5rem+env(safe-area-inset-bottom))] sm:pb-6' : ''
+            }`}
             onClick={(e) => e.stopPropagation()}
             initial={{ opacity: 0, scale: 0.96, y: 8 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
