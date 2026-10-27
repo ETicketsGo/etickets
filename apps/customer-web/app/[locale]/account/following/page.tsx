@@ -1,85 +1,245 @@
 'use client';
 
-import { useQueries } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
-import { BadgeCheck, ChevronRight, Users } from 'lucide-react';
-import { BRAND_FOCUS, brandButtonClasses } from '@eticketsgo/web-kit';
-import { api, type OrganizerProfile } from '@/lib/api';
+import { BadgeCheck, ChevronDown, Users } from 'lucide-react';
+import { BRAND_FOCUS, brandButtonClasses, useToast } from '@eticketsgo/web-kit';
+import { api, type FollowPreferences, type FollowedOrganizer } from '@/lib/api';
 import { useFormat } from '@/lib/format';
 import { Link } from '@/i18n/navigation';
-import { ACCOUNT_PANEL, AccountHeading, AccountPage, BrandError } from '@/components/account-brand';
+import {
+  ACCOUNT_PANEL,
+  AccountHeading,
+  AccountPage,
+  BrandError,
+  BrandToggle,
+} from '@/components/account-brand';
 import { Placeholder } from '@/components/home/parts';
 import { BrandEmpty } from '@/components/storefront-brand';
+import { BrandActionButton } from '@/components/brand-forms';
+import { BRAND_LINK } from '@/components/booking-brand';
+import { SignInRequired, isAuthFailure, useSignedIn } from '@/components/sign-in-required';
 
 /*
-  Followed organizers on the brand layer: each a flat white panel on paper with the
-  organizer's initial on an ink disc. It was a shadowed card with a blue tile. Same list.
+  The organizers this person follows, from the API.
+
+  This page used to read a list of ids from this browser's localStorage (`etg_following`), so a
+  follow existed on one device only and the server never knew. Those old local follows are
+  moved to the account once, the first time this page loads signed in, and the local key is
+  then removed. Moving them is not consent to anything: a follow turns on no email.
 */
 
-const FOLLOW_KEY = 'etg_following';
+const LEGACY_FOLLOW_KEY = 'etg_following';
 
-function readFollowing(): string[] {
+function readLegacyFollows(): string[] {
   try {
-    const list = JSON.parse(localStorage.getItem(FOLLOW_KEY) ?? '[]') as string[];
-    return Array.isArray(list) ? list : [];
+    const list = JSON.parse(localStorage.getItem(LEGACY_FOLLOW_KEY) ?? '[]') as unknown;
+    return Array.isArray(list) ? list.filter((x): x is string => typeof x === 'string') : [];
   } catch {
     return [];
   }
 }
 
-function OrganizerCard({ org }: { org: OrganizerProfile }) {
+function clearLegacyFollows(): void {
+  try {
+    localStorage.removeItem(LEGACY_FOLLOW_KEY);
+  } catch {
+    /* storage blocked: nothing to clear */
+  }
+}
+
+function Preferences({
+  organizationId,
+  initial,
+}: {
+  organizationId: string;
+  initial: FollowPreferences;
+}) {
+  const t = useTranslations('storefront.following');
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [prefs, setPrefs] = useState(initial);
+  useEffect(() => setPrefs(initial), [initial]);
+
+  const save = useMutation({
+    mutationFn: (body: Partial<Omit<FollowPreferences, 'organizationId'>>) =>
+      api.setFollowPreferences(organizationId, body),
+    onMutate: (body) => {
+      const before = prefs;
+      setPrefs({ ...prefs, ...body });
+      return { before };
+    },
+    onSuccess: (next) => {
+      setPrefs(next);
+      toast.push(t('saved'), 'success');
+      qc.invalidateQueries({ queryKey: ['following'] });
+      qc.invalidateQueries({ queryKey: ['communication-consent'] });
+    },
+    onError: (_e, _body, context) => {
+      if (context?.before) setPrefs(context.before);
+      toast.push(t('saveError'), 'error');
+    },
+  });
+
+  const row = (
+    key: 'newEvents' | 'emailUpdates' | 'earlyAccess' | 'offers',
+    label: string,
+    hint: string,
+  ) => (
+    <li className="flex items-start justify-between gap-4 py-3 first:pt-0 last:pb-0">
+      <span>
+        <span className="block text-brand-ui font-medium text-brand-ink">{label}</span>
+        <span className="block text-brand-meta text-brand-ink-2">{hint}</span>
+      </span>
+      <BrandToggle
+        checked={prefs[key]}
+        disabled={save.isPending}
+        aria-label={label}
+        onChange={(value) => save.mutate({ [key]: value })}
+      />
+    </li>
+  );
+
+  return (
+    <div className="mt-4 space-y-4 border-t border-brand-line pt-4">
+      <ul className="divide-y divide-brand-line">
+        {row('newEvents', t('prefNewEvents'), t('prefNewEventsHint'))}
+        {row('emailUpdates', t('prefEmailUpdates'), t('prefEmailUpdatesHint'))}
+        {row('earlyAccess', t('prefEarlyAccess'), t('prefEarlyAccessHint'))}
+        {row('offers', t('prefOffers'), t('prefOffersHint'))}
+      </ul>
+      <fieldset>
+        <legend className="text-brand-ui font-medium text-brand-ink">{t('cadenceLabel')}</legend>
+        <div className="mt-2 flex flex-wrap gap-x-6 gap-y-2">
+          {(['INSTANT', 'WEEKLY_DIGEST'] as const).map((cadence) => (
+            <label
+              key={cadence}
+              className="inline-flex min-h-11 items-center gap-2 text-brand-ui text-brand-ink"
+            >
+              <input
+                type="radio"
+                name={`cadence-${organizationId}`}
+                value={cadence}
+                checked={prefs.cadence === cadence}
+                disabled={save.isPending}
+                onChange={() => save.mutate({ cadence })}
+                className="h-4 w-4 accent-brand-action"
+              />
+              {cadence === 'INSTANT' ? t('cadenceInstant') : t('cadenceWeekly')}
+            </label>
+          ))}
+        </div>
+      </fieldset>
+      <p className="text-brand-meta text-brand-ink-3">{t('consentNote')}</p>
+    </div>
+  );
+}
+
+function FollowedCard({ item }: { item: FollowedOrganizer }) {
   const t = useTranslations('storefront.following');
   const { dateOnly } = useFormat();
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [open, setOpen] = useState(false);
+  const org = item.organization;
+
+  const unfollow = useMutation({
+    mutationFn: () => api.unfollow(org.id),
+    onSuccess: () => {
+      toast.push(t('unfollowed', { name: org.name }), 'success');
+      qc.invalidateQueries({ queryKey: ['following'] });
+      qc.invalidateQueries({ queryKey: ['follow', org.id] });
+    },
+    onError: () => toast.push(t('saveError'), 'error'),
+  });
+
   return (
-    <Link
-      href={`/organizers/${org.id}`}
-      className={`group flex items-center gap-4 ${ACCOUNT_PANEL} p-5 transition-colors duration-150 hover:border-brand-ink-3 ${BRAND_FOCUS}`}
-    >
-      <div
-        aria-hidden
-        className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-brand-action font-brand-display text-brand-d3 text-brand-on-action"
-      >
-        {org.name.charAt(0)}
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5">
-          <p className="truncate font-brand-display text-brand-card text-brand-ink group-hover:underline group-hover:underline-offset-4">
-            {org.name}
-          </p>
-          {org.verified && (
-            <BadgeCheck className="h-4 w-4 shrink-0 text-brand-info" aria-label={t('verified')} />
-          )}
+    <li className={`${ACCOUNT_PANEL} p-5`}>
+      <div className="flex items-center gap-4">
+        <div
+          aria-hidden
+          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-brand-action font-brand-display text-brand-d3 text-brand-on-action"
+        >
+          {org.name.charAt(0)}
         </div>
-        <p className="mt-0.5 truncate text-brand-meta text-brand-ink-2">
-          {t('since', { date: dateOnly(org.memberSince), count: org.eventCount })}
-        </p>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            <Link
+              href={`/organizers/${org.id}`}
+              className={`truncate font-brand-display text-brand-card text-brand-ink hover:underline hover:underline-offset-4 ${BRAND_FOCUS}`}
+            >
+              {org.name}
+            </Link>
+            {org.verified && (
+              <BadgeCheck className="h-4 w-4 shrink-0 text-brand-info" aria-label={t('verified')} />
+            )}
+          </div>
+          <p className="mt-0.5 truncate text-brand-meta text-brand-ink-2">
+            {t('since', { date: dateOnly(org.memberSince), count: org.eventCount })}
+          </p>
+        </div>
       </div>
-      <ChevronRight
-        aria-hidden
-        className="h-4 w-4 shrink-0 text-brand-ink-3 transition-transform duration-150 motion-safe:group-hover:translate-x-0.5"
-      />
-    </Link>
+      <div className="mt-4 flex flex-wrap gap-3">
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen((v) => !v)}
+          className={`inline-flex min-h-11 items-center gap-1 text-brand-ui ${BRAND_LINK}`}
+        >
+          {t('choose')}
+          <ChevronDown
+            className={`h-4 w-4 transition-transform duration-150 ${open ? 'rotate-180' : ''}`}
+            aria-hidden
+          />
+        </button>
+        <BrandActionButton
+          variant="secondary"
+          size="sm"
+          loading={unfollow.isPending}
+          onClick={() => unfollow.mutate()}
+          aria-label={t('unfollowLabel', { name: org.name })}
+        >
+          {t('unfollow')}
+        </BrandActionButton>
+      </div>
+      {open && <Preferences organizationId={org.id} initial={item.preferences} />}
+    </li>
   );
 }
 
 export default function FollowingPage() {
   const t = useTranslations('storefront.following');
   const w = useTranslations('storefront.wallet');
-  const [ids, setIds] = useState<string[] | null>(null);
+  const signedIn = useSignedIn();
+  const qc = useQueryClient();
+  const migrated = useRef(false);
 
-  useEffect(() => setIds(readFollowing()), []);
-
-  const results = useQueries({
-    queries: (ids ?? []).map((id) => ({
-      queryKey: ['organizer', id],
-      queryFn: () => api.organizerProfile(id),
-    })),
+  const list = useQuery({
+    queryKey: ['following'],
+    queryFn: () => api.followingList({ pageSize: 50 }),
+    enabled: signedIn === true,
   });
 
-  const loading = ids === null || results.some((r) => r.isLoading);
-  const allErrored = ids !== null && ids.length > 0 && results.every((r) => r.isError);
-  const organizers = results.map((r) => r.data).filter((o): o is OrganizerProfile => Boolean(o));
+  // Move the old browser-only follows to the account, once.
+  useEffect(() => {
+    if (signedIn !== true || migrated.current) return;
+    migrated.current = true;
+    const legacy = readLegacyFollows();
+    if (legacy.length === 0) return;
+    void Promise.allSettled(legacy.map((id) => api.follow(id, 'LOCAL_MIGRATION'))).then(() => {
+      clearLegacyFollows();
+      qc.invalidateQueries({ queryKey: ['following'] });
+    });
+  }, [signedIn, qc]);
+
+  if (signedIn === false || isAuthFailure(list.error)) {
+    return (
+      <AccountPage>
+        <SignInRequired title={t('signInTitle')} description={t('signInDescription')} />
+      </AccountPage>
+    );
+  }
 
   const empty = (
     <BrandEmpty
@@ -99,22 +259,20 @@ export default function FollowingPage() {
     <AccountPage>
       <AccountHeading title={t('heading')} lead={t('lead')} />
 
-      {ids !== null && ids.length === 0 ? (
-        empty
-      ) : allErrored ? (
-        <BrandError message={t('loadError')} onRetry={() => results.forEach((r) => r.refetch())} />
-      ) : loading ? (
+      {signedIn === null || list.isLoading ? (
         <div className="grid gap-4 sm:grid-cols-2" aria-busy="true">
-          {Array.from({ length: ids?.length || 4 }).map((_, i) => (
+          {Array.from({ length: 4 }).map((_, i) => (
             <Placeholder key={i} className="h-24 w-full" />
           ))}
         </div>
-      ) : organizers.length > 0 ? (
-        <div className="grid gap-4 sm:grid-cols-2">
-          {organizers.map((org) => (
-            <OrganizerCard key={org.id} org={org} />
+      ) : list.isError ? (
+        <BrandError message={t('loadError')} onRetry={() => list.refetch()} />
+      ) : list.data && list.data.items.length > 0 ? (
+        <ul className="grid gap-4 sm:grid-cols-2">
+          {list.data.items.map((item) => (
+            <FollowedCard key={item.organization.id} item={item} />
           ))}
-        </div>
+        </ul>
       ) : (
         empty
       )}

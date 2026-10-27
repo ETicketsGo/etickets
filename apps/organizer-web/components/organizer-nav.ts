@@ -20,6 +20,7 @@ import {
   Sparkles,
   Ticket,
   Undo2,
+  UserPlus,
   Users,
   Wallet,
 } from 'lucide-react';
@@ -164,6 +165,17 @@ export function navFor({
       keywords: ['promotions', 'coupons', 'promote', 'discount codes', 'promo codes'],
       href: '/organizer/promotions',
       icon: Megaphone,
+    },
+    /*
+      Followers and audience counts (aggregates only, never names). One page for now; the
+      campaign and analytics pages that belong under it are later work and get no row until
+      they exist.
+    */
+    {
+      label: 'Audience & growth',
+      href: '/organizer/audience',
+      icon: UserPlus,
+      keywords: ['followers', 'subscribers', 'fans', 'audience', 'growth'],
     },
 
     /*

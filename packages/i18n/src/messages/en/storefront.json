@@ -977,16 +977,46 @@
     "offersLead": "These are offers and recommendations only. Turning them off does not affect your tickets or your booking updates.",
     "marketingOn": "Marketing on {channel}",
     "signInTitle": "Sign in to manage your notifications",
-    "signInDescription": "Your notification and text message settings are part of your ETicketsGo account."
+    "signInDescription": "Your notification and text message settings are part of your ETicketsGo account.",
+    "organizersHeading": "Email from organizers",
+    "organizersLead": "Each organizer can email you only if you allow it. This is separate from offers from ETicketsGo.",
+    "organizersLoadError": "We could not load your organizer email settings.",
+    "organizersEmpty": "You do not follow any organizers yet. <link>See who you follow</link>.",
+    "organizerPurposes": {
+      "ORGANIZER_UPDATES": "New events by email",
+      "EARLY_ACCESS": "Early access by email",
+      "OFFERS": "Offers by email"
+    },
+    "organizerPurposeFor": "{purpose} from {name}"
   },
   "following": {
     "heading": "Following",
-    "lead": "Organizers you follow. We tell you when they announce a new event.",
+    "lead": "Organizers you follow. Choose what you hear from each one.",
     "emptyTitle": "You're not following anyone yet",
     "emptyHint": "Follow organizers to see them here.",
     "loadError": "We couldn't load the organizers you follow. Please try again.",
     "verified": "Verified",
-    "since": "Since {date} - {count, plural, one {# live event} other {# live events}}"
+    "since": "Since {date} - {count, plural, one {# live event} other {# live events}}",
+    "signInTitle": "Sign in to see who you follow",
+    "signInDescription": "The organizers you follow are part of your ETicketsGo account.",
+    "choose": "What you hear",
+    "unfollow": "Unfollow",
+    "unfollowLabel": "Stop following {name}",
+    "unfollowed": "You no longer follow {name}.",
+    "saved": "Saved.",
+    "saveError": "We could not save that. Please try again.",
+    "prefNewEvents": "New events in my account",
+    "prefNewEventsHint": "Shown in your account only. No email.",
+    "prefEmailUpdates": "Email me about new events",
+    "prefEmailUpdatesHint": "This organizer may email you when they add an event.",
+    "prefEarlyAccess": "Early access by email",
+    "prefEarlyAccessHint": "Presales and early tickets from this organizer.",
+    "prefOffers": "Offers by email",
+    "prefOffersHint": "Discounts and offers from this organizer.",
+    "cadenceLabel": "How often",
+    "cadenceInstant": "When it happens",
+    "cadenceWeekly": "One summary each week",
+    "consentNote": "Following does not turn on email. Email starts only if you turn it on here. You can stop it at any time."
   },
   "walletCard": {
     "badgeMovie": "Movie",
@@ -1178,5 +1208,33 @@
     "citiesInYours": "These cities in your country have something on:",
     "searchHint": "Search for a city to see what is on there.",
     "searchCity": "Search for a city"
+  },
+  "follow": {
+    "follow": "Follow",
+    "following": "Following",
+    "followLabel": "Follow {name}",
+    "unfollowLabel": "Stop following {name}",
+    "followed": "You now follow {name}.",
+    "unfollowed": "You no longer follow {name}.",
+    "saveError": "We could not save that. Please try again.",
+    "followerCount": "{count, plural, one {# follower} other {# followers}}",
+    "emptyEventsHint": "Follow them to keep them in your account.",
+    "confirmationTitle": "Follow {name}",
+    "confirmationLead": "See their events in your account. We do not email you unless you say yes."
+  },
+  "unsubscribe": {
+    "title": "Unsubscribe",
+    "lead": "Stop {what} to {email}.",
+    "whatPlatform": "marketing email from ETicketsGo",
+    "whatOrganizer": "email from {name}",
+    "confirm": "Unsubscribe",
+    "ticketsStillCome": "You still get your tickets and updates about your bookings.",
+    "doneTitle": "You are unsubscribed",
+    "doneLead": "We stopped {what} to {email}.",
+    "changedMind": "Changed your mind? Sign in and turn email on again in your settings.",
+    "openSettings": "Open my settings",
+    "invalidTitle": "This link does not work",
+    "invalidLead": "Use the link in your latest email, or change your email settings in your account.",
+    "error": "We could not do that. Please try again."
   }
 }

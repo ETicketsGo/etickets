@@ -88,6 +88,7 @@ describe('the organizer sidebar', () => {
       'Check-in',
       'Notifications',
       'Marketing',
+      'Audience & growth',
       'Finance & payouts',
       'Team',
       'Settings',
@@ -124,6 +125,7 @@ describe('the organizer sidebar', () => {
     );
     expect(top('theme')).toBe('/organizer/settings');
     expect(top('contact')).toBe('/organizer/help');
+    expect(top('followers')).toBe('/organizer/audience');
   });
 
   it('lists Counter in the sidebar, straight under Bookings & attendees', () => {

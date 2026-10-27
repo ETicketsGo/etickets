@@ -99,7 +99,7 @@ export function legalEntityFor(country: string | null | undefined): LegalEntity 
 }
 
 /** The documents the registry knows how to resolve. */
-export type PolicyType = 'TERMS' | 'PRIVACY' | 'SMS' | 'REFUNDS' | 'COOKIES';
+export type PolicyType = 'TERMS' | 'PRIVACY' | 'SMS' | 'REFUNDS' | 'COOKIES' | 'MARKETING';
 
 /**
  * A jurisdiction a policy can be written for.
@@ -233,6 +233,21 @@ export const POLICY_REGISTRY: readonly Policy[] = Object.freeze([
     jurisdiction: 'GLOBAL',
     version: 1,
     effectiveDate: '2026-10-06',
+    status: 'current',
+  },
+
+  /*
+    The words shown next to a marketing opt-in: who may email you, about what, and how to
+    stop. One GLOBAL text for now. It is a separate type from PRIVACY because a consent row
+    must name the exact text the person agreed to, and the privacy policy changes for
+    reasons that have nothing to do with marketing. Consent rows for organizer news and for
+    platform marketing email point here.
+  */
+  {
+    type: 'MARKETING',
+    jurisdiction: 'GLOBAL',
+    version: 1,
+    effectiveDate: '2026-10-27',
     status: 'current',
   },
 ]);
