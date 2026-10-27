@@ -534,10 +534,34 @@ const envSchema = z.object({
   BILLING_ENABLED: z.enum(['true', 'false']).default('false'),
   /**
    * Who would take the money. `disabled` refuses every checkout. `mock` is a test double for
-   * LOCAL, DEV and QA only. Real providers (Stripe Billing, Razorpay Subscriptions) arrive in a
-   * later change; until then STAGING and PRODUCTION cannot enable billing at all.
+   * LOCAL, DEV and QA only. `providers` routes by the ORGANIZER's country: US to Stripe Billing,
+   * IN to Razorpay Subscriptions - TEST keys only, LOCAL/DEV/QA only, until the owner approves
+   * a production configuration. See docs/billing/BILLING-PROVIDERS.md.
    */
-  BILLING_PROVIDER: z.enum(['disabled', 'mock']).default('disabled'),
+  BILLING_PROVIDER: z.enum(['disabled', 'mock', 'providers']).default('disabled'),
+  /**
+   * Billing credentials. Each may instead be given as a secret reference in `<NAME>_REF`,
+   * resolved through SECRET_MANAGER. API keys fall back to the ticket payments' keys on the same
+   * provider account (STRIPE_SECRET_KEY, RAZORPAY_KEY_ID/RAZORPAY_KEY_SECRET); the WEBHOOK
+   * secrets never do - billing webhooks have their own endpoints and signing secrets.
+   */
+  STRIPE_BILLING_SECRET_KEY: z.string().optional(),
+  STRIPE_BILLING_SECRET_KEY_REF: z.string().optional(),
+  STRIPE_BILLING_WEBHOOK_SECRET: z.string().optional(),
+  STRIPE_BILLING_WEBHOOK_SECRET_REF: z.string().optional(),
+  RAZORPAY_BILLING_KEY_ID: z.string().optional(),
+  RAZORPAY_BILLING_KEY_SECRET: z.string().optional(),
+  RAZORPAY_BILLING_KEY_SECRET_REF: z.string().optional(),
+  RAZORPAY_BILLING_WEBHOOK_SECRET: z.string().optional(),
+  RAZORPAY_BILLING_WEBHOOK_SECRET_REF: z.string().optional(),
+  /** RBI e-mandate: the largest recurring debit (paise) without per-debit approval. INR 15,000. */
+  RAZORPAY_BILLING_MANDATE_MAX_MINOR: z.coerce.number().int().min(100).default(1_500_000),
+  /** Whether UPI Autopay is enabled on the Razorpay account. Never assumed: default off. */
+  RAZORPAY_BILLING_UPI_AUTOPAY: z.enum(['true', 'false']).default('false'),
+  /** Days a paid plan stays PAST_DUE (provider retrying) before GRACE. */
+  BILLING_PAST_DUE_DAYS: z.coerce.number().int().min(1).max(60).default(7),
+  /** Days of GRACE (features kept, retries over) before the plan EXPIRES. */
+  BILLING_GRACE_DAYS: z.coerce.number().int().min(1).max(60).default(7),
 
   /**
    * The account that becomes this environment's FIRST administrator.
@@ -1610,19 +1634,24 @@ function assertPaymentActivationPending(cfg: AppConfig): void {
  *
  * Follows the payment-environment rules (payments/configuration/payment-environment.ts): the
  * test double is refused where real money could be expected, and the fail-closed environments
- * (STAGING, PRODUCTION) need a real provider - which does not exist yet - so enabling billing
- * there stops the boot with a plain reason instead of opening a checkout nobody can pay.
+ * (STAGING, PRODUCTION) stay closed: the real providers (BILLING_PROVIDER=providers) run on TEST
+ * keys in LOCAL, DEV and QA only until the owner approves a production configuration, so enabling
+ * billing there stops the boot with a plain reason instead of opening a checkout.
+ *
+ * Only variable NAMES appear in the messages, never a value.
  */
-export function billingConfigurationErrors(cfg: {
-  APP_ENV: string;
-  BILLING_ENABLED: string;
-  BILLING_PROVIDER: string;
-}): string[] {
+export function billingConfigurationErrors(
+  cfg: {
+    APP_ENV: string;
+    BILLING_ENABLED: string;
+    BILLING_PROVIDER: string;
+  } & Partial<Record<string, string | number | boolean | undefined>>,
+): string[] {
   const errors: string[] = [];
   const env = cfg.APP_ENV;
   const enabled = cfg.BILLING_ENABLED === 'true';
-  const mockAllowed = ['LOCAL', 'DEV', 'QA'].includes(env);
-  if (cfg.BILLING_PROVIDER === 'mock' && !mockAllowed) {
+  const testDoubleEnv = ['LOCAL', 'DEV', 'QA'].includes(env);
+  if (cfg.BILLING_PROVIDER === 'mock' && !testDoubleEnv) {
     errors.push(
       `  - BILLING_PROVIDER=mock is a test double and is refused in ${env}. Use BILLING_PROVIDER=disabled.`,
     );
@@ -1635,15 +1664,62 @@ export function billingConfigurationErrors(cfg: {
   }
   if (enabled && ['STAGING', 'PRODUCTION'].includes(env)) {
     errors.push(
-      `  - BILLING_ENABLED=true is refused in ${env}: no real billing provider is integrated yet. ` +
-        'Leave billing off until the provider change ships and the owner approves it.',
+      `  - BILLING_ENABLED=true is refused in ${env}: no real billing provider configuration is ` +
+        'approved here yet. Leave billing off until the owner approves one.',
     );
+  }
+  if (cfg.BILLING_PROVIDER === 'providers') {
+    const has = (name: string) => {
+      const v = cfg[name];
+      return typeof v === 'string' && v.trim() !== '';
+    };
+    const value = (name: string, fallback?: string): string =>
+      String((has(name) ? cfg[name] : fallback && has(fallback) ? cfg[fallback] : '') ?? '').trim();
+    if (!testDoubleEnv) {
+      errors.push(
+        `  - BILLING_PROVIDER=providers is refused in ${env}: billing providers run on test keys ` +
+          'in LOCAL, DEV and QA only. Use BILLING_PROVIDER=disabled.',
+      );
+    }
+    const stripeKey = value('STRIPE_BILLING_SECRET_KEY', 'STRIPE_SECRET_KEY');
+    const rzpKey = value('RAZORPAY_BILLING_KEY_ID', 'RAZORPAY_KEY_ID');
+    if (/^(sk|rk)_live_/.test(stripeKey)) {
+      errors.push(
+        '  - The Stripe key billing would use (STRIPE_BILLING_SECRET_KEY, else STRIPE_SECRET_KEY) ' +
+          'is a LIVE key. Billing uses test keys only.',
+      );
+    }
+    if (rzpKey.startsWith('rzp_live_')) {
+      errors.push(
+        '  - The Razorpay key billing would use (RAZORPAY_BILLING_KEY_ID, else RAZORPAY_KEY_ID) ' +
+          'is a LIVE key. Billing uses test keys only.',
+      );
+    }
+    const stripeReady =
+      (has('STRIPE_BILLING_SECRET_KEY_REF') || stripeKey !== '') &&
+      (has('STRIPE_BILLING_WEBHOOK_SECRET') || has('STRIPE_BILLING_WEBHOOK_SECRET_REF'));
+    const razorpayReady =
+      rzpKey !== '' &&
+      (has('RAZORPAY_BILLING_KEY_SECRET') ||
+        has('RAZORPAY_BILLING_KEY_SECRET_REF') ||
+        has('RAZORPAY_KEY_SECRET')) &&
+      (has('RAZORPAY_BILLING_WEBHOOK_SECRET') || has('RAZORPAY_BILLING_WEBHOOK_SECRET_REF'));
+    if (enabled && !stripeReady && !razorpayReady) {
+      errors.push(
+        '  - BILLING_ENABLED=true with BILLING_PROVIDER=providers, but neither provider is ' +
+          'configured. Stripe needs a key (STRIPE_BILLING_SECRET_KEY or STRIPE_SECRET_KEY) and ' +
+          'STRIPE_BILLING_WEBHOOK_SECRET; Razorpay needs RAZORPAY_BILLING_KEY_ID (or ' +
+          'RAZORPAY_KEY_ID), its secret and RAZORPAY_BILLING_WEBHOOK_SECRET.',
+      );
+    }
   }
   return errors;
 }
 
 function assertBillingConfiguration(cfg: AppConfig): void {
-  const errors = billingConfigurationErrors(cfg);
+  const errors = billingConfigurationErrors(
+    cfg as unknown as Parameters<typeof billingConfigurationErrors>[0],
+  );
   if (errors.length) {
     throw new Error(`Unsafe billing configuration:\n${errors.join('\n')}`);
   }

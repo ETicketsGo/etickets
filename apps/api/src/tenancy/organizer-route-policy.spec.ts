@@ -242,8 +242,12 @@ export const ORGANIZER_ROUTE_POLICY: Record<string, StaffPolicy> = {
   'GET /organizations/:id/entitlements': 'NONE',
   'GET /organizations/:id/billing': 'NONE',
   'GET /organizations/:id/billing/invoices': 'NONE',
-  /** The organization's own decision to pay for a plan. */
+  'GET /organizations/:id/billing/invoices/:invoiceId/html': 'NONE',
+  /** The organization's own decision to pay for a plan, buy credits, or stop paying. */
   'POST /organizations/:id/billing/checkout': 'ORGANIZER_ONLY',
+  'POST /organizations/:id/billing/credit-packs/checkout': 'ORGANIZER_ONLY',
+  'POST /organizations/:id/billing/portal': 'ORGANIZER_ONLY',
+  'POST /organizations/:id/billing/cancel': 'ORGANIZER_ONLY',
   'POST /organizations/:id/members': 'NONE',
   'POST /organizations/:id/members/:memberId/resend-invite': 'NONE',
   'DELETE /organizations/:id/members/:memberId': 'NONE',

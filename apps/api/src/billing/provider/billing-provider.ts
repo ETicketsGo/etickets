@@ -4,9 +4,9 @@ import { AppException, ErrorCodes } from '../../common/errors';
 import type { PaymentEvidence } from '../subscription-state-machine';
 
 /**
- * Who takes an organizer's plan payment. Stripe Billing (US) and Razorpay Subscriptions (IN)
- * implement this in a later change; this change ships only the seam, the disabled provider that
- * refuses everything, and a test double.
+ * Who takes an organizer's plan payment. Stripe Billing (US, stripe-billing.provider.ts) and
+ * Razorpay Subscriptions (IN, razorpay-subscriptions.provider.ts) implement it; the disabled
+ * provider refuses everything and the mock is a test double.
  *
  * ── THE CONTRACT ───────────────────────────────────────────────────────────────────
  * - `verifyWebhook` checks the provider's signature over the RAW body and throws when it does
@@ -27,6 +27,13 @@ export interface BillingCheckoutRequest {
   currency: string;
   amountMinor: number;
   interval: 'MONTH' | 'YEAR';
+  /** The provider's own id for this price/plan (BillingPrice.providerPriceRef{Test,Live}). */
+  providerPriceRef?: string | null;
+  /** The provider customer created for this billing account. */
+  customerRef?: string | null;
+  /** Where the provider sends the organizer back. The page polls our state; never trusts this. */
+  successUrl?: string;
+  cancelUrl?: string;
 }
 
 export interface BillingCheckoutSession {
@@ -36,33 +43,153 @@ export interface BillingCheckoutSession {
   url: string;
 }
 
-export type VerifiedBillingEventType =
-  'PAYMENT_CAPTURED' | 'PAYMENT_FAILED' | 'SUBSCRIPTION_CANCELLED';
+/** Test or live keys. Billing runs on TEST keys only in this change. */
+export type BillingKeyMode = 'test' | 'live';
 
-/** A provider event whose signature has been checked. Still a claim until `fetchPayment`. */
+export interface BillingCustomerInput {
+  organizationId: string;
+  accountId: string;
+  name: string;
+  email: string | null;
+  country: string;
+}
+
+/** A one-time purchase of credits, on the BILLING account. Never a ticket order. */
+export interface CreditPackCheckoutRequest {
+  organizationId: string;
+  accountId: string;
+  customerRef: string | null;
+  packCode: string;
+  description: string;
+  amountMinor: number;
+  currency: string;
+  /** Our own id for this purchase attempt: provider idempotency and the receipt reference. */
+  purchaseRef: string;
+  successUrl: string;
+  cancelUrl: string;
+}
+
+export type VerifiedBillingEventType =
+  | 'PAYMENT_CAPTURED'
+  | 'PAYMENT_FAILED'
+  | 'SUBSCRIPTION_CANCELLED'
+  /** Status, cancel-at-period-end or mandate changed: reconcile from the provider's record. */
+  | 'SUBSCRIPTION_UPDATED'
+  /** Retries are over (Razorpay `halted`, Stripe `unpaid`): enter grace. */
+  | 'SUBSCRIPTION_HALTED'
+  /** A hosted subscription checkout finished. Reconcile; activation still needs a payment. */
+  | 'CHECKOUT_COMPLETED'
+  /** A one-time credit pack was paid. Credits are granted only from the provider's record. */
+  | 'CREDIT_PACK_PAID'
+  | 'INVOICE_FINALIZED'
+  | 'DISPUTE_OPENED'
+  /** Signed, but nothing billing acts on (an event type we do not use, or a ticket payment). */
+  | 'IGNORED';
+
+/** A provider event whose signature has been checked. Still a claim until the provider is asked. */
 export interface VerifiedBillingEvent {
   provider: BillingProviderKey;
   providerEventId: string;
   type: VerifiedBillingEventType;
+  /** Our organization id as the PROVIDER holds it (metadata/notes). A hint, cross-checked. */
   organizationId: string;
   providerSubscriptionRef?: string;
   paymentRef?: string;
   priceId?: string;
   periodStart?: string;
   periodEnd?: string;
+  /** The provider's own event name, e.g. `invoice.paid`, `subscription.charged`. */
+  providerType?: string;
+  /** When the provider says this happened (ISO). Used to drop stale status-only events. */
+  occurredAt?: string;
+  /** The provider object the event is about (checkout session, dispute, payment link). */
+  objectRef?: string;
   payload: Record<string, unknown>;
+}
+
+/** Normalised subscription status, as the PROVIDER reports it now. */
+export type ProviderSubscriptionStatus =
+  | 'INCOMPLETE'
+  | 'AUTHENTICATED'
+  | 'TRIALING'
+  | 'ACTIVE'
+  | 'PAST_DUE'
+  | 'HALTED'
+  | 'CANCELLED'
+  | 'COMPLETED';
+
+/** The provider's own record of a subscription, fetched over its authenticated API. */
+export interface ProviderSubscriptionRecord {
+  verified: boolean;
+  provider: BillingProviderKey;
+  subscriptionRef: string;
+  customerRef: string | null;
+  status: ProviderSubscriptionStatus;
+  providerPriceRef: string | null;
+  /** Null when the provider does not report a scheduled cancellation (Razorpay). */
+  cancelAtPeriodEnd: boolean | null;
+  periodStart: Date | null;
+  periodEnd: Date | null;
+  /** Our organization id from the provider's metadata/notes, when set. */
+  organizationId: string | null;
+  /** The latest PAID payment on it (invoice id / payment id), when the provider has one. */
+  latestPaidPaymentRef: string | null;
+}
+
+/**
+ * The provider's own record of a payment. `amountMinor` EXCLUDES tax, so it compares with the
+ * BillingPrice (the plan price); `taxMinor` is what the provider added on top, if anything.
+ */
+export interface ProviderPaymentRecord extends PaymentEvidence {
+  purpose: 'SUBSCRIPTION' | 'CREDIT_PACK';
+  taxMinor: number;
+  customerRef: string | null;
+  subscriptionRef: string | null;
+  providerPriceRef: string | null;
+  periodStart: Date | null;
+  periodEnd: Date | null;
+  organizationId: string | null;
+  /** The provider's invoice for it, when there is one. Our invoice is keyed on it. */
+  invoiceRef: string | null;
+  creditPackCode: string | null;
+  paidAt: Date | null;
+}
+
+export interface ProviderDisputeRecord {
+  verified: boolean;
+  disputeRef: string;
+  paymentRef: string | null;
+  customerRef: string | null;
+  amountMinor: number;
+  currency: string;
+  reason: string | null;
 }
 
 export interface BillingProvider {
   readonly key: BillingProviderKey;
   /** False for the disabled provider: nothing can be bought. */
   readonly enabled: boolean;
+  /** Test or live keys. Undefined for the disabled provider and the test double. */
+  readonly mode?: BillingKeyMode;
   createCheckout(req: BillingCheckoutRequest): Promise<BillingCheckoutSession>;
   verifyWebhook(
     rawBody: string,
     headers: Record<string, string | undefined>,
   ): Promise<VerifiedBillingEvent>;
   fetchPayment(paymentRef: string): Promise<PaymentEvidence>;
+
+  // ── Real providers only (Stripe Billing, Razorpay Subscriptions) ────────────────
+  /** Normalises a payload whose signature was verified when it arrived (retry from storage). */
+  parseEvent?(body: Record<string, unknown>, eventIdHint?: string): VerifiedBillingEvent;
+  ensureCustomer?(input: BillingCustomerInput): Promise<string>;
+  fetchPaymentRecord?(paymentRef: string): Promise<ProviderPaymentRecord>;
+  fetchSubscription?(subscriptionRef: string): Promise<ProviderSubscriptionRecord>;
+  fetchDispute?(disputeRef: string): Promise<ProviderDisputeRecord>;
+  createCreditPackCheckout?(req: CreditPackCheckoutRequest): Promise<BillingCheckoutSession>;
+  /** A provider-hosted page to change the payment method or cancel (Stripe only). */
+  createPortal?(customerRef: string, returnUrl: string): Promise<{ url: string }>;
+  /** Cancel at the end of the current period. Returns the provider's record afterwards. */
+  cancelAtPeriodEnd?(subscriptionRef: string): Promise<ProviderSubscriptionRecord>;
 }
 
 export const BILLING_PROVIDER = Symbol('BILLING_PROVIDER');

@@ -105,6 +105,11 @@ export const MESSAGE_CLASS: Record<NotificationType, MessageClass> = {
   // The platform stopped (or restarted) their sales. About their own listing, never optional.
   [NotificationType.EVENT_PAUSED_BY_ADMIN]: 'TRANSACTIONAL',
   [NotificationType.EVENT_RESUMED_BY_ADMIN]: 'TRANSACTIONAL',
+  /*
+    Their organization's plan payment failed. About a contract they entered into with the
+    platform; the consequence of not reading it is losing the plan. Never optional.
+  */
+  [NotificationType.BILLING_PAYMENT_FAILED]: 'TRANSACTIONAL',
 
   // ── Operational messages to organizers and admins about their own money ─────────
   [NotificationType.PAYOUT_ACCOUNT_UPDATED]: 'TRANSACTIONAL',
@@ -212,6 +217,7 @@ export const MESSAGE_AUDIENCE: Record<NotificationType, MessageAudience> = {
   [NotificationType.EVENT_REJECTED]: 'ORGANIZER',
   [NotificationType.EVENT_PAUSED_BY_ADMIN]: 'ORGANIZER',
   [NotificationType.EVENT_RESUMED_BY_ADMIN]: 'ORGANIZER',
+  [NotificationType.BILLING_PAYMENT_FAILED]: 'ORGANIZER',
 
   // ── The platform's own moderation queue ─────────────────────────────────────────
   [NotificationType.ORGANIZATION_REGISTERED]: 'ADMIN',

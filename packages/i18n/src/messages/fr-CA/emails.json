@@ -119,6 +119,21 @@
     "subject": "« {event} » est de nouveau en vente",
     "body": "ETicketsGo a levé la suspension de « {event} ». Les billets sont de nouveau en vente."
   },
+  "BILLING_PAYMENT_FAILED": {
+    "yourPlan": "payant",
+    "PAST_DUE": {
+      "subject": "Le paiement de votre forfait {plan} n'a pas abouti",
+      "body": "Nous n'avons pas pu prélever le paiement de votre forfait {plan}. Votre forfait reste actif pendant que le paiement est tenté de nouveau. Pour le conserver, vérifiez votre moyen de paiement dans Facturation et forfaits de votre console d'organisateur."
+    },
+    "GRACE": {
+      "subject": "Action requise : votre forfait {plan} prend fin le {deadline}",
+      "body": "Nous n'avons pas pu prélever le paiement de votre forfait {plan} après plusieurs tentatives. Votre forfait reste actif jusqu'au {deadline}. Après cette date, votre organisation passe au forfait Gratuit. Pour conserver votre forfait, mettez à jour votre moyen de paiement dans Facturation et forfaits de votre console d'organisateur."
+    },
+    "GRACE_ENDING": {
+      "subject": "Rappel : votre forfait {plan} prend fin le {deadline}",
+      "body": "Le paiement de votre forfait {plan} n'est toujours pas réglé. Votre forfait reste actif jusqu'au {deadline}. Après cette date, votre organisation passe au forfait Gratuit. Pour conserver votre forfait, mettez à jour votre moyen de paiement dans Facturation et forfaits de votre console d'organisateur."
+    }
+  },
   "SUPPORT_REQUEST_RECEIVED": {
     "subject": "Nouveau message ({kind}) [{reference}] : {topic}",
     "subjectNoTopic": "Nouveau message ({kind}) [{reference}] de {sender}",

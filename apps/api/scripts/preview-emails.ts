@@ -155,6 +155,16 @@ const CASES: [NotificationType, Record<string, unknown>, string?][] = [
       email: 'asha@example.com',
     },
   ],
+  [
+    NotificationType.BILLING_PAYMENT_FAILED,
+    {
+      subscriptionId: 'cmgsubscription0example',
+      stage: 'GRACE',
+      planName: 'Pro',
+      periodEnd: '2026-11-30T00:00:00.000Z',
+      deadline: '2026-12-07',
+    },
+  ],
 ];
 
 const HELP = 'https://qa.eticketsgo.com/help';

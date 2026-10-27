@@ -423,6 +423,10 @@ enum NotificationType {
   /// form message was a row only the admin console could show, and nobody was told.
   SUPPORT_REQUEST_RECEIVED
   SUPPORT_REQUEST_ACKNOWLEDGED
+
+  /// The organization's plan payment failed (PAST_DUE), or its retries are over (GRACE), or
+  /// grace is about to end. To the owners, about what their organization pays the platform.
+  BILLING_PAYMENT_FAILED
 }
 
 // Assignment lifecycle of a ticket to an attendee (identity layer, ADR-031).
@@ -5788,6 +5792,10 @@ model OrganizerBillingAccount {
   providerCustomerRef String?
   taxId               String?
   billingEmail        String?
+  /// Set when the provider reports a dispute (chargeback) on one of this account's payments.
+  /// A flag for staff, with an audit row; it changes no entitlement by itself.
+  disputedAt          DateTime?
+  disputeRef          String?
   createdAt           DateTime            @default(now())
   updatedAt           DateTime            @updatedAt
 
@@ -5796,6 +5804,8 @@ model OrganizerBillingAccount {
   payments      BillingPayment[]
   adjustments   BillingAdjustment[]
 
+  /// One provider customer belongs to one account: events are routed to an account by it.
+  @@unique([provider, providerCustomerRef])
   @@index([country])
 }
 
@@ -5825,6 +5835,9 @@ model OrganizerSubscription {
   endedAt                 DateTime?
   grantedByUserId         String?
   note                    String?
+  /// The provider time of the newest provider event applied. An older status-only event is
+  /// stale and is ignored, so a late delivery can never move the subscription backwards.
+  providerStateAt         DateTime?
   version                 Int                         @default(1)
   createdAt               DateTime                    @default(now())
   updatedAt               DateTime                    @updatedAt
@@ -5839,28 +5852,33 @@ model OrganizerSubscription {
 /// A platform invoice to an organizer. Numbered ETG-BIL-<YEAR>-<SEQ> when issued, never before,
 /// so the series has no gaps: a draft that is never issued takes no number.
 model OrganizerInvoice {
-  id             String                  @id @default(cuid())
-  number         String?                 @unique
-  accountId      String
-  account        OrganizerBillingAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
-  subscriptionId String?
-  subscription   OrganizerSubscription?  @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
-  status         OrganizerInvoiceStatus  @default(DRAFT)
-  subtotalMinor  Int
-  taxMinor       Int                     @default(0)
-  totalMinor     Int
-  currency       String
-  lines          Json
-  periodStart    DateTime?
-  periodEnd      DateTime?
-  issuedAt       DateTime?
-  documentJson   Json?
-  createdAt      DateTime                @default(now())
-  updatedAt      DateTime                @updatedAt
+  id                 String                  @id @default(cuid())
+  number             String?                 @unique
+  accountId          String
+  account            OrganizerBillingAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  subscriptionId     String?
+  subscription       OrganizerSubscription?  @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+  status             OrganizerInvoiceStatus  @default(DRAFT)
+  subtotalMinor      Int
+  taxMinor           Int                     @default(0)
+  totalMinor         Int
+  currency           String
+  lines              Json
+  periodStart        DateTime?
+  periodEnd          DateTime?
+  issuedAt           DateTime?
+  documentJson       Json?
+  /// The provider document this invoice records (Stripe invoice, Razorpay invoice, or the
+  /// payment itself for a credit pack). Unique per provider: a replayed event issues nothing new.
+  provider           BillingProviderName?
+  providerInvoiceRef String?
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
 
   payments    BillingPayment[]
   adjustments BillingAdjustment[]
 
+  @@unique([provider, providerInvoiceRef])
   @@index([accountId, createdAt])
   @@index([status])
 }
@@ -5876,6 +5894,10 @@ model BillingPayment {
   amountMinor        Int
   currency           String
   status             BillingPaymentStatus
+  /// SUBSCRIPTION (a plan period) or CREDIT_PACK (a one-time purchase of credits).
+  purpose            String                  @default("SUBSCRIPTION")
+  /// Tax the provider added on top of `amountMinor`. 0 while tax is not applied.
+  taxMinor           Int                     @default(0)
   /// Set only when the provider's own record of the payment was verified (signature + amount).
   verifiedAt         DateTime?
   createdAt          DateTime                @default(now())
@@ -5922,6 +5944,11 @@ model BillingWebhookEvent {
   status            BillingWebhookStatus @default(RECEIVED)
   accountId         String?
   error             String?
+  /// Processing attempts. An event whose processing failed for a TRANSIENT reason (provider
+  /// unreachable) stays RECEIVED and is retried by the worker's billing sweep.
+  attempts          Int                  @default(0)
+  /// When the provider says the event happened.
+  occurredAt        DateTime?
   receivedAt        DateTime             @default(now())
   processedAt       DateTime?
 

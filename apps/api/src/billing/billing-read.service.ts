@@ -1,4 +1,4 @@
-import { HttpStatus, Inject, Injectable } from '@nestjs/common';
+import { HttpStatus, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Prisma } from '@prisma/client';
 import { PROVISIONAL_PLAN_ENTITLEMENTS, type BillingPlanCode } from '@eticketsgo/shared-types';
@@ -7,7 +7,8 @@ import { AppException, ErrorCodes } from '../common/errors';
 import { EntitlementService } from './entitlements/entitlement.service';
 import { BillingInvoiceService } from './billing-invoice.service';
 import { billingCountryOf } from './billing-account';
-import { BILLING_PROVIDER, type BillingProvider } from './provider/billing-provider';
+import { BillingProviderRegistry } from './provider/billing-provider.registry';
+import { creditPacksFor } from './credit-packs';
 
 const PAID_LIVE = ['ACTIVE', 'PAST_DUE', 'GRACE'] as const;
 
@@ -29,12 +30,18 @@ export class BillingReadService {
     private readonly entitlements: EntitlementService,
     private readonly invoices: BillingInvoiceService,
     private readonly config: ConfigService,
-    @Inject(BILLING_PROVIDER) private readonly provider: BillingProvider,
+    private readonly registry: BillingProviderRegistry,
   ) {}
 
-  /** Whether an organizer could start a checkout here: the flag AND a provider that takes money. */
-  billingEnabled(): boolean {
-    return this.config.get<string>('BILLING_ENABLED') === 'true' && this.provider.enabled;
+  /**
+   * Whether an organizer in this country could start a checkout here: the flag AND a provider
+   * for the country with its credentials configured. Without a country: the flag and the
+   * deployment's provider mode (disabled, mock).
+   */
+  billingEnabled(country?: string | null): boolean {
+    return (
+      this.config.get<string>('BILLING_ENABLED') === 'true' && this.registry.configuredFor(country)
+    );
   }
 
   // ── Organizer console ─────────────────────────────────────────────────────────
@@ -109,7 +116,13 @@ export class BillingReadService {
 
     return {
       organizationId,
-      billingEnabled: this.billingEnabled(),
+      billingEnabled: this.billingEnabled(country),
+      /** Who takes this account's payments, once it has paid through one. */
+      provider: account?.provider ?? 'NONE',
+      /** The provider that serves this country, so the console offers the right controls. */
+      providerForCountry: this.registry.keyForCountry(country),
+      disputed: Boolean(account?.disputedAt),
+      creditPacks: creditPacksFor(country),
       catalogLoaded: catalog.length > 0,
       /** Every price is provisional until the owner confirms the catalogue. */
       pricesProvisional: true,

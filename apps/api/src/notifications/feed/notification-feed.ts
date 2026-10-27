@@ -51,6 +51,8 @@ const CATEGORY_OF: Record<string, FeedCategory> = {
   EVENT_NOT_SELLABLE: 'ACTION_REQUIRED',
   TRANSFER_FAILED: 'ACTION_REQUIRED',
   PAYMENT_DISPUTE_OPENED: 'ACTION_REQUIRED',
+  // The plan payment failed: the owner must update the payment method or lose the plan.
+  BILLING_PAYMENT_FAILED: 'ACTION_REQUIRED',
   // Sales are stopped and only a reply to the platform team starts them again.
   EVENT_PAUSED_BY_ADMIN: 'ACTION_REQUIRED',
 
@@ -98,6 +100,7 @@ const SEVERITY_OF: Record<string, FeedSeverity> = {
   EVENT_NOT_SELLABLE: 'CRITICAL',
   TRANSFER_FAILED: 'CRITICAL',
   PAYMENT_DISPUTE_OPENED: 'CRITICAL',
+  BILLING_PAYMENT_FAILED: 'WARNING',
   EVENT_REJECTED: 'WARNING',
   EVENT_PAUSED_BY_ADMIN: 'CRITICAL',
   EVENT_RESUMED_BY_ADMIN: 'SUCCESS',
@@ -269,6 +272,8 @@ function actionFor(type: string, payload: Record<string, unknown>): FeedAction |
     case 'PAYMENT_DISPUTE_OPENED':
     case 'PAYMENT_DISPUTE_CLOSED':
       return { label: 'Open payouts', href: '/organizer/payouts' };
+    case 'BILLING_PAYMENT_FAILED':
+      return { label: 'Open billing', href: '/organizer/billing' };
     default:
       return eventId ? { label: 'Open event', href: `/organizer/events/${eventId}` } : null;
   }

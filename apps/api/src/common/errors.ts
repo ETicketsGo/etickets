@@ -146,5 +146,12 @@ export const ErrorCodes = {
   QUOTA_EXCEEDED: 'QUOTA_EXCEEDED',
   /** A subscription move the lifecycle does not allow from its current state. */
   SUBSCRIPTION_TRANSITION_INVALID: 'SUBSCRIPTION_TRANSITION_INVALID',
+  /** A billing provider event whose signature did not verify. Nothing was recorded. */
+  BILLING_WEBHOOK_INVALID: 'BILLING_WEBHOOK_INVALID',
+  /**
+   * The billing provider cannot do what was asked here: not configured for this country, a
+   * price not set up with it, or a capability (e.g. UPI Autopay) not enabled on the account.
+   */
+  BILLING_PROVIDER_UNAVAILABLE: 'BILLING_PROVIDER_UNAVAILABLE',
   INTERNAL: 'INTERNAL',
 } as const;

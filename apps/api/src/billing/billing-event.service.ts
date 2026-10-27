@@ -36,7 +36,9 @@ const DAY = 24 * 60 * 60 * 1000;
  * a DUPLICATE and changes nothing. Billing events live in BillingWebhookEvent, never in the
  * ticket payments' WebhookEvent table.
  *
- * Not reachable over HTTP in this change: the webhook endpoints arrive with the real providers.
+ * The test-double (MOCK) path, not reachable over HTTP. The real providers' events (Stripe
+ * Billing, Razorpay Subscriptions) go through BillingProviderEventService, which re-fetches every
+ * provider object it acts on; the money rule is the same state machine for both.
  */
 @Injectable()
 export class BillingEventService {

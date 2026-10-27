@@ -27,6 +27,8 @@ export { SyncEventProcessor } from './inventory/sync/sync-event.processor';
 export { SyncPollingService } from './inventory/sync/sync-polling.service';
 export { OutboxDispatcher } from './common/domain-events/outbox/outbox-dispatcher.service';
 export { OutboxRetentionService } from './common/domain-events/outbox/outbox-retention.service';
+// The organizer billing clock (trial/period/grace ends, dunning, webhook retries).
+export { BillingSweepService } from './billing/billing-sweep.service';
 export {
   bullConnectionFromUrl,
   bullPrefix,
