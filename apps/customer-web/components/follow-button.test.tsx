@@ -121,10 +121,15 @@ describe('FollowButton', () => {
       wait: new Promise<void>((r) => (release = r)),
     };
     await mount(true);
+    // The button is disabled until its first status read answers; clicking before that does
+    // nothing (and made this test flaky). Wait for it to be ready.
+    for (let i = 0; i < 50 && button().disabled; i += 1) await flush();
+    expect(button().disabled).toBe(false);
     expect(button().textContent).toContain('Follow');
     expect(button().textContent).not.toContain('Following');
 
     await act(async () => button().click());
+    await flush();
     // Optimistic: the server has not answered yet.
     expect(button().textContent).toContain('Following');
     const put = calls.find((c) => c.method === 'PUT' && c.path === '/me/following/org-1');
