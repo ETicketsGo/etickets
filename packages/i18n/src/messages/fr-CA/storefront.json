@@ -1228,7 +1228,7 @@
   "unsubscribe": {
     "title": "Se désabonner",
     "lead": "Arrêter {what} à {email}.",
-    "whatPlatform": "les courriels de marketing d'ETicketsGo",
+    "whatPlatform": "tous les courriels de marketing d'ETicketsGo et de tous les organisateurs",
     "whatOrganizer": "les courriels de {name}",
     "confirm": "Se désabonner",
     "ticketsStillCome": "Vous recevez toujours vos billets et les mises à jour de vos réservations.",

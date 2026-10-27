@@ -3,10 +3,22 @@ import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import { assignInvoiceNumber } from './invoice-number';
+import type { BillingTaxLine, BillingTaxQuote } from './billing-tax.service';
 
-/** Printed on a plan invoice when the provider computed no tax. Plain ASCII, per house rule. */
+/**
+ * Printed only on an invoice that carries no tax line at all (the test double's payments).
+ * A real provider payment is taxed by the configured rules or by Stripe Tax and lists its
+ * lines, a 0% line included. Plain ASCII, per house rule.
+ */
 export const TAX_NOT_APPLIED_NOTE =
   'Tax not applied. ETicketsGo has not yet started charging tax on plan payments.';
+
+/** What the invoice says about tax: its lines and where it was supplied. */
+export interface InvoiceTax {
+  lines: BillingTaxLine[];
+  mode: BillingTaxQuote['mode'] | 'NONE';
+  jurisdiction: BillingTaxQuote['jurisdiction'] | null;
+}
 
 export interface InvoiceLine {
   description: string;
@@ -16,7 +28,8 @@ export interface InvoiceLine {
 
 /**
  * Platform invoices to organizers. NOT ticket receipts: a Receipt needs a booking and is
- * numbered per organizer; these are the platform's own documents, numbered ETG-BIL-<YEAR>-<SEQ>.
+ * numbered per organizer; these are the platform's own documents, numbered per country series
+ * (invoice-number.ts: ETGB-2627-000001 in India's financial year, ETG-BIL-US-2026-000001).
  *
  * Nothing creates one yet in production: invoices start with paid plans (the provider change).
  * The lifecycle is here so numbering and totals are settled - and tested - before then.
@@ -93,7 +106,7 @@ export class BillingInvoiceService {
         where: { id: invoiceId },
         include: { account: true },
       });
-      const number = await assignInvoiceNumber(tx, at);
+      const number = await assignInvoiceNumber(tx, at, invoice.account.country);
       return tx.organizerInvoice.update({
         where: { id: invoiceId },
         data: {
@@ -123,8 +136,9 @@ export class BillingInvoiceService {
    * document: if one already records `providerInvoiceRef`, that one is returned and no number is
    * taken. A rollback of the caller gives the number back, so the series stays gapless.
    *
-   * Tax is what the PROVIDER computed. When it computed none, taxMinor is 0 and the document
-   * says plainly that tax was not applied (owner decision pending on tax for plan invoices).
+   * `taxMinor` is the tax actually charged and `tax.lines` itemise it (CGST + SGST or IGST, a
+   * US state rate, or what Stripe Tax computed). The lines must add up to `taxMinor`, or the
+   * invoice is refused: a document whose tax lines disagree with its total is not an invoice.
    */
   async recordPaidInTx(
     tx: Prisma.TransactionClient,
@@ -135,6 +149,7 @@ export class BillingInvoiceService {
       currency: string;
       lines: InvoiceLine[];
       taxMinor: number;
+      tax?: InvoiceTax;
       subscriptionId?: string | null;
       periodStart?: Date | null;
       periodEnd?: Date | null;
@@ -155,8 +170,12 @@ export class BillingInvoiceService {
     });
     const subtotalMinor = input.lines.reduce((s, l) => s + l.quantity * l.unitAmountMinor, 0);
     const taxMinor = Math.max(0, Math.trunc(input.taxMinor));
-    const number = await assignInvoiceNumber(tx, input.paidAt);
-    const taxNote = taxMinor > 0 ? null : TAX_NOT_APPLIED_NOTE;
+    const taxLines = input.tax?.lines ?? [];
+    if (taxLines.length > 0 && taxLines.reduce((s, l) => s + l.amountMinor, 0) !== taxMinor) {
+      throw new Error('Invoice tax lines do not add up to the tax charged.');
+    }
+    const number = await assignInvoiceNumber(tx, input.paidAt, account.country);
+    const taxNote = taxMinor > 0 || taxLines.length > 0 ? null : TAX_NOT_APPLIED_NOTE;
     const invoice = await tx.organizerInvoice.create({
       data: {
         accountId: input.accountId,
@@ -185,6 +204,9 @@ export class BillingInvoiceService {
           subtotalMinor,
           taxMinor,
           totalMinor: subtotalMinor + taxMinor,
+          taxLines,
+          taxMode: input.tax?.mode ?? 'NONE',
+          placeOfSupply: input.tax?.jurisdiction ?? null,
           taxNote,
           provider: input.provider,
           providerInvoiceRef: input.providerInvoiceRef,

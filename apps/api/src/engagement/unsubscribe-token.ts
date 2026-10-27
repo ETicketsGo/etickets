@@ -62,6 +62,15 @@ function b64url(buf: Buffer | string): string {
 export function unsubscribeKey(config: Pick<ConfigService, 'get'>): Buffer {
   const dedicated = config.get<string>('UNSUBSCRIBE_SIGNING_SECRET')?.trim();
   if (dedicated) return Buffer.from(dedicated, 'utf8');
+  /*
+    No fallback in a live environment (owner decision 2026-10-27). The campaign sender refuses
+    first (campaign-sending-config.ts), and this refuses too, so nothing can sign a link there
+    with a key derived from the sign-in secret.
+  */
+  const appEnv = String(config.get<string>('APP_ENV') ?? 'LOCAL').toUpperCase();
+  if (appEnv === 'STAGING' || appEnv === 'PRODUCTION') {
+    throw new Error(`Unsubscribe links need UNSUBSCRIBE_SIGNING_SECRET in ${appEnv}.`);
+  }
   const base = config.get<string>('JWT_ACCESS_SECRET');
   if (!base) {
     throw new Error('Unsubscribe links need UNSUBSCRIBE_SIGNING_SECRET or JWT_ACCESS_SECRET.');

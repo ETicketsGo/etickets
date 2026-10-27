@@ -203,7 +203,7 @@ export function startOfDayIso(day: string): string | null {
 
 export const BILLING_COPY = {
   provisional:
-    'These prices are provisional. The owner has not confirmed them yet. Nobody can pay for a plan until paid plans open.',
+    'The owner confirmed these prices on 2026-10-27. Prices are before tax, and a year costs ten months. Nobody can pay for a plan until paid plans open.',
   readOnly:
     'You can see billing but not change it. Changing plans and prices needs the Billing manage duty.',
   noPaid: 'No paid subscriptions yet. Paid plans are not open.',

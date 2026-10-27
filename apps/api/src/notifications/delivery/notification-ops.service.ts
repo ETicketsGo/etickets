@@ -15,6 +15,7 @@ import { AppException, ErrorCodes } from '../../common/errors';
 import { SuppressionService } from './suppression.service';
 import { maskPhone } from '../channels/transports/recipient.util';
 import { summariseDelivery } from './delivery-summary';
+import { isTransactional } from '../message-class';
 
 /**
  * What an operator can see and do about a notification that did not arrive.
@@ -309,6 +310,7 @@ export class NotificationOpsService {
       where: { id: notificationId },
       select: {
         id: true,
+        type: true,
         channel: true,
         toEmail: true,
         userId: true,
@@ -320,7 +322,9 @@ export class NotificationOpsService {
       throw new AppException(ErrorCodes.NOT_FOUND, 'Notification not found.', HttpStatus.NOT_FOUND);
 
     const destination = row.channel === 'email' ? row.toEmail : await this.phoneOf(row.userId);
-    if (destination && (await this.suppression.isSuppressed(row.channel, destination))) {
+    // A complaint never blocks resending a ticket; it does block resending promotion.
+    const purpose = isTransactional(row.type) ? 'transactional' : 'marketing';
+    if (destination && (await this.suppression.isSuppressed(row.channel, destination, purpose))) {
       throw new AppException(
         ErrorCodes.CONFLICT,
         'This destination is suppressed. Lift the suppression first, deliberately.',

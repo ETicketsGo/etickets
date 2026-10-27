@@ -16,9 +16,8 @@ const currency = z
   .transform((s) => s.toUpperCase());
 const minor = z.number().int().min(0).max(100_000_000);
 
-export const loadCatalogSchema = z.object({
-  annualFreeMonths: z.number().int().min(0).max(11).optional(),
-});
+/** Nothing to choose: the prices and the 10x annual rule are the owner's (2026-10-27). */
+export const loadCatalogSchema = z.object({}).strict();
 
 export const updatePlanSchema = z
   .object({
@@ -118,6 +117,17 @@ export const metricsQuerySchema = z.object({
 });
 
 export const checkoutSchema = z.object({ priceId: z.string().min(1) });
+
+/** A credit pack price, before tax, in the country's currency. Unpublished until published. */
+export const setCreditPackPriceSchema = z.object({
+  currency,
+  amountMinor: z.number().int().min(1).max(100_000_000),
+  expectedVersion: z.number().int().min(0).optional(),
+});
+
+export const publishCreditPackSchema = z.object({
+  expectedVersion: z.number().int().min(0).optional(),
+});
 
 export const creditPackCheckoutSchema = z.object({
   packCode: z.string().trim().min(1).max(40),

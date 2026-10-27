@@ -106,7 +106,13 @@ describe('unsubscribe links and headers', () => {
   it('refuses to put a localhost link in a deployed email', () => {
     expect(() =>
       buildUnsubscribeLinks(
-        cfg({ ...BASE, APP_ENV: 'PRODUCTION', CUSTOMER_WEB_URL: 'https://shop.example.test' }),
+        cfg({
+          ...BASE,
+          APP_ENV: 'PRODUCTION',
+          CUSTOMER_WEB_URL: 'https://shop.example.test',
+          // Required in PRODUCTION (no fallback to the sign-in secret there).
+          UNSUBSCRIBE_SIGNING_SECRET: 'u'.repeat(40),
+        }),
         organizer,
       ),
     ).toThrow(/PUBLIC_API_URL/);

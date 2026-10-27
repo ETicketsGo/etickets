@@ -201,7 +201,8 @@ describe('integration-real-postgres: callback ledger, SES regression and opt-out
         expect((await delivery(deliveryId)).status).toBe(DeliveryState.BOUNCED);
         const row = await db!.suppressedDestination.findUnique({
           where: {
-            channel_destinationHash: {
+            channel_destinationHash_scope: {
+              scope: 'ALL',
               channel: 'email',
               destinationHash: SuppressionService.hash('email', BOUNCED),
             },
@@ -254,7 +255,8 @@ describe('integration-real-postgres: callback ledger, SES regression and opt-out
       expect(await suppression.isSuppressed('sms', PHONE)).toBe(false);
       const lifted = await db!.suppressedDestination.findUnique({
         where: {
-          channel_destinationHash: {
+          channel_destinationHash_scope: {
+            scope: 'ALL',
             channel: 'sms',
             destinationHash: SuppressionService.hash('sms', PHONE),
           },
@@ -278,7 +280,9 @@ describe('integration-real-postgres: callback ledger, SES regression and opt-out
     maybe('an accepted send never lifts a block that is not an opt-out', async () => {
       const hash = SuppressionService.hash('sms', PHONE);
       await db!.suppressedDestination.update({
-        where: { channel_destinationHash: { channel: 'sms', destinationHash: hash } },
+        where: {
+          channel_destinationHash_scope: { channel: 'sms', destinationHash: hash, scope: 'ALL' },
+        },
         data: { reason: SuppressionReason.BLOCKED_BY_PROVIDER },
       });
       expect(await suppression.liftProviderOptOut('sms', PHONE, 'twilio', 'accepted')).toBe(false);
@@ -295,7 +299,8 @@ describe('integration-real-postgres: callback ledger, SES regression and opt-out
         });
         const row = await db!.suppressedDestination.findUnique({
           where: {
-            channel_destinationHash: {
+            channel_destinationHash_scope: {
+              scope: 'ALL',
               channel: 'email',
               destinationHash: SuppressionService.hash('email', EMAIL),
             },

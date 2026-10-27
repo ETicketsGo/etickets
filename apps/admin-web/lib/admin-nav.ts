@@ -312,10 +312,28 @@ export const ADMIN_NAV: AdminNavGroup[] = [
       { label: 'Settlements', href: '/admin/settlements', icon: Landmark, needs: 'PAYOUT_MANAGE' },
       {
         label: 'Finance reconciliation',
+        tabLabel: 'Reconciliation',
         href: '/admin/finance-reconciliation',
         icon: Scale,
         needs: 'FINANCE_READ',
         keywords: ['discrepancies'],
+        /*
+          Platform fee policies: exceptions to the fee schedule for one event or one organizer
+          (waive, fixed, percentage). Under Finance, where waivers are decided (owner decision
+          2026-10-27), as a page of this section rather than a row of its own: one more
+          top-level row made the menu taller than a 768px window (console-navigation e2e).
+          GET /admin/platform-fee-policies needs PLATFORM_CONFIG_READ; creating and
+          deactivating need PLATFORM_CONFIG and a fresh MFA code.
+        */
+        children: [
+          {
+            label: 'Platform fee policies',
+            href: '/admin/fee-policies',
+            icon: BadgePercent,
+            needs: 'PLATFORM_CONFIG_READ',
+            keywords: ['fee waiver', 'waive fee', 'fee override', 'promotion', 'finance'],
+          },
+        ],
       },
       /*
         Organizer billing: the platform's own plans for organizers, not ticket money. A SECTION
@@ -398,22 +416,6 @@ export const ADMIN_NAV: AdminNavGroup[] = [
         icon: Percent,
         needs: 'PLATFORM_CONFIG_READ',
         keywords: ['fee rules', 'settings'],
-        /*
-          Platform fee policies: exceptions to the fee schedule for one event or one organizer
-          (waive, fixed, percentage). A page of Booking fees rather than a row of its own: one
-          more top-level row made this group taller than a 768px window (console-navigation
-          e2e). GET /admin/platform-fee-policies needs PLATFORM_CONFIG_READ; creating and
-          deactivating need PLATFORM_CONFIG and a fresh MFA code.
-        */
-        children: [
-          {
-            label: 'Platform fee policies',
-            href: '/admin/fee-policies',
-            icon: BadgePercent,
-            needs: 'PLATFORM_CONFIG_READ',
-            keywords: ['fee waiver', 'waive fee', 'fee override', 'promotion', 'finance'],
-          },
-        ],
       },
       {
         label: 'Tax rules',

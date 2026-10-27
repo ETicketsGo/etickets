@@ -9,7 +9,7 @@ import { OrgAccessService } from '../tenancy/org-access.service';
 import { EntitlementService } from '../billing/entitlements/entitlement.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import type { RequestUser } from '../common/decorators';
-import { isOrganizerPurpose } from '../engagement/consent-purpose';
+import { ConsentPurpose, isOrganizerPurpose } from '../engagement/consent-purpose';
 import { buildUnsubscribeLinks, ALL_ORGANIZER_PURPOSES } from '../engagement/unsubscribe-token';
 import {
   CAMPAIGN_TEMPLATES,
@@ -44,6 +44,7 @@ import {
   type QuietHours,
 } from './quiet-hours';
 import {
+  campaignFooterAddress,
   campaignFromHeader,
   campaignSendingConfig,
   isSimulatorAddress,
@@ -494,9 +495,12 @@ export class CampaignsService {
     const ctx = await this.renderer.context(c);
     // Links point straight at their targets: a preview is never tracked. The iframe that
     // shows it is sandboxed, so nothing in it can run or navigate the console.
+    const footer = await this.footerRefusal(organizationId);
+    if (footer) bad(footer);
     const rendered = this.renderer.render(c, ctx, {
       link: (target) => target,
       unsubscribeUrl: this.previewUnsubscribeUrl(),
+      unsubscribeAllUrl: this.previewUnsubscribeUrl(),
     });
     return {
       subject: c.subject,
@@ -504,6 +508,29 @@ export class CampaignsService {
       html: rendered.html,
       text: rendered.text,
     };
+  }
+
+  /**
+   * Why this organizer's campaigns cannot carry a footer address here, or null. Per country:
+   * see `campaignFooterAddress`.
+   */
+  private async footerRefusal(organizationId: string): Promise<string | null> {
+    const org = await this.prisma.organization.findUnique({
+      where: { id: organizationId },
+      select: { registeredCountry: true },
+    });
+    return campaignFooterAddress(this.config, org?.registeredCountry ?? null).refusal;
+  }
+
+  /** The signed "unsubscribe from all marketing email" page for one address. */
+  private unsubscribeAllUrl(email: string, userId: string | null): string {
+    return buildUnsubscribeLinks(this.config, {
+      userId,
+      email,
+      scope: 'global',
+      organizationId: null,
+      purpose: ConsentPurpose.MARKETING_EMAIL,
+    }).pageUrl;
   }
 
   private previewUnsubscribeUrl(): string {
@@ -559,6 +586,8 @@ export class CampaignsService {
     await this.authorize(user, organizationId);
     const sending = campaignSendingConfig(this.config);
     if (sending.refusal) bad(sending.refusal);
+    const footer = await this.footerRefusal(organizationId);
+    if (footer) bad(footer);
     const c = await this.load(organizationId, campaignId);
     const to = await this.allowedTestRecipients(user, organizationId, input.to);
     const hourAgo = new Date(Date.now() - 3600_000);
@@ -604,6 +633,7 @@ export class CampaignsService {
       const rendered = this.renderer.render(c, ctx, {
         link: (target) => target,
         unsubscribeUrl: links.pageUrl,
+        unsubscribeAllUrl: this.unsubscribeAllUrl(email, null),
         isTest: true,
       });
       try {
@@ -650,6 +680,8 @@ export class CampaignsService {
     const problems: string[] = [];
     const sending = campaignSendingConfig(this.config);
     if (sending.refusal) problems.push(sending.refusal);
+    const footer = await this.footerRefusal(organizationId);
+    if (footer) problems.push(footer);
     let counts: Awaited<ReturnType<CampaignsService['countsWithQuota']>> | null = null;
     try {
       const def = await this.audience.resolve(organizationId, audienceSchema.parse(c.audience));
@@ -712,6 +744,8 @@ export class CampaignsService {
     }
     const sending = campaignSendingConfig(this.config);
     if (sending.refusal) bad(sending.refusal);
+    const footer = await this.footerRefusal(c.organizationId);
+    if (footer) bad(footer);
     const def = await this.audience.resolve(c.organizationId, audienceSchema.parse(c.audience));
     const counts = await this.countsWithQuota(c.organizationId, c.purpose, def);
     if (counts.eligible === 0) bad('Nobody in this audience can get this email.');

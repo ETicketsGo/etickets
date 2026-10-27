@@ -18,6 +18,8 @@ import { assignInvoiceNumber } from './invoice-number';
 import { MockBillingProvider, type VerifiedBillingEvent } from './provider/billing-provider';
 import { BillingProviderRegistry } from './provider/billing-provider.registry';
 import { BillingCheckoutService } from './billing-checkout.service';
+import { BillingTaxService } from './billing-tax.service';
+import { CreditPackPricesService } from './credit-pack-prices.service';
 import { holdBillingSpecLock } from './billing-spec-lock.fixture';
 
 /**
@@ -166,6 +168,8 @@ describe('integration-real-postgres: organizer billing and entitlements', () => 
         { get: () => 'false' } as never,
         BillingProviderRegistry.fixed(provider),
         subscriptions,
+        new BillingTaxService(db as never, { get: () => undefined } as never),
+        new CreditPackPricesService(db as never, audit),
       ),
     );
 
@@ -207,7 +211,7 @@ describe('integration-real-postgres: organizer billing and entitlements', () => 
           where: { providerEventId: { startsWith: tag } },
         });
         await tx.readableReferenceCounter.deleteMany({
-          where: { scope: { in: ['BIL-2091', 'BIL-2092'] } },
+          where: { scope: { in: ['BIL-IN-FY2091-92', 'BIL-IN-FY2092-93'] } },
         });
         if (createdPlanCodes.length) {
           const plans = await tx.billingPlan.findMany({
@@ -468,7 +472,7 @@ describe('integration-real-postgres: organizer billing and entitlements', () => 
   // ── Invoices ──────────────────────────────────────────────────────────────────
 
   maybe(
-    'invoice numbers are consecutive under concurrency, per year, and a rollback gives one back',
+    'India: invoice numbers are gapless under concurrency, per FINANCIAL year (IST), and a rollback gives one back',
     async () => {
       const account = await db!.$transaction((tx: Client) => ensureBillingAccount(tx, orgA));
       const drafts = await Promise.all(
@@ -484,34 +488,43 @@ describe('integration-real-postgres: organizer billing and entitlements', () => 
       const issued = await Promise.all(
         drafts.map((d) => invoices.issue(d.id, new Date('2091-06-01T00:00:00Z'))),
       );
-      const seqs = issued.map((i) => Number(i.number!.split('-')[3])).sort((a, b) => a - b);
+      const seqs = issued.map((i) => Number(i.number!.split('-')[2])).sort((a, b) => a - b);
       expect(seqs).toEqual(Array.from({ length: 12 }, (_, i) => i + 1));
-      expect(issued.every((i) => /^ETG-BIL-2091-\d{6}$/.test(i.number!))).toBe(true);
+      // orgA is in India: FY 2091-92, at most 16 characters.
+      expect(issued.every((i) => /^ETGB-9192-\d{6}$/.test(i.number!))).toBe(true);
 
       // A number taken in a transaction that rolls back is given back.
       await db!
         .$transaction(async (tx: Client) => {
-          expect(await assignInvoiceNumber(tx, new Date('2091-07-01T00:00:00Z'))).toBe(
-            'ETG-BIL-2091-000013',
+          expect(await assignInvoiceNumber(tx, new Date('2091-07-01T00:00:00Z'), 'IN')).toBe(
+            'ETGB-9192-000013',
           );
           throw new Error('rollback');
         })
         .catch(() => undefined);
-      const next = await invoices.createDraft(account.id, {
-        currency: 'INR',
-        lines: [{ description: 'Pro plan', quantity: 1, unitAmountMinor: 99900 }],
-      });
+      const draft = () =>
+        invoices.createDraft(account.id, {
+          currency: 'INR',
+          lines: [{ description: 'Pro plan', quantity: 1, unitAmountMinor: 99900 }],
+        });
+      const next = await draft();
       expect((await invoices.issue(next.id, new Date('2091-08-01T00:00:00Z'))).number).toBe(
-        'ETG-BIL-2091-000013',
+        'ETGB-9192-000013',
       );
 
-      // A new year is a new series.
-      const nextYear = await invoices.createDraft(account.id, {
-        currency: 'INR',
-        lines: [{ description: 'Pro plan', quantity: 1, unitAmountMinor: 99900 }],
-      });
-      expect((await invoices.issue(nextYear.id, new Date('2092-01-01T00:00:00Z'))).number).toBe(
-        'ETG-BIL-2092-000001',
+      // 31 March 23:59:59 IST is still FY 2091-92 (and January is too: not a calendar year).
+      const jan = await draft();
+      expect((await invoices.issue(jan.id, new Date('2092-01-15T00:00:00Z'))).number).toBe(
+        'ETGB-9192-000014',
+      );
+      const lastMinute = await draft();
+      expect((await invoices.issue(lastMinute.id, new Date('2092-03-31T18:29:59Z'))).number).toBe(
+        'ETGB-9192-000015',
+      );
+      // 1 April 00:00 IST (18:30 UTC on 31 March) starts FY 2092-93 at 1.
+      const nextYear = await draft();
+      expect((await invoices.issue(nextYear.id, new Date('2092-03-31T18:30:00Z'))).number).toBe(
+        'ETGB-9293-000001',
       );
 
       // Issuing twice is refused; an issued invoice cannot lose its number or be deleted.
@@ -519,9 +532,17 @@ describe('integration-real-postgres: organizer billing and entitlements', () => 
       await expect(
         db!.organizerInvoice.update({
           where: { id: nextYear.id },
-          data: { number: 'ETG-BIL-2092-000099' },
+          data: { number: 'ETGB-9293-000099' },
         }),
       ).rejects.toThrow(/cannot change/);
+      // The old shape is no longer a number an invoice can carry.
+      const shaped = await draft();
+      await expect(
+        db!.organizerInvoice.update({
+          where: { id: shaped.id },
+          data: { status: 'OPEN', number: 'ETG-BIL-2091-000001' },
+        }),
+      ).rejects.toThrow(/OrganizerInvoice_number_shape/);
       await expect(db!.organizerInvoice.delete({ where: { id: nextYear.id } })).rejects.toThrow(
         /cannot be deleted/,
       );

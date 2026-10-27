@@ -35,6 +35,9 @@ const STEP_UP: Array<[string, new (...a: never[]) => unknown, string[]]> = [
       'recordDiscount',
       'grantOverride',
       'revokeOverride',
+      'setCreditPackPrice',
+      'publishCreditPack',
+      'unpublishCreditPack',
     ],
   ],
   // Stopping, or releasing, an organizer's campaign: mail going out under the platform's name.

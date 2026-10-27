@@ -13,6 +13,8 @@ import { BillingReadService } from './billing-read.service';
 import { BillingCheckoutService } from './billing-checkout.service';
 import { BillingProviderEventService } from './billing-provider-events.service';
 import { BillingSweepService } from './billing-sweep.service';
+import { BillingTaxService } from './billing-tax.service';
+import { CreditPackPricesService } from './credit-pack-prices.service';
 import { BillingWebhookController } from './billing-webhook.controller';
 import { OrganizerBillingController } from './billing.controller';
 import { BillingProviderRegistry } from './provider/billing-provider.registry';
@@ -51,7 +53,8 @@ import { holdBillingSpecLock } from './billing-spec-lock.fixture';
  * cancellation, the sweep's PAST_DUE -> GRACE -> EXPIRED path with dunning, transient failures
  * retried, and checkout refused across tenants.
  *
- * Fixture dates are in 2093 so the ETG-BIL counter it uses (BIL-2093) is its own; it is removed
+ * Fixture dates are in 2093 so the invoice counters it uses (BIL-US-2093, BIL-IN-FY2092-93,
+ * BIL-IN-FY2093-94) are its own; they are removed
  * afterwards with every row made here. Skips (never fabricates a pass) without a database.
  */
 function loadDatabaseUrl(): string | undefined {
@@ -74,6 +77,13 @@ type Client = InstanceType<typeof PrismaClient>;
 
 const DAY = 24 * 60 * 60 * 1000;
 const T0 = new Date('2093-03-01T00:00:00Z');
+/*
+  Tax: US plans and packs here go through Stripe Tax (STRIPE_BILLING_AUTOMATIC_TAX=true); India
+  through a PLATFORM_SERVICES rule this suite creates and removes. The rate is the suite's own
+  value, never one from the code (there is none there).
+*/
+const IN_RATE_BPS = 1800;
+const withTax = (net: number) => net + Math.round((net * IN_RATE_BPS) / 10_000);
 const at = (days: number) => new Date(T0.getTime() + days * DAY);
 
 describe('integration-real-postgres: billing providers (Stripe Billing, Razorpay Subscriptions)', () => {
@@ -114,7 +124,11 @@ describe('integration-real-postgres: billing providers (Stripe Billing, Razorpay
     BILLING_GRACE_DAYS: '7',
     BILLING_PAST_DUE_DAYS: '7',
     ORGANIZER_WEB_URL: 'https://organizer.test',
+    STRIPE_BILLING_AUTOMATIC_TAX: 'true',
+    PLATFORM_TAX_REGION: 'Karnataka',
   };
+  let taxRuleId = '';
+  const createdPackPrices: string[] = [];
   const config = { get: (k: string) => env[k] } as never;
   const dunning: { organizationId: string; payload: Record<string, unknown> }[] = [];
   const audience = {
@@ -243,6 +257,8 @@ describe('integration-real-postgres: billing providers (Stripe Billing, Razorpay
     const entitlements = new EntitlementService(db as never, ALL_ON);
     const subscriptions = new SubscriptionService(db as never, audit, publisher, entitlements);
     const invoices = new BillingInvoiceService(db as never);
+    const tax = new BillingTaxService(db as never, config);
+    const packPrices = new CreditPackPricesService(db as never, audit);
     events = new BillingProviderEventService(
       db as never,
       audit,
@@ -253,8 +269,16 @@ describe('integration-real-postgres: billing providers (Stripe Billing, Razorpay
       registry,
       config,
       audience as never,
+      tax,
     );
-    checkouts = new BillingCheckoutService(db as never, config, registry, subscriptions);
+    checkouts = new BillingCheckoutService(
+      db as never,
+      config,
+      registry,
+      subscriptions,
+      tax,
+      packPrices,
+    );
     sweep = new BillingSweepService(
       db as never,
       config,
@@ -277,6 +301,40 @@ describe('integration-real-postgres: billing providers (Stripe Billing, Razorpay
     ownerIN = await makeUser('owner-in');
     orgUS = await makeOrg('org-us', 'United States', ownerUS);
     orgIN = await makeOrg('org-in', 'India', ownerIN);
+    await db!.organization.update({
+      where: { id: orgIN },
+      data: { registeredRegion: 'Telangana' },
+    });
+    taxRuleId = (
+      await db!.taxRule.create({
+        data: {
+          label: 'GST',
+          rateBasisPoints: IN_RATE_BPS,
+          appliesTo: 'PLATFORM_SERVICES',
+          country: 'IN',
+          currency: 'INR',
+          split: 'CGST_SGST',
+          active: true,
+        },
+      })
+    ).id;
+    // The pack this suite buys, priced and published (unpublished packs are not on sale).
+    for (const [country, currency, amountMinor] of [
+      ['US', 'USD', 900],
+      ['IN', 'INR', 49_900],
+    ] as const) {
+      const before = await db!.creditPackPrice.findUnique({
+        where: { packCode_country: { packCode: 'EMAIL_5K', country } },
+      });
+      const row = await packPrices.setPrice(
+        'EMAIL_5K',
+        country,
+        { currency, amountMinor },
+        staff.id,
+      );
+      if (!before) createdPackPrices.push(row.id);
+      await packPrices.setPublished('EMAIL_5K', country, true, staff.id);
+    }
     orgSweep = await makeOrg('org-sweep', 'US', ownerUS);
 
     const had = new Set(
@@ -293,7 +351,8 @@ describe('integration-real-postgres: billing providers (Stripe Billing, Razorpay
       id: `plan_${tag}_pro_in`,
       period: 'monthly',
       interval: 1,
-      item: { amount: inPrice.amountMinor, currency: 'INR' },
+      // Razorpay computes no tax: the plan charges the price plus GST.
+      item: { amount: withTax(inPrice.amountMinor), currency: 'INR' },
     };
   }, 120_000);
 
@@ -325,7 +384,10 @@ describe('integration-real-postgres: billing providers (Stripe Billing, Razorpay
         await tx.billingWebhookEvent.deleteMany({
           where: { providerEventId: { startsWith: tag } },
         });
-        await tx.readableReferenceCounter.deleteMany({ where: { scope: 'BIL-2093' } });
+        await tx.readableReferenceCounter.deleteMany({
+          where: { scope: { in: ['BIL-US-2093', 'BIL-IN-FY2092-93', 'BIL-IN-FY2093-94'] } },
+        });
+        await tx.creditPackPurchase.deleteMany({ where: { organizationId: { in: orgIds } } });
         if (createdPlanCodes.length) {
           const plans = await tx.billingPlan.findMany({
             where: { code: { in: createdPlanCodes } },
@@ -341,6 +403,10 @@ describe('integration-real-postgres: billing providers (Stripe Billing, Razorpay
           'ALTER TABLE "OrganizerInvoice" ENABLE TRIGGER "OrganizerInvoice_number_frozen"',
         );
       });
+      if (taxRuleId) await db.taxRule.deleteMany({ where: { id: taxRuleId } });
+      if (createdPackPrices.length) {
+        await db.creditPackPrice.deleteMany({ where: { id: { in: createdPackPrices } } });
+      }
       await db.auditLog.deleteMany({ where: { actorUserId: { in: userIds } } });
       await db.auditLog.deleteMany({ where: { organizationId: { in: orgIds } } });
       await db.organizationMember.deleteMany({ where: { organizationId: { in: orgIds } } });
@@ -512,10 +578,14 @@ describe('integration-real-postgres: billing providers (Stripe Billing, Razorpay
         providerInvoiceRef: id,
         taxMinor: 0,
       });
-      expect(invoices[0].number).toMatch(/^ETG-BIL-2093-\d{6}$/);
-      expect((invoices[0].documentJson as Record<string, unknown>).taxNote).toMatch(
-        /Tax not applied/,
-      );
+      expect(invoices[0].number).toMatch(/^ETG-BIL-US-2093-\d{6}$/);
+      // Stripe Tax decided (STRIPE_BILLING_AUTOMATIC_TAX): the invoice says so in a tax line.
+      const doc = invoices[0].documentJson as Record<string, unknown>;
+      expect(doc.taxNote).toBeNull();
+      expect(doc.taxMode).toBe('PROVIDER_AUTOMATIC');
+      expect(doc.taxLines).toEqual([
+        expect.objectContaining({ label: 'Sales tax (Stripe Tax)', amountMinor: 0 }),
+      ]);
       const payments = await db!.billingPayment.findMany({ where: { accountId: account.id } });
       expect(payments).toHaveLength(1);
       expect(payments[0]).toMatchObject({
@@ -528,7 +598,9 @@ describe('integration-real-postgres: billing providers (Stripe Billing, Razorpay
       // The printable invoice, behind the same membership check.
       const html = await controller.invoiceHtml(ownerUS, orgUS, invoices[0].id);
       expect(html).toContain(invoices[0].number!);
-      expect(html).toContain('Tax not applied');
+      // The tax line Stripe Tax charged, not a "tax not applied" note.
+      expect(html).toContain('Sales tax (Stripe Tax)');
+      expect(html).not.toContain('Tax not applied');
       await expect(controller.invoiceHtml(ownerIN, orgUS, invoices[0].id)).rejects.toBeDefined();
       await expect(controller.invoiceHtml(ownerIN, orgIN, invoices[0].id)).rejects.toMatchObject({
         code: 'NOT_FOUND',
@@ -663,6 +735,17 @@ describe('integration-real-postgres: billing providers (Stripe Billing, Razorpay
       )._sum.delta ?? 0;
     const s = await controller.creditPackCheckout(ownerUS, orgUS, { packCode: 'EMAIL_5K' });
     expect(s.url).toMatch(/checkout\.stripe\.test/);
+    const purchase = await db!.creditPackPurchase.findFirstOrThrow({
+      where: { organizationId: orgUS },
+      orderBy: { createdAt: 'desc' },
+    });
+    expect(purchase).toMatchObject({
+      packCode: 'EMAIL_5K',
+      netMinor: 900,
+      taxMode: 'PROVIDER_AUTOMATIC',
+      status: 'PENDING',
+      providerSessionRef: s.sessionRef,
+    });
 
     const mk = (id: string, o: Partial<Parameters<typeof stripeCreditPackSession>[0]> = {}) =>
       stripeCreditPackSession({
@@ -673,6 +756,7 @@ describe('integration-real-postgres: billing providers (Stripe Billing, Razorpay
         amount: 900,
         currency: 'USD',
         at: at(1),
+        purchaseRef: purchase.purchaseRef,
         ...o,
       });
     sState.sessions[`cs_${tag}_unpaid`] = mk(`cs_${tag}_unpaid`, { paid: false });
@@ -717,6 +801,9 @@ describe('integration-real-postgres: billing providers (Stripe Billing, Razorpay
       outcome: 'IGNORED',
     });
     expect(await ledgerSum()).toBe(5000);
+    expect(
+      await db!.creditPackPurchase.findUniqueOrThrow({ where: { id: purchase.id } }),
+    ).toMatchObject({ status: 'PAID' });
   });
 
   // ── Disputes ──────────────────────────────────────────────────────────────────
@@ -879,7 +966,8 @@ describe('integration-real-postgres: billing providers (Stripe Billing, Razorpay
       rState.payments[`pay_${tag}_1`] = {
         id: `pay_${tag}_1`,
         status: 'captured',
-        amount: inPrice.amountMinor,
+        // The plan charges the price plus GST: Razorpay computes no tax.
+        amount: withTax(inPrice.amountMinor),
         currency: 'INR',
         invoice_id: `inv_${tag}_1`,
         created_at: Math.floor(at(0).getTime() / 1000),
@@ -956,12 +1044,43 @@ describe('integration-real-postgres: billing providers (Stripe Billing, Razorpay
   maybe('Razorpay: a credit pack payment link grants credits once', async () => {
     const s = await controller.creditPackCheckout(ownerIN, orgIN, { packCode: 'EMAIL_5K' });
     expect(s.url).toMatch(/rzp\.test\/l\//);
-    const link = razorpayPaymentLink({
-      id: `plink_${tag}_1`,
+    const purchase = await db!.creditPackPurchase.findFirstOrThrow({
+      where: { organizationId: orgIN },
+      orderBy: { createdAt: 'desc' },
+    });
+    // Telangana organizer, Karnataka platform: inter-state, so one IGST line.
+    expect(purchase).toMatchObject({
+      netMinor: 49_900,
+      taxMinor: withTax(49_900) - 49_900,
+      totalMinor: withTax(49_900),
+      taxMode: 'MANUAL',
+    });
+    expect(purchase.taxLines).toEqual([
+      expect.objectContaining({ label: 'IGST', rateBasisPoints: IN_RATE_BPS }),
+    ]);
+    // The price before tax alone is refused: Razorpay's charge must be net + GST.
+    const short = razorpayPaymentLink({
+      id: `plink_${tag}_short`,
       organizationId: orgIN,
       packCode: 'EMAIL_5K',
       amount: 49_900,
       at: at(2),
+      purchaseRef: purchase.purchaseRef,
+    });
+    rState.links[`plink_${tag}_short`] = short;
+    expect(
+      await razorpayHook(
+        razorpayEvent('payment_link.paid', { payment_link: short, payment: { id: 'pay_s' } }),
+        'plink-short',
+      ),
+    ).toMatchObject({ outcome: 'FAILED' });
+    const link = razorpayPaymentLink({
+      id: `plink_${tag}_1`,
+      organizationId: orgIN,
+      packCode: 'EMAIL_5K',
+      amount: withTax(49_900),
+      at: at(2),
+      purchaseRef: purchase.purchaseRef,
     });
     rState.links[`plink_${tag}_1`] = link;
     const body = razorpayEvent('payment_link.paid', {
@@ -975,5 +1094,18 @@ describe('integration-real-postgres: billing providers (Stripe Billing, Razorpay
       _sum: { delta: true },
     });
     expect(sum._sum.delta).toBe(5000);
+    const account = await db!.organizerBillingAccount.findUniqueOrThrow({
+      where: { organizationId: orgIN },
+    });
+    const packInvoice = await db!.organizerInvoice.findFirstOrThrow({
+      where: { accountId: account.id, providerInvoiceRef: `plink_${tag}_1` },
+    });
+    // The invoice splits Razorpay's total back into net and GST, numbered in India's FY series.
+    expect(packInvoice).toMatchObject({
+      subtotalMinor: 49_900,
+      taxMinor: withTax(49_900) - 49_900,
+      totalMinor: withTax(49_900),
+    });
+    expect(packInvoice.number).toMatch(/^ETGB-\d{4}-\d{6}$/);
   });
 });

@@ -5,7 +5,7 @@ import { EntitlementKey } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { EntitlementService } from '../billing/entitlements/entitlement.service';
-import { currentConsent } from '../engagement/consent-purpose';
+import { ConsentPurpose, currentConsent } from '../engagement/consent-purpose';
 import { ALL_ORGANIZER_PURPOSES, buildUnsubscribeLinks } from '../engagement/unsubscribe-token';
 import { audienceSchema } from './campaign-audience';
 import { CampaignAudienceService } from './campaign-audience.service';
@@ -18,7 +18,11 @@ import {
   type RecipientCounts,
 } from './campaign-state';
 import { isQuietTime, type QuietHours } from './quiet-hours';
-import { campaignFromHeader, campaignSendingConfig } from './campaign-sending-config';
+import {
+  campaignFooterAddress,
+  campaignFromHeader,
+  campaignSendingConfig,
+} from './campaign-sending-config';
 import {
   CAMPAIGN_TRANSPORT,
   classifySendError,
@@ -292,6 +296,14 @@ export class CampaignDispatchService {
       return block === 'SKIPPED_CONSENT' ? 'skipped_consent' : 'skipped_suppressed';
     }
 
+    // ── The footer address for this organizer's country. Missing in a live environment: ──
+    // the campaign stops, rather than failing every recipient one by one.
+    const footer = campaignFooterAddress(this.config, (await this.contextFor(c)).organizer.country);
+    if (footer.refusal) {
+      await this.pauseBySystem(c, 'POSTAL_ADDRESS_MISSING');
+      return 'provider_paused';
+    }
+
     // ── Quota: look before sending, spend only after the provider accepts. ──
     const left = await this.entitlements.remaining(c.organizationId, QUOTA_KEY);
     if (left.remaining < 1) {
@@ -322,6 +334,13 @@ export class CampaignDispatchService {
       });
       const key = clickKey(this.config);
       const linkIds = await this.ensureLinks(c.id, ctx);
+      const unsubscribeAll = buildUnsubscribeLinks(this.config, {
+        userId: r.userId,
+        email: r.destination,
+        scope: 'global',
+        organizationId: null,
+        purpose: ConsentPurpose.MARKETING_EMAIL,
+      });
       const rendered = this.renderer.render(c, ctx, {
         link: (target) => {
           const linkId = linkIds.get(target);
@@ -330,6 +349,7 @@ export class CampaignDispatchService {
             : null;
         },
         unsubscribeUrl: links.pageUrl,
+        unsubscribeAllUrl: unsubscribeAll.pageUrl,
       });
       message = {
         to: r.destination,

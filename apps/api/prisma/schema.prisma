@@ -3226,6 +3226,14 @@ model SuppressedDestination {
 
   /// HARD_BOUNCE | COMPLAINT | UNSUBSCRIBED | INVALID_DESTINATION | BLOCKED_BY_PROVIDER
   reason           String
+  /// ALL: the destination does not work, so NOTHING is sent to it (a hard bounce, an invalid
+  /// destination, a provider block, an SMS STOP).
+  /// MARKETING: the person said no to promotional mail (a spam complaint, "unsubscribe from all
+  /// marketing email"). Every organizer campaign and platform marketing message skips it;
+  /// essential transactional mail (tickets, receipts, sign-in codes, refunds) does NOT.
+  /// One row per scope, so a later hard bounce on an address that complained adds an ALL row
+  /// beside the MARKETING one and both reasons stay on record.
+  scope            String    @default("ALL")
   /// Which provider reported it, when one did.
   provider         String?
   /// The delivery attempt this came from, for tracing it back to the event.
@@ -3241,7 +3249,7 @@ model SuppressedDestination {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  @@unique([channel, destinationHash])
+  @@unique([channel, destinationHash, scope])
   @@index([reason, suppressedAt])
 }
 
@@ -3687,6 +3695,13 @@ enum TaxBase {
   /// charge is taxed at the admission rate — or taxed at all. Whether it is, and at what
   /// rate, stays a TaxRule an owner writes on advice. This only makes it addressable.
   MAINTENANCE
+  /// The platform's own service to an ORGANIZER: a plan subscription or an email credit pack.
+  ///
+  /// Its own base so the owner can rate it apart from the booking fee a ticket buyer pays.
+  /// Ticket pricing never reads it (no ticket, fee or maintenance amount is a platform
+  /// service), and organizer billing reads ONLY it. Place of supply is the organizer's billing
+  /// state against PLATFORM_TAX_REGION, as for any service.
+  PLATFORM_SERVICES
 }
 
 /// One tax a customer may be charged, entirely configuration.
@@ -6416,4 +6431,65 @@ model SavedSegment {
   updatedAt       DateTime @updatedAt
 
   @@unique([organizationId, name])
+}
+
+// ════════════════════════════════════════════════════════════════════════════════════════
+// Email credit pack prices and purchases (feat/growth-owner-decisions)
+//
+// The pack SIZES are code (billing/credit-packs.ts: 1,000 / 5,000 / 10,000 credits). What a
+// pack COSTS is staff configuration per country, UNPUBLISHED until somebody with
+// BILLING_MANAGE sets a price and publishes it (recent second factor, audited). No row, or an
+// unpublished row, means the pack is not on sale there: the organizer page does not show it
+// and a checkout for it is refused.
+// ════════════════════════════════════════════════════════════════════════════════════════
+
+model CreditPackPrice {
+  id              String    @id @default(cuid())
+  /// A CreditPack code (EMAIL_1K, EMAIL_5K, EMAIL_10K).
+  packCode        String
+  /// ISO 3166-1 alpha-2: the ORGANIZER's billing country.
+  country         String
+  currency        String
+  /// Before tax. Tax is worked out at checkout from the PLATFORM_SERVICES tax rules.
+  amountMinor     Int
+  published       Boolean   @default(false)
+  publishedAt     DateTime?
+  /// Moves on every change, so the console can refuse a write made against a stale view.
+  version         Int       @default(1)
+  updatedByUserId String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([packCode, country])
+}
+
+/// One credit pack checkout, with the amounts and tax quoted when it started. The payment is
+/// checked against THIS row, so a price changed by staff after the checkout cannot make a paid
+/// pack look like a mismatch, and a paid amount that differs from what was quoted is refused.
+model CreditPackPurchase {
+  id                 String              @id @default(cuid())
+  /// Our id for the attempt, written into the provider's metadata/notes and read back from it.
+  purchaseRef        String              @unique
+  organizationId     String
+  accountId          String
+  packCode           String
+  credits            Int
+  country            String
+  currency           String
+  netMinor           Int
+  taxMinor           Int
+  totalMinor         Int
+  /// The tax lines as quoted (label, rate, base, amount).
+  taxLines           Json
+  /// MANUAL (our TaxRule rows) or PROVIDER_AUTOMATIC (Stripe Tax computes it at checkout).
+  taxMode            String
+  provider           BillingProviderName
+  providerSessionRef String?
+  /// PENDING until the provider's verified record of the payment is applied, then PAID.
+  status             String              @default("PENDING")
+  paidAt             DateTime?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  @@index([organizationId, createdAt])
 }

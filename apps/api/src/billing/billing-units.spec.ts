@@ -2,7 +2,7 @@ import { Reflector } from '@nestjs/core';
 import { Controller, Get } from '@nestjs/common';
 import { BillingReadService, monthlyEquivalentMinor } from './billing-read.service';
 import { billingCountryOf } from './billing-account';
-import { formatInvoiceNumber, invoiceNumberScope } from './invoice-number';
+import { invoiceSeries } from './invoice-number';
 import {
   BILLING_NOT_ENABLED_MESSAGE,
   DisabledBillingProvider,
@@ -116,10 +116,17 @@ describe('billing country follows the organizer, never a guess', () => {
 });
 
 describe('invoice number shape', () => {
-  it('is ETG-BIL-<YEAR>-<SEQ>, six digits at least, on its own counter scope', () => {
-    expect(formatInvoiceNumber(2026, 1)).toBe('ETG-BIL-2026-000001');
-    expect(formatInvoiceNumber(2026, 1234567)).toBe('ETG-BIL-2026-1234567');
-    expect(invoiceNumberScope(2026)).toBe('BIL-2026');
+  it('is ETG-BIL-<COUNTRY>-<YEAR>-<SEQ> outside India, six digits at least, own scope', () => {
+    const us = invoiceSeries('US', new Date('2026-06-01T00:00:00Z'));
+    expect(us.format(1)).toBe('ETG-BIL-US-2026-000001');
+    expect(us.format(1234567)).toBe('ETG-BIL-US-2026-1234567');
+    expect(us.scope).toBe('BIL-US-2026');
+  });
+
+  it('is ETGB-<FY>-<SEQ> in India, on the financial year scope', () => {
+    const india = invoiceSeries('IN', new Date('2026-06-01T00:00:00Z'));
+    expect(india.format(1)).toBe('ETGB-2627-000001');
+    expect(india.scope).toBe('BIL-IN-FY2026-27');
   });
 });
 

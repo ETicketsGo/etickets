@@ -5,7 +5,12 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import { SuppressionService } from '../notifications/delivery/suppression.service';
 import { CommunicationConsentService } from './communication-consent.service';
-import { ConsentPurpose, ORGANIZER_PURPOSES, type OrganizerPurpose } from './consent-purpose';
+import {
+  ConsentPurpose,
+  ORGANIZER_PURPOSES,
+  currentConsent,
+  type OrganizerPurpose,
+} from './consent-purpose';
 import { UnsubscribeHooks } from './unsubscribe-hooks';
 import {
   ALL_ORGANIZER_PURPOSES,
@@ -30,14 +35,16 @@ export interface UnsubscribePreview {
  *   - organizer scope: a withdrawal consent row per purpose, the follower's early-access and
  *     offers topics switched off, and an `OrganizerSuppression` row so that organizer can
  *     never mail the address again until the person opts back in from their account.
- *   - global scope: a withdrawal of platform marketing email (in `MarketingConsent`, the store
- *     the sender reads).
+ *   - global scope ("Unsubscribe from all marketing email"): a withdrawal of platform marketing
+ *     email (in `MarketingConsent`, the store the sender reads), a withdrawal of every organizer
+ *     consent the person currently has, and a MARKETING-scope `SuppressedDestination` row, so
+ *     no organizer campaign and no ETicketsGo marketing reaches the address - including ones
+ *     for which no consent row was ever found by email (owner decision 2026-10-27).
  *
  * ── WHAT IS DELIBERATELY NOT WRITTEN ───────────────────────────────────────────────
- * The global `SuppressedDestination` list. It blocks EVERY email to the address, tickets
- * included (`NotificationService` checks it for transactional mail too). Somebody who leaves
- * a newsletter must still get the ticket they paid for. The consent withdrawal is what stops
- * platform marketing, and `mayReceiveMarketing` already reads it.
+ * An ALL-scope suppression. That one blocks EVERY email to the address, tickets included.
+ * Somebody who leaves all marketing must still get the ticket they paid for, their receipts,
+ * refunds and sign-in codes; the MARKETING scope is read only by marketing sends.
  *
  * Repeating an unsubscribe is safe: the suppression insert skips duplicates (and re-arms a
  * lifted row), and a second withdrawal row is harmless evidence of a second click.
@@ -52,6 +59,8 @@ export class UnsubscribeService {
     private readonly consent: CommunicationConsentService,
     /** Listeners told after the unsubscribe has committed (campaign stats). Optional. */
     @Optional() private readonly hooks?: UnsubscribeHooks,
+    /** Writes the MARKETING-scope row for "unsubscribe from all marketing email". */
+    @Optional() private readonly suppression?: SuppressionService,
   ) {}
 
   private claimsOrThrow(token: string): UnsubscribeClaims {
@@ -108,6 +117,34 @@ export class UnsubscribeService {
         { purpose: ConsentPurpose.MARKETING_EMAIL, organizationId: null, granted: false },
         decisionContext,
       );
+      // Every organizer consent currently granted is withdrawn too, so an opt-in later from
+      // the account re-opens only what the person grants again.
+      const rows = await this.consent.scopedRows(subject);
+      const granted = new Map<string, Set<OrganizerPurpose>>();
+      for (const orgId of new Set(rows.map((r) => r.organizationId).filter(Boolean))) {
+        for (const purpose of ORGANIZER_PURPOSES) {
+          if (currentConsent(rows, purpose, orgId as string).granted) {
+            if (!granted.has(orgId as string)) granted.set(orgId as string, new Set());
+            granted.get(orgId as string)!.add(purpose);
+          }
+        }
+      }
+      for (const [organizationId, purposes] of granted) {
+        for (const purpose of purposes) {
+          await this.consent.record(
+            subject,
+            { purpose, organizationId, granted: false },
+            decisionContext,
+          );
+        }
+      }
+      await this.suppression?.suppress({
+        channel: 'email',
+        destination: claims.email,
+        reason: SuppressionReason.UNSUBSCRIBED,
+        scope: 'MARKETING',
+        provider: null,
+      });
     } else {
       const organizationId = claims.organizationId!;
       const purposes = this.purposesOf(claims) as OrganizerPurpose[];

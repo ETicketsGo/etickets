@@ -282,6 +282,7 @@
     },
     "unsubscribe": "Se désabonner de {organizer}",
     "unsubscribePrompt": "Vous ne voulez plus recevoir ces courriels ?",
+    "unsubscribeAll": "Se désabonner de tous les courriels de marketing",
     "sentBy": "Envoyé par {organizer} avec ETicketsGo.",
     "operator": "ETicketsGo est exploité par {legalName}.",
     "book": "Réserver des billets",
