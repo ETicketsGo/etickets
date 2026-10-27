@@ -17,6 +17,8 @@ export const PRIVATE_PATHS = [
   '/reset-password',
   '/forgot-password',
   '/share',
+  // A signed link from somebody's email.
+  '/unsubscribe',
 ] as const;
 
 export function disallowedPaths(): string[] {

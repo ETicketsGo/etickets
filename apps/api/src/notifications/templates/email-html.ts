@@ -297,3 +297,18 @@ export function renderEmailHtml(view: EmailView): string {
   </body>
 </html>`;
 }
+
+/**
+ * The same colours and font, for the campaign renderer (campaigns/campaign-email.ts), so a
+ * campaign looks like every other mail we send without a second copy of the palette.
+ */
+export const EMAIL_PALETTE = {
+  BRAND,
+  INK,
+  BODY_TEXT,
+  MUTED,
+  BORDER,
+  PAGE_BG,
+  CARD_BG,
+  FONT,
+} as const;

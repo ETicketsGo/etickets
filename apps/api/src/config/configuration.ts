@@ -112,6 +112,10 @@ const envSchema = z.object({
     .optional()
     .transform((v) => v === 'true' || v === '1'),
   MANIFEST_SIGNING_SECRET: z.string().optional(),
+  // Signs one-click unsubscribe links (engagement/unsubscribe-token.ts). Optional: unset, a key
+  // is derived from JWT_ACCESS_SECRET. Set it wherever marketing email is sent, so rotating the
+  // JWT secret does not break every unsubscribe link already in somebody's inbox.
+  UNSUBSCRIBE_SIGNING_SECRET: z.string().optional(),
   // How long a signed offline ticket list stays valid, in minutes: the longest a revoked door
   // phone can keep admitting from its cache. Unset = 45, and never more than 45 anywhere (larger
   // values are clamped). STAGING/PRODUCTION must set it, at most 45, before OFFLINE_CHECKIN_ENABLED
@@ -523,6 +527,21 @@ const envSchema = z.object({
    * it can never quietly switch off a working gateway.
    */
   PAYMENTS_ACTIVATION_PENDING: z.enum(['true', 'false']).default('false'),
+
+  /**
+   * Organizer billing: the platform charging organizers for Pro and Premium plans.
+   *
+   * OFF by default, everywhere. While off, no checkout can start, plans and prices are shown as
+   * "not open yet", and staff grants (trials, complimentary plans, overrides) still work - they
+   * move no money. `assertBillingConfiguration` refuses contradictory states at boot.
+   */
+  BILLING_ENABLED: z.enum(['true', 'false']).default('false'),
+  /**
+   * Who would take the money. `disabled` refuses every checkout. `mock` is a test double for
+   * LOCAL, DEV and QA only. Real providers (Stripe Billing, Razorpay Subscriptions) arrive in a
+   * later change; until then STAGING and PRODUCTION cannot enable billing at all.
+   */
+  BILLING_PROVIDER: z.enum(['disabled', 'mock']).default('disabled'),
 
   /**
    * The account that becomes this environment's FIRST administrator.
@@ -1000,6 +1019,32 @@ const envSchema = z.object({
   SES_CONFIGURATION_SET: z.string().optional(),
 
   /*
+    ── ORGANIZER EMAIL CAMPAIGNS ──────────────────────────────────────────────────────
+    OFF by default, everywhere. While off, every campaign route answers "not switched on" and
+    the worker sends nothing. The plan entitlements (campaigns.*) still apply on top: this is
+    the deployment switch, they are the per-organization answer.
+
+    Marketing mail has its OWN sender and configuration set, so a campaign's bounces and
+    complaints are measured apart from ticket mail, and an SES pause on marketing reputation
+    cannot stop a ticket. In LOCAL/DEV/QA/UAT an unset pair falls back to the transactional
+    ones, and the console says so. In STAGING and PRODUCTION a campaign is refused at send
+    time unless both are set (campaign-sending-config.ts). Checked at send time, not at boot, so
+    switching campaigns off can never stop the API from starting.
+  */
+  CAMPAIGNS_ENABLED: z.enum(['true', 'false']).default('false'),
+  SES_MARKETING_CONFIGURATION_SET: z.string().optional(),
+  MARKETING_EMAIL_FROM: z.string().optional(),
+  /** Campaign messages per second, per worker. Conservative by default; SES sandbox is 1/s. */
+  CAMPAIGN_SEND_RATE_PER_SECOND: z.coerce.number().int().min(1).max(50).default(5),
+  /** Days after a click during which a booking counts as ATTRIBUTED to the campaign. */
+  CAMPAIGN_ATTRIBUTION_WINDOW_DAYS: z.coerce.number().int().min(1).max(30).default(7),
+  /**
+   * The postal address printed in every campaign footer (anti-spam law asks for one). Optional
+   * until the owner supplies it; STAGING and PRODUCTION refuse to send a campaign without it.
+   */
+  MARKETING_POSTAL_ADDRESS: z.string().optional(),
+
+  /*
     ── OBJECT STORAGE (Cloudflare R2, through the S3 API) ────────────────────────────
     Where posters, organization pictures and uploaded documents live. Unset everywhere means
     `postgres`, which is what every environment runs today and is a perfectly good answer at
@@ -1215,6 +1260,8 @@ function assertProductionHardening(cfg: AppConfig): void {
     PAYMENT_WEBHOOK_SECRET: cfg.PAYMENT_WEBHOOK_SECRET,
     // Only enforced when explicitly set (optional; falls back to QR_SIGNING_SECRET).
     MANIFEST_SIGNING_SECRET: cfg.MANIFEST_SIGNING_SECRET,
+    // Only enforced when explicitly set (optional; derived from JWT_ACCESS_SECRET otherwise).
+    UNSUBSCRIBE_SIGNING_SECRET: cfg.UNSUBSCRIBE_SIGNING_SECRET,
   };
   for (const [name, value] of Object.entries(secrets)) {
     if (value === undefined) continue;
@@ -1587,6 +1634,50 @@ function assertPaymentActivationPending(cfg: AppConfig): void {
 
   if (errors.length) {
     throw new Error(`Payment activation state is contradictory:\n${errors.join('\n')}`);
+  }
+}
+
+/**
+ * Organizer billing cannot be switched on by accident.
+ *
+ * Follows the payment-environment rules (payments/configuration/payment-environment.ts): the
+ * test double is refused where real money could be expected, and the fail-closed environments
+ * (STAGING, PRODUCTION) need a real provider - which does not exist yet - so enabling billing
+ * there stops the boot with a plain reason instead of opening a checkout nobody can pay.
+ */
+export function billingConfigurationErrors(cfg: {
+  APP_ENV: string;
+  BILLING_ENABLED: string;
+  BILLING_PROVIDER: string;
+}): string[] {
+  const errors: string[] = [];
+  const env = cfg.APP_ENV;
+  const enabled = cfg.BILLING_ENABLED === 'true';
+  const mockAllowed = ['LOCAL', 'DEV', 'QA'].includes(env);
+  if (cfg.BILLING_PROVIDER === 'mock' && !mockAllowed) {
+    errors.push(
+      `  - BILLING_PROVIDER=mock is a test double and is refused in ${env}. Use BILLING_PROVIDER=disabled.`,
+    );
+  }
+  if (enabled && cfg.BILLING_PROVIDER === 'disabled') {
+    errors.push(
+      '  - BILLING_ENABLED=true but BILLING_PROVIDER=disabled: nothing could take a payment. ' +
+        'Name a provider, or leave billing off.',
+    );
+  }
+  if (enabled && ['STAGING', 'PRODUCTION'].includes(env)) {
+    errors.push(
+      `  - BILLING_ENABLED=true is refused in ${env}: no real billing provider is integrated yet. ` +
+        'Leave billing off until the provider change ships and the owner approves it.',
+    );
+  }
+  return errors;
+}
+
+function assertBillingConfiguration(cfg: AppConfig): void {
+  const errors = billingConfigurationErrors(cfg);
+  if (errors.length) {
+    throw new Error(`Unsafe billing configuration:\n${errors.join('\n')}`);
   }
 }
 
@@ -2132,6 +2223,7 @@ export function loadConfig(): AppConfig {
   assertRazorpayConsistency(parsed.data);
   assertPaymentEnvironmentKeySafety(parsed.data);
   assertPaymentActivationPending(parsed.data);
+  assertBillingConfiguration(parsed.data);
   assertPlatformConfigConsistency(parsed.data);
   assertNotificationConfigConsistency(parsed.data);
   assertObjectStoreConsistency(parsed.data);

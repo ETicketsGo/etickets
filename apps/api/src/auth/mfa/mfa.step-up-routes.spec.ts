@@ -3,6 +3,8 @@ import { AdminStaffController } from '../../admin/admin-staff.controller';
 import { SettlementController } from '../../payments/settlement/settlement.controller';
 import { MFA_RECENT_KEY } from '../../common/decorators';
 import { PlatformFeePoliciesController } from '../../admin/platform-fee-policies.controller';
+import { AdminBillingController } from '../../billing/billing-admin.controller';
+import { AdminCampaignsController } from '../../campaigns/campaigns.controller';
 
 /*
   Which actions demand a fresh second-factor check. A list in a test is deliberate: dropping
@@ -22,6 +24,27 @@ const STEP_UP: Array<[string, new (...a: never[]) => unknown, string[]]> = [
     PlatformFeePoliciesController,
     ['createPlatformFeePolicy', 'deactivatePlatformFeePolicy'],
   ],
+  [
+    'organizer billing',
+    AdminBillingController,
+    [
+      'loadCatalog',
+      'updatePlan',
+      'setPlanEntitlements',
+      'createPrice',
+      'updatePrice',
+      'deactivatePrice',
+      'grantTrial',
+      'grantComplimentary',
+      'endGrant',
+      'grantCredits',
+      'recordDiscount',
+      'grantOverride',
+      'revokeOverride',
+    ],
+  ],
+  // Stopping, or releasing, an organizer's campaign: mail going out under the platform's name.
+  ['organizer campaigns', AdminCampaignsController, ['pause', 'release']],
 ];
 
 describe('sensitive back-office actions require a recent second-factor check', () => {

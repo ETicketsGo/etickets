@@ -103,6 +103,22 @@ export const DUTY_WORDS: Record<string, { label: string; what: string }> = {
     label: 'Acquisition manager',
     what: 'With Acquisition agent: every lead in the teams you manage, assign work, link prospects to organizer accounts, import, export and reports. Opens nothing else.',
   },
+  BILLING_READ: {
+    label: 'See organizer billing',
+    what: 'Organizer plans, prices, subscriptions, platform invoices, usage and billing figures. Changes nothing.',
+  },
+  BILLING_MANAGE: {
+    label: 'Manage plans and prices',
+    what: 'Create, change and switch off organizer plans and prices.',
+  },
+  BILLING_ADJUST: {
+    label: 'Give organizer offers',
+    what: 'Give or end a trial or a free plan, give marketing credits and record a discount.',
+  },
+  ENTITLEMENT_GRANT: {
+    label: 'Give single features',
+    what: 'Turn one feature on or off for one organization, outside its plan.',
+  },
 };
 
 /** "REFUND_APPROVE" -> its name; an unknown duty as plain words. */

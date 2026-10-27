@@ -63,6 +63,8 @@ export class SendGridEmailTransport implements EmailTransport {
       // message, and the HTML is an alternative to it rather than a replacement for it.
       text: msg.body,
       ...(msg.html ? { html: msg.html } : {}),
+      // Marketing mail only: the one-click unsubscribe pair. See `listUnsubscribeHeaders`.
+      ...(listUnsubscribeHeaders(msg) ? { headers: listUnsubscribeHeaders(msg)! } : {}),
     });
     // SendGrid returns its queue id in a response header; absent, the send still happened.
     const id = res?.headers?.['x-message-id'];
@@ -122,6 +124,36 @@ export function resolveSesCredentials(
 }
 
 /**
+ * The one SES client constructor in the codebase (ses-credential-isolation.spec.ts holds it to
+ * that): the dedicated SES key, a bounded request timeout. Shared by the notification transport
+ * and the campaign transport, so a second sender can never skip the dedicated key.
+ */
+export function createSesClient(config: ConfigService, region: string): SESv2Client {
+  const credentials = resolveSesCredentials(config);
+  return new SESv2Client({
+    region,
+    // Only the key itself: the source label is for readiness, not for the SDK.
+    ...(credentials
+      ? {
+          credentials: {
+            accessKeyId: credentials.accessKeyId,
+            secretAccessKey: credentials.secretAccessKey,
+          },
+        }
+      : {}),
+    /*
+      Bounded, because the SDK's default HTTP handler has no request timeout at all.
+
+      Every notification goes through one worker with a concurrency of one, so a single socket
+      that SES accepts and never answers would stall ticket emails, SMS and hold expiry behind
+      it indefinitely. A timed-out send throws, and the dispatcher retries it on its schedule.
+      The plain options object is the form the installed Smithy handler accepts directly.
+    */
+    requestHandler: { connectionTimeout: 5_000, requestTimeout: 10_000 },
+  });
+}
+
+/**
  * AWS SES v2 transport (`@aws-sdk/client-sesv2`). Requires AWS_REGION + EMAIL_FROM, and in
  * STAGING/PRODUCTION the dedicated SES key pair (see resolveSesCredentials).
  */
@@ -149,28 +181,7 @@ export class SesEmailTransport implements EmailTransport {
   constructor(config: ConfigService) {
     const region = requireKey(config, 'AWS_REGION');
     this.from = requireKey(config, 'EMAIL_FROM');
-    const credentials = resolveSesCredentials(config);
-    this.client = new SESv2Client({
-      region,
-      // Only the key itself: the source label is for readiness, not for the SDK.
-      ...(credentials
-        ? {
-            credentials: {
-              accessKeyId: credentials.accessKeyId,
-              secretAccessKey: credentials.secretAccessKey,
-            },
-          }
-        : {}),
-      /*
-        Bounded, because the SDK's default HTTP handler has no request timeout at all.
-
-        Every notification goes through one worker with a concurrency of one, so a single socket
-        that SES accepts and never answers would stall ticket emails, SMS and hold expiry behind
-        it indefinitely. A timed-out send throws, and the dispatcher retries it on its schedule.
-        The plain options object is the form the installed Smithy handler accepts directly.
-      */
-      requestHandler: { connectionTimeout: 5_000, requestTimeout: 10_000 },
-    });
+    this.client = createSesClient(config, region);
     this.configurationSet = config.get<string>('SES_CONFIGURATION_SET') ?? undefined;
   }
 
@@ -196,6 +207,15 @@ export class SesEmailTransport implements EmailTransport {
               Text: { Data: msg.body },
               ...(msg.html ? { Html: { Data: msg.html } } : {}),
             },
+            // Marketing mail only: the one-click unsubscribe pair. See `listUnsubscribeHeaders`.
+            ...(listUnsubscribeHeaders(msg)
+              ? {
+                  Headers: Object.entries(listUnsubscribeHeaders(msg)!).map(([Name, Value]) => ({
+                    Name,
+                    Value,
+                  })),
+                }
+              : {}),
           },
         },
       }),
@@ -222,6 +242,26 @@ export function selectEmailTransport(config: ConfigService): EmailTransport {
     default:
       return new EmailLogTransport();
   }
+}
+
+/**
+ * The unsubscribe headers to send, or null.
+ *
+ * Only the two RFC 8058 names pass, only with an https URL in angle brackets, and never with
+ * a line break in them (a CR or LF would let a value start a header of its own). Anything
+ * else is dropped and the message still goes, the same rule as links in `link-safety.ts`.
+ */
+export function listUnsubscribeHeaders(msg: RenderedNotification): Record<string, string> | null {
+  const h = msg.listUnsubscribe;
+  if (!h) return null;
+  const value = h['List-Unsubscribe'];
+  // `\s` covers CR and LF, so a value cannot smuggle in a header line of its own.
+  if (typeof value !== 'string' || !/^<https:\/\/[^<>\s]+>$/.test(value)) return null;
+  const out: Record<string, string> = { 'List-Unsubscribe': value };
+  if (h['List-Unsubscribe-Post'] === 'List-Unsubscribe=One-Click') {
+    out['List-Unsubscribe-Post'] = 'List-Unsubscribe=One-Click';
+  }
+  return out;
 }
 
 function requireKey(config: ConfigService, key: string): string {

@@ -45,10 +45,13 @@ import { ReportsModule } from './reports/reports.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AdminModule } from './admin/admin.module';
 import { CrmModule } from './crm/crm.module';
+import { BillingModule } from './billing/billing.module';
 import { OpsModule } from './ops/ops.module';
 import { OpsAlertsModule } from './ops/alerts/ops-alerts.module';
 import { PilotModule } from './pilot/pilot.module';
 import { ReviewsModule } from './reviews/reviews.module';
+import { EngagementModule } from './engagement/engagement.module';
+import { CampaignsModule } from './campaigns/campaigns.module';
 import { SupportModule } from './support/support.module';
 import { AiModule } from './ai/ai.module';
 import { AiGrowthModule } from './ai-growth/ai-growth.module';
@@ -145,10 +148,13 @@ import { HttpObservationMiddleware } from './common/http-observation.middleware'
     AnalyticsModule,
     AdminModule,
     CrmModule,
+    BillingModule,
     OpsModule,
     OpsAlertsModule,
     PilotModule,
     ReviewsModule,
+    EngagementModule,
+    CampaignsModule,
     SupportModule,
     AiModule,
     AiGrowthModule,

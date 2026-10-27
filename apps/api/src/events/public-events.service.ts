@@ -543,6 +543,8 @@ export class PublicEventsService {
         instagramUrl: true,
         facebookUrl: true,
         verified: true,
+        // A count only. Who follows an organizer is never part of a public response.
+        _count: { select: { followers: true } },
       },
     });
     if (!org) {
@@ -602,6 +604,7 @@ export class PublicEventsService {
       verified: org.verified,
       memberSince: org.createdAt,
       eventCount: events.length,
+      followerCount: org._count?.followers ?? 0,
       description: org.description,
       logoUrl: org.logoUrl,
       coverImageUrl: org.coverImageUrl,

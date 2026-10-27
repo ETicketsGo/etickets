@@ -257,5 +257,22 @@
   "leads": {
     "BOOKING_CONFIRMED": "Your booking is confirmed. Here are the details.",
     "EVENT_REMINDER": "Your show is coming up."
+  },
+  "campaign": {
+    "why": "You are getting this email because you agreed to hear from {organizer} about {topic}.",
+    "topic": {
+      "ORGANIZER_UPDATES": "their events",
+      "EARLY_ACCESS": "early access and presales",
+      "OFFERS": "offers"
+    },
+    "unsubscribe": "Unsubscribe from {organizer}",
+    "unsubscribePrompt": "Do not want these emails?",
+    "sentBy": "Sent by {organizer} with ETicketsGo.",
+    "operator": "ETicketsGo is operated by {legalName}.",
+    "book": "Book tickets",
+    "when": "When",
+    "where": "Where",
+    "code": "Your code",
+    "testBanner": "This is a test email. It was not sent to your audience."
   }
 }

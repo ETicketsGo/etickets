@@ -76,6 +76,10 @@ export const DomainEventType = {
   BookingPaymentRefundRejected: 'booking.payment_refund_rejected',
   BookingRefundStatusRecoveryRequested: 'booking.refund_status_recovery_requested',
   BookingRefundStatusRecovered: 'booking.refund_status_recovered',
+  // ── Organizer billing and entitlements (feat/entitlements-billing-core) ──
+  BillingSubscriptionChanged: 'billing.subscription_changed',
+  BillingEntitlementOverrideChanged: 'billing.entitlement_override_changed',
+  BillingCreditsGranted: 'billing.credits_granted',
 } as const;
 
 export type DomainEventTypeName = (typeof DomainEventType)[keyof typeof DomainEventType];
@@ -143,6 +147,9 @@ export const DomainEventVersion: Record<DomainEventTypeName, number> = {
   [DomainEventType.BookingPaymentRefundRejected]: 1,
   [DomainEventType.BookingRefundStatusRecoveryRequested]: 1,
   [DomainEventType.BookingRefundStatusRecovered]: 1,
+  [DomainEventType.BillingSubscriptionChanged]: 1,
+  [DomainEventType.BillingEntitlementOverrideChanged]: 1,
+  [DomainEventType.BillingCreditsGranted]: 1,
 };
 
 /** Envelope fields a producer may attach to any catalogue event (all optional). */

@@ -29,6 +29,23 @@ import type {
   LayoutDocument,
   LayoutDocumentCounts,
 } from '@eticketsgo/shared-types';
+import type {
+  AdminCampaignRow,
+  AudiencePreview,
+  Campaign,
+  CampaignAnalyticsOverview,
+  CampaignAudienceDefinition,
+  CampaignDraftBody,
+  CampaignHistoryItem,
+  CampaignPreview,
+  CampaignPurpose,
+  CampaignReview,
+  CampaignSendingHealth,
+  CampaignsStatus,
+  CampaignStats,
+  CampaignStatus,
+  SavedSegment,
+} from './campaign-types';
 
 /*
   The guest view is declared once, in shared-types, and re-exported here.
@@ -59,6 +76,16 @@ export type {
 } from '@eticketsgo/shared-types';
 
 import { markApiReachable, markApiUnreachable } from './connectivity';
+import type {
+  AdminBillingAccountDetail,
+  AdminBillingMetrics,
+  AdminBillingPlan,
+  AdminBillingPrice,
+  AdminSubscriptionPage,
+  OrganizationEntitlements,
+  OrganizerBilling,
+  OrganizerInvoiceRow,
+} from './billing-types';
 import type {
   CrmActivity,
   CrmActivityReport,
@@ -1153,6 +1180,25 @@ export const api = {
       }),
   },
 
+  /**
+   * Organizer billing (plans, usage, platform invoices). Owners and managers; entitlements are
+   * readable by any member. Checkout is refused with BILLING_NOT_ENABLED while paid plans are
+   * not open - the console does not call it then.
+   */
+  billing: {
+    get: (organizationId: string) =>
+      request<OrganizerBilling>(`/organizations/${organizationId}/billing`),
+    entitlements: (organizationId: string) =>
+      request<OrganizationEntitlements>(`/organizations/${organizationId}/entitlements`),
+    invoices: (organizationId: string) =>
+      request<OrganizerInvoiceRow[]>(`/organizations/${organizationId}/billing/invoices`),
+    checkout: (organizationId: string, priceId: string) =>
+      request<{ provider: string; sessionRef: string; url: string }>(
+        `/organizations/${organizationId}/billing/checkout`,
+        { method: 'POST', body: JSON.stringify({ priceId }) },
+      ),
+  },
+
   organizations: {
     create: (body: {
       name: string;
@@ -1389,6 +1435,210 @@ export const api = {
         method: 'PUT',
         body: JSON.stringify(body),
       }),
+  },
+
+  /**
+   * Following organizers (the signed-in person's own follows). Following grants NO email
+   * consent: the email switches live on the preferences and write their own consent rows.
+   */
+  following: {
+    list: (params: { page?: number; pageSize?: number } = {}) =>
+      request<FollowingList>(`/me/following${qs(params)}`),
+    status: (organizationId: string) =>
+      request<FollowStatus>(`/me/following/${encodeURIComponent(organizationId)}`),
+    follow: (organizationId: string, source: FollowSource = 'ORGANIZER_PAGE') =>
+      request<FollowStatus>(`/me/following/${encodeURIComponent(organizationId)}`, {
+        method: 'PUT',
+        body: JSON.stringify({ source }),
+      }),
+    unfollow: (organizationId: string) =>
+      request<FollowStatus>(`/me/following/${encodeURIComponent(organizationId)}`, {
+        method: 'DELETE',
+      }),
+    preferences: (organizationId: string) =>
+      request<FollowPreferences>(`/me/following/${encodeURIComponent(organizationId)}/preferences`),
+    setPreferences: (
+      organizationId: string,
+      body: Partial<Omit<FollowPreferences, 'organizationId'>>,
+    ) =>
+      request<FollowPreferences>(
+        `/me/following/${encodeURIComponent(organizationId)}/preferences`,
+        { method: 'PUT', body: JSON.stringify(body) },
+      ),
+  },
+
+  /** Marketing email from ETicketsGo, email from each organizer, and the full history. */
+  communicationConsent: {
+    get: () => request<CommunicationConsentView>('/me/communication-consent'),
+    setMarketingEmail: (granted: boolean) =>
+      request<CommunicationConsentView>('/me/communication-consent/marketing-email', {
+        method: 'PUT',
+        body: JSON.stringify({ granted }),
+      }),
+    setOrganizer: (organizationId: string, purpose: OrganizerConsentPurpose, granted: boolean) =>
+      request<CommunicationConsentView>(
+        `/me/communication-consent/organizers/${encodeURIComponent(organizationId)}`,
+        { method: 'PUT', body: JSON.stringify({ purpose, granted }) },
+      ),
+  },
+
+  /**
+   * The signed unsubscribe link. No session: the signature is the authority. `preview`
+   * changes nothing (mail scanners open links); `confirm` unsubscribes.
+   */
+  unsubscribe: {
+    preview: (token: string) =>
+      request<UnsubscribePreview>(`/public/unsubscribe/${encodeURIComponent(token)}`, {
+        auth: false,
+      }),
+    confirm: (token: string) =>
+      request<UnsubscribePreview & { unsubscribed: true }>(
+        `/public/unsubscribe/${encodeURIComponent(token)}`,
+        { method: 'POST', auth: false },
+      ),
+  },
+
+  /**
+   * Organizer email campaigns. Owners and managers; every route also checks the plan. Counts
+   * and statuses only - the API never returns a recipient.
+   */
+  campaigns: {
+    status: (orgId: string) =>
+      request<CampaignsStatus>(`/organizations/${encodeURIComponent(orgId)}/campaigns/status`),
+    list: (
+      orgId: string,
+      params: { status?: CampaignStatus; page?: number; pageSize?: number } = {},
+    ) =>
+      request<{ total: number; page: number; pageSize: number; items: Campaign[] }>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns${qs(params)}`,
+      ),
+    get: (orgId: string, id: string) =>
+      request<Campaign>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/${encodeURIComponent(id)}`,
+      ),
+    create: (orgId: string, body: CampaignDraftBody) =>
+      request<Campaign>(`/organizations/${encodeURIComponent(orgId)}/campaigns`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    update: (orgId: string, id: string, body: CampaignDraftBody & { version: number }) =>
+      request<Campaign>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/${encodeURIComponent(id)}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify(body),
+        },
+      ),
+    duplicate: (orgId: string, id: string) =>
+      request<Campaign>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/${encodeURIComponent(id)}/duplicate`,
+        { method: 'POST' },
+      ),
+    previewAudience: (
+      orgId: string,
+      body: { audience: CampaignAudienceDefinition; purpose: CampaignPurpose },
+    ) =>
+      request<AudiencePreview>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/audience-preview`,
+        {
+          method: 'POST',
+          body: JSON.stringify(body),
+        },
+      ),
+    preview: (orgId: string, id: string) =>
+      request<CampaignPreview>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/${encodeURIComponent(id)}/preview`,
+      ),
+    testSend: (orgId: string, id: string, to: string[]) =>
+      request<{ sent: number; results: { email: string; accepted: boolean }[] }>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/${encodeURIComponent(id)}/test-send`,
+        { method: 'POST', body: JSON.stringify({ to }) },
+      ),
+    review: (orgId: string, id: string) =>
+      request<CampaignReview>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/${encodeURIComponent(id)}/review`,
+        { method: 'POST' },
+      ),
+    schedule: (
+      orgId: string,
+      id: string,
+      body: { version: number; scheduledAt: string; confirmationToken: string },
+    ) =>
+      request<Campaign>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/${encodeURIComponent(id)}/schedule`,
+        { method: 'POST', body: JSON.stringify(body) },
+      ),
+    reschedule: (orgId: string, id: string, body: { version: number; scheduledAt: string }) =>
+      request<Campaign>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/${encodeURIComponent(id)}/reschedule`,
+        { method: 'POST', body: JSON.stringify(body) },
+      ),
+    unschedule: (orgId: string, id: string, version: number) =>
+      request<Campaign>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/${encodeURIComponent(id)}/unschedule`,
+        { method: 'POST', body: JSON.stringify({ version }) },
+      ),
+    send: (orgId: string, id: string, body: { version: number; confirmationToken: string }) =>
+      request<Campaign>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/${encodeURIComponent(id)}/send`,
+        { method: 'POST', body: JSON.stringify(body) },
+      ),
+    cancel: (orgId: string, id: string, version: number) =>
+      request<Campaign>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/${encodeURIComponent(id)}/cancel`,
+        { method: 'POST', body: JSON.stringify({ version }) },
+      ),
+    pause: (orgId: string, id: string, version: number) =>
+      request<Campaign>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/${encodeURIComponent(id)}/pause`,
+        { method: 'POST', body: JSON.stringify({ version }) },
+      ),
+    resume: (orgId: string, id: string, version: number) =>
+      request<Campaign>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/${encodeURIComponent(id)}/resume`,
+        { method: 'POST', body: JSON.stringify({ version }) },
+      ),
+    history: (orgId: string, id: string) =>
+      request<{ total: number; items: CampaignHistoryItem[] }>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/${encodeURIComponent(id)}/history`,
+      ),
+    stats: (orgId: string, id: string) =>
+      request<CampaignStats>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/${encodeURIComponent(id)}/stats`,
+      ),
+    segments: (orgId: string) =>
+      request<SavedSegment[]>(`/organizations/${encodeURIComponent(orgId)}/campaigns/segments`),
+    createSegment: (
+      orgId: string,
+      body: { name: string; definition: Omit<CampaignAudienceDefinition, 'savedSegmentId'> },
+    ) =>
+      request<SavedSegment>(`/organizations/${encodeURIComponent(orgId)}/campaigns/segments`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    deleteSegment: (orgId: string, segmentId: string) =>
+      request<{ deleted: boolean }>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/segments/${encodeURIComponent(segmentId)}`,
+        { method: 'DELETE' },
+      ),
+    analytics: (orgId: string, params: { from?: string; to?: string; windowDays?: number } = {}) =>
+      request<CampaignAnalyticsOverview>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/analytics${qs(params)}`,
+      ),
+    /** Aggregates only, never a row per person. */
+    downloadAnalyticsCsv: (orgId: string, params: { from?: string; to?: string } = {}) =>
+      downloadCsv(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/analytics/export${qs(params)}`,
+        'audience-and-campaigns.csv',
+      ),
+  },
+
+  /** The organizer's audience as counts. No follower is ever named. */
+  audience: {
+    summary: (organizationId: string) =>
+      request<AudienceSummary>(
+        `/organizations/${encodeURIComponent(organizationId)}/audience/summary`,
+      ),
   },
 
   venues: {
@@ -2341,6 +2591,168 @@ export const api = {
 
   admin: {
     dashboard: () => request<AdminDashboard>('/admin/dashboard'),
+
+    /**
+     * Organizer campaigns across the platform. Reading is ORGANIZER_READ; pausing and lifting a
+     * pause are ORGANIZER_REVIEW with a recent second factor. No recipient is ever returned.
+     */
+    campaigns: {
+      list: (
+        params: {
+          status?: CampaignStatus;
+          organizationId?: string;
+          page?: number;
+          pageSize?: number;
+        } = {},
+      ) =>
+        request<{ total: number; page: number; pageSize: number; items: AdminCampaignRow[] }>(
+          `/admin/campaigns${qs(params)}`,
+        ),
+      health: () => request<CampaignSendingHealth>('/admin/campaigns/health'),
+      pause: (id: string, reason: string) =>
+        request<{ id: string; status: CampaignStatus }>(
+          `/admin/campaigns/${encodeURIComponent(id)}/pause`,
+          {
+            method: 'POST',
+            body: JSON.stringify({ reason }),
+          },
+        ),
+      release: (id: string) =>
+        request<{ id: string; status: CampaignStatus }>(
+          `/admin/campaigns/${encodeURIComponent(id)}/release`,
+          {
+            method: 'POST',
+          },
+        ),
+    },
+
+    /**
+     * Organizer billing. Reads need BILLING_READ; catalogue writes BILLING_MANAGE; offers
+     * BILLING_ADJUST; single-feature grants ENTITLEMENT_GRANT. Every write needs a recent
+     * second factor (the step-up handler retries once).
+     */
+    billing: {
+      plans: () => request<AdminBillingPlan[]>('/admin/billing/plans'),
+      loadProvisional: (body: { annualFreeMonths?: number } = {}) =>
+        request<{ plansCreated: number; entitlementsWritten: number; pricesCreated: number }>(
+          '/admin/billing/catalog/load-provisional',
+          { method: 'POST', body: JSON.stringify(body) },
+        ),
+      updatePlan: (
+        id: string,
+        body: { name?: string; description?: string | null; active?: boolean; sortOrder?: number },
+      ) =>
+        request<AdminBillingPlan>(`/admin/billing/plans/${id}`, {
+          method: 'PATCH',
+          body: JSON.stringify(body),
+        }),
+      setPlanEntitlements: (
+        id: string,
+        entitlements: { key: string; boolValue?: boolean | null; intValue?: number | null }[],
+      ) =>
+        request<unknown>(`/admin/billing/plans/${id}/entitlements`, {
+          method: 'PUT',
+          body: JSON.stringify({ entitlements }),
+        }),
+      createPrice: (body: {
+        planId: string;
+        country: string;
+        currency: string;
+        interval: 'MONTH' | 'YEAR';
+        amountMinor: number;
+        trialDays?: number | null;
+      }) =>
+        request<AdminBillingPrice>('/admin/billing/prices', {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      updatePrice: (id: string, body: { amountMinor?: number; trialDays?: number | null }) =>
+        request<AdminBillingPrice>(`/admin/billing/prices/${id}`, {
+          method: 'PATCH',
+          body: JSON.stringify(body),
+        }),
+      deactivatePrice: (id: string) =>
+        request<AdminBillingPrice>(`/admin/billing/prices/${id}/deactivate`, { method: 'POST' }),
+      subscriptions: (
+        params: {
+          status?: string;
+          planCode?: string;
+          country?: string;
+          search?: string;
+          currentOnly?: 'true' | 'false';
+          page?: number;
+          pageSize?: number;
+        } = {},
+      ) =>
+        request<AdminSubscriptionPage>(
+          `/admin/billing/subscriptions${qs(params as Record<string, unknown>)}`,
+        ),
+      account: (organizationId: string) =>
+        request<AdminBillingAccountDetail>(`/admin/billing/accounts/${organizationId}`),
+      metrics: (days = 30) => request<AdminBillingMetrics>(`/admin/billing/metrics${qs({ days })}`),
+      grantTrial: (
+        organizationId: string,
+        body: { planCode: 'PRO' | 'PREMIUM'; days: number; reason: string },
+      ) =>
+        request<unknown>(`/admin/billing/accounts/${organizationId}/trial`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      grantComplimentary: (
+        organizationId: string,
+        body: { planCode: 'PRO' | 'PREMIUM'; endsAt?: string | null; reason: string },
+      ) =>
+        request<unknown>(`/admin/billing/accounts/${organizationId}/complimentary`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      endGrant: (organizationId: string, reason: string) =>
+        request<unknown>(`/admin/billing/accounts/${organizationId}/end-grant`, {
+          method: 'POST',
+          body: JSON.stringify({ reason }),
+        }),
+      grantCredits: (
+        organizationId: string,
+        body: { amount: number; reason: string; idempotencyKey: string },
+      ) =>
+        request<unknown>(`/admin/billing/accounts/${organizationId}/credits`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      recordDiscount: (
+        organizationId: string,
+        body: {
+          percentOffBps?: number | null;
+          amountMinor?: number | null;
+          endsAt?: string | null;
+          reason: string;
+        },
+      ) =>
+        request<unknown>(`/admin/billing/accounts/${organizationId}/discounts`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      grantOverride: (
+        organizationId: string,
+        body: {
+          key: string;
+          boolValue?: boolean | null;
+          intValue?: number | null;
+          startsAt?: string | null;
+          endsAt?: string | null;
+          reason: string;
+        },
+      ) =>
+        request<unknown>(`/admin/billing/accounts/${organizationId}/overrides`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      revokeOverride: (id: string, reason: string) =>
+        request<unknown>(`/admin/billing/overrides/${id}/revoke`, {
+          method: 'POST',
+          body: JSON.stringify({ reason }),
+        }),
+    },
 
     /**
      * Organizer acquisition (sales CRM). Every call needs CRM_AGENT; the team routes also
@@ -3513,6 +3925,8 @@ export interface BookingDetail {
     refundCutoffHours?: number;
     /** The organizer's own words about refunds, when they wrote any. */
     refundPolicy?: string | null;
+    /** Who ran it. The confirmation offers to follow them. */
+    organization?: { id: string; name: string };
   };
   eventSession: { id: string; startsAt: string };
   items: {
@@ -7584,7 +7998,101 @@ export interface OrganizerProfile {
   twitterUrl?: string | null;
   instagramUrl?: string | null;
   facebookUrl?: string | null;
+  /** How many people follow this organizer. A count only; never who. */
+  followerCount?: number;
   events: PublicEventCard[];
+}
+
+// ─── Following organizers and communication consent ───
+
+export type FollowSource =
+  'ORGANIZER_PAGE' | 'BOOKING_CONFIRMATION' | 'EVENT_PAGE' | 'LOCAL_MIGRATION';
+export type OrganizerConsentPurpose = 'ORGANIZER_UPDATES' | 'EARLY_ACCESS' | 'OFFERS';
+
+export interface FollowStatus {
+  organizationId: string;
+  following: boolean;
+  followedAt?: string | null;
+  created?: boolean;
+}
+
+export interface FollowPreferences {
+  organizationId: string;
+  /** In the account. On by default: the person asked by following. */
+  newEvents: boolean;
+  /** Email about presales. Off by default. */
+  earlyAccess: boolean;
+  /** Email with offers. Off by default. */
+  offers: boolean;
+  cadence: 'INSTANT' | 'WEEKLY_DIGEST';
+  /** Email about new events. Off by default. */
+  emailUpdates: boolean;
+}
+
+export interface FollowedOrganizer {
+  followedAt: string;
+  organization: {
+    id: string;
+    name: string;
+    logoUrl: string | null;
+    verified: boolean;
+    memberSince: string;
+    eventCount: number;
+  };
+  preferences: FollowPreferences;
+}
+
+export interface FollowingList {
+  items: FollowedOrganizer[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface CommunicationConsentView {
+  marketingEmail: { granted: boolean; decidedAt: string | null };
+  organizers: {
+    organizationId: string;
+    name: string;
+    following: boolean;
+    purposes: Record<OrganizerConsentPurpose, { granted: boolean; decidedAt: string | null }>;
+  }[];
+  history: {
+    purpose: string;
+    organizationId: string | null;
+    organizationName: string | null;
+    channel: string;
+    granted: boolean;
+    source: string;
+    createdAt: string;
+  }[];
+}
+
+export interface UnsubscribePreview {
+  scope: 'global' | 'organizer';
+  purposes: string[];
+  organization: { id: string; name: string } | null;
+  emailMask: string;
+}
+
+export interface AudienceSeriesPoint {
+  start: string;
+  newFollowers: number;
+  followers: number;
+}
+
+export interface AudienceSummary {
+  organizationId: string;
+  generatedAt: string;
+  followers: { total: number; new7d: number; new30d: number };
+  eligibleSubscribers: number;
+  returningBuyers: number;
+  growth: { daily: AudienceSeriesPoint[]; weekly: AudienceSeriesPoint[] };
+  cities: {
+    buckets: { city: string; country: string | null; followers: number }[];
+    hiddenBuckets: number;
+    threshold: number;
+  };
 }
 
 // ─── Internal operations console ───

@@ -103,9 +103,9 @@ describe('the organizer sidebar', () => {
     );
   });
 
-  it('has one level only: secondary pages are tabs of Finance and Settings', () => {
+  it('has one level only: secondary pages are tabs of Marketing, Finance and Settings', () => {
     const parents = owner.filter((i) => i.children?.length).map((i) => i.href);
-    expect(parents).toEqual(['/organizer/finance', '/organizer/settings']);
+    expect(parents).toEqual(['/organizer/promotions', '/organizer/finance', '/organizer/settings']);
     for (const kid of owner.flatMap((i) => i.children ?? [])) {
       expect(kid.children, `${kid.href} nests a third level`).toBeUndefined();
     }
@@ -124,6 +124,7 @@ describe('the organizer sidebar', () => {
     );
     expect(top('theme')).toBe('/organizer/settings');
     expect(top('contact')).toBe('/organizer/help');
+    expect(top('followers')).toBe('/organizer/audience');
   });
 
   it('lists Counter in the sidebar, straight under Bookings & attendees', () => {
@@ -133,6 +134,14 @@ describe('the organizer sidebar', () => {
     expect(filterQuickNav(quickNavEntries(owner), 'box office')[0]?.href).toBe(
       '/organizer/counter',
     );
+  });
+
+  it('puts Billing & plans in Business (a Settings tab); the old Premium address lands on it', () => {
+    const settings = owner.find((i) => i.href === '/organizer/settings');
+    expect(settings?.children?.map((x) => x.href)).toEqual(['/organizer/billing']);
+    expect(reachable('/organizer/premium', owner)).toBe(true);
+    expect(filterQuickNav(quickNavEntries(owner), 'upgrade')[0]?.href).toBe('/organizer/billing');
+    expect(filterQuickNav(quickNavEntries(owner), 'premium')[0]?.href).toBe('/organizer/billing');
   });
 
   it('links the calendar', () => {

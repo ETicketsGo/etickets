@@ -7,6 +7,7 @@ import {
   CalendarClock,
   CalendarRange,
   ClipboardCheck,
+  ClipboardList,
   CreditCard,
   Film,
   GitBranch,
@@ -19,7 +20,9 @@ import {
   MessageSquareText,
   Percent,
   KeyRound,
+  Mail,
   Receipt,
+  ReceiptText,
   RotateCcw,
   Scale,
   ScrollText,
@@ -33,6 +36,7 @@ import {
   UserRoundSearch,
   Users,
   UsersRound,
+  Wallet,
   Wrench,
   type LucideIcon,
 } from 'lucide-react';
@@ -165,10 +169,26 @@ export const ADMIN_NAV: AdminNavGroup[] = [
       // ORGANIZER_REVIEW, not ORGANIZER_READ: GET /admin/organizers is the review queue.
       {
         label: 'Organizers',
+        tabLabel: 'Review queue',
         href: '/admin/organizers',
         icon: Building2,
         needs: 'ORGANIZER_REVIEW',
         keywords: ['verification', 'kyc', 'approve'],
+        /*
+          Organizer email campaigns: what goes out under the platform's name, the bounce and
+          complaint rates, and the brake. A tab of Organizers, not a menu row, for the same
+          768px menu-height reason as Organizer Acquisition. Reading is ORGANIZER_READ; the
+          pause control also needs ORGANIZER_REVIEW and is hidden from a reader.
+        */
+        children: [
+          {
+            label: 'Email campaigns',
+            href: '/admin/campaigns',
+            icon: Mail,
+            needs: 'ORGANIZER_READ',
+            keywords: ['campaigns', 'marketing email', 'bounces', 'complaints', 'spam'],
+          },
+        ],
       },
       /*
         Organizer Acquisition, the sales desk: prospects the platform would like to sell for.
@@ -296,6 +316,38 @@ export const ADMIN_NAV: AdminNavGroup[] = [
         icon: Scale,
         needs: 'FINANCE_READ',
         keywords: ['discrepancies'],
+      },
+      /*
+        Organizer billing: the platform's own plans for organizers, not ticket money. A SECTION
+        here rather than a group of its own, for the same 768px menu-height reason as
+        Organizer Acquisition. Every page loads GET /admin/billing/* (BILLING_READ); the write
+        controls on each page also need BILLING_MANAGE, BILLING_ADJUST or ENTITLEMENT_GRANT
+        and are hidden from a reader (`useHolds`). An account page (/admin/billing/accounts/...)
+        is reached from the subscriptions list and the overview's search box.
+      */
+      {
+        label: 'Billing & subscriptions',
+        tabLabel: 'Overview',
+        href: '/admin/billing',
+        icon: Wallet,
+        needs: 'BILLING_READ',
+        keywords: ['plans', 'pricing', 'subscriptions', 'mrr', 'arr', 'trials', 'credits'],
+        children: [
+          {
+            label: 'Plans & prices',
+            href: '/admin/billing/plans',
+            icon: ReceiptText,
+            needs: 'BILLING_READ',
+            keywords: ['plans', 'pricing', 'catalogue', 'entitlements'],
+          },
+          {
+            label: 'Subscriptions',
+            href: '/admin/billing/subscriptions',
+            icon: ClipboardList,
+            needs: 'BILLING_READ',
+            keywords: ['trials', 'complimentary', 'organizer plans'],
+          },
+        ],
       },
     ],
   },
