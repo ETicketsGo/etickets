@@ -119,6 +119,21 @@
     "subject": "'{event}' is on sale again",
     "body": "ETicketsGo lifted the pause on '{event}'. Tickets are on sale again."
   },
+  "BILLING_PAYMENT_FAILED": {
+    "yourPlan": "paid",
+    "PAST_DUE": {
+      "subject": "The payment for your {plan} plan did not go through",
+      "body": "We could not take the payment for your {plan} plan. Your plan still works while the payment is tried again. To keep it, check your payment method in Billing & plans in your organizer console."
+    },
+    "GRACE": {
+      "subject": "Action needed: your {plan} plan ends on {deadline}",
+      "body": "We could not take the payment for your {plan} plan after several tries. Your plan works until {deadline}. After that date, your organization moves to the Free plan. To keep your plan, update your payment method in Billing & plans in your organizer console."
+    },
+    "GRACE_ENDING": {
+      "subject": "Reminder: your {plan} plan ends on {deadline}",
+      "body": "The payment for your {plan} plan is still not complete. Your plan works until {deadline}. After that date, your organization moves to the Free plan. To keep your plan, update your payment method in Billing & plans in your organizer console."
+    }
+  },
   "SUPPORT_REQUEST_RECEIVED": {
     "subject": "New {kind} message [{reference}]: {topic}",
     "subjectNoTopic": "New {kind} message [{reference}] from {sender}",

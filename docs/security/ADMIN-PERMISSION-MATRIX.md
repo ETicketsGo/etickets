@@ -100,6 +100,9 @@ assigns a capability, and no existing account changed.
 - **Organizer API.** `GET /organizations/:id/entitlements` (any member), `GET /organizations/:id/billing`
   and `/billing/invoices` (owner, manager) are `NONE` for staff; `POST /organizations/:id/billing/checkout`
   is `@OrganizerOnly('billing.checkout')` and refused with `BILLING_NOT_ENABLED` while billing is off.
+  The credit-pack checkout, `/billing/portal` and `/billing/cancel` are `@OrganizerOnly` too (owner
+  only); `GET /billing/invoices/:invoiceId/html` is `NONE` for staff, like the invoice list.
+  The billing webhooks (`POST /billing/webhooks/{stripe,razorpay}`) are public and signature-verified.
 - **Audit.** Every billing write records its AuditLog row in the same transaction as the change
   (`BILLING_*`, `ENTITLEMENT_OVERRIDE_*`), with actor, organization, entity and reason.
 - **Tests.** `billing/billing-admin-authz.spec.ts` (real HTTP through the real guards: each route
@@ -483,6 +486,9 @@ do these on `/admin` instead, where each has its own capability:
 | `GET /organizations/:organizationId/receipts`              | `organization.receipts.list`         |
 | `GET /organizations/:organizationId/refunds`               | `organization.refunds.list`          |
 | `POST /organizations/:id/billing/checkout`                 | `billing.checkout`                   |
+| `POST /organizations/:id/billing/credit-packs/checkout`    | `billing.checkout`                   |
+| `POST /organizations/:id/billing/portal`                   | `billing.portal`                     |
+| `POST /organizations/:id/billing/cancel`                   | `billing.cancel`                     |
 | `POST /organizations/:id/campaigns/:campaignId/test-send`  | `campaigns.test-send`                |
 | `POST /organizations/:id/campaigns/:campaignId/schedule`   | `campaigns.schedule`                 |
 | `POST /organizations/:id/campaigns/:campaignId/send`       | `campaigns.send`                     |

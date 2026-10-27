@@ -228,6 +228,17 @@ export const EVENT_POLICY: Partial<Record<NotificationType, EventPolicy>> = {
   },
 
   /*
+    The plan payment failed. Email and the console, like every other message about the
+    organization's own money; never a paid channel. Guaranteed on both: an owner who does not
+    hear about it loses the plan at the end of grace.
+  */
+  [NotificationType.BILLING_PAYMENT_FAILED]: {
+    channels: [E, A],
+    urgency: 'IMPORTANT',
+    guaranteed: [E, A],
+  },
+
+  /*
     Somebody changed where the organization's money is sent. The owners need to see this fast
     enough to say "that was not me", so it is IMPORTANT and guaranteed on both channels. Email and
     the console only: a bank account change is no business of a messaging app, and the message

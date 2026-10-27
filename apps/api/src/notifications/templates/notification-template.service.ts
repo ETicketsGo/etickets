@@ -684,6 +684,24 @@ const BUILDERS: Partial<Record<NotificationType, Builder>> = {
   },
 
   /*
+    Dunning. One type, three stages: the first failure (features kept while the provider
+    retries), retries over (grace, with the date the plan ends), and grace about to end. The
+    deadline is a date, pre-formatted by the producer, because it is the one fact to act on.
+  */
+  [NotificationType.BILLING_PAYMENT_FAILED]: (l, p) => {
+    const raw = str(p, 'stage', 'PAST_DUE');
+    const stage = raw === 'GRACE' || raw === 'GRACE_ENDING' ? raw : 'PAST_DUE';
+    const values = {
+      plan: str(p, 'planName', t(l, 'emails.BILLING_PAYMENT_FAILED.yourPlan')),
+      deadline: str(p, 'deadline', '-'),
+    };
+    return {
+      subject: t(l, `emails.BILLING_PAYMENT_FAILED.${stage}.subject`, values),
+      body: t(l, `emails.BILLING_PAYMENT_FAILED.${stage}.body`, values),
+    };
+  },
+
+  /*
     The support mailbox's copy of a form message. Composed in support-request.ts, which the
     email view also reads, so the text part and the HTML part name the same facts.
   */

@@ -436,6 +436,12 @@ export const NotificationType = {
    * is capped per address.
    */
   SUPPORT_REQUEST_ACKNOWLEDGED: 'SUPPORT_REQUEST_ACKNOWLEDGED',
+  /**
+   * The organization's plan payment failed, its retries are over, or its grace period is about to
+   * end (payload `stage`: PAST_DUE | GRACE | GRACE_ENDING). To the owners. Transactional: it is
+   * about what their organization pays the platform, and losing the plan is the consequence.
+   */
+  BILLING_PAYMENT_FAILED: 'BILLING_PAYMENT_FAILED',
 } as const;
 export type NotificationType = (typeof NotificationType)[keyof typeof NotificationType];
 

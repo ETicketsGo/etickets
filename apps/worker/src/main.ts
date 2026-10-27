@@ -7,6 +7,7 @@ import * as Sentry from '@sentry/node';
 import {
   AppModule,
   AuthService,
+  BillingSweepService,
   BookingsService,
   LocalBookingOrchestrator,
   EventsService,
@@ -298,6 +299,7 @@ async function main(): Promise<void> {
   const settlements = app.get(SettlementService);
   const reversalReconcile = app.get(ReversalReconciliationService);
   const payoutRuns = app.get(PayoutRunService);
+  const billingSweep = app.get(BillingSweepService);
   const seatOverrides = app.get(SeatOverridesService);
   const syncProcessor = app.get(SyncEventProcessor);
   const syncPolling = app.get(SyncPollingService);
@@ -322,6 +324,16 @@ async function main(): Promise<void> {
 
   const TOKEN_PRUNE_EVERY_MS =
     Number.isFinite(RAW_TOKEN_PRUNE_MS) && RAW_TOKEN_PRUNE_MS > 0 ? RAW_TOKEN_PRUNE_MS : DAY_MS;
+  /*
+    The organizer billing clock: trial, period and grace ends, dunning reminders, and billing
+    webhook events left for a retry. Fifteen minutes: every deadline it acts on is measured in
+    days, and every step is idempotent (each dunning stage is sent once, by its dedupe key).
+  */
+  const RAW_BILLING_SWEEP_MS = Number(process.env.BILLING_SWEEP_INTERVAL_MS ?? 15 * 60_000);
+  const BILLING_SWEEP_MS =
+    Number.isFinite(RAW_BILLING_SWEEP_MS) && RAW_BILLING_SWEEP_MS > 0
+      ? RAW_BILLING_SWEEP_MS
+      : 15 * 60_000;
   /*
     How often the read-only reversal sweep asks whether any ambiguous reversal is worth a
     provider query. Fifteen minutes, because the shortest candidate maturity window is five
@@ -632,9 +644,27 @@ async function main(): Promise<void> {
     },
   );
 
+  await queue.add(
+    'billing-sweep',
+    {},
+    {
+      repeat: { every: BILLING_SWEEP_MS },
+      jobId: 'billing-sweep',
+      removeOnComplete: 20,
+      removeOnFail: 20,
+      attempts: 2,
+      backoff: { type: 'exponential', delay: 30_000 },
+    },
+  );
+
   const worker = new Worker(
     QUEUE_NAME,
     async (job) => {
+      if (job.name === 'billing-sweep') {
+        const report = await billingSweep.run();
+        if (Object.values(report).some((n) => n > 0)) log('info', 'billing sweep', { ...report });
+        return report;
+      }
       if (job.name === 'payout-runs') {
         const run = await payoutRuns.runDue();
         if (run.raised > 0 || run.considered > 0) {
