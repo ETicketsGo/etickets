@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { Logger } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
-import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2';
+import { type SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2';
 import {
+  createSesClient,
   listUnsubscribeHeaders,
-  resolveSesCredentials,
 } from '../notifications/channels/transports/email.transport';
 import type { RenderedNotification } from '../notifications/channels/notification-channel.interface';
 
@@ -87,19 +87,7 @@ export class SesCampaignTransport implements CampaignTransport {
   constructor(config: ConfigService) {
     const region = config.get<string>('AWS_REGION');
     if (!region) throw new Error('Campaign SES transport needs AWS_REGION.');
-    const credentials = resolveSesCredentials(config);
-    this.client = new SESv2Client({
-      region,
-      ...(credentials
-        ? {
-            credentials: {
-              accessKeyId: credentials.accessKeyId,
-              secretAccessKey: credentials.secretAccessKey,
-            },
-          }
-        : {}),
-      requestHandler: { connectionTimeout: 5_000, requestTimeout: 10_000 },
-    });
+    this.client = createSesClient(config, region);
   }
 
   async send(msg: CampaignMessage) {
