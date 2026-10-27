@@ -4,6 +4,10 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import { assignInvoiceNumber } from './invoice-number';
 
+/** Printed on a plan invoice when the provider computed no tax. Plain ASCII, per house rule. */
+export const TAX_NOT_APPLIED_NOTE =
+  'Tax not applied. ETicketsGo has not yet started charging tax on plan payments.';
+
 export interface InvoiceLine {
   description: string;
   quantity: number;
@@ -111,6 +115,83 @@ export class BillingInvoiceService {
         },
       });
     });
+  }
+
+  /**
+   * A PAID invoice for a payment the provider verified, numbered in the ETG-BIL series, inside
+   * the caller's transaction (which holds the billing account lock). Idempotent per provider
+   * document: if one already records `providerInvoiceRef`, that one is returned and no number is
+   * taken. A rollback of the caller gives the number back, so the series stays gapless.
+   *
+   * Tax is what the PROVIDER computed. When it computed none, taxMinor is 0 and the document
+   * says plainly that tax was not applied (owner decision pending on tax for plan invoices).
+   */
+  async recordPaidInTx(
+    tx: Prisma.TransactionClient,
+    input: {
+      accountId: string;
+      provider: 'MOCK' | 'STRIPE_BILLING' | 'RAZORPAY_BILLING';
+      providerInvoiceRef: string;
+      currency: string;
+      lines: InvoiceLine[];
+      taxMinor: number;
+      subscriptionId?: string | null;
+      periodStart?: Date | null;
+      periodEnd?: Date | null;
+      paidAt: Date;
+    },
+  ) {
+    const existing = await tx.organizerInvoice.findUnique({
+      where: {
+        provider_providerInvoiceRef: {
+          provider: input.provider,
+          providerInvoiceRef: input.providerInvoiceRef,
+        },
+      },
+    });
+    if (existing) return { invoice: existing, created: false };
+    const account = await tx.organizerBillingAccount.findUniqueOrThrow({
+      where: { id: input.accountId },
+    });
+    const subtotalMinor = input.lines.reduce((s, l) => s + l.quantity * l.unitAmountMinor, 0);
+    const taxMinor = Math.max(0, Math.trunc(input.taxMinor));
+    const number = await assignInvoiceNumber(tx, input.paidAt);
+    const taxNote = taxMinor > 0 ? null : TAX_NOT_APPLIED_NOTE;
+    const invoice = await tx.organizerInvoice.create({
+      data: {
+        accountId: input.accountId,
+        subscriptionId: input.subscriptionId ?? null,
+        status: 'PAID',
+        number,
+        issuedAt: input.paidAt,
+        currency: input.currency,
+        lines: input.lines as unknown as Prisma.InputJsonValue,
+        subtotalMinor,
+        taxMinor,
+        totalMinor: subtotalMinor + taxMinor,
+        periodStart: input.periodStart ?? null,
+        periodEnd: input.periodEnd ?? null,
+        provider: input.provider,
+        providerInvoiceRef: input.providerInvoiceRef,
+        documentJson: {
+          number,
+          issuedAt: input.paidAt.toISOString(),
+          paidAt: input.paidAt.toISOString(),
+          organizationId: account.organizationId,
+          billingCountry: account.country,
+          taxId: account.taxId,
+          currency: input.currency,
+          lines: input.lines,
+          subtotalMinor,
+          taxMinor,
+          totalMinor: subtotalMinor + taxMinor,
+          taxNote,
+          provider: input.provider,
+          providerInvoiceRef: input.providerInvoiceRef,
+        } as unknown as Prisma.InputJsonValue,
+      },
+    });
+    return { invoice, created: true };
   }
 
   listForAccount(accountId: string) {

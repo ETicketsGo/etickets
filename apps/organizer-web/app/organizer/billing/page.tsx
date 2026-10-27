@@ -1,8 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { CheckCircle2, Clock, CreditCard, Info, ReceiptText } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Clock, CreditCard, Info, ReceiptText } from 'lucide-react';
 import { ENTITLEMENT_DEFINITIONS } from '@eticketsgo/shared-types';
 import {
   api,
@@ -24,8 +24,19 @@ import {
 import { useOrg } from '@/components/org-context';
 import {
   ASK_DIALOG_TEXT,
+  CANCEL_DIALOG_TEXT,
+  CONFIRM_POLL_LIMIT,
+  CONFIRM_POLL_MS,
+  DISPUTED_NOTICE,
   NO_INVOICES,
   PAID_PLANS_CLOSED,
+  PAYMENT_CONFIRMED,
+  PAYMENT_NOT_CONFIRMED_YET,
+  RETURN_MESSAGES,
+  checkoutReturn,
+  paidPlanConfirmed,
+  paidPlanControls,
+  type CheckoutReturn,
   PLAN_NAMES,
   planFeatureLines,
   planStatusSentence,
@@ -44,6 +55,12 @@ import {
  * organization may use from its plan, staff grants and the deployment's switches, and this page
  * shows that answer rather than a build-time flag.
  *
+ * ── COMING BACK FROM THE PROVIDER ──────────────────────────────────────────────────
+ * The provider sends the organizer back with ?checkout=success (or credits=success). That is
+ * only a hint for which message to show: the page then asks the SERVER every few seconds, and
+ * says "confirmed" only when the server reports the paid plan active - which happens only after
+ * the provider's verified payment reached the webhook. It never trusts the redirect.
+ *
  * ── NO DEAD BUTTONS ────────────────────────────────────────────────────────────────
  * While paid plans are not open (BILLING_ENABLED off, the default), every plan offers "Ask about
  * <plan>", which sends a message to support through the channel that already exists. Nothing on
@@ -56,10 +73,42 @@ export default function BillingPage() {
   const [note, setNote] = useState('');
   const [sending, setSending] = useState(false);
   const [paying, setPaying] = useState<string | null>(null);
+  const [returned, setReturned] = useState<CheckoutReturn>(null);
+  const [pollUntil, setPollUntil] = useState(0);
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelOpen, setCancelOpen] = useState(false);
+
+  // Read the provider's redirect once, then drop it from the address bar so a reload does not
+  // show "confirming" again.
+  useEffect(() => {
+    const r = checkoutReturn(window.location.search);
+    if (!r) return;
+    setReturned(r);
+    if (r === 'plan-success' || r === 'credits-success') {
+      setPollUntil(Date.now() + CONFIRM_POLL_MS * CONFIRM_POLL_LIMIT);
+    }
+    window.history.replaceState(null, '', window.location.pathname);
+  }, []);
+
+  // Re-render once the confirmation window closes, so "confirming" turns into "not yet".
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!pollUntil) return;
+    const t = setTimeout(() => setTick((n) => n + 1), Math.max(0, pollUntil - Date.now()) + 50);
+    return () => clearTimeout(t);
+  }, [pollUntil]);
 
   const billing = useQuery({
     queryKey: ['billing', activeOrg.id],
     queryFn: () => api.billing.get(activeOrg.id),
+    // While confirming a payment, ask the server again every few seconds, for a bounded time.
+    refetchInterval: (q) => {
+      if (Date.now() > pollUntil) return false;
+      if (returned === 'plan-success' && q.state.data && paidPlanConfirmed(q.state.data)) {
+        return false;
+      }
+      return CONFIRM_POLL_MS;
+    },
   });
   const invoices = useQuery({
     queryKey: ['billing-invoices', activeOrg.id],
@@ -98,6 +147,53 @@ export default function BillingPage() {
     }
   };
 
+  const buyCredits = async (packCode: string) => {
+    setPaying(packCode);
+    try {
+      const session = await api.billing.buyCredits(activeOrg.id, packCode);
+      window.location.assign(session.url);
+    } catch (err) {
+      toast.push(errorMessage(err), 'error');
+      setPaying(null);
+    }
+  };
+
+  const openPortal = async () => {
+    setPaying('portal');
+    try {
+      const portal = await api.billing.portal(activeOrg.id);
+      window.location.assign(portal.url);
+    } catch (err) {
+      toast.push(errorMessage(err), 'error');
+      setPaying(null);
+    }
+  };
+
+  const cancelPlan = async () => {
+    setCancelling(true);
+    try {
+      await api.billing.cancel(activeOrg.id);
+      toast.push(
+        'Your plan will not renew. It stays active until the end of the period.',
+        'success',
+      );
+      setCancelOpen(false);
+      await billing.refetch();
+    } catch (err) {
+      toast.push(errorMessage(err), 'error');
+    } finally {
+      setCancelling(false);
+    }
+  };
+
+  const viewInvoice = async (invoiceId: string) => {
+    try {
+      await api.billing.openInvoiceHtml(activeOrg.id, invoiceId);
+    } catch (err) {
+      toast.push(errorMessage(err), 'error');
+    }
+  };
+
   const header = (
     <PageHeader
       title="Billing & plans"
@@ -125,6 +221,20 @@ export default function BillingPage() {
 
   const b = billing.data;
   const included = b.entitlements.filter((e) => e.enabled || e.switchedOffInDeployment);
+  const controls = paidPlanControls(b);
+  const confirmed = paidPlanConfirmed(b);
+  const stillPolling = Date.now() <= pollUntil;
+  const returnMessage =
+    returned === 'plan-success'
+      ? confirmed
+        ? PAYMENT_CONFIRMED
+        : stillPolling
+          ? RETURN_MESSAGES['plan-success']
+          : PAYMENT_NOT_CONFIRMED_YET
+      : returned
+        ? RETURN_MESSAGES[returned]
+        : null;
+  const packs = b.billingEnabled ? (b.creditPacks ?? []) : [];
 
   return (
     <div className="space-y-6">
@@ -139,6 +249,28 @@ export default function BillingPage() {
         </Card>
       )}
 
+      {returnMessage && (
+        <Card>
+          <div className="flex items-start gap-3" role="status" aria-live="polite">
+            {returned === 'plan-success' && confirmed ? (
+              <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-status-success" aria-hidden />
+            ) : (
+              <Info className="mt-0.5 h-5 w-5 shrink-0 text-action-primary" aria-hidden />
+            )}
+            <p className="text-[0.9375rem] text-text-secondary">{returnMessage}</p>
+          </div>
+        </Card>
+      )}
+
+      {b.disputed && (
+        <Card>
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-status-warning" aria-hidden />
+            <p className="text-[0.9375rem] text-text-secondary">{DISPUTED_NOTICE}</p>
+          </div>
+        </Card>
+      )}
+
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <p className="text-caption uppercase tracking-wide text-text-muted">Your plan</p>
@@ -146,6 +278,26 @@ export default function BillingPage() {
             {PLAN_NAMES[b.currentPlanCode]}
           </p>
           <p className="mt-2 text-[0.9375rem] text-text-secondary">{planStatusSentence(b)}</p>
+          {(controls.portal || controls.cancel) && (
+            <div className="mt-4 flex flex-wrap gap-2">
+              {controls.portal && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  loading={paying === 'portal'}
+                  onClick={() => void openPortal()}
+                >
+                  <CreditCard className="h-4 w-4" aria-hidden />
+                  Manage payment method
+                </Button>
+              )}
+              {controls.cancel && (
+                <Button variant="outline" size="sm" onClick={() => setCancelOpen(true)}>
+                  Cancel plan
+                </Button>
+              )}
+            </div>
+          )}
         </Card>
         <Card>
           <p className="text-caption uppercase tracking-wide text-text-muted">Campaign emails</p>
@@ -249,6 +401,35 @@ export default function BillingPage() {
         </div>
       </section>
 
+      {packs.length > 0 && (
+        <section aria-labelledby="credit-packs" className="space-y-3">
+          <h2 id="credit-packs" className="font-semibold text-text-primary">
+            Extra campaign email credits
+          </h2>
+          <p className="text-[0.9375rem] text-text-muted">
+            Credits are used after your monthly emails run out. They do not expire.
+          </p>
+          <div className="grid gap-4 md:grid-cols-2">
+            {packs.map((pack) => (
+              <Card key={pack.code}>
+                <p className="font-semibold text-text-primary">{pack.name}</p>
+                <p className="mt-1 tabular-nums text-text-primary">
+                  {money(pack.amountMinor, pack.currency)}
+                </p>
+                <Button
+                  size="sm"
+                  className="mt-3"
+                  loading={paying === pack.code}
+                  onClick={() => void buyCredits(pack.code)}
+                >
+                  Buy credits
+                </Button>
+              </Card>
+            ))}
+          </div>
+        </section>
+      )}
+
       <section aria-labelledby="invoices" className="space-y-3">
         <h2 id="invoices" className="font-semibold text-text-primary">
           Invoices
@@ -271,12 +452,33 @@ export default function BillingPage() {
                   <span className="text-sm text-text-muted">{dateOnly(inv.issuedAt)}</span>
                   <span className="tabular-nums">{money(inv.totalMinor, inv.currency)}</span>
                   <Badge tone={inv.status === 'PAID' ? 'success' : undefined}>{inv.status}</Badge>
+                  <Button variant="outline" size="sm" onClick={() => void viewInvoice(inv.id)}>
+                    View
+                  </Button>
                 </li>
               ))}
             </ul>
           </Card>
         )}
       </section>
+
+      <Dialog
+        open={cancelOpen}
+        onClose={() => setCancelOpen(false)}
+        title="Cancel your plan?"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setCancelOpen(false)} disabled={cancelling}>
+              Keep my plan
+            </Button>
+            <Button loading={cancelling} onClick={() => void cancelPlan()}>
+              Cancel plan
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-text-secondary">{CANCEL_DIALOG_TEXT}</p>
+      </Dialog>
 
       <Dialog
         open={asking !== null}

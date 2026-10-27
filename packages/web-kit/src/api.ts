@@ -82,6 +82,7 @@ import type {
   AdminBillingPlan,
   AdminBillingPrice,
   AdminSubscriptionPage,
+  BillingCheckoutSession,
   OrganizationEntitlements,
   OrganizerBilling,
   OrganizerInvoiceRow,
@@ -1192,11 +1193,44 @@ export const api = {
       request<OrganizationEntitlements>(`/organizations/${organizationId}/entitlements`),
     invoices: (organizationId: string) =>
       request<OrganizerInvoiceRow[]>(`/organizations/${organizationId}/billing/invoices`),
+    /** A hosted provider page. The plan arrives only when the provider's verified payment does. */
     checkout: (organizationId: string, priceId: string) =>
-      request<{ provider: string; sessionRef: string; url: string }>(
-        `/organizations/${organizationId}/billing/checkout`,
-        { method: 'POST', body: JSON.stringify({ priceId }) },
+      request<BillingCheckoutSession>(`/organizations/${organizationId}/billing/checkout`, {
+        method: 'POST',
+        body: JSON.stringify({ priceId }),
+      }),
+    /** A hosted one-time page for a credit pack. Credits arrive with the verified payment. */
+    buyCredits: (organizationId: string, packCode: string) =>
+      request<BillingCheckoutSession>(
+        `/organizations/${organizationId}/billing/credit-packs/checkout`,
+        { method: 'POST', body: JSON.stringify({ packCode }) },
       ),
+    /** Stripe's Billing Portal: payment method and cancellation. Owners only. */
+    portal: (organizationId: string) =>
+      request<{ url: string }>(`/organizations/${organizationId}/billing/portal`, {
+        method: 'POST',
+      }),
+    /** Cancel the paid plan at the end of its period. Owners only. */
+    cancel: (organizationId: string, reason?: string) =>
+      request<{ status: string; cancelAtPeriodEnd: boolean; currentPeriodEnd: string | null }>(
+        `/organizations/${organizationId}/billing/cancel`,
+        { method: 'POST', body: JSON.stringify(reason ? { reason } : {}) },
+      ),
+    /**
+     * Opens a platform invoice (ETG-BIL) as printable HTML in a new tab. Fetched with the token
+     * and handed over as a blob, for the same reason as receipts.openHtml: a plain link sends no
+     * Authorization header.
+     */
+    openInvoiceHtml: async (organizationId: string, invoiceId: string): Promise<void> => {
+      const res = await fetch(
+        `${API_URL}/organizations/${organizationId}/billing/invoices/${invoiceId}/html`,
+        { headers: tokenStore.access ? { authorization: `Bearer ${tokenStore.access}` } : {} },
+      );
+      if (!res.ok) throw new Error(`Could not load the invoice (${res.status}).`);
+      const url = URL.createObjectURL(await res.blob());
+      window.open(url, '_blank', 'noopener');
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    },
   },
 
   organizations: {

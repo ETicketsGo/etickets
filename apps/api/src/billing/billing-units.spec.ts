@@ -9,6 +9,7 @@ import {
   MockBillingProvider,
 } from './provider/billing-provider';
 import { EntitlementGuard, RequiresEntitlement } from './entitlements/requires-entitlement';
+import { BillingProviderRegistry } from './provider/billing-provider.registry';
 
 describe('billing metrics are computed from stored subscriptions only', () => {
   const stub = (current: unknown[] = [], invoices: unknown[] = [], counts: number[] = [0, 0]) => {
@@ -27,7 +28,7 @@ describe('billing metrics are computed from stored subscriptions only', () => {
       {} as never,
       {} as never,
       { get: () => 'false' } as never,
-      new DisabledBillingProvider(),
+      BillingProviderRegistry.fixed(new DisabledBillingProvider()),
     );
 
   it('with nothing paid, says zero honestly: no MRR rows, no revenue, churn unknown', async () => {

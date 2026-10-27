@@ -16,6 +16,9 @@ import { OrganizerBillingController } from './billing.controller';
 import { ensureBillingAccount } from './billing-account';
 import { assignInvoiceNumber } from './invoice-number';
 import { MockBillingProvider, type VerifiedBillingEvent } from './provider/billing-provider';
+import { BillingProviderRegistry } from './provider/billing-provider.registry';
+import { BillingCheckoutService } from './billing-checkout.service';
+import { holdBillingSpecLock } from './billing-spec-lock.fixture';
 
 /**
  * integration-real-postgres: organizer billing and entitlements against the migrated schema.
@@ -54,6 +57,7 @@ describe('integration-real-postgres: organizer billing and entitlements', () => 
   const url = loadDatabaseUrl();
   let db: Client | undefined;
   let available = false;
+  let releaseLock: (() => Promise<void>) | undefined;
   const tag = `bil${Date.now()}`;
   const published: DomainEvent[] = [];
 
@@ -117,6 +121,7 @@ describe('integration-real-postgres: organizer billing and entitlements', () => 
     try {
       await db!.$queryRaw`SELECT 1`;
       available = true;
+      releaseLock = await holdBillingSpecLock(url);
     } catch {
       // eslint-disable-next-line no-console
       console.warn('[integration-real-postgres] SKIPPED - DB unavailable');
@@ -149,14 +154,19 @@ describe('integration-real-postgres: organizer billing and entitlements', () => 
       entitlements,
       invoices,
       { get: () => 'false' } as never,
-      provider,
+      BillingProviderRegistry.fixed(provider),
     );
     controller = new OrganizerBillingController(
       new OrgAccessService(db as never, audit),
       entitlements,
       reads,
       db as never,
-      provider,
+      new BillingCheckoutService(
+        db as never,
+        { get: () => 'false' } as never,
+        BillingProviderRegistry.fixed(provider),
+        subscriptions,
+      ),
     );
 
     ownerA = await makeUser('owner-a', ['ORGANIZER_OWNER']);
@@ -220,6 +230,7 @@ describe('integration-real-postgres: organizer billing and entitlements', () => 
       await db.user.deleteMany({ where: { id: { in: userIds } } });
     }
     await db?.$disconnect();
+    await releaseLock?.();
   }, 120_000);
 
   const maybe = (name: string, fn: () => Promise<void>, timeout = 120_000) =>

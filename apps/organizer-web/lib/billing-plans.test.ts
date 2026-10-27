@@ -3,8 +3,16 @@ import { PROVISIONAL_PLAN_ENTITLEMENTS } from '@eticketsgo/shared-types';
 import type { OrganizerBilling } from '@eticketsgo/web-kit';
 import {
   ASK_DIALOG_TEXT,
+  CANCEL_DIALOG_TEXT,
+  DISPUTED_NOTICE,
   NO_INVOICES,
   PAID_PLANS_CLOSED,
+  PAYMENT_CONFIRMED,
+  PAYMENT_NOT_CONFIRMED_YET,
+  RETURN_MESSAGES,
+  checkoutReturn,
+  paidPlanConfirmed,
+  paidPlanControls,
   planFeatureLines,
   planStatusSentence,
   priceLabel,
@@ -162,5 +170,61 @@ describe('Billing & plans words', () => {
 
   it('writes every fixed sentence in plain ASCII', () => {
     for (const s of [PAID_PLANS_CLOSED, ASK_DIALOG_TEXT, NO_INVOICES]) expect(s).toMatch(ASCII);
+  });
+});
+
+describe('paying through a provider', () => {
+  it('reads the redirect as a hint only', () => {
+    expect(checkoutReturn('?checkout=success')).toBe('plan-success');
+    expect(checkoutReturn('?checkout=cancelled')).toBe('plan-cancelled');
+    expect(checkoutReturn('?credits=success')).toBe('credits-success');
+    expect(checkoutReturn('?portal=returned')).toBe('portal');
+    expect(checkoutReturn('')).toBeNull();
+    expect(checkoutReturn('?checkout=paid')).toBeNull();
+  });
+
+  it('calls a plan confirmed only when the server reports a provider plan ACTIVE', () => {
+    expect(paidPlanConfirmed({ subscription: sub({}) })).toBe(true);
+    expect(paidPlanConfirmed({ subscription: null })).toBe(false);
+    expect(paidPlanConfirmed({ subscription: sub({ status: 'PAST_DUE' }) })).toBe(false);
+    // A staff trial is not a payment, whatever the redirect said.
+    expect(paidPlanConfirmed({ subscription: sub({ status: 'TRIALING', source: 'TRIAL' }) })).toBe(
+      false,
+    );
+  });
+
+  it('offers the portal only for Stripe, and cancel only while the plan still renews', () => {
+    expect(paidPlanControls({ subscription: sub({}), provider: 'STRIPE_BILLING' })).toEqual({
+      portal: true,
+      cancel: true,
+    });
+    expect(paidPlanControls({ subscription: sub({}), provider: 'RAZORPAY_BILLING' })).toEqual({
+      portal: false,
+      cancel: true,
+    });
+    expect(
+      paidPlanControls({
+        subscription: sub({ cancelAtPeriodEnd: true }),
+        provider: 'STRIPE_BILLING',
+      }),
+    ).toEqual({ portal: true, cancel: false });
+    expect(
+      paidPlanControls({
+        subscription: sub({ status: 'COMPLIMENTARY', source: 'ADMIN_COMPLIMENTARY' }),
+        provider: 'NONE',
+      }),
+    ).toEqual({ portal: false, cancel: false });
+  });
+
+  it('writes every payment sentence in plain ASCII', () => {
+    for (const s of [
+      PAYMENT_CONFIRMED,
+      PAYMENT_NOT_CONFIRMED_YET,
+      CANCEL_DIALOG_TEXT,
+      DISPUTED_NOTICE,
+      ...Object.values(RETURN_MESSAGES),
+    ]) {
+      expect(s).toMatch(ASCII);
+    }
   });
 });

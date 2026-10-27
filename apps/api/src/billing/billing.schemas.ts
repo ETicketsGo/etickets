@@ -118,3 +118,11 @@ export const metricsQuerySchema = z.object({
 });
 
 export const checkoutSchema = z.object({ priceId: z.string().min(1) });
+
+export const creditPackCheckoutSchema = z.object({
+  packCode: z.string().trim().min(1).max(40),
+});
+
+export const billingCancelSchema = z.object({
+  reason: z.string().trim().max(500).optional(),
+});

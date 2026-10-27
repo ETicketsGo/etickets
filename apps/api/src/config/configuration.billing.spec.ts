@@ -32,6 +32,57 @@ describe('billing configuration', () => {
     else expect(errors.join('\n')).toMatch(refusal);
   });
 
+  describe('the real providers (BILLING_PROVIDER=providers)', () => {
+    const stripeTest = { STRIPE_SECRET_KEY: 'sk_test_x', STRIPE_BILLING_WEBHOOK_SECRET: 'whsec_x' };
+    const rzpTest = {
+      RAZORPAY_KEY_ID: 'rzp_test_x',
+      RAZORPAY_KEY_SECRET: 's',
+      RAZORPAY_BILLING_WEBHOOK_SECRET: 'w',
+    };
+    const errors = (env: string, enabled: string, extra: Record<string, string> = {}) =>
+      billingConfigurationErrors({
+        APP_ENV: env,
+        BILLING_ENABLED: enabled,
+        BILLING_PROVIDER: 'providers',
+        ...extra,
+      }).join('\n');
+
+    it('QA may enable billing on test keys for either provider', () => {
+      expect(errors('QA', 'true', stripeTest)).toBe('');
+      expect(errors('QA', 'true', rzpTest)).toBe('');
+      expect(errors('LOCAL', 'true', { ...stripeTest, ...rzpTest })).toBe('');
+    });
+
+    it('STAGING, PRODUCTION and UAT refuse the providers, enabled or not', () => {
+      for (const env of ['STAGING', 'PRODUCTION', 'UAT']) {
+        expect(errors(env, 'false', stripeTest)).toMatch(/refused in .*test keys/);
+      }
+      expect(errors('PRODUCTION', 'true', stripeTest)).toMatch(/refused in PRODUCTION/);
+    });
+
+    it('refuses a live key, whether billing-specific or the ticket fallback', () => {
+      expect(errors('QA', 'true', { ...stripeTest, STRIPE_SECRET_KEY: 'sk_live_x' })).toMatch(
+        /LIVE key/,
+      );
+      expect(errors('QA', 'false', { ...rzpTest, RAZORPAY_BILLING_KEY_ID: 'rzp_live_x' })).toMatch(
+        /LIVE key/,
+      );
+    });
+
+    it('refuses to enable with no provider configured, naming variables only', () => {
+      const out = errors('QA', 'true', { STRIPE_SECRET_KEY: 'sk_test_x' });
+      expect(out).toMatch(/neither provider is configured/);
+      expect(out).toMatch(/STRIPE_BILLING_WEBHOOK_SECRET/);
+      expect(out).not.toContain('sk_test_x');
+    });
+
+    it('a ticket webhook secret never counts as the billing one', () => {
+      expect(
+        errors('QA', 'true', { STRIPE_SECRET_KEY: 'sk_test_x', STRIPE_WEBHOOK_SECRET: 'whsec_t' }),
+      ).toMatch(/neither provider is configured/);
+    });
+  });
+
   describe('at boot', () => {
     const ORIGINAL = process.env;
     const BASE = {

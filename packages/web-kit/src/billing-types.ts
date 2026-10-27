@@ -61,6 +61,31 @@ export interface OrganizerBilling {
   entitlements: ResolvedEntitlement[];
   usage: BillingUsage;
   plans: BillingPlanSummary[];
+  /** Who takes this account's payments, once it has paid through one. */
+  provider?: BillingProviderName;
+  /** The provider that serves this country (STRIPE_BILLING for US, RAZORPAY_BILLING for IN). */
+  providerForCountry?: BillingProviderName;
+  /** A payment on this account is disputed (chargeback): staff are reviewing it. */
+  disputed?: boolean;
+  /** One-time email credit packs on sale in this country, at this country's price. */
+  creditPacks?: CreditPackOffer[];
+}
+
+export type BillingProviderName = 'NONE' | 'MOCK' | 'STRIPE_BILLING' | 'RAZORPAY_BILLING';
+
+export interface CreditPackOffer {
+  code: string;
+  name: string;
+  credits: number;
+  currency: string;
+  amountMinor: number;
+}
+
+/** A hosted provider page to send the organizer to. Nothing is granted until it is paid. */
+export interface BillingCheckoutSession {
+  provider: BillingProviderName;
+  sessionRef: string;
+  url: string;
 }
 
 export interface OrganizerInvoiceRow {

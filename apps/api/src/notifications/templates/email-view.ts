@@ -86,6 +86,7 @@ const CTA_KEY: Partial<Record<NotificationType, string>> = {
   [NotificationType.EVENT_NOT_SELLABLE]: 'openConsole',
   [NotificationType.EVENT_PAUSED_BY_ADMIN]: 'openConsole',
   [NotificationType.EVENT_RESUMED_BY_ADMIN]: 'openConsole',
+  [NotificationType.BILLING_PAYMENT_FAILED]: 'openConsole',
   [NotificationType.ATTENDEE_INVITED]: 'openInvitation',
   [NotificationType.SUPPORT_REQUEST_RECEIVED]: 'openSupportItem',
 };
