@@ -9,6 +9,9 @@ import { TaxRulesService } from './tax-rules.service';
 import { CinemaPricingPoliciesService } from './cinema-pricing-policies.service';
 import { AdminService } from './admin.service';
 import { AdminGroupingService } from './admin-grouping.service';
+import { PlatformFeePoliciesController } from './platform-fee-policies.controller';
+import { PlatformFeePoliciesService } from './platform-fee-policies.service';
+import { PricingModule } from '../pricing/pricing.module';
 import { FirstAdminBootstrap } from './first-admin.bootstrap';
 import { AuthModule } from '../auth/auth.module';
 import { MoviesModule } from '../movies/movies.module';
@@ -17,12 +20,13 @@ import { BookingsModule } from '../bookings/bookings.module';
 import { OrganizationsModule } from '../organizations/organizations.module';
 
 @Module({
-  imports: [MoviesModule, OrganizationsModule, BookingsModule, AuthModule],
+  imports: [MoviesModule, OrganizationsModule, BookingsModule, AuthModule, PricingModule],
   controllers: [
     AdminController,
     AdminBookingViewController,
     AdminStaffController,
     AdminUsersController,
+    PlatformFeePoliciesController,
   ],
   providers: [
     AdminService,
@@ -32,6 +36,7 @@ import { OrganizationsModule } from '../organizations/organizations.module';
     FirstAdminBootstrap,
     TaxRulesService,
     CinemaPricingPoliciesService,
+    PlatformFeePoliciesService,
   ],
 })
 export class AdminModule {}

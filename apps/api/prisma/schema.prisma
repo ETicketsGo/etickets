@@ -2020,6 +2020,19 @@ model Booking {
   pricingJurisdiction    Json?
   complianceStatus       PricingComplianceStatus @default(NOT_REGULATED)
 
+  /// ── Platform fee override, snapshotted (see PlatformFeePolicy) ────────────────────
+  /// Null on every booking priced by the ordinary fee schedule. The money columns above stay
+  /// the CHARGED amounts, so every reader downstream (receipts, refunds, settlement, payouts,
+  /// finance) is unchanged; these say why the booking fee is what it is.
+  feePolicyId         String?
+  feePolicy           PlatformFeePolicy?     @relation(fields: [feePolicyId], references: [id], onDelete: Restrict)
+  feePolicyKind       PlatformFeePolicyKind?
+  feePolicyVersion    Int?
+  /// The booking fee the platform schedule would have charged, before any cinema cap.
+  baseBookingFeeMinor Int?
+  /// How much of that the policy took off, before any cinema cap. Never negative.
+  feeWaivedMinor      Int?
+
   totalMinor Int
 
   holdExpiresAt  DateTime
@@ -5759,6 +5772,8 @@ model OrganizerSuppression {
   @@unique([organizationId, channel, destinationHash])
 }
 
+}
+
 // ════════════════════════════════════════════════════════════════════════════════════════
 // Organizer billing and entitlements (feat/entitlements-billing-core)
 //
@@ -6274,4 +6289,217 @@ model SavedSegment {
   updatedAt       DateTime @updatedAt
 
   @@unique([organizationId, name])
+}
+
+// ─── Organizer follows and communication consent (workstream 1) ───────────────────────
+//
+// One contiguous block, kept at the end of the file so parallel branches merge cleanly.
+//
+// ── FOLLOWING IS NOT CONSENT ──────────────────────────────────────────────────────────
+// A follow says "show me this organizer". It does NOT say "this organizer may email me
+// offers". Promotional email needs its own, explicit, recorded consent row below. A follow
+// on its own puts nobody on a mailing list.
+
+enum OrganizerUpdateCadence {
+  INSTANT
+  WEEKLY_DIGEST
+}
+
+/// A customer follows an organizer. Personal data: deleted with the account.
+model OrganizerFollow {
+  id             String       @id @default(cuid())
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  /// Where the follow came from: ORGANIZER_PAGE | BOOKING_CONFIRMATION | LOCAL_MIGRATION.
+  source         String
+  createdAt      DateTime     @default(now())
+
+  /// One follow per person per organizer, even under a race (two taps, two tabs).
+  @@unique([userId, organizationId])
+  @@index([organizationId, createdAt])
+  @@index([userId, createdAt])
+}
+
+/// What a follower wants to hear about from one organizer.
+///
+/// These are topics and timing, not permission to email. `newEvents` defaults ON because the
+/// person asked for it by following, and it is shown in their account only. Email from the
+/// organizer needs a granted `CommunicationConsent` row as well. `earlyAccess` and `offers`
+/// are promotional, so they default OFF.
+model OrganizerNotificationPreference {
+  id             String                 @id @default(cuid())
+  userId         String
+  user           User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organizationId String
+  organization   Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  newEvents      Boolean                @default(true)
+  earlyAccess    Boolean                @default(false)
+  offers         Boolean                @default(false)
+  cadence        OrganizerUpdateCadence @default(INSTANT)
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+
+  @@unique([userId, organizationId])
+}
+
+/// A consent decision with a scope. Append-only: a withdrawal is a new row, never an edit.
+/// The newest row per (subject, purpose, organization, channel) is the current state, and
+/// no row means NO consent.
+///
+/// Platform-wide marketing EMAIL is NOT stored here. It stays in `MarketingConsent`
+/// (channel `email`), which the notification service already reads. This table holds the
+/// purposes that need a scope (one organizer). See `engagement/consent-purpose.ts`.
+model CommunicationConsent {
+  id             String   @id @default(cuid())
+  /// Set null when the account is deleted. The row stays as evidence, keyed by the hash.
+  userId         String?
+  user           User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  /// SHA-256 of the normalized email, the same hash `SuppressedDestination` uses. Never the
+  /// address itself, so the evidence can outlive the account without holding contact data.
+  subjectHash    String
+  /// Null = platform-wide. A plain column, not a foreign key, so the evidence survives an
+  /// organization being deleted.
+  organizationId String?
+  /// ORGANIZER_UPDATES | EARLY_ACCESS | OFFERS
+  purpose        String
+  /// email | push | sms | whatsapp
+  channel        String   @default("email")
+  granted        Boolean
+  /// How it was obtained. Set by the server, never by the client.
+  source         String
+  /// The disclosure shown, as `TYPE/JURISDICTION/vN` (see `policyVersionLabel`).
+  policyVersion  String?
+  ipAddress      String?
+  userAgent      String?
+  createdAt      DateTime @default(now())
+
+  @@index([subjectHash, purpose, organizationId, createdAt])
+  @@index([userId, purpose, organizationId, createdAt])
+  @@index([organizationId, purpose, createdAt])
+}
+
+/// A destination that one organizer must not send marketing to again.
+///
+/// Separate from the global `SuppressedDestination`, which also stops TRANSACTIONAL mail.
+/// Unsubscribing from one organizer's news must never stop somebody's tickets.
+model OrganizerSuppression {
+  id              String    @id @default(cuid())
+  /// A plain column, like `CommunicationConsent.organizationId`, so it survives the org.
+  organizationId  String
+  /// email | sms | whatsapp | push
+  channel         String
+  /// SHA-256 of the normalized destination (`SuppressionService.hash`).
+  destinationHash String
+  /// UNSUBSCRIBED | COMPLAINT
+  reason          String
+  /// Set when the person opts in again from their own account. Never deleted.
+  liftedAt        DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([organizationId, channel, destinationHash])
+}
+
+// ── Platform fee overrides and waivers ──────────────────────────────────────────────
+// An admin-managed exception to the platform fee schedule (FeeRule) for one organizer or one
+// event: waive the booking fee, charge a fixed amount, or charge a percentage, for a time
+// window and optionally for a limited number of orders.
+//
+// Precedence: an EVENT policy, then an ORGANIZATION policy, then the schedule. A policy only
+// ever replaces the booking (platform) fee: the payment processing line and tax are never
+// waived by it. A FREE event stays at zero whatever applies.
+//
+// Terms are immutable once created. To change one, deactivate it and create another, so a
+// booking's snapshot (Booking.feePolicyId + feePolicyVersion) always names terms that still
+// exist exactly as they were. `version` moves on every status change (optimistic locking).
+//
+// At most one ACTIVE or EXHAUSTED policy per scope target whose windows overlap (and whose
+// currencies could both apply): enforced by PlatformFeePoliciesService under a transaction-
+// scoped advisory lock on the target, because an exclusion constraint cannot be expressed in
+// this schema without drifting from it.
+
+enum PlatformFeePolicyScope {
+  EVENT
+  ORGANIZATION
+}
+
+enum PlatformFeePolicyKind {
+  /// No booking fee at all.
+  WAIVE
+  /// A fixed booking fee in minor units of `currency`.
+  FIXED
+  /// A share of the order in basis points, optionally held between a floor and a ceiling.
+  PERCENT
+}
+
+enum PlatformFeePolicyStatus {
+  ACTIVE
+  /// Switched off by an admin. Final.
+  INACTIVE
+  /// Reserved for a past window. Expiry is derived from `endsAt` at read time; nothing needs
+  /// to write this for pricing to fall back.
+  EXPIRED
+  /// Every order in `maxOrders` is taken. Goes back to ACTIVE if an unpaid hold is released.
+  EXHAUSTED
+}
+
+model PlatformFeePolicy {
+  id                  String                  @id @default(cuid())
+  scope               PlatformFeePolicyScope
+  /// Set when scope is EVENT. No foreign key on purpose: a policy is a finance record and
+  /// must outlive an event or organization that is later deleted.
+  eventId             String?
+  /// Always set: the event's organization for an EVENT policy, the target for ORGANIZATION.
+  organizationId      String
+  kind                PlatformFeePolicyKind
+  /// FIXED: the booking fee.
+  feeMinor            Int?
+  /// PERCENT: basis points (500 = 5%).
+  percentBps          Int?
+  minFeeMinor         Int?
+  maxFeeMinor         Int?
+  /// Required when an amount is stated (FIXED, or a PERCENT floor/ceiling). Null applies to
+  /// any currency.
+  currency            String?
+  startsAt            DateTime
+  /// Exclusive. Null means open-ended.
+  endsAt              DateTime?
+  /// Null means unlimited. Counted when a hold is taken, released if it is not paid.
+  maxOrders           Int?
+  usedOrders          Int                     @default(0)
+  status              PlatformFeePolicyStatus @default(ACTIVE)
+  reason              String
+  approvalReference   String?
+  createdByUserId     String
+  deactivatedAt       DateTime?
+  deactivatedByUserId String?
+  deactivationReason  String?
+  version             Int                     @default(1)
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+
+  bookings Booking[]
+  events   PlatformFeePolicyEvent[]
+
+  @@index([scope, eventId, status])
+  @@index([scope, organizationId, status])
+  @@index([status, createdAt])
+}
+
+/// Append-only history of a policy: created, deactivated, exhausted, reopened.
+model PlatformFeePolicyEvent {
+  id          String            @id @default(cuid())
+  policyId    String
+  policy      PlatformFeePolicy @relation(fields: [policyId], references: [id], onDelete: Restrict)
+  /// CREATED | DEACTIVATED | EXHAUSTED | REOPENED
+  action      String
+  actorUserId String?
+  reason      String?
+  /// The policy row as it was after this change.
+  snapshot    Json
+  createdAt   DateTime          @default(now())
+
+  @@index([policyId, createdAt])
 }

@@ -314,12 +314,18 @@ export default function ProfilePage() {
           </section>
 
           {/*
-            A phone-only organizer has nowhere for organizer messages to go. The same step the
-            become-organizer page offers, for anyone who skipped it there.
+            ANY phone-only account can add an email here and confirm it with a code (it used to
+            be offered to organizers only, so a phone-only customer saw a locked, empty field and
+            no way to add one). An organizer sees the organizer wording.
           */}
-          {!me.data?.email &&
-          me.data?.roles?.some((r) => r === 'ORGANIZER_OWNER' || r === 'ORGANIZER_MANAGER') ? (
-            <OrganizerEmailStep />
+          {me.data && !me.data.email ? (
+            <OrganizerEmailStep
+              purpose={
+                me.data.roles?.some((r) => r === 'ORGANIZER_OWNER' || r === 'ORGANIZER_MANAGER')
+                  ? 'organizer'
+                  : 'account'
+              }
+            />
           ) : null}
 
           {/* Facts about the account, stated rather than editable - nobody sets their own
