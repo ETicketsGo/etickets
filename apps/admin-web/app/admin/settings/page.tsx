@@ -9,6 +9,7 @@ import {
   Dialog,
   Input,
   PageHeader,
+  ButtonLink,
   Select,
   DataTable,
   money,
@@ -360,6 +361,11 @@ export default function AdminSettings() {
       <PageHeader
         title="Booking fees"
         description="What this platform adds to a ticket price, per market."
+        action={
+          <ButtonLink href="/admin/fee-policies" variant="outline">
+            Fee policies for one event or organizer
+          </ButtonLink>
+        }
       />
 
       {isLoading && <Card title="Booking fee rules">Loading…</Card>}

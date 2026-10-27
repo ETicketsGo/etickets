@@ -14,6 +14,7 @@ import { RolesGuard } from '../auth/roles.guard';
 import { OpsController } from '../ops/ops.controller';
 import { AdminController } from './admin.controller';
 import { AdminCinemasController } from '../cinemas/admin-cinemas.controller';
+import { PlatformFeePoliciesController } from './platform-fee-policies.controller';
 
 /**
  * Who may read and who may change platform configuration - over real HTTP, through the real
@@ -118,6 +119,41 @@ const CONFIG_ROUTES: {
       reason: 'Checked against the licence.',
     },
   },
+  /*
+    Platform fee waivers and overrides change what buyers of one organizer or event pay, so
+    they are configuration like the bands above. The preview is a POST that changes nothing.
+  */
+  { method: 'GET', path: '/admin/platform-fee-policies', kind: 'read' },
+  { method: 'GET', path: '/admin/platform-fee-policies/pfp1', kind: 'read' },
+  {
+    method: 'POST',
+    path: '/admin/platform-fee-policies/preview',
+    kind: 'read',
+    body: {
+      scope: 'ORGANIZATION',
+      organizationId: 'o1',
+      kind: 'WAIVE',
+      currency: 'INR',
+      subtotalMinor: 50000,
+    },
+  },
+  {
+    method: 'POST',
+    path: '/admin/platform-fee-policies',
+    kind: 'write',
+    body: {
+      scope: 'ORGANIZATION',
+      organizationId: 'o1',
+      kind: 'WAIVE',
+      reason: 'Launch partner waiver',
+    },
+  },
+  {
+    method: 'POST',
+    path: '/admin/platform-fee-policies/pfp1/deactivate',
+    kind: 'write',
+    body: { reason: 'Pilot is over now', version: 1 },
+  },
   {
     method: 'POST',
     path: '/admin/ops/maintenance',
@@ -134,7 +170,12 @@ describe('platform configuration is least-privilege', () => {
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
-      controllers: [AdminController, OpsController, AdminCinemasController],
+      controllers: [
+        AdminController,
+        OpsController,
+        AdminCinemasController,
+        PlatformFeePoliciesController,
+      ],
     })
       .useMocker((token) => {
         const name = typeof token === 'function' ? token.name : String(token);
@@ -314,7 +355,10 @@ describe('platform configuration is least-privilege', () => {
         r.path.startsWith('/admin/') &&
         !r.path.includes('/ops/') &&
         // AdminCinemasController's, held to the rule above but not a handler on this class.
-        !r.path.startsWith('/admin/cinemas'),
+        !r.path.startsWith('/admin/cinemas') &&
+        // PlatformFeePoliciesController's, likewise. Its class default is PLATFORM_CONFIG (the
+        // write), so a handler that forgot its own decorator fails closed, not open.
+        !r.path.startsWith('/admin/platform-fee-policies'),
     ).map(
       (r) =>
         `${r.method} ${r.path

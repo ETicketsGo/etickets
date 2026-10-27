@@ -71,6 +71,17 @@ describe('the admin menu', () => {
     ]);
   });
 
+  it('puts platform fee policies under Booking fees, in configuration', () => {
+    const config = ADMIN_NAV.find((g) => g.key === 'config')!;
+    const fees = config.links.find((l) => l.href === '/admin/settings')!;
+    expect(fees.children?.map((l) => l.href)).toContain('/admin/fee-policies');
+    expect(allNavLinks().find((l) => l.href === '/admin/fee-policies')?.needs).toBe(
+      'PLATFORM_CONFIG_READ',
+    );
+    expect(activeHref('/admin/fee-policies')).toBe('/admin/fee-policies');
+    expect(activeGroupKey('/admin/fee-policies')).toBe('config');
+  });
+
   it('puts the approval queue and the calendar under Events', () => {
     const events = ADMIN_NAV.find((g) => g.key === 'events')!;
     expect(events.links.map((l) => l.href)).toEqual(
@@ -215,7 +226,12 @@ describe('the menu lists only what the operator can open', () => {
       Fee rules, tax rules and cinema pricing used to open with BOOKING_READ, mirroring an API
       that let the support desk change them. Each now needs PLATFORM_CONFIG_READ to open.
     */
-    const CONFIG = ['/admin/settings', '/admin/tax-rules', '/admin/cinema-pricing'];
+    const CONFIG = [
+      '/admin/settings',
+      '/admin/fee-policies',
+      '/admin/tax-rules',
+      '/admin/cinema-pricing',
+    ];
     const support = hrefsFor(['BOOKING_READ', 'ORGANIZER_READ']);
     for (const page of CONFIG) expect(support).not.toContain(page);
 
