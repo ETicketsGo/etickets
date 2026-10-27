@@ -248,7 +248,7 @@ export class BillingProviderEventService {
           note: 'Recorded. The platform invoice is issued when the provider reports it paid.',
         };
       case 'PAYMENT_CAPTURED':
-        return this.payment(provider, ev.paymentRef, ev);
+        return this.payment(provider, ev.paymentRef);
       case 'CREDIT_PACK_PAID':
         return this.creditPack(provider, ev.paymentRef);
       case 'DISPUTE_OPENED':
@@ -326,7 +326,6 @@ export class BillingProviderEventService {
   private async payment(
     provider: BillingProvider,
     paymentRef: string | undefined,
-    ev: VerifiedBillingEvent,
   ): Promise<Applied> {
     if (!paymentRef) throw new Refusal('The event names no payment.');
     if (!provider.fetchPaymentRecord || !provider.fetchSubscription) {
@@ -375,7 +374,6 @@ export class BillingProviderEventService {
       currency: rec.currency,
     };
     const providerLive = ['ACTIVE', 'TRIALING', 'PAST_DUE'].includes(subRec.status);
-    const occurredAt = ev.occurredAt ? new Date(ev.occurredAt) : null;
 
     const entries: AuditEntry[] = [];
     let note: string | undefined;
@@ -498,7 +496,6 @@ export class BillingProviderEventService {
         where: { id: payment.id },
         data: { invoiceId: invoice.id },
       });
-      if (subscriptionId) await this.stamp(tx, subscriptionId, occurredAt);
     });
     this.entitlements.bust(account.organizationId);
     for (const e of entries) this.audit.afterCommit(e);
@@ -528,7 +525,7 @@ export class BillingProviderEventService {
       // Activation needs a payment. If the provider already holds a paid one, that is it.
       const subRec = await provider.fetchSubscription(subRef);
       if (subRec.verified && subRec.status === 'ACTIVE' && subRec.latestPaidPaymentRef) {
-        return this.payment(provider, subRec.latestPaidPaymentRef, ev);
+        return this.payment(provider, subRec.latestPaidPaymentRef);
       }
       return {
         status: 'IGNORED',
@@ -565,11 +562,13 @@ export class BillingProviderEventService {
       subRec.latestPaidPaymentRef &&
       ['PAST_DUE', 'GRACE'].includes(local.status)
     ) {
-      return this.payment(provider, subRec.latestPaidPaymentRef, ev);
+      return this.payment(provider, subRec.latestPaidPaymentRef);
     }
 
     const moves = this.movesFor(local, subRec, ev);
     if (moves.length === 0) {
+      // Reconciled to the provider's state as of now, which subsumes anything older.
+      await this.stamp(this.prisma as unknown as Tx, local.id, occurredAt);
       return {
         status: 'IGNORED',
         note: `Nothing to change: the provider reports ${subRec.status}.`,
@@ -839,7 +838,14 @@ export class BillingProviderEventService {
     await tx.$queryRaw`SELECT "id" FROM "OrganizerBillingAccount" WHERE "id" = ${accountId} FOR UPDATE`;
   }
 
-  /** Keeps the newest provider time applied; never moves it backwards. */
+  /**
+   * Keeps the newest provider time of a STATUS event reconciled; never moves it backwards.
+   *
+   * Why an older status event can be dropped: when the newer one was processed, the subscription
+   * was fetched from the provider at that moment - after both events happened - so everything the
+   * older event could say was already applied. Payments do not stamp: they do not reconcile the
+   * status (a cancel scheduled before a renewal must still be picked up from its own event).
+   */
   private async stamp(tx: Tx, subscriptionId: string, at: Date | null) {
     if (!at) return;
     await tx.organizerSubscription.updateMany({
