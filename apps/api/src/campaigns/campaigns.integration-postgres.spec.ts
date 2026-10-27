@@ -93,6 +93,7 @@ describe('integration-real-postgres: organizer campaigns', () => {
   let db: Client | undefined;
   let available = false;
   const tag = `cmp-${Date.now()}-${randomBytes(3).toString('hex')}`;
+  const started = new Date();
 
   let transport: RecordingTransport;
   let campaigns: CampaignsService;
@@ -115,6 +116,9 @@ describe('integration-real-postgres: organizer campaigns', () => {
   let eventB = '';
   const ctx = { source: 'test', ipAddress: '127.0.0.1', userAgent: 'jest' };
 
+  const orgIds: string[] = [];
+  const userIds: string[] = [];
+
   async function makeUser(label: string, roles: string[] = ['CUSTOMER'], verified = false) {
     const u = await db!.user.create({
       data: {
@@ -125,6 +129,7 @@ describe('integration-real-postgres: organizer campaigns', () => {
         emailVerifiedAt: verified ? new Date() : null,
       },
     });
+    userIds.push(u.id);
     return { id: u.id, email: u.email, fullName: u.fullName, roles: roles as Role[] };
   }
 
@@ -132,6 +137,7 @@ describe('integration-real-postgres: organizer campaigns', () => {
     const org = await db!.organization.create({
       data: { name: `${label} ${tag}`, slug: `${label}-${tag}`, status: 'APPROVED' },
     });
+    orgIds.push(org.id);
     await db!.organizationMember.create({
       data: { organizationId: org.id, userId: owner.id, role: 'ORGANIZER_OWNER' },
     });
@@ -184,7 +190,12 @@ describe('integration-real-postgres: organizer campaigns', () => {
         title: `Show ${randomBytes(3).toString('hex')}`,
         slug: `show-${randomBytes(5).toString('hex')}`,
         category: 'Concert',
-        status: 'PUBLISHED',
+        /*
+          DRAFT, never PUBLISHED: this suite shares the CI database with the end-to-end run
+          that follows it, and a published event with no tickets is what that run's
+          "pick a paid event" would choose.
+        */
+        status: 'DRAFT',
       },
     });
     const startsAt = new Date(Date.now() + 7 * 86_400_000);
@@ -409,8 +420,48 @@ describe('integration-real-postgres: organizer campaigns', () => {
   }, 120_000);
 
   afterAll(async () => {
-    await db?.$disconnect();
-  });
+    if (!db || !available) {
+      await db?.$disconnect();
+      return;
+    }
+    // Best effort: leave the shared database as we found it. The usage ledger is append-only
+    // by trigger, so its rows (plain ids, no foreign keys) stay.
+    const org = { organizationId: { in: orgIds } };
+    const campaignIds = (await db.campaign.findMany({ where: org, select: { id: true } })).map(
+      (c: { id: string }) => c.id,
+    );
+    const byCampaign = { campaignId: { in: campaignIds } };
+    const steps = [
+      () => db!.campaignClick.deleteMany({ where: byCampaign }),
+      () => db!.campaignLink.deleteMany({ where: byCampaign }),
+      () => db!.campaignEvent.deleteMany({ where: byCampaign }),
+      () => db!.campaignRecipient.deleteMany({ where: byCampaign }),
+      () => db!.campaign.deleteMany({ where: org }),
+      () => db!.savedSegment.deleteMany({ where: org }),
+      () => db!.entitlementOverride.deleteMany({ where: org }),
+      () => db!.communicationConsent.deleteMany({ where: org }),
+      () => db!.organizerSuppression.deleteMany({ where: org }),
+      () => db!.organizerFollow.deleteMany({ where: org }),
+      () => db!.booking.deleteMany({ where: org }),
+      () => db!.eventSession.deleteMany({ where: { event: org } }),
+      () => db!.event.deleteMany({ where: org }),
+      () => db!.venue.deleteMany({ where: org }),
+      () => db!.organizationMember.deleteMany({ where: org }),
+      () => db!.auditLog.deleteMany({ where: org }),
+      () => db!.auditLog.deleteMany({ where: { actorUserId: { in: userIds } } }),
+      () => db!.marketingConsent.deleteMany({ where: { email: { contains: tag } } }),
+      () =>
+        db!.suppressedDestination.deleteMany({
+          where: { destinationMask: { contains: '@example.test' }, createdAt: { gte: started } },
+        }),
+      () => db!.organization.deleteMany({ where: { id: { in: orgIds } } }),
+      () => db!.user.deleteMany({ where: { id: { in: userIds } } }),
+    ];
+    for (const step of steps) {
+      await step().catch(() => undefined);
+    }
+    await db.$disconnect();
+  }, 120_000);
 
   const run = (name: string, fn: () => Promise<void>, timeout = 60_000) =>
     it(
