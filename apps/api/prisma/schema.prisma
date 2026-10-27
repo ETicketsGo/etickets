@@ -5661,119 +5661,6 @@ model CrmFollowUp {
   @@index([status, dueAt])
 }
 
-// ─── Organizer follows and communication consent (workstream 1) ───────────────────────
-//
-// One contiguous block, kept at the end of the file so parallel branches merge cleanly.
-//
-// ── FOLLOWING IS NOT CONSENT ──────────────────────────────────────────────────────────
-// A follow says "show me this organizer". It does NOT say "this organizer may email me
-// offers". Promotional email needs its own, explicit, recorded consent row below. A follow
-// on its own puts nobody on a mailing list.
-
-enum OrganizerUpdateCadence {
-  INSTANT
-  WEEKLY_DIGEST
-}
-
-/// A customer follows an organizer. Personal data: deleted with the account.
-model OrganizerFollow {
-  id             String       @id @default(cuid())
-  userId         String
-  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  /// Where the follow came from: ORGANIZER_PAGE | BOOKING_CONFIRMATION | LOCAL_MIGRATION.
-  source         String
-  createdAt      DateTime     @default(now())
-
-  /// One follow per person per organizer, even under a race (two taps, two tabs).
-  @@unique([userId, organizationId])
-  @@index([organizationId, createdAt])
-  @@index([userId, createdAt])
-}
-
-/// What a follower wants to hear about from one organizer.
-///
-/// These are topics and timing, not permission to email. `newEvents` defaults ON because the
-/// person asked for it by following, and it is shown in their account only. Email from the
-/// organizer needs a granted `CommunicationConsent` row as well. `earlyAccess` and `offers`
-/// are promotional, so they default OFF.
-model OrganizerNotificationPreference {
-  id             String                 @id @default(cuid())
-  userId         String
-  user           User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  organizationId String
-  organization   Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  newEvents      Boolean                @default(true)
-  earlyAccess    Boolean                @default(false)
-  offers         Boolean                @default(false)
-  cadence        OrganizerUpdateCadence @default(INSTANT)
-  createdAt      DateTime               @default(now())
-  updatedAt      DateTime               @updatedAt
-
-  @@unique([userId, organizationId])
-}
-
-/// A consent decision with a scope. Append-only: a withdrawal is a new row, never an edit.
-/// The newest row per (subject, purpose, organization, channel) is the current state, and
-/// no row means NO consent.
-///
-/// Platform-wide marketing EMAIL is NOT stored here. It stays in `MarketingConsent`
-/// (channel `email`), which the notification service already reads. This table holds the
-/// purposes that need a scope (one organizer). See `engagement/consent-purpose.ts`.
-model CommunicationConsent {
-  id             String   @id @default(cuid())
-  /// Set null when the account is deleted. The row stays as evidence, keyed by the hash.
-  userId         String?
-  user           User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
-  /// SHA-256 of the normalized email, the same hash `SuppressedDestination` uses. Never the
-  /// address itself, so the evidence can outlive the account without holding contact data.
-  subjectHash    String
-  /// Null = platform-wide. A plain column, not a foreign key, so the evidence survives an
-  /// organization being deleted.
-  organizationId String?
-  /// ORGANIZER_UPDATES | EARLY_ACCESS | OFFERS
-  purpose        String
-  /// email | push | sms | whatsapp
-  channel        String   @default("email")
-  granted        Boolean
-  /// How it was obtained. Set by the server, never by the client.
-  source         String
-  /// The disclosure shown, as `TYPE/JURISDICTION/vN` (see `policyVersionLabel`).
-  policyVersion  String?
-  ipAddress      String?
-  userAgent      String?
-  createdAt      DateTime @default(now())
-
-  @@index([subjectHash, purpose, organizationId, createdAt])
-  @@index([userId, purpose, organizationId, createdAt])
-  @@index([organizationId, purpose, createdAt])
-}
-
-/// A destination that one organizer must not send marketing to again.
-///
-/// Separate from the global `SuppressedDestination`, which also stops TRANSACTIONAL mail.
-/// Unsubscribing from one organizer's news must never stop somebody's tickets.
-model OrganizerSuppression {
-  id              String    @id @default(cuid())
-  /// A plain column, like `CommunicationConsent.organizationId`, so it survives the org.
-  organizationId  String
-  /// email | sms | whatsapp | push
-  channel         String
-  /// SHA-256 of the normalized destination (`SuppressionService.hash`).
-  destinationHash String
-  /// UNSUBSCRIBED | COMPLAINT
-  reason          String
-  /// Set when the person opts in again from their own account. Never deleted.
-  liftedAt        DateTime?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-
-  @@unique([organizationId, channel, destinationHash])
-}
-
-}
-
 // ════════════════════════════════════════════════════════════════════════════════════════
 // Organizer billing and entitlements (feat/entitlements-billing-core)
 //
@@ -6104,193 +5991,6 @@ model UsageLedger {
   @@index([organizationId, key, periodKey])
 }
 
-// ════════════════════════════════════════════════════════════════════════════════════════
-// Organizer email campaigns (feat/organizer-campaigns)
-//
-// ONE contiguous block at the end of the file, so parallel branches merge cleanly. Like the
-// billing block above, `organizationId`, `campaignId` and `...UserId` columns are plain ids,
-// not relations, so this block changes no existing model.
-//
-// ── WHAT A CAMPAIGN MAY HOLD ──────────────────────────────────────────────────────────
-// Structured blocks (`content`), never HTML. The renderer escapes every value and routes every
-// link through the click tracker, which only redirects to hosts this platform owns.
-//
-// ── WHO IS ON THE LIST ────────────────────────────────────────────────────────────────
-// Nobody is "on a list". The audience is a DEFINITION (followers, repeat buyers, ...), and
-// every person it matches is checked against their CURRENT organizer consent and both
-// suppression lists - once when the recipients are materialised and again right before each
-// send. A ticket purchase alone is never consent.
-//
-// ── ATTRIBUTION IS COMPUTED, NOT STORED ───────────────────────────────────────────────
-// "Attributed orders" are read at query time: a confirmed booking with the same organizer by
-// the same person (account, or the same email hash) within the window after their click. No
-// booking code changes, the window can be changed after the fact, and a refunded booking
-// stops counting at once. See campaigns/campaign-analytics.service.ts.
-
-enum CampaignStatus {
-  DRAFT
-  SCHEDULED
-  PENDING_APPROVAL
-  QUEUED
-  SENDING
-  PAUSED
-  COMPLETED
-  PARTIALLY_FAILED
-  FAILED
-  CANCELLED
-}
-
-enum CampaignRecipientStatus {
-  PENDING
-  SKIPPED_CONSENT
-  SKIPPED_SUPPRESSED
-  QUEUED
-  ACCEPTED
-  DELIVERED
-  DEFERRED
-  BOUNCED
-  COMPLAINED
-  FAILED
-  UNSUBSCRIBED
-}
-
-/// One email campaign by one organizer.
-model Campaign {
-  id                String         @id @default(cuid())
-  organizationId    String
-  name              String
-  subject           String
-  previewText       String?
-  senderName        String
-  replyTo           String?
-  /// The consent it needs: ORGANIZER_UPDATES | EARLY_ACCESS | OFFERS.
-  purpose           String
-  /// EVENT_ANNOUNCEMENT | EARLY_BIRD | UPCOMING_SHOWS | OFFER | THANK_YOU
-  templateKey       String
-  /// Structured blocks (campaign-content.ts). Never HTML.
-  content           Json
-  eventId           String?
-  /// The audience definition (campaign-audience.ts). Never a list of people.
-  audience          Json
-  status            CampaignStatus @default(DRAFT)
-  scheduledAt       DateTime?
-  /// IANA zone the schedule and the quiet hours are read in.
-  timezone          String         @default("UTC")
-  /// { start: "21:00", end: "08:00" } in `timezone`, or null for no quiet hours.
-  quietHours        Json?
-  /// The language the email chrome (footer, unsubscribe) is written in.
-  locale            String         @default("en")
-  createdByUserId   String
-  updatedByUserId   String?
-  /// Optimistic lock: every edit names the version it read.
-  version           Int            @default(1)
-  /// Recipient counts by status, refreshed by the worker. Derived; the recipients are the truth.
-  counters          Json?
-  pausedReason      String?
-  failureReason     String?
-  /// Set when the organizer confirmed the send on the review step.
-  confirmedAt       DateTime?
-  confirmedByUserId String?
-  queuedAt          DateTime?
-  startedAt         DateTime?
-  completedAt       DateTime?
-  cancelledAt       DateTime?
-  createdAt         DateTime       @default(now())
-  updatedAt         DateTime       @updatedAt
-
-  @@index([organizationId, status, createdAt])
-  @@index([status, scheduledAt])
-}
-
-/// One person a campaign is addressed to. Unique per campaign and email hash: nobody gets the
-/// same campaign twice, whatever retries or reruns happen.
-model CampaignRecipient {
-  id                String                  @id @default(cuid())
-  campaignId        String
-  organizationId    String
-  userId            String?
-  /// SHA-256 of the normalized email (`SuppressionService.hash('email', ...)`).
-  emailHash         String
-  /// The address, kept only while the message still has to be sent. Cleared once it is final.
-  destination       String?
-  /// Enough to recognise in a support conversation, never enough to use.
-  destinationMask   String
-  status            CampaignRecipientStatus @default(PENDING)
-  provider          String?
-  providerMessageId String?
-  attempts          Int                     @default(0)
-  lastError         String?
-  queuedAt          DateTime?
-  acceptedAt        DateTime?
-  deliveredAt       DateTime?
-  failedAt          DateTime?
-  finalAt           DateTime?
-  createdAt         DateTime                @default(now())
-  updatedAt         DateTime                @updatedAt
-
-  @@unique([campaignId, emailHash])
-  @@index([campaignId, status])
-  @@index([providerMessageId])
-  @@index([organizationId, emailHash])
-}
-
-/// Append-only history of a campaign: status changes, delivery events, clicks, unsubscribes.
-/// Idempotent on the provider's event id, so a replayed SES notification is one row.
-model CampaignEvent {
-  id              String   @id @default(cuid())
-  campaignId      String
-  recipientId     String?
-  /// STATUS_CHANGED | TEST_SENT | ACCEPTED | DELIVERED | DEFERRED | BOUNCED | COMPLAINED |
-  /// REJECTED | FAILED | SKIPPED | CLICKED | UNSUBSCRIBED
-  type            String
-  providerEventId String?  @unique
-  actorUserId     String?
-  /// Never an address or message content.
-  detail          Json?
-  occurredAt      DateTime @default(now())
-  createdAt       DateTime @default(now())
-
-  @@index([campaignId, type, occurredAt])
-  @@index([recipientId])
-}
-
-/// A link in a campaign. The email carries a signed reference to it, never the target itself.
-model CampaignLink {
-  id         String   @id @default(cuid())
-  campaignId String
-  targetUrl  String
-  createdAt  DateTime @default(now())
-
-  @@unique([campaignId, targetUrl])
-}
-
-/// Who clicked which link, once per person per link. Unique clicks are counted from here.
-model CampaignClick {
-  id             String   @id @default(cuid())
-  campaignId     String
-  linkId         String
-  recipientId    String
-  clicks         Int      @default(1)
-  firstClickedAt DateTime @default(now())
-  lastClickedAt  DateTime @default(now())
-
-  @@unique([linkId, recipientId])
-  @@index([campaignId, recipientId, firstClickedAt])
-}
-
-/// A named audience definition an organizer can reuse. A definition, never a list of people.
-model SavedSegment {
-  id              String   @id @default(cuid())
-  organizationId  String
-  name            String
-  definition      Json
-  createdByUserId String
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  @@unique([organizationId, name])
-}
-
 // ─── Organizer follows and communication consent (workstream 1) ───────────────────────
 //
 // One contiguous block, kept at the end of the file so parallel branches merge cleanly.
@@ -6502,4 +6202,191 @@ model PlatformFeePolicyEvent {
   createdAt   DateTime          @default(now())
 
   @@index([policyId, createdAt])
+}
+
+// ════════════════════════════════════════════════════════════════════════════════════════
+// Organizer email campaigns (feat/organizer-campaigns)
+//
+// ONE contiguous block at the end of the file, so parallel branches merge cleanly. Like the
+// billing block above, `organizationId`, `campaignId` and `...UserId` columns are plain ids,
+// not relations, so this block changes no existing model.
+//
+// ── WHAT A CAMPAIGN MAY HOLD ──────────────────────────────────────────────────────────
+// Structured blocks (`content`), never HTML. The renderer escapes every value and routes every
+// link through the click tracker, which only redirects to hosts this platform owns.
+//
+// ── WHO IS ON THE LIST ────────────────────────────────────────────────────────────────
+// Nobody is "on a list". The audience is a DEFINITION (followers, repeat buyers, ...), and
+// every person it matches is checked against their CURRENT organizer consent and both
+// suppression lists - once when the recipients are materialised and again right before each
+// send. A ticket purchase alone is never consent.
+//
+// ── ATTRIBUTION IS COMPUTED, NOT STORED ───────────────────────────────────────────────
+// "Attributed orders" are read at query time: a confirmed booking with the same organizer by
+// the same person (account, or the same email hash) within the window after their click. No
+// booking code changes, the window can be changed after the fact, and a refunded booking
+// stops counting at once. See campaigns/campaign-analytics.service.ts.
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  PENDING_APPROVAL
+  QUEUED
+  SENDING
+  PAUSED
+  COMPLETED
+  PARTIALLY_FAILED
+  FAILED
+  CANCELLED
+}
+
+enum CampaignRecipientStatus {
+  PENDING
+  SKIPPED_CONSENT
+  SKIPPED_SUPPRESSED
+  QUEUED
+  ACCEPTED
+  DELIVERED
+  DEFERRED
+  BOUNCED
+  COMPLAINED
+  FAILED
+  UNSUBSCRIBED
+}
+
+/// One email campaign by one organizer.
+model Campaign {
+  id                String         @id @default(cuid())
+  organizationId    String
+  name              String
+  subject           String
+  previewText       String?
+  senderName        String
+  replyTo           String?
+  /// The consent it needs: ORGANIZER_UPDATES | EARLY_ACCESS | OFFERS.
+  purpose           String
+  /// EVENT_ANNOUNCEMENT | EARLY_BIRD | UPCOMING_SHOWS | OFFER | THANK_YOU
+  templateKey       String
+  /// Structured blocks (campaign-content.ts). Never HTML.
+  content           Json
+  eventId           String?
+  /// The audience definition (campaign-audience.ts). Never a list of people.
+  audience          Json
+  status            CampaignStatus @default(DRAFT)
+  scheduledAt       DateTime?
+  /// IANA zone the schedule and the quiet hours are read in.
+  timezone          String         @default("UTC")
+  /// { start: "21:00", end: "08:00" } in `timezone`, or null for no quiet hours.
+  quietHours        Json?
+  /// The language the email chrome (footer, unsubscribe) is written in.
+  locale            String         @default("en")
+  createdByUserId   String
+  updatedByUserId   String?
+  /// Optimistic lock: every edit names the version it read.
+  version           Int            @default(1)
+  /// Recipient counts by status, refreshed by the worker. Derived; the recipients are the truth.
+  counters          Json?
+  pausedReason      String?
+  failureReason     String?
+  /// Set when the organizer confirmed the send on the review step.
+  confirmedAt       DateTime?
+  confirmedByUserId String?
+  queuedAt          DateTime?
+  startedAt         DateTime?
+  completedAt       DateTime?
+  cancelledAt       DateTime?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  @@index([organizationId, status, createdAt])
+  @@index([status, scheduledAt])
+}
+
+/// One person a campaign is addressed to. Unique per campaign and email hash: nobody gets the
+/// same campaign twice, whatever retries or reruns happen.
+model CampaignRecipient {
+  id                String                  @id @default(cuid())
+  campaignId        String
+  organizationId    String
+  userId            String?
+  /// SHA-256 of the normalized email (`SuppressionService.hash('email', ...)`).
+  emailHash         String
+  /// The address, kept only while the message still has to be sent. Cleared once it is final.
+  destination       String?
+  /// Enough to recognise in a support conversation, never enough to use.
+  destinationMask   String
+  status            CampaignRecipientStatus @default(PENDING)
+  provider          String?
+  providerMessageId String?
+  attempts          Int                     @default(0)
+  lastError         String?
+  queuedAt          DateTime?
+  acceptedAt        DateTime?
+  deliveredAt       DateTime?
+  failedAt          DateTime?
+  finalAt           DateTime?
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+
+  @@unique([campaignId, emailHash])
+  @@index([campaignId, status])
+  @@index([providerMessageId])
+  @@index([organizationId, emailHash])
+}
+
+/// Append-only history of a campaign: status changes, delivery events, clicks, unsubscribes.
+/// Idempotent on the provider's event id, so a replayed SES notification is one row.
+model CampaignEvent {
+  id              String   @id @default(cuid())
+  campaignId      String
+  recipientId     String?
+  /// STATUS_CHANGED | TEST_SENT | ACCEPTED | DELIVERED | DEFERRED | BOUNCED | COMPLAINED |
+  /// REJECTED | FAILED | SKIPPED | CLICKED | UNSUBSCRIBED
+  type            String
+  providerEventId String?  @unique
+  actorUserId     String?
+  /// Never an address or message content.
+  detail          Json?
+  occurredAt      DateTime @default(now())
+  createdAt       DateTime @default(now())
+
+  @@index([campaignId, type, occurredAt])
+  @@index([recipientId])
+}
+
+/// A link in a campaign. The email carries a signed reference to it, never the target itself.
+model CampaignLink {
+  id         String   @id @default(cuid())
+  campaignId String
+  targetUrl  String
+  createdAt  DateTime @default(now())
+
+  @@unique([campaignId, targetUrl])
+}
+
+/// Who clicked which link, once per person per link. Unique clicks are counted from here.
+model CampaignClick {
+  id             String   @id @default(cuid())
+  campaignId     String
+  linkId         String
+  recipientId    String
+  clicks         Int      @default(1)
+  firstClickedAt DateTime @default(now())
+  lastClickedAt  DateTime @default(now())
+
+  @@unique([linkId, recipientId])
+  @@index([campaignId, recipientId, firstClickedAt])
+}
+
+/// A named audience definition an organizer can reuse. A definition, never a list of people.
+model SavedSegment {
+  id              String   @id @default(cuid())
+  organizationId  String
+  name            String
+  definition      Json
+  createdByUserId String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([organizationId, name])
 }
