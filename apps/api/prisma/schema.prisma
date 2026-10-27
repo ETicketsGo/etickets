@@ -549,35 +549,35 @@ model User {
   refreshTokens              RefreshToken[]
   mfaCredential              AdminMfaCredential?
   mfaRecoveryCodes           AdminMfaRecoveryCode[]
-  invitationsSent            AccountInvitation[]         @relation("InvitationsSent")
-  invitationReceived         AccountInvitation?          @relation("InvitationsReceived")
+  invitationsSent            AccountInvitation[]               @relation("InvitationsSent")
+  invitationReceived         AccountInvitation?                @relation("InvitationsReceived")
   passwordResetTokens        PasswordResetToken[]
-  cashCollected              Booking[]                   @relation("CashCollected")
-  cashReturned               Booking[]                   @relation("CashReturned")
+  cashCollected              Booking[]                         @relation("CashCollected")
+  cashReturned               Booking[]                         @relation("CashReturned")
   memberships                OrganizationMember[]
   bookings                   Booking[]
-  assignedTickets            Ticket[]                    @relation("TicketAttendee")
+  assignedTickets            Ticket[]                          @relation("TicketAttendee")
   notifications              Notification[]
   notificationPreferences    NotificationPreference[]
   pushSubscriptions          PushSubscription[]
   devices                    UserDevice[]
   feedback                   Feedback[]
-  checkIns                   CheckIn[]                   @relation("CheckInActor")
+  checkIns                   CheckIn[]                         @relation("CheckInActor")
   auditLogs                  AuditLog[]
   payoutSettingUpdates       PayoutSetting[]
-  seatOverrides              ShowSeat[]                  @relation("SeatOverrideActor")
+  seatOverrides              ShowSeat[]                        @relation("SeatOverrideActor")
   reviews                    Review[]
   marketingConsents          MarketingConsent[]
   notificationCertifications NotificationCertification[]
-  adminGrants                AdminGrant[]                @relation("AdminGrantHolder")
-  adminGrantsIssued          AdminGrant[]                @relation("AdminGrantIssuer")
+  adminGrants                AdminGrant[]                      @relation("AdminGrantHolder")
+  adminGrantsIssued          AdminGrant[]                      @relation("AdminGrantIssuer")
   /// Organizer acquisition (CRM). Staff only; a customer account never has any of these.
-  crmTeamMemberships         CrmTeamMember[]             @relation("CrmTeamMemberUser")
-  crmLeadsAssigned           CrmLead[]                   @relation("CrmLeadAssignee")
-  crmLeadsCreated            CrmLead[]                   @relation("CrmLeadCreator")
-  crmActivities              CrmActivity[]               @relation("CrmActivityResponsible")
-  crmFollowUps               CrmFollowUp[]               @relation("CrmFollowUpOwner")
-  crmStageChanges            CrmLeadStageChange[]        @relation("CrmStageChangeActor")
+  crmTeamMemberships         CrmTeamMember[]                   @relation("CrmTeamMemberUser")
+  crmLeadsAssigned           CrmLead[]                         @relation("CrmLeadAssignee")
+  crmLeadsCreated            CrmLead[]                         @relation("CrmLeadCreator")
+  crmActivities              CrmActivity[]                     @relation("CrmActivityResponsible")
+  crmFollowUps               CrmFollowUp[]                     @relation("CrmFollowUpOwner")
+  crmStageChanges            CrmLeadStageChange[]              @relation("CrmStageChangeActor")
   /// One-time codes that carry a signed-in storefront session to the organizer console.
   authHandoffs               AuthHandoff[]
   /// Codes sent to an email address somebody is adding to their own account.
@@ -1045,7 +1045,7 @@ model Organization {
   /// taking money the platform will never see, so it changes who is responsible for
   /// collecting it, what a settlement can promise, and what a receipt can honestly say.
   /// Somebody has to choose that deliberately.
-  cashPaymentsEnabled     Boolean                   @default(false)
+  cashPaymentsEnabled     Boolean                           @default(false)
   /// The acquisition lead this organization was won from, if any. Set by the CRM linking an
   /// EXISTING organization; nothing about the organization itself changes.
   crmLead                 CrmLead?
@@ -2019,6 +2019,19 @@ model Booking {
   /// since have been reclassified.
   pricingJurisdiction    Json?
   complianceStatus       PricingComplianceStatus @default(NOT_REGULATED)
+
+  /// ── Platform fee override, snapshotted (see PlatformFeePolicy) ────────────────────
+  /// Null on every booking priced by the ordinary fee schedule. The money columns above stay
+  /// the CHARGED amounts, so every reader downstream (receipts, refunds, settlement, payouts,
+  /// finance) is unchanged; these say why the booking fee is what it is.
+  feePolicyId         String?
+  feePolicy           PlatformFeePolicy?     @relation(fields: [feePolicyId], references: [id], onDelete: Restrict)
+  feePolicyKind       PlatformFeePolicyKind?
+  feePolicyVersion    Int?
+  /// The booking fee the platform schedule would have charged, before any cinema cap.
+  baseBookingFeeMinor Int?
+  /// How much of that the policy took off, before any cinema cap. Never negative.
+  feeWaivedMinor      Int?
 
   totalMinor Int
 
@@ -5757,4 +5770,106 @@ model OrganizerSuppression {
   updatedAt       DateTime  @updatedAt
 
   @@unique([organizationId, channel, destinationHash])
+}
+
+// ── Platform fee overrides and waivers ──────────────────────────────────────────────
+// An admin-managed exception to the platform fee schedule (FeeRule) for one organizer or one
+// event: waive the booking fee, charge a fixed amount, or charge a percentage, for a time
+// window and optionally for a limited number of orders.
+//
+// Precedence: an EVENT policy, then an ORGANIZATION policy, then the schedule. A policy only
+// ever replaces the booking (platform) fee: the payment processing line and tax are never
+// waived by it. A FREE event stays at zero whatever applies.
+//
+// Terms are immutable once created. To change one, deactivate it and create another, so a
+// booking's snapshot (Booking.feePolicyId + feePolicyVersion) always names terms that still
+// exist exactly as they were. `version` moves on every status change (optimistic locking).
+//
+// At most one ACTIVE or EXHAUSTED policy per scope target whose windows overlap (and whose
+// currencies could both apply): enforced by PlatformFeePoliciesService under a transaction-
+// scoped advisory lock on the target, because an exclusion constraint cannot be expressed in
+// this schema without drifting from it.
+
+enum PlatformFeePolicyScope {
+  EVENT
+  ORGANIZATION
+}
+
+enum PlatformFeePolicyKind {
+  /// No booking fee at all.
+  WAIVE
+  /// A fixed booking fee in minor units of `currency`.
+  FIXED
+  /// A share of the order in basis points, optionally held between a floor and a ceiling.
+  PERCENT
+}
+
+enum PlatformFeePolicyStatus {
+  ACTIVE
+  /// Switched off by an admin. Final.
+  INACTIVE
+  /// Reserved for a past window. Expiry is derived from `endsAt` at read time; nothing needs
+  /// to write this for pricing to fall back.
+  EXPIRED
+  /// Every order in `maxOrders` is taken. Goes back to ACTIVE if an unpaid hold is released.
+  EXHAUSTED
+}
+
+model PlatformFeePolicy {
+  id                  String                  @id @default(cuid())
+  scope               PlatformFeePolicyScope
+  /// Set when scope is EVENT. No foreign key on purpose: a policy is a finance record and
+  /// must outlive an event or organization that is later deleted.
+  eventId             String?
+  /// Always set: the event's organization for an EVENT policy, the target for ORGANIZATION.
+  organizationId      String
+  kind                PlatformFeePolicyKind
+  /// FIXED: the booking fee.
+  feeMinor            Int?
+  /// PERCENT: basis points (500 = 5%).
+  percentBps          Int?
+  minFeeMinor         Int?
+  maxFeeMinor         Int?
+  /// Required when an amount is stated (FIXED, or a PERCENT floor/ceiling). Null applies to
+  /// any currency.
+  currency            String?
+  startsAt            DateTime
+  /// Exclusive. Null means open-ended.
+  endsAt              DateTime?
+  /// Null means unlimited. Counted when a hold is taken, released if it is not paid.
+  maxOrders           Int?
+  usedOrders          Int                     @default(0)
+  status              PlatformFeePolicyStatus @default(ACTIVE)
+  reason              String
+  approvalReference   String?
+  createdByUserId     String
+  deactivatedAt       DateTime?
+  deactivatedByUserId String?
+  deactivationReason  String?
+  version             Int                     @default(1)
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+
+  bookings Booking[]
+  events   PlatformFeePolicyEvent[]
+
+  @@index([scope, eventId, status])
+  @@index([scope, organizationId, status])
+  @@index([status, createdAt])
+}
+
+/// Append-only history of a policy: created, deactivated, exhausted, reopened.
+model PlatformFeePolicyEvent {
+  id          String            @id @default(cuid())
+  policyId    String
+  policy      PlatformFeePolicy @relation(fields: [policyId], references: [id], onDelete: Restrict)
+  /// CREATED | DEACTIVATED | EXHAUSTED | REOPENED
+  action      String
+  actorUserId String?
+  reason      String?
+  /// The policy row as it was after this change.
+  snapshot    Json
+  createdAt   DateTime          @default(now())
+
+  @@index([policyId, createdAt])
 }

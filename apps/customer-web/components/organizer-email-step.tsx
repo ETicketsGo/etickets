@@ -22,8 +22,17 @@ import { BRAND_LINK } from '@/components/booking-brand';
  * email-verification.service.ts), and never a password. Skippable: an organization is never held
  * hostage to an inbox, and the profile offers the same step later.
  */
-export function OrganizerEmailStep() {
+/**
+ * `organizer`: on the become-organizer page, where it can be skipped and the address is for
+ * organizer messages. `account`: on the profile, for ANY phone-only account (an address for
+ * receipts and account messages); nothing to skip there.
+ */
+export function OrganizerEmailStep({
+  purpose = 'organizer',
+}: { purpose?: 'organizer' | 'account' } = {}) {
   const t = useTranslations('storefront.becomeOrganizer');
+  const k = (key: 'emailTitle' | 'emailLead' | 'emailDone') =>
+    purpose === 'account' ? (`account${key[0].toUpperCase()}${key.slice(1)}` as const) : key;
   const queryClient = useQueryClient();
   const [email, setEmail] = useState('');
   const [sentTo, setSentTo] = useState<string | null>(null);
@@ -82,7 +91,7 @@ export function OrganizerEmailStep() {
         data-testid="organizer-email-done"
         className={`${BRAND_INSET} text-brand-ui`}
       >
-        {t('emailDone', { email: done })}
+        {t(k('emailDone'), { email: done })}
       </p>
     );
   }
@@ -97,9 +106,9 @@ export function OrganizerEmailStep() {
       className={`space-y-3 ${BRAND_INSET}`}
     >
       <h2 id="organizer-email-title" className="text-brand-ui font-semibold text-brand-ink">
-        {t('emailTitle')}
+        {t(k('emailTitle'))}
       </h2>
-      <p className="text-brand-meta text-brand-ink-2">{t('emailLead')}</p>
+      <p className="text-brand-meta text-brand-ink-2">{t(k('emailLead'))}</p>
       {!sentTo ? (
         <form className="space-y-3" onSubmit={send}>
           <BrandInput
@@ -178,14 +187,16 @@ export function OrganizerEmailStep() {
           </div>
         </form>
       )}
-      <button
-        type="button"
-        data-testid="organizer-email-skip"
-        className={`min-h-11 text-brand-meta ${BRAND_LINK}`}
-        onClick={() => setSkipped(true)}
-      >
-        {t('emailSkip')}
-      </button>
+      {purpose === 'organizer' && (
+        <button
+          type="button"
+          data-testid="organizer-email-skip"
+          className={`min-h-11 text-brand-meta ${BRAND_LINK}`}
+          onClick={() => setSkipped(true)}
+        >
+          {t('emailSkip')}
+        </button>
+      )}
     </section>
   );
 }
