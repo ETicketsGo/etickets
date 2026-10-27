@@ -899,6 +899,9 @@
     "emailDone": "C'est fait. Les messages aux organisateurs iront à {email}.",
     "emailSkip": "Plus tard",
     "emailLater": "Vous pourrez ajouter un courriel plus tard dans votre profil.",
+    "accountEmailTitle": "Ajoutez une adresse courriel",
+    "accountEmailLead": "Votre compte n'a qu'un numéro de mobile. Ajoutez une adresse courriel et confirmez-la avec un code. Nous y envoyons les reçus et les messages du compte. Aucun mot de passe n'est nécessaire.",
+    "accountEmailDone": "C'est fait. Votre adresse courriel est {email}.",
     "emailFailed": "Nous n'avons pas pu faire cela. Vérifiez votre connexion et réessayez.",
     "rateLimited": "Plusieurs organisations ont été créées d'ici récemment. Réessayez dans une heure.",
     "failed": "Nous n'avons pas pu créer votre organisation. Vérifiez votre connexion et réessayez.",
@@ -977,16 +980,46 @@
     "offersLead": "Il s'agit uniquement d'offres et de recommandations. Les désactiver n'a aucun effet sur vos billets ni sur vos mises à jour de réservation.",
     "marketingOn": "Offres par {channel}",
     "signInTitle": "Connectez-vous pour gérer vos notifications",
-    "signInDescription": "Vos préférences de notification et de messages texte font partie de votre compte ETicketsGo."
+    "signInDescription": "Vos préférences de notification et de messages texte font partie de votre compte ETicketsGo.",
+    "organizersHeading": "Courriels des organisateurs",
+    "organizersLead": "Chaque organisateur peut vous écrire seulement si vous l'autorisez. Ceci est distinct des offres d'ETicketsGo.",
+    "organizersLoadError": "Nous n'avons pas pu charger vos réglages de courriels des organisateurs.",
+    "organizersEmpty": "Vous ne suivez encore aucun organisateur. <link>Voir qui vous suivez</link>.",
+    "organizerPurposes": {
+      "ORGANIZER_UPDATES": "Nouveaux événements par courriel",
+      "EARLY_ACCESS": "Accès anticipé par courriel",
+      "OFFERS": "Offres par courriel"
+    },
+    "organizerPurposeFor": "{purpose} de {name}"
   },
   "following": {
     "heading": "Organisateurs suivis",
-    "lead": "Les organisateurs que vous suivez. Nous vous avertissons quand ils annoncent un nouvel événement.",
+    "lead": "Les organisateurs que vous suivez. Choisissez ce que vous recevez de chacun.",
     "emptyTitle": "Vous ne suivez encore personne",
     "emptyHint": "Suivez des organisateurs pour les voir ici.",
     "loadError": "Nous n'avons pas pu charger les organisateurs que vous suivez. Veuillez réessayer.",
     "verified": "Vérifié",
-    "since": "Depuis le {date} - {count, plural, one {# événement en vente} other {# événements en vente}}"
+    "since": "Depuis le {date} - {count, plural, one {# événement en vente} other {# événements en vente}}",
+    "signInTitle": "Connectez-vous pour voir qui vous suivez",
+    "signInDescription": "Les organisateurs que vous suivez font partie de votre compte ETicketsGo.",
+    "choose": "Ce que vous recevez",
+    "unfollow": "Ne plus suivre",
+    "unfollowLabel": "Ne plus suivre {name}",
+    "unfollowed": "Vous ne suivez plus {name}.",
+    "saved": "Enregistré.",
+    "saveError": "Nous n'avons pas pu enregistrer. Veuillez réessayer.",
+    "prefNewEvents": "Nouveaux événements dans mon compte",
+    "prefNewEventsHint": "Affichés dans votre compte seulement. Aucun courriel.",
+    "prefEmailUpdates": "M'écrire au sujet des nouveaux événements",
+    "prefEmailUpdatesHint": "Cet organisateur peut vous écrire quand il ajoute un événement.",
+    "prefEarlyAccess": "Accès anticipé par courriel",
+    "prefEarlyAccessHint": "Préventes et billets en avance de cet organisateur.",
+    "prefOffers": "Offres par courriel",
+    "prefOffersHint": "Rabais et offres de cet organisateur.",
+    "cadenceLabel": "À quelle fréquence",
+    "cadenceInstant": "Dès que cela arrive",
+    "cadenceWeekly": "Un résumé par semaine",
+    "consentNote": "Suivre n'active aucun courriel. Les courriels commencent seulement si vous les activez ici. Vous pouvez les arrêter à tout moment."
   },
   "walletCard": {
     "badgeMovie": "Film",
@@ -1178,5 +1211,33 @@
     "citiesInYours": "Ces villes de votre pays ont quelque chose à l'affiche :",
     "searchHint": "Cherchez une ville pour voir ce qui est à l'affiche.",
     "searchCity": "Chercher une ville"
+  },
+  "follow": {
+    "follow": "Suivre",
+    "following": "Suivi",
+    "followLabel": "Suivre {name}",
+    "unfollowLabel": "Ne plus suivre {name}",
+    "followed": "Vous suivez maintenant {name}.",
+    "unfollowed": "Vous ne suivez plus {name}.",
+    "saveError": "Nous n'avons pas pu enregistrer. Veuillez réessayer.",
+    "followerCount": "{count, plural, one {# abonné} other {# abonnés}}",
+    "emptyEventsHint": "Suivez-le pour le garder dans votre compte.",
+    "confirmationTitle": "Suivre {name}",
+    "confirmationLead": "Voyez ses événements dans votre compte. Nous ne vous écrivons pas sans votre accord."
+  },
+  "unsubscribe": {
+    "title": "Se désabonner",
+    "lead": "Arrêter {what} à {email}.",
+    "whatPlatform": "les courriels de marketing d'ETicketsGo",
+    "whatOrganizer": "les courriels de {name}",
+    "confirm": "Se désabonner",
+    "ticketsStillCome": "Vous recevez toujours vos billets et les mises à jour de vos réservations.",
+    "doneTitle": "Vous êtes désabonné",
+    "doneLead": "Nous avons arrêté {what} à {email}.",
+    "changedMind": "Vous avez changé d'avis? Connectez-vous et réactivez les courriels dans vos réglages.",
+    "openSettings": "Ouvrir mes réglages",
+    "invalidTitle": "Ce lien ne fonctionne pas",
+    "invalidLead": "Utilisez le lien de votre dernier courriel, ou changez vos réglages de courriel dans votre compte.",
+    "error": "Nous n'avons pas pu le faire. Veuillez réessayer."
   }
 }

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { FeeMode } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
@@ -14,6 +14,16 @@ import {
   parsePriceDisplayMode,
   type PriceDisplayMode,
 } from './price-display';
+import { policyFeeTiers, type FeePolicyRow } from './fee-policy';
+import { FeePolicyResolver } from './fee-policy-resolver.service';
+
+/**
+ * How long a listing trusts a resolved fee policy. Unlike the fee bands, policies start, end
+ * and run out by themselves, so they are not cached for the process lifetime. A minute keeps a
+ * listing page to one lookup per event per minute and lets an expired waiver leave the card
+ * within a minute of leaving the checkout (which never caches).
+ */
+const POLICY_TTL_MS = 60_000;
 
 /**
  * The price a listing advertises, under whichever display mode is configured.
@@ -35,10 +45,13 @@ import {
 export class AdvertisedPriceService {
   private readonly mode: PriceDisplayMode;
   private readonly tierCache = new Map<string, FeeTier[]>();
+  private readonly policyCache = new Map<string, { at: number; policy: FeePolicyRow | null }>();
 
   constructor(
     private readonly prisma: PrismaService,
     config: ConfigService,
+    /** Optional on the end, as in PricingService; PricingModule always provides it. */
+    @Optional() private readonly feePolicies?: FeePolicyResolver,
   ) {
     // Parsed once, at construction. An unrecognised value is refused rather than defaulted,
     // because defaulting would advertise the wrong price in whichever market it was set for.
@@ -85,14 +98,51 @@ export class AdvertisedPriceService {
     currency = 'INR',
     /** The venue's country and region, so the card quotes the fee the checkout will charge. */
     place: FeePlace = {},
+    /**
+     * The event and its organizer, so a fee waiver or override shows on the card exactly as
+     * the checkout will apply it (same resolver, same precedence). Omitted, none is applied.
+     */
+    seller: { eventId?: string | null; organizationId?: string | null } = {},
   ): Promise<number | null> {
     if (basePriceMinor === null || this.isPassThrough) return basePriceMinor;
-    return advertisedPriceMinor({
+    const base = advertisedPriceMinor({
       basePriceMinor,
       mode: this.mode,
       feeMode,
       tiers: await this.tiersFor(currency, place),
       currency,
     });
+    const policy = await this.policyFor(currency, seller);
+    if (!policy) return base;
+    /*
+      The lower of the two, as the checkout charges (`calculateFeesWithPolicy`): an override
+      only ever lowers the booking fee, and the advertised total rises and falls with it.
+    */
+    return Math.min(
+      base,
+      advertisedPriceMinor({
+        basePriceMinor,
+        mode: this.mode,
+        feeMode,
+        tiers: policyFeeTiers(policy),
+        currency,
+      }),
+    );
+  }
+
+  private async policyFor(
+    currency: string,
+    seller: { eventId?: string | null; organizationId?: string | null },
+  ): Promise<FeePolicyRow | null> {
+    if (!this.feePolicies || (!seller.eventId && !seller.organizationId)) return null;
+    const key = `${currency}|${seller.eventId ?? '-'}|${seller.organizationId ?? '-'}`;
+    const now = Date.now();
+    const cached = this.policyCache.get(key);
+    if (cached && now - cached.at < POLICY_TTL_MS) return cached.policy;
+    const policy = await this.feePolicies.resolve(currency, { ...seller, at: new Date(now) });
+    // Bounded: a listing walks many events, and nothing else ever evicts.
+    if (this.policyCache.size > 5_000) this.policyCache.clear();
+    this.policyCache.set(key, { at: now, policy });
+    return policy;
   }
 }

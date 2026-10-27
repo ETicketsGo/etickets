@@ -204,6 +204,18 @@ export const ORGANIZER_ROUTE_POLICY: Record<string, StaffPolicy> = {
   'PUT /me/marketing-consent': 'SELF',
   'GET /me/notification-preferences': 'SELF',
   'PUT /me/notification-preferences': 'SELF',
+  // ── Following organizers and scoped consent (the caller's own follows and decisions) ──
+  'GET /me/following': 'SELF',
+  'GET /me/following/:organizationId': 'SELF',
+  'PUT /me/following/:organizationId': 'SELF',
+  'DELETE /me/following/:organizationId': 'SELF',
+  'GET /me/following/:organizationId/preferences': 'SELF',
+  'PUT /me/following/:organizationId/preferences': 'SELF',
+  'GET /me/communication-consent': 'SELF',
+  'PUT /me/communication-consent/marketing-email': 'SELF',
+  'PUT /me/communication-consent/organizers/:organizationId': 'SELF',
+  // Aggregates only, owners and managers. Staff who are not members are refused.
+  'GET /organizations/:id/audience/summary': 'NONE',
   'GET /notifications': 'SELF',
   'GET /notifications/unread-count': 'SELF',
   'POST /notifications/:id/read': 'SELF',

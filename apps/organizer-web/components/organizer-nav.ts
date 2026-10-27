@@ -20,6 +20,7 @@ import {
   Sparkles,
   Ticket,
   Undo2,
+  UserPlus,
   Users,
   Wallet,
 } from 'lucide-react';
@@ -164,6 +165,21 @@ export function navFor({
       keywords: ['promotions', 'coupons', 'promote', 'discount codes', 'promo codes'],
       href: '/organizer/promotions',
       icon: Megaphone,
+      /*
+        Followers and audience counts (aggregates only, never names), as a TAB of Marketing
+        rather than a sidebar row: one more row makes the expanded sidebar scroll at a
+        768px-tall window (console-navigation e2e). Quick navigation finds it by name and by
+        "followers". Campaigns and analytics pages are later work and get no entry until
+        they exist.
+      */
+      children: [
+        {
+          label: 'Audience & growth',
+          href: '/organizer/audience',
+          icon: UserPlus,
+          keywords: ['followers', 'subscribers', 'fans', 'audience', 'growth'],
+        },
+      ],
     },
 
     /*

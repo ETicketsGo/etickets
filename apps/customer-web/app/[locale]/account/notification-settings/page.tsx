@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
 import { MessageCircle, Phone } from 'lucide-react';
 import { Link } from '@/i18n/navigation';
-import { api } from '@/lib/api';
+import { api, type OrganizerConsentPurpose } from '@/lib/api';
 import { useToast } from '@/components/ui';
 import { PushToggle } from '@/components/push-toggle';
 import {
@@ -84,6 +84,30 @@ export default function NotificationSettingsPage() {
     mutationFn: (body: { channel: string; granted: boolean }) => api.setConsent(body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['marketing-consent'] });
+      toast.push(t('saved'), 'success');
+    },
+    onError: () => toast.push(t('saveError'), 'error'),
+  });
+
+  /*
+    Email from organizers, one list per organizer the person follows or ever decided about.
+    Separate from the offers switches above, which are ETicketsGo's own marketing: allowing
+    one never allows the other.
+  */
+  const organizerConsent = useQuery({
+    queryKey: ['communication-consent'],
+    queryFn: () => api.communicationConsent(),
+    enabled: signedIn === true,
+  });
+  const setOrganizerConsent = useMutation({
+    mutationFn: (body: {
+      organizationId: string;
+      purpose: OrganizerConsentPurpose;
+      granted: boolean;
+    }) => api.setOrganizerConsent(body.organizationId, body.purpose, body.granted),
+    onSuccess: (data) => {
+      qc.setQueryData(['communication-consent'], data);
+      qc.invalidateQueries({ queryKey: ['following'] });
       toast.push(t('saved'), 'success');
     },
     onError: () => toast.push(t('saveError'), 'error'),
@@ -272,6 +296,61 @@ export default function NotificationSettingsPage() {
             </label>
           ))}
         </div>
+      </section>
+
+      <section className={`${ACCOUNT_PANEL} p-5 sm:p-6`} data-testid="organizer-email">
+        <h2 className={PANEL_TITLE}>{t('organizersHeading')}</h2>
+        <p className="mt-1 text-brand-ui text-brand-ink-2">{t('organizersLead')}</p>
+        {organizerConsent.isLoading ? (
+          <div className="mt-4 space-y-3" aria-busy="true">
+            <Placeholder className="h-12 w-full" />
+          </div>
+        ) : organizerConsent.isError ? (
+          <p className="mt-4 text-brand-meta text-brand-ink-2">{t('organizersLoadError')}</p>
+        ) : (organizerConsent.data?.organizers.length ?? 0) === 0 ? (
+          <p className="mt-4 text-brand-meta text-brand-ink-2">
+            {t.rich('organizersEmpty', {
+              link: (chunks) => (
+                <Link href="/account/following" className={BRAND_LINK}>
+                  {chunks}
+                </Link>
+              ),
+            })}
+          </p>
+        ) : (
+          <ul className="mt-4 divide-y divide-brand-line">
+            {organizerConsent.data!.organizers.map((org) => (
+              <li key={org.organizationId} className="py-4 first:pt-0 last:pb-0">
+                <p className="text-brand-body font-semibold text-brand-ink">{org.name}</p>
+                <div className="mt-2 space-y-2">
+                  {(['ORGANIZER_UPDATES', 'EARLY_ACCESS', 'OFFERS'] as const).map((purpose) => (
+                    <label
+                      key={purpose}
+                      className="flex min-h-11 items-center justify-between gap-4 text-brand-ui text-brand-ink"
+                    >
+                      <span>{t(`organizerPurposes.${purpose}`)}</span>
+                      <BrandToggle
+                        checked={org.purposes[purpose]?.granted ?? false}
+                        disabled={setOrganizerConsent.isPending}
+                        aria-label={t('organizerPurposeFor', {
+                          purpose: t(`organizerPurposes.${purpose}`),
+                          name: org.name,
+                        })}
+                        onChange={(granted) =>
+                          setOrganizerConsent.mutate({
+                            organizationId: org.organizationId,
+                            purpose,
+                            granted,
+                          })
+                        }
+                      />
+                    </label>
+                  ))}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
     </AccountPage>
   );

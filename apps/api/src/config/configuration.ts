@@ -112,6 +112,10 @@ const envSchema = z.object({
     .optional()
     .transform((v) => v === 'true' || v === '1'),
   MANIFEST_SIGNING_SECRET: z.string().optional(),
+  // Signs one-click unsubscribe links (engagement/unsubscribe-token.ts). Optional: unset, a key
+  // is derived from JWT_ACCESS_SECRET. Set it wherever marketing email is sent, so rotating the
+  // JWT secret does not break every unsubscribe link already in somebody's inbox.
+  UNSUBSCRIBE_SIGNING_SECRET: z.string().optional(),
   // How long a signed offline ticket list stays valid, in minutes: the longest a revoked door
   // phone can keep admitting from its cache. Unset = 45, and never more than 45 anywhere (larger
   // values are clamped). STAGING/PRODUCTION must set it, at most 45, before OFFLINE_CHECKIN_ENABLED
@@ -1254,6 +1258,8 @@ function assertProductionHardening(cfg: AppConfig): void {
     PAYMENT_WEBHOOK_SECRET: cfg.PAYMENT_WEBHOOK_SECRET,
     // Only enforced when explicitly set (optional; falls back to QR_SIGNING_SECRET).
     MANIFEST_SIGNING_SECRET: cfg.MANIFEST_SIGNING_SECRET,
+    // Only enforced when explicitly set (optional; derived from JWT_ACCESS_SECRET otherwise).
+    UNSUBSCRIBE_SIGNING_SECRET: cfg.UNSUBSCRIBE_SIGNING_SECRET,
   };
   for (const [name, value] of Object.entries(secrets)) {
     if (value === undefined) continue;

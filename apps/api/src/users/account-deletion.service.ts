@@ -4,6 +4,8 @@ import { Prisma } from '@prisma/client';
 import { MemberStatus, Role, UserStatus } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppException, ErrorCodes } from '../common/errors';
+import { SuppressionService } from '../notifications/delivery/suppression.service';
+import { currentConsent } from '../engagement/consent-purpose';
 
 /**
  * Self-service account deletion.
@@ -27,6 +29,14 @@ import { AppException, ErrorCodes } from '../common/errors';
  *   - notification preferences
  *   - notification history  → delivered messages contain event and booking detail
  *   - reviews               → public content authored by a person, not a business record
+ *   - organizer follows and per-organizer preferences → who somebody follows is personal
+ *
+ * Kept as evidence, unlinked from the account:
+ *   - communication consent rows (organizer email permissions). Any permission that was
+ *     still granted gets a WITHDRAWAL row first, keyed by the email hash, so a new account
+ *     opened later with the same address does not inherit it. Then `userId` is cleared.
+ *     The rows hold a hash, never the address. Per-organizer suppressions hold only a hash
+ *     too, and stay, so an unsubscribe outlives the account.
  *
  * Anonymised in place (referenced by records that must be kept):
  *   - user.email            → deleted+<id>@deleted.invalid  (frees the real address for
@@ -68,6 +78,7 @@ export class AccountDeletionService {
       where: { id: userId },
       select: {
         id: true,
+        email: true,
         status: true,
         memberships: { select: { organizationId: true, role: true, status: true } },
       },
@@ -105,6 +116,56 @@ export class AccountDeletionService {
       await tx.notificationPreference.deleteMany({ where: { userId } });
       await tx.notification.deleteMany({ where: { userId } });
       await tx.review.deleteMany({ where: { userId } });
+
+      // Following is personal data with no retention basis.
+      await tx.organizerFollow.deleteMany({ where: { userId } });
+      await tx.organizerNotificationPreference.deleteMany({ where: { userId } });
+
+      /*
+        Consent is evidence and stays, but it must not outlive the person's intent: an open
+        grant is closed with a withdrawal row first, keyed by the email hash, so a future
+        account with the same address starts from "no". Then the rows lose the account link.
+      */
+      const subjectHash = user.email ? SuppressionService.hash('email', user.email) : null;
+      const consentRows = await tx.communicationConsent.findMany({
+        where: { OR: [{ userId }, ...(subjectHash ? [{ subjectHash }] : [])] },
+        select: {
+          purpose: true,
+          organizationId: true,
+          channel: true,
+          granted: true,
+          source: true,
+          policyVersion: true,
+          createdAt: true,
+        },
+      });
+      const scopes = new Map<
+        string,
+        { purpose: string; organizationId: string | null; channel: string }
+      >();
+      for (const r of consentRows) {
+        scopes.set(`${r.purpose}|${r.organizationId ?? ''}|${r.channel}`, r);
+      }
+      for (const scope of scopes.values()) {
+        if (
+          !subjectHash ||
+          !currentConsent(consentRows, scope.purpose, scope.organizationId, scope.channel).granted
+        ) {
+          continue;
+        }
+        await tx.communicationConsent.create({
+          data: {
+            userId: null,
+            subjectHash,
+            organizationId: scope.organizationId,
+            purpose: scope.purpose,
+            channel: scope.channel,
+            granted: false,
+            source: 'withdrawn-on-account-deletion',
+          },
+        });
+      }
+      await tx.communicationConsent.updateMany({ where: { userId }, data: { userId: null } });
 
       // Membership rows go; the organizations themselves are untouched.
       await tx.organizationMember.deleteMany({ where: { userId } });

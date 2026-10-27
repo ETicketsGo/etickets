@@ -14,9 +14,21 @@ import {
   type CreateShareBody,
   type ShareExpiryValue,
   type SharePermissionValue,
+  type FollowSource,
+  type FollowPreferences,
+  type OrganizerConsentPurpose,
 } from '@eticketsgo/web-kit';
 
 export { tokenStore, ApiRequestError, API_URL };
+export type {
+  FollowSource,
+  FollowPreferences,
+  OrganizerConsentPurpose,
+  FollowedOrganizer,
+  FollowingList,
+  CommunicationConsentView,
+  UnsubscribePreview,
+} from '@eticketsgo/web-kit';
 export type {
   PublicEvent,
   PublicEventCard,
@@ -225,4 +237,27 @@ export const api = {
     wk.notifications.setPreference(body),
   consent: () => wk.notifications.consent(),
   setConsent: (body: { channel: string; granted: boolean }) => wk.notifications.setConsent(body),
+
+  /*
+    Following organizers. A follow grants NO email consent; the email switches are separate
+    and write their own consent rows (see the API's engagement module).
+  */
+  followingList: (params?: { page?: number; pageSize?: number }) => wk.following.list(params),
+  followStatus: (organizationId: string) => wk.following.status(organizationId),
+  follow: (organizationId: string, source?: FollowSource) =>
+    wk.following.follow(organizationId, source),
+  unfollow: (organizationId: string) => wk.following.unfollow(organizationId),
+  followPreferences: (organizationId: string) => wk.following.preferences(organizationId),
+  setFollowPreferences: (
+    organizationId: string,
+    body: Partial<Omit<FollowPreferences, 'organizationId'>>,
+  ) => wk.following.setPreferences(organizationId, body),
+  communicationConsent: () => wk.communicationConsent.get(),
+  setOrganizerConsent: (
+    organizationId: string,
+    purpose: OrganizerConsentPurpose,
+    granted: boolean,
+  ) => wk.communicationConsent.setOrganizer(organizationId, purpose, granted),
+  unsubscribePreview: (token: string) => wk.unsubscribe.preview(token),
+  unsubscribeConfirm: (token: string) => wk.unsubscribe.confirm(token),
 };
