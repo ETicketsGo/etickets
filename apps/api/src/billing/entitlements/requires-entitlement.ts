@@ -31,7 +31,10 @@ export interface RequiredEntitlement {
  * answer as every other organizer route) and never learns which plan another organization is on.
  * Hiding a button in the console is UX; this is the rule.
  */
-export const RequiresEntitlement = (key: EntitlementKey, opts: Omit<RequiredEntitlement, 'key'> = {}) =>
+export const RequiresEntitlement = (
+  key: EntitlementKey,
+  opts: Omit<RequiredEntitlement, 'key'> = {},
+) =>
   applyDecorators(
     SetMetadata(ENTITLEMENT_KEY, { key, ...opts } satisfies RequiredEntitlement),
     UseGuards(EntitlementGuard),

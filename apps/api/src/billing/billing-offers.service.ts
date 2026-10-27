@@ -104,7 +104,9 @@ export class BillingOffersService {
     } catch (e) {
       // A concurrent retry with the same key won the race: answer with what it wrote.
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
-        const row = await this.prisma.usageLedger.findUniqueOrThrow({ where: { idempotencyKey: key } });
+        const row = await this.prisma.usageLedger.findUniqueOrThrow({
+          where: { idempotencyKey: key },
+        });
         return { entry: row, replayed: true };
       }
       throw e;
@@ -185,7 +187,9 @@ export class BillingOffersService {
     const kind = ENTITLEMENT_DEFINITIONS[input.key].kind;
     const valid =
       kind === 'int'
-        ? Number.isInteger(input.intValue) && (input.intValue as number) >= 0 && input.boolValue == null
+        ? Number.isInteger(input.intValue) &&
+          (input.intValue as number) >= 0 &&
+          input.boolValue == null
         : typeof input.boolValue === 'boolean' && input.intValue == null;
     if (!valid) {
       throw new AppException(
@@ -250,7 +254,11 @@ export class BillingOffersService {
       throw new AppException(ErrorCodes.NOT_FOUND, 'Override not found.', HttpStatus.NOT_FOUND);
     }
     if (existing.revokedAt) {
-      throw new AppException(ErrorCodes.CONFLICT, 'That override is already revoked.', HttpStatus.CONFLICT);
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'That override is already revoked.',
+        HttpStatus.CONFLICT,
+      );
     }
     let audit: AuditEntry | null = null;
     const row = await this.events.runWithEvents(async (tx, collector) => {
@@ -260,7 +268,11 @@ export class BillingOffersService {
         data: { revokedAt: now, revokedByUserId: actorUserId, revokeReason: reason },
       });
       if (updated.count !== 1) {
-        throw new AppException(ErrorCodes.CONFLICT, 'That override is already revoked.', HttpStatus.CONFLICT);
+        throw new AppException(
+          ErrorCodes.CONFLICT,
+          'That override is already revoked.',
+          HttpStatus.CONFLICT,
+        );
       }
       audit = {
         actorUserId,

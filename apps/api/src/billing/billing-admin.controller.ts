@@ -75,7 +75,9 @@ export class AdminBillingController {
   @Post('catalog/load-provisional')
   @RequiresAdmin(AdminPermission.BILLING_MANAGE)
   @RequiresRecentMfa()
-  @ApiOperation({ summary: 'Load the provisional plans and prices. Idempotent; overwrites nothing.' })
+  @ApiOperation({
+    summary: 'Load the provisional plans and prices. Idempotent; overwrites nothing.',
+  })
   loadCatalog(
     @CurrentUser() actor: RequestUser,
     @Body(pipe(loadCatalogSchema)) body: Payload<typeof loadCatalogSchema>,

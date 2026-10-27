@@ -10,7 +10,11 @@ import {
 import { EntitlementService } from './entitlements/entitlement.service';
 import { SubscriptionService } from './subscription.service';
 import { ensureBillingAccount } from './billing-account';
-import { BILLING_PROVIDER, type BillingProvider, type VerifiedBillingEvent } from './provider/billing-provider';
+import {
+  BILLING_PROVIDER,
+  type BillingProvider,
+  type VerifiedBillingEvent,
+} from './provider/billing-provider';
 
 export type IngestOutcome =
   | { outcome: 'DUPLICATE' }
@@ -47,7 +51,10 @@ export class BillingEventService {
     @Inject(BILLING_PROVIDER) private readonly provider: BillingProvider,
   ) {}
 
-  async ingest(ev: VerifiedBillingEvent, provider: BillingProvider = this.provider): Promise<IngestOutcome> {
+  async ingest(
+    ev: VerifiedBillingEvent,
+    provider: BillingProvider = this.provider,
+  ): Promise<IngestOutcome> {
     let row;
     try {
       row = await this.prisma.billingWebhookEvent.create({
@@ -78,9 +85,12 @@ export class BillingEventService {
     try {
       if (ev.type === 'PAYMENT_CAPTURED') return await this.captured(ev, provider, row.id, fail);
       const event =
-        ev.type === 'PAYMENT_FAILED' ? ({ type: 'PAYMENT_FAILED' } as const) : ({ type: 'CANCEL_NOW' } as const);
+        ev.type === 'PAYMENT_FAILED'
+          ? ({ type: 'PAYMENT_FAILED' } as const)
+          : ({ type: 'CANCEL_NOW' } as const);
       const sub = await this.subscriptions.apply(ev.organizationId, event, {
-        auditAction: ev.type === 'PAYMENT_FAILED' ? 'BILLING_PAYMENT_FAILED' : 'BILLING_CANCELLED_BY_PROVIDER',
+        auditAction:
+          ev.type === 'PAYMENT_FAILED' ? 'BILLING_PAYMENT_FAILED' : 'BILLING_CANCELLED_BY_PROVIDER',
       });
       await this.markProcessed(row.id, sub.accountId);
       return { outcome: 'PROCESSED', subscriptionId: sub.id, status: sub.status };
@@ -118,7 +128,10 @@ export class BillingEventService {
       const account = await ensureBillingAccount(tx, ev.organizationId);
       await tx.billingPayment.upsert({
         where: {
-          provider_providerPaymentRef: { provider: provider.key, providerPaymentRef: evidence.paymentRef },
+          provider_providerPaymentRef: {
+            provider: provider.key,
+            providerPaymentRef: evidence.paymentRef,
+          },
         },
         create: {
           accountId: account.id,
@@ -131,7 +144,9 @@ export class BillingEventService {
         },
         update: {},
       });
-      const current = await tx.organizerSubscription.findUnique({ where: { currentKey: account.id } });
+      const current = await tx.organizerSubscription.findUnique({
+        where: { currentKey: account.id },
+      });
       const renewing =
         current &&
         ['ACTIVE', 'PAST_DUE', 'GRACE'].includes(current.status) &&

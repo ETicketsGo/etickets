@@ -37,9 +37,7 @@ export interface BillingCheckoutSession {
 }
 
 export type VerifiedBillingEventType =
-  | 'PAYMENT_CAPTURED'
-  | 'PAYMENT_FAILED'
-  | 'SUBSCRIPTION_CANCELLED';
+  'PAYMENT_CAPTURED' | 'PAYMENT_FAILED' | 'SUBSCRIPTION_CANCELLED';
 
 /** A provider event whose signature has been checked. Still a claim until `fetchPayment`. */
 export interface VerifiedBillingEvent {
@@ -110,7 +108,11 @@ export class MockBillingProvider implements BillingProvider {
 
   async createCheckout(req: BillingCheckoutRequest): Promise<BillingCheckoutSession> {
     const sessionRef = `mock_cs_${randomUUID()}`;
-    return { provider: 'MOCK', sessionRef, url: `https://billing.mock.invalid/${sessionRef}?p=${req.priceId}` };
+    return {
+      provider: 'MOCK',
+      sessionRef,
+      url: `https://billing.mock.invalid/${sessionRef}?p=${req.priceId}`,
+    };
   }
 
   /** Test helper: the provider records a captured payment. */

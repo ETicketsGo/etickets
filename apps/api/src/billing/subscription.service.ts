@@ -202,7 +202,11 @@ export class SubscriptionService {
     const now = new Date();
     return this.apply(
       organizationId,
-      { type: 'START_TRIAL', planId: plan.id, trialEndsAt: new Date(now.getTime() + input.days * DAY) },
+      {
+        type: 'START_TRIAL',
+        planId: plan.id,
+        trialEndsAt: new Date(now.getTime() + input.days * DAY),
+      },
       { auditAction: 'BILLING_TRIAL_GRANTED', actorUserId, reason: input.reason, now },
     );
   }

@@ -1,5 +1,9 @@
 import { PROVISIONAL_PLAN_ENTITLEMENTS, type FeatureFlag } from '@eticketsgo/shared-types';
-import { resolveEntitlements, winningOverrides, type OverrideValue } from './entitlement-resolution';
+import {
+  resolveEntitlements,
+  winningOverrides,
+  type OverrideValue,
+} from './entitlement-resolution';
 
 const NOW = new Date('2026-10-27T12:00:00Z');
 const DAY = 24 * 60 * 60 * 1000;
@@ -33,7 +37,10 @@ describe('entitlement resolution: plan, then overrides, then the deployment swit
       featureEnabled: ALL_ON,
     });
     expect(get(rows, 'campaigns.create')).toMatchObject({ enabled: true, source: 'PLAN' });
-    expect(get(rows, 'campaigns.monthly_email_quota')).toMatchObject({ enabled: true, limit: 2000 });
+    expect(get(rows, 'campaigns.monthly_email_quota')).toMatchObject({
+      enabled: true,
+      limit: 2000,
+    });
     expect(get(rows, 'campaigns.automation')).toMatchObject({ enabled: false, source: 'DEFAULT' });
     expect(get(rows, 'billing.premium_support').enabled).toBe(false);
   });
@@ -65,8 +72,16 @@ describe('entitlement resolution: plan, then overrides, then the deployment swit
   });
 
   it('the latest live override wins; revoking it uncovers the earlier one', () => {
-    const early = override({ key: 'campaigns.monthly_email_quota', intValue: 3000, startsAt: at(-5) });
-    const late = override({ key: 'campaigns.monthly_email_quota', intValue: 9000, startsAt: at(-2) });
+    const early = override({
+      key: 'campaigns.monthly_email_quota',
+      intValue: 3000,
+      startsAt: at(-5),
+    });
+    const late = override({
+      key: 'campaigns.monthly_email_quota',
+      intValue: 9000,
+      startsAt: at(-2),
+    });
     expect(winningOverrides([late, early], NOW).get(early.key)?.id).toBe(late.id);
     const revoked = { ...late, revokedAt: at(-1) };
     expect(winningOverrides([revoked, early], NOW).get(early.key)?.id).toBe(early.id);
@@ -79,7 +94,12 @@ describe('entitlement resolution: plan, then overrides, then the deployment swit
   });
 
   it('an override applies only inside its window', () => {
-    const o = override({ key: 'audience.advanced', boolValue: true, startsAt: at(1), endsAt: at(3) });
+    const o = override({
+      key: 'audience.advanced',
+      boolValue: true,
+      startsAt: at(1),
+      endsAt: at(3),
+    });
     const res = (when: Date) =>
       get(
         resolveEntitlements({ plan: [], overrides: [o], at: when, featureEnabled: ALL_ON }),
@@ -93,8 +113,10 @@ describe('entitlement resolution: plan, then overrides, then the deployment swit
   it('a revocation in the future does not end it yet', () => {
     const o = override({ key: 'audience.advanced', boolValue: true, revokedAt: at(1) });
     expect(
-      get(resolveEntitlements({ plan: [], overrides: [o], at: NOW, featureEnabled: ALL_ON }), 'audience.advanced')
-        .enabled,
+      get(
+        resolveEntitlements({ plan: [], overrides: [o], at: NOW, featureEnabled: ALL_ON }),
+        'audience.advanced',
+      ).enabled,
     ).toBe(true);
   });
 

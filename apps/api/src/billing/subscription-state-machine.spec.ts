@@ -25,7 +25,12 @@ const PAID: PaymentEvidence = {
 function snap(status: SubscriptionStatus, patch: Partial<SubscriptionSnapshot> = {}) {
   const base: SubscriptionSnapshot = {
     status,
-    source: status === 'COMPLIMENTARY' ? 'ADMIN_COMPLIMENTARY' : status === 'TRIALING' ? 'TRIAL' : 'PROVIDER',
+    source:
+      status === 'COMPLIMENTARY'
+        ? 'ADMIN_COMPLIMENTARY'
+        : status === 'TRIALING'
+          ? 'TRIAL'
+          : 'PROVIDER',
     planId: 'pro',
     currentPeriodStart: at(-10),
     currentPeriodEnd: at(20),
@@ -92,7 +97,11 @@ const TABLE: Array<{
     to: 'EXPIRED',
     patch: () => ({ graceEndsAt: at(-1) }),
   },
-  { event: { type: 'CANCEL_AT_PERIOD_END' }, from: ['ACTIVE', 'PAST_DUE'], to: '__same__' as never },
+  {
+    event: { type: 'CANCEL_AT_PERIOD_END' },
+    from: ['ACTIVE', 'PAST_DUE'],
+    to: '__same__' as never,
+  },
   {
     event: { type: 'RESUME' },
     from: ['ACTIVE'],
@@ -247,9 +256,9 @@ describe('the subscription state machine', () => {
       expect(() => transition(snap('GRACE'), { type: 'GRACE_ENDED' }, NOW)).toThrow(
         /not been reached/,
       );
-      expect(() =>
-        transition(snap('COMPLIMENTARY'), { type: 'COMPLIMENTARY_ENDED' }, NOW),
-      ).toThrow(/not been reached/);
+      expect(() => transition(snap('COMPLIMENTARY'), { type: 'COMPLIMENTARY_ENDED' }, NOW)).toThrow(
+        /not been reached/,
+      );
       expect(() =>
         transition(snap('ACTIVE', { cancelAtPeriodEnd: true }), { type: 'PERIOD_ENDED' }, NOW),
       ).toThrow(/not been reached/);
@@ -274,7 +283,11 @@ describe('the subscription state machine', () => {
     it('a staff grant never sits on top of a paid subscription', () => {
       for (const s of ['ACTIVE', 'PAST_DUE', 'GRACE'] as const) {
         expect(() =>
-          transition(snap(s), { type: 'GRANT_COMPLIMENTARY', planId: 'premium', endsAt: null }, NOW),
+          transition(
+            snap(s),
+            { type: 'GRANT_COMPLIMENTARY', planId: 'premium', endsAt: null },
+            NOW,
+          ),
         ).toThrow(/cannot take GRANT_COMPLIMENTARY/);
       }
     });
@@ -309,13 +322,23 @@ describe('the subscription state machine', () => {
         new Date(at(20).getTime() + RENEWAL_TOLERANCE_MS),
         false,
       ],
-      ['an active plan cancelling, past its period', snap('ACTIVE', { cancelAtPeriodEnd: true }), at(20), false],
+      [
+        'an active plan cancelling, past its period',
+        snap('ACTIVE', { cancelAtPeriodEnd: true }),
+        at(20),
+        false,
+      ],
       ['past due', snap('PAST_DUE'), at(25), true],
       ['grace before its end', snap('GRACE'), at(4), true],
       ['grace at its end', snap('GRACE'), at(5), false],
       ['complimentary before its end', snap('COMPLIMENTARY'), NOW, true],
       ['complimentary after its end', snap('COMPLIMENTARY'), at(21), false],
-      ['open-ended complimentary', snap('COMPLIMENTARY', { currentPeriodEnd: null }), at(999), true],
+      [
+        'open-ended complimentary',
+        snap('COMPLIMENTARY', { currentPeriodEnd: null }),
+        at(999),
+        true,
+      ],
       ['cancelled', snap('CANCELLED'), NOW, false],
       ['expired', snap('EXPIRED'), NOW, false],
       ['anything before it starts', snap('ACTIVE'), at(-11), false],
@@ -329,7 +352,11 @@ describe('the subscription state machine', () => {
       ['trial over', snap('TRIALING', { trialEndsAt: at(-1) }), 'TRIAL_ENDED'],
       ['trial running', snap('TRIALING'), null],
       ['grace over', snap('GRACE', { graceEndsAt: at(-1) }), 'GRACE_ENDED'],
-      ['complimentary over', snap('COMPLIMENTARY', { currentPeriodEnd: at(-1) }), 'COMPLIMENTARY_ENDED'],
+      [
+        'complimentary over',
+        snap('COMPLIMENTARY', { currentPeriodEnd: at(-1) }),
+        'COMPLIMENTARY_ENDED',
+      ],
       ['open-ended complimentary', snap('COMPLIMENTARY', { currentPeriodEnd: null }), null],
       [
         'cancelling period over',

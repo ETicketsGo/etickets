@@ -138,7 +138,7 @@ function OrganizerChrome({ children }: { children: React.ReactNode }) {
         <div className="mb-4 flex justify-end empty:mb-0">
           <OrgSwitcher />
         </div>
-        {/* Finance's Payouts / Receipts / Refunds, Bookings' Counter, Settings' Premium. */}
+        {/* Finance's Payouts / Receipts / Refunds as tabs. */}
         <SectionTabs items={nav} pathname={pathname} />
         {children}
       </OrgProvider>

@@ -36,8 +36,16 @@ export class BillingInvoiceService {
       throw new AppException(ErrorCodes.VALIDATION_FAILED, 'An invoice needs at least one line.');
     }
     for (const l of input.lines) {
-      if (!Number.isInteger(l.quantity) || l.quantity <= 0 || !Number.isInteger(l.unitAmountMinor) || l.unitAmountMinor < 0) {
-        throw new AppException(ErrorCodes.VALIDATION_FAILED, 'Each line needs a whole quantity and amount.');
+      if (
+        !Number.isInteger(l.quantity) ||
+        l.quantity <= 0 ||
+        !Number.isInteger(l.unitAmountMinor) ||
+        l.unitAmountMinor < 0
+      ) {
+        throw new AppException(
+          ErrorCodes.VALIDATION_FAILED,
+          'Each line needs a whole quantity and amount.',
+        );
       }
     }
     const subtotalMinor = input.lines.reduce((s, l) => s + l.quantity * l.unitAmountMinor, 0);

@@ -137,6 +137,7 @@ describe('the menu lists only what the operator can open', () => {
     'AUDIT_READ',
     'CRM_AGENT',
     'CRM_MANAGER',
+    'BILLING_READ',
   ];
   // Sections unfolded: a section's own pages are reachable from the menu too.
   const hrefsFor = (perms: string[]) =>

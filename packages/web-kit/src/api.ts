@@ -2418,15 +2418,17 @@ export const api = {
         }),
       deactivatePrice: (id: string) =>
         request<AdminBillingPrice>(`/admin/billing/prices/${id}/deactivate`, { method: 'POST' }),
-      subscriptions: (params: {
-        status?: string;
-        planCode?: string;
-        country?: string;
-        search?: string;
-        currentOnly?: 'true' | 'false';
-        page?: number;
-        pageSize?: number;
-      } = {}) =>
+      subscriptions: (
+        params: {
+          status?: string;
+          planCode?: string;
+          country?: string;
+          search?: string;
+          currentOnly?: 'true' | 'false';
+          page?: number;
+          pageSize?: number;
+        } = {},
+      ) =>
         request<AdminSubscriptionPage>(
           `/admin/billing/subscriptions${qs(params as Record<string, unknown>)}`,
         ),

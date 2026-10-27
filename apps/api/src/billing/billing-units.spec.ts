@@ -22,7 +22,13 @@ describe('billing metrics are computed from stored subscriptions only', () => {
     };
   };
   const svc = (prisma: unknown) =>
-    new BillingReadService(prisma as never, {} as never, {} as never, { get: () => 'false' } as never, new DisabledBillingProvider());
+    new BillingReadService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      { get: () => 'false' } as never,
+      new DisabledBillingProvider(),
+    );
 
   it('with nothing paid, says zero honestly: no MRR rows, no revenue, churn unknown', async () => {
     const m = await svc(stub()).metrics(30);
@@ -44,11 +50,31 @@ describe('billing metrics are computed from stored subscriptions only', () => {
       interval,
     });
     const current = [
-      { status: 'ACTIVE', source: 'PROVIDER', plan: { code: 'PRO' }, price: price(99900, 'INR', 'MONTH') },
-      { status: 'PAST_DUE', source: 'PROVIDER', plan: { code: 'PRO' }, price: price(999000, 'INR', 'YEAR') },
-      { status: 'ACTIVE', source: 'PROVIDER', plan: { code: 'PREMIUM' }, price: price(4900, 'USD', 'MONTH') },
+      {
+        status: 'ACTIVE',
+        source: 'PROVIDER',
+        plan: { code: 'PRO' },
+        price: price(99900, 'INR', 'MONTH'),
+      },
+      {
+        status: 'PAST_DUE',
+        source: 'PROVIDER',
+        plan: { code: 'PRO' },
+        price: price(999000, 'INR', 'YEAR'),
+      },
+      {
+        status: 'ACTIVE',
+        source: 'PROVIDER',
+        plan: { code: 'PREMIUM' },
+        price: price(4900, 'USD', 'MONTH'),
+      },
       { status: 'TRIALING', source: 'TRIAL', plan: { code: 'PRO' }, price: null },
-      { status: 'COMPLIMENTARY', source: 'ADMIN_COMPLIMENTARY', plan: { code: 'PREMIUM' }, price: null },
+      {
+        status: 'COMPLIMENTARY',
+        source: 'ADMIN_COMPLIMENTARY',
+        plan: { code: 'PREMIUM' },
+        price: null,
+      },
     ];
     const m = await svc(stub(current, [], [1, 4])).metrics(30);
     expect(m.paidSubscriptions).toBe(3);
@@ -56,7 +82,12 @@ describe('billing metrics are computed from stored subscriptions only', () => {
     expect(m.complimentary).toBe(1);
     expect(m.mrr).toEqual(
       expect.arrayContaining([
-        { currency: 'INR', mrrMinor: 99900 + 83250, subscriptions: 2, arrMinor: (99900 + 83250) * 12 },
+        {
+          currency: 'INR',
+          mrrMinor: 99900 + 83250,
+          subscriptions: 2,
+          arrMinor: (99900 + 83250) * 12,
+        },
         { currency: 'USD', mrrMinor: 4900, subscriptions: 1, arrMinor: 4900 * 12 },
       ]),
     );
@@ -107,12 +138,20 @@ describe('billing providers', () => {
 
   it('the test double refuses an event whose signature does not match', async () => {
     const p = new MockBillingProvider('s3cret');
-    const body = JSON.stringify({ providerEventId: 'e1', type: 'PAYMENT_CAPTURED', organizationId: 'o1' });
-    await expect(p.verifyWebhook(body, { 'x-mock-billing-signature': 'nope' })).rejects.toMatchObject({
+    const body = JSON.stringify({
+      providerEventId: 'e1',
+      type: 'PAYMENT_CAPTURED',
+      organizationId: 'o1',
+    });
+    await expect(
+      p.verifyWebhook(body, { 'x-mock-billing-signature': 'nope' }),
+    ).rejects.toMatchObject({
       code: 'UNAUTHORIZED',
     });
     await expect(
-      p.verifyWebhook(body, { 'x-mock-billing-signature': new MockBillingProvider('other').sign(body) }),
+      p.verifyWebhook(body, {
+        'x-mock-billing-signature': new MockBillingProvider('other').sign(body),
+      }),
     ).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
     const ok = await p.verifyWebhook(body, { 'x-mock-billing-signature': p.sign(body) });
     expect(ok).toMatchObject({ provider: 'MOCK', providerEventId: 'e1' });
@@ -145,30 +184,54 @@ describe('@RequiresEntitlement checks membership first, then the entitlement, on
     const entitlements = { assert: jest.fn() };
     const guard = new EntitlementGuard(
       new Reflector(),
-      { assertMember: jest.fn().mockRejectedValue(Object.assign(new Error('no'), { code: 'TENANT_FORBIDDEN' })) } as never,
+      {
+        assertMember: jest
+          .fn()
+          .mockRejectedValue(Object.assign(new Error('no'), { code: 'TENANT_FORBIDDEN' })),
+      } as never,
       entitlements as never,
     );
-    await expect(guard.canActivate(ctx({ organizationId: 'o2' }))).rejects.toMatchObject({ code: 'TENANT_FORBIDDEN' });
+    await expect(guard.canActivate(ctx({ organizationId: 'o2' }))).rejects.toMatchObject({
+      code: 'TENANT_FORBIDDEN',
+    });
     expect(entitlements.assert).not.toHaveBeenCalled();
   });
 
   it('refuses a member whose plan lacks it, and lets one whose plan has it through', async () => {
     const assertMember = jest.fn().mockResolvedValue(undefined);
-    const refusing = new EntitlementGuard(new Reflector(), { assertMember } as never, {
-      assert: jest.fn().mockRejectedValue(Object.assign(new Error('x'), { code: 'ENTITLEMENT_REQUIRED' })),
-    } as never);
+    const refusing = new EntitlementGuard(
+      new Reflector(),
+      { assertMember } as never,
+      {
+        assert: jest
+          .fn()
+          .mockRejectedValue(Object.assign(new Error('x'), { code: 'ENTITLEMENT_REQUIRED' })),
+      } as never,
+    );
     await expect(refusing.canActivate(ctx({ organizationId: 'o1' }))).rejects.toMatchObject({
       code: 'ENTITLEMENT_REQUIRED',
     });
-    const allowing = new EntitlementGuard(new Reflector(), { assertMember } as never, {
-      assert: jest.fn().mockResolvedValue(undefined),
-    } as never);
+    const allowing = new EntitlementGuard(
+      new Reflector(),
+      { assertMember } as never,
+      {
+        assert: jest.fn().mockResolvedValue(undefined),
+      } as never,
+    );
     await expect(allowing.canActivate(ctx({ organizationId: 'o1' }))).resolves.toBe(true);
-    expect(assertMember).toHaveBeenCalledWith(expect.objectContaining({ id: 'u1' }), 'o1', undefined);
+    expect(assertMember).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'u1' }),
+      'o1',
+      undefined,
+    );
   });
 
   it('refuses when the route names no organization', async () => {
-    const guard = new EntitlementGuard(new Reflector(), { assertMember: jest.fn() } as never, {} as never);
+    const guard = new EntitlementGuard(
+      new Reflector(),
+      { assertMember: jest.fn() } as never,
+      {} as never,
+    );
     await expect(guard.canActivate(ctx({}))).rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
 });

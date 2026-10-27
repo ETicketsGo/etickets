@@ -223,7 +223,10 @@ export function transition(
       if (!allowed) refuse(from, event.type);
       requireVerifiedPayment(event.evidence);
       if (event.periodEnd.getTime() <= event.periodStart.getTime()) {
-        throw new SubscriptionTransitionError('INVALID_INPUT', 'A period must end after it starts.');
+        throw new SubscriptionTransitionError(
+          'INVALID_INPUT',
+          'A period must end after it starts.',
+        );
       }
       const next = fresh({
         status: 'ACTIVE',

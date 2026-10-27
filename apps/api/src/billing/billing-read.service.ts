@@ -1,10 +1,7 @@
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Prisma } from '@prisma/client';
-import {
-  PROVISIONAL_PLAN_ENTITLEMENTS,
-  type BillingPlanCode,
-} from '@eticketsgo/shared-types';
+import { PROVISIONAL_PLAN_ENTITLEMENTS, type BillingPlanCode } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import { EntitlementService } from './entitlements/entitlement.service';
@@ -47,9 +44,15 @@ export class BillingReadService {
       where: { id: organizationId },
       select: { id: true, registeredCountry: true },
     });
-    if (!org) throw new AppException(ErrorCodes.NOT_FOUND, 'Organization not found.', HttpStatus.NOT_FOUND);
-    const account = await this.prisma.organizerBillingAccount.findUnique({ where: { organizationId } });
-    const country = account?.country && account.country !== 'XX' ? account.country : billingCountryOf(org.registeredCountry);
+    if (!org)
+      throw new AppException(ErrorCodes.NOT_FOUND, 'Organization not found.', HttpStatus.NOT_FOUND);
+    const account = await this.prisma.organizerBillingAccount.findUnique({
+      where: { organizationId },
+    });
+    const country =
+      account?.country && account.country !== 'XX'
+        ? account.country
+        : billingCountryOf(org.registeredCountry);
 
     const [resolved, usage, catalog] = await Promise.all([
       this.entitlements.resolve(organizationId),
@@ -79,7 +82,11 @@ export class BillingReadService {
             code: p.code as BillingPlanCode,
             name: p.name,
             description: p.description,
-            entitlements: p.entitlements.map((e) => ({ key: e.key, boolValue: e.boolValue, intValue: e.intValue })),
+            entitlements: p.entitlements.map((e) => ({
+              key: e.key,
+              boolValue: e.boolValue,
+              intValue: e.intValue,
+            })),
             prices: p.prices.map((x) => ({
               id: x.id,
               interval: x.interval,
@@ -127,7 +134,9 @@ export class BillingReadService {
   }
 
   async organizerInvoices(organizationId: string) {
-    const account = await this.prisma.organizerBillingAccount.findUnique({ where: { organizationId } });
+    const account = await this.prisma.organizerBillingAccount.findUnique({
+      where: { organizationId },
+    });
     if (!account) return [];
     return this.invoices.listForAccount(account.id);
   }
@@ -193,7 +202,11 @@ export class BillingReadService {
         currentPeriodEnd: r.currentPeriodEnd,
         trialEndsAt: r.trialEndsAt,
         price: r.price
-          ? { amountMinor: r.price.amountMinor, currency: r.price.currency, interval: r.price.interval }
+          ? {
+              amountMinor: r.price.amountMinor,
+              currency: r.price.currency,
+              interval: r.price.interval,
+            }
           : null,
         createdAt: r.createdAt,
       })),
@@ -205,12 +218,18 @@ export class BillingReadService {
       where: { id: organizationId },
       select: { id: true, name: true, status: true, registeredCountry: true },
     });
-    if (!org) throw new AppException(ErrorCodes.NOT_FOUND, 'Organization not found.', HttpStatus.NOT_FOUND);
-    const account = await this.prisma.organizerBillingAccount.findUnique({ where: { organizationId } });
+    if (!org)
+      throw new AppException(ErrorCodes.NOT_FOUND, 'Organization not found.', HttpStatus.NOT_FOUND);
+    const account = await this.prisma.organizerBillingAccount.findUnique({
+      where: { organizationId },
+    });
     const [entitlements, usage, overrides, ledger] = await Promise.all([
       this.entitlements.resolve(organizationId, new Date()),
       this.entitlements.remaining(organizationId, 'campaigns.monthly_email_quota'),
-      this.prisma.entitlementOverride.findMany({ where: { organizationId }, orderBy: { createdAt: 'desc' } }),
+      this.prisma.entitlementOverride.findMany({
+        where: { organizationId },
+        orderBy: { createdAt: 'desc' },
+      }),
       this.prisma.usageLedger.findMany({
         where: { organizationId },
         orderBy: { createdAt: 'desc' },
@@ -224,9 +243,18 @@ export class BillingReadService {
             orderBy: { createdAt: 'desc' },
             include: { plan: true, price: true, scheduledPlan: true },
           }),
-          this.prisma.organizerInvoice.findMany({ where: { accountId: account.id }, orderBy: { createdAt: 'desc' } }),
-          this.prisma.billingPayment.findMany({ where: { accountId: account.id }, orderBy: { createdAt: 'desc' } }),
-          this.prisma.billingAdjustment.findMany({ where: { accountId: account.id }, orderBy: { createdAt: 'desc' } }),
+          this.prisma.organizerInvoice.findMany({
+            where: { accountId: account.id },
+            orderBy: { createdAt: 'desc' },
+          }),
+          this.prisma.billingPayment.findMany({
+            where: { accountId: account.id },
+            orderBy: { createdAt: 'desc' },
+          }),
+          this.prisma.billingAdjustment.findMany({
+            where: { accountId: account.id },
+            orderBy: { createdAt: 'desc' },
+          }),
         ])
       : [[], [], [], []];
     return {
@@ -263,18 +291,31 @@ export class BillingReadService {
     for (const s of current) byStatus[s.status] = (byStatus[s.status] ?? 0) + 1;
 
     const paid = current.filter(
-      (s) => (PAID_LIVE as readonly string[]).includes(s.status) && s.source === 'PROVIDER' && s.price,
+      (s) =>
+        (PAID_LIVE as readonly string[]).includes(s.status) && s.source === 'PROVIDER' && s.price,
     );
     const mrr = new Map<string, { currency: string; mrrMinor: number; subscriptions: number }>();
-    const byPlan = new Map<string, { planCode: string; currency: string; mrrMinor: number; subscriptions: number }>();
+    const byPlan = new Map<
+      string,
+      { planCode: string; currency: string; mrrMinor: number; subscriptions: number }
+    >();
     for (const s of paid) {
       const m = monthlyEquivalentMinor(s.price!.amountMinor, s.price!.interval);
-      const c = mrr.get(s.price!.currency) ?? { currency: s.price!.currency, mrrMinor: 0, subscriptions: 0 };
+      const c = mrr.get(s.price!.currency) ?? {
+        currency: s.price!.currency,
+        mrrMinor: 0,
+        subscriptions: 0,
+      };
       c.mrrMinor += m;
       c.subscriptions += 1;
       mrr.set(c.currency, c);
       const k = `${s.plan.code}:${s.price!.currency}`;
-      const p = byPlan.get(k) ?? { planCode: s.plan.code, currency: s.price!.currency, mrrMinor: 0, subscriptions: 0 };
+      const p = byPlan.get(k) ?? {
+        planCode: s.plan.code,
+        currency: s.price!.currency,
+        mrrMinor: 0,
+        subscriptions: 0,
+      };
       p.mrrMinor += m;
       p.subscriptions += 1;
       byPlan.set(k, p);
@@ -284,7 +325,10 @@ export class BillingReadService {
       where: { status: 'PAID', issuedAt: { gte: since, lte: now } },
       include: { subscription: { include: { plan: true } } },
     });
-    const revenue = new Map<string, { planCode: string; currency: string; totalMinor: number; invoices: number }>();
+    const revenue = new Map<
+      string,
+      { planCode: string; currency: string; totalMinor: number; invoices: number }
+    >();
     for (const inv of paidInvoices) {
       const planCode = inv.subscription?.plan.code ?? 'NONE';
       const k = `${planCode}:${inv.currency}`;

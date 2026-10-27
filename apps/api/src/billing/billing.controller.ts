@@ -40,7 +40,9 @@ export class OrganizerBillingController {
   ) {}
 
   @Get(':id/entitlements')
-  @ApiOperation({ summary: 'What this organization may use now: plan, overrides, deployment switches.' })
+  @ApiOperation({
+    summary: 'What this organization may use now: plan, overrides, deployment switches.',
+  })
   async entitlementsFor(@CurrentUser() user: RequestUser, @Param('id') id: string) {
     // Any member: check-in staff are told what the console can do too.
     await this.access.assertMember(user, id);

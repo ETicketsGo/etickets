@@ -6,6 +6,7 @@ import {
   CalendarClock,
   CalendarRange,
   ClipboardCheck,
+  ClipboardList,
   CreditCard,
   Film,
   GitBranch,
@@ -19,6 +20,7 @@ import {
   Percent,
   KeyRound,
   Receipt,
+  ReceiptText,
   RotateCcw,
   Scale,
   ScrollText,
@@ -32,6 +34,7 @@ import {
   UserRoundSearch,
   Users,
   UsersRound,
+  Wallet,
   Wrench,
   type LucideIcon,
 } from 'lucide-react';
@@ -295,6 +298,38 @@ export const ADMIN_NAV: AdminNavGroup[] = [
         icon: Scale,
         needs: 'FINANCE_READ',
         keywords: ['discrepancies'],
+      },
+      /*
+        Organizer billing: the platform's own plans for organizers, not ticket money. A SECTION
+        here rather than a group of its own, for the same 768px menu-height reason as
+        Organizer Acquisition. Every page loads GET /admin/billing/* (BILLING_READ); the write
+        controls on each page also need BILLING_MANAGE, BILLING_ADJUST or ENTITLEMENT_GRANT
+        and are hidden from a reader (`useHolds`). An account page (/admin/billing/accounts/...)
+        is reached from the subscriptions list and the overview's search box.
+      */
+      {
+        label: 'Billing & subscriptions',
+        tabLabel: 'Overview',
+        href: '/admin/billing',
+        icon: Wallet,
+        needs: 'BILLING_READ',
+        keywords: ['plans', 'pricing', 'subscriptions', 'mrr', 'arr', 'trials', 'credits'],
+        children: [
+          {
+            label: 'Plans & prices',
+            href: '/admin/billing/plans',
+            icon: ReceiptText,
+            needs: 'BILLING_READ',
+            keywords: ['plans', 'pricing', 'catalogue', 'entitlements'],
+          },
+          {
+            label: 'Subscriptions',
+            href: '/admin/billing/subscriptions',
+            icon: ClipboardList,
+            needs: 'BILLING_READ',
+            keywords: ['trials', 'complimentary', 'organizer plans'],
+          },
+        ],
       },
     ],
   },

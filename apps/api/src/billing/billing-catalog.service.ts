@@ -14,7 +14,10 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { AppException, ErrorCodes } from '../common/errors';
 
-const PLAN_NAMES: Record<BillingPlanCode, { name: string; description: string; sortOrder: number }> = {
+const PLAN_NAMES: Record<
+  BillingPlanCode,
+  { name: string; description: string; sortOrder: number }
+> = {
   FREE: { name: 'Free', description: 'Sell tickets and see your audience.', sortOrder: 0 },
   PRO: {
     name: 'Pro',
@@ -101,7 +104,12 @@ export class BillingCatalogService {
         if (existing === 0) {
           for (const v of PROVISIONAL_PLAN_ENTITLEMENTS[code]) {
             await tx.planEntitlement.create({
-              data: { planId: plan.id, key: v.key, boolValue: v.boolValue ?? null, intValue: v.intValue ?? null },
+              data: {
+                planId: plan.id,
+                key: v.key,
+                boolValue: v.boolValue ?? null,
+                intValue: v.intValue ?? null,
+              },
             });
             counts.entitlementsWritten += 1;
           }
@@ -118,7 +126,9 @@ export class BillingCatalogService {
                 currency: p.currency,
                 interval,
                 amountMinor:
-                  interval === 'MONTH' ? p.amountMinor : annualAmountMinor(p.amountMinor, freeMonths),
+                  interval === 'MONTH'
+                    ? p.amountMinor
+                    : annualAmountMinor(p.amountMinor, freeMonths),
                 activeKey,
               },
             });
@@ -143,9 +153,14 @@ export class BillingCatalogService {
     actorUserId: string,
   ) {
     const plan = await this.prisma.billingPlan.findUnique({ where: { id } });
-    if (!plan) throw new AppException(ErrorCodes.NOT_FOUND, 'Plan not found.', HttpStatus.NOT_FOUND);
+    if (!plan)
+      throw new AppException(ErrorCodes.NOT_FOUND, 'Plan not found.', HttpStatus.NOT_FOUND);
     if (plan.code === 'FREE' && patch.active === false) {
-      throw new AppException(ErrorCodes.CONFLICT, 'The Free plan cannot be switched off.', HttpStatus.CONFLICT);
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'The Free plan cannot be switched off.',
+        HttpStatus.CONFLICT,
+      );
     }
     return this.prisma.$transaction(async (tx) => {
       const updated = await tx.billingPlan.update({ where: { id }, data: patch });
@@ -164,12 +179,18 @@ export class BillingCatalogService {
   async setPlanEntitlements(id: string, values: EntitlementValue[], actorUserId: string) {
     assertValues(values);
     const plan = await this.prisma.billingPlan.findUnique({ where: { id } });
-    if (!plan) throw new AppException(ErrorCodes.NOT_FOUND, 'Plan not found.', HttpStatus.NOT_FOUND);
+    if (!plan)
+      throw new AppException(ErrorCodes.NOT_FOUND, 'Plan not found.', HttpStatus.NOT_FOUND);
     return this.prisma.$transaction(async (tx) => {
       await tx.planEntitlement.deleteMany({ where: { planId: id } });
       for (const v of values) {
         await tx.planEntitlement.create({
-          data: { planId: id, key: v.key, boolValue: v.boolValue ?? null, intValue: v.intValue ?? null },
+          data: {
+            planId: id,
+            key: v.key,
+            boolValue: v.boolValue ?? null,
+            intValue: v.intValue ?? null,
+          },
         });
       }
       await this.audit.recordInTransaction(tx, {
@@ -197,7 +218,8 @@ export class BillingCatalogService {
     actorUserId: string,
   ) {
     const plan = await this.prisma.billingPlan.findUnique({ where: { id: input.planId } });
-    if (!plan) throw new AppException(ErrorCodes.NOT_FOUND, 'Plan not found.', HttpStatus.NOT_FOUND);
+    if (!plan)
+      throw new AppException(ErrorCodes.NOT_FOUND, 'Plan not found.', HttpStatus.NOT_FOUND);
     if (plan.code === 'FREE' && input.amountMinor !== 0) {
       throw new AppException(ErrorCodes.VALIDATION_FAILED, 'The Free plan costs nothing.');
     }
@@ -238,8 +260,12 @@ export class BillingCatalogService {
     },
     actorUserId: string,
   ) {
-    const price = await this.prisma.billingPrice.findUnique({ where: { id }, include: { plan: true } });
-    if (!price) throw new AppException(ErrorCodes.NOT_FOUND, 'Price not found.', HttpStatus.NOT_FOUND);
+    const price = await this.prisma.billingPrice.findUnique({
+      where: { id },
+      include: { plan: true },
+    });
+    if (!price)
+      throw new AppException(ErrorCodes.NOT_FOUND, 'Price not found.', HttpStatus.NOT_FOUND);
     const used = await this.prisma.organizerSubscription.count({ where: { priceId: id } });
     if (used > 0 && patch.amountMinor !== undefined && patch.amountMinor !== price.amountMinor) {
       throw new AppException(
@@ -266,7 +292,8 @@ export class BillingCatalogService {
 
   async deactivatePrice(id: string, actorUserId: string) {
     const price = await this.prisma.billingPrice.findUnique({ where: { id } });
-    if (!price) throw new AppException(ErrorCodes.NOT_FOUND, 'Price not found.', HttpStatus.NOT_FOUND);
+    if (!price)
+      throw new AppException(ErrorCodes.NOT_FOUND, 'Price not found.', HttpStatus.NOT_FOUND);
     return this.prisma.$transaction(async (tx) => {
       const updated = await tx.billingPrice.update({
         where: { id },

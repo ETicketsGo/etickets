@@ -84,7 +84,7 @@ const ORGANIZER_ROUTES = [
   '/organizer/refunds',
   '/organizer/notifications',
   '/organizer/team',
-  '/organizer/premium',
+  '/organizer/billing',
   '/organizer/help',
   '/organizer/settings',
 ];
