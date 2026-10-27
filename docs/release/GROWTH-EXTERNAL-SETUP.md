@@ -105,7 +105,12 @@ Prices in the catalogue are BEFORE tax (USD):
 Nothing in code holds a tax rate; checkout is refused until a rule exists for the organizer's
 jurisdiction.
 
-Owner decisions needed:
+Owner decisions (2026-10-27): India plan prices are GST-EXCLUSIVE (Pro INR 999 + applicable GST,
+Premium INR 2,999 + applicable GST) - this is how the catalogue is built, no change needed. USA: Stripe
+Tax is preferred (`STRIPE_BILLING_AUTOMATIC_TAX=true` once Stripe Tax is configured). Credit packs stay
+unpublished.
+
+Still needed:
 
 - **Is the published price before tax or tax-inclusive?** The system is built as BEFORE tax: a
   Pro organizer in India would pay INR 999 + GST. If INR 999 must be the total, the catalogue
