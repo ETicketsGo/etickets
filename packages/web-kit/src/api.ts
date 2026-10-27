@@ -29,6 +29,23 @@ import type {
   LayoutDocument,
   LayoutDocumentCounts,
 } from '@eticketsgo/shared-types';
+import type {
+  AdminCampaignRow,
+  AudiencePreview,
+  Campaign,
+  CampaignAnalyticsOverview,
+  CampaignAudienceDefinition,
+  CampaignDraftBody,
+  CampaignHistoryItem,
+  CampaignPreview,
+  CampaignPurpose,
+  CampaignReview,
+  CampaignSendingHealth,
+  CampaignsStatus,
+  CampaignStats,
+  CampaignStatus,
+  SavedSegment,
+} from './campaign-types';
 
 /*
   The guest view is declared once, in shared-types, and re-exported here.
@@ -1481,6 +1498,141 @@ export const api = {
       ),
   },
 
+  /**
+   * Organizer email campaigns. Owners and managers; every route also checks the plan. Counts
+   * and statuses only - the API never returns a recipient.
+   */
+  campaigns: {
+    status: (orgId: string) =>
+      request<CampaignsStatus>(`/organizations/${encodeURIComponent(orgId)}/campaigns/status`),
+    list: (
+      orgId: string,
+      params: { status?: CampaignStatus; page?: number; pageSize?: number } = {},
+    ) =>
+      request<{ total: number; page: number; pageSize: number; items: Campaign[] }>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns${qs(params)}`,
+      ),
+    get: (orgId: string, id: string) =>
+      request<Campaign>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/${encodeURIComponent(id)}`,
+      ),
+    create: (orgId: string, body: CampaignDraftBody) =>
+      request<Campaign>(`/organizations/${encodeURIComponent(orgId)}/campaigns`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    update: (orgId: string, id: string, body: CampaignDraftBody & { version: number }) =>
+      request<Campaign>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/${encodeURIComponent(id)}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify(body),
+        },
+      ),
+    duplicate: (orgId: string, id: string) =>
+      request<Campaign>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/${encodeURIComponent(id)}/duplicate`,
+        { method: 'POST' },
+      ),
+    previewAudience: (
+      orgId: string,
+      body: { audience: CampaignAudienceDefinition; purpose: CampaignPurpose },
+    ) =>
+      request<AudiencePreview>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/audience-preview`,
+        {
+          method: 'POST',
+          body: JSON.stringify(body),
+        },
+      ),
+    preview: (orgId: string, id: string) =>
+      request<CampaignPreview>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/${encodeURIComponent(id)}/preview`,
+      ),
+    testSend: (orgId: string, id: string, to: string[]) =>
+      request<{ sent: number; results: { email: string; accepted: boolean }[] }>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/${encodeURIComponent(id)}/test-send`,
+        { method: 'POST', body: JSON.stringify({ to }) },
+      ),
+    review: (orgId: string, id: string) =>
+      request<CampaignReview>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/${encodeURIComponent(id)}/review`,
+        { method: 'POST' },
+      ),
+    schedule: (
+      orgId: string,
+      id: string,
+      body: { version: number; scheduledAt: string; confirmationToken: string },
+    ) =>
+      request<Campaign>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/${encodeURIComponent(id)}/schedule`,
+        { method: 'POST', body: JSON.stringify(body) },
+      ),
+    reschedule: (orgId: string, id: string, body: { version: number; scheduledAt: string }) =>
+      request<Campaign>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/${encodeURIComponent(id)}/reschedule`,
+        { method: 'POST', body: JSON.stringify(body) },
+      ),
+    unschedule: (orgId: string, id: string, version: number) =>
+      request<Campaign>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/${encodeURIComponent(id)}/unschedule`,
+        { method: 'POST', body: JSON.stringify({ version }) },
+      ),
+    send: (orgId: string, id: string, body: { version: number; confirmationToken: string }) =>
+      request<Campaign>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/${encodeURIComponent(id)}/send`,
+        { method: 'POST', body: JSON.stringify(body) },
+      ),
+    cancel: (orgId: string, id: string, version: number) =>
+      request<Campaign>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/${encodeURIComponent(id)}/cancel`,
+        { method: 'POST', body: JSON.stringify({ version }) },
+      ),
+    pause: (orgId: string, id: string, version: number) =>
+      request<Campaign>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/${encodeURIComponent(id)}/pause`,
+        { method: 'POST', body: JSON.stringify({ version }) },
+      ),
+    resume: (orgId: string, id: string, version: number) =>
+      request<Campaign>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/${encodeURIComponent(id)}/resume`,
+        { method: 'POST', body: JSON.stringify({ version }) },
+      ),
+    history: (orgId: string, id: string) =>
+      request<{ total: number; items: CampaignHistoryItem[] }>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/${encodeURIComponent(id)}/history`,
+      ),
+    stats: (orgId: string, id: string) =>
+      request<CampaignStats>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/${encodeURIComponent(id)}/stats`,
+      ),
+    segments: (orgId: string) =>
+      request<SavedSegment[]>(`/organizations/${encodeURIComponent(orgId)}/campaigns/segments`),
+    createSegment: (
+      orgId: string,
+      body: { name: string; definition: Omit<CampaignAudienceDefinition, 'savedSegmentId'> },
+    ) =>
+      request<SavedSegment>(`/organizations/${encodeURIComponent(orgId)}/campaigns/segments`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    deleteSegment: (orgId: string, segmentId: string) =>
+      request<{ deleted: boolean }>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/segments/${encodeURIComponent(segmentId)}`,
+        { method: 'DELETE' },
+      ),
+    analytics: (orgId: string, params: { from?: string; to?: string; windowDays?: number } = {}) =>
+      request<CampaignAnalyticsOverview>(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/analytics${qs(params)}`,
+      ),
+    /** Aggregates only, never a row per person. */
+    downloadAnalyticsCsv: (orgId: string, params: { from?: string; to?: string } = {}) =>
+      downloadCsv(
+        `/organizations/${encodeURIComponent(orgId)}/campaigns/analytics/export${qs(params)}`,
+        'audience-and-campaigns.csv',
+      ),
+  },
+
   /** The organizer's audience as counts. No follower is ever named. */
   audience: {
     summary: (organizationId: string) =>
@@ -2439,6 +2591,40 @@ export const api = {
 
   admin: {
     dashboard: () => request<AdminDashboard>('/admin/dashboard'),
+
+    /**
+     * Organizer campaigns across the platform. Reading is ORGANIZER_READ; pausing and lifting a
+     * pause are ORGANIZER_REVIEW with a recent second factor. No recipient is ever returned.
+     */
+    campaigns: {
+      list: (
+        params: {
+          status?: CampaignStatus;
+          organizationId?: string;
+          page?: number;
+          pageSize?: number;
+        } = {},
+      ) =>
+        request<{ total: number; page: number; pageSize: number; items: AdminCampaignRow[] }>(
+          `/admin/campaigns${qs(params)}`,
+        ),
+      health: () => request<CampaignSendingHealth>('/admin/campaigns/health'),
+      pause: (id: string, reason: string) =>
+        request<{ id: string; status: CampaignStatus }>(
+          `/admin/campaigns/${encodeURIComponent(id)}/pause`,
+          {
+            method: 'POST',
+            body: JSON.stringify({ reason }),
+          },
+        ),
+      release: (id: string) =>
+        request<{ id: string; status: CampaignStatus }>(
+          `/admin/campaigns/${encodeURIComponent(id)}/release`,
+          {
+            method: 'POST',
+          },
+        ),
+    },
 
     /**
      * Organizer billing. Reads need BILLING_READ; catalogue writes BILLING_MANAGE; offers
