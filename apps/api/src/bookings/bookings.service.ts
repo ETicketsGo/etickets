@@ -2598,6 +2598,8 @@ export class BookingsService {
             refundsEnabled: true,
             refundCutoffHours: true,
             refundPolicy: true,
+            // Who ran it: the confirmation offers to follow them. Public profile fields only.
+            organization: { select: { id: true, name: true } },
             // The venue's clock, for events that are not cinema showings — which is most
             // of them, and which the first pass at this missed entirely.
             // Name and city too: the confirmation said "Seat A4 - Screen 1" and never where.

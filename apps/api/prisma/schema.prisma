@@ -549,39 +549,43 @@ model User {
   refreshTokens              RefreshToken[]
   mfaCredential              AdminMfaCredential?
   mfaRecoveryCodes           AdminMfaRecoveryCode[]
-  invitationsSent            AccountInvitation[]         @relation("InvitationsSent")
-  invitationReceived         AccountInvitation?          @relation("InvitationsReceived")
+  invitationsSent            AccountInvitation[]               @relation("InvitationsSent")
+  invitationReceived         AccountInvitation?                @relation("InvitationsReceived")
   passwordResetTokens        PasswordResetToken[]
-  cashCollected              Booking[]                   @relation("CashCollected")
-  cashReturned               Booking[]                   @relation("CashReturned")
+  cashCollected              Booking[]                         @relation("CashCollected")
+  cashReturned               Booking[]                         @relation("CashReturned")
   memberships                OrganizationMember[]
   bookings                   Booking[]
-  assignedTickets            Ticket[]                    @relation("TicketAttendee")
+  assignedTickets            Ticket[]                          @relation("TicketAttendee")
   notifications              Notification[]
   notificationPreferences    NotificationPreference[]
   pushSubscriptions          PushSubscription[]
   devices                    UserDevice[]
   feedback                   Feedback[]
-  checkIns                   CheckIn[]                   @relation("CheckInActor")
+  checkIns                   CheckIn[]                         @relation("CheckInActor")
   auditLogs                  AuditLog[]
   payoutSettingUpdates       PayoutSetting[]
-  seatOverrides              ShowSeat[]                  @relation("SeatOverrideActor")
+  seatOverrides              ShowSeat[]                        @relation("SeatOverrideActor")
   reviews                    Review[]
   marketingConsents          MarketingConsent[]
   notificationCertifications NotificationCertification[]
-  adminGrants                AdminGrant[]                @relation("AdminGrantHolder")
-  adminGrantsIssued          AdminGrant[]                @relation("AdminGrantIssuer")
+  adminGrants                AdminGrant[]                      @relation("AdminGrantHolder")
+  adminGrantsIssued          AdminGrant[]                      @relation("AdminGrantIssuer")
   /// Organizer acquisition (CRM). Staff only; a customer account never has any of these.
-  crmTeamMemberships         CrmTeamMember[]             @relation("CrmTeamMemberUser")
-  crmLeadsAssigned           CrmLead[]                   @relation("CrmLeadAssignee")
-  crmLeadsCreated            CrmLead[]                   @relation("CrmLeadCreator")
-  crmActivities              CrmActivity[]               @relation("CrmActivityResponsible")
-  crmFollowUps               CrmFollowUp[]               @relation("CrmFollowUpOwner")
-  crmStageChanges            CrmLeadStageChange[]        @relation("CrmStageChangeActor")
+  crmTeamMemberships         CrmTeamMember[]                   @relation("CrmTeamMemberUser")
+  crmLeadsAssigned           CrmLead[]                         @relation("CrmLeadAssignee")
+  crmLeadsCreated            CrmLead[]                         @relation("CrmLeadCreator")
+  crmActivities              CrmActivity[]                     @relation("CrmActivityResponsible")
+  crmFollowUps               CrmFollowUp[]                     @relation("CrmFollowUpOwner")
+  crmStageChanges            CrmLeadStageChange[]              @relation("CrmStageChangeActor")
   /// One-time codes that carry a signed-in storefront session to the organizer console.
   authHandoffs               AuthHandoff[]
   /// Codes sent to an email address somebody is adding to their own account.
   emailVerificationCodes     EmailVerificationCode[]
+  /// Organizers this person follows, and what they want to hear from each.
+  organizerFollows           OrganizerFollow[]
+  organizerPreferences       OrganizerNotificationPreference[]
+  communicationConsents      CommunicationConsent[]
 
   @@index([status])
 }
@@ -1041,10 +1045,14 @@ model Organization {
   /// taking money the platform will never see, so it changes who is responsible for
   /// collecting it, what a settlement can promise, and what a receipt can honestly say.
   /// Somebody has to choose that deliberately.
-  cashPaymentsEnabled     Boolean                   @default(false)
+  cashPaymentsEnabled     Boolean                           @default(false)
   /// The acquisition lead this organization was won from, if any. Set by the CRM linking an
   /// EXISTING organization; nothing about the organization itself changes.
   crmLead                 CrmLead?
+  /// Customers who follow this organizer, and their topic choices. Only aggregates reach
+  /// the organizer; see `engagement/audience-summary.service.ts`.
+  followers               OrganizerFollow[]
+  followerPreferences     OrganizerNotificationPreference[]
 
   @@index([status])
 }
@@ -5651,6 +5659,117 @@ model CrmFollowUp {
   @@index([ownerUserId, status, dueAt])
   @@index([leadId, status])
   @@index([status, dueAt])
+}
+
+// ─── Organizer follows and communication consent (workstream 1) ───────────────────────
+//
+// One contiguous block, kept at the end of the file so parallel branches merge cleanly.
+//
+// ── FOLLOWING IS NOT CONSENT ──────────────────────────────────────────────────────────
+// A follow says "show me this organizer". It does NOT say "this organizer may email me
+// offers". Promotional email needs its own, explicit, recorded consent row below. A follow
+// on its own puts nobody on a mailing list.
+
+enum OrganizerUpdateCadence {
+  INSTANT
+  WEEKLY_DIGEST
+}
+
+/// A customer follows an organizer. Personal data: deleted with the account.
+model OrganizerFollow {
+  id             String       @id @default(cuid())
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  /// Where the follow came from: ORGANIZER_PAGE | BOOKING_CONFIRMATION | LOCAL_MIGRATION.
+  source         String
+  createdAt      DateTime     @default(now())
+
+  /// One follow per person per organizer, even under a race (two taps, two tabs).
+  @@unique([userId, organizationId])
+  @@index([organizationId, createdAt])
+  @@index([userId, createdAt])
+}
+
+/// What a follower wants to hear about from one organizer.
+///
+/// These are topics and timing, not permission to email. `newEvents` defaults ON because the
+/// person asked for it by following, and it is shown in their account only. Email from the
+/// organizer needs a granted `CommunicationConsent` row as well. `earlyAccess` and `offers`
+/// are promotional, so they default OFF.
+model OrganizerNotificationPreference {
+  id             String                 @id @default(cuid())
+  userId         String
+  user           User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organizationId String
+  organization   Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  newEvents      Boolean                @default(true)
+  earlyAccess    Boolean                @default(false)
+  offers         Boolean                @default(false)
+  cadence        OrganizerUpdateCadence @default(INSTANT)
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+
+  @@unique([userId, organizationId])
+}
+
+/// A consent decision with a scope. Append-only: a withdrawal is a new row, never an edit.
+/// The newest row per (subject, purpose, organization, channel) is the current state, and
+/// no row means NO consent.
+///
+/// Platform-wide marketing EMAIL is NOT stored here. It stays in `MarketingConsent`
+/// (channel `email`), which the notification service already reads. This table holds the
+/// purposes that need a scope (one organizer). See `engagement/consent-purpose.ts`.
+model CommunicationConsent {
+  id             String   @id @default(cuid())
+  /// Set null when the account is deleted. The row stays as evidence, keyed by the hash.
+  userId         String?
+  user           User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  /// SHA-256 of the normalized email, the same hash `SuppressedDestination` uses. Never the
+  /// address itself, so the evidence can outlive the account without holding contact data.
+  subjectHash    String
+  /// Null = platform-wide. A plain column, not a foreign key, so the evidence survives an
+  /// organization being deleted.
+  organizationId String?
+  /// ORGANIZER_UPDATES | EARLY_ACCESS | OFFERS
+  purpose        String
+  /// email | push | sms | whatsapp
+  channel        String   @default("email")
+  granted        Boolean
+  /// How it was obtained. Set by the server, never by the client.
+  source         String
+  /// The disclosure shown, as `TYPE/JURISDICTION/vN` (see `policyVersionLabel`).
+  policyVersion  String?
+  ipAddress      String?
+  userAgent      String?
+  createdAt      DateTime @default(now())
+
+  @@index([subjectHash, purpose, organizationId, createdAt])
+  @@index([userId, purpose, organizationId, createdAt])
+  @@index([organizationId, purpose, createdAt])
+}
+
+/// A destination that one organizer must not send marketing to again.
+///
+/// Separate from the global `SuppressedDestination`, which also stops TRANSACTIONAL mail.
+/// Unsubscribing from one organizer's news must never stop somebody's tickets.
+model OrganizerSuppression {
+  id              String    @id @default(cuid())
+  /// A plain column, like `CommunicationConsent.organizationId`, so it survives the org.
+  organizationId  String
+  /// email | sms | whatsapp | push
+  channel         String
+  /// SHA-256 of the normalized destination (`SuppressionService.hash`).
+  destinationHash String
+  /// UNSUBSCRIBED | COMPLAINT
+  reason          String
+  /// Set when the person opts in again from their own account. Never deleted.
+  liftedAt        DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([organizationId, channel, destinationHash])
 }
 
 // ── Platform fee overrides and waivers ──────────────────────────────────────────────

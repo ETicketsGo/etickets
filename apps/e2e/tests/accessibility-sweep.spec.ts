@@ -79,6 +79,7 @@ const ORGANIZER_ROUTES = [
   '/organizer/movies',
   '/organizer/cinemas',
   '/organizer/promotions',
+  '/organizer/audience',
   '/organizer/payouts',
   '/organizer/receipts',
   '/organizer/refunds',

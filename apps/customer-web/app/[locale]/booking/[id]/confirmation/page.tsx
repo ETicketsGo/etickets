@@ -49,6 +49,36 @@ import { guestTokenFor } from '@/lib/guest-session';
 import { useMounted } from '@/lib/use-mounted';
 import { useLocale, useTranslations } from 'next-intl';
 import { siteUrl } from '@/lib/site-url';
+import { FollowButton } from '@/components/follow-button';
+
+/** After a purchase: offer to follow the organizer who ran it. */
+function FollowOrganizerPanel({
+  organizationId,
+  organizationName,
+}: {
+  organizationId: string;
+  organizationName: string;
+}) {
+  const t = useTranslations('storefront.follow');
+  return (
+    <section
+      className={`${BRAND_PANEL} flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5`}
+      data-testid="confirmation-follow"
+    >
+      <div>
+        <p className="font-brand-display text-brand-card text-brand-ink">
+          {t('confirmationTitle', { name: organizationName })}
+        </p>
+        <p className="mt-1 text-brand-ui text-brand-ink-2">{t('confirmationLead')}</p>
+      </div>
+      <FollowButton
+        organizationId={organizationId}
+        organizationName={organizationName}
+        source="BOOKING_CONFIRMATION"
+      />
+    </section>
+  );
+}
 
 const BOOKING_STEPS = ['tickets', 'payment', 'confirmation', 'ticket'] as const;
 /*
@@ -492,14 +522,16 @@ function AccountConfirmation() {
               </div>
 
               {/*
-                There used to be a star rating and a "Follow organizer" button here. Neither was
-                connected to anything: the stars thanked the buyer and stored nothing, and the
-                button promised "you'll hear about new events from this organizer" while nothing
-                recorded the follow or would ever send that message. There is no follow API to
-                wire it to, and the reviews API publishes a public review of the EVENT — not an
-                answer to "how was booking?", and not something to post on somebody's behalf before
-                they have attended. Reviews are written on the event page, where that is clear.
+                Follow the organizer, now backed by the API. There used to be a fake button here
+                that stored nothing. Following turns on no email: the email switches are on the
+                Following page. Reviews stay on the event page, after the show.
               */}
+              {booking.event.organization ? (
+                <FollowOrganizerPanel
+                  organizationId={booking.event.organization.id}
+                  organizationName={booking.event.organization.name}
+                />
+              ) : null}
             </>
           )}
         </div>

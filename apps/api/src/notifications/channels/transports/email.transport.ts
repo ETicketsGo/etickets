@@ -63,6 +63,8 @@ export class SendGridEmailTransport implements EmailTransport {
       // message, and the HTML is an alternative to it rather than a replacement for it.
       text: msg.body,
       ...(msg.html ? { html: msg.html } : {}),
+      // Marketing mail only: the one-click unsubscribe pair. See `listUnsubscribeHeaders`.
+      ...(listUnsubscribeHeaders(msg) ? { headers: listUnsubscribeHeaders(msg)! } : {}),
     });
     // SendGrid returns its queue id in a response header; absent, the send still happened.
     const id = res?.headers?.['x-message-id'];
@@ -196,6 +198,15 @@ export class SesEmailTransport implements EmailTransport {
               Text: { Data: msg.body },
               ...(msg.html ? { Html: { Data: msg.html } } : {}),
             },
+            // Marketing mail only: the one-click unsubscribe pair. See `listUnsubscribeHeaders`.
+            ...(listUnsubscribeHeaders(msg)
+              ? {
+                  Headers: Object.entries(listUnsubscribeHeaders(msg)!).map(([Name, Value]) => ({
+                    Name,
+                    Value,
+                  })),
+                }
+              : {}),
           },
         },
       }),
@@ -222,6 +233,26 @@ export function selectEmailTransport(config: ConfigService): EmailTransport {
     default:
       return new EmailLogTransport();
   }
+}
+
+/**
+ * The unsubscribe headers to send, or null.
+ *
+ * Only the two RFC 8058 names pass, only with an https URL in angle brackets, and never with
+ * a line break in them (a CR or LF would let a value start a header of its own). Anything
+ * else is dropped and the message still goes, the same rule as links in `link-safety.ts`.
+ */
+export function listUnsubscribeHeaders(msg: RenderedNotification): Record<string, string> | null {
+  const h = msg.listUnsubscribe;
+  if (!h) return null;
+  const value = h['List-Unsubscribe'];
+  // `\s` covers CR and LF, so a value cannot smuggle in a header line of its own.
+  if (typeof value !== 'string' || !/^<https:\/\/[^<>\s]+>$/.test(value)) return null;
+  const out: Record<string, string> = { 'List-Unsubscribe': value };
+  if (h['List-Unsubscribe-Post'] === 'List-Unsubscribe=One-Click') {
+    out['List-Unsubscribe-Post'] = 'List-Unsubscribe=One-Click';
+  }
+  return out;
 }
 
 function requireKey(config: ConfigService, key: string): string {
