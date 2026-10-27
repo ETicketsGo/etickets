@@ -88,7 +88,6 @@ describe('the organizer sidebar', () => {
       'Check-in',
       'Notifications',
       'Marketing',
-      'Audience & growth',
       'Finance & payouts',
       'Team',
       'Settings',
@@ -104,9 +103,9 @@ describe('the organizer sidebar', () => {
     );
   });
 
-  it('has one level only: secondary pages are tabs of Finance and Settings', () => {
+  it('has one level only: secondary pages are tabs of Marketing, Finance and Settings', () => {
     const parents = owner.filter((i) => i.children?.length).map((i) => i.href);
-    expect(parents).toEqual(['/organizer/finance', '/organizer/settings']);
+    expect(parents).toEqual(['/organizer/promotions', '/organizer/finance', '/organizer/settings']);
     for (const kid of owner.flatMap((i) => i.children ?? [])) {
       expect(kid.children, `${kid.href} nests a third level`).toBeUndefined();
     }
