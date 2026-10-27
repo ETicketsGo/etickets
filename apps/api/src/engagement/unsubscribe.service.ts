@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable, Logger } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SuppressionReason } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
@@ -6,6 +6,7 @@ import { AppException, ErrorCodes } from '../common/errors';
 import { SuppressionService } from '../notifications/delivery/suppression.service';
 import { CommunicationConsentService } from './communication-consent.service';
 import { ConsentPurpose, ORGANIZER_PURPOSES, type OrganizerPurpose } from './consent-purpose';
+import { UnsubscribeHooks } from './unsubscribe-hooks';
 import {
   ALL_ORGANIZER_PURPOSES,
   unsubscribeKey,
@@ -49,6 +50,8 @@ export class UnsubscribeService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly consent: CommunicationConsentService,
+    /** Listeners told after the unsubscribe has committed (campaign stats). Optional. */
+    @Optional() private readonly hooks?: UnsubscribeHooks,
   ) {}
 
   private claimsOrThrow(token: string): UnsubscribeClaims {
@@ -150,6 +153,14 @@ export class UnsubscribeService {
       });
     }
     this.logger.log(`unsubscribed ${preview.emailMask} scope=${claims.scope} via ${source}`);
+    await this.hooks?.emit({
+      scope: claims.scope,
+      organizationId: claims.organizationId,
+      emailHash: SuppressionService.hash('email', claims.email),
+      userId: claims.userId,
+      oneClick: context.oneClick,
+      at: new Date(),
+    });
     return { ...preview, unsubscribed: true };
   }
 }

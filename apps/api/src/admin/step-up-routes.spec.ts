@@ -9,6 +9,7 @@ import { PaymentOutageController } from '../payments/outage/payment-outage.contr
 import { PromotionController } from '../payments/promotion/promotion.controller';
 import { AdminOrganizationsController } from '../organizations/organizations.controller';
 import { AdminBillingController } from '../billing/billing-admin.controller';
+import { AdminCampaignsController } from '../campaigns/campaigns.controller';
 import { PlatformFeePoliciesController } from './platform-fee-policies.controller';
 
 /*
@@ -81,6 +82,8 @@ const STEP_UP: Array<[string, new (...a: never[]) => unknown, string[]]> = [
       'revokeOverride',
     ],
   ],
+  // Stopping, or releasing, an organizer's campaign: mail going out under the platform's name.
+  ['organizer campaigns', AdminCampaignsController, ['pause', 'release']],
 ];
 
 /** Reads on the same controllers: a fresh code must NOT be demanded to look. */
@@ -91,6 +94,7 @@ const NOT_STEP_UP: Array<[new (...a: never[]) => unknown, string[]]> = [
   [PaymentOutageController, ['status']],
   [AdminOrganizationsController, ['list', 'reviewSignals']],
   [AdminBillingController, ['plans', 'searchSubscriptions', 'account', 'metrics']],
+  [AdminCampaignsController, ['list', 'health']],
 ];
 
 /** A verified session whose last check was this long ago. */
