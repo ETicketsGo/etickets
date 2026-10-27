@@ -1,11 +1,10 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import type { BillingInterval } from '@prisma/client';
 import {
-  DEFAULT_ANNUAL_FREE_MONTHS,
+  ANNUAL_PRICE_MULTIPLIER,
   ENTITLEMENT_DEFINITIONS,
   PROVISIONAL_MONTHLY_PRICES,
   PROVISIONAL_PLAN_ENTITLEMENTS,
-  annualAmountMinor,
   isEntitlementKey,
   type BillingPlanCode,
   type EntitlementValue,
@@ -79,18 +78,16 @@ export class BillingCatalogService {
   }
 
   /**
-   * Loads the PROVISIONAL catalogue (shared-types `PROVISIONAL_*`), idempotently: plans are
-   * created when missing, a plan's entitlements are written only when it has none, and a price is
-   * created only where no active one exists for that plan, country and interval. Nothing staff
-   * already changed is overwritten. Never run at boot, by a migration or by a seed: an explicit
-   * admin action (BILLING_MANAGE, recent second factor), audited.
+   * Loads the catalogue (shared-types `PROVISIONAL_*`, prices confirmed by the owner 2026-10-27),
+   * idempotently: plans are created when missing, a plan's entitlements are written only when it
+   * has none, and a price is created only where no active one exists for that plan, country and
+   * interval. Nothing staff already changed is overwritten. A YEAR price is exactly
+   * ANNUAL_PRICE_MULTIPLIER (10) times the month price. Never run at boot, by a migration or by a
+   * seed: an explicit admin action (BILLING_MANAGE, recent second factor), audited.
    */
   async loadProvisional(
     actorUserId: string,
-    opts: { annualFreeMonths?: number } = {},
   ): Promise<{ plansCreated: number; entitlementsWritten: number; pricesCreated: number }> {
-    const freeMonths = opts.annualFreeMonths ?? DEFAULT_ANNUAL_FREE_MONTHS;
-    annualAmountMinor(0, freeMonths); // validates the range
     const counts = { plansCreated: 0, entitlementsWritten: 0, pricesCreated: 0 };
 
     await this.prisma.$transaction(async (tx) => {
@@ -126,9 +123,7 @@ export class BillingCatalogService {
                 currency: p.currency,
                 interval,
                 amountMinor:
-                  interval === 'MONTH'
-                    ? p.amountMinor
-                    : annualAmountMinor(p.amountMinor, freeMonths),
+                  interval === 'MONTH' ? p.amountMinor : p.amountMinor * ANNUAL_PRICE_MULTIPLIER,
                 activeKey,
               },
             });
@@ -141,7 +136,7 @@ export class BillingCatalogService {
         action: 'BILLING_CATALOG_LOADED',
         entityType: 'BillingPlan',
         entityId: null,
-        metadata: { ...counts, annualFreeMonths: freeMonths, provisional: true },
+        metadata: { ...counts, annualMultiplier: ANNUAL_PRICE_MULTIPLIER },
       });
     });
     return counts;

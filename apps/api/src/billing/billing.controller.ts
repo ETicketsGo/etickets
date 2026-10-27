@@ -65,7 +65,7 @@ export class OrganizerBillingController {
   @Header('Content-Type', 'text/html; charset=utf-8')
   // A financial document: never kept by a shared proxy.
   @Header('Cache-Control', 'private, no-store')
-  @ApiOperation({ summary: 'One platform invoice (ETG-BIL) as printable HTML.' })
+  @ApiOperation({ summary: 'One platform invoice as printable HTML.' })
   async invoiceHtml(
     @CurrentUser() user: RequestUser,
     @Param('id') id: string,
@@ -84,7 +84,15 @@ export class OrganizerBillingController {
       where: { id },
       select: { name: true, legalName: true },
     });
+    const doc = (invoice.documentJson ?? {}) as {
+      taxLines?: { label: string; rateBasisPoints: number; amountMinor: number }[];
+      placeOfSupply?: { region?: string | null; country?: string } | null;
+    };
     return renderBillingInvoiceHtml({
+      taxLines: Array.isArray(doc.taxLines) ? doc.taxLines : [],
+      placeOfSupply: doc.placeOfSupply?.region
+        ? `${doc.placeOfSupply.region}, ${doc.placeOfSupply.country ?? invoice.account.country}`
+        : null,
       number: invoice.number,
       status: invoice.status,
       issuedAt: invoice.issuedAt ?? invoice.createdAt,

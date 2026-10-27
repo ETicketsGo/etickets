@@ -6,6 +6,7 @@ import { redirectUrl } from '../common/console-urls';
 import { contentSchema, eventIdsIn, type CampaignContent } from './campaign-content';
 import { renderCampaignEmail, type RenderEvent, type RenderedCampaign } from './campaign-email';
 import { allowedCampaignTarget, apiBase } from './campaign-links';
+import { campaignFooterAddress } from './campaign-sending-config';
 
 /** The campaign fields the renderer reads. */
 export interface RenderableCampaign {
@@ -109,9 +110,17 @@ export class CampaignRenderService {
   render(
     campaign: RenderableCampaign,
     ctx: RenderContext,
-    opts: { link: (target: string) => string | null; unsubscribeUrl: string; isTest?: boolean },
+    opts: {
+      link: (target: string) => string | null;
+      unsubscribeUrl: string;
+      unsubscribeAllUrl: string;
+      isTest?: boolean;
+    },
   ): RenderedCampaign {
-    const postal = this.config.get<string>('MARKETING_POSTAL_ADDRESS')?.trim() || null;
+    // The address of the entity the footer names, for the organizer's country. A live
+    // environment without it refuses here too, as the last line behind review and dispatch.
+    const footer = campaignFooterAddress(this.config, ctx.organizer.country);
+    if (footer.refusal) throw new Error(footer.refusal);
     const entity = legalEntityFor(ctx.organizer.country);
     return renderCampaignEmail({
       locale: campaign.locale,
@@ -128,7 +137,8 @@ export class CampaignRenderService {
         return allowed ? opts.link(allowed) : null;
       },
       unsubscribeUrl: opts.unsubscribeUrl,
-      platform: { legalName: entity.legalName, postalAddress: postal ?? entity.registeredOffice },
+      unsubscribeAllUrl: opts.unsubscribeAllUrl,
+      platform: { legalName: entity.legalName, postalAddress: footer.address },
       isTest: opts.isTest,
     });
   }

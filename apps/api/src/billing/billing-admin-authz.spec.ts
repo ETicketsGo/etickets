@@ -161,6 +161,35 @@ const ROUTES: Route[] = [
     needs: P.ENTITLEMENT_GRANT,
     body: { reason },
   },
+  // Credit pack prices (owner decision 2026-10-27): read with BILLING_READ, change with
+  // BILLING_MANAGE only - never BILLING_ADJUST, which Finance holds.
+  {
+    method: 'GET',
+    path: '/admin/billing/credit-packs',
+    template: 'GET admin/billing/credit-packs',
+    needs: P.BILLING_READ,
+  },
+  {
+    method: 'PUT',
+    path: '/admin/billing/credit-packs/EMAIL_1K/prices/IN',
+    template: 'PUT admin/billing/credit-packs/:packCode/prices/:country',
+    needs: P.BILLING_MANAGE,
+    body: { currency: 'INR', amountMinor: 100 },
+  },
+  {
+    method: 'POST',
+    path: '/admin/billing/credit-packs/EMAIL_1K/prices/IN/publish',
+    template: 'POST admin/billing/credit-packs/:packCode/prices/:country/publish',
+    needs: P.BILLING_MANAGE,
+    body: {},
+  },
+  {
+    method: 'POST',
+    path: '/admin/billing/credit-packs/EMAIL_1K/prices/IN/unpublish',
+    template: 'POST admin/billing/credit-packs/:packCode/prices/:country/unpublish',
+    needs: P.BILLING_MANAGE,
+    body: {},
+  },
 ];
 
 const HOLDER: Record<string, string> = {

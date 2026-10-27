@@ -15,6 +15,7 @@ import type {
   VerifiedBillingEvent,
 } from './billing-provider';
 import { providerUnavailable } from './provider-errors';
+import type { BillingTaxQuote } from '../billing-tax.service';
 
 /** Marks every object billing creates on Stripe, so it is never mistaken for a ticket payment. */
 export const STRIPE_PURPOSE_SUBSCRIPTION = 'etg_billing_subscription';
@@ -119,12 +120,20 @@ export class StripeBillingProvider implements BillingProvider {
       priceId: req.priceId,
       etg_purpose: STRIPE_PURPOSE_SUBSCRIPTION,
     };
+    const taxRates = await this.taxRatesFor(req.tax);
     const session = await this.call(() =>
       this.client.checkout.sessions.create({
         mode: 'subscription',
         customer: req.customerRef!,
         client_reference_id: req.organizationId,
-        line_items: [{ price: req.providerPriceRef!, quantity: 1 }],
+        line_items: [
+          {
+            price: req.providerPriceRef!,
+            quantity: 1,
+            ...(taxRates.length ? { tax_rates: taxRates } : {}),
+          },
+        ],
+        ...this.automaticTax(req.tax),
         metadata,
         subscription_data: { metadata },
         allow_promotion_codes: false,
@@ -144,6 +153,7 @@ export class StripeBillingProvider implements BillingProvider {
       purchaseRef: req.purchaseRef,
       etg_purpose: STRIPE_PURPOSE_CREDIT_PACK,
     };
+    const taxRates = await this.taxRatesFor(req.tax);
     const session = await this.call(() =>
       this.client.checkout.sessions.create(
         {
@@ -156,10 +166,14 @@ export class StripeBillingProvider implements BillingProvider {
               price_data: {
                 currency: req.currency.toLowerCase(),
                 unit_amount: req.amountMinor,
+                // The pack price is BEFORE tax; tax is added on top.
+                tax_behavior: 'exclusive',
                 product_data: { name: req.description },
               },
+              ...(taxRates.length ? { tax_rates: taxRates } : {}),
             },
           ],
+          ...this.automaticTax(req.tax),
           metadata,
           payment_intent_data: { metadata },
           success_url: req.successUrl,
@@ -170,6 +184,58 @@ export class StripeBillingProvider implements BillingProvider {
     );
     if (!session.url) throw providerUnavailable('Stripe did not return a checkout page.');
     return { provider: this.key, sessionRef: session.id, url: session.url };
+  }
+
+  /**
+   * Stripe Tax decides (STRIPE_BILLING_AUTOMATIC_TAX). Stripe needs the customer's address for
+   * that, so Checkout collects it and saves it on the customer. Prices must be tax-exclusive.
+   */
+  private automaticTax(tax: BillingTaxQuote | undefined) {
+    if (tax?.mode !== 'PROVIDER_AUTOMATIC') return {};
+    return {
+      automatic_tax: { enabled: true },
+      billing_address_collection: 'required' as const,
+      ...{ customer_update: { address: 'auto' as const, name: 'auto' as const } },
+    };
+  }
+
+  /**
+   * Our TaxRule rates as Stripe Tax Rates (tax-exclusive), found by a key in their metadata or
+   * created once. A rate is identified by label, rate and jurisdiction, so a changed rate is a
+   * new Stripe object and old invoices keep the one they were charged with.
+   */
+  private async taxRatesFor(tax: BillingTaxQuote | undefined): Promise<string[]> {
+    if (tax?.mode !== 'MANUAL') return [];
+    const wanted = tax.lines.filter((l) => l.rateBasisPoints > 0);
+    if (wanted.length === 0) return [];
+    const existing = await this.call(() => this.client.taxRates.list({ active: true, limit: 100 }));
+    const ids: string[] = [];
+    for (const line of wanted) {
+      const key = [
+        tax.jurisdiction.country,
+        tax.jurisdiction.region ?? '*',
+        line.label,
+        line.rateBasisPoints,
+      ].join(':');
+      const found = existing.data.find((r) => r.metadata?.etg_tax_key === key && !r.inclusive);
+      if (found) {
+        ids.push(found.id);
+        continue;
+      }
+      const created = await this.call(() =>
+        this.client.taxRates.create({
+          display_name: line.label.slice(0, 50),
+          percentage: line.rateBasisPoints / 100,
+          inclusive: false,
+          country: tax.jurisdiction.country,
+          ...(tax.jurisdiction.region ? { state: tax.jurisdiction.region } : {}),
+          description: 'ETicketsGo plans and credit packs (configured tax rule)',
+          metadata: { etg_tax_key: key, etg_purpose: STRIPE_PURPOSE_SUBSCRIPTION },
+        }),
+      );
+      ids.push(created.id);
+    }
+    return ids;
   }
 
   async createPortal(customerRef: string, returnUrl: string): Promise<{ url: string }> {
@@ -370,6 +436,7 @@ export class StripeBillingProvider implements BillingProvider {
       organizationId: str(meta.organizationId),
       invoiceRef: null,
       creditPackCode: str(meta.packCode),
+      purchaseRef: str(meta.purchaseRef),
       paidAt: fromUnix(s.created),
     };
   }

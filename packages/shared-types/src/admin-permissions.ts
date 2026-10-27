@@ -211,10 +211,16 @@ export const ADMIN_PRESETS: Record<
       AdminPermission.REFUND_REVIEW,
     ],
   },
+  /*
+    Owner decision 2026-10-27: Finance runs organizer billing OPERATIONS (BILLING_ADJUST: credits,
+    complimentary plans and trials, discounts, failed-payment follow-up) but not the catalogue or
+    prices (BILLING_MANAGE) and not single-feature overrides (ENTITLEMENT_GRANT). A super admin
+    holds all four by role (`permissionsFor`).
+  */
   FINANCE: {
     label: 'Finance',
     description:
-      'Sees the money and the fee and tax rules, approves refunds and compensations, works the discrepancy queue and releases settlements. Cannot change the fee or tax rules.',
+      'Sees the money and the fee and tax rules, approves refunds and compensations, works the discrepancy queue and releases settlements. Runs organizer billing: credits, trials, complimentary plans and discounts. Cannot change the fee or tax rules, plan prices or single features.',
     grants: [
       AdminPermission.BOOKING_READ,
       AdminPermission.FINANCE_READ,
@@ -225,6 +231,7 @@ export const ADMIN_PRESETS: Record<
       AdminPermission.FINANCE_RESOLVE,
       AdminPermission.PLATFORM_CONFIG_READ,
       AdminPermission.BILLING_READ,
+      AdminPermission.BILLING_ADJUST,
     ],
   },
   MODERATOR: {

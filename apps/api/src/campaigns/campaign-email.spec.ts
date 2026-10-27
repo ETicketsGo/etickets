@@ -38,6 +38,7 @@ function input(over: Partial<CampaignRenderInput> = {}): CampaignRenderInput {
     link: (t) =>
       `https://api-qa.eticketsgo.com/api/public/campaign-links/tok?t=${encodeURIComponent(t)}`,
     unsubscribeUrl: 'https://qa.eticketsgo.com/unsubscribe/abc',
+    unsubscribeAllUrl: 'https://qa.eticketsgo.com/unsubscribe/all-xyz',
     platform: { legalName: 'DeepTrics LLC', postalAddress: '1 Main St, Springfield' },
     ...over,
   };
@@ -111,6 +112,20 @@ describe('campaign email rendering', () => {
     expect(html).toContain('1 Main St, Springfield');
     expect(text).toContain(
       'Unsubscribe from Acme Shows: https://qa.eticketsgo.com/unsubscribe/abc',
+    );
+  });
+
+  it('offers "Unsubscribe from all marketing email" beside the organizer link', () => {
+    const { html, text } = renderCampaignEmail(input());
+    expect(html).toContain('href="https://qa.eticketsgo.com/unsubscribe/all-xyz"');
+    expect(html).toContain('Unsubscribe from all marketing email');
+    expect(text).toContain(
+      'Unsubscribe from all marketing email: https://qa.eticketsgo.com/unsubscribe/all-xyz',
+    );
+    const fr = renderCampaignEmail(input({ locale: 'fr-CA' }));
+    expect(fr.html).toContain('Se désabonner de tous les courriels de marketing');
+    expect(() => renderCampaignEmail(input({ unsubscribeAllUrl: 'javascript:alert(1)' }))).toThrow(
+      /all marketing/,
     );
   });
 
@@ -224,7 +239,7 @@ describe('sending config', () => {
     expect(c.configurationSet).toBe('qa-tx');
     expect(c.simulatorAllowed).toBe(true);
   });
-  it('PRODUCTION refuses without a dedicated marketing sender and postal address', () => {
+  it('PRODUCTION refuses without a dedicated marketing sender and an unsubscribe secret', () => {
     const base = {
       CAMPAIGNS_ENABLED: 'true',
       EMAIL_PROVIDER: 'ses',
@@ -235,12 +250,13 @@ describe('sending config', () => {
     expect(
       cfg({ ...base, MARKETING_EMAIL_FROM: 'm@x.com', SES_MARKETING_CONFIGURATION_SET: 'mk' })
         .refusal,
-    ).toMatch(/POSTAL/);
+    ).toMatch(/UNSUBSCRIBE_SIGNING_SECRET/);
+    // The postal address is per country and checked per campaign (campaignFooterAddress).
     const ok = cfg({
       ...base,
       MARKETING_EMAIL_FROM: 'm@x.com',
       SES_MARKETING_CONFIGURATION_SET: 'mk',
-      MARKETING_POSTAL_ADDRESS: 'x',
+      UNSUBSCRIBE_SIGNING_SECRET: 's'.repeat(40),
     });
     expect(ok.refusal).toBeNull();
     expect(ok.mode).toBe('DEDICATED_MARKETING');

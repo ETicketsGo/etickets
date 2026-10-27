@@ -80,6 +80,10 @@ const STEP_UP: Array<[string, new (...a: never[]) => unknown, string[]]> = [
       'recordDiscount',
       'grantOverride',
       'revokeOverride',
+      // Credit pack prices and their publication (owner decision 2026-10-27).
+      'setCreditPackPrice',
+      'publishCreditPack',
+      'unpublishCreditPack',
     ],
   ],
   // Stopping, or releasing, an organizer's campaign: mail going out under the platform's name.
@@ -93,7 +97,7 @@ const NOT_STEP_UP: Array<[new (...a: never[]) => unknown, string[]]> = [
   [PaymentAdminController, ['overview', 'health']],
   [PaymentOutageController, ['status']],
   [AdminOrganizationsController, ['list', 'reviewSignals']],
-  [AdminBillingController, ['plans', 'searchSubscriptions', 'account', 'metrics']],
+  [AdminBillingController, ['plans', 'searchSubscriptions', 'account', 'metrics', 'creditPacks']],
   [AdminCampaignsController, ['list', 'health']],
 ];
 

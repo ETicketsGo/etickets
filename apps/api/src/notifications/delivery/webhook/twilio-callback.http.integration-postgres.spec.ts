@@ -445,7 +445,8 @@ describe('integration-real-postgres: Twilio status callbacks over HTTP', () => {
       expect((await delivery(early.deliveryId)).status).toBe(DeliveryState.REJECTED);
       const suppression = await db!.suppressedDestination.findUnique({
         where: {
-          channel_destinationHash: {
+          channel_destinationHash_scope: {
+            scope: 'ALL',
             channel: 'sms',
             destinationHash: SuppressionService.hash('sms', PHONE_EARLY_STOP),
           },
@@ -465,7 +466,8 @@ describe('integration-real-postgres: Twilio status callbacks over HTTP', () => {
       expect((await delivery(e.deliveryId)).status).toBe(DeliveryState.REJECTED);
       const suppression = await db!.suppressedDestination.findUnique({
         where: {
-          channel_destinationHash: {
+          channel_destinationHash_scope: {
+            scope: 'ALL',
             channel: 'sms',
             destinationHash: SuppressionService.hash('sms', PHONE),
           },

@@ -157,5 +157,10 @@ export const ErrorCodes = {
    * price not set up with it, or a capability (e.g. UPI Autopay) not enabled on the account.
    */
   BILLING_PROVIDER_UNAVAILABLE: 'BILLING_PROVIDER_UNAVAILABLE',
+  /**
+   * No tax rule (or tax provider) is configured for the organizer's jurisdiction, so a plan or
+   * credit pack checkout is refused rather than charged with no tax (fail closed).
+   */
+  BILLING_TAX_NOT_CONFIGURED: 'BILLING_TAX_NOT_CONFIGURED',
   INTERNAL: 'INTERNAL',
 } as const;

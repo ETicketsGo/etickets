@@ -32,6 +32,8 @@ export interface StripeState {
   calls: { method: string; args: unknown[] }[];
   /** When set, every read throws this (to simulate the provider being unreachable). */
   failReads?: Error | null;
+  /** Tax Rates created on the account (our TaxRule rates, tax-exclusive). */
+  taxRates?: Obj[];
 }
 
 export function stripeState(): StripeState {
@@ -85,6 +87,15 @@ export function fakeStripe(state: StripeState): Stripe {
     },
     invoices: { retrieve: async (id: string) => read(state.invoices[id], 'invoice') },
     disputes: { retrieve: async (id: string) => read(state.disputes[id], 'dispute') },
+    taxRates: {
+      list: async () => ({ data: JSON.parse(JSON.stringify(state.taxRates ?? [])) }),
+      create: async (p: Obj) => {
+        log('taxRates.create', [p]);
+        const rate = { id: `txr_${state.calls.length}`, ...p };
+        (state.taxRates ??= []).push(rate);
+        return rate;
+      },
+    },
   } as unknown as Stripe;
 }
 
@@ -174,6 +185,10 @@ export function stripeCreditPackSession(o: {
   currency: string;
   paid?: boolean;
   at?: Date;
+  /** Our CreditPackPurchase reference, as the checkout wrote it into the metadata. */
+  purchaseRef?: string;
+  /** The tax Stripe added on top of `amount`. */
+  tax?: number;
 }): Obj {
   return {
     id: o.id,
@@ -183,13 +198,14 @@ export function stripeCreditPackSession(o: {
     payment_status: o.paid === false ? 'unpaid' : 'paid',
     customer: o.customer,
     amount_subtotal: o.amount,
-    amount_total: o.amount,
-    total_details: { amount_tax: 0 },
+    amount_total: o.amount + (o.tax ?? 0),
+    total_details: { amount_tax: o.tax ?? 0 },
     currency: o.currency.toLowerCase(),
     created: unix(o.at ?? new Date()),
     metadata: {
       organizationId: o.organizationId,
       packCode: o.packCode,
+      ...(o.purchaseRef ? { purchaseRef: o.purchaseRef } : {}),
       etg_purpose: STRIPE_PURPOSE_CREDIT_PACK,
     },
   };
@@ -300,9 +316,11 @@ export function razorpayPaymentLink(o: {
   id: string;
   organizationId: string;
   packCode: string;
+  /** Everything charged: Razorpay computes no tax, so this is net + our tax. */
   amount: number;
   paid?: boolean;
   at?: Date;
+  purchaseRef?: string;
 }): Obj {
   return {
     id: o.id,
@@ -314,6 +332,7 @@ export function razorpayPaymentLink(o: {
     notes: {
       organizationId: o.organizationId,
       packCode: o.packCode,
+      ...(o.purchaseRef ? { purchaseRef: o.purchaseRef } : {}),
       etg_purpose: RAZORPAY_PURPOSE_CREDIT_PACK,
     },
   };

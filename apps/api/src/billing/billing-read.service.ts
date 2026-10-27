@@ -8,7 +8,7 @@ import { EntitlementService } from './entitlements/entitlement.service';
 import { BillingInvoiceService } from './billing-invoice.service';
 import { billingCountryOf } from './billing-account';
 import { BillingProviderRegistry } from './provider/billing-provider.registry';
-import { creditPacksFor } from './credit-packs';
+import { creditPackOffers } from './credit-packs';
 
 const PAID_LIVE = ['ACTIVE', 'PAST_DUE', 'GRACE'] as const;
 
@@ -122,10 +122,13 @@ export class BillingReadService {
       /** The provider that serves this country, so the console offers the right controls. */
       providerForCountry: this.registry.keyForCountry(country),
       disputed: Boolean(account?.disputedAt),
-      creditPacks: creditPacksFor(country),
+      // Only PUBLISHED prices: an unpublished pack is not on sale and is not shown.
+      creditPacks: country
+        ? creditPackOffers(await this.prisma.creditPackPrice.findMany({ where: { country } }))
+        : [],
       catalogLoaded: catalog.length > 0,
-      /** Every price is provisional until the owner confirms the catalogue. */
-      pricesProvisional: true,
+      /** The owner confirmed the catalogue prices on 2026-10-27. */
+      pricesProvisional: false,
       country,
       currentPlanCode: resolved.planCode,
       subscription: sub

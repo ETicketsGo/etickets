@@ -2,7 +2,8 @@ import { formatMinor } from '../receipts/receipt-html';
 import { TAX_NOT_APPLIED_NOTE } from './billing-invoice.service';
 
 /**
- * A platform invoice to an organizer (ETG-BIL-<YEAR>-<SEQ>) as a standalone, printable page.
+ * A platform invoice to an organizer (ETGB-2627-000001, ETG-BIL-US-2026-000001) as a
+ * standalone, printable page.
  *
  * The same rules as the ticket receipt (receipts/receipt-html.ts), whose look it shares: a plain
  * string template, no scripts, no fonts or images to fetch, so it prints and saves as PDF from
@@ -17,6 +18,10 @@ export interface BillingInvoiceView {
   subtotalMinor: number;
   taxMinor: number;
   totalMinor: number;
+  /** Each tax charged (CGST + SGST, IGST, a state rate, Stripe Tax). Empty: none recorded. */
+  taxLines?: { label: string; rateBasisPoints: number; amountMinor: number }[];
+  /** The organizer's state, which is the place of supply for the platform's service. */
+  placeOfSupply?: string | null;
   periodStart: Date | null;
   periodEnd: Date | null;
   sellerName: string;
@@ -48,7 +53,21 @@ export function renderBillingInvoiceHtml(v: BillingInvoiceView): string {
     v.periodStart && v.periodEnd
       ? `<div class="muted">Period ${esc(day(v.periodStart))} to ${esc(day(v.periodEnd))}</div>`
       : '';
-  const taxNote = v.taxMinor > 0 ? '' : `<li>${esc(TAX_NOT_APPLIED_NOTE)}</li>`;
+  const taxLines = v.taxLines ?? [];
+  const taxNote =
+    v.taxMinor > 0 || taxLines.length > 0 ? '' : `<li>${esc(TAX_NOT_APPLIED_NOTE)}</li>`;
+  const rate = (bps: number) => `${(bps / 100).toFixed(bps % 100 === 0 ? 0 : 2)}%`;
+  const taxRows =
+    taxLines.length > 0
+      ? taxLines
+          .map(
+            (l) =>
+              `<tr><th colspan="3">${esc(l.label)}${l.rateBasisPoints > 0 ? ` (${esc(rate(l.rateBasisPoints))})` : ''}</th>` +
+              `<td class="num">${money(l.amountMinor)}</td></tr>`,
+          )
+          .join('\n      ')
+      : `<tr><th colspan="3">Tax</th><td class="num">${money(v.taxMinor)}</td></tr>`;
+  const supply = v.placeOfSupply ? `<li>Place of supply: ${esc(v.placeOfSupply)}.</li>` : '';
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -106,12 +125,13 @@ ${rows}
     </tbody>
     <tfoot>
       <tr><th colspan="3">Subtotal</th><td class="num">${money(v.subtotalMinor)}</td></tr>
-      <tr><th colspan="3">Tax</th><td class="num">${money(v.taxMinor)}</td></tr>
+      ${taxRows}
       <tr class="grand"><th colspan="3">Total</th><td class="num">${money(v.totalMinor)}</td></tr>
     </tfoot>
   </table>
   <ul class="notes">
     ${taxNote}
+    ${supply}
     <li>This invoice is for an ETicketsGo plan or credits. It is not a ticket receipt.</li>
   </ul>
 </div>

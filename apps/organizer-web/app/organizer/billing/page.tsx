@@ -407,7 +407,8 @@ export default function BillingPage() {
             Extra campaign email credits
           </h2>
           <p className="text-[0.9375rem] text-text-muted">
-            Credits are used after your monthly emails run out. They do not expire.
+            Credits are used after your monthly emails run out. They do not expire. Prices are
+            before tax; tax is added at checkout.
           </p>
           <div className="grid gap-4 md:grid-cols-2">
             {packs.map((pack) => (

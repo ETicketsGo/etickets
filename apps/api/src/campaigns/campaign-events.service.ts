@@ -24,7 +24,10 @@ interface Mapping {
   to: CampaignRecipientStatus;
   from: CampaignRecipientStatus[];
   event: string;
-  /** Feed the platform-wide suppression list (only for the address itself failing). */
+  /**
+   * Feed the platform suppression list. A hard bounce suppresses ALL email (the address does
+   * not work); a complaint suppresses MARKETING only (`scopeForReason`), so tickets still go.
+   */
   suppress?: SuppressionReason;
 }
 
@@ -33,10 +36,12 @@ interface Mapping {
  *
  *   Delivery       ACCEPTED/DEFERRED -> DELIVERED
  *   DeliveryDelay  ACCEPTED          -> DEFERRED   (SES keeps trying; not a failure)
- *   Bounce         Permanent: -> BOUNCED, and the address is suppressed platform-wide
+ *   Bounce         Permanent: -> BOUNCED, and the address is suppressed for ALL email
  *                  Transient: -> BOUNCED for this message only (mailbox full, try another day)
- *   Complaint      -> COMPLAINED, suppressed platform-wide, AND unsubscribed from this
- *                  organizer with consent withdrawn - a person who marks it spam said no.
+ *   Complaint      -> COMPLAINED, suppressed for MARKETING from every organizer and from
+ *                  ETicketsGo, AND unsubscribed from this organizer with consent withdrawn - a
+ *                  person who marks it spam said no to promotion. Tickets, receipts, sign-in
+ *                  codes and refunds still reach them (owner decision 2026-10-27).
  *   Reject         -> FAILED (SES refused the content). Not the address's fault: no suppression.
  *
  * Send, Open and Click are ignored: Send is already ACCEPTED, and opens are not tracked

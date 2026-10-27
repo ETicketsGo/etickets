@@ -119,6 +119,27 @@ export interface AdminBillingPrice {
   createdAt: string;
 }
 
+/** One email credit pack and its price per billing country (staff view). */
+export interface AdminCreditPack {
+  code: string;
+  name: string;
+  credits: number;
+  prices: AdminCreditPackPrice[];
+}
+
+export interface AdminCreditPackPrice {
+  country: string;
+  currency: string | null;
+  /** Before tax. Null: no price set yet. */
+  amountMinor: number | null;
+  /** On sale in this country. Unpublished by default. */
+  published: boolean;
+  publishedAt: string | null;
+  /** 0 when there is no price row yet. Sent back as `expectedVersion`. */
+  version: number;
+  updatedAt: string | null;
+}
+
 export interface AdminBillingPlan {
   id: string;
   code: BillingPlanCode;
