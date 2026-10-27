@@ -1,5 +1,6 @@
 import {
   Activity,
+  BadgePercent,
   Banknote,
   BarChart3,
   Building2,
@@ -345,6 +346,22 @@ export const ADMIN_NAV: AdminNavGroup[] = [
         icon: Percent,
         needs: 'PLATFORM_CONFIG_READ',
         keywords: ['fee rules', 'settings'],
+        /*
+          Platform fee policies: exceptions to the fee schedule for one event or one organizer
+          (waive, fixed, percentage). A page of Booking fees rather than a row of its own: one
+          more top-level row made this group taller than a 768px window (console-navigation
+          e2e). GET /admin/platform-fee-policies needs PLATFORM_CONFIG_READ; creating and
+          deactivating need PLATFORM_CONFIG and a fresh MFA code.
+        */
+        children: [
+          {
+            label: 'Platform fee policies',
+            href: '/admin/fee-policies',
+            icon: BadgePercent,
+            needs: 'PLATFORM_CONFIG_READ',
+            keywords: ['fee waiver', 'waive fee', 'fee override', 'promotion', 'finance'],
+          },
+        ],
       },
       {
         label: 'Tax rules',

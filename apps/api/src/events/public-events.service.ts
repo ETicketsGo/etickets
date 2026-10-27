@@ -328,6 +328,7 @@ export class PublicEventsService {
             e.feeMode as FeeMode,
             currency,
             { country: e.venue.country, region: e.venue.region },
+            { eventId: e.id, organizationId: e.organizationId },
           ),
           currency,
         };
@@ -588,6 +589,7 @@ export class PublicEventsService {
                 e.feeMode as FeeMode,
                 e.sessions[0]?.ticketTypes[0]?.currency ?? 'INR',
                 { country: e.venue.country, region: e.venue.region },
+                { eventId: e.id, organizationId: e.organizationId },
               ),
             ] as const,
         ),

@@ -1,10 +1,9 @@
-import { HttpStatus, Inject, Injectable } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { FeeMode } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   applicableTiers,
-  calculateFees,
   DEFAULT_FEE_TIERS,
   feeTierFromRule,
   type FeeCalcResult,
@@ -12,6 +11,14 @@ import {
   type FeeTier,
 } from './fee-calculator';
 import { TaxClassificationError, type TaxPlace } from './tax-calculator';
+import {
+  appliedFeePolicy,
+  calculateFeesWithPolicy,
+  type AppliedFeePolicy,
+  type FeePolicyContext,
+  type FeePolicyRow,
+} from './fee-policy';
+import { FeePolicyResolver } from './fee-policy-resolver.service';
 import {
   TAX_PROVIDER,
   type TaxProvider,
@@ -22,12 +29,44 @@ import { AppException, ErrorCodes } from '../common/errors';
 import { BUYER_SALE_NOT_OPEN, SALE_NOT_OPEN_REASON } from './cinema-policy/sale-eligibility';
 import type { PolicyEffect } from './cinema-policy/apply-policy';
 
+/** How `quote` may consult platform fee policies. See `PricingService.resolveFeeTiers`. */
+export type FeePolicySelection = { context: FeePolicyContext } | { pinned: FeePolicyRow | null };
+
+/** A quote, plus the platform fee policy that priced it when one did. */
+export type PricedFees = FeeCalcResult & {
+  /** Internal: which policy, for the booking snapshot. Strip before showing a buyer. */
+  appliedFeePolicy?: AppliedFeePolicy;
+  /** The schedule's booking fee for this order, before any cinema cap. */
+  baseBookingFeeMinor?: number | null;
+  /** How much of it the policy took off, before any cinema cap. */
+  feeWaivedMinor?: number | null;
+};
+
+/**
+ * The quote as a buyer may see it: the policy's KIND and the amount it took off, never its id,
+ * version or order limit - those describe a commercial arrangement with the organizer.
+ */
+export function buyerFees(fees: PricedFees): FeeCalcResult & {
+  feePolicyKind?: string;
+  feeWaivedMinor?: number | null;
+} {
+  const { appliedFeePolicy: applied, baseBookingFeeMinor: _base, ...rest } = fees;
+  void _base;
+  return applied ? { ...rest, feePolicyKind: applied.kind } : rest;
+}
+
 @Injectable()
 export class PricingService {
   constructor(
     private readonly prisma: PrismaService,
     @Inject(TAX_PROVIDER) private readonly tax: TaxProvider,
     private readonly config: ConfigService,
+    /*
+      ON THE END and optional, so every hand-built PricingService in a test keeps working and
+      prices exactly as before (no policy). PricingModule always provides it, which the
+      module-graph test pins.
+    */
+    @Optional() private readonly feePolicies?: FeePolicyResolver,
   ) {}
 
   /**
@@ -66,6 +105,25 @@ export class PricingService {
     const applicable = applicableTiers(rules, place);
     if (applicable.length === 0) return DEFAULT_FEE_TIERS;
     return applicable.map(feeTierFromRule);
+  }
+
+  /**
+   * The bands that price this sale, and the platform fee policy (if any) that overrides them.
+   *
+   * Precedence: an EVENT policy, then an ORGANIZATION policy, then the schedule (`loadTiers`).
+   * `pinned` re-prices an existing booking under the policy it was snapshotted with - or under
+   * none, when it had none - and never looks for a new one: a booking does not gain or lose a
+   * waiver because somebody changed the policies after it was priced.
+   */
+  async resolveFeeTiers(
+    currency: string,
+    place: FeePlace,
+    feePolicy?: FeePolicySelection,
+  ): Promise<{ tiers: FeeTier[]; policy: FeePolicyRow | null }> {
+    const tiers = await this.loadTiers(currency, place);
+    if (!feePolicy || !this.feePolicies) return { tiers, policy: null };
+    if ('pinned' in feePolicy) return { tiers, policy: feePolicy.pinned };
+    return { tiers, policy: await this.feePolicies.resolve(currency, feePolicy.context) };
   }
 
   /**
@@ -129,16 +187,32 @@ export class PricingService {
      * for every non-cinema order, nothing below changes at all.
      */
     policy?: PolicyEffect,
-  ): Promise<FeeCalcResult> {
+    /**
+     * Which platform fee policy may override the schedule: resolve one for this event and
+     * organization now (`context`), or re-price under the one a booking already carries
+     * (`pinned`). Omitted, no policy is consulted and the result is exactly as before.
+     */
+    feePolicy?: FeePolicySelection,
+  ): Promise<PricedFees> {
     // The venue's location decides the fee schedule, for the same reason it decides the
     // admission's place of supply: a cap applies to the sale that happens there.
-    const tiers = await this.loadTiers(currency, {
-      country: taxPlace.country,
-      region: taxPlace.region,
-    });
+    const { tiers, policy: feePolicyRow } = await this.resolveFeeTiers(
+      currency,
+      { country: taxPlace.country, region: taxPlace.region },
+      feePolicy,
+    );
     // Fees first, with no tax, because tax is levied on what the customer is actually
-    // charged — the discounted ticket price plus their share of the fees.
-    const uncapped = calculateFees({ subtotalMinor, feeMode, discountMinor, tiers, currency });
+    // charged — the discounted ticket price plus their share of the fees. A fee policy
+    // replaces the BOOKING fee only; the payment fee and tax below are computed from it.
+    const override = calculateFeesWithPolicy({
+      subtotalMinor,
+      feeMode,
+      discountMinor,
+      currency,
+      baseTiers: tiers,
+      policy: feePolicyRow ? { ...feePolicyRow, applied: appliedFeePolicy(feePolicyRow) } : null,
+    });
+    const uncapped = override.fees;
 
     /*
       ── A JURISDICTION MAY LIMIT OR FORBID THE PLATFORM'S FEE ────────────────────────
@@ -242,6 +316,14 @@ export class PricingService {
 
     return {
       ...fees,
+      // Only when a policy priced this, so every order priced by the schedule is unchanged.
+      ...(override.policy
+        ? {
+            appliedFeePolicy: override.policy,
+            baseBookingFeeMinor: override.baseBookingFeeMinor,
+            feeWaivedMinor: override.feeWaivedMinor,
+          }
+        : {}),
       taxLines,
       taxMinor,
       /**
