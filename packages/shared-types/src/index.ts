@@ -51,3 +51,4 @@ export * from './sale-state';
 export * from './payout-provider-readiness';
 export * from './tax-classification';
 export * from './phone-identity';
+export * from './entitlements';

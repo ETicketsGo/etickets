@@ -31,6 +31,8 @@ const APPROVED: Record<string, AdminPermission[]> = {
     AdminPermission.FINANCE_APPROVE,
     AdminPermission.FINANCE_RESOLVE,
     AdminPermission.PLATFORM_CONFIG_READ,
+    // + BILLING_READ (organizer plans and platform invoices; proposed, see the matrix).
+    AdminPermission.BILLING_READ,
   ],
   // Unchanged.
   MODERATOR: [
@@ -58,12 +60,21 @@ const APPROVED: Record<string, AdminPermission[]> = {
     AdminPermission.BOOKING_READ,
     AdminPermission.FINANCE_READ,
     AdminPermission.AUDIT_READ,
+    AdminPermission.BILLING_READ,
   ],
   OPS_ONCALL: [AdminPermission.OPS_READ, AdminPermission.OPS_EXECUTE],
   // New (organizer acquisition CRM): the CRM duties and NOTHING else - no booking, organizer,
   // finance or audit read. An acquisition agent must not reach customers or money.
   CRM_AGENT: [AdminPermission.CRM_AGENT],
   CRM_MANAGER: [AdminPermission.CRM_AGENT, AdminPermission.CRM_MANAGER],
+  // New (organizer billing): plans, offers and single-feature grants; no bookings or payouts.
+  BILLING_DESK: [
+    AdminPermission.ORGANIZER_READ,
+    AdminPermission.BILLING_READ,
+    AdminPermission.BILLING_MANAGE,
+    AdminPermission.BILLING_ADJUST,
+    AdminPermission.ENTITLEMENT_GRANT,
+  ],
 };
 
 describe('the ready-made staff bundles', () => {
@@ -111,8 +122,27 @@ describe('the ready-made staff bundles', () => {
     }
   });
 
+  it('keeps the billing writes in the billing desk bundle only', () => {
+    const writes: string[] = [
+      AdminPermission.BILLING_MANAGE,
+      AdminPermission.BILLING_ADJUST,
+      AdminPermission.ENTITLEMENT_GRANT,
+    ];
+    for (const [key, preset] of Object.entries(ADMIN_PRESETS)) {
+      if (key === 'BILLING_DESK') continue;
+      expect(preset.grants.filter((g) => writes.includes(g))).toEqual([]);
+    }
+  });
+
   it('writes the changed and new descriptions in plain ASCII', () => {
-    for (const key of ['SUPPORT', 'FINANCE', 'OPERATIONS', 'CRM_AGENT', 'CRM_MANAGER']) {
+    for (const key of [
+      'SUPPORT',
+      'FINANCE',
+      'OPERATIONS',
+      'CRM_AGENT',
+      'CRM_MANAGER',
+      'BILLING_DESK',
+    ]) {
       expect(ADMIN_PRESETS[key].description).toMatch(/^[\x20-\x7e]+$/);
       expect(ADMIN_PRESETS[key].label).toMatch(/^[\x20-\x7e]+$/);
     }
