@@ -30,3 +30,4 @@ export * from './catalogue/inventory-events';
 export * from './catalogue/refund-events';
 export * from './catalogue/ticket-events';
 export * from './catalogue/sync-events';
+export * from './catalogue/billing-events';

@@ -549,35 +549,35 @@ model User {
   refreshTokens              RefreshToken[]
   mfaCredential              AdminMfaCredential?
   mfaRecoveryCodes           AdminMfaRecoveryCode[]
-  invitationsSent            AccountInvitation[]         @relation("InvitationsSent")
-  invitationReceived         AccountInvitation?          @relation("InvitationsReceived")
+  invitationsSent            AccountInvitation[]               @relation("InvitationsSent")
+  invitationReceived         AccountInvitation?                @relation("InvitationsReceived")
   passwordResetTokens        PasswordResetToken[]
-  cashCollected              Booking[]                   @relation("CashCollected")
-  cashReturned               Booking[]                   @relation("CashReturned")
+  cashCollected              Booking[]                         @relation("CashCollected")
+  cashReturned               Booking[]                         @relation("CashReturned")
   memberships                OrganizationMember[]
   bookings                   Booking[]
-  assignedTickets            Ticket[]                    @relation("TicketAttendee")
+  assignedTickets            Ticket[]                          @relation("TicketAttendee")
   notifications              Notification[]
   notificationPreferences    NotificationPreference[]
   pushSubscriptions          PushSubscription[]
   devices                    UserDevice[]
   feedback                   Feedback[]
-  checkIns                   CheckIn[]                   @relation("CheckInActor")
+  checkIns                   CheckIn[]                         @relation("CheckInActor")
   auditLogs                  AuditLog[]
   payoutSettingUpdates       PayoutSetting[]
-  seatOverrides              ShowSeat[]                  @relation("SeatOverrideActor")
+  seatOverrides              ShowSeat[]                        @relation("SeatOverrideActor")
   reviews                    Review[]
   marketingConsents          MarketingConsent[]
   notificationCertifications NotificationCertification[]
-  adminGrants                AdminGrant[]                @relation("AdminGrantHolder")
-  adminGrantsIssued          AdminGrant[]                @relation("AdminGrantIssuer")
+  adminGrants                AdminGrant[]                      @relation("AdminGrantHolder")
+  adminGrantsIssued          AdminGrant[]                      @relation("AdminGrantIssuer")
   /// Organizer acquisition (CRM). Staff only; a customer account never has any of these.
-  crmTeamMemberships         CrmTeamMember[]             @relation("CrmTeamMemberUser")
-  crmLeadsAssigned           CrmLead[]                   @relation("CrmLeadAssignee")
-  crmLeadsCreated            CrmLead[]                   @relation("CrmLeadCreator")
-  crmActivities              CrmActivity[]               @relation("CrmActivityResponsible")
-  crmFollowUps               CrmFollowUp[]               @relation("CrmFollowUpOwner")
-  crmStageChanges            CrmLeadStageChange[]        @relation("CrmStageChangeActor")
+  crmTeamMemberships         CrmTeamMember[]                   @relation("CrmTeamMemberUser")
+  crmLeadsAssigned           CrmLead[]                         @relation("CrmLeadAssignee")
+  crmLeadsCreated            CrmLead[]                         @relation("CrmLeadCreator")
+  crmActivities              CrmActivity[]                     @relation("CrmActivityResponsible")
+  crmFollowUps               CrmFollowUp[]                     @relation("CrmFollowUpOwner")
+  crmStageChanges            CrmLeadStageChange[]              @relation("CrmStageChangeActor")
   /// One-time codes that carry a signed-in storefront session to the organizer console.
   authHandoffs               AuthHandoff[]
   /// Codes sent to an email address somebody is adding to their own account.
@@ -1045,7 +1045,7 @@ model Organization {
   /// taking money the platform will never see, so it changes who is responsible for
   /// collecting it, what a settlement can promise, and what a receipt can honestly say.
   /// Somebody has to choose that deliberately.
-  cashPaymentsEnabled     Boolean                   @default(false)
+  cashPaymentsEnabled     Boolean                           @default(false)
   /// The acquisition lead this organization was won from, if any. Set by the CRM linking an
   /// EXISTING organization; nothing about the organization itself changes.
   crmLead                 CrmLead?
@@ -5757,4 +5757,334 @@ model OrganizerSuppression {
   updatedAt       DateTime  @updatedAt
 
   @@unique([organizationId, channel, destinationHash])
+}
+
+// ════════════════════════════════════════════════════════════════════════════════════════
+// Organizer billing and entitlements (feat/entitlements-billing-core)
+//
+// ONE contiguous block on purpose. These tables record the PLATFORM charging ORGANIZERS for a
+// plan (Free, Pro, Premium) and what each organization may use. They share nothing with ticket
+// money: no PaymentRoute (tickets route by currency, billing by the organizer's country), no
+// Receipt (that is per organizer and needs a booking), no WebhookEvent row.
+//
+// `organizationId` and `...UserId` columns are plain ids, not relations, so this block changes
+// no existing model. The services check the organization exists before they write.
+// ════════════════════════════════════════════════════════════════════════════════════════
+
+enum BillingPlanCode {
+  FREE
+  PRO
+  PREMIUM
+}
+
+enum BillingInterval {
+  MONTH
+  YEAR
+}
+
+/// Who collects the money for a billing account. Separate names from ticket providers, so a
+/// billing event can never be mistaken for a ticket payment event.
+enum BillingProviderName {
+  NONE
+  MOCK
+  STRIPE_BILLING
+  RAZORPAY_BILLING
+}
+
+enum OrganizerSubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  GRACE
+  CANCELLED
+  EXPIRED
+  COMPLIMENTARY
+}
+
+enum OrganizerSubscriptionSource {
+  PROVIDER
+  ADMIN_COMPLIMENTARY
+  TRIAL
+}
+
+enum OrganizerInvoiceStatus {
+  DRAFT
+  OPEN
+  PAID
+  VOID
+  REFUNDED
+}
+
+enum BillingPaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  REFUNDED
+}
+
+enum BillingAdjustmentKind {
+  CREDIT_NOTE
+  REFUND
+  DISCOUNT
+}
+
+enum BillingWebhookStatus {
+  RECEIVED
+  PROCESSED
+  IGNORED
+  FAILED
+}
+
+enum UsageLedgerReason {
+  CONSUMPTION
+  CREDIT_GRANT
+  CREDIT_REVERSAL
+  ADJUSTMENT
+}
+
+model BillingPlan {
+  id          String          @id @default(cuid())
+  code        BillingPlanCode @unique
+  name        String
+  description String?
+  active      Boolean         @default(true)
+  sortOrder   Int             @default(0)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  prices                 BillingPrice[]
+  entitlements           PlanEntitlement[]
+  subscriptions          OrganizerSubscription[] @relation("OrganizerSubscriptionPlan")
+  scheduledSubscriptions OrganizerSubscription[] @relation("OrganizerSubscriptionScheduledPlan")
+}
+
+/// A plan's price in one country and currency, per month or per year. Minor units.
+model BillingPrice {
+  id                   String          @id @default(cuid())
+  planId               String
+  plan                 BillingPlan     @relation(fields: [planId], references: [id], onDelete: Restrict)
+  /// ISO 3166-1 alpha-2: the ORGANIZER's country decides the price, never the visitor's.
+  country              String
+  currency             String
+  interval             BillingInterval
+  amountMinor          Int
+  trialDays            Int?
+  providerPriceRefTest String?
+  providerPriceRefLive String?
+  active               Boolean         @default(true)
+  /// "<planId>:<country>:<interval>" while active, null otherwise. Unique, so one plan cannot
+  /// have two live prices for the same country and interval, even under a race.
+  activeKey            String?         @unique
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+
+  subscriptions OrganizerSubscription[]
+
+  @@index([planId, country, interval])
+  @@index([country, active])
+}
+
+model PlanEntitlement {
+  id        String      @id @default(cuid())
+  planId    String
+  plan      BillingPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  /// An EntitlementKey from @eticketsgo/shared-types.
+  key       String
+  boolValue Boolean?
+  intValue  Int?
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  @@unique([planId, key])
+}
+
+model OrganizerBillingAccount {
+  id                  String              @id @default(cuid())
+  organizationId      String              @unique
+  country             String
+  currency            String
+  provider            BillingProviderName @default(NONE)
+  providerCustomerRef String?
+  taxId               String?
+  billingEmail        String?
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+
+  subscriptions OrganizerSubscription[]
+  invoices      OrganizerInvoice[]
+  payments      BillingPayment[]
+  adjustments   BillingAdjustment[]
+
+  @@index([country])
+}
+
+model OrganizerSubscription {
+  id                      String                      @id @default(cuid())
+  accountId               String
+  account                 OrganizerBillingAccount     @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  planId                  String
+  plan                    BillingPlan                 @relation("OrganizerSubscriptionPlan", fields: [planId], references: [id], onDelete: Restrict)
+  priceId                 String?
+  price                   BillingPrice?               @relation(fields: [priceId], references: [id], onDelete: Restrict)
+  status                  OrganizerSubscriptionStatus
+  source                  OrganizerSubscriptionSource
+  currentPeriodStart      DateTime
+  /// Null only for an open-ended complimentary plan.
+  currentPeriodEnd        DateTime?
+  cancelAtPeriodEnd       Boolean                     @default(false)
+  trialEndsAt             DateTime?
+  graceEndsAt             DateTime?
+  scheduledPlanId         String?
+  scheduledPlan           BillingPlan?                @relation("OrganizerSubscriptionScheduledPlan", fields: [scheduledPlanId], references: [id], onDelete: Restrict)
+  providerSubscriptionRef String?                     @unique
+  /// The account id while this subscription is the account's current one (any status that is
+  /// not CANCELLED or EXPIRED), null after. Unique: one current subscription per account.
+  currentKey              String?                     @unique
+  cancelledAt             DateTime?
+  endedAt                 DateTime?
+  grantedByUserId         String?
+  note                    String?
+  version                 Int                         @default(1)
+  createdAt               DateTime                    @default(now())
+  updatedAt               DateTime                    @updatedAt
+
+  invoices    OrganizerInvoice[]
+  adjustments BillingAdjustment[]
+
+  @@index([accountId, createdAt])
+  @@index([status, currentPeriodEnd])
+}
+
+/// A platform invoice to an organizer. Numbered ETG-BIL-<YEAR>-<SEQ> when issued, never before,
+/// so the series has no gaps: a draft that is never issued takes no number.
+model OrganizerInvoice {
+  id             String                  @id @default(cuid())
+  number         String?                 @unique
+  accountId      String
+  account        OrganizerBillingAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  subscriptionId String?
+  subscription   OrganizerSubscription?  @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+  status         OrganizerInvoiceStatus  @default(DRAFT)
+  subtotalMinor  Int
+  taxMinor       Int                     @default(0)
+  totalMinor     Int
+  currency       String
+  lines          Json
+  periodStart    DateTime?
+  periodEnd      DateTime?
+  issuedAt       DateTime?
+  documentJson   Json?
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+
+  payments    BillingPayment[]
+  adjustments BillingAdjustment[]
+
+  @@index([accountId, createdAt])
+  @@index([status])
+}
+
+model BillingPayment {
+  id                 String                  @id @default(cuid())
+  accountId          String
+  account            OrganizerBillingAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  invoiceId          String?
+  invoice            OrganizerInvoice?       @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  provider           BillingProviderName
+  providerPaymentRef String?
+  amountMinor        Int
+  currency           String
+  status             BillingPaymentStatus
+  /// Set only when the provider's own record of the payment was verified (signature + amount).
+  verifiedAt         DateTime?
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+
+  @@unique([provider, providerPaymentRef])
+  @@index([accountId, createdAt])
+}
+
+/// Credit notes, refunds and discounts. A DISCOUNT on an account is a commercial offer: a share
+/// off (basis points) or an amount off, for a window. Never a platform ticket-fee waiver.
+model BillingAdjustment {
+  id              String                  @id @default(cuid())
+  accountId       String
+  account         OrganizerBillingAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  kind            BillingAdjustmentKind
+  invoiceId       String?
+  invoice         OrganizerInvoice?       @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  subscriptionId  String?
+  subscription    OrganizerSubscription?  @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+  amountMinor     Int?
+  percentOffBps   Int?
+  currency        String?
+  startsAt        DateTime                @default(now())
+  endsAt          DateTime?
+  reason          String
+  createdByUserId String
+  revokedAt       DateTime?
+  revokedByUserId String?
+  createdAt       DateTime                @default(now())
+
+  @@index([accountId, createdAt])
+}
+
+/// Provider events for BILLING, kept apart from WebhookEvent (ticket payments) so a billing
+/// event can never be picked up by the ticket reconciliation, and the reverse.
+model BillingWebhookEvent {
+  id                String               @id @default(cuid())
+  provider          BillingProviderName
+  providerEventId   String
+  eventType         String
+  signatureVerified Boolean              @default(false)
+  payload           Json
+  status            BillingWebhookStatus @default(RECEIVED)
+  accountId         String?
+  error             String?
+  receivedAt        DateTime             @default(now())
+  processedAt       DateTime?
+
+  @@unique([provider, providerEventId])
+  @@index([status, receivedAt])
+}
+
+/// One entitlement for one organization, outside its plan. Time-bounded and revocable; for a key
+/// the latest live override wins over the plan.
+model EntitlementOverride {
+  id              String    @id @default(cuid())
+  organizationId  String
+  key             String
+  boolValue       Boolean?
+  intValue        Int?
+  startsAt        DateTime  @default(now())
+  endsAt          DateTime?
+  reason          String
+  grantedByUserId String
+  revokedAt       DateTime?
+  revokedByUserId String?
+  revokeReason    String?
+  createdAt       DateTime  @default(now())
+
+  @@index([organizationId, key])
+}
+
+/// Append-only usage and credit ledger. A negative delta spends, a positive one grants. Balances
+/// are derived from it; nothing is stored that could drift from it. UPDATE and DELETE are refused
+/// by a trigger.
+model UsageLedger {
+  id             String            @id @default(cuid())
+  organizationId String
+  key            String
+  delta          Int
+  reason         UsageLedgerReason
+  refType        String?
+  refId          String?
+  /// "2026-10" for a monthly quota; "-" for a balance that never resets (credits).
+  periodKey      String
+  idempotencyKey String            @unique
+  actorUserId    String?
+  note           String?
+  createdAt      DateTime          @default(now())
+
+  @@index([organizationId, key, periodKey])
 }

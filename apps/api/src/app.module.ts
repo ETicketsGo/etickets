@@ -45,6 +45,7 @@ import { ReportsModule } from './reports/reports.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AdminModule } from './admin/admin.module';
 import { CrmModule } from './crm/crm.module';
+import { BillingModule } from './billing/billing.module';
 import { OpsModule } from './ops/ops.module';
 import { OpsAlertsModule } from './ops/alerts/ops-alerts.module';
 import { PilotModule } from './pilot/pilot.module';
@@ -146,6 +147,7 @@ import { HttpObservationMiddleware } from './common/http-observation.middleware'
     AnalyticsModule,
     AdminModule,
     CrmModule,
+    BillingModule,
     OpsModule,
     OpsAlertsModule,
     PilotModule,

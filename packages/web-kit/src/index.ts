@@ -10,6 +10,7 @@ export * from './wallet';
 export * from './offline-eligibility';
 export * from './api';
 export * from './crm-types';
+export * from './billing-types';
 export * from './event-image';
 export * from './connectivity';
 export * from './components';

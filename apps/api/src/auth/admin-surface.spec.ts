@@ -145,6 +145,7 @@ describe('the admin surface is fully gated', () => {
       'AdminPermission.FINANCE_READ',
       'AdminPermission.OPS_READ',
       'AdminPermission.PLATFORM_CONFIG_READ',
+      'AdminPermission.BILLING_READ',
     ]);
     /** POSTs that compute and return, writing nothing. */
     const READ_ONLY_POSTS = new Set(['CompensationAdminController.dryRun']);

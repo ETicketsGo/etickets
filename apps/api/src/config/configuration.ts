@@ -529,6 +529,21 @@ const envSchema = z.object({
   PAYMENTS_ACTIVATION_PENDING: z.enum(['true', 'false']).default('false'),
 
   /**
+   * Organizer billing: the platform charging organizers for Pro and Premium plans.
+   *
+   * OFF by default, everywhere. While off, no checkout can start, plans and prices are shown as
+   * "not open yet", and staff grants (trials, complimentary plans, overrides) still work - they
+   * move no money. `assertBillingConfiguration` refuses contradictory states at boot.
+   */
+  BILLING_ENABLED: z.enum(['true', 'false']).default('false'),
+  /**
+   * Who would take the money. `disabled` refuses every checkout. `mock` is a test double for
+   * LOCAL, DEV and QA only. Real providers (Stripe Billing, Razorpay Subscriptions) arrive in a
+   * later change; until then STAGING and PRODUCTION cannot enable billing at all.
+   */
+  BILLING_PROVIDER: z.enum(['disabled', 'mock']).default('disabled'),
+
+  /**
    * The account that becomes this environment's FIRST administrator.
    *
    * A fresh environment has no back-office account and no way to make one: ADMIN is granted only
@@ -1596,6 +1611,50 @@ function assertPaymentActivationPending(cfg: AppConfig): void {
   }
 }
 
+/**
+ * Organizer billing cannot be switched on by accident.
+ *
+ * Follows the payment-environment rules (payments/configuration/payment-environment.ts): the
+ * test double is refused where real money could be expected, and the fail-closed environments
+ * (STAGING, PRODUCTION) need a real provider - which does not exist yet - so enabling billing
+ * there stops the boot with a plain reason instead of opening a checkout nobody can pay.
+ */
+export function billingConfigurationErrors(cfg: {
+  APP_ENV: string;
+  BILLING_ENABLED: string;
+  BILLING_PROVIDER: string;
+}): string[] {
+  const errors: string[] = [];
+  const env = cfg.APP_ENV;
+  const enabled = cfg.BILLING_ENABLED === 'true';
+  const mockAllowed = ['LOCAL', 'DEV', 'QA'].includes(env);
+  if (cfg.BILLING_PROVIDER === 'mock' && !mockAllowed) {
+    errors.push(
+      `  - BILLING_PROVIDER=mock is a test double and is refused in ${env}. Use BILLING_PROVIDER=disabled.`,
+    );
+  }
+  if (enabled && cfg.BILLING_PROVIDER === 'disabled') {
+    errors.push(
+      '  - BILLING_ENABLED=true but BILLING_PROVIDER=disabled: nothing could take a payment. ' +
+        'Name a provider, or leave billing off.',
+    );
+  }
+  if (enabled && ['STAGING', 'PRODUCTION'].includes(env)) {
+    errors.push(
+      `  - BILLING_ENABLED=true is refused in ${env}: no real billing provider is integrated yet. ` +
+        'Leave billing off until the provider change ships and the owner approves it.',
+    );
+  }
+  return errors;
+}
+
+function assertBillingConfiguration(cfg: AppConfig): void {
+  const errors = billingConfigurationErrors(cfg);
+  if (errors.length) {
+    throw new Error(`Unsafe billing configuration:\n${errors.join('\n')}`);
+  }
+}
+
 function assertPaymentEnvironmentKeySafety(cfg: AppConfig): void {
   const env = cfg.APP_ENV;
   const allowLiveInLowerEnv = cfg.PAYMENT_ALLOW_LIVE_KEYS_LOWER_ENV === 'true';
@@ -2138,6 +2197,7 @@ export function loadConfig(): AppConfig {
   assertRazorpayConsistency(parsed.data);
   assertPaymentEnvironmentKeySafety(parsed.data);
   assertPaymentActivationPending(parsed.data);
+  assertBillingConfiguration(parsed.data);
   assertPlatformConfigConsistency(parsed.data);
   assertNotificationConfigConsistency(parsed.data);
   assertObjectStoreConsistency(parsed.data);

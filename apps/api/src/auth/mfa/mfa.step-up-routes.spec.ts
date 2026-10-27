@@ -2,6 +2,7 @@ import { AdminPayoutsController } from '../../payouts/payouts.controller';
 import { AdminStaffController } from '../../admin/admin-staff.controller';
 import { SettlementController } from '../../payments/settlement/settlement.controller';
 import { MFA_RECENT_KEY } from '../../common/decorators';
+import { AdminBillingController } from '../../billing/billing-admin.controller';
 
 /*
   Which actions demand a fresh second-factor check. A list in a test is deliberate: dropping
@@ -15,6 +16,25 @@ const STEP_UP: Array<[string, new (...a: never[]) => unknown, string[]]> = [
   ],
   ['settlements', SettlementController, ['approve', 'release']],
   ['staff', AdminStaffController, ['setPermissions', 'grant', 'invite', 'revoke', 'resetMfa']],
+  [
+    'organizer billing',
+    AdminBillingController,
+    [
+      'loadCatalog',
+      'updatePlan',
+      'setPlanEntitlements',
+      'createPrice',
+      'updatePrice',
+      'deactivatePrice',
+      'grantTrial',
+      'grantComplimentary',
+      'endGrant',
+      'grantCredits',
+      'recordDiscount',
+      'grantOverride',
+      'revokeOverride',
+    ],
+  ],
 ];
 
 describe('sensitive back-office actions require a recent second-factor check', () => {

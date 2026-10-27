@@ -50,6 +50,10 @@ accounts are `SUPER_ADMIN` and hold everything by role, so this column does not 
 | `USER_SUSPEND`                | Suspend or reinstate any account, and sign it out everywhere (`POST /admin/users/:id/suspend`, `/reinstate`, `/revoke-sessions`). Step-up MFA. Not your own; a super admin only by a super admin                                                 | none                                     | sec/admin-authorization                                  |
 | `CRM_AGENT`                   | Organizer acquisition CRM only (`/admin/crm/*`): add prospects, work the leads assigned to them in their CRM team, log outreach (logged, never sent), keep their own follow-ups, see their own dashboard. Opens nothing outside the CRM          | CRM_AGENT, CRM_MANAGER                   | feat/organizer-acquisition-crm                           |
 | `CRM_MANAGER`                 | With `CRM_AGENT`, in teams where the holder is the team's MANAGER: every lead in the team, assign and reassign, reopen lost leads, link a lead to an EXISTING organization, import and export leads, team reports. Opens nothing outside the CRM | CRM_MANAGER                              | feat/organizer-acquisition-crm                           |
+| `BILLING_READ`                | Organizer billing only (`GET /admin/billing/*`): plans, prices, subscriptions, an organization's billing account, invoices, usage ledger, overrides, billing metrics. Changes nothing                                                            | FINANCE, FINANCE_REVIEWER, BILLING_DESK  | proposed, feat/entitlements-billing-core                 |
+| `BILLING_MANAGE`              | Load the provisional plan catalogue; edit plans, plan entitlements and prices; switch a price off. Step-up MFA                                                                                                                                   | BILLING_DESK                             | proposed, feat/entitlements-billing-core                 |
+| `BILLING_ADJUST`              | Commercial offers: grant or end a trial or complimentary plan, grant marketing credits, record a discount. Never on a paid subscription. Step-up MFA                                                                                             | BILLING_DESK                             | proposed, feat/entitlements-billing-core                 |
+| `ENTITLEMENT_GRANT`           | Grant or revoke one entitlement for one organization, for a window, outside its plan. Step-up MFA                                                                                                                                                | BILLING_DESK                             | proposed, feat/entitlements-billing-core                 |
 
 Sensitive: `OPS_EXECUTE`, `FINANCE_APPROVE` and `FINANCE_RESOLVE` replay jobs and syncs, let
 compensations execute, or close money findings. When they were split out of the reads, nobody was
@@ -79,6 +83,30 @@ assigns a capability, and no existing account changed.
 - **Audit.** Lead create/edit (field names only), assign, stage change, archive, link/unlink, import
   and export (counts only), follow-up reassignment and team membership changes are audited with ids;
   prospect contact details are never copied into audit metadata.
+
+## Organizer billing and entitlements (branch `feat/entitlements-billing-core`)
+
+- **Four capabilities, one surface.** `BILLING_READ` is the class floor of `/admin/billing`. Each
+  write names its own capability and never a read one: `BILLING_MANAGE` (catalogue),
+  `BILLING_ADJUST` (offers), `ENTITLEMENT_GRANT` (single-feature overrides). Every write needs a
+  recent second factor (`@RequiresRecentMfa`); both step-up spec lists name all 13 writes.
+- **Presets (PROPOSED, owner to approve).** `BILLING_READ` added to FINANCE and FINANCE_REVIEWER
+  (read only). New bundle BILLING_DESK = ORGANIZER_READ + the four billing capabilities, granted
+  to nobody until the owner names people. No other bundle carries a billing write
+  (`admin-presets.spec.ts`).
+- **Nothing outside billing.** None of the four is read by any other route. Billing moves no
+  ticket money and opens no booking, payout or bank data. Fee waivers on ticket sales are a
+  separate workstream and are not here.
+- **Organizer API.** `GET /organizations/:id/entitlements` (any member), `GET /organizations/:id/billing`
+  and `/billing/invoices` (owner, manager) are `NONE` for staff; `POST /organizations/:id/billing/checkout`
+  is `@OrganizerOnly('billing.checkout')` and refused with `BILLING_NOT_ENABLED` while billing is off.
+- **Audit.** Every billing write records its AuditLog row in the same transaction as the change
+  (`BILLING_*`, `ENTITLEMENT_OVERRIDE_*`), with actor, organization, entity and reason.
+- **Tests.** `billing/billing-admin-authz.spec.ts` (real HTTP through the real guards: each route
+  runs for its holder, is refused to every other billing capability alone, to CRM, finance and
+  config holders, organizers and customers, opens to a preset exactly when it carries the
+  capability); `admin/step-up-routes.spec.ts` (each write through the real MfaGuard);
+  `billing/billing.integration-postgres.spec.ts` (cross-tenant refusal on real Postgres).
 
 ## Admin authorization hardening (branch `sec/admin-authorization`)
 
@@ -438,10 +466,11 @@ do these on `/admin` instead, where each has its own capability:
 | `/organizers/:organizerId/payments/razorpay/*`             | `payments.razorpay-route`            |
 | `GET /organizations/:organizationId/receipts`              | `organization.receipts.list`         |
 | `GET /organizations/:organizationId/refunds`               | `organization.refunds.list`          |
+| `POST /organizations/:id/billing/checkout`                 | `billing.checkout`                   |
 
 ### Every other route
 
-`apps/api/src/tenancy/organizer-route-policy.spec.ts` lists **all 226** non-admin, non-public
+`apps/api/src/tenancy/organizer-route-policy.spec.ts` lists **all** non-admin, non-public (259 as of `feat/entitlements-billing-core`)
 routes, each with its staff policy. If a route is added without an entry, the build fails. The
 policies are:
 
