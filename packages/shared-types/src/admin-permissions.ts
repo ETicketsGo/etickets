@@ -149,6 +149,23 @@ export const AdminPermission = {
    * and read the team's reports. Always granted together with CRM_AGENT.
    */
   CRM_MANAGER: 'CRM_MANAGER',
+
+  // ── Organizer billing and entitlements ─────────────────────────────────────────
+  /*
+    The platform charging ORGANIZERS for plans (Free, Pro, Premium) - never ticket money. None of
+    these opens a route outside /admin/billing, and every write needs a recent second factor.
+  */
+  /** See plans, prices, organizer subscriptions, platform invoices, usage and billing metrics. */
+  BILLING_READ: 'BILLING_READ',
+  /** Create, edit and deactivate plans and prices, and load the provisional catalogue. */
+  BILLING_MANAGE: 'BILLING_MANAGE',
+  /**
+   * Commercial offers that change what an organizer pays or holds: grant a trial or a
+   * complimentary plan, end one, grant marketing credits, and record a subscription discount.
+   */
+  BILLING_ADJUST: 'BILLING_ADJUST',
+  /** Grant or revoke a single entitlement for one organization, outside its plan. */
+  ENTITLEMENT_GRANT: 'ENTITLEMENT_GRANT',
 } as const;
 
 export type AdminPermission = (typeof AdminPermission)[keyof typeof AdminPermission];
@@ -207,6 +224,7 @@ export const ADMIN_PRESETS: Record<
       AdminPermission.FINANCE_APPROVE,
       AdminPermission.FINANCE_RESOLVE,
       AdminPermission.PLATFORM_CONFIG_READ,
+      AdminPermission.BILLING_READ,
     ],
   },
   MODERATOR: {
@@ -264,6 +282,7 @@ export const ADMIN_PRESETS: Record<
       AdminPermission.BOOKING_READ,
       AdminPermission.FINANCE_READ,
       AdminPermission.AUDIT_READ,
+      AdminPermission.BILLING_READ,
     ],
   },
   OPS_ONCALL: {
@@ -288,6 +307,23 @@ export const ADMIN_PRESETS: Record<
     description:
       'Runs an acquisition team: sees every lead in the teams they manage, assigns work, links prospects to existing organizations, imports and exports leads and reads the reports. Cannot see bookings, customers, payouts or settings.',
     grants: [AdminPermission.CRM_AGENT, AdminPermission.CRM_MANAGER],
+  },
+  /*
+    Organizer plans and commercial offers. PROPOSED (feat/entitlements-billing-core), granted to
+    nobody until the owner approves it and names the people. Moves no ticket money and opens no
+    booking, payout or bank data.
+  */
+  BILLING_DESK: {
+    label: 'Billing desk',
+    description:
+      'Manages organizer plans and prices, grants trials, complimentary plans, marketing credits and discounts, and grants single features. Cannot see bookings, payouts or bank accounts.',
+    grants: [
+      AdminPermission.ORGANIZER_READ,
+      AdminPermission.BILLING_READ,
+      AdminPermission.BILLING_MANAGE,
+      AdminPermission.BILLING_ADJUST,
+      AdminPermission.ENTITLEMENT_GRANT,
+    ],
   },
 };
 

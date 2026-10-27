@@ -138,5 +138,13 @@ export const ErrorCodes = {
   HUMAN_CHECK_REQUIRED: 'HUMAN_CHECK_REQUIRED',
   HUMAN_CHECK_FAILED: 'HUMAN_CHECK_FAILED',
   HUMAN_CHECK_UNAVAILABLE: 'HUMAN_CHECK_UNAVAILABLE',
+  /** Organizer billing: paid plans are not open in this deployment (BILLING_ENABLED is off). */
+  BILLING_NOT_ENABLED: 'BILLING_NOT_ENABLED',
+  /** The organization's plan (or an override) does not include this feature. */
+  ENTITLEMENT_REQUIRED: 'ENTITLEMENT_REQUIRED',
+  /** Using this would go past what the plan and credits allow this period. Nothing was used. */
+  QUOTA_EXCEEDED: 'QUOTA_EXCEEDED',
+  /** A subscription move the lifecycle does not allow from its current state. */
+  SUBSCRIPTION_TRANSITION_INVALID: 'SUBSCRIPTION_TRANSITION_INVALID',
   INTERNAL: 'INTERNAL',
 } as const;

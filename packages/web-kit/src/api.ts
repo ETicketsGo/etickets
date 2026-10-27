@@ -60,6 +60,16 @@ export type {
 
 import { markApiReachable, markApiUnreachable } from './connectivity';
 import type {
+  AdminBillingAccountDetail,
+  AdminBillingMetrics,
+  AdminBillingPlan,
+  AdminBillingPrice,
+  AdminSubscriptionPage,
+  OrganizationEntitlements,
+  OrganizerBilling,
+  OrganizerInvoiceRow,
+} from './billing-types';
+import type {
   CrmActivity,
   CrmActivityReport,
   CrmAgingReport,
@@ -1151,6 +1161,25 @@ export const api = {
         method: 'POST',
         auth: false,
       }),
+  },
+
+  /**
+   * Organizer billing (plans, usage, platform invoices). Owners and managers; entitlements are
+   * readable by any member. Checkout is refused with BILLING_NOT_ENABLED while paid plans are
+   * not open - the console does not call it then.
+   */
+  billing: {
+    get: (organizationId: string) =>
+      request<OrganizerBilling>(`/organizations/${organizationId}/billing`),
+    entitlements: (organizationId: string) =>
+      request<OrganizationEntitlements>(`/organizations/${organizationId}/entitlements`),
+    invoices: (organizationId: string) =>
+      request<OrganizerInvoiceRow[]>(`/organizations/${organizationId}/billing/invoices`),
+    checkout: (organizationId: string, priceId: string) =>
+      request<{ provider: string; sessionRef: string; url: string }>(
+        `/organizations/${organizationId}/billing/checkout`,
+        { method: 'POST', body: JSON.stringify({ priceId }) },
+      ),
   },
 
   organizations: {
@@ -2410,6 +2439,134 @@ export const api = {
 
   admin: {
     dashboard: () => request<AdminDashboard>('/admin/dashboard'),
+
+    /**
+     * Organizer billing. Reads need BILLING_READ; catalogue writes BILLING_MANAGE; offers
+     * BILLING_ADJUST; single-feature grants ENTITLEMENT_GRANT. Every write needs a recent
+     * second factor (the step-up handler retries once).
+     */
+    billing: {
+      plans: () => request<AdminBillingPlan[]>('/admin/billing/plans'),
+      loadProvisional: (body: { annualFreeMonths?: number } = {}) =>
+        request<{ plansCreated: number; entitlementsWritten: number; pricesCreated: number }>(
+          '/admin/billing/catalog/load-provisional',
+          { method: 'POST', body: JSON.stringify(body) },
+        ),
+      updatePlan: (
+        id: string,
+        body: { name?: string; description?: string | null; active?: boolean; sortOrder?: number },
+      ) =>
+        request<AdminBillingPlan>(`/admin/billing/plans/${id}`, {
+          method: 'PATCH',
+          body: JSON.stringify(body),
+        }),
+      setPlanEntitlements: (
+        id: string,
+        entitlements: { key: string; boolValue?: boolean | null; intValue?: number | null }[],
+      ) =>
+        request<unknown>(`/admin/billing/plans/${id}/entitlements`, {
+          method: 'PUT',
+          body: JSON.stringify({ entitlements }),
+        }),
+      createPrice: (body: {
+        planId: string;
+        country: string;
+        currency: string;
+        interval: 'MONTH' | 'YEAR';
+        amountMinor: number;
+        trialDays?: number | null;
+      }) =>
+        request<AdminBillingPrice>('/admin/billing/prices', {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      updatePrice: (id: string, body: { amountMinor?: number; trialDays?: number | null }) =>
+        request<AdminBillingPrice>(`/admin/billing/prices/${id}`, {
+          method: 'PATCH',
+          body: JSON.stringify(body),
+        }),
+      deactivatePrice: (id: string) =>
+        request<AdminBillingPrice>(`/admin/billing/prices/${id}/deactivate`, { method: 'POST' }),
+      subscriptions: (
+        params: {
+          status?: string;
+          planCode?: string;
+          country?: string;
+          search?: string;
+          currentOnly?: 'true' | 'false';
+          page?: number;
+          pageSize?: number;
+        } = {},
+      ) =>
+        request<AdminSubscriptionPage>(
+          `/admin/billing/subscriptions${qs(params as Record<string, unknown>)}`,
+        ),
+      account: (organizationId: string) =>
+        request<AdminBillingAccountDetail>(`/admin/billing/accounts/${organizationId}`),
+      metrics: (days = 30) => request<AdminBillingMetrics>(`/admin/billing/metrics${qs({ days })}`),
+      grantTrial: (
+        organizationId: string,
+        body: { planCode: 'PRO' | 'PREMIUM'; days: number; reason: string },
+      ) =>
+        request<unknown>(`/admin/billing/accounts/${organizationId}/trial`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      grantComplimentary: (
+        organizationId: string,
+        body: { planCode: 'PRO' | 'PREMIUM'; endsAt?: string | null; reason: string },
+      ) =>
+        request<unknown>(`/admin/billing/accounts/${organizationId}/complimentary`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      endGrant: (organizationId: string, reason: string) =>
+        request<unknown>(`/admin/billing/accounts/${organizationId}/end-grant`, {
+          method: 'POST',
+          body: JSON.stringify({ reason }),
+        }),
+      grantCredits: (
+        organizationId: string,
+        body: { amount: number; reason: string; idempotencyKey: string },
+      ) =>
+        request<unknown>(`/admin/billing/accounts/${organizationId}/credits`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      recordDiscount: (
+        organizationId: string,
+        body: {
+          percentOffBps?: number | null;
+          amountMinor?: number | null;
+          endsAt?: string | null;
+          reason: string;
+        },
+      ) =>
+        request<unknown>(`/admin/billing/accounts/${organizationId}/discounts`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      grantOverride: (
+        organizationId: string,
+        body: {
+          key: string;
+          boolValue?: boolean | null;
+          intValue?: number | null;
+          startsAt?: string | null;
+          endsAt?: string | null;
+          reason: string;
+        },
+      ) =>
+        request<unknown>(`/admin/billing/accounts/${organizationId}/overrides`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      revokeOverride: (id: string, reason: string) =>
+        request<unknown>(`/admin/billing/overrides/${id}/revoke`, {
+          method: 'POST',
+          body: JSON.stringify({ reason }),
+        }),
+    },
 
     /**
      * Organizer acquisition (sales CRM). Every call needs CRM_AGENT; the team routes also

@@ -136,6 +136,14 @@ describe('the organizer sidebar', () => {
     );
   });
 
+  it('puts Billing & plans in Business (a Settings tab); the old Premium address lands on it', () => {
+    const settings = owner.find((i) => i.href === '/organizer/settings');
+    expect(settings?.children?.map((x) => x.href)).toEqual(['/organizer/billing']);
+    expect(reachable('/organizer/premium', owner)).toBe(true);
+    expect(filterQuickNav(quickNavEntries(owner), 'upgrade')[0]?.href).toBe('/organizer/billing');
+    expect(filterQuickNav(quickNavEntries(owner), 'premium')[0]?.href).toBe('/organizer/billing');
+  });
+
   it('links the calendar', () => {
     expect(flatten(owner).map((i) => i.href)).toContain('/organizer/calendar');
   });

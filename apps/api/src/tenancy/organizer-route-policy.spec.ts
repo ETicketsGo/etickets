@@ -250,6 +250,12 @@ export const ORGANIZER_ROUTE_POLICY: Record<string, StaffPolicy> = {
   'GET /organizations/:id/counter-sales/shows': 'ORGANIZER_ONLY',
   'GET /organizations/:id/cash-returns': 'ORGANIZER_ONLY',
   'POST /organizations/:id/cash-returns/:bookingId/returned': 'ORGANIZER_ONLY',
+  // Organizer billing. Staff read billing on /admin/billing (BILLING_READ), never here.
+  'GET /organizations/:id/entitlements': 'NONE',
+  'GET /organizations/:id/billing': 'NONE',
+  'GET /organizations/:id/billing/invoices': 'NONE',
+  /** The organization's own decision to pay for a plan. */
+  'POST /organizations/:id/billing/checkout': 'ORGANIZER_ONLY',
   'POST /organizations/:id/members': 'NONE',
   'POST /organizations/:id/members/:memberId/resend-invite': 'NONE',
   'DELETE /organizations/:id/members/:memberId': 'NONE',

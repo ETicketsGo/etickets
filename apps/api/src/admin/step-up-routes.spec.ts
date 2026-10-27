@@ -8,6 +8,7 @@ import { PaymentAdminController } from '../payments/admin/payment-admin.controll
 import { PaymentOutageController } from '../payments/outage/payment-outage.controller';
 import { PromotionController } from '../payments/promotion/promotion.controller';
 import { AdminOrganizationsController } from '../organizations/organizations.controller';
+import { AdminBillingController } from '../billing/billing-admin.controller';
 import { PlatformFeePoliciesController } from './platform-fee-policies.controller';
 
 /*
@@ -57,6 +58,29 @@ const STEP_UP: Array<[string, new (...a: never[]) => unknown, string[]]> = [
   ['payment promotion', PromotionController, ['approve', 'apply']],
   ['organizers', AdminOrganizationsController, ['setSuspension', 'removeOrganization']],
   ['accounts', AdminUsersController, ['suspend', 'reinstate', 'revokeSessions']],
+  /*
+    Organizer billing: what organizers pay (plans, prices) and what they get without paying
+    (trials, complimentary plans, credits, discounts, single-feature grants).
+  */
+  [
+    'organizer billing',
+    AdminBillingController,
+    [
+      'loadCatalog',
+      'updatePlan',
+      'setPlanEntitlements',
+      'createPrice',
+      'updatePrice',
+      'deactivatePrice',
+      'grantTrial',
+      'grantComplimentary',
+      'endGrant',
+      'grantCredits',
+      'recordDiscount',
+      'grantOverride',
+      'revokeOverride',
+    ],
+  ],
 ];
 
 /** Reads on the same controllers: a fresh code must NOT be demanded to look. */
@@ -66,6 +90,7 @@ const NOT_STEP_UP: Array<[new (...a: never[]) => unknown, string[]]> = [
   [PaymentAdminController, ['overview', 'health']],
   [PaymentOutageController, ['status']],
   [AdminOrganizationsController, ['list', 'reviewSignals']],
+  [AdminBillingController, ['plans', 'searchSubscriptions', 'account', 'metrics']],
 ];
 
 /** A verified session whose last check was this long ago. */
