@@ -146,5 +146,9 @@ export const ErrorCodes = {
   QUOTA_EXCEEDED: 'QUOTA_EXCEEDED',
   /** A subscription move the lifecycle does not allow from its current state. */
   SUBSCRIPTION_TRANSITION_INVALID: 'SUBSCRIPTION_TRANSITION_INVALID',
+  /** Email campaigns are switched off in this deployment (CAMPAIGNS_ENABLED is not "true"). */
+  CAMPAIGNS_NOT_ENABLED: 'CAMPAIGNS_NOT_ENABLED',
+  /** A campaign move its lifecycle does not allow from its current status. */
+  CAMPAIGN_TRANSITION_INVALID: 'CAMPAIGN_TRANSITION_INVALID',
   INTERNAL: 'INTERNAL',
 } as const;

@@ -9,6 +9,7 @@ import { OrganizerFollowService } from './organizer-follow.service';
 import { CommunicationConsentService } from './communication-consent.service';
 import { UnsubscribeService } from './unsubscribe.service';
 import { AudienceSummaryService } from './audience-summary.service';
+import { UnsubscribeHooks } from './unsubscribe-hooks';
 
 /**
  * Customer engagement: following organizers, scoped communication consent, signed
@@ -30,7 +31,13 @@ import { AudienceSummaryService } from './audience-summary.service';
     CommunicationConsentService,
     UnsubscribeService,
     AudienceSummaryService,
+    UnsubscribeHooks,
   ],
-  exports: [OrganizerFollowService, CommunicationConsentService, AudienceSummaryService],
+  exports: [
+    OrganizerFollowService,
+    CommunicationConsentService,
+    AudienceSummaryService,
+    UnsubscribeHooks,
+  ],
 })
 export class EngagementModule {}

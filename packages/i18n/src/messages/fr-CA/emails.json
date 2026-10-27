@@ -257,5 +257,22 @@
   "leads": {
     "BOOKING_CONFIRMED": "Votre réservation est confirmée. Voici les détails.",
     "EVENT_REMINDER": "Votre représentation approche."
+  },
+  "campaign": {
+    "why": "Vous recevez ce courriel parce que vous avez accepté de recevoir des nouvelles de {organizer} au sujet de {topic}.",
+    "topic": {
+      "ORGANIZER_UPDATES": "ses événements",
+      "EARLY_ACCESS": "l'accès anticipé et des préventes",
+      "OFFERS": "ses offres"
+    },
+    "unsubscribe": "Se désabonner de {organizer}",
+    "unsubscribePrompt": "Vous ne voulez plus recevoir ces courriels ?",
+    "sentBy": "Envoyé par {organizer} avec ETicketsGo.",
+    "operator": "ETicketsGo est exploité par {legalName}.",
+    "book": "Réserver des billets",
+    "when": "Quand",
+    "where": "Où",
+    "code": "Votre code",
+    "testBanner": "Ceci est un courriel d'essai. Il n'a pas été envoyé à votre public."
   }
 }
