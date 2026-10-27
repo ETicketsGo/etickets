@@ -501,6 +501,13 @@ describe('integration-real-postgres: organizer follows and communication consent
       // A second booking makes them a returning buyer.
       await booked(orgC, u.id, 'Guntur');
     }
+    /*
+      Resolved engineering question (owner decisions 2026-10-27): "returning buyers" counts
+      ACCOUNT HOLDERS. Two guest bookings (no account, the same buyer email) are not a
+      returning buyer: a guest has no stable person behind them.
+    */
+    await booked(orgC, null as never, 'Guntur');
+    await booked(orgC, null as never, 'Guntur');
     const s = await audience.compute(orgC);
     expect(s.cities.buckets).toEqual([{ city: 'Vijayawada', country: 'India', followers: 6 }]);
     expect(s.cities.hiddenBuckets).toBe(1);

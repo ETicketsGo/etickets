@@ -102,7 +102,8 @@ type FeeRuleCreate = z.infer<typeof feeRuleCreateSchema>;
 const taxRuleBodySchema = z.object({
   label: z.string().trim().min(1).max(40),
   rateBasisPoints: z.number().int().min(0).max(10_000, 'Basis points: 1800 = 18%. Max 10000.'),
-  appliesTo: z.enum(['TICKETS', 'FEES', 'TICKETS_AND_FEES']),
+  // PLATFORM_SERVICES: tax on organizer plans and credit packs (never on a ticket order).
+  appliesTo: z.enum(['TICKETS', 'FEES', 'TICKETS_AND_FEES', 'PLATFORM_SERVICES']),
   /** Rules sharing a group are alternatives; one wins. Empty means it always applies. */
   taxGroup: z.string().trim().max(40).optional(),
   country: z.string().trim().max(60).optional(),

@@ -79,6 +79,8 @@ the RAW bytes, stored, then processed in the same request, idempotently:
 | `BILLING_GRACE_DAYS`                 | Days of GRACE before EXPIRED. Default 7.                                                     |
 | `BILLING_SWEEP_INTERVAL_MS` (worker) | Billing sweep cadence. Default 15 minutes.                                                   |
 | `STRIPE_API_VERSION`                 | Optional pin, shared with the ticket adapter; unset = the SDK's pinned version.              |
+| `STRIPE_BILLING_AUTOMATIC_TAX`       | `false` by default. `true`: US plan and pack tax from Stripe Tax (`automatic_tax`).          |
+| `PLATFORM_TAX_REGION`                | The state the platform is registered in (India). Decides CGST + SGST against IGST.           |
 
 Every credential above may instead be given as a secret reference in `<NAME>_REF` (for example
 `STRIPE_BILLING_WEBHOOK_SECRET_REF=billing/stripe/test/webhook-secret`), resolved through
@@ -95,7 +97,8 @@ production configuration needs the owner's approval and a later change.
 
 1. In the Stripe dashboard, TEST mode: create a Product per plan (Pro, Premium) and a recurring
    Price per plan and interval (USD, monthly and yearly) for EXACTLY the BillingPrice amounts.
-   Tax behaviour: exclusive, or no tax (see Tax below). No trial on the Price.
+   Tax behaviour: EXCLUSIVE (the BillingPrice is before tax; see Tax below). No trial on the
+   Price.
 2. Write each Price id to `BillingPrice.providerPriceRefTest` (`PATCH /api/admin/billing/prices/:id`,
    needs BILLING_MANAGE).
 3. Billing Portal (Settings -> Billing -> Customer portal): allow updating payment methods and
@@ -115,9 +118,12 @@ production configuration needs the owner's approval and a later change.
 
 1. Ask Razorpay to enable **Subscriptions** on the account (it is not on by default). Until it is,
    checkout answers "Paying for a plan through Razorpay is not switched on for this account yet".
-2. Create a Plan per BillingPrice (INR, `period` monthly or yearly, `interval` 1, amount EXACTLY
-   the BillingPrice amount). Write each plan id to `BillingPrice.providerPriceRefTest`. Checkout
-   refuses a plan whose amount, currency or period differs from the price.
+2. Create a Plan per BillingPrice (INR, `period` monthly or yearly, `interval` 1). Razorpay
+   computes no tax, so the plan amount is EXACTLY the BillingPrice amount PLUS GST as the
+   configured rule gives it (the checkout's tax quote `totalMinor`; for example Pro INR 999 plus
+   the rule's GST). Write each plan id to `BillingPrice.providerPriceRefTest`. Checkout refuses a
+   plan whose amount, currency or period differs from price plus tax. A GST rate change needs a
+   new Razorpay plan (and its ref), or renewals are refused as a mismatch for staff to see.
 3. Add a webhook `https://<qa-api-host>/api/billing/webhooks/razorpay` with its own secret
    (`RAZORPAY_BILLING_WEBHOOK_SECRET`), events: `subscription.authenticated`,
    `subscription.activated`, `subscription.charged`, `subscription.pending`,
@@ -157,15 +163,69 @@ production configuration needs the owner's approval and a later change.
 Provider events move the same states sooner: Stripe `past_due` / Razorpay `pending` -> PAST_DUE;
 Stripe `unpaid` / Razorpay `halted` -> GRACE; `canceled` / `cancelled` / `completed` -> CANCELLED.
 
-## Invoices and tax
+## Invoices and tax (owner decisions 2026-10-27)
 
-Each verified payment issues an `OrganizerInvoice` with status PAID in the gapless
-`ETG-BIL-<YEAR>-<SEQ>` series, once per provider document (`provider`, `providerInvoiceRef`).
-The organizer opens it as printable HTML (print or save as PDF from the browser).
+### Numbering
 
-Tax: the invoice shows the tax the PROVIDER computed (Stripe Tax, if switched on). With none,
-`taxMinor` is 0 and the invoice says "Tax not applied". Charging tax on plan invoices (GST in
-India, US sales tax) is an OWNER DECISION still pending; nothing here invents a rate.
+Each verified payment issues an `OrganizerInvoice` with status PAID, once per provider document
+(`provider`, `providerInvoiceRef`), in a gapless series per country
+(`etg_next_reference_value`, inside the issuing transaction):
+
+| Country | Series                                             | Example                  | Counter scope      |
+| ------- | -------------------------------------------------- | ------------------------ | ------------------ |
+| India   | Indian FINANCIAL year, 1 April to 31 March, in IST | `ETGB-2627-000001`       | `BIL-IN-FY2026-27` |
+| Others  | Calendar year (UTC), per country                   | `ETG-BIL-US-2026-000001` | `BIL-US-2026`      |
+
+Why the Indian number is short: a GST invoice number must be unique within the financial year and
+at most 16 characters (CGST Rules, rule 46(b)). `ETGB-2627-000001` is exactly 16 and still names
+the issuer (ETicketsGo Billing) and the financial year. A database CHECK holds both shapes
+(migration `20261028200000_growth_owner_decisions`; the #503 shape was replaced while no invoice
+had ever been issued in any environment).
+
+### Tax
+
+- Prices (`BillingPrice`, `CreditPackPrice`) are BEFORE tax.
+- Rates come only from `TaxRule` rows with `appliesTo = PLATFORM_SERVICES` (admin, Tax rules,
+  "Organizer plans and credit packs"). Nothing in code holds a rate. They are rated by the same
+  engine as tickets (`pricing/tax-calculator.ts`), as the platform's own service: the place of
+  supply is the organizer's state (`Organization.registeredRegion`) against
+  `PLATFORM_TAX_REGION`. India: one GST rule with split `CGST_SGST` gives CGST + SGST inside the
+  platform's state and IGST across states, the same amount either way. A US rule names its
+  state in `region`. A 0% rule is an answer and prints a 0% line.
+- **Fail closed.** No applicable rule for the organizer's country and state (and, for a US
+  account, no Stripe Tax) means the checkout is refused with `BILLING_TAX_NOT_CONFIGURED`. India
+  also refuses when the organizer's state or `PLATFORM_TAX_REGION` is missing. Nothing is ever
+  charged with a silent zero.
+- **Stripe (US).** `STRIPE_BILLING_AUTOMATIC_TAX=true`: Checkout runs with `automatic_tax` and
+  collects the billing address; Stripe Prices must be tax-exclusive and Stripe Tax set up on the
+  account (origin, registrations). Otherwise our rates are attached as Stripe Tax Rates
+  (tax-exclusive, created once, found again by `metadata.etg_tax_key`). The invoice records the
+  tax Stripe actually charged, with our rule's lines when they agree.
+- **Razorpay (India).** Razorpay computes no tax, so the plan amount and the pack's payment link
+  are the TOTAL including GST. The processor checks the charge equals net + tax and splits it
+  back for the invoice (`TAX_INCLUSIVE_CHARGE_PROVIDERS`).
+- **Credit packs.** The checkout records its quote (`CreditPackPurchase`: net, tax, lines) before
+  the provider is called; the payment is checked against that row, so a price changed later by
+  staff cannot make a paid pack look wrong.
+- The invoice prints each tax line (label and rate) and the place of supply. "Tax not applied"
+  is printed only for an invoice with no tax line at all (the test double).
+
+## Email credit packs (owner decision 2026-10-27)
+
+Three sizes in code: 1,000, 5,000 and 10,000 credits (`EMAIL_1K`, `EMAIL_5K`, `EMAIL_10K`). Prices
+are staff configuration per country (Plans & prices, "Email credit packs"), set and published by
+a `BILLING_MANAGE` holder with a recent second factor, audited (`BILLING_CREDIT_PACK_PRICE_SET`,
+`..._PUBLISHED`, `..._UNPUBLISHED`). A pack is UNPUBLISHED until published: the organizer page
+does not list it and a checkout for it is refused.
+
+## Who does what (owner decision 2026-10-27)
+
+- Super admin: everything, by role.
+- Finance (FINANCE preset): `BILLING_READ` + `BILLING_ADJUST` (credits, trials, complimentary
+  plans, discounts, failed payments). Not prices or catalogue (`BILLING_MANAGE`), not single
+  feature overrides (`ENTITLEMENT_GRANT`).
+- Finance reviewer: `BILLING_READ` only.
+- Organizer: only the OWNER starts a checkout, buys a pack, opens the portal or cancels.
 
 ## Not in this change
 

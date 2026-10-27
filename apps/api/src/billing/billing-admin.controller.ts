@@ -14,6 +14,7 @@ import { BillingCatalogService } from './billing-catalog.service';
 import { BillingReadService } from './billing-read.service';
 import { BillingOffersService } from './billing-offers.service';
 import { SubscriptionService } from './subscription.service';
+import { CreditPackPricesService } from './credit-pack-prices.service';
 import {
   createPriceSchema,
   endGrantSchema,
@@ -23,8 +24,10 @@ import {
   grantTrialSchema,
   loadCatalogSchema,
   metricsQuerySchema,
+  publishCreditPackSchema,
   recordDiscountSchema,
   revokeOverrideSchema,
+  setCreditPackPriceSchema,
   setPlanEntitlementsSchema,
   subscriptionSearchSchema,
   updatePlanSchema,
@@ -43,7 +46,8 @@ const pipe = <S extends z.ZodTypeAny>(schema: S) =>
   ── WHO CAN CALL WHAT ────────────────────────────────────────────────────────────────
   Every route: a back-office account holding BILLING_READ (the class floor). Each write declares
   its own capability, never a read one, and a recent second factor:
-    BILLING_MANAGE     plans, prices, plan entitlements, loading the provisional catalogue;
+    BILLING_MANAGE     plans, prices, plan entitlements, loading the provisional catalogue,
+                       credit pack prices and publishing them;
     BILLING_ADJUST     trials, complimentary plans, ending them, credits, discounts;
     ENTITLEMENT_GRANT  single-entitlement overrides and their revocation.
   A method's own @RequiresAdmin replaces the class floor, so a write names only its write
@@ -62,7 +66,67 @@ export class AdminBillingController {
     private readonly reads: BillingReadService,
     private readonly offers: BillingOffersService,
     private readonly subscriptions: SubscriptionService,
+    private readonly packPrices: CreditPackPricesService,
   ) {}
+
+  // ── Email credit packs ──────────────────────────────────────────────────────
+
+  @Get('credit-packs')
+  @ApiOperation({ summary: 'Credit packs with their price and publication per country.' })
+  creditPacks() {
+    return this.packPrices.list();
+  }
+
+  @Put('credit-packs/:packCode/prices/:country')
+  @RequiresAdmin(AdminPermission.BILLING_MANAGE)
+  @RequiresRecentMfa()
+  @ApiOperation({ summary: 'Set a credit pack price (before tax). Publication is unchanged.' })
+  setCreditPackPrice(
+    @CurrentUser() actor: RequestUser,
+    @Param('packCode') packCode: string,
+    @Param('country') country: string,
+    @Body(pipe(setCreditPackPriceSchema)) body: Payload<typeof setCreditPackPriceSchema>,
+  ) {
+    return this.packPrices.setPrice(packCode, country.toUpperCase(), body, actor.id);
+  }
+
+  @Post('credit-packs/:packCode/prices/:country/publish')
+  @RequiresAdmin(AdminPermission.BILLING_MANAGE)
+  @RequiresRecentMfa()
+  @ApiOperation({ summary: 'Put a priced credit pack on sale in that country.' })
+  publishCreditPack(
+    @CurrentUser() actor: RequestUser,
+    @Param('packCode') packCode: string,
+    @Param('country') country: string,
+    @Body(pipe(publishCreditPackSchema)) body: Payload<typeof publishCreditPackSchema>,
+  ) {
+    return this.packPrices.setPublished(
+      packCode,
+      country.toUpperCase(),
+      true,
+      actor.id,
+      body.expectedVersion,
+    );
+  }
+
+  @Post('credit-packs/:packCode/prices/:country/unpublish')
+  @RequiresAdmin(AdminPermission.BILLING_MANAGE)
+  @RequiresRecentMfa()
+  @ApiOperation({ summary: 'Take a credit pack off sale in that country.' })
+  unpublishCreditPack(
+    @CurrentUser() actor: RequestUser,
+    @Param('packCode') packCode: string,
+    @Param('country') country: string,
+    @Body(pipe(publishCreditPackSchema)) body: Payload<typeof publishCreditPackSchema>,
+  ) {
+    return this.packPrices.setPublished(
+      packCode,
+      country.toUpperCase(),
+      false,
+      actor.id,
+      body.expectedVersion,
+    );
+  }
 
   // ── Catalogue ───────────────────────────────────────────────────────────────
 
@@ -80,9 +144,9 @@ export class AdminBillingController {
   })
   loadCatalog(
     @CurrentUser() actor: RequestUser,
-    @Body(pipe(loadCatalogSchema)) body: Payload<typeof loadCatalogSchema>,
+    @Body(pipe(loadCatalogSchema)) _body: Payload<typeof loadCatalogSchema>,
   ) {
-    return this.catalog.loadProvisional(actor.id, body);
+    return this.catalog.loadProvisional(actor.id);
   }
 
   @Patch('plans/:id')

@@ -2,6 +2,7 @@ import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { HttpStatus } from '@nestjs/common';
 import { AppException, ErrorCodes } from '../../common/errors';
 import type { PaymentEvidence } from '../subscription-state-machine';
+import type { BillingTaxQuote } from '../billing-tax.service';
 
 /**
  * Who takes an organizer's plan payment. Stripe Billing (US, stripe-billing.provider.ts) and
@@ -34,6 +35,15 @@ export interface BillingCheckoutRequest {
   /** Where the provider sends the organizer back. The page polls our state; never trusts this. */
   successUrl?: string;
   cancelUrl?: string;
+  /**
+   * The tax on `amountMinor`, from BillingTaxService. The checkout service always passes it and
+   * refuses to start a checkout it could not compute (fail closed). How each provider charges it:
+   *   Stripe   MANUAL: our rates as Stripe Tax Rates on the line (tax-exclusive prices).
+   *            PROVIDER_AUTOMATIC: `automatic_tax`, Stripe Tax decides.
+   *   Razorpay the plan's amount IS the total including tax (Razorpay computes no tax), so it
+   *            must equal `tax.totalMinor`; the invoice splits it back into net + tax.
+   */
+  tax?: BillingTaxQuote;
 }
 
 export interface BillingCheckoutSession {
@@ -67,6 +77,8 @@ export interface CreditPackCheckoutRequest {
   purchaseRef: string;
   successUrl: string;
   cancelUrl: string;
+  /** As for a plan checkout. `amountMinor` is the price BEFORE tax. */
+  tax?: BillingTaxQuote;
 }
 
 export type VerifiedBillingEventType =
@@ -137,8 +149,10 @@ export interface ProviderSubscriptionRecord {
 }
 
 /**
- * The provider's own record of a payment. `amountMinor` EXCLUDES tax, so it compares with the
- * BillingPrice (the plan price); `taxMinor` is what the provider added on top, if anything.
+ * The provider's own record of a payment. For Stripe `amountMinor` EXCLUDES tax, so it compares
+ * with the BillingPrice (the plan price), and `taxMinor` is what Stripe added on top. Razorpay
+ * computes no tax: its `amountMinor` is everything charged (net + our tax) and `taxMinor` is 0;
+ * the event processor splits it back using the tax rules (`TAX_INCLUSIVE_CHARGE_PROVIDERS`).
  */
 export interface ProviderPaymentRecord extends PaymentEvidence {
   purpose: 'SUBSCRIPTION' | 'CREDIT_PACK';
@@ -152,6 +166,8 @@ export interface ProviderPaymentRecord extends PaymentEvidence {
   /** The provider's invoice for it, when there is one. Our invoice is keyed on it. */
   invoiceRef: string | null;
   creditPackCode: string | null;
+  /** Our CreditPackPurchase reference from the provider's metadata/notes (packs only). */
+  purchaseRef?: string | null;
   paidAt: Date | null;
 }
 
@@ -193,6 +209,12 @@ export interface BillingProvider {
 }
 
 export const BILLING_PROVIDER = Symbol('BILLING_PROVIDER');
+
+/**
+ * Providers whose charge is the TOTAL including our tax (they compute none themselves). Their
+ * payment record's `amountMinor` is compared with net + tax, never with the net price.
+ */
+export const TAX_INCLUSIVE_CHARGE_PROVIDERS: readonly BillingProviderKey[] = ['RAZORPAY_BILLING'];
 
 export const BILLING_NOT_ENABLED_MESSAGE =
   'Paid plans are not open yet. Contact ETicketsGo support if you would like to talk about a plan.';

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { Injectable, Logger } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import { SuppressionReason } from '@eticketsgo/shared-types';
 import { PrismaService } from '../../prisma/prisma.service';
 import { maskPhone } from '../channels/transports/recipient.util';
@@ -10,9 +11,10 @@ import { maskPhone } from '../channels/transports/recipient.util';
  * ── WHY THIS IS NOT THE CONSENT SERVICE ────────────────────────────────────────────
  * `MarketingConsentService` answers "may we send this person promotional material", and its
  * absence correctly blocks marketing while never withholding a ticket. This answers "does
- * this destination work at all", and it must stop TRANSACTIONAL mail too — continuing to
- * email an address that hard-bounces is precisely what gets a sending domain throttled or
- * suspended by SES.
+ * this destination work at all", and an ALL-scope row must stop TRANSACTIONAL mail too —
+ * continuing to email an address that hard-bounces is precisely what gets a sending domain
+ * throttled or suspended by SES. A MARKETING-scope row (a complaint, a platform-wide
+ * marketing unsubscribe) stops promotion only; see `SuppressionScope`.
  *
  * Answering one with the other breaks the platform in both directions: somebody's ticket
  * withheld because they unsubscribed from a newsletter, or a dead mailbox emailed forever
@@ -34,6 +36,32 @@ import { maskPhone } from '../channels/transports/recipient.util';
 export interface DestinationRef {
   hashes: Partial<Record<string, string>>;
   mask: string;
+}
+
+/**
+ * What a suppression stops.
+ *
+ *   ALL        the destination does not work, or the person stopped the channel itself (a hard
+ *              bounce, an invalid destination, a provider block, an SMS STOP). Nothing is sent.
+ *   MARKETING  the person said no to promotional mail: a spam complaint, or "unsubscribe from
+ *              all marketing email". Every organizer campaign and every platform MARKETING
+ *              message skips it. Essential transactional mail - tickets, booking confirmations,
+ *              receipts, sign-in codes, password resets, refunds - does NOT.
+ *
+ * ── WHY A COMPLAINT IS MARKETING-ONLY (owner decision 2026-10-27) ─────────────────────
+ * A complaint used to block every email to the address. Somebody who marks one newsletter as
+ * spam must still receive the ticket they paid for and the code they need to sign in; their
+ * address works, they only refused promotion. A hard bounce still blocks everything, because
+ * there the address itself is dead and continuing to send is what damages the sending domain.
+ */
+export type SuppressionScope = 'ALL' | 'MARKETING';
+
+/** What a message is, for the suppression check: tickets and codes, or promotion. */
+export type SendPurpose = 'transactional' | 'marketing';
+
+/** The scope a reason suppresses by default. Only a complaint is marketing-only. */
+export function scopeForReason(reason: string): SuppressionScope {
+  return reason === SuppressionReason.COMPLAINT ? 'MARKETING' : 'ALL';
 }
 
 @Injectable()
@@ -79,30 +107,38 @@ export class SuppressionService {
   }
 
   /**
-   * Whether this destination is currently blocked on this channel.
+   * Whether this destination is currently blocked on this channel for this kind of message.
+   *
+   * `transactional` (the default) reads only ALL-scope rows: a complaint or a marketing
+   * unsubscribe never withholds a ticket, a receipt or a sign-in code. `marketing` reads both
+   * scopes.
    *
    * Fails OPEN. A database hiccup on the suppression lookup must not stop a ticket from
    * going out: the cost of one email to a bad address is a bounce, and the cost of silently
-   * withholding every notification during a blip is a great deal more.
+   * withholding every notification during a blip is a great deal more. (The campaign sender
+   * does its own fail-CLOSED check; promotion can wait.)
    */
-  async isSuppressed(channel: string, destination: string | null | undefined): Promise<boolean> {
+  async isSuppressed(
+    channel: string,
+    destination: string | null | undefined,
+    purpose: SendPurpose = 'transactional',
+  ): Promise<boolean> {
     if (!destination) return false;
-    const row = await this.prisma.suppressedDestination
-      .findUnique({
+    const rows = await this.prisma.suppressedDestination
+      .findMany({
         where: {
-          channel_destinationHash: {
-            channel,
-            destinationHash: SuppressionService.hash(channel, destination),
-          },
+          channel,
+          destinationHash: SuppressionService.hash(channel, destination),
+          liftedAt: null,
+          ...(purpose === 'transactional' ? { scope: 'ALL' } : {}),
         },
-        select: { liftedAt: true, expiresAt: true },
+        select: { expiresAt: true },
       })
-      .catch(() => null);
-    if (!row || row.liftedAt) return false;
+      .catch(() => [] as { expiresAt: Date | null }[]);
     // A reason that genuinely expires stops applying when it does. A hard bounce has no
-    // expiry and never reaches this line.
-    if (row.expiresAt && row.expiresAt.getTime() <= Date.now()) return false;
-    return true;
+    // expiry.
+    const now = Date.now();
+    return rows.some((row) => !row.expiresAt || row.expiresAt.getTime() > now);
   }
 
   /**
@@ -117,10 +153,13 @@ export class SuppressionService {
     /** ...or only its reference, when it arrives from the webhook ledger. */
     destinationRef?: DestinationRef | null;
     reason: SuppressionReason;
+    /** Defaults to the reason's own scope (`scopeForReason`): MARKETING for a complaint. */
+    scope?: SuppressionScope;
     provider?: string | null;
     sourceDeliveryId?: string | null;
     expiresAt?: Date | null;
   }): Promise<void> {
+    const scope = input.scope ?? scopeForReason(input.reason);
     const destinationHash = input.destination
       ? SuppressionService.hash(input.channel, input.destination)
       : input.destinationRef?.hashes[input.channel];
@@ -137,6 +176,7 @@ export class SuppressionService {
           destinationHash,
           destinationMask,
           reason: input.reason,
+          scope,
           provider: input.provider ?? null,
           sourceDeliveryId: input.sourceDeliveryId ?? null,
           expiresAt: input.expiresAt ?? null,
@@ -147,7 +187,9 @@ export class SuppressionService {
       skipDuplicates: true,
     });
     if (created.count > 0) {
-      this.logger.warn(`[${input.channel}] suppressed ${destinationMask} (${input.reason})`);
+      this.logger.warn(
+        `[${input.channel}] suppressed ${destinationMask} (${input.reason}, ${scope})`,
+      );
       return;
     }
 
@@ -161,7 +203,7 @@ export class SuppressionService {
     */
     if (input.reason === SuppressionReason.UNSUBSCRIBED) {
       const rearmed = await this.prisma.suppressedDestination.updateMany({
-        where: { channel: input.channel, destinationHash, liftedAt: { not: null } },
+        where: { channel: input.channel, destinationHash, scope, liftedAt: { not: null } },
         data: {
           reason: input.reason,
           provider: input.provider ?? null,
@@ -206,6 +248,7 @@ export class SuppressionService {
       where: {
         channel,
         destinationHash,
+        scope: 'ALL',
         reason: SuppressionReason.UNSUBSCRIBED,
         liftedAt: null,
       },
@@ -222,6 +265,30 @@ export class SuppressionService {
         })`,
       );
     }
+    return res.count > 0;
+  }
+
+  /**
+   * Lift an "unsubscribe from all marketing email" because the person opted in again from
+   * their own account. Only that row: a COMPLAINT stays until an operator lifts it, and an
+   * ALL-scope row is about the address working, which an opt-in says nothing about.
+   * Never deleted, so the history stays.
+   */
+  async liftMarketingOptOut(
+    channel: string,
+    destination: string,
+    db: Pick<Prisma.TransactionClient, 'suppressedDestination'> = this.prisma,
+  ): Promise<boolean> {
+    const res = await db.suppressedDestination.updateMany({
+      where: {
+        channel,
+        destinationHash: SuppressionService.hash(channel, destination),
+        scope: 'MARKETING',
+        reason: SuppressionReason.UNSUBSCRIBED,
+        liftedAt: null,
+      },
+      data: { liftedAt: new Date(), liftedBy: 'account:opt-in' },
+    });
     return res.count > 0;
   }
 
@@ -255,6 +322,7 @@ export class SuppressionService {
         channel: true,
         destinationMask: true,
         reason: true,
+        scope: true,
         provider: true,
         suppressedAt: true,
         expiresAt: true,

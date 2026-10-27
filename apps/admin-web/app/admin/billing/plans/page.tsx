@@ -24,6 +24,7 @@ import {
   type AdminBillingPrice,
 } from '@eticketsgo/web-kit';
 import { useHolds } from '@/lib/capabilities';
+import { CreditPackPrices } from './credit-pack-prices';
 import {
   BILLING_COPY,
   INTERVAL_WORDS,
@@ -254,6 +255,8 @@ export default function BillingPlansPage() {
           </Card>
         ))
       )}
+
+      <CreditPackPrices mayManage={mayManage} />
 
       {mayManage && (
         <>

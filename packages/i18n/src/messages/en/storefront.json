@@ -1228,7 +1228,7 @@
   "unsubscribe": {
     "title": "Unsubscribe",
     "lead": "Stop {what} to {email}.",
-    "whatPlatform": "marketing email from ETicketsGo",
+    "whatPlatform": "all marketing email from ETicketsGo and from every organizer",
     "whatOrganizer": "email from {name}",
     "confirm": "Unsubscribe",
     "ticketsStillCome": "You still get your tickets and updates about your bookings.",

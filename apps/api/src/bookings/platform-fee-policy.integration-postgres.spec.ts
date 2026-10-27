@@ -306,6 +306,48 @@ describe('integration-real-postgres: platform fee policies on the booking path',
     });
   });
 
+  /*
+    Resolved engineering question (owner decisions 2026-10-27): an unpaid hold keeps the price
+    it was quoted until it is paid or released. Switching the policy off, or the schedule
+    applying again, changes the NEXT checkout only.
+  */
+  maybe(
+    'an unpaid hold keeps the price it was quoted after the policy is switched off',
+    async () => {
+      const e = await event({ priceMinor: 50_000 });
+      const created = await policies.create(adminId, {
+        scope: 'EVENT',
+        eventId: e.eventId,
+        kind: 'WAIVE',
+        reason: 'Resolved question: hold keeps its quote',
+      });
+      const held = await book(input(e));
+      const before = await db!.booking.findUniqueOrThrow({
+        where: { id: held.id },
+        include: { payment: true },
+      });
+      expect(before.status).toBe('PENDING_PAYMENT');
+      expect(before.bookingFeeMinor).toBe(0);
+
+      await policies.deactivate(adminId, created.id, {
+        reason: 'Switched off while a hold is open',
+        version: created.version,
+      });
+      // A new quote is back on the schedule...
+      expect((await bookings.quote(input(e))).fees.bookingFeeMinor).toBe(1_500);
+      // ...and the open hold still owes exactly what it was quoted, with its payment unchanged.
+      const after = await db!.booking.findUniqueOrThrow({
+        where: { id: held.id },
+        include: { payment: true },
+      });
+      expect(after.status).toBe('PENDING_PAYMENT');
+      expect(after.bookingFeeMinor).toBe(0);
+      expect(after.totalMinor).toBe(before.totalMinor);
+      expect(after.payment!.amountMinor).toBe(before.payment!.amountMinor);
+      expect(after.feePolicyId).toBe(created.id);
+    },
+  );
+
   maybe('an expired policy falls back to the schedule with nothing having to run', async () => {
     const e = await event({ priceMinor: 50_000 });
     await policyRow({

@@ -157,5 +157,10 @@ export const ErrorCodes = {
   CAMPAIGNS_NOT_ENABLED: 'CAMPAIGNS_NOT_ENABLED',
   /** A campaign move its lifecycle does not allow from its current status. */
   CAMPAIGN_TRANSITION_INVALID: 'CAMPAIGN_TRANSITION_INVALID',
+  /**
+   * No tax rule (or tax provider) is configured for the organizer's jurisdiction, so a plan or
+   * credit pack checkout is refused rather than charged with no tax (fail closed).
+   */
+  BILLING_TAX_NOT_CONFIGURED: 'BILLING_TAX_NOT_CONFIGURED',
   INTERNAL: 'INTERNAL',
 } as const;

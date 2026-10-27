@@ -148,6 +148,16 @@ export class CommunicationConsentService {
       }
     }
 
+    /*
+      An explicit opt-in from the person's own account also lifts an earlier "unsubscribe from
+      all marketing email" (a MARKETING-scope suppression). That unsubscribe withdrew every
+      organizer consent it found, so lifting it re-opens only what the person grants again.
+      A complaint is not lifted here: that takes an operator.
+    */
+    if (decision.granted && channel === 'email') {
+      await this.suppression.liftMarketingOptOut('email', subject.email, tx ?? this.prisma);
+    }
+
     const entry = {
       actorUserId: context.actorUserId ?? null,
       organizationId: decision.organizationId ?? null,
@@ -219,8 +229,8 @@ export class CommunicationConsentService {
    * May this organizer email this person for this purpose, right now?
    *
    * All three must hold: a granted consent row for exactly this organizer and purpose, no
-   * unsubscribe from this organizer, and an address that works at all (the global
-   * suppression list: bounces and complaints).
+   * unsubscribe from this organizer, and no suppression of either scope (an address that does
+   * not work, a complaint, or an unsubscribe from all marketing email).
    */
   async mayEmailForOrganizer(
     subject: ConsentSubject,
@@ -239,7 +249,7 @@ export class CommunicationConsentService {
       select: { id: true },
     });
     if (blocked) return false;
-    return !(await this.suppression.isSuppressed('email', subject.email));
+    return !(await this.suppression.isSuppressed('email', subject.email, 'marketing'));
   }
 
   /**

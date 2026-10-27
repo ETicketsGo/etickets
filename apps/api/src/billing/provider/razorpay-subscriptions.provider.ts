@@ -138,7 +138,9 @@ export class RazorpaySubscriptionsProvider implements BillingProvider {
         'This price is not set up with the payment provider yet. Contact ETicketsGo support.',
       );
     }
-    if (req.amountMinor > this.mandateMaxMinor) {
+    // Razorpay computes no tax: the plan charges the TOTAL, our tax included.
+    const charged = req.tax?.totalMinor ?? req.amountMinor;
+    if (charged > this.mandateMaxMinor) {
       throw capabilityMissing(
         'This plan costs more than a recurring payment mandate allows without approving each ' +
           'payment. Contact ETicketsGo support to pay for it another way.',
@@ -148,7 +150,7 @@ export class RazorpaySubscriptionsProvider implements BillingProvider {
     const plan = await this.call(() => this.client.plans.fetch(req.providerPriceRef!));
     const item = (plan.item ?? {}) as Obj;
     if (
-      Number(item.amount) !== req.amountMinor ||
+      Number(item.amount) !== charged ||
       String(item.currency ?? '').toUpperCase() !== req.currency ||
       planInterval(plan) !== req.interval
     ) {
@@ -179,7 +181,8 @@ export class RazorpaySubscriptionsProvider implements BillingProvider {
   async createCreditPackCheckout(req: CreditPackCheckoutRequest): Promise<BillingCheckoutSession> {
     const link = await this.call(() =>
       this.client.paymentLink.create({
-        amount: req.amountMinor,
+        // The total, our tax included: Razorpay computes none.
+        amount: req.tax?.totalMinor ?? req.amountMinor,
         currency: req.currency,
         description: req.description.slice(0, 2048),
         // Unique per purchase on Razorpay's side: a retried request cannot make a second link.
@@ -191,6 +194,8 @@ export class RazorpaySubscriptionsProvider implements BillingProvider {
           billingAccountId: req.accountId,
           packCode: req.packCode,
           purchaseRef: req.purchaseRef,
+          netMinor: String(req.amountMinor),
+          taxMinor: String(req.tax?.taxMinor ?? 0),
           etg_purpose: RAZORPAY_PURPOSE_CREDIT_PACK,
         },
       }),
@@ -390,6 +395,7 @@ export class RazorpaySubscriptionsProvider implements BillingProvider {
       organizationId: str(notes.organizationId),
       invoiceRef: null,
       creditPackCode: str(notes.packCode),
+      purchaseRef: str(notes.purchaseRef),
       paidAt: fromUnix(link.updated_at),
     };
   }

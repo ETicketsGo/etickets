@@ -1,13 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { OrganizerBillingAccount } from '@prisma/client';
+import type { OrganizerBillingAccount, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import { redirectUrl } from '../common/console-urls';
 import { SubscriptionService } from './subscription.service';
 import { ensureBillingAccount } from './billing-account';
-import { creditPackByCode } from './credit-packs';
+import { CreditPackPricesService } from './credit-pack-prices.service';
+import { BillingTaxService } from './billing-tax.service';
 import { BillingProviderRegistry } from './provider/billing-provider.registry';
 import {
   BILLING_NOT_ENABLED_MESSAGE,
@@ -24,6 +25,10 @@ const LIVE_PAID = ['ACTIVE', 'PAST_DUE', 'GRACE'];
  * Nothing here grants anything. A checkout returns a hosted URL; the plan or the credits arrive
  * only when the provider's verified record of the payment is applied by the webhook processor.
  * The page the organizer returns to polls our state and never trusts the redirect.
+ *
+ * Tax is worked out BEFORE the provider is called (BillingTaxService). No applicable tax rule
+ * for the organizer's jurisdiction, and no Stripe Tax for a US account, means no checkout: it
+ * is refused with BILLING_TAX_NOT_CONFIGURED rather than charged with no tax.
  */
 @Injectable()
 export class BillingCheckoutService {
@@ -32,6 +37,8 @@ export class BillingCheckoutService {
     private readonly config: ConfigService,
     private readonly registry: BillingProviderRegistry,
     private readonly subscriptions: SubscriptionService,
+    private readonly tax: BillingTaxService,
+    private readonly packPrices: CreditPackPricesService,
   ) {}
 
   private assertEnabled(country: string) {
@@ -130,9 +137,16 @@ export class BillingCheckoutService {
         HttpStatus.CONFLICT,
       );
     }
+    const tax = await this.tax.quote({
+      organizationId,
+      country: account.country,
+      currency: price.currency,
+      amountMinor: price.amountMinor,
+    });
     const provider = await this.registry.forCountry(account.country);
     const customerRef = await this.customerFor(account, provider);
     return provider.createCheckout({
+      tax,
       organizationId,
       accountId: account.id,
       priceId: price.id,
@@ -156,15 +170,14 @@ export class BillingCheckoutService {
       ensureBillingAccount(tx, organizationId),
     );
     this.assertEnabled(account.country);
-    const pack = creditPackByCode(packCode);
-    const price = pack?.prices[account.country];
-    if (!pack || !price) {
-      throw new AppException(
-        ErrorCodes.NOT_FOUND,
-        'That credit pack is not offered in your country.',
-        HttpStatus.NOT_FOUND,
-      );
-    }
+    // Only a PUBLISHED price is on sale; an unpublished pack is refused (owner decision).
+    const { pack, price } = await this.packPrices.publishedPrice(packCode, account.country);
+    const tax = await this.tax.quote({
+      organizationId,
+      country: account.country,
+      currency: price.currency,
+      amountMinor: price.amountMinor,
+    });
     const provider = await this.registry.forCountry(account.country);
     if (!provider.createCreditPackCheckout) {
       throw new AppException(
@@ -174,7 +187,30 @@ export class BillingCheckoutService {
       );
     }
     const customerRef = await this.customerFor(account, provider);
-    return provider.createCreditPackCheckout({
+    const purchaseRef = `pk_${randomUUID().replace(/-/g, '')}`;
+    /*
+      The quote is recorded BEFORE the provider is asked, so the payment is later checked
+      against exactly what this checkout said - not against a price staff may have changed in
+      between.
+    */
+    await this.prisma.creditPackPurchase.create({
+      data: {
+        purchaseRef,
+        organizationId,
+        accountId: account.id,
+        packCode: pack.code,
+        credits: pack.credits,
+        country: account.country,
+        currency: price.currency,
+        netMinor: tax.netMinor,
+        taxMinor: tax.taxMinor,
+        totalMinor: tax.totalMinor,
+        taxLines: tax.lines as unknown as Prisma.InputJsonValue,
+        taxMode: tax.mode,
+        provider: provider.key,
+      },
+    });
+    const session = await provider.createCreditPackCheckout({
       organizationId,
       accountId: account.id,
       customerRef,
@@ -182,10 +218,16 @@ export class BillingCheckoutService {
       description: pack.name,
       amountMinor: price.amountMinor,
       currency: price.currency,
-      purchaseRef: `pk_${randomUUID().replace(/-/g, '')}`,
+      purchaseRef,
       successUrl: this.returnUrl('credits=success'),
       cancelUrl: this.returnUrl('credits=cancelled'),
+      tax,
     });
+    await this.prisma.creditPackPurchase.update({
+      where: { purchaseRef },
+      data: { providerSessionRef: session.sessionRef },
+    });
+    return session;
   }
 
   /** The provider's hosted page to change the card or cancel. Stripe only. */

@@ -566,6 +566,14 @@ const envSchema = z.object({
   BILLING_PAST_DUE_DAYS: z.coerce.number().int().min(1).max(60).default(7),
   /** Days of GRACE (features kept, retries over) before the plan EXPIRES. */
   BILLING_GRACE_DAYS: z.coerce.number().int().min(1).max(60).default(7),
+  /**
+   * US plan and credit pack tax from Stripe Tax (`automatic_tax`) instead of our TaxRule rows.
+   * Off by default. When on, Stripe prices must be tax-EXCLUSIVE and Stripe Tax must be set up
+   * on the account (origin address, registrations). When off, a US checkout needs an active
+   * PLATFORM_SERVICES TaxRule for the organizer's state, or it is refused. India always uses
+   * TaxRule rows (GST). See docs/billing/BILLING-PROVIDERS.md, "Invoices and tax".
+   */
+  STRIPE_BILLING_AUTOMATIC_TAX: z.enum(['true', 'false']).default('false'),
 
   /**
    * The account that becomes this environment's FIRST administrator.
@@ -1063,9 +1071,15 @@ const envSchema = z.object({
   /** Days after a click during which a booking counts as ATTRIBUTED to the campaign. */
   CAMPAIGN_ATTRIBUTION_WINDOW_DAYS: z.coerce.number().int().min(1).max(30).default(7),
   /**
-   * The postal address printed in every campaign footer (anti-spam law asks for one). Optional
-   * until the owner supplies it; STAGING and PRODUCTION refuse to send a campaign without it.
+   * The verified DeepTrics business mailing address printed in every campaign footer
+   * (anti-spam law asks for one), PER COUNTRY of the entity the footer names: the Indian
+   * company for an organizer registered in India, DeepTrics LLC for everyone else
+   * (campaignFooterAddress). STAGING and PRODUCTION refuse a campaign whose country has none;
+   * LOCAL/DEV/QA/UAT print "Postal address pending verification (QA)". Never invented.
    */
+  MARKETING_POSTAL_ADDRESS_IN: z.string().optional(),
+  MARKETING_POSTAL_ADDRESS_US: z.string().optional(),
+  /** Old single address. A FALLBACK only, used when the country's own variable is unset. */
   MARKETING_POSTAL_ADDRESS: z.string().optional(),
 
   /*

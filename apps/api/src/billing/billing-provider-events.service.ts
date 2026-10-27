@@ -16,6 +16,12 @@ import { CREDITS_PERIOD, EntitlementService } from './entitlements/entitlement.s
 import { SubscriptionService } from './subscription.service';
 import { BillingInvoiceService } from './billing-invoice.service';
 import { creditPackByCode } from './credit-packs';
+import {
+  BillingTaxService,
+  type BillingTaxLine,
+  type BillingTaxQuote,
+} from './billing-tax.service';
+import type { InvoiceTax } from './billing-invoice.service';
 import { sendDunning, type DunningStage } from './billing-dunning';
 import {
   isTerminal,
@@ -24,12 +30,13 @@ import {
 } from './subscription-state-machine';
 import { BillingProviderRegistry } from './provider/billing-provider.registry';
 import { isTransientBillingError } from './provider/provider-errors';
-import type {
-  BillingProvider,
-  BillingProviderKey,
-  ProviderPaymentRecord,
-  ProviderSubscriptionRecord,
-  VerifiedBillingEvent,
+import {
+  TAX_INCLUSIVE_CHARGE_PROVIDERS,
+  type BillingProvider,
+  type BillingProviderKey,
+  type ProviderPaymentRecord,
+  type ProviderSubscriptionRecord,
+  type VerifiedBillingEvent,
 } from './provider/billing-provider';
 
 type Tx = Prisma.TransactionClient;
@@ -107,7 +114,92 @@ export class BillingProviderEventService {
     private readonly registry: BillingProviderRegistry,
     private readonly config: ConfigService,
     @Optional() private readonly audience: AdminAudienceService | null = null,
+    @Optional() private readonly tax: BillingTaxService | null = null,
   ) {}
+
+  /**
+   * What a verified payment was, split into net and tax, with the invoice's tax lines.
+   *
+   *   Stripe    `amountMinor` excludes tax and must equal the net price; `taxMinor` is what Stripe
+   *             charged on top (our Tax Rates or Stripe Tax). The lines are our quote's when it
+   *             adds up to what Stripe charged, otherwise one line with Stripe's amount.
+   *   Razorpay  the charge is the TOTAL (Razorpay computes no tax), so it must equal net + tax as
+   *             the rules give it NOW (plan renewals) or as quoted (credit packs), and is split
+   *             back into those two amounts.
+   * A mismatch is a Refusal: recorded for staff, nothing granted.
+   */
+  private async chargedSplit(
+    provider: BillingProvider,
+    rec: ProviderPaymentRecord,
+    expected: { netMinor: number; quote: BillingTaxQuote | null },
+  ): Promise<{ netMinor: number; taxMinor: number; tax: InvoiceTax }> {
+    const quote = expected.quote;
+    if (TAX_INCLUSIVE_CHARGE_PROVIDERS.includes(provider.key)) {
+      if (!quote) throw new Refusal('No tax could be worked out for this payment.');
+      if (rec.amountMinor !== quote.totalMinor) {
+        throw new Refusal(
+          `The payment (${rec.amountMinor} ${rec.currency}) does not match the price plus tax ` +
+            `(${quote.totalMinor} ${quote.currency}).`,
+        );
+      }
+      return {
+        netMinor: quote.netMinor,
+        taxMinor: quote.taxMinor,
+        tax: { lines: quote.lines, mode: quote.mode, jurisdiction: quote.jurisdiction },
+      };
+    }
+    if (rec.amountMinor !== expected.netMinor) {
+      throw new Refusal(
+        `The payment (${rec.amountMinor} ${rec.currency}) does not match the price ` +
+          `(${expected.netMinor}).`,
+      );
+    }
+    const taxMinor = Math.max(0, Math.trunc(rec.taxMinor));
+    let lines: BillingTaxLine[] = [];
+    if (quote && quote.mode === 'MANUAL' && quote.taxMinor === taxMinor) {
+      lines = quote.lines;
+    } else if (taxMinor > 0 || quote) {
+      lines = [
+        {
+          label: quote?.mode === 'PROVIDER_AUTOMATIC' ? 'Sales tax (Stripe Tax)' : 'Tax',
+          rateBasisPoints: 0,
+          baseMinor: rec.amountMinor,
+          amountMinor: taxMinor,
+        },
+      ];
+    }
+    return {
+      netMinor: rec.amountMinor,
+      taxMinor,
+      tax: {
+        lines,
+        mode: quote?.mode ?? 'NONE',
+        jurisdiction: quote?.jurisdiction ?? null,
+      },
+    };
+  }
+
+  /** The tax the rules give for a plan price now, or a Refusal when none applies. */
+  private async quoteOrRefuse(
+    account: OrganizerBillingAccount,
+    amountMinor: number,
+    currency: string,
+    at: Date,
+  ): Promise<BillingTaxQuote | null> {
+    if (!this.tax) return null;
+    try {
+      return await this.tax.quote({
+        organizationId: account.organizationId,
+        country: account.country,
+        currency,
+        amountMinor,
+        at,
+      });
+    } catch (err) {
+      if (err instanceof AppException) throw new Refusal(err.message);
+      throw err;
+    }
+  }
 
   private graceDays(): number {
     return Number(this.config.get('BILLING_GRACE_DAYS') ?? 7) || 7;
@@ -341,12 +433,22 @@ export class BillingProviderEventService {
     if (price.country !== account.country) {
       throw new Refusal('The payment is for a price of another country.');
     }
-    if (rec.amountMinor !== price.amountMinor || rec.currency !== price.currency) {
+    if (rec.currency !== price.currency) {
       throw new Refusal(
         `The payment (${rec.amountMinor} ${rec.currency}) does not match the price ` +
           `(${price.amountMinor} ${price.currency}).`,
       );
     }
+    const paidAt = rec.paidAt ?? new Date();
+    // Razorpay's charge cannot be split without the rules. Stripe charged its own tax already:
+    // a rule switched off since must not refuse a renewal it paid, so there it is best effort.
+    const quoting = this.quoteOrRefuse(account, price.amountMinor, price.currency, paidAt);
+    const split = await this.chargedSplit(provider, rec, {
+      netMinor: price.amountMinor,
+      quote: TAX_INCLUSIVE_CHARGE_PROVIDERS.includes(provider.key)
+        ? await quoting
+        : await quoting.catch(() => null),
+    });
     const subscriptionRef = rec.subscriptionRef;
     if (!subscriptionRef) throw new Refusal('The payment belongs to no subscription.');
     const subRec = await provider.fetchSubscription(subscriptionRef);
@@ -366,11 +468,12 @@ export class BillingProviderEventService {
       rec.periodEnd ??
       subRec.periodEnd ??
       new Date(periodStart.getTime() + (price.interval === 'YEAR' ? 365 : 30) * DAY);
+    // The NET amount: the state machine compares it with the price, which is before tax.
     const evidence: PaymentEvidence = {
       verified: true,
       provider: provider.key,
       paymentRef: rec.paymentRef,
-      amountMinor: rec.amountMinor,
+      amountMinor: split.netMinor,
       currency: rec.currency,
     };
     const providerLive = ['ACTIVE', 'TRIALING', 'PAST_DUE'].includes(subRec.status);
@@ -396,8 +499,8 @@ export class BillingProviderEventService {
           accountId: account.id,
           provider: provider.key,
           providerPaymentRef: rec.paymentRef,
-          amountMinor: rec.amountMinor,
-          taxMinor: rec.taxMinor,
+          amountMinor: split.netMinor,
+          taxMinor: split.taxMinor,
           currency: rec.currency,
           purpose: 'SUBSCRIPTION',
           status: 'SUCCEEDED',
@@ -483,14 +586,15 @@ export class BillingProviderEventService {
           {
             description: `${price.plan.name} plan, ${price.interval === 'YEAR' ? 'yearly' : 'monthly'}`,
             quantity: 1,
-            unitAmountMinor: rec.amountMinor,
+            unitAmountMinor: split.netMinor,
           },
         ],
-        taxMinor: rec.taxMinor,
+        taxMinor: split.taxMinor,
+        tax: split.tax,
         subscriptionId,
         periodStart,
         periodEnd,
-        paidAt: rec.paidAt ?? new Date(),
+        paidAt,
       });
       await tx.billingPayment.update({
         where: { id: payment.id },
@@ -690,12 +794,37 @@ export class BillingProviderEventService {
     ) {
       throw new Refusal('The payment belongs to another customer.');
     }
-    const price = pack.prices[account.country];
-    if (!price || price.amountMinor !== rec.amountMinor || price.currency !== rec.currency) {
-      throw new Refusal(
-        `The payment (${rec.amountMinor} ${rec.currency}) does not match the pack price.`,
-      );
+    // Checked against what THIS checkout quoted (CreditPackPurchase), never a price staff may
+    // have changed since.
+    const purchase = rec.purchaseRef
+      ? await this.prisma.creditPackPurchase.findUnique({ where: { purchaseRef: rec.purchaseRef } })
+      : null;
+    if (
+      !purchase ||
+      purchase.organizationId !== account.organizationId ||
+      purchase.packCode !== pack.code ||
+      purchase.currency !== rec.currency
+    ) {
+      throw new Refusal('The payment names no credit pack checkout of this organization.');
     }
+    const quoted: BillingTaxQuote = {
+      mode: purchase.taxMode as BillingTaxQuote['mode'],
+      currency: purchase.currency,
+      netMinor: purchase.netMinor,
+      taxMinor: purchase.taxMinor,
+      totalMinor: purchase.totalMinor,
+      lines: purchase.taxLines as unknown as BillingTaxLine[],
+      jurisdiction: {
+        country: purchase.country,
+        region: null,
+        sellerRegion: null,
+        interState: null,
+      },
+    };
+    const split = await this.chargedSplit(provider, rec, {
+      netMinor: purchase.netMinor,
+      quote: quoted,
+    });
 
     const entries: AuditEntry[] = [];
     let already = false;
@@ -718,8 +847,8 @@ export class BillingProviderEventService {
           accountId: account.id,
           provider: provider.key,
           providerPaymentRef: rec.paymentRef,
-          amountMinor: rec.amountMinor,
-          taxMinor: rec.taxMinor,
+          amountMinor: split.netMinor,
+          taxMinor: split.taxMinor,
           currency: rec.currency,
           purpose: 'CREDIT_PACK',
           status: 'SUCCEEDED',
@@ -745,9 +874,14 @@ export class BillingProviderEventService {
         provider: provider.key as 'STRIPE_BILLING' | 'RAZORPAY_BILLING',
         providerInvoiceRef: rec.invoiceRef ?? rec.paymentRef,
         currency: rec.currency,
-        lines: [{ description: pack.name, quantity: 1, unitAmountMinor: rec.amountMinor }],
-        taxMinor: rec.taxMinor,
+        lines: [{ description: pack.name, quantity: 1, unitAmountMinor: split.netMinor }],
+        taxMinor: split.taxMinor,
+        tax: split.tax,
         paidAt: rec.paidAt ?? new Date(),
+      });
+      await tx.creditPackPurchase.update({
+        where: { id: purchase.id },
+        data: { status: 'PAID', paidAt: rec.paidAt ?? new Date() },
       });
       await tx.billingPayment.update({
         where: { id: payment.id },

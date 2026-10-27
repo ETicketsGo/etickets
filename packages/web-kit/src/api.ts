@@ -81,6 +81,7 @@ import type {
   AdminBillingMetrics,
   AdminBillingPlan,
   AdminBillingPrice,
+  AdminCreditPack,
   AdminSubscriptionPage,
   BillingCheckoutSession,
   OrganizationEntitlements,
@@ -2667,10 +2668,10 @@ export const api = {
      */
     billing: {
       plans: () => request<AdminBillingPlan[]>('/admin/billing/plans'),
-      loadProvisional: (body: { annualFreeMonths?: number } = {}) =>
+      loadProvisional: () =>
         request<{ plansCreated: number; entitlementsWritten: number; pricesCreated: number }>(
           '/admin/billing/catalog/load-provisional',
-          { method: 'POST', body: JSON.stringify(body) },
+          { method: 'POST', body: JSON.stringify({}) },
         ),
       updatePlan: (
         id: string,
@@ -2707,6 +2708,27 @@ export const api = {
         }),
       deactivatePrice: (id: string) =>
         request<AdminBillingPrice>(`/admin/billing/prices/${id}/deactivate`, { method: 'POST' }),
+      /** Email credit packs and their per-country prices. Writes need BILLING_MANAGE + step-up. */
+      creditPacks: () => request<AdminCreditPack[]>('/admin/billing/credit-packs'),
+      setCreditPackPrice: (
+        packCode: string,
+        country: string,
+        body: { currency: string; amountMinor: number; expectedVersion?: number },
+      ) =>
+        request<unknown>(`/admin/billing/credit-packs/${packCode}/prices/${country}`, {
+          method: 'PUT',
+          body: JSON.stringify(body),
+        }),
+      publishCreditPack: (packCode: string, country: string, expectedVersion?: number) =>
+        request<unknown>(`/admin/billing/credit-packs/${packCode}/prices/${country}/publish`, {
+          method: 'POST',
+          body: JSON.stringify({ expectedVersion }),
+        }),
+      unpublishCreditPack: (packCode: string, country: string, expectedVersion?: number) =>
+        request<unknown>(`/admin/billing/credit-packs/${packCode}/prices/${country}/unpublish`, {
+          method: 'POST',
+          body: JSON.stringify({ expectedVersion }),
+        }),
       subscriptions: (
         params: {
           status?: string;
@@ -7582,7 +7604,8 @@ export interface TaxRule {
   id: string;
   label: string;
   rateBasisPoints: number;
-  appliesTo: 'TICKETS' | 'FEES' | 'TICKETS_AND_FEES';
+  /** PLATFORM_SERVICES: tax on organizer plans and email credit packs, never on tickets. */
+  appliesTo: 'TICKETS' | 'FEES' | 'TICKETS_AND_FEES' | 'PLATFORM_SERVICES';
   /** Rules sharing a group are alternatives; one wins. Empty means it always applies. */
   taxGroup: string;
   country: string;

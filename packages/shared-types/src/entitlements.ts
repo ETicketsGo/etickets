@@ -157,8 +157,13 @@ export interface EntitlementValue {
 }
 
 /**
- * The PROVISIONAL catalogue (owner to confirm). Loaded only by an explicit admin action, never
- * at boot and never in a migration. Prices in minor units: INR paise, USD cents.
+ * The catalogue the loader writes. Prices CONFIRMED by the owner on 2026-10-27; the names keep
+ * "PROVISIONAL" because stored audit rows and the admin endpoint name it. Loaded only by an
+ * explicit admin action, never at boot and never in a migration. Prices in minor units: INR
+ * paise, USD cents, BEFORE tax (tax is added at checkout from the PLATFORM_SERVICES rules).
+ *
+ * Premium-only (owner decision 2026-10-27): audience.advanced (segments), campaigns.automation
+ * and campaigns.analytics.advanced. Pro has none of the three.
  */
 export const PROVISIONAL_PLAN_ENTITLEMENTS: Record<BillingPlanCode, EntitlementValue[]> = {
   FREE: [{ key: 'audience.basic', boolValue: true }],
@@ -200,6 +205,13 @@ export const PROVISIONAL_MONTHLY_PRICES: ProvisionalMonthlyPrice[] = [
 
 /** Annual price = monthly x (12 - free months). Default: two months free. */
 export const DEFAULT_ANNUAL_FREE_MONTHS = 2;
+
+/**
+ * Owner decision 2026-10-27: an ANNUAL price is EXACTLY ten times the monthly one
+ * (India Pro INR 9,990, Premium INR 29,990; USA Pro USD 190, Premium USD 490). The loader always
+ * uses this; it is not a parameter.
+ */
+export const ANNUAL_PRICE_MULTIPLIER = 12 - DEFAULT_ANNUAL_FREE_MONTHS;
 
 export function annualAmountMinor(
   monthlyMinor: number,

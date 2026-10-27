@@ -1,4 +1,4 @@
-import { ADMIN_PRESETS, AdminPermission } from '@eticketsgo/shared-types';
+import { ADMIN_PRESETS, AdminPermission, permissionsFor } from '@eticketsgo/shared-types';
 
 /**
  * The ready-made bundles are exactly what the owner approved on 2026-10-10.
@@ -31,8 +31,10 @@ const APPROVED: Record<string, AdminPermission[]> = {
     AdminPermission.FINANCE_APPROVE,
     AdminPermission.FINANCE_RESOLVE,
     AdminPermission.PLATFORM_CONFIG_READ,
-    // + BILLING_READ (organizer plans and platform invoices; proposed, see the matrix).
+    // + BILLING_READ (organizer plans and platform invoices).
     AdminPermission.BILLING_READ,
+    // + BILLING_ADJUST (owner decision 2026-10-27): billing operations, not catalogue or prices.
+    AdminPermission.BILLING_ADJUST,
   ],
   // Unchanged.
   MODERATOR: [
@@ -122,15 +124,44 @@ describe('the ready-made staff bundles', () => {
     }
   });
 
-  it('keeps the billing writes in the billing desk bundle only', () => {
-    const writes: string[] = [
-      AdminPermission.BILLING_MANAGE,
-      AdminPermission.BILLING_ADJUST,
-      AdminPermission.ENTITLEMENT_GRANT,
-    ];
+  it('keeps catalogue, price and single-feature writes in the billing desk bundle only', () => {
+    const writes: string[] = [AdminPermission.BILLING_MANAGE, AdminPermission.ENTITLEMENT_GRANT];
     for (const [key, preset] of Object.entries(ADMIN_PRESETS)) {
       if (key === 'BILLING_DESK') continue;
       expect(preset.grants.filter((g) => writes.includes(g))).toEqual([]);
+    }
+  });
+
+  it('gives billing operations to Finance and the billing desk, and nobody else', () => {
+    const holders = Object.entries(ADMIN_PRESETS)
+      .filter(([, p]) => p.grants.includes(AdminPermission.BILLING_ADJUST))
+      .map(([key]) => key)
+      .sort();
+    expect(holders).toEqual(['BILLING_DESK', 'FINANCE']);
+  });
+
+  it('owner decision 2026-10-27: Finance operates billing, the reviewer only reads it', () => {
+    const finance = ADMIN_PRESETS.FINANCE.grants;
+    expect(finance).toEqual(
+      expect.arrayContaining([AdminPermission.BILLING_READ, AdminPermission.BILLING_ADJUST]),
+    );
+    expect(finance).not.toContain(AdminPermission.BILLING_MANAGE);
+    expect(finance).not.toContain(AdminPermission.ENTITLEMENT_GRANT);
+    const reviewer = ADMIN_PRESETS.FINANCE_REVIEWER.grants.filter(
+      (g) => g.startsWith('BILLING_') || g === AdminPermission.ENTITLEMENT_GRANT,
+    );
+    expect(reviewer).toEqual([AdminPermission.BILLING_READ]);
+  });
+
+  it('a super admin holds every billing capability by role, with no grant rows', () => {
+    const held = permissionsFor(['ADMIN', 'SUPER_ADMIN'], []);
+    for (const p of [
+      AdminPermission.BILLING_READ,
+      AdminPermission.BILLING_MANAGE,
+      AdminPermission.BILLING_ADJUST,
+      AdminPermission.ENTITLEMENT_GRANT,
+    ]) {
+      expect(held.has(p)).toBe(true);
     }
   });
 

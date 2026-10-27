@@ -11,6 +11,8 @@ import { BillingReadService } from './billing-read.service';
 import { BillingCheckoutService } from './billing-checkout.service';
 import { BillingProviderEventService } from './billing-provider-events.service';
 import { BillingSweepService } from './billing-sweep.service';
+import { CreditPackPricesService } from './credit-pack-prices.service';
+import { BillingTaxService } from './billing-tax.service';
 import { OrganizerBillingController } from './billing.controller';
 import { AdminBillingController } from './billing-admin.controller';
 import { BillingWebhookController } from './billing-webhook.controller';
@@ -59,6 +61,8 @@ import {
     BillingCheckoutService,
     BillingProviderEventService,
     BillingSweepService,
+    CreditPackPricesService,
+    BillingTaxService,
   ],
   exports: [
     EntitlementService,

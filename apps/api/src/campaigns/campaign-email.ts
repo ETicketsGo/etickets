@@ -48,6 +48,12 @@ export interface CampaignRenderInput {
   /** Maps a target to the URL the email carries, or null to drop the link. */
   link: (target: string) => string | null;
   unsubscribeUrl: string;
+  /**
+   * "Unsubscribe from all marketing email": a signed platform-wide link that stops every
+   * organizer's campaigns and ETicketsGo marketing, never tickets or receipts. Printed beside
+   * the organizer's own link. The List-Unsubscribe header stays organizer-scoped.
+   */
+  unsubscribeAllUrl: string;
   platform: { legalName: string; postalAddress: string | null };
   isTest?: boolean;
 }
@@ -188,6 +194,11 @@ export function renderCampaignEmail(input: CampaignRenderInput): RenderedCampaig
   const unsubPrompt = t(locale, 'emails.campaign.unsubscribePrompt');
   const unsubHref = safeHref(input.unsubscribeUrl);
   if (!unsubHref) throw new Error('A campaign email needs a working unsubscribe link.');
+  const unsubAllLabel = t(locale, 'emails.campaign.unsubscribeAll');
+  const unsubAllHref = safeHref(input.unsubscribeAllUrl);
+  if (!unsubAllHref) {
+    throw new Error('A campaign email needs a working "unsubscribe from all marketing" link.');
+  }
 
   const parts = input.blocks
     .map((b) => renderBlock(b, input, locale))
@@ -255,6 +266,8 @@ export function renderCampaignEmail(input: CampaignRenderInput): RenderedCampaig
                   unsubPrompt,
                 )} <a href="${escapeHtml(unsubHref)}" style="color:${BRAND};text-decoration:underline;">${escapeHtml(
                   unsubLabel,
+                )}</a> &middot; <a href="${escapeHtml(unsubAllHref)}" style="color:${BRAND};text-decoration:underline;">${escapeHtml(
+                  unsubAllLabel,
                 )}</a></p>
                 <p style="font-family:${FONT};margin:0 0 6px;color:${MUTED};font-size:12px;line-height:1.6;">${escapeHtml(
                   sentBy,
@@ -280,6 +293,7 @@ export function renderCampaignEmail(input: CampaignRenderInput): RenderedCampaig
     '--',
     why,
     `${unsubLabel}: ${unsubHref}`,
+    `${unsubAllLabel}: ${unsubAllHref}`,
     `${sentBy} ${operator}${input.platform.postalAddress ? ` ${input.platform.postalAddress}` : ''}`,
   ]
     .filter((line, i, all) => !(line === '' && all[i - 1] === ''))

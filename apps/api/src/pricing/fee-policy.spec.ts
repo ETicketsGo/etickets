@@ -298,3 +298,33 @@ describe('conflicts and status', () => {
     );
   });
 });
+
+/*
+  Resolved engineering question (owner decisions 2026-10-27): an override never raises the
+  booking fee above the schedule, whatever its kind, amount or the order size.
+*/
+describe('resolved: an override never charges more than the schedule', () => {
+  const schedule = (subtotalMinor: number) =>
+    calculateFees({
+      subtotalMinor,
+      feeMode: FeeMode.CUSTOMER_PAYS,
+      tiers: DEFAULT_FEE_TIERS,
+      currency: 'INR',
+    }).bookingFeeMinor;
+  const kinds: Partial<FeePolicyRow>[] = [
+    { kind: 'WAIVE' },
+    { kind: 'FIXED', feeMinor: 1, currency: 'INR' },
+    { kind: 'FIXED', feeMinor: 2_500, currency: 'INR' },
+    { kind: 'FIXED', feeMinor: 1_000_000, currency: 'INR' },
+    { kind: 'PERCENT', percentBps: 1 },
+    { kind: 'PERCENT', percentBps: 500 },
+    { kind: 'PERCENT', percentBps: 10_000 },
+    { kind: 'PERCENT', percentBps: 300, minFeeMinor: 99_999, currency: 'INR' },
+  ];
+  it.each(kinds.map((k) => [JSON.stringify(k), k] as const))('%s', (_name, k) => {
+    for (const subtotal of [1, 99, 19_900, 50_000, 150_000, 999_999, 25_000_000]) {
+      const out = priced(policy(k), subtotal);
+      expect(out.fees.bookingFeeMinor).toBeLessThanOrEqual(schedule(subtotal));
+    }
+  });
+});

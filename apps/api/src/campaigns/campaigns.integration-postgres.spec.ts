@@ -869,6 +869,20 @@ describe('integration-real-postgres: organizer campaigns', () => {
       expect((await db!.campaignRecipient.findUnique({ where: { id: er.id } })).status).toBe(
         'COMPLAINED',
       );
+      // Owner decision 2026-10-27: the complaint suppresses MARKETING only. Every campaign skips
+      // the address from now on; the person's tickets and receipts still reach it.
+      const complaintRows = await db!.suppressedDestination.findMany({
+        where: {
+          channel: 'email',
+          destinationHash: SuppressionService.hash('email', people.eligible.email),
+        },
+      });
+      expect(
+        complaintRows.map((r: { scope: string; reason: string }) => [r.scope, r.reason]),
+      ).toEqual([['MARKETING', 'COMPLAINT']]);
+      const supp = new SuppressionService(db as never);
+      expect(await supp.isSuppressed('email', people.eligible.email)).toBe(false);
+      expect(await supp.isSuppressed('email', people.eligible.email, 'marketing')).toBe(true);
       expect(
         await db!.organizerSuppression.findFirst({
           where: {

@@ -282,6 +282,7 @@
     },
     "unsubscribe": "Unsubscribe from {organizer}",
     "unsubscribePrompt": "Do not want these emails?",
+    "unsubscribeAll": "Unsubscribe from all marketing email",
     "sentBy": "Sent by {organizer} with ETicketsGo.",
     "operator": "ETicketsGo is operated by {legalName}.",
     "book": "Book tickets",
