@@ -4,6 +4,12 @@ import { NotificationType } from '@eticketsgo/shared-types';
 import { NotificationTemplateService } from '../src/notifications/templates/notification-template.service';
 import { buildEmailView } from '../src/notifications/templates/email-view';
 import { renderEmailHtml } from '../src/notifications/templates/email-html';
+import {
+  CAMPAIGN_TEMPLATES,
+  TEMPLATE_KEYS,
+  templateStart,
+} from '../src/campaigns/campaign-content';
+import { renderCampaignEmail } from '../src/campaigns/campaign-email';
 
 /**
  * Writes every email to disk, in every language, so a person can look at them.
@@ -190,6 +196,50 @@ for (const locale of ['en', 'fr-CA'] as const) {
     fs.writeFileSync(path.join(OUT, name), html);
     index.push(
       `<li><a href="${name}">${locale} &middot; ${label}</a><br /><span style="color:#6b7280">${rendered.subject}</span></li>`,
+    );
+  }
+}
+
+/*
+  Organizer campaign templates: the same renderer the campaign worker calls, with a sample
+  event and organizer. Links are shown as their targets; a real send routes them through the
+  click tracker.
+*/
+const SAMPLE_EVENT = {
+  id: 'evt_sample',
+  title: 'Ilakathamafiliya',
+};
+for (const locale of ['en', 'fr-CA'] as const) {
+  for (const key of TEMPLATE_KEYS) {
+    const start = templateStart(key, {
+      event: CAMPAIGN_TEMPLATES[key].needsEvent ? SAMPLE_EVENT : null,
+      organizer: 'Vijayawada Live',
+    });
+    const { html } = renderCampaignEmail({
+      locale,
+      subject: start.subject,
+      previewText: start.previewText,
+      blocks: start.content.blocks,
+      purpose: start.purpose,
+      organizer: { name: 'Vijayawada Live', logoUrl: null },
+      mainEventImageUrl: null,
+      events: {
+        [SAMPLE_EVENT.id]: {
+          title: SAMPLE_EVENT.title,
+          when: 'Tue 29 Sept 2026, 9:00 pm IST',
+          venue: 'Siddhartha Auditorium, Vijayawada',
+          imageUrl: null,
+          bookUrl: 'https://qa.eticketsgo.com/events/ilakathamafiliya',
+        },
+      },
+      link: (target) => target,
+      unsubscribeUrl: 'https://qa.eticketsgo.com/unsubscribe/sample',
+      platform: { legalName: 'DeepTrics Software Solutions Private Limited', postalAddress: null },
+    });
+    const name = `${locale}-CAMPAIGN-${key}.html`;
+    fs.writeFileSync(path.join(OUT, name), html);
+    index.push(
+      `<li><a href="${name}">${locale} &middot; campaign &middot; ${key}</a><br /><span style="color:#6b7280">${start.subject}</span></li>`,
     );
   }
 }

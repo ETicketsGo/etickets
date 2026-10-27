@@ -2,6 +2,7 @@ import type { NavItem } from '@eticketsgo/web-kit';
 import type { OrgPermissions } from '@/lib/org-permissions';
 import {
   Banknote,
+  BarChart3,
   BriefcaseBusiness,
   Gauge,
   Bell,
@@ -12,6 +13,7 @@ import {
   Film,
   LayoutDashboard,
   LifeBuoy,
+  Mail,
   Megaphone,
   ReceiptText,
   Rocket,
@@ -169,8 +171,7 @@ export function navFor({
         Followers and audience counts (aggregates only, never names), as a TAB of Marketing
         rather than a sidebar row: one more row makes the expanded sidebar scroll at a
         768px-tall window (console-navigation e2e). Quick navigation finds it by name and by
-        "followers". Campaigns and analytics pages are later work and get no entry until
-        they exist.
+        "followers". Campaigns and their results are tabs here too, for the same reason.
       */
       children: [
         {
@@ -178,6 +179,18 @@ export function navFor({
           href: '/organizer/audience',
           icon: UserPlus,
           keywords: ['followers', 'subscribers', 'fans', 'audience', 'growth'],
+        },
+        {
+          label: 'Email campaigns',
+          href: '/organizer/campaigns',
+          icon: Mail,
+          keywords: ['email', 'campaign', 'newsletter', 'mailing', 'announce', 'send email'],
+        },
+        {
+          label: 'Campaign results',
+          href: '/organizer/campaigns/analytics',
+          icon: BarChart3,
+          keywords: ['campaign analytics', 'clicks', 'attributed sales', 'email results'],
         },
       ],
     },

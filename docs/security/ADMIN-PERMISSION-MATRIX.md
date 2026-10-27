@@ -111,6 +111,22 @@ assigns a capability, and no existing account changed.
   capability); `admin/step-up-routes.spec.ts` (each write through the real MfaGuard);
   `billing/billing.integration-postgres.spec.ts` (cross-tenant refusal on real Postgres).
 
+## Organizer email campaigns (branch `feat/organizer-campaigns`)
+
+- **No new capability.** `/admin/campaigns` (the list) and `/admin/campaigns/health` (bounce and
+  complaint rates) read under `ORGANIZER_READ`: they are a view of what organizers do. Pausing a
+  campaign and lifting a staff pause (`POST /admin/campaigns/:campaignId/pause`, `/release`) need
+  `ORGANIZER_REVIEW`, the capability that already approves or suspends an organizer, and a recent
+  second factor. Both step-up spec lists name them. No admin route returns a recipient or an
+  address.
+- **Organizer API.** Every `/organizations/:id/campaigns/*` route is `NONE` for staff, except
+  `test-send`, `schedule` and `send`, which are `@OrganizerOnly` (mail under the organization's
+  name is its own decision). Owners and managers only, and each route also checks the plan
+  entitlement (`@RequiresEntitlement`, then again in the service).
+- **Audit.** `CAMPAIGN_*` rows for create, schedule, send confirmed, pause, resume, cancel, test
+  sends, system pauses, and `CAMPAIGN_PAUSED_BY_ADMIN` / `CAMPAIGN_RELEASED_BY_ADMIN` with the
+  staff member and reason.
+
 ## Admin authorization hardening (branch `sec/admin-authorization`)
 
 - **No self-grant.** `PUT /admin/staff/:userId/permissions` refuses a change to the caller's own
@@ -473,6 +489,9 @@ do these on `/admin` instead, where each has its own capability:
 | `POST /organizations/:id/billing/credit-packs/checkout`    | `billing.checkout`                   |
 | `POST /organizations/:id/billing/portal`                   | `billing.portal`                     |
 | `POST /organizations/:id/billing/cancel`                   | `billing.cancel`                     |
+| `POST /organizations/:id/campaigns/:campaignId/test-send`  | `campaigns.test-send`                |
+| `POST /organizations/:id/campaigns/:campaignId/schedule`   | `campaigns.schedule`                 |
+| `POST /organizations/:id/campaigns/:campaignId/send`       | `campaigns.send`                     |
 
 ### Every other route
 

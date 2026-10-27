@@ -124,6 +124,36 @@ export function resolveSesCredentials(
 }
 
 /**
+ * The one SES client constructor in the codebase (ses-credential-isolation.spec.ts holds it to
+ * that): the dedicated SES key, a bounded request timeout. Shared by the notification transport
+ * and the campaign transport, so a second sender can never skip the dedicated key.
+ */
+export function createSesClient(config: ConfigService, region: string): SESv2Client {
+  const credentials = resolveSesCredentials(config);
+  return new SESv2Client({
+    region,
+    // Only the key itself: the source label is for readiness, not for the SDK.
+    ...(credentials
+      ? {
+          credentials: {
+            accessKeyId: credentials.accessKeyId,
+            secretAccessKey: credentials.secretAccessKey,
+          },
+        }
+      : {}),
+    /*
+      Bounded, because the SDK's default HTTP handler has no request timeout at all.
+
+      Every notification goes through one worker with a concurrency of one, so a single socket
+      that SES accepts and never answers would stall ticket emails, SMS and hold expiry behind
+      it indefinitely. A timed-out send throws, and the dispatcher retries it on its schedule.
+      The plain options object is the form the installed Smithy handler accepts directly.
+    */
+    requestHandler: { connectionTimeout: 5_000, requestTimeout: 10_000 },
+  });
+}
+
+/**
  * AWS SES v2 transport (`@aws-sdk/client-sesv2`). Requires AWS_REGION + EMAIL_FROM, and in
  * STAGING/PRODUCTION the dedicated SES key pair (see resolveSesCredentials).
  */
@@ -151,28 +181,7 @@ export class SesEmailTransport implements EmailTransport {
   constructor(config: ConfigService) {
     const region = requireKey(config, 'AWS_REGION');
     this.from = requireKey(config, 'EMAIL_FROM');
-    const credentials = resolveSesCredentials(config);
-    this.client = new SESv2Client({
-      region,
-      // Only the key itself: the source label is for readiness, not for the SDK.
-      ...(credentials
-        ? {
-            credentials: {
-              accessKeyId: credentials.accessKeyId,
-              secretAccessKey: credentials.secretAccessKey,
-            },
-          }
-        : {}),
-      /*
-        Bounded, because the SDK's default HTTP handler has no request timeout at all.
-
-        Every notification goes through one worker with a concurrency of one, so a single socket
-        that SES accepts and never answers would stall ticket emails, SMS and hold expiry behind
-        it indefinitely. A timed-out send throws, and the dispatcher retries it on its schedule.
-        The plain options object is the form the installed Smithy handler accepts directly.
-      */
-      requestHandler: { connectionTimeout: 5_000, requestTimeout: 10_000 },
-    });
+    this.client = createSesClient(config, region);
     this.configurationSet = config.get<string>('SES_CONFIGURATION_SET') ?? undefined;
   }
 

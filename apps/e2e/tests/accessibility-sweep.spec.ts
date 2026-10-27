@@ -80,6 +80,8 @@ const ORGANIZER_ROUTES = [
   '/organizer/cinemas',
   '/organizer/promotions',
   '/organizer/audience',
+  '/organizer/campaigns',
+  '/organizer/campaigns/analytics',
   '/organizer/payouts',
   '/organizer/receipts',
   '/organizer/refunds',
@@ -93,6 +95,7 @@ const ORGANIZER_ROUTES = [
 const ADMIN_ROUTES = [
   '/admin',
   '/admin/organizers',
+  '/admin/campaigns',
   '/admin/events',
   '/admin/movies',
   '/admin/users',

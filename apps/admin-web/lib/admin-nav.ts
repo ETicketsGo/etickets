@@ -20,6 +20,7 @@ import {
   MessageSquareText,
   Percent,
   KeyRound,
+  Mail,
   Receipt,
   ReceiptText,
   RotateCcw,
@@ -168,10 +169,26 @@ export const ADMIN_NAV: AdminNavGroup[] = [
       // ORGANIZER_REVIEW, not ORGANIZER_READ: GET /admin/organizers is the review queue.
       {
         label: 'Organizers',
+        tabLabel: 'Review queue',
         href: '/admin/organizers',
         icon: Building2,
         needs: 'ORGANIZER_REVIEW',
         keywords: ['verification', 'kyc', 'approve'],
+        /*
+          Organizer email campaigns: what goes out under the platform's name, the bounce and
+          complaint rates, and the brake. A tab of Organizers, not a menu row, for the same
+          768px menu-height reason as Organizer Acquisition. Reading is ORGANIZER_READ; the
+          pause control also needs ORGANIZER_REVIEW and is hidden from a reader.
+        */
+        children: [
+          {
+            label: 'Email campaigns',
+            href: '/admin/campaigns',
+            icon: Mail,
+            needs: 'ORGANIZER_READ',
+            keywords: ['campaigns', 'marketing email', 'bounces', 'complaints', 'spam'],
+          },
+        ],
       },
       /*
         Organizer Acquisition, the sales desk: prospects the platform would like to sell for.

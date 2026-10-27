@@ -1043,6 +1043,32 @@ const envSchema = z.object({
   SES_CONFIGURATION_SET: z.string().optional(),
 
   /*
+    ── ORGANIZER EMAIL CAMPAIGNS ──────────────────────────────────────────────────────
+    OFF by default, everywhere. While off, every campaign route answers "not switched on" and
+    the worker sends nothing. The plan entitlements (campaigns.*) still apply on top: this is
+    the deployment switch, they are the per-organization answer.
+
+    Marketing mail has its OWN sender and configuration set, so a campaign's bounces and
+    complaints are measured apart from ticket mail, and an SES pause on marketing reputation
+    cannot stop a ticket. In LOCAL/DEV/QA/UAT an unset pair falls back to the transactional
+    ones, and the console says so. In STAGING and PRODUCTION a campaign is refused at send
+    time unless both are set (campaign-sending-config.ts). Checked at send time, not at boot, so
+    switching campaigns off can never stop the API from starting.
+  */
+  CAMPAIGNS_ENABLED: z.enum(['true', 'false']).default('false'),
+  SES_MARKETING_CONFIGURATION_SET: z.string().optional(),
+  MARKETING_EMAIL_FROM: z.string().optional(),
+  /** Campaign messages per second, per worker. Conservative by default; SES sandbox is 1/s. */
+  CAMPAIGN_SEND_RATE_PER_SECOND: z.coerce.number().int().min(1).max(50).default(5),
+  /** Days after a click during which a booking counts as ATTRIBUTED to the campaign. */
+  CAMPAIGN_ATTRIBUTION_WINDOW_DAYS: z.coerce.number().int().min(1).max(30).default(7),
+  /**
+   * The postal address printed in every campaign footer (anti-spam law asks for one). Optional
+   * until the owner supplies it; STAGING and PRODUCTION refuse to send a campaign without it.
+   */
+  MARKETING_POSTAL_ADDRESS: z.string().optional(),
+
+  /*
     ── OBJECT STORAGE (Cloudflare R2, through the S3 API) ────────────────────────────
     Where posters, organization pictures and uploaded documents live. Unset everywhere means
     `postgres`, which is what every environment runs today and is a perfectly good answer at

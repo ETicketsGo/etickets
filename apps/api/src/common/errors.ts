@@ -153,5 +153,9 @@ export const ErrorCodes = {
    * price not set up with it, or a capability (e.g. UPI Autopay) not enabled on the account.
    */
   BILLING_PROVIDER_UNAVAILABLE: 'BILLING_PROVIDER_UNAVAILABLE',
+  /** Email campaigns are switched off in this deployment (CAMPAIGNS_ENABLED is not "true"). */
+  CAMPAIGNS_NOT_ENABLED: 'CAMPAIGNS_NOT_ENABLED',
+  /** A campaign move its lifecycle does not allow from its current status. */
+  CAMPAIGN_TRANSITION_INVALID: 'CAMPAIGN_TRANSITION_INVALID',
   INTERNAL: 'INTERNAL',
 } as const;

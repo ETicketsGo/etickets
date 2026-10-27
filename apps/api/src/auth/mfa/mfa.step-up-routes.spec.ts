@@ -3,6 +3,7 @@ import { AdminStaffController } from '../../admin/admin-staff.controller';
 import { SettlementController } from '../../payments/settlement/settlement.controller';
 import { MFA_RECENT_KEY } from '../../common/decorators';
 import { AdminBillingController } from '../../billing/billing-admin.controller';
+import { AdminCampaignsController } from '../../campaigns/campaigns.controller';
 import { PlatformFeePoliciesController } from '../../admin/platform-fee-policies.controller';
 
 /*
@@ -36,6 +37,8 @@ const STEP_UP: Array<[string, new (...a: never[]) => unknown, string[]]> = [
       'revokeOverride',
     ],
   ],
+  // Stopping, or releasing, an organizer's campaign: mail going out under the platform's name.
+  ['organizer campaigns', AdminCampaignsController, ['pause', 'release']],
   // A fee waiver or override changes what buyers pay from the next sale on.
   [
     'platform fee policies',
