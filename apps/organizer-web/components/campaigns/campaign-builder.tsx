@@ -299,7 +299,13 @@ export function CampaignBuilder({
           campaignId={campaignId}
           draft={draft}
           canSchedule={status.data!.entitlements.schedule}
-          onDone={(id) => router.push(`/organizer/campaigns/${id}`)}
+          onDone={(id) => {
+            // The builder and the detail page share this cache entry; after scheduling or sending
+            // the server moved status and version, so drop the builder's copy before showing it.
+            void qc.invalidateQueries({ queryKey: ['campaign', activeOrg.id, id] });
+            void qc.invalidateQueries({ queryKey: ['campaigns', activeOrg.id] });
+            router.push(`/organizer/campaigns/${id}`);
+          }}
         />
       )}
 

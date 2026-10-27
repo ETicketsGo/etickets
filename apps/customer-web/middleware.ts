@@ -58,6 +58,14 @@ export const config = {
     `opengraph-image` and `twitter-image` are the sharing pictures (`app/opengraph-image.tsx`).
     They have no extension in their URL and no locale; sent through the locale rewrite they
     would be looked for under `/en/` and answer 404.
+
+    Unsubscribe links carry a signed token `<payload>.<signature>`. The pattern above skips every
+    path with a dot (static files), so those links never got their locale and answered 404. They
+    are listed explicitly.
   */
-  matcher: ['/((?!api|_next|_vercel|opengraph-image|twitter-image|.*\\..*).*)'],
+  matcher: [
+    '/((?!api|_next|_vercel|opengraph-image|twitter-image|.*\\..*).*)',
+    '/unsubscribe/:token*',
+    '/:locale/unsubscribe/:token*',
+  ],
 };

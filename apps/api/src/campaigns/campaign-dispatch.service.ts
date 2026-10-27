@@ -561,13 +561,7 @@ export class CampaignDispatchService {
       const cacheKey = `${campaignId}|${target}`;
       let id = this.linkIds.get(cacheKey);
       if (!id) {
-        const row = await this.prisma.campaignLink.upsert({
-          where: { campaignId_targetUrl: { campaignId, targetUrl: target } },
-          create: { campaignId, targetUrl: target },
-          update: {},
-          select: { id: true },
-        });
-        id = row.id;
+        id = await ensureCampaignLink(this.prisma, campaignId, target);
         this.linkIds.set(cacheKey, id);
         if (this.linkIds.size > 5000) this.linkIds.delete(this.linkIds.keys().next().value!);
       }
@@ -586,4 +580,26 @@ export class CampaignDispatchService {
       data: { campaignId, recipientId, type, detail: detail as Prisma.InputJsonValue },
     });
   }
+}
+
+/**
+ * The CampaignLink id for one target, created if missing. Safe under concurrency: the campaign
+ * queue sends several recipients at once, and `upsert` is NOT atomic (two first sends could
+ * both try the insert; one failed on the unique key and that recipient was failed for good).
+ * Insert with ON CONFLICT DO NOTHING, then read the row whoever created it.
+ */
+export async function ensureCampaignLink(
+  prisma: Pick<PrismaService, 'campaignLink'>,
+  campaignId: string,
+  targetUrl: string,
+): Promise<string> {
+  await prisma.campaignLink.createMany({
+    data: [{ campaignId, targetUrl }],
+    skipDuplicates: true,
+  });
+  const row = await prisma.campaignLink.findUniqueOrThrow({
+    where: { campaignId_targetUrl: { campaignId, targetUrl } },
+    select: { id: true },
+  });
+  return row.id;
 }
