@@ -102,8 +102,15 @@ const switchNamed = (name: string) =>
   dialog()!.querySelector<HTMLInputElement>(`input[role="switch"][aria-label="${name}"]`)!;
 const byTestId = (id: string) => document.querySelector<HTMLElement>(`[data-testid="${id}"]`);
 
-async function until(check: () => boolean, tries = 60) {
-  for (let i = 0; i < tries && !check(); i += 1) await flush();
+/*
+  Waits by the clock, not by a count of ticks: closing the dialog runs its exit animation,
+  which takes real time and took longer than 60 zero-delay ticks on CI. Up to 3 seconds.
+*/
+async function until(check: () => boolean, ms = 3000) {
+  const end = Date.now() + ms;
+  while (!check() && Date.now() < end) {
+    await act(async () => new Promise((r) => setTimeout(r, 10)));
+  }
   expect(check()).toBe(true);
 }
 // The button is disabled until its first status read answers. Wait for it to be ready.

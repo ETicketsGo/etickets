@@ -101,8 +101,12 @@ afterEach(async () => {
 });
 
 const flush = () => act(async () => new Promise((r) => setTimeout(r, 0)));
-async function until(check: () => boolean, tries = 60) {
-  for (let i = 0; i < tries && !check(); i += 1) await flush();
+// Waits by the clock (up to 3 seconds), so a slow CI runner does not fail it.
+async function until(check: () => boolean, ms = 3000) {
+  const end = Date.now() + ms;
+  while (!check() && Date.now() < end) {
+    await act(async () => new Promise((r) => setTimeout(r, 10)));
+  }
   expect(check()).toBe(true);
 }
 
