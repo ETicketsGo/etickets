@@ -36,7 +36,7 @@ import {
  *
  * Nothing was removed and no route changed. Secondary pages are the TABS of the page they
  * belong to (`children`, rendered by `SectionTabs`): Payouts, Receipts and invoices and Refunds
- * under Finance. Billing & plans (which replaced Premium) is its own row. Counter was a tab of Bookings and is now its own row
+ * under Finance; Billing & plans (which replaced Premium) under Settings. Counter was a tab of Bookings and is now its own row
  * under it, because nobody found it there. Quick navigation (Ctrl/Cmd+K)
  * lists every one of them, and Get started (`sidebar: false`) too.
  *
@@ -198,27 +198,6 @@ export function navFor({
         { label: 'Refunds', href: '/organizer/refunds', icon: Undo2 },
       ],
     },
-    /*
-      What the organization pays ETicketsGo for (Free, Pro, Premium), never ticket money - so it
-      is its own row and not a tab of Finance. It replaces Premium & enterprise, whose old address
-      redirects here and is matched so the row stays marked.
-    */
-    {
-      label: 'Billing & plans',
-      href: '/organizer/billing',
-      icon: Sparkles,
-      match: ['/organizer/premium'],
-      keywords: [
-        'plan',
-        'upgrade',
-        'pro',
-        'premium',
-        'subscription',
-        'pricing',
-        'trial',
-        'credits',
-      ],
-    },
     {
       label: 'Team',
       href: '/organizer/team',
@@ -239,6 +218,30 @@ export function navFor({
         'theme',
         'dark mode',
         'logo',
+      ],
+      /*
+        Billing & plans - what the organization pays ETicketsGo for (Free, Pro, Premium), never
+        ticket money - takes the place Premium & enterprise had, as a tab of Settings: one more
+        sidebar row made the desk sidebar scroll at a 768px-tall window (console-navigation e2e).
+        The old Premium address redirects here and is matched so the tab stays marked.
+      */
+      children: [
+        {
+          label: 'Billing & plans',
+          href: '/organizer/billing',
+          icon: Sparkles,
+          match: ['/organizer/premium'],
+          keywords: [
+            'plan',
+            'upgrade',
+            'pro',
+            'premium',
+            'subscription',
+            'pricing',
+            'trial',
+            'credits',
+          ],
+        },
       ],
     },
     {

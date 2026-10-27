@@ -89,7 +89,6 @@ describe('the organizer sidebar', () => {
       'Notifications',
       'Marketing',
       'Finance & payouts',
-      'Billing & plans',
       'Team',
       'Settings',
       'Help & support',
@@ -104,9 +103,9 @@ describe('the organizer sidebar', () => {
     );
   });
 
-  it('has one level only: secondary pages are tabs of Finance', () => {
+  it('has one level only: secondary pages are tabs of Finance and Settings', () => {
     const parents = owner.filter((i) => i.children?.length).map((i) => i.href);
-    expect(parents).toEqual(['/organizer/finance']);
+    expect(parents).toEqual(['/organizer/finance', '/organizer/settings']);
     for (const kid of owner.flatMap((i) => i.children ?? [])) {
       expect(kid.children, `${kid.href} nests a third level`).toBeUndefined();
     }
@@ -136,9 +135,9 @@ describe('the organizer sidebar', () => {
     );
   });
 
-  it('puts Billing & plans in Business, and the old Premium address still lands on it', () => {
-    const rows = owner.filter((i) => i.sidebar !== false).map((i) => i.href);
-    expect(rows[rows.indexOf('/organizer/finance') + 1]).toBe('/organizer/billing');
+  it('puts Billing & plans in Business (a Settings tab); the old Premium address lands on it', () => {
+    const settings = owner.find((i) => i.href === '/organizer/settings');
+    expect(settings?.children?.map((x) => x.href)).toEqual(['/organizer/billing']);
     expect(reachable('/organizer/premium', owner)).toBe(true);
     expect(filterQuickNav(quickNavEntries(owner), 'upgrade')[0]?.href).toBe('/organizer/billing');
     expect(filterQuickNav(quickNavEntries(owner), 'premium')[0]?.href).toBe('/organizer/billing');
