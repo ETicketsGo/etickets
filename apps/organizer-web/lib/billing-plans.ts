@@ -100,6 +100,69 @@ export const ASK_DIALOG_TEXT =
 
 export const NO_INVOICES = 'No invoices yet. Invoices start when you pay for a plan.';
 
+// ── Paying through a provider ──────────────────────────────────────────────────────
+
+export type CheckoutReturn =
+  'plan-success' | 'plan-cancelled' | 'credits-success' | 'credits-cancelled' | 'portal' | null;
+
+/**
+ * What the provider's redirect says the organizer just did. A HINT for which message to show
+ * while the page asks the server; it is never taken as proof of payment.
+ */
+export function checkoutReturn(search: string): CheckoutReturn {
+  const q = new URLSearchParams(search);
+  if (q.get('checkout') === 'success') return 'plan-success';
+  if (q.get('checkout') === 'cancelled') return 'plan-cancelled';
+  if (q.get('credits') === 'success') return 'credits-success';
+  if (q.get('credits') === 'cancelled') return 'credits-cancelled';
+  if (q.get('portal')) return 'portal';
+  return null;
+}
+
+/** True once the SERVER says a paid plan is live: only a verified provider payment does that. */
+export function paidPlanConfirmed(billing: Pick<OrganizerBilling, 'subscription'>): boolean {
+  const s = billing.subscription;
+  return !!s && s.source === 'PROVIDER' && s.status === 'ACTIVE';
+}
+
+/** Which self-service controls a paid plan offers: the Stripe portal, and cancelling. */
+export function paidPlanControls(billing: Pick<OrganizerBilling, 'subscription' | 'provider'>): {
+  portal: boolean;
+  cancel: boolean;
+} {
+  const s = billing.subscription;
+  const paid = !!s && s.source === 'PROVIDER' && ['ACTIVE', 'PAST_DUE', 'GRACE'].includes(s.status);
+  return {
+    portal: paid && billing.provider === 'STRIPE_BILLING',
+    cancel: paid && !s!.cancelAtPeriodEnd,
+  };
+}
+
+/** How long the return page keeps asking the server before it says "not confirmed yet". */
+export const CONFIRM_POLL_MS = 3_000;
+export const CONFIRM_POLL_LIMIT = 40;
+
+export const RETURN_MESSAGES: Record<Exclude<CheckoutReturn, null>, string> = {
+  'plan-success':
+    'Thanks. We are confirming your payment with the payment provider. Your plan starts as soon as the payment is confirmed.',
+  'plan-cancelled': 'You did not finish paying. Nothing was charged and your plan has not changed.',
+  'credits-success':
+    'Thanks. We are confirming your payment. Your credits appear here as soon as the payment is confirmed.',
+  'credits-cancelled': 'You did not finish paying. Nothing was charged.',
+  portal: 'Changes you made with the payment provider can take a minute to show here.',
+};
+
+export const PAYMENT_CONFIRMED = 'Your payment is confirmed. Your plan is active.';
+
+export const PAYMENT_NOT_CONFIRMED_YET =
+  'We have not received confirmation of your payment yet. This can take a few minutes. If you were charged and your plan does not start within an hour, contact ETicketsGo support.';
+
+export const CANCEL_DIALOG_TEXT =
+  'Your plan stays active until the end of the period you paid for. It does not renew after that, and your organization moves to the Free plan.';
+
+export const DISPUTED_NOTICE =
+  'A payment on this account is disputed with your bank or card issuer. ETicketsGo support will contact you.';
+
 export function usageSentence(u: OrganizerBilling['usage']): string {
   if (u.quota === 0 && u.credits === 0) return 'Your plan includes no campaign emails.';
   const parts = [
