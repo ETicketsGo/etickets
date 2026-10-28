@@ -79,7 +79,8 @@ const feeRuleCreateSchema = z.object({
     .string()
     .trim()
     .regex(/^[A-Z]{3}$/, 'Use a 3-letter ISO currency code, e.g. INR or USD.'),
-  label: z.string().trim().min(1).max(60),
+  // Optional: a band is shown under the name its boundaries give it. Stored only as history.
+  label: z.string().trim().min(1).max(60).optional(),
   minMinor: z.number().int().min(0),
   maxMinor: z.number().int().min(0).nullable(),
   // Required for a FLAT band, ignored on a PERCENT one - AdminService decides which.
@@ -320,8 +321,9 @@ export class AdminController {
   @Get('fee-rules')
   @RequiresAdmin(AdminPermission.PLATFORM_CONFIG_READ)
   @ApiOperation({ summary: 'List platform fee rules (admin).' })
-  feeRules() {
-    return this.admin.feeRules();
+  feeRules(@Query('includeDeleted') includeDeleted?: string) {
+    // Deleted bands price nothing and are hidden unless asked for (history, audits).
+    return this.admin.feeRules({ includeDeleted: includeDeleted === 'true' });
   }
 
   /*
@@ -350,6 +352,19 @@ export class AdminController {
     @Body(new ZodValidationPipe(feeRulePatchSchema)) body: FeeRulePatch,
   ) {
     return this.admin.updateFeeRule(user.id, id, body);
+  }
+
+  /*
+    Soft delete: the band is switched off and kept for the audit trail. Refused with 409 when it
+    would leave a place with no band (pricing would fall back to the built-in defaults) or open
+    a range of order amounts that no band covers. See AdminService.deleteFeeRule.
+  */
+  @Delete('fee-rules/:id')
+  @RequiresAdmin(AdminPermission.PLATFORM_CONFIG)
+  @RequiresRecentMfa()
+  @ApiOperation({ summary: 'Delete a platform fee rule (admin, soft delete).' })
+  deleteFeeRule(@CurrentUser() user: { id: string }, @Param('id') id: string) {
+    return this.admin.deleteFeeRule(user.id, id);
   }
 
   /*
