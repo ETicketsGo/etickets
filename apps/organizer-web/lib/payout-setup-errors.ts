@@ -30,6 +30,8 @@ const FIELD_WORDS: Record<string, string> = {
 };
 
 export const PAYOUT_SETUP_MESSAGES = {
+  ACCOUNT_NOT_FOUND:
+    'We could not find that Razorpay linked account. Check the account ID (acc_...) and try again.',
   COUNTRY_UNSUPPORTED:
     'Payout setup is not available for your country yet. Contact ETicketsGo support to find out when it will be.',
   NOT_CONFIGURED:
@@ -74,6 +76,9 @@ export function payoutSetupErrorMessage(error: unknown): string {
   switch (code) {
     case 'PAYOUT_COUNTRY_UNSUPPORTED':
       return PAYOUT_SETUP_MESSAGES.COUNTRY_UNSUPPORTED;
+    case 'PAYOUT_ACCOUNT_NOT_FOUND':
+      // The id the organizer typed; only Razorpay links take one (Stripe creates its own).
+      return PAYOUT_SETUP_MESSAGES.ACCOUNT_NOT_FOUND;
     case 'PAYMENT_PROVIDER_NOT_CONFIGURED':
       return PAYOUT_SETUP_MESSAGES.NOT_CONFIGURED + ref;
     case 'ORGANIZATION_DETAILS_INCOMPLETE':

@@ -20,10 +20,11 @@ import { SiteChrome } from '@/components/site-chrome';
 */
 
 let path = '/';
+let search = '';
 vi.mock('next/navigation', () => ({
   usePathname: () => path,
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn(), back: vi.fn() }),
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(search),
   useParams: () => ({}),
   notFound: vi.fn(),
   redirect: vi.fn(),
@@ -53,6 +54,7 @@ let cleanup: (() => void) | null = null;
 afterEach(() => {
   cleanup?.();
   cleanup = null;
+  search = '';
   localStorage.clear();
   document.cookie = 'etg_session=; Max-Age=0; Path=/';
   document.cookie = 'etg_selected_market=; Max-Age=0; Path=/';
@@ -374,6 +376,66 @@ describe('the footer names the company for the selected market', () => {
     choose('Hyderabad', 'Telangana', 'India');
     await mount('/', false);
     expect(document.cookie).toContain('etg_selected_market=IN');
+  });
+});
+
+/*
+  QA certification of main 60eee811: /terms?country=IN showed the Indian company in the page
+  body and the neutral line in the footer, because the body resolves the market from
+  ?country= and the etg_selected_market cookie while the footer read only the city choice.
+  On a legal page the footer now resolves it the same way: ?country=, then the cookie, then
+  the city choice, then neither company. Never the network guess (etg_market).
+*/
+describe('on a legal page the footer follows the market the page body follows', () => {
+  const INDIA_OPERATOR_LINE =
+    'ETicketsGo is operated in India by DeepTrics Software Solutions Private Limited.';
+  const US_OPERATOR_LINE = 'ETicketsGo is operated in the United States by DeepTrics LLC.';
+
+  it.each(['/terms', '/privacy', '/refunds', '/cookies', '/sms'])(
+    '%s?country=IN names the Indian company in the footer',
+    async (route) => {
+      search = 'country=IN';
+      const { footer } = await mount(route, false);
+      expect(footer.querySelector('[data-testid="footer-operator"]')?.textContent).toBe(
+        INDIA_OPERATOR_LINE,
+      );
+      expect(footer.textContent).toContain(
+        '© 2026 ETicketsGo, DeepTrics Software Solutions Pvt Ltd | All rights reserved.',
+      );
+    },
+  );
+
+  it('an explicit ?country= wins over the city the reader chose', async () => {
+    localStorage.setItem(
+      'etg.city',
+      JSON.stringify({ city: 'Austin', region: 'Texas', country: 'United States' }),
+    );
+    search = 'country=IN';
+    const { footer } = await mount('/terms', false);
+    expect(footer.textContent).toContain(INDIA_OPERATOR_LINE);
+    expect(footer.textContent).not.toContain('DeepTrics LLC');
+  });
+
+  it('then the etg_selected_market cookie', async () => {
+    document.cookie = 'etg_selected_market=US; Path=/';
+    const { footer } = await mount('/privacy', false);
+    expect(footer.textContent).toContain(US_OPERATOR_LINE);
+  });
+
+  it('never the network guess: etg_market alone leaves the neutral line', async () => {
+    document.cookie = 'etg_market=IN; Path=/';
+    try {
+      const { footer } = await mount('/terms', false);
+      expect(footer.textContent).toContain(NEUTRAL_OPERATOR);
+    } finally {
+      document.cookie = 'etg_market=; Max-Age=0; Path=/';
+    }
+  });
+
+  it('off the legal pages ?country= changes nothing (the city choice still decides)', async () => {
+    search = 'country=IN';
+    const { footer } = await mount('/features', false);
+    expect(footer.textContent).toContain(NEUTRAL_OPERATOR);
   });
 });
 

@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Role, type ConnectOnboardingStatus } from '@eticketsgo/shared-types';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -7,6 +7,8 @@ import { AuditService } from '../../audit/audit.service';
 import { AppException, ErrorCodes } from '../../common/errors';
 import type { RequestUser } from '../../common/decorators';
 import { PaymentProviderResolver } from '../provider/payment-provider.resolver';
+import { payoutCountryFor } from '../connect/payout-country';
+import { razorpayLinkFailure, razorpayNotConfigured } from './razorpay-link-failure';
 
 const PROVIDER = 'razorpay';
 const MANAGE_ROLES = [Role.ORGANIZER_OWNER];
@@ -37,6 +39,8 @@ export interface RazorpayAccountStatus {
  */
 @Injectable()
 export class RazorpayConnectService {
+  private readonly logger = new Logger(RazorpayConnectService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly access: OrgAccessService,
@@ -56,10 +60,21 @@ export class RazorpayConnectService {
     linkedAccountId: string,
   ): Promise<RazorpayAccountStatus> {
     await this.access.assertMember(user, organizationId, MANAGE_ROLES);
+    /*
+      Razorpay Route pays out to Indian organizations only. Without this a US organization,
+      or one with no country recorded, reached Razorpay and was refused there (as a 500).
+    */
+    await payoutCountryFor(this.prisma, organizationId, 'razorpay');
     linkedAccountId = linkedAccountId.trim();
     // Refuse early so a taken id costs no provider call; re-checked under a lock below.
     await this.assertNotOwnedByAnother(this.prisma, user, organizationId, linkedAccountId);
-    const snapshot = await this.fetchSnapshot(linkedAccountId);
+    let snapshot: Awaited<ReturnType<RazorpayConnectService['fetchSnapshot']>>;
+    try {
+      snapshot = await this.fetchSnapshot(linkedAccountId);
+    } catch (err) {
+      // Was uncaught: every Razorpay refusal, a mistyped acc_ id included, became a 500.
+      throw razorpayLinkFailure(err, this.logger);
+    }
 
     const account = await this.prisma.$transaction(async (tx) => {
       /*
@@ -171,11 +186,9 @@ export class RazorpayConnectService {
   private async fetchSnapshot(linkedAccountId: string) {
     const provider = this.resolver.get(PROVIDER);
     if (!provider.getConnectedAccount) {
-      throw new AppException(
-        ErrorCodes.PAYMENT_PROVIDER_UNAVAILABLE,
-        'Razorpay account status is unavailable.',
-        HttpStatus.NOT_IMPLEMENTED,
-      );
+      // The not-activated stand-in: this server cannot use Razorpay, which no retry changes.
+      this.logger.error(`The ${provider.name} adapter on this server has no linked accounts.`);
+      throw razorpayNotConfigured();
     }
     const s = await provider.getConnectedAccount(linkedAccountId);
     const onboardingStatus: ConnectOnboardingStatus = s.disabledReason

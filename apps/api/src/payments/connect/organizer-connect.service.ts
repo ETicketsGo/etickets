@@ -2,7 +2,6 @@ import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   Role,
-  isCountryConsistent,
   mapStripeAccountToOnboardingStatus,
   marketFor,
   type ConnectOnboardingStatus,
@@ -19,6 +18,7 @@ import {
   type PaymentProvider,
 } from '../provider/payment-provider.interface';
 import { PaymentProviderResolver } from '../provider/payment-provider.resolver';
+import { payoutCountryFor } from './payout-country';
 
 /** Client-safe onboarding status (never exposes sensitive Stripe data). */
 export interface OrganizerPaymentStatus {
@@ -194,33 +194,8 @@ export class OrganizerConnectService {
    * created for a business that is not in the US. Both are refused or corrected here, BEFORE
    * Stripe is asked to create anything.
    */
-  private async stripeCountryFor(organizationId: string): Promise<string> {
-    const org = await this.prisma.organization.findUnique({
-      where: { id: organizationId },
-      select: { id: true, registeredCountry: true },
-    });
-    if (!org) {
-      throw new AppException(ErrorCodes.NOT_FOUND, 'Organization not found.', HttpStatus.NOT_FOUND);
-    }
-    if (!org.registeredCountry?.trim()) {
-      throw new AppException(
-        ErrorCodes.ORGANIZATION_DETAILS_INCOMPLETE,
-        'Your organization details are incomplete: add your country of registration in Settings, then try again.',
-        HttpStatus.UNPROCESSABLE_ENTITY,
-        { fields: ['registeredCountry'] },
-      );
-    }
-    const market = marketFor(org.registeredCountry);
-    const code = market?.code ?? org.registeredCountry.trim().toUpperCase();
-    if (!market || !isCountryConsistent('stripe', code)) {
-      throw new AppException(
-        ErrorCodes.PAYOUT_COUNTRY_UNSUPPORTED,
-        'Payout setup here is not available for your country yet.',
-        HttpStatus.UNPROCESSABLE_ENTITY,
-        { country: code },
-      );
-    }
-    return code;
+  private stripeCountryFor(organizationId: string): Promise<string> {
+    return payoutCountryFor(this.prisma, organizationId, 'stripe');
   }
 
   private async requireOrganization(
@@ -247,6 +222,22 @@ export class OrganizerConnectService {
   ): Promise<OrganizerPaymentStatus> {
     await this.access.assertMember(user, organizationId, MANAGE_ROLES);
     const provider = this.connectProvider();
+    /*
+      The account opens where the organization is registered, never where the caller says.
+      This took `input.country` straight to Stripe (defaulting to US), so an Indian or
+      unregistered organization could open a Stripe account the onboarding link would have
+      refused. Same gate as the link, before Stripe is asked anything.
+    */
+    const country = await this.stripeCountryFor(organizationId);
+    const requested = input.country?.trim().toUpperCase();
+    if (requested && (marketFor(requested)?.code ?? requested) !== country) {
+      throw new AppException(
+        ErrorCodes.VALIDATION_FAILED,
+        `The payout country must be your country of registration (${country}). If that is wrong, change it in Settings, then try again.`,
+        HttpStatus.UNPROCESSABLE_ENTITY,
+        { fields: ['country'], registeredCountry: country },
+      );
+    }
 
     const existing = await this.prisma.organizerPaymentAccount.findUnique({
       where: { organizationId_provider: { organizationId, provider: provider.name } },
@@ -269,7 +260,7 @@ export class OrganizerConnectService {
     try {
       created = await provider.createConnectedAccount({
         organizationId,
-        country: input.country,
+        country,
         email: input.email ?? org.contactEmail ?? undefined,
       });
     } catch (err) {
@@ -285,7 +276,7 @@ export class OrganizerConnectService {
         providerAccountId: created.accountId,
         accountType,
         onboardingStatus: 'ONBOARDING',
-        country: input.country,
+        country,
       },
       update: { providerAccountId: created.accountId, accountType, onboardingStatus: 'ONBOARDING' },
     });

@@ -1,8 +1,11 @@
 'use client';
 
+import { Suspense, useSyncExternalStore } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { publicLegalEntity } from '@eticketsgo/shared-types';
-import { useCity } from '@eticketsgo/web-kit';
+import { SELECTED_MARKET_COOKIE, useCity } from '@eticketsgo/web-kit';
+import { usePathname } from '@/i18n/navigation';
 import { footerRights, operatorMessage } from '@/lib/legal-entity';
 
 /**
@@ -37,10 +40,47 @@ export function OperatorStatement({
   );
 }
 
-/** The footer's copyright and operator lines, for the selected market. */
-export function FooterLegalLines() {
+/**
+ * The legal pages whose body names a company from `resolveSelectedMarket` (lib/market.ts):
+ * an explicit `?country=`, then the `etg_selected_market` cookie, then nobody.
+ */
+const LEGAL_PAGES = new Set(['/terms', '/privacy', '/refunds', '/cookies', '/sms']);
+
+function readSelectedMarketCookie(): string | null {
+  try {
+    const prefix = `${SELECTED_MARKET_COOKIE}=`;
+    const entry = document.cookie
+      .split('; ')
+      .find((c) => c.startsWith(prefix) && c.length > prefix.length);
+    return entry ? decodeURIComponent(entry.slice(prefix.length)) : null;
+  } catch {
+    return null;
+  }
+}
+
+const noSubscription = () => () => {};
+
+/**
+ * The market the footer names a company for.
+ *
+ * On a legal page it is resolved the way the page body resolves it, so the two never disagree:
+ * `/terms?country=IN` named the Indian company in the body and neither in the footer, because
+ * the footer read only the city choice. Order: explicit `?country=`, the `etg_selected_market`
+ * cookie, the city choice, then null (both companies). Never `etg_market`, which can hold the
+ * network's guess. Everywhere else it is the city choice, as before.
+ */
+function useFooterMarket(chosen: string | null): string | null {
+  const pathname = usePathname();
+  const params = useSearchParams();
+  // No cookie on the server render: it hydrates as the city choice, then reads the cookie.
+  const cookie = useSyncExternalStore(noSubscription, readSelectedMarketCookie, () => null);
+  if (!LEGAL_PAGES.has(pathname)) return chosen;
+  const asked = params?.get('country')?.trim();
+  return asked || cookie || chosen;
+}
+
+function FooterLines({ market }: { market: string | null }) {
   const f = useTranslations('common.footer');
-  const market = useSelectedMarket();
   const rights = footerRights(market, new Date().getFullYear());
   return (
     <div className="space-y-1">
@@ -53,5 +93,21 @@ export function FooterLegalLines() {
       <p data-testid="footer-rights">{f(rights.key, rights.values)}</p>
       <OperatorStatement market={market} testId="footer-operator" />
     </div>
+  );
+}
+
+function FooterLinesForPage({ chosen }: { chosen: string | null }) {
+  return <FooterLines market={useFooterMarket(chosen)} />;
+}
+
+/** The footer's copyright and operator lines, for the selected market. */
+export function FooterLegalLines() {
+  const chosen = useSelectedMarket();
+  // `useSearchParams` needs a Suspense boundary on statically rendered pages; until the URL
+  // is known the lines follow the city choice, which is what every non-legal page shows.
+  return (
+    <Suspense fallback={<FooterLines market={chosen} />}>
+      <FooterLinesForPage chosen={chosen} />
+    </Suspense>
   );
 }
