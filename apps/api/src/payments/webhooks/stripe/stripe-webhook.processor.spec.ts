@@ -4,6 +4,8 @@ function makeProcessor(opts: {
   record?: Record<string, unknown> | null;
   claimCount?: number;
   payment?: Record<string, unknown> | null;
+  /** Our COMPLETED Refund rows on the booking, newest first. */
+  refundRows?: Array<Record<string, unknown>>;
 }) {
   const updates: Array<Record<string, unknown>> = [];
   const prisma = {
@@ -16,6 +18,7 @@ function makeProcessor(opts: {
       }),
     },
     payment: { findFirst: jest.fn().mockResolvedValue(opts.payment ?? null), update: jest.fn() },
+    refund: { findMany: jest.fn().mockResolvedValue(opts.refundRows ?? []) },
   };
   const payments = { processVerifiedEvent: jest.fn().mockResolvedValue({ status: 'confirmed' }) };
   const connect = { syncByProviderAccountId: jest.fn().mockResolvedValue(true) };
@@ -164,6 +167,70 @@ describe('StripeWebhookProcessor.process — dispatch', () => {
     await processor.process('w1');
     // organizer share of a 5000 refund on a 10000 charge with 8000 net = round(5000*8000/10000)=4000
     expect(settlements.applyRefund).toHaveBeenCalledWith('e1', 'usd', 4000);
+  });
+
+  /*
+    R1: the settlement must charge the organizer what the payout ledger charges them -
+    `organizerShareOfRefund` (amount - taxAdded - platformFeeRefunded) - whenever our own
+    COMPLETED Refund rows explain the refund. Pro-rata is only for dashboard refunds.
+  */
+  describe('organizer share of a refund (R1)', () => {
+    const r1Event = (amountRefunded: number) =>
+      record({
+        eventType: 'charge.refunded',
+        payload: {
+          object: {
+            id: 'ch_1',
+            payment_intent: 'pi_1',
+            amount_refunded: amountRefunded,
+            currency: 'usd',
+          },
+        },
+      });
+    const r1Payment = {
+      id: 'p1',
+      bookingId: 'b1',
+      amountMinor: 105570,
+      organizerNetMinor: 100000,
+      refundedMinor: 0,
+      currency: 'usd',
+      booking: { eventId: 'e1' },
+    };
+    const ownRow = (amountMinor: number, platformFeeRefundedMinor: number) => ({
+      amountMinor,
+      taxAddedMinor: 0,
+      platformFeeRefundedMinor,
+    });
+
+    it('a ticket-only refund of 100000 deducts the whole 100000, not 94724', async () => {
+      const { processor, settlements } = makeProcessor({
+        record: r1Event(100000),
+        payment: r1Payment,
+        refundRows: [ownRow(100000, 0)],
+      });
+      await processor.process('w1');
+      expect(settlements.applyRefund).toHaveBeenCalledWith('e1', 'usd', 100000);
+    });
+
+    it('a full cancellation refund returns the fees without charging them to the organizer', async () => {
+      const { processor, settlements } = makeProcessor({
+        record: r1Event(105570),
+        payment: r1Payment,
+        refundRows: [ownRow(105570, 5570)],
+      });
+      await processor.process('w1');
+      expect(settlements.applyRefund).toHaveBeenCalledWith('e1', 'usd', 100000);
+    });
+
+    it('with no Refund row of ours (a dashboard refund) the pro-rata share is kept', async () => {
+      const { processor, settlements } = makeProcessor({
+        record: r1Event(100000),
+        payment: r1Payment,
+      });
+      await processor.process('w1');
+      // round(100000 * 100000 / 105570) = 94724
+      expect(settlements.applyRefund).toHaveBeenCalledWith('e1', 'usd', 94724);
+    });
   });
 
   it('an unhandled event type is recorded IGNORED (never dropped)', async () => {

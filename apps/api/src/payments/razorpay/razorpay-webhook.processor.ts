@@ -10,6 +10,7 @@ import { AuditService } from '../../audit/audit.service';
 import { PaymentsService } from '../payments.service';
 import { SettlementService } from '../settlement/settlement.service';
 import { DisputeService } from '../dispute/dispute.service';
+import { organizerShareOfProviderRefund } from '../settlement/refund-organizer-share';
 import type { PaymentEvent } from '../provider/payment-provider.interface';
 import { OpsAlertService } from '../../ops/alerts/ops-alert.service';
 import { webhookDeadLetteredAlert } from '../../ops/alerts/ops-alert-messages';
@@ -364,10 +365,14 @@ export class RazorpayWebhookProcessor {
     const cappedTotal = Math.min(newTotal, payment.amountMinor);
     const delta = cappedTotal - payment.refundedMinor;
     if (delta <= 0) return 'processed';
-    const organizerShare =
-      payment.amountMinor > 0
-        ? Math.round((delta * payment.organizerNetMinor) / payment.amountMinor)
-        : 0;
+    // Our own refund row decides the split; none (a dashboard refund) falls back to pro-rata.
+    const ownRow = refund.id
+      ? await this.prisma.refund.findFirst({
+          where: { providerRef: refund.id, status: RefundStatus.COMPLETED },
+          select: { amountMinor: true, taxAddedMinor: true, platformFeeRefundedMinor: true },
+        })
+      : null;
+    const organizerShare = organizerShareOfProviderRefund(delta, ownRow ? [ownRow] : [], payment);
     await this.prisma.payment.update({
       where: { id: payment.id },
       data: {

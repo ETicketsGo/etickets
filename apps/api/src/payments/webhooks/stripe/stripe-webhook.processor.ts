@@ -6,7 +6,8 @@ import { PaymentsService } from '../../payments.service';
 import { OrganizerConnectService } from '../../connect/organizer-connect.service';
 import { SettlementService } from '../../settlement/settlement.service';
 import { DisputeService, type StripeDisputeLike } from '../../dispute/dispute.service';
-import { PaymentStatus } from '@eticketsgo/shared-types';
+import { PaymentStatus, RefundStatus } from '@eticketsgo/shared-types';
+import { organizerShareOfProviderRefund } from '../../settlement/refund-organizer-share';
 import type { PaymentEvent } from '../../provider/payment-provider.interface';
 import { OpsAlertService } from '../../../ops/alerts/ops-alert.service';
 import { webhookDeadLetteredAlert } from '../../../ops/alerts/ops-alert-messages';
@@ -269,6 +270,7 @@ export class StripeWebhookProcessor {
       where: { providerPaymentIntentId: charge.payment_intent },
       select: {
         id: true,
+        bookingId: true,
         amountMinor: true,
         organizerNetMinor: true,
         refundedMinor: true,
@@ -282,11 +284,22 @@ export class StripeWebhookProcessor {
     const delta = totalRefunded - payment.refundedMinor;
     if (delta <= 0) return 'processed'; // already accounted for (idempotent)
 
-    // Organizer's proportional share of this incremental refund.
-    const organizerShare =
-      payment.amountMinor > 0
-        ? Math.round((delta * payment.organizerNetMinor) / payment.amountMinor)
-        : 0;
+    // Organizer's share of this incremental refund. `charge.refunded` carries no refund id, so
+    // our newest COMPLETED Refund rows on the booking are matched to the delta; when they explain
+    // it exactly the documented rule applies, otherwise (a dashboard refund) pro-rata is kept.
+    const completed = await this.prisma.refund.findMany({
+      where: { bookingId: payment.bookingId, status: RefundStatus.COMPLETED },
+      orderBy: { createdAt: 'desc' },
+      select: { amountMinor: true, taxAddedMinor: true, platformFeeRefundedMinor: true },
+    });
+    const ownRows: typeof completed = [];
+    let explained = 0;
+    for (const row of completed) {
+      if (explained >= delta) break;
+      ownRows.push(row);
+      explained += row.amountMinor;
+    }
+    const organizerShare = organizerShareOfProviderRefund(delta, ownRows, payment);
 
     await this.prisma.payment.update({
       where: { id: payment.id },
