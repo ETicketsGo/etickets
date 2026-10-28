@@ -18,6 +18,7 @@ import {
 import { BRAND_LINK } from '@/components/booking-brand';
 import { Placeholder } from '@/components/home/parts';
 import { SignInRequired, isAuthFailure, useSignedIn } from '@/components/sign-in-required';
+import { useSingleFlight } from '@/lib/use-single-flight';
 
 /**
  * What you receive, and where.
@@ -79,6 +80,9 @@ export default function NotificationSettingsPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['notification-preferences'] }),
     onError: () => toast.push(t('saveError'), 'error'),
   });
+
+  // One audited consent save per switch at a time (see useSingleFlight).
+  const once = useSingleFlight();
 
   const setConsent = useMutation({
     mutationFn: (body: { channel: string; granted: boolean }) => api.setConsent(body),
@@ -181,7 +185,11 @@ export default function NotificationSettingsPage() {
             disabled={!hasPhone || setConsent.isPending}
             aria-label={t('whatsappToggleLabel')}
             onChange={(granted) =>
-              setConsent.mutate({ channel: 'whatsapp:transactional', granted })
+              once('consent:whatsapp:transactional', () =>
+                setConsent
+                  .mutateAsync({ channel: 'whatsapp:transactional', granted })
+                  .catch(() => undefined),
+              )
             }
           />
         </div>
@@ -291,7 +299,11 @@ export default function NotificationSettingsPage() {
                 checked={consentFor(channel)}
                 disabled={consent.isLoading || setConsent.isPending}
                 aria-label={t('marketingOn', { channel: channelLabel(channel) })}
-                onChange={(granted) => setConsent.mutate({ channel, granted })}
+                onChange={(granted) =>
+                  once(`consent:${channel}`, () =>
+                    setConsent.mutateAsync({ channel, granted }).catch(() => undefined),
+                  )
+                }
               />
             </label>
           ))}
@@ -337,11 +349,15 @@ export default function NotificationSettingsPage() {
                           name: org.name,
                         })}
                         onChange={(granted) =>
-                          setOrganizerConsent.mutate({
-                            organizationId: org.organizationId,
-                            purpose,
-                            granted,
-                          })
+                          once(`organizer:${org.organizationId}:${purpose}`, () =>
+                            setOrganizerConsent
+                              .mutateAsync({
+                                organizationId: org.organizationId,
+                                purpose,
+                                granted,
+                              })
+                              .catch(() => undefined),
+                          )
                         }
                       />
                     </label>
