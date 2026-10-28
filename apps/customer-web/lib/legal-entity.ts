@@ -149,3 +149,44 @@ export function legalBusinessFacts(
 export function checkoutOperatorCountry(currency: string | null | undefined): string {
   return resolveLegalEntity({ currency }).entity.country;
 }
+
+/**
+ * The company a public page names for the market the reader CHOSE (`resolveSelectedMarket`),
+ * or null when they chose none or chose a market with no company. Null means "name both":
+ * a page never falls back to one company, and never to a guess from an IP address.
+ */
+export function selectedMarketEntity(market: string | null | undefined): LegalEntity | null {
+  return publicLegalEntity(market);
+}
+
+/** What the Contact page says about who the reader is writing to, for the chosen market. */
+export interface ContactOperator {
+  /** The company name, or a neutral heading when no market is chosen. */
+  heading: string;
+  /** The operator sentence: one company, or both. */
+  sentence: string;
+  /** The page's meta description. */
+  description: string;
+}
+
+export function contactOperator(market: string | null | undefined): ContactOperator {
+  const entity = selectedMarketEntity(market);
+  const sentence = publicOperatorSentence(market);
+  return {
+    heading: entity ? entity.legalName : 'Who operates ETicketsGo',
+    sentence,
+    description: `Contact ETicketsGo for support and general enquiries. ${sentence}`,
+  };
+}
+
+/**
+ * The operating companies for the site-wide Organization JSON-LD. The layout is rendered once
+ * for every visitor and cached, so it cannot know a chosen market: it names the brand and
+ * lists each company as a sub-organization in its own country, which is true for every reader.
+ */
+export function operatingEntitiesForJsonLd(): { legalName: string; country: string }[] {
+  return [LEGAL_ENTITIES.IN, LEGAL_ENTITIES.US].map((e) => ({
+    legalName: e.legalName,
+    country: e.country,
+  }));
+}

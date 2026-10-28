@@ -15,14 +15,27 @@ import { Container, Section } from '@/components/marketing/kit';
 import { PageHero, NoticeBanner } from '@/components/marketing/blocks';
 import { ContactForm } from '@/components/marketing/contact-form';
 import { Link } from '@/i18n/navigation';
-import { INDIA_OPERATOR } from '@eticketsgo/shared-types';
-import { INDIA_OPERATOR_SENTENCE, LEGAL_INFORMATION_HREF } from '@/lib/legal-entity';
+import { contactOperator, LEGAL_INFORMATION_HREF } from '@/lib/legal-entity';
+import { resolveSelectedMarket } from '@/lib/market';
 import { BrandPage } from '@/components/storefront-brand';
 
-export const generateMetadata = localizedMetadata('/contact', {
-  title: 'Contact',
-  description: `Contact ETicketsGo, operated in India by ${INDIA_OPERATOR.legalName}: support and general enquiries.`,
-});
+type ContactProps = {
+  params: Promise<{ locale: string }>;
+  searchParams: Promise<{ country?: string | string[] }>;
+};
+
+/*
+  The company named here follows the market the reader CHOSE (`?country=`, then the
+  `etg_selected_market` cookie), never the network's guess. With no choice the page names
+  both companies, so the server HTML is never wrong before the page hydrates.
+*/
+export async function generateMetadata({ params, searchParams }: ContactProps) {
+  const market = await resolveSelectedMarket((await searchParams).country);
+  return localizedMetadata('/contact', {
+    title: 'Contact',
+    description: contactOperator(market).description,
+  })({ params });
+}
 
 /*
   Every channel reads from the one place the business details live. A channel with no published
@@ -49,8 +62,9 @@ const FACTS = [
 
 const SUPPORT_EMAIL = publishedDetail(BUSINESS_DETAILS.supportEmail);
 
-export default function ContactPage() {
+export default async function ContactPage({ searchParams }: Pick<ContactProps, 'searchParams'>) {
   const reachable = canReachSupport();
+  const operator = contactOperator(await resolveSelectedMarket((await searchParams).country));
 
   return (
     <BrandPage>
@@ -83,10 +97,8 @@ export default function ContactPage() {
                 <Building2 className="h-5 w-5" />
               </span>
               <div className="space-y-1">
-                <h2 className="text-brand-ui font-semibold text-brand-ink">
-                  {INDIA_OPERATOR.legalName}
-                </h2>
-                <p className="text-brand-ui text-brand-ink-2">{INDIA_OPERATOR_SENTENCE}</p>
+                <h2 className="text-brand-ui font-semibold text-brand-ink">{operator.heading}</h2>
+                <p className="text-brand-ui text-brand-ink-2">{operator.sentence}</p>
                 {SUPPORT_EMAIL && (
                   <p className="text-brand-ui text-brand-ink-2">
                     Support email:{' '}

@@ -79,6 +79,33 @@ describe('buildOrganizationJsonLd', () => {
   });
 });
 
+describe('buildOrganizationJsonLd with operators', () => {
+  it('lists each company under the brand, with no top-level legalName', () => {
+    const org = buildOrganizationJsonLd({
+      siteUrl: SITE,
+      operators: [
+        { legalName: 'DeepTrics Software Solutions Private Limited', country: 'IN' },
+        { legalName: 'DeepTrics LLC', country: 'US' },
+      ],
+    });
+    expect(org).not.toHaveProperty('legalName');
+    expect(org.subOrganization).toEqual([
+      {
+        '@type': 'Organization',
+        legalName: 'DeepTrics Software Solutions Private Limited',
+        address: { '@type': 'PostalAddress', addressCountry: 'IN' },
+        parentOrganization: { '@id': `${SITE}/#organization` },
+      },
+      {
+        '@type': 'Organization',
+        legalName: 'DeepTrics LLC',
+        address: { '@type': 'PostalAddress', addressCountry: 'US' },
+        parentOrganization: { '@id': `${SITE}/#organization` },
+      },
+    ]);
+  });
+});
+
 describe('buildWebSiteJsonLd', () => {
   it('points the search box at the real events search', () => {
     const site = buildWebSiteJsonLd({ siteUrl: SITE }) as {
