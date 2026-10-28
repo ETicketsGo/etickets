@@ -76,7 +76,7 @@ export interface PreviewInput extends PolicyTermsInput {
   organizationId?: string | null;
   currency: string;
   subtotalMinor: number;
-  /** Paid tickets in the sample basket. Only a COMBINED fee reads it. Defaults to one. */
+  /** Paid tickets in the sample basket. Only a per-ticket fee reads it. Defaults to one. */
   ticketCount?: number;
   feeMode?: FeeMode;
 }
@@ -91,6 +91,25 @@ const USED_BOOKING: Prisma.BookingWhereInput = {
 
 function bad(message: string): AppException {
   return new AppException(ErrorCodes.VALIDATION_FAILED, message, HttpStatus.BAD_REQUEST);
+}
+
+/**
+ * The optional lowest and highest fee for a whole order, checked: neither negative, and the
+ * lowest not above the highest. Both unset is the default and means no limit.
+ */
+function orderLimits(input: Pick<PolicyTermsInput, 'minFeeMinor' | 'maxFeeMinor'>): {
+  minFeeMinor: number | null;
+  maxFeeMinor: number | null;
+} {
+  const min = input.minFeeMinor ?? null;
+  const max = input.maxFeeMinor ?? null;
+  if ((min !== null && min < 0) || (max !== null && max < 0)) {
+    throw bad('The lowest and highest fee cannot be below zero.');
+  }
+  if (min !== null && max !== null && min > max) {
+    throw bad('The lowest fee cannot be more than the highest fee.');
+  }
+  return { minFeeMinor: min, maxFeeMinor: max };
 }
 
 /** The terms a kind allows, and nothing else: a waiver with a stray amount is refused. */
@@ -160,23 +179,37 @@ export function normaliseTerms(input: PolicyTermsInput): {
       };
     }
     case 'COMBINED': {
-      // A share of the order plus a fixed amount per paid ticket: both are needed, no limits.
+      // A share of the order plus a fixed amount per paid ticket: both are needed. A lowest and
+      // highest fee for the whole order are optional (owner decision 2026-10-29).
       if (!has(input.percentBps) || input.percentBps! < 1) {
         throw bad('A combined fee needs a percentage above 0%.');
       }
       if (!has(input.feeMinor) || input.feeMinor! < 1) {
         throw bad('A combined fee needs a fixed amount per ticket above zero.');
       }
-      if (has(input.minFeeMinor) || has(input.maxFeeMinor)) {
-        throw bad('A combined fee takes no lowest or highest fee.');
-      }
       if (!currency) throw bad('A combined fee states an amount, so it needs a currency.');
+      const limits = orderLimits(input);
       return {
         kind: 'COMBINED',
         feeMinor: input.feeMinor!,
         percentBps: input.percentBps!,
-        minFeeMinor: null,
-        maxFeeMinor: null,
+        ...limits,
+        currency,
+      };
+    }
+    case 'FIXED_PER_TICKET': {
+      // A fixed amount for each paid ticket, and no percentage. Optional order limits.
+      if (!has(input.feeMinor)) throw bad('A per-ticket fee needs an amount per ticket.');
+      if (has(input.percentBps)) {
+        throw bad('A per-ticket fee takes no percentage. For both, choose a combined fee.');
+      }
+      if (!currency) throw bad('A per-ticket fee states an amount, so it needs a currency.');
+      const limits = orderLimits(input);
+      return {
+        kind: 'FIXED_PER_TICKET',
+        feeMinor: input.feeMinor!,
+        percentBps: null,
+        ...limits,
         currency,
       };
     }
@@ -630,7 +663,7 @@ function lines(f: FeeCalcResult) {
     customerFeeMinor: f.customerFeeMinor,
     organizerFeeMinor: f.organizerFeeMinor,
     totalMinor: f.totalMinor,
-    // How a COMBINED fee splits into its percentage and per-ticket parts, when it is one.
+    // How a per-ticket fee (COMBINED, FIXED_PER_TICKET) was worked out, when it is one.
     ...(f.platformFeeBreakdown ? { platformFeeBreakdown: f.platformFeeBreakdown } : {}),
   };
 }

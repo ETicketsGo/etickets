@@ -289,13 +289,22 @@ describe('integration-real-postgres: fee band delete and names', () => {
       expect(untouched.active).toBe(true);
       expect(untouched.deletedAt).toBeNull();
 
-      // The supported route: switch it off, widen a neighbour, then delete.
-      await admin.updateFeeRule(adminId, b.id, { active: false });
-      await admin.updateFeeRule(adminId, a.id, { maxMinor: 99_900 });
-      await admin.deleteFeeRule(adminId, b.id);
+      /*
+        Owner decision 2026-10-29: switching a band off is checked like a delete, so the old
+        route (switch it off, widen a neighbour, then delete) is refused at its first step.
+      */
+      await expect(admin.updateFeeRule(adminId, b.id, { active: false })).rejects.toMatchObject({
+        status: 409,
+        message: expect.stringContaining('Switching off'),
+      });
+      expect((await db!.feeRule.findUniqueOrThrow({ where: { id: b.id } })).active).toBe(true);
 
-      // With two bands left, the last one standing for the place still cannot go.
-      await admin.updateFeeRule(adminId, c.id, { active: false });
+      // An inactive band is deleted freely; the last active band of a place still cannot go.
+      await db!.feeRule.updateMany({
+        where: { id: { in: [b.id, c.id] } },
+        data: { active: false },
+      });
+      await admin.deleteFeeRule(adminId, b.id);
       await expect(admin.deleteFeeRule(adminId, a.id)).rejects.toMatchObject({
         status: 409,
         message: expect.stringContaining('built-in default fees'),

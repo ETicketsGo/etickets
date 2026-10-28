@@ -20,7 +20,8 @@ describe('AdminService COMBINED fee bands', () => {
   }
   const BASE = { currency: 'INR', minMinor: 100_000, maxMinor: null, country: 'India' };
 
-  it('stores the percentage and the per-ticket amount, and no limits', async () => {
+  // Owner decision 2026-10-29: a combined band may have an optional minimum and maximum.
+  it('stores the percentage, the per-ticket amount and the optional limits', async () => {
     const { svc, create } = make();
     await svc.createFeeRule('a', {
       ...BASE,
@@ -34,9 +35,34 @@ describe('AdminService COMBINED fee bands', () => {
       feeType: 'COMBINED',
       feePercentBps: 300,
       feeMinor: 500,
-      minFeeMinor: null,
-      maxFeeMinor: null,
+      minFeeMinor: 100,
+      maxFeeMinor: 900,
     });
+  });
+
+  it('stores no limits when none are given (the default)', async () => {
+    const { svc, create } = make();
+    await svc.createFeeRule('a', {
+      ...BASE,
+      feeType: 'COMBINED',
+      feePercentBps: 300,
+      feeMinor: 500,
+    });
+    expect(create.mock.calls[0][0].data).toMatchObject({ minFeeMinor: null, maxFeeMinor: null });
+  });
+
+  it('refuses a minimum above the maximum', async () => {
+    const { svc } = make();
+    await expect(
+      svc.createFeeRule('a', {
+        ...BASE,
+        feeType: 'COMBINED',
+        feePercentBps: 300,
+        feeMinor: 500,
+        minFeeMinor: 900,
+        maxFeeMinor: 100,
+      }),
+    ).rejects.toThrow(/minimum fee cannot be more than the maximum/);
   });
 
   it('refuses a combined band with no percentage', async () => {

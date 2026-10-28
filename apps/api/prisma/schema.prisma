@@ -2036,9 +2036,10 @@ model Booking {
   baseBookingFeeMinor Int?
   /// How much of that the policy took off, before any cinema cap. Never negative.
   feeWaivedMinor      Int?
-  /// How a COMBINED platform fee (a percentage plus a fixed amount per ticket) was worked out:
+  /// How a per-ticket platform fee (COMBINED, or FIXED_PER_TICKET) was worked out:
   /// { type, percentBps, fixedPerTicketMinor, ticketCount, percentPartMinor, fixedPartMinor,
-  /// source }. Null for every other booking. Written so the fee can be explained after the
+  /// source }, plus { minFeeMinor, maxFeeMinor, limitApplied } when the terms had a limit.
+  /// Null for every other booking. Written so the fee can be explained after the
   /// band or policy that set it is edited or deleted. `bookingFeeMinor` stays the charged
   /// amount and is what every reader sums.
   platformFeeBreakdown Json?
@@ -3403,6 +3404,9 @@ enum FeeRuleType {
   /// A percentage of the order PLUS a fixed amount for each paid ticket: 3% + Rs 5 per ticket.
   /// `feePercentBps` is the percentage and `feeMinor` the per-ticket amount.
   COMBINED
+  /// A fixed amount for each paid ticket and nothing else: Rs 5 per ticket is Rs 15 for three.
+  /// Not FLAT, which charges `feeMinor` once per order whatever the ticket count.
+  FIXED_PER_TICKET
 }
 
 model FeeRule {
@@ -3411,7 +3415,7 @@ model FeeRule {
   minMinor Int
   maxMinor Int?
   /// FLAT: the fee, in minor units. PERCENT: not used, and kept at 0. COMBINED: the fixed part,
-  /// charged once per paid ticket.
+  /// charged once per paid ticket. FIXED_PER_TICKET: the fee for each paid ticket.
   feeMinor Int
   currency String @default("INR")
 
@@ -3420,9 +3424,10 @@ model FeeRule {
   feeType       FeeRuleType @default(FLAT)
   /// PERCENT and COMBINED: the share of the order, in basis points. 500 is 5%, 250 is 2.5%.
   feePercentBps Int?
-  /// PERCENT only, optional: the least the band may charge, in minor units. Null is no floor.
+  /// PERCENT, COMBINED and FIXED_PER_TICKET, optional: the least the band may charge for the
+  /// whole order, in minor units. Null is no floor.
   minFeeMinor   Int?
-  /// PERCENT only, optional: the most the band may charge, in minor units. Null is no ceiling.
+  /// The same, the most the band may charge for the whole order. Null is no ceiling.
   maxFeeMinor   Int?
 
   /// Where this band applies — '*' for anywhere.
@@ -6194,6 +6199,8 @@ enum PlatformFeePolicyKind {
   /// A share of the order in basis points (`percentBps`) PLUS a fixed amount per paid ticket
   /// (`feeMinor`, in minor units of `currency`).
   COMBINED
+  /// A fixed amount per paid ticket (`feeMinor`, in minor units of `currency`), no percentage.
+  FIXED_PER_TICKET
 }
 
 enum PlatformFeePolicyStatus {
@@ -6217,6 +6224,7 @@ model PlatformFeePolicy {
   organizationId      String
   kind                PlatformFeePolicyKind
   /// FIXED: the booking fee. COMBINED: the fixed part, charged once per paid ticket.
+  /// FIXED_PER_TICKET: the fee for each paid ticket.
   feeMinor            Int?
   /// PERCENT: basis points (500 = 5%).
   percentBps          Int?

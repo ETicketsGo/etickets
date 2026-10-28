@@ -409,16 +409,78 @@ function mergeByRate(lines: BreakdownTaxLine[]): BreakdownTaxLine[] {
 }
 
 /**
- * How a COMBINED platform fee was worked out: a percentage of the order plus a fixed amount per
- * paid ticket. Sent by the API (quote and booking) only when such a fee priced the order.
+ * How a per-ticket platform fee was worked out. COMBINED: a percentage of the order plus a fixed
+ * amount per paid ticket. FIXED_PER_TICKET: the fixed amount per paid ticket alone (percentBps
+ * and percentPartMinor are 0). Sent by the API (quote and booking) only when such a fee priced
+ * the order.
+ *
+ * `limitApplied` is present when the terms had an optional minimum or maximum: 'MIN' or 'MAX'
+ * when that limit changed the fee, null when it did not.
  */
 export interface PlatformFeeBreakdown {
-  type: 'COMBINED';
+  type: 'COMBINED' | 'FIXED_PER_TICKET';
   percentBps: number;
   fixedPerTicketMinor: number;
   ticketCount: number;
   percentPartMinor: number;
   fixedPartMinor: number;
+  minFeeMinor?: number | null;
+  maxFeeMinor?: number | null;
+  limitApplied?: 'MIN' | 'MAX' | null;
+}
+
+/** The fee figures a terms line must agree with before it is shown. */
+interface FeeTermsQuote {
+  bookingFeeMinor: number;
+  paymentFeeMinor: number;
+  customerFeeMinor?: number;
+  platformFeeBreakdown?: PlatformFeeBreakdown | null;
+}
+
+/**
+ * Whether a breakdown explains the platform fee on screen exactly: no minimum or maximum changed
+ * it, its parts add up to the booking fee, and the customer pays the whole of it. When the
+ * organizer pays some or all of the fee (SHARED, ORGANIZER_PAYS), a limit held it, or a cap
+ * lowered it, the terms would describe a different number, so nothing is shown.
+ */
+function explainsFee(quote: FeeTermsQuote, b: PlatformFeeBreakdown): boolean {
+  if (b.limitApplied) return false;
+  if (b.percentPartMinor + b.fixedPartMinor !== quote.bookingFeeMinor) return false;
+  return (
+    quote.customerFeeMinor === undefined ||
+    quote.customerFeeMinor === quote.bookingFeeMinor + quote.paymentFeeMinor
+  );
+}
+
+/**
+ * The terms to show under the platform fee, for either per-ticket type, or null:
+ * COMBINED reads "3% of the tickets + Rs 5.00 per ticket, for 3 tickets";
+ * FIXED_PER_TICKET reads "Rs 5.00 per ticket, for 3 tickets". Shown only when exact
+ * (see `explainsFee`).
+ */
+export function platformFeeTerms(
+  quote: FeeTermsQuote,
+):
+  | { type: 'COMBINED'; percent: string; fixedPerTicketMinor: number; ticketCount: number }
+  | { type: 'FIXED_PER_TICKET'; fixedPerTicketMinor: number; ticketCount: number }
+  | null {
+  const b = quote.platformFeeBreakdown;
+  if (!b || !explainsFee(quote, b)) return null;
+  if (b.type === 'FIXED_PER_TICKET') {
+    return {
+      type: 'FIXED_PER_TICKET',
+      fixedPerTicketMinor: b.fixedPerTicketMinor,
+      ticketCount: b.ticketCount,
+    };
+  }
+  if (b.type !== 'COMBINED') return null;
+  const percent = (b.percentBps / 100).toFixed(b.percentBps % 100 === 0 ? 0 : 2);
+  return {
+    type: 'COMBINED',
+    percent: `${percent}%`,
+    fixedPerTicketMinor: b.fixedPerTicketMinor,
+    ticketCount: b.ticketCount,
+  };
 }
 
 /**
@@ -429,25 +491,14 @@ export interface PlatformFeeBreakdown {
  * (SHARED, ORGANIZER_PAYS) or a cap lowered it, the terms would describe a different number, so
  * nothing is shown and the line reads as it always has.
  */
-export function combinedFeeTerms(quote: {
-  bookingFeeMinor: number;
-  paymentFeeMinor: number;
-  customerFeeMinor?: number;
-  platformFeeBreakdown?: PlatformFeeBreakdown | null;
-}): { percent: string; fixedPerTicketMinor: number; ticketCount: number } | null {
-  const b = quote.platformFeeBreakdown;
-  if (!b || b.type !== 'COMBINED') return null;
-  if (b.percentPartMinor + b.fixedPartMinor !== quote.bookingFeeMinor) return null;
-  if (
-    quote.customerFeeMinor !== undefined &&
-    quote.customerFeeMinor !== quote.bookingFeeMinor + quote.paymentFeeMinor
-  ) {
-    return null;
-  }
-  const percent = (b.percentBps / 100).toFixed(b.percentBps % 100 === 0 ? 0 : 2);
+export function combinedFeeTerms(
+  quote: FeeTermsQuote,
+): { percent: string; fixedPerTicketMinor: number; ticketCount: number } | null {
+  const terms = platformFeeTerms(quote);
+  if (!terms || terms.type !== 'COMBINED') return null;
   return {
-    percent: `${percent}%`,
-    fixedPerTicketMinor: b.fixedPerTicketMinor,
-    ticketCount: b.ticketCount,
+    percent: terms.percent,
+    fixedPerTicketMinor: terms.fixedPerTicketMinor,
+    ticketCount: terms.ticketCount,
   };
 }

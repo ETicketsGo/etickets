@@ -10,7 +10,7 @@ import { askForStepUp, reportMfaSetup } from './step-up-bridge';
  */
 
 export type FeePolicyScope = 'EVENT' | 'ORGANIZATION';
-export type FeePolicyKind = 'WAIVE' | 'FIXED' | 'PERCENT' | 'COMBINED';
+export type FeePolicyKind = 'WAIVE' | 'FIXED' | 'PERCENT' | 'COMBINED' | 'FIXED_PER_TICKET';
 export type FeePolicyStatus = 'ACTIVE' | 'INACTIVE' | 'EXPIRED' | 'EXHAUSTED';
 export type FeePolicyEffectiveStatus = FeePolicyStatus | 'SCHEDULED';
 export type FeeMode = 'CUSTOMER_PAYS' | 'ORGANIZER_PAYS' | 'SHARED';
@@ -100,7 +100,7 @@ export interface CreateFeePolicyBody extends FeePolicyTerms {
 export interface PreviewFeePolicyBody extends FeePolicyTerms {
   currency: string;
   subtotalMinor: number;
-  /** Paid tickets in the sample basket. Only a COMBINED fee (fixed part per ticket) reads it. */
+  /** Paid tickets in the sample basket. Only a per-ticket fee (COMBINED, FIXED_PER_TICKET) reads it. */
   ticketCount?: number;
   feeMode?: FeeMode;
 }
@@ -266,16 +266,22 @@ export function termsLabel(
   if (p.kind === 'WAIVE') return 'Fee waived';
   if (p.kind === 'FIXED') return `Fixed fee ${plainAmount(p.feeMinor ?? 0, p.currency)}`;
   const pct = `${bpsToPercent(p.percentBps ?? 0)}%`;
-  if (p.kind === 'COMBINED') {
-    return `${pct} + ${plainAmount(p.feeMinor ?? 0, p.currency)} per ticket`;
-  }
   const exp = currencyExponent(p.currency);
   const n = (minor: number) => (minor / 10 ** exp).toFixed(exp);
   const bounds: string[] = [];
   if (p.minFeeMinor !== null) bounds.push(`min ${n(p.minFeeMinor)}`);
   if (p.maxFeeMinor !== null) bounds.push(`max ${n(p.maxFeeMinor)}`);
-  if (bounds.length === 0) return pct;
-  return `${pct} (${bounds.join(', ')}${p.currency ? ` ${p.currency}` : ''})`;
+  const withBounds = (text: string) =>
+    bounds.length === 0
+      ? text
+      : `${text} (${bounds.join(', ')}${p.currency ? ` ${p.currency}` : ''})`;
+  if (p.kind === 'COMBINED') {
+    return withBounds(`${pct} + ${plainAmount(p.feeMinor ?? 0, p.currency)} per ticket`);
+  }
+  if (p.kind === 'FIXED_PER_TICKET') {
+    return withBounds(`${plainAmount(p.feeMinor ?? 0, p.currency)} per ticket`);
+  }
+  return withBounds(pct);
 }
 
 /** Which currencies the policy covers, in words. */
@@ -312,6 +318,7 @@ export const KIND_LABEL: Record<FeePolicyKind, string> = {
   FIXED: 'Fixed booking fee',
   PERCENT: 'Percentage booking fee',
   COMBINED: 'Percentage plus a fixed fee per ticket',
+  FIXED_PER_TICKET: 'Fixed fee per ticket',
 };
 
 export const HISTORY_LABEL: Record<FeePolicyHistoryEntry['action'], string> = {
@@ -371,6 +378,7 @@ export function currencyRequired(d: Pick<FeePolicyDraft, 'kind' | 'minAmount' | 
   return (
     d.kind === 'FIXED' ||
     d.kind === 'COMBINED' ||
+    d.kind === 'FIXED_PER_TICKET' ||
     (d.kind === 'PERCENT' && (!!d.minAmount.trim() || !!d.maxAmount.trim()))
   );
 }
@@ -400,7 +408,8 @@ export function draftToTerms(d: FeePolicyDraft): { terms?: FeePolicyTerms; error
     else terms.feeMinor = fee;
   }
   if (d.kind === 'COMBINED') {
-    // A percentage of the order plus a fixed amount per paid ticket. No lowest or highest fee.
+    // A percentage of the order plus a fixed amount per paid ticket. Optional lowest and
+    // highest fee for the whole order (owner decision 2026-10-29), checked below.
     const bps = percentToBps(d.percent);
     if (bps === null || bps <= 0 || bps > 10000) {
       errors.percent = 'Enter a percentage above 0 and up to 100, like 3.';
@@ -410,11 +419,19 @@ export function draftToTerms(d: FeePolicyDraft): { terms?: FeePolicyTerms; error
       errors.fixedAmount = 'Enter the fixed amount per ticket, like 5 or 5.50.';
     } else terms.feeMinor = fee;
   }
+  if (d.kind === 'FIXED_PER_TICKET') {
+    // A fixed amount for each paid ticket, and no percentage. Optional lowest and highest fee.
+    const fee = toMinorUnits(d.fixedAmount, currency);
+    if (fee === null) errors.fixedAmount = 'Enter the fee per ticket as a number, like 5 or 5.50.';
+    else terms.feeMinor = fee;
+  }
   if (d.kind === 'PERCENT') {
     const bps = percentToBps(d.percent);
     if (bps === null || bps <= 0 || bps > 10000) {
       errors.percent = 'Enter a percentage above 0 and up to 100, like 2.5.';
     } else terms.percentBps = bps;
+  }
+  if (d.kind === 'PERCENT' || d.kind === 'COMBINED' || d.kind === 'FIXED_PER_TICKET') {
     if (d.minAmount.trim()) {
       const min = toMinorUnits(d.minAmount, currency);
       if (min === null) errors.minAmount = 'Enter the lowest fee as a number.';

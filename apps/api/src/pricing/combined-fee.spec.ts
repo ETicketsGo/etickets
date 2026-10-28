@@ -313,9 +313,17 @@ describe('COMBINED platform fee policies', () => {
       [{ kind: 'COMBINED', percentBps: 300, currency: 'INR' }, /fixed amount per ticket/],
       [{ kind: 'COMBINED', percentBps: 300, feeMinor: 0, currency: 'INR' }, /fixed amount/],
       [{ kind: 'COMBINED', percentBps: 300, feeMinor: 500 }, /currency/],
+      // Owner decision 2026-10-29: limits are optional, but the lowest may not pass the highest.
       [
-        { kind: 'COMBINED', percentBps: 300, feeMinor: 500, maxFeeMinor: 9, currency: 'INR' },
-        /no lowest or highest/,
+        {
+          kind: 'COMBINED',
+          percentBps: 300,
+          feeMinor: 500,
+          minFeeMinor: 900,
+          maxFeeMinor: 9,
+          currency: 'INR',
+        },
+        /lowest fee cannot be more than the highest/,
       ],
     ])('refuses %p', (input, message) => {
       expect(() => normaliseTerms(input as never)).toThrow(message);

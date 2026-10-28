@@ -41,7 +41,7 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe';
   that changed.
 */
 const feeChargeFields = {
-  feeType: z.enum(['FLAT', 'PERCENT', 'COMBINED']).optional(),
+  feeType: z.enum(['FLAT', 'PERCENT', 'COMBINED', 'FIXED_PER_TICKET']).optional(),
   feePercentBps: z
     .number()
     .int()
@@ -83,7 +83,7 @@ const feeRuleCreateSchema = z.object({
   label: z.string().trim().min(1).max(60).optional(),
   minMinor: z.number().int().min(0),
   maxMinor: z.number().int().min(0).nullable(),
-  // FLAT: the fee. COMBINED: the fixed part per ticket. Ignored on PERCENT. AdminService decides.
+  // FLAT: the fee. COMBINED/FIXED_PER_TICKET: the amount per ticket. Ignored on PERCENT.
   feeMinor: z.number().int().min(0).optional(),
   ...feeChargeFields,
   country: z.string().trim().max(60).optional(),

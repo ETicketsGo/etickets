@@ -839,7 +839,7 @@ export class BookingsService {
           baseBookingFeeMinor: fees.appliedFeePolicy ? (fees.baseBookingFeeMinor ?? null) : null,
           feeWaivedMinor: fees.appliedFeePolicy ? (fees.feeWaivedMinor ?? null) : null,
           /*
-            How a COMBINED fee (percentage + fixed per ticket) was worked out, so it can be
+            How a per-ticket fee (COMBINED or FIXED_PER_TICKET) was worked out, so it can be
             explained after the band or policy is edited or deleted. Absent otherwise.
           */
           ...platformFeeBreakdownData(fees),
@@ -1880,7 +1880,7 @@ export class BookingsService {
           organizerFeeMinor: fees.organizerFeeMinor,
           taxMinor: fees.taxMinor,
           totalMinor: fees.totalMinor,
-          // Restated with the fee: the re-priced breakdown, or none when it is no longer COMBINED.
+          // Restated with the fee: the re-priced breakdown, or none when it is no longer per ticket.
           platformFeeBreakdown:
             platformFeeBreakdownData(fees).platformFeeBreakdown ?? Prisma.DbNull,
           // The policy stays the one it was priced under; only its arithmetic is restated.
@@ -2725,7 +2725,7 @@ export class BookingsService {
 }
 
 /**
- * The COMBINED-fee snapshot for a booking row: the breakdown plus where the terms came from
+ * The per-ticket fee snapshot for a booking row: the breakdown plus where the terms came from
  * (the schedule's band, or a policy). Empty for every other fee, so nothing else is written.
  */
 function platformFeeBreakdownData(fees: PricedFees): {
