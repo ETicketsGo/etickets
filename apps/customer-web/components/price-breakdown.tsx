@@ -5,8 +5,10 @@ import { ChevronDown, ChevronUp } from 'lucide-react';
 import { useFormat } from '@/lib/format';
 import { useTranslations } from 'next-intl';
 import {
+  combinedFeeTerms,
   priceBreakdown,
   moneyFractionDigits,
+  type PlatformFeeBreakdown,
   type BreakdownRow,
   type BreakdownTaxLine,
   type FeeGroup,
@@ -63,6 +65,8 @@ export interface QuotedFees {
     inclusive?: boolean;
   }[];
   totalMinor: number;
+  /** How a COMBINED platform fee (percentage + fixed per ticket) was worked out, if one did. */
+  platformFeeBreakdown?: PlatformFeeBreakdown | null;
 }
 
 /** A tax rate reads as a percentage, and only carries decimals when it has them. */
@@ -265,10 +269,13 @@ function FeeGroupLine({
   group,
   currency,
   digits,
+  terms,
 }: {
   group: FeeGroup;
   currency?: string;
   digits?: number;
+  /** A COMBINED platform fee's terms, shown under the platform fee line. */
+  terms?: ReturnType<typeof combinedFeeTerms>;
 }) {
   const t = useTranslations('storefront.event');
   const s = useContext(StyleContext);
@@ -277,7 +284,16 @@ function FeeGroupLine({
   const panelId = useId();
   const format = (minor: number) => money(minor, currency, undefined, digits);
   const label = group.kind === 'paymentFee' ? t('feePaymentPart') : t('convenienceFees');
-  const hint = group.kind === 'paymentFee' ? t('paymentFeeHint') : undefined;
+  const hint =
+    group.kind === 'paymentFee'
+      ? t('paymentFeeHint')
+      : terms
+        ? t('combinedFeeHint', {
+            percent: terms.percent,
+            amount: money(terms.fixedPerTicketMinor, currency),
+            count: terms.ticketCount,
+          })
+        : undefined;
 
   const taxLabel = (tax: FeeTaxPart) => {
     const rate = `${ratePercent(tax.rateBasisPoints)}%`;
@@ -454,6 +470,8 @@ function Breakdown({
     rendered above the total add up to the total.
   */
   const breakdown = quote ? priceBreakdown(quote) : null;
+  // "3% + Rs 5.00 per ticket x 3" under the platform fee, only when it explains that number.
+  const combinedTerms = quote ? combinedFeeTerms(quote) : null;
 
   /*
     One number of decimals for the whole breakdown, decided from the amounts in it.
@@ -540,6 +558,7 @@ function Breakdown({
                       group={group}
                       currency={currency}
                       digits={digits}
+                      terms={group.kind === 'platformFee' ? combinedTerms : null}
                     />
                   ))}
                 </Fragment>

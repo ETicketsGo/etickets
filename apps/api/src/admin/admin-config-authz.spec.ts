@@ -79,6 +79,7 @@ const CONFIG_ROUTES: {
     body: { currency: 'INR', label: 'Band', minMinor: 0, maxMinor: null, feeMinor: 0 },
   },
   { method: 'PATCH', path: '/admin/fee-rules/fr1', kind: 'write', body: { label: 'Band' } },
+  { method: 'DELETE', path: '/admin/fee-rules/fr1', kind: 'write' },
   { method: 'GET', path: '/admin/tax-rules', kind: 'read' },
   { method: 'GET', path: '/admin/tax-rules/readiness', kind: 'read' },
   {

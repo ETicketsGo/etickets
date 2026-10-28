@@ -1,7 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { HttpStatus, Injectable } from '@nestjs/common';
+import { feeBandLabel, money } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { AppException, ErrorCodes } from '../common/errors';
+import { deletionImpact, type CoverageGap } from './fee-band-coverage';
 import { groupScopeWhere, type GroupScope } from './group-scope';
 import { countryWhere } from './country-filter';
 import { allOf, dayRangeWhere, type ListFilters } from './list-filters';
@@ -175,8 +177,20 @@ export class AdminService {
     };
   }
 
-  feeRules() {
-    return this.prisma.feeRule.findMany({ orderBy: [{ currency: 'asc' }, { minMinor: 'asc' }] });
+  /**
+   * Every fee band, each with the name it is shown under.
+   *
+   * `displayLabel` is written from the band's boundaries (`feeBandLabel`) every time, so it
+   * cannot describe a range the band no longer has. The stored `label` is returned untouched as
+   * history. Deleted bands are left out unless asked for: they price nothing and are kept only
+   * so the audit trail points at a real row.
+   */
+  async feeRules(opts: { includeDeleted?: boolean } = {}) {
+    const rows = await this.prisma.feeRule.findMany({
+      where: opts.includeDeleted ? {} : { deletedAt: null },
+      orderBy: [{ currency: 'asc' }, { minMinor: 'asc' }],
+    });
+    return rows.map((r) => ({ ...r, displayLabel: feeBandLabel(r, r.currency) }));
   }
 
   /**
@@ -207,11 +221,12 @@ export class AdminService {
     actorUserId: string,
     input: {
       currency: string;
-      label: string;
+      /** Optional: a band is shown under the name its boundaries give it (see `feeRules`). */
+      label?: string;
       minMinor: number;
       maxMinor: number | null;
       feeMinor?: number;
-      feeType?: 'FLAT' | 'PERCENT';
+      feeType?: 'FLAT' | 'PERCENT' | 'COMBINED';
       feePercentBps?: number | null;
       minFeeMinor?: number | null;
       maxFeeMinor?: number | null;
@@ -239,7 +254,8 @@ export class AdminService {
     const created = await this.prisma.feeRule.create({
       data: {
         currency: input.currency,
-        label: input.label,
+        // Stored for history only. Nothing displays it; `feeRules` writes the shown name.
+        label: input.label?.trim() || feeBandLabel(input, input.currency),
         minMinor: input.minMinor,
         maxMinor: input.maxMinor,
         ...charge,
@@ -286,13 +302,13 @@ export class AdminService {
    *    who made it is still looking at the form.
    */
   private normaliseCharge(c: {
-    feeType: 'FLAT' | 'PERCENT';
+    feeType: 'FLAT' | 'PERCENT' | 'COMBINED';
     feeMinor: number | undefined;
     feePercentBps: number | null;
     minFeeMinor: number | null;
     maxFeeMinor: number | null;
   }): {
-    feeType: 'FLAT' | 'PERCENT';
+    feeType: 'FLAT' | 'PERCENT' | 'COMBINED';
     feeMinor: number;
     feePercentBps: number | null;
     minFeeMinor: number | null;
@@ -309,6 +325,32 @@ export class AdminService {
         feeType: 'FLAT',
         feeMinor: c.feeMinor,
         feePercentBps: null,
+        minFeeMinor: null,
+        maxFeeMinor: null,
+      };
+    }
+    /*
+      COMBINED: a percentage of the order plus a fixed amount per paid ticket. It needs both,
+      and takes no floor or ceiling (a limit on the total would quietly change what "plus Rs 5
+      per ticket" means on a large order), so any stored limits are cleared.
+    */
+    if (c.feeType === 'COMBINED') {
+      if (c.feePercentBps === null || c.feePercentBps < 1 || c.feePercentBps > 10_000) {
+        throw new AppException(
+          ErrorCodes.VALIDATION_FAILED,
+          'A combined band needs a percentage above 0% and no more than 100%.',
+        );
+      }
+      if (c.feeMinor === undefined || c.feeMinor < 1) {
+        throw new AppException(
+          ErrorCodes.VALIDATION_FAILED,
+          'A combined band needs a fixed amount per ticket above zero. For a percentage only, choose a percentage band.',
+        );
+      }
+      return {
+        feeType: 'COMBINED',
+        feeMinor: c.feeMinor,
+        feePercentBps: c.feePercentBps,
         minFeeMinor: null,
         maxFeeMinor: null,
       };
@@ -383,9 +425,12 @@ export class AdminService {
           : scope.country !== '*'
             ? scope.country
             : 'everywhere';
+      // 409: the band itself is well formed; it conflicts with another band that exists.
       throw new AppException(
-        ErrorCodes.VALIDATION_FAILED,
-        `This band overlaps the active rule "${clash.label}" for ${currency} in ${where}. Fees are resolved by first match, so overlapping bands in one place make the charge depend on row order.`,
+        ErrorCodes.CONFLICT,
+        `This band overlaps the active rule "${feeBandLabel(clash, currency)}" for ${currency} in ${where}. Fees are resolved by first match, so overlapping bands in one place make the charge depend on row order.`,
+        HttpStatus.CONFLICT,
+        { conflictingRuleId: clash.id },
       );
     }
   }
@@ -398,7 +443,7 @@ export class AdminService {
       minMinor?: number;
       maxMinor?: number | null;
       feeMinor?: number;
-      feeType?: 'FLAT' | 'PERCENT';
+      feeType?: 'FLAT' | 'PERCENT' | 'COMBINED';
       feePercentBps?: number | null;
       minFeeMinor?: number | null;
       maxFeeMinor?: number | null;
@@ -409,6 +454,15 @@ export class AdminService {
   ) {
     const existing = await this.prisma.feeRule.findUnique({ where: { id } });
     if (!existing) throw new AppException(ErrorCodes.NOT_FOUND, 'Fee rule not found.');
+    // A deleted band stays deleted. Editing it back to life would skip the coverage checks the
+    // delete passed, and the audit trail would show a delete that did not hold.
+    if (existing.deletedAt) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'This fee band was deleted and cannot be changed. Add a new band instead.',
+        HttpStatus.CONFLICT,
+      );
+    }
 
     // Each charge field falls back to what is stored, so a patch that only changes the label
     // of a percentage band keeps its percentage, floor and ceiling.
@@ -468,4 +522,103 @@ export class AdminService {
 
     return updated;
   }
+
+  /**
+   * Delete a fee band. SOFT: the row is switched off and stamped with who deleted it and when.
+   *
+   * ── WHY SOFT ──────────────────────────────────────────────────────────────────────
+   * A booking never pointed at a band - it snapshots `bookingFeeMinor` and the rest - so a hard
+   * delete would not change a sale. But the audit log names bands by id, and a finance review
+   * reading "FEE_RULE_UPDATED fr_123" must be able to open fr_123. Kept, switched off, hidden
+   * from the editor.
+   *
+   * ── WHAT IS REFUSED (409) ─────────────────────────────────────────────────────────
+   * See `fee-band-coverage.ts`. In short: a delete that leaves the band's place with no band at
+   * all (pricing would silently use the built-in India defaults, in any currency), or that opens
+   * a range of order amounts no band covers (the nearest band would quietly price it). The
+   * message names the range so the admin knows which neighbour to widen first.
+   *
+   * An inactive band prices nothing, so deleting one is always allowed. That is also the way to
+   * retire a band whose range a neighbour should take over: switch it off, widen the neighbour,
+   * then delete it.
+   */
+  async deleteFeeRule(actorUserId: string, id: string) {
+    const existing = await this.prisma.feeRule.findUnique({ where: { id } });
+    if (!existing || existing.deletedAt) {
+      throw new AppException(ErrorCodes.NOT_FOUND, 'Fee rule not found.', HttpStatus.NOT_FOUND);
+    }
+    const label = feeBandLabel(existing, existing.currency);
+    const where =
+      existing.region !== '*'
+        ? `${existing.region}, ${existing.country}`
+        : existing.country !== '*'
+          ? existing.country
+          : 'everywhere';
+
+    if (existing.active) {
+      const active = await this.prisma.feeRule.findMany({
+        where: { currency: existing.currency, active: true, deletedAt: null },
+      });
+      const impact = deletionImpact(existing, active, existing.currency);
+      if (!impact.ok && impact.reason === 'NO_BAND_LEFT') {
+        throw new AppException(
+          ErrorCodes.CONFLICT,
+          `"${label}" is the last active ${existing.currency} band for ${where}. Deleting it would leave no band there, and those orders would be charged the built-in default fees. Add the replacement band first.`,
+          HttpStatus.CONFLICT,
+          { reason: 'NO_BAND_LEFT' },
+        );
+      }
+      if (!impact.ok && impact.reason === 'GAP') {
+        throw new AppException(
+          ErrorCodes.CONFLICT,
+          `Deleting "${label}" would leave ${describeGaps(impact.gaps, existing.currency)} with no ${existing.currency} band in ${where}. Change a neighbouring band to cover that range first: switch this band off, widen the neighbour, then delete this band.`,
+          HttpStatus.CONFLICT,
+          { reason: 'GAP', gaps: impact.gaps },
+        );
+      }
+    }
+
+    const deleted = await this.prisma.feeRule.update({
+      where: { id },
+      data: { active: false, deletedAt: new Date(), deletedByUserId: actorUserId },
+    });
+
+    await this.audit.record({
+      actorUserId,
+      action: 'FEE_RULE_DELETED',
+      entityType: 'FeeRule',
+      entityId: id,
+      metadata: {
+        currency: existing.currency,
+        displayLabel: label,
+        before: {
+          label: existing.label,
+          minMinor: existing.minMinor,
+          maxMinor: existing.maxMinor,
+          feeMinor: existing.feeMinor,
+          feeType: existing.feeType,
+          feePercentBps: existing.feePercentBps,
+          minFeeMinor: existing.minFeeMinor,
+          maxFeeMinor: existing.maxFeeMinor,
+          country: existing.country,
+          region: existing.region,
+          active: existing.active,
+        },
+      },
+    });
+
+    return { ...deleted, displayLabel: label };
+  }
+}
+
+/** An uncovered range in words, for the refusal: "orders between Rs 499 and Rs 1,000". */
+function describeGaps(gaps: CoverageGap[], currency: string): string {
+  return gaps
+    .map((g) => {
+      if (g.afterMinor === null && g.beforeMinor === null) return 'every order';
+      if (g.afterMinor === null) return `orders below ${money(g.beforeMinor ?? 0, currency)}`;
+      if (g.beforeMinor === null) return `orders above ${money(g.afterMinor, currency)}`;
+      return `orders between ${money(g.afterMinor, currency)} and ${money(g.beforeMinor, currency)}`;
+    })
+    .join(' and ');
 }

@@ -209,6 +209,8 @@ export class PricingService {
       feeMode,
       discountMinor,
       currency,
+      // Only a COMBINED band or policy reads this (its fixed part is per paid ticket).
+      ticketCount: paidTicketCount(admissionLines),
       baseTiers: tiers,
       policy: feePolicyRow ? { ...feePolicyRow, applied: appliedFeePolicy(feePolicyRow) } : null,
     });
@@ -226,11 +228,14 @@ export class PricingService {
       this reduces the charge, it does not move it.
     */
     const cap = policy?.maxOnlineFeeMinor ?? null;
+    // A capped fee is no longer "percentage plus fixed", so its breakdown is not carried.
+    const { platformFeeBreakdown: _breakdown, ...uncappedPlain } = uncapped;
+    void _breakdown;
     const fees =
       cap === null || uncapped.customerFeeMinor <= cap
         ? uncapped
         : {
-            ...uncapped,
+            ...uncappedPlain,
             customerFeeMinor: cap,
             // Kept proportional so the itemisation still explains the total it belongs to.
             bookingFeeMinor: Math.min(uncapped.bookingFeeMinor, cap),
@@ -350,4 +355,20 @@ export class PricingService {
         fees.netSubtotalMinor + fees.customerFeeMinor + maintenanceAddedMinor + taxAddedMinor,
     };
   }
+}
+
+/**
+ * Paid tickets in an order: the quantity on every line whose unit price is above zero.
+ *
+ * Read from the same admission lines the tax engine rates, which `create`, `quote` and the
+ * coupon re-price all build from the cart (or from the booking's own stored items), so the
+ * three cannot count differently. A free ticket in a mixed cart is not counted. With no lines
+ * (a caller that does not know the cart), the order is one ticket - the answer every fee type
+ * but COMBINED ignores anyway.
+ */
+export function paidTicketCount(
+  lines?: readonly { unitPriceMinor: number; quantity: number }[],
+): number {
+  if (!lines) return 1;
+  return lines.reduce((n, l) => n + (l.unitPriceMinor > 0 ? Math.max(0, l.quantity) : 0), 0);
 }

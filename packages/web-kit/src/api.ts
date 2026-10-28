@@ -76,6 +76,7 @@ export type {
 } from '@eticketsgo/shared-types';
 
 import { markApiReachable, markApiUnreachable } from './connectivity';
+import type { PlatformFeeBreakdown } from './price-breakdown';
 import type {
   AdminBillingAccountDetail,
   AdminBillingMetrics,
@@ -3237,7 +3238,15 @@ export const api = {
         organizationId ? `/admin/payout-settings/${organizationId}` : '/admin/payout-settings',
         { method: 'POST', body: JSON.stringify(body) },
       ),
-    feeRules: () => request<FeeRule[]>('/admin/fee-rules'),
+    /** Fee bands. Deleted ones are left out unless `includeDeleted` is set. */
+    feeRules: (opts: { includeDeleted?: boolean } = {}) =>
+      request<FeeRule[]>(`/admin/fee-rules${opts.includeDeleted ? '?includeDeleted=true' : ''}`),
+    /**
+     * Delete a band (soft: switched off and kept for the audit trail). Refused with 409 when it
+     * would leave a place with no band or open a range no band covers; the message says which.
+     */
+    deleteFeeRule: (id: string) =>
+      request<FeeRule>(`/admin/fee-rules/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
     /** Every tax rule, with whether each is in force right now. */
     taxRules: () => request<TaxRule[]>('/admin/tax-rules'),
@@ -3267,8 +3276,11 @@ export const api = {
     deleteTaxRule: (id: string) =>
       request<{ deleted: true }>(`/admin/tax-rules/${id}`, { method: 'DELETE' }),
     /** Create a band. `currency` is required — a band only means anything within one. */
-    createFeeRule: (input: Omit<FeeRule, 'id'>) =>
-      request<FeeRule>('/admin/fee-rules', { method: 'POST', body: JSON.stringify(input) }),
+    createFeeRule: (
+      input: Omit<FeeRule, 'id' | 'label' | 'displayLabel' | 'deletedAt' | 'deletedByUserId'> & {
+        label?: string;
+      },
+    ) => request<FeeRule>('/admin/fee-rules', { method: 'POST', body: JSON.stringify(input) }),
     /**
      * Update one fee rule. `currency` is not editable — the amounts are minor units, so
      * switching currency would reinterpret ₹5 as $5. Omit a field to leave it unchanged;
@@ -3927,6 +3939,8 @@ export interface BookingResult {
     /** The combined rate inside that figure — 1800 for 18%, 0 when nothing is taxed. */
     feeTaxRateBasisPoints?: number;
     feeTaxMinor?: number;
+    /** How a COMBINED platform fee (percentage + fixed per ticket) was worked out. */
+    platformFeeBreakdown?: PlatformFeeBreakdown | null;
     totalMinor: number;
     discountMinor: number;
     /** Zero unless the seller's market has a configured tax rule. */
@@ -3969,6 +3983,8 @@ export interface BookingDetail {
   maintenanceMinor?: number;
   maintenanceTreatment?:
     'NOT_APPLICABLE' | 'INCLUDED_IN_TICKET_PRICE' | 'ADDED_TO_TICKET_PRICE' | 'UNCONFIRMED';
+  /** The booking's snapshot of a COMBINED platform fee, when one priced it. */
+  platformFeeBreakdown?: PlatformFeeBreakdown | null;
   buyerName: string;
   buyerEmail: string;
   event: {
@@ -7643,8 +7659,9 @@ export interface FeeRule {
    * How the band charges. Optional on input (a band with no type is a fixed amount, as every
    * band was before percentages); always present on what the API returns.
    */
-  feeType?: 'FLAT' | 'PERCENT';
-  /** PERCENT: the share of the order in basis points. 500 is 5%. */
+  feeType?: 'FLAT' | 'PERCENT' | 'COMBINED';
+  /** PERCENT and COMBINED: the share of the order in basis points. 500 is 5%. COMBINED also
+   * charges `feeMinor` once per paid ticket. */
   feePercentBps?: number | null;
   /** PERCENT, optional: the least the band charges, in minor units. */
   minFeeMinor?: number | null;
@@ -7660,6 +7677,15 @@ export interface FeeRule {
   country: string;
   region: string;
   active: boolean;
+  /**
+   * The name to show, written by the API from the band's boundaries ("Tickets ₹0 -
+   * ₹499", "Tickets $50.00 and above"). Always present on what the API returns. `label`
+   * is the stored historical name and is no longer shown.
+   */
+  displayLabel?: string;
+  /** Set when the band was deleted (soft). Deleted bands price nothing. */
+  deletedAt?: string | null;
+  deletedByUserId?: string | null;
 }
 
 // ─── Runtime payment configuration (admin) ───

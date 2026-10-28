@@ -76,6 +76,8 @@ export interface PreviewInput extends PolicyTermsInput {
   organizationId?: string | null;
   currency: string;
   subtotalMinor: number;
+  /** Paid tickets in the sample basket. Only a COMBINED fee reads it. Defaults to one. */
+  ticketCount?: number;
   feeMode?: FeeMode;
 }
 
@@ -154,6 +156,27 @@ export function normaliseTerms(input: PolicyTermsInput): {
         percentBps: input.percentBps!,
         minFeeMinor: min,
         maxFeeMinor: max,
+        currency,
+      };
+    }
+    case 'COMBINED': {
+      // A share of the order plus a fixed amount per paid ticket: both are needed, no limits.
+      if (!has(input.percentBps) || input.percentBps! < 1) {
+        throw bad('A combined fee needs a percentage above 0%.');
+      }
+      if (!has(input.feeMinor) || input.feeMinor! < 1) {
+        throw bad('A combined fee needs a fixed amount per ticket above zero.');
+      }
+      if (has(input.minFeeMinor) || has(input.maxFeeMinor)) {
+        throw bad('A combined fee takes no lowest or highest fee.');
+      }
+      if (!currency) throw bad('A combined fee states an amount, so it needs a currency.');
+      return {
+        kind: 'COMBINED',
+        feeMinor: input.feeMinor!,
+        percentBps: input.percentBps!,
+        minFeeMinor: null,
+        maxFeeMinor: null,
         currency,
       };
     }
@@ -252,11 +275,13 @@ export class PlatformFeePoliciesService {
       version: 0,
     };
     const subtotalMinor = Math.max(0, Math.round(input.subtotalMinor));
-    const schedule = calculateFees({ subtotalMinor, feeMode, tiers, currency });
+    const ticketCount = input.ticketCount ?? 1;
+    const schedule = calculateFees({ subtotalMinor, feeMode, tiers, currency, ticketCount });
     const outcome = calculateFeesWithPolicy({
       subtotalMinor,
       feeMode,
       currency,
+      ticketCount,
       baseTiers: tiers,
       policy: { ...draft, applied: appliedFeePolicy(draft) },
     });
@@ -271,6 +296,7 @@ export class PlatformFeePoliciesService {
     return {
       currency,
       subtotalMinor,
+      ticketCount,
       feeMode,
       schedule: lines(schedule),
       withPolicy: lines(outcome.fees),
@@ -604,6 +630,8 @@ function lines(f: FeeCalcResult) {
     customerFeeMinor: f.customerFeeMinor,
     organizerFeeMinor: f.organizerFeeMinor,
     totalMinor: f.totalMinor,
+    // How a COMBINED fee splits into its percentage and per-ticket parts, when it is one.
+    ...(f.platformFeeBreakdown ? { platformFeeBreakdown: f.platformFeeBreakdown } : {}),
   };
 }
 

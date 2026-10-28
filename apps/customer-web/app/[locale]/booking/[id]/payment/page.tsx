@@ -651,6 +651,7 @@ function AccountPayment() {
                 maintenanceTreatment: booking.maintenanceTreatment,
                 taxLines: booking.taxLines,
                 totalMinor: booking.totalMinor,
+                platformFeeBreakdown: booking.platformFeeBreakdown,
               }}
               totalLabel={k('totalPayable')}
               fractionDigits={digits}

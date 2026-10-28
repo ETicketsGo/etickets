@@ -21,7 +21,7 @@ import {
 import type { InventoryLine } from '../inventory/inventory-strategy.interface';
 import type { CreateBookingInput, QuoteBookingInput } from '@eticketsgo/validation';
 import { PrismaService } from '../prisma/prisma.service';
-import { PricingService, buyerFees } from '../pricing/pricing.service';
+import { PricingService, buyerFees, type PricedFees } from '../pricing/pricing.service';
 import {
   FeePolicyUnavailableError,
   reserveFeePolicyRedemption,
@@ -838,6 +838,11 @@ export class BookingsService {
           feePolicyVersion: fees.appliedFeePolicy?.version ?? null,
           baseBookingFeeMinor: fees.appliedFeePolicy ? (fees.baseBookingFeeMinor ?? null) : null,
           feeWaivedMinor: fees.appliedFeePolicy ? (fees.feeWaivedMinor ?? null) : null,
+          /*
+            How a COMBINED fee (percentage + fixed per ticket) was worked out, so it can be
+            explained after the band or policy is edited or deleted. Absent otherwise.
+          */
+          ...platformFeeBreakdownData(fees),
           status: BookingStatus.PENDING_PAYMENT,
           // Settled here so confirmation and refund reach for the same strategy this hold
           // used, whatever happens to the session afterwards.
@@ -1875,6 +1880,9 @@ export class BookingsService {
           organizerFeeMinor: fees.organizerFeeMinor,
           taxMinor: fees.taxMinor,
           totalMinor: fees.totalMinor,
+          // Restated with the fee: the re-priced breakdown, or none when it is no longer COMBINED.
+          platformFeeBreakdown:
+            platformFeeBreakdownData(fees).platformFeeBreakdown ?? Prisma.DbNull,
           // The policy stays the one it was priced under; only its arithmetic is restated.
           ...(booking.feePolicyId
             ? {
@@ -2714,6 +2722,22 @@ export class BookingsService {
     const data = rows.map((booking) => ({ ...booking, timeZone: bookingTimeZone(booking) }));
     return { data, meta: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) } };
   }
+}
+
+/**
+ * The COMBINED-fee snapshot for a booking row: the breakdown plus where the terms came from
+ * (the schedule's band, or a policy). Empty for every other fee, so nothing else is written.
+ */
+function platformFeeBreakdownData(fees: PricedFees): {
+  platformFeeBreakdown?: Prisma.InputJsonObject;
+} {
+  if (!fees.platformFeeBreakdown) return {};
+  return {
+    platformFeeBreakdown: {
+      ...fees.platformFeeBreakdown,
+      source: fees.appliedFeePolicy ? 'POLICY' : 'SCHEDULE',
+    },
+  };
 }
 
 /**

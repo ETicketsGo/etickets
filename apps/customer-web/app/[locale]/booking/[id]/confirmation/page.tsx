@@ -645,6 +645,7 @@ function AccountConfirmation() {
                 maintenanceTreatment: booking.maintenanceTreatment,
                 taxLines: booking.taxLines,
                 totalMinor: booking.totalMinor,
+                platformFeeBreakdown: booking.platformFeeBreakdown,
               }}
               totalLabel={confirmed ? c('totalPaid') : undefined}
               fractionDigits={itemDigits}
