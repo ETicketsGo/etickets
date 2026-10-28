@@ -7,8 +7,8 @@ import {
   LegalDocument,
   BackToLegal,
 } from '@/components/legal/policy-chrome';
-import { resolveJurisdiction } from '@/lib/market';
-import { INDIA_OPERATOR_SENTENCE } from '@/lib/legal-entity';
+import { resolveJurisdiction, resolveSelectedMarket } from '@/lib/market';
+import { INDIA_OPERATOR_SENTENCE, US_OPERATOR_SENTENCE } from '@/lib/legal-entity';
 import { BrandPage } from '@/components/storefront-brand';
 
 export const metadata: Metadata = {
@@ -24,7 +24,10 @@ export default async function PrivacyPage({
 }: {
   searchParams: Promise<{ country?: string | string[] }>;
 }) {
-  const country = await resolveJurisdiction((await searchParams).country);
+  const asked = (await searchParams).country;
+  const country = await resolveJurisdiction(asked);
+  // Which company the operator line names: what the reader chose, never an IP guess.
+  const market = await resolveSelectedMarket(asked);
 
   return (
     <BrandPage>
@@ -110,7 +113,7 @@ export default async function PrivacyPage({
           ) : null}
           {country === 'US' ? (
             <p>
-              Our text message programme is described in the{' '}
+              {US_OPERATOR_SENTENCE} Our text message programme is described in the{' '}
               <Link href="/sms">text message programme</Link>.
             </p>
           ) : null}
@@ -170,7 +173,7 @@ export default async function PrivacyPage({
             <Link href="/contact">contact page</Link>.
           </p>
         </Prose>
-        <OperatorLine country={country} />
+        <OperatorLine market={market} />
       </LegalDocument>
     </BrandPage>
   );

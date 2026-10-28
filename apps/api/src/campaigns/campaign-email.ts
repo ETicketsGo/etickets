@@ -6,6 +6,7 @@ import {
   safeHref,
 } from '../notifications/templates/email-html';
 import type { CampaignBlock } from './campaign-content';
+import { operatorLine } from '../common/operator-line';
 
 /**
  * A campaign email, as HTML and as text.
@@ -54,7 +55,12 @@ export interface CampaignRenderInput {
    * the organizer's own link. The List-Unsubscribe header stays organizer-scoped.
    */
   unsubscribeAllUrl: string;
-  platform: { legalName: string; postalAddress: string | null };
+  /**
+   * The DeepTrics company the footer names. `country` (IN or US) gives the owner's sentence
+   * for that company, "ETicketsGo is operated in India by ..."; without it the footer keeps the
+   * plain "ETicketsGo is operated by ...".
+   */
+  platform: { legalName: string; country?: string | null; postalAddress: string | null };
   isTest?: boolean;
 }
 
@@ -189,7 +195,13 @@ export function renderCampaignEmail(input: CampaignRenderInput): RenderedCampaig
     topic: topic === topicKey ? t(locale, 'emails.campaign.topic.ORGANIZER_UPDATES') : topic,
   });
   const sentBy = t(locale, 'emails.campaign.sentBy', { organizer: org });
-  const operator = t(locale, 'emails.campaign.operator', { legalName: input.platform.legalName });
+  const operator =
+    input.platform.country === 'IN' || input.platform.country === 'US'
+      ? operatorLine(locale, {
+          legalName: input.platform.legalName,
+          country: input.platform.country,
+        })
+      : t(locale, 'emails.campaign.operator', { legalName: input.platform.legalName });
   const unsubLabel = t(locale, 'emails.campaign.unsubscribe', { organizer: org });
   const unsubPrompt = t(locale, 'emails.campaign.unsubscribePrompt');
   const unsubHref = safeHref(input.unsubscribeUrl);

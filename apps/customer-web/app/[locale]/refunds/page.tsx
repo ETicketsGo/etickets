@@ -7,7 +7,7 @@ import {
   LegalDocument,
   BackToLegal,
 } from '@/components/legal/policy-chrome';
-import { resolveJurisdiction } from '@/lib/market';
+import { resolveJurisdiction, resolveSelectedMarket } from '@/lib/market';
 import { BrandPage } from '@/components/storefront-brand';
 
 export const generateMetadata = localizedMetadata('/refunds', {
@@ -43,7 +43,10 @@ export default async function RefundsPage({
 }: {
   searchParams: Promise<{ country?: string | string[] }>;
 }) {
-  const country = await resolveJurisdiction((await searchParams).country);
+  const asked = (await searchParams).country;
+  const country = await resolveJurisdiction(asked);
+  // Which company the operator line names: what the reader chose, never an IP guess.
+  const market = await resolveSelectedMarket(asked);
   return (
     <BrandPage>
       <PageHero
@@ -145,7 +148,7 @@ export default async function RefundsPage({
             team. Also read our <Link href="/terms">Terms</Link>.
           </p>
         </Prose>
-        <OperatorLine country={country} />
+        <OperatorLine market={market} />
       </LegalDocument>
     </BrandPage>
   );

@@ -6,7 +6,7 @@ import { useRouter } from '@/i18n/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Clock, QrCode, RefreshCcw, ShieldCheck } from 'lucide-react';
 import { BrandButton, api as webKit, brandButtonClasses } from '@eticketsgo/web-kit';
-import { razorpayFailureReason } from '@eticketsgo/shared-types';
+import { INDIA_OPERATOR, razorpayFailureReason } from '@eticketsgo/shared-types';
 import { api, ApiRequestError, tokenStore } from '@/lib/api';
 import { loadRazorpay } from '@/lib/razorpay';
 import { useFormat } from '@/lib/format';
@@ -27,6 +27,8 @@ import {
   useVenueWhenText,
 } from '@/components/booking-brand';
 import { paymentsActivatingCopy } from '@/components/payment/payments-activating';
+import { OperatorStatement } from '@/components/legal/operator-statement';
+import { checkoutOperatorCountry } from '@/lib/legal-entity';
 import { PriceBreakdown } from '@/components/price-breakdown';
 import { RefundTerms } from '@/components/refund-terms';
 import { GuestBookingNotHere, GuestBookingSummary } from '@/components/guest-booking-view';
@@ -676,7 +678,7 @@ function AccountPayment() {
               </p>
               {paymentsActivatingCopy(booking.currency).showOperator && (
                 <p className="text-brand-meta text-brand-ink-3">
-                  {k('paymentsActivatingOperator')}
+                  {k('paymentsActivatingOperator', { entity: INDIA_OPERATOR.legalName })}
                 </p>
               )}
             </div>
@@ -720,6 +722,12 @@ function AccountPayment() {
                 <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
                 {k('securePaymentNote')}
               </p>
+              {/* Which company takes this payment: from the booking currency, as on the receipt. */}
+              <OperatorStatement
+                market={checkoutOperatorCountry(booking.currency)}
+                className="text-brand-meta text-brand-ink-3"
+                testId="checkout-operator"
+              />
               <BrandButton
                 variant="quiet"
                 className="w-full"
@@ -1027,7 +1035,7 @@ function GuestPayment({ id, anonSession }: { id: string; anonSession: string }) 
               </p>
               {paymentsActivatingCopy(view.currency).showOperator && (
                 <p className="text-brand-meta text-brand-ink-3">
-                  {k('paymentsActivatingOperator')}
+                  {k('paymentsActivatingOperator', { entity: INDIA_OPERATOR.legalName })}
                 </p>
               )}
             </div>
@@ -1068,6 +1076,11 @@ function GuestPayment({ id, anonSession }: { id: string; anonSession: string }) 
                 <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
                 {k('securePaymentNote')}
               </p>
+              <OperatorStatement
+                market={checkoutOperatorCountry(view.currency)}
+                className="text-brand-meta text-brand-ink-3"
+                testId="checkout-operator"
+              />
               {cancelUnavailable ? (
                 <p
                   role="status"

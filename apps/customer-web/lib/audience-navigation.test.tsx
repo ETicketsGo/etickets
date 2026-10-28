@@ -55,6 +55,7 @@ afterEach(() => {
   cleanup = null;
   localStorage.clear();
   document.cookie = 'etg_session=; Max-Age=0; Path=/';
+  document.cookie = 'etg_selected_market=; Max-Age=0; Path=/';
 });
 
 function tree(signedIn: boolean) {
@@ -97,7 +98,13 @@ function labels(el: Element): string[] {
 
 const MARKETING_LINKS = ['Features', 'Solutions', 'Pricing', 'For organizers', 'For attendees'];
 const APP_LINKS = ['Explore', 'Movies', 'Tickets'];
-const LEGAL_LINE = '© 2026 ETicketsGo, DeepTrics Software Solutions Pvt Ltd | All rights reserved.';
+/*
+  With no market selected the footer names no company in the copyright line and both companies
+  in the operator line - true wherever it is read, and never a guess from an IP address.
+*/
+const LEGAL_LINE = '© 2026 ETicketsGo | All rights reserved.';
+const NEUTRAL_OPERATOR =
+  'ETicketsGo is operated in India by DeepTrics Software Solutions Private Limited and in the United States by DeepTrics LLC.';
 
 describe('the marketing header', () => {
   it.each(['/features', '/pricing', '/organizers', '/legal', '/docs/api'])(
@@ -316,6 +323,57 @@ describe('the storefront footer', () => {
     expect(footer.querySelector('a[href="/features"]')).not.toBeNull();
     expect(footer.querySelector('a[href="/organizers"]')).not.toBeNull();
     expect(footer.textContent).toContain(LEGAL_LINE);
+    expect(footer.textContent).toContain(NEUTRAL_OPERATOR);
+  });
+});
+
+/*
+  The company follows the market the reader SELECTED: the country of a city they picked, kept
+  in storage by the city picker. A guess from the network is never enough to name one.
+*/
+describe('the footer names the company for the selected market', () => {
+  function choose(city: string, region: string, country: string) {
+    localStorage.setItem('etg.city', JSON.stringify({ city, region, country }));
+  }
+
+  it('India: the Indian company, short form in the copyright and in full in the line', async () => {
+    choose('Hyderabad', 'Telangana', 'India');
+    const { footer } = await mount('/', false);
+    expect(footer.textContent).toContain(
+      '© 2026 ETicketsGo, DeepTrics Software Solutions Pvt Ltd | All rights reserved.',
+    );
+    expect(footer.textContent).toContain(
+      'ETicketsGo is operated in India by DeepTrics Software Solutions Private Limited.',
+    );
+    expect(footer.textContent).not.toContain('DeepTrics LLC');
+  });
+
+  it('United States: DeepTrics LLC', async () => {
+    choose('Austin', 'Texas', 'United States');
+    const { footer } = await mount('/features', false);
+    expect(footer.textContent).toContain('© 2026 ETicketsGo, DeepTrics LLC | All rights reserved.');
+    expect(footer.textContent).toContain(
+      'ETicketsGo is operated in the United States by DeepTrics LLC.',
+    );
+    expect(footer.textContent).not.toContain('Private Limited');
+  });
+
+  it('a market with no company, or "All cities", falls back to both', async () => {
+    choose('Toronto', 'Ontario', 'Canada');
+    let { footer } = await mount('/', false);
+    expect(footer.textContent).toContain(LEGAL_LINE);
+    expect(footer.textContent).toContain(NEUTRAL_OPERATOR);
+    cleanup?.();
+    cleanup = null;
+    localStorage.setItem('etg.city', '__all__');
+    ({ footer } = await mount('/', false));
+    expect(footer.textContent).toContain(NEUTRAL_OPERATOR);
+  });
+
+  it('the choice is mirrored for the server-rendered legal pages', async () => {
+    choose('Hyderabad', 'Telangana', 'India');
+    await mount('/', false);
+    expect(document.cookie).toContain('etg_selected_market=IN');
   });
 });
 

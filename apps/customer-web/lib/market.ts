@@ -42,3 +42,32 @@ export async function resolveJurisdiction(
   }
   return 'GLOBAL';
 }
+
+/** Written only when the reader CHOSE a city. See `rememberSelectedMarket` in web-kit. */
+const SELECTED_MARKET_COOKIE = 'etg_selected_market';
+
+/**
+ * The market the reader selected, for naming the company that operates ETicketsGo there, or
+ * null when they have selected none.
+ *
+ * Narrower than `resolveJurisdiction` on purpose. `etg_market` can hold the network edge's
+ * guess, which is fine for choosing which version of a policy to show first and is not enough
+ * to tell somebody which company they are dealing with. So:
+ * 1. An explicit `?country=` - somebody asked for that country's page.
+ * 2. `etg_selected_market` - written only from a city the reader picked.
+ * 3. null - the page names both companies.
+ */
+export async function resolveSelectedMarket(
+  explicit?: string | string[] | undefined,
+): Promise<string | null> {
+  const asked = Array.isArray(explicit) ? explicit[0] : explicit;
+  if (asked && asked.trim()) return asked.trim();
+  try {
+    const store = await cookies();
+    const value = store.get(SELECTED_MARKET_COOKIE)?.value;
+    if (value) return decodeURIComponent(value);
+  } catch {
+    /* no cookie store in this rendering context: nothing was selected */
+  }
+  return null;
+}

@@ -22,7 +22,10 @@ vi.mock('next/navigation', () => ({
   permanentRedirect: vi.fn(),
 }));
 
-const LEGAL_LINE = '© 2026 ETicketsGo, DeepTrics Software Solutions Pvt Ltd | All rights reserved.';
+// No market is selected on a server render, so the line names both companies, the India one
+// in full: the reviewer following a dead link still sees it.
+const LEGAL_LINE =
+  'ETicketsGo is operated in India by DeepTrics Software Solutions Private Limited and in the United States by DeepTrics LLC.';
 
 function render(): string {
   return renderToStaticMarkup(createElement(NotFoundInShell));

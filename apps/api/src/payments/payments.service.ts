@@ -1113,6 +1113,11 @@ export class PaymentsService {
           timeZone: showTimezone(booking.eventSession?.screen, booking.event?.venue) ?? '',
           seats: issuedSeatLabels.join(', '),
           tickets: ticketCount,
+          /*
+            The booking's currency, so the email footer names the company that took the
+            payment (INR the Indian company, USD the US one). Not printed in the message.
+          */
+          currency: booking.currency,
         },
       });
     });

@@ -134,8 +134,14 @@
     },
     "tagline": "Achetez vos billets, gardez-les sur votre téléphone et entrez sans faire la queue.",
     "rights": "© {year} ETicketsGo, {entity} | Tous droits réservés.",
+    "rightsNeutral": "© {year} ETicketsGo | Tous droits réservés.",
     "build": "Version {id}",
     "testEnvironment": "Environnement de test - les paiements sont simulés."
+  },
+  "legalEntity": {
+    "operatedIN": "ETicketsGo est exploité en Inde par {entity}.",
+    "operatedUS": "ETicketsGo est exploité aux États-Unis par {entity}.",
+    "operatedNeutral": "ETicketsGo est exploité en Inde par {india} et aux États-Unis par {us}."
   },
   "humanCheck": {
     "title": "Confirmez que vous êtes une personne",

@@ -8,7 +8,7 @@ import {
   LegalDocument,
   BackToLegal,
 } from '@/components/legal/policy-chrome';
-import { resolveJurisdiction } from '@/lib/market';
+import { resolveJurisdiction, resolveSelectedMarket } from '@/lib/market';
 import { BUSINESS_DETAILS, publishedDetail } from '@eticketsgo/web-kit';
 import { BrandPage } from '@/components/storefront-brand';
 
@@ -47,7 +47,10 @@ export default async function SmsPage({
 }: {
   searchParams: Promise<{ country?: string | string[] }>;
 }) {
-  const country = await resolveJurisdiction((await searchParams).country);
+  const asked = (await searchParams).country;
+  const country = await resolveJurisdiction(asked);
+  // Which company the operator line names: what the reader chose, never an IP guess.
+  const market = await resolveSelectedMarket(asked);
   const supportEmail = publishedDetail(BUSINESS_DETAILS.supportEmail);
   const supportPhone = publishedDetail(BUSINESS_DETAILS.supportPhone);
   const legalName = publishedDetail(BUSINESS_DETAILS.legalName);
@@ -170,7 +173,7 @@ export default async function SmsPage({
             <Link href="/terms">Terms and Conditions</Link> cover your use of ETicketsGo.
           </p>
         </Prose>
-        <OperatorLine country={country} />
+        <OperatorLine market={market} />
       </LegalDocument>
     </BrandPage>
   );
