@@ -5,6 +5,7 @@ import { MFA_RECENT_KEY } from '../../common/decorators';
 import { AdminBillingController } from '../../billing/billing-admin.controller';
 import { AdminCampaignsController } from '../../campaigns/campaigns.controller';
 import { PlatformFeePoliciesController } from '../../admin/platform-fee-policies.controller';
+import { AdminController } from '../../admin/admin.controller';
 
 /*
   Which actions demand a fresh second-factor check. A list in a test is deliberate: dropping
@@ -48,6 +49,8 @@ const STEP_UP: Array<[string, new (...a: never[]) => unknown, string[]]> = [
     PlatformFeePoliciesController,
     ['createPlatformFeePolicy', 'deactivatePlatformFeePolicy'],
   ],
+  // The platform fee schedule itself: adding, changing or deleting a band.
+  ['platform fee bands', AdminController, ['createFeeRule', 'updateFeeRule', 'deleteFeeRule']],
 ];
 
 describe('sensitive back-office actions require a recent second-factor check', () => {

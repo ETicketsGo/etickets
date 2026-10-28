@@ -407,3 +407,47 @@ function mergeByRate(lines: BreakdownTaxLine[]): BreakdownTaxLine[] {
   }
   return [...merged.values()];
 }
+
+/**
+ * How a COMBINED platform fee was worked out: a percentage of the order plus a fixed amount per
+ * paid ticket. Sent by the API (quote and booking) only when such a fee priced the order.
+ */
+export interface PlatformFeeBreakdown {
+  type: 'COMBINED';
+  percentBps: number;
+  fixedPerTicketMinor: number;
+  ticketCount: number;
+  percentPartMinor: number;
+  fixedPartMinor: number;
+}
+
+/**
+ * The terms to show under the platform fee ("3% + Rs 5.00 per ticket x 3"), or null.
+ *
+ * Shown only when they explain the number on screen exactly: the parts add up to the booking
+ * fee, and the customer pays the whole of it. When the organizer pays some or all of the fee
+ * (SHARED, ORGANIZER_PAYS) or a cap lowered it, the terms would describe a different number, so
+ * nothing is shown and the line reads as it always has.
+ */
+export function combinedFeeTerms(quote: {
+  bookingFeeMinor: number;
+  paymentFeeMinor: number;
+  customerFeeMinor?: number;
+  platformFeeBreakdown?: PlatformFeeBreakdown | null;
+}): { percent: string; fixedPerTicketMinor: number; ticketCount: number } | null {
+  const b = quote.platformFeeBreakdown;
+  if (!b || b.type !== 'COMBINED') return null;
+  if (b.percentPartMinor + b.fixedPartMinor !== quote.bookingFeeMinor) return null;
+  if (
+    quote.customerFeeMinor !== undefined &&
+    quote.customerFeeMinor !== quote.bookingFeeMinor + quote.paymentFeeMinor
+  ) {
+    return null;
+  }
+  const percent = (b.percentBps / 100).toFixed(b.percentBps % 100 === 0 ? 0 : 2);
+  return {
+    percent: `${percent}%`,
+    fixedPerTicketMinor: b.fixedPerTicketMinor,
+    ticketCount: b.ticketCount,
+  };
+}

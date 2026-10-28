@@ -32,6 +32,7 @@ export * from './metrics-access';
 export * from './ai-safety';
 export * from './client-security';
 export * from './format';
+export * from './fee-band-label';
 export * from './event-summary';
 export * from './growth-recommendations';
 export * from './risk-signals';

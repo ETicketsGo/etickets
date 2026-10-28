@@ -56,6 +56,7 @@
     "feeTaxNoRate": "Taxes sur les frais",
     "feesCombined": "Frais de réservation et de paiement",
     "paymentFeeHint": "Facturés par le réseau de paiement, pas par ETicketsGo",
+    "combinedFeeHint": "{percent} des billets + {amount} par billet, pour {count, plural, one {# billet} other {# billets}}",
     "taxDetailsShow": "Détail des taxes",
     "taxDetailsHide": "Masquer le détail des taxes",
     "galleryLabel": "Images de l'événement",

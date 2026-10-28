@@ -2036,6 +2036,12 @@ model Booking {
   baseBookingFeeMinor Int?
   /// How much of that the policy took off, before any cinema cap. Never negative.
   feeWaivedMinor      Int?
+  /// How a COMBINED platform fee (a percentage plus a fixed amount per ticket) was worked out:
+  /// { type, percentBps, fixedPerTicketMinor, ticketCount, percentPartMinor, fixedPartMinor,
+  /// source }. Null for every other booking. Written so the fee can be explained after the
+  /// band or policy that set it is edited or deleted. `bookingFeeMinor` stays the charged
+  /// amount and is what every reader sums.
+  platformFeeBreakdown Json?
 
   totalMinor Int
 
@@ -3394,6 +3400,9 @@ model ReadableReferenceCounter {
 enum FeeRuleType {
   FLAT
   PERCENT
+  /// A percentage of the order PLUS a fixed amount for each paid ticket: 3% + Rs 5 per ticket.
+  /// `feePercentBps` is the percentage and `feeMinor` the per-ticket amount.
+  COMBINED
 }
 
 model FeeRule {
@@ -3401,14 +3410,15 @@ model FeeRule {
   label    String
   minMinor Int
   maxMinor Int?
-  /// FLAT: the fee, in minor units. PERCENT: not used, and kept at 0.
+  /// FLAT: the fee, in minor units. PERCENT: not used, and kept at 0. COMBINED: the fixed part,
+  /// charged once per paid ticket.
   feeMinor Int
   currency String @default("INR")
 
   /// FLAT for every band that existed before percentages, so nothing already configured
   /// changes what it charges.
   feeType       FeeRuleType @default(FLAT)
-  /// PERCENT only: the share of the order, in basis points. 500 is 5%, 250 is 2.5%.
+  /// PERCENT and COMBINED: the share of the order, in basis points. 500 is 5%, 250 is 2.5%.
   feePercentBps Int?
   /// PERCENT only, optional: the least the band may charge, in minor units. Null is no floor.
   minFeeMinor   Int?
@@ -3434,6 +3444,13 @@ model FeeRule {
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  /// Set when an admin deletes the band. Deletion is SOFT: the row stays (switched off), so the
+  /// audit trail keeps pointing at something real. Bookings never referenced a band - they
+  /// snapshot the fee amounts - so nothing already sold changes.
+  deletedAt       DateTime?
+  /// The admin who deleted it. A plain id, like the other actor columns on config rows.
+  deletedByUserId String?
 
   @@index([active, country, region])
 }
@@ -6174,6 +6191,9 @@ enum PlatformFeePolicyKind {
   FIXED
   /// A share of the order in basis points, optionally held between a floor and a ceiling.
   PERCENT
+  /// A share of the order in basis points (`percentBps`) PLUS a fixed amount per paid ticket
+  /// (`feeMinor`, in minor units of `currency`).
+  COMBINED
 }
 
 enum PlatformFeePolicyStatus {
@@ -6196,7 +6216,7 @@ model PlatformFeePolicy {
   /// Always set: the event's organization for an EVENT policy, the target for ORGANIZATION.
   organizationId      String
   kind                PlatformFeePolicyKind
-  /// FIXED: the booking fee.
+  /// FIXED: the booking fee. COMBINED: the fixed part, charged once per paid ticket.
   feeMinor            Int?
   /// PERCENT: basis points (500 = 5%).
   percentBps          Int?

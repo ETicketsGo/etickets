@@ -40,8 +40,10 @@ import {
   type MarketScope,
   type PanelMessage,
 } from '@/lib/provider-panel-messages';
+import { payoutSetupErrorMessage } from '@/lib/payout-setup-errors';
 import { BankAccount } from './bank-account';
 import { PayoutStatus } from './payout-status';
+import { SetupFailure } from './setup-failure';
 
 export default function PayoutsPage() {
   return (
@@ -276,6 +278,8 @@ function PanelNotice({ message }: { message: PanelMessage | null }) {
 
 function StripePayoutSetup({ orgId, scope }: { orgId: string; scope: MarketScope }) {
   const params = useSearchParams();
+  // Starting setup is owner-only on the API; a manager is told so instead of offered a button.
+  const { can } = useOrg();
   const onboarding = params.get('onboarding'); // 'return' | 'refresh' | null
   const toast = useToast();
 
@@ -294,12 +298,17 @@ function StripePayoutSetup({ orgId, scope }: { orgId: string; scope: MarketScope
     if (onboarding === 'return' || onboarding === 'refresh') void refetch();
   }, [onboarding, refetch]);
 
+  /*
+    Mapped by error code, not `errorMessage(e)`: that printed "Something went wrong." for a 500
+    and Stripe's own sentence about our platform account for a 502. The same sentence stays on
+    the card (SetupFailure) after the toast has gone.
+  */
   const startOnboarding = useMutation({
     mutationFn: () => api.organizerPayments.onboardingLink(orgId),
     onSuccess: ({ url }) => {
       window.location.href = url;
     },
-    onError: (e) => toast.push(errorMessage(e), 'error'),
+    onError: (e) => toast.push(payoutSetupErrorMessage(e), 'error'),
   });
 
   const openDashboard = useMutation({
@@ -307,7 +316,7 @@ function StripePayoutSetup({ orgId, scope }: { orgId: string; scope: MarketScope
     onSuccess: ({ url }) => {
       window.location.href = url;
     },
-    onError: (e) => toast.push(errorMessage(e), 'error'),
+    onError: (e) => toast.push(payoutSetupErrorMessage(e), 'error'),
   });
 
   if (isLoading) {
@@ -335,13 +344,13 @@ function StripePayoutSetup({ orgId, scope }: { orgId: string; scope: MarketScope
       title="Payouts (Stripe)"
       action={
         <div className="flex flex-wrap justify-end gap-2">
-          {needsSetup && (
+          {needsSetup && can.ownerActions && (
             <Button loading={startOnboarding.isPending} onClick={() => startOnboarding.mutate()}>
               <Banknote className="h-4 w-4" />
               {status.hasAccount ? 'Continue payout setup' : 'Set up payouts'}
             </Button>
           )}
-          {status.chargesEnabled && (
+          {status.chargesEnabled && can.ownerActions && (
             <Button
               variant="outline"
               loading={openDashboard.isPending}
@@ -356,6 +365,13 @@ function StripePayoutSetup({ orgId, scope }: { orgId: string; scope: MarketScope
       <div className="space-y-4">
         {/* Stripe is the provider whose setup gates sales (dollars and Canadian dollars). */}
         <PanelNotice message={stripePanelMessage(status, scope)} />
+
+        <SetupFailure error={startOnboarding.error ?? openDashboard.error} />
+        {needsSetup && !can.ownerActions && (
+          <p className="text-sm text-text-secondary">
+            Only the owner of this organization can set up payouts. Ask your owner to do this step.
+          </p>
+        )}
 
         <dl className="grid gap-4 sm:grid-cols-2">
           <div>
@@ -438,7 +454,7 @@ function RazorpayPayoutSetup({ orgId, scope }: { orgId: string; scope: MarketSco
       qc.invalidateQueries({ queryKey: ['org-payments-razorpay-status', orgId] });
       setLinkedAccountId('');
     },
-    onError: (e) => toast.push(errorMessage(e), 'error'),
+    onError: (e) => toast.push(payoutSetupErrorMessage(e), 'error'),
   });
 
   if (isLoading) {
