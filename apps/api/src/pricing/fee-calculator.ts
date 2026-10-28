@@ -2,25 +2,32 @@ import { countryMatches, FeeMode, type MaintenanceTreatment } from '@eticketsgo/
 import { computeTax, type TaxLine, type TaxPlace, type TaxRuleInput } from './tax-calculator';
 
 /**
- * How a band charges: a fixed amount, a share of the order, or both (COMBINED: a share of the
- * order plus a fixed amount for each paid ticket).
+ * How a band charges: a fixed amount per order (FLAT), a share of the order (PERCENT), both
+ * (COMBINED: a share of the order plus a fixed amount for each paid ticket), or a fixed amount
+ * for each paid ticket and nothing else (FIXED_PER_TICKET).
  */
-export type FeeTierType = 'FLAT' | 'PERCENT' | 'COMBINED';
+export type FeeTierType = 'FLAT' | 'PERCENT' | 'COMBINED' | 'FIXED_PER_TICKET';
 
 /** A tiered platform booking-fee rule. All money in minor units (paise). */
 export interface FeeTier {
   minMinor: number;
   /** Inclusive upper bound; null means "and above". */
   maxMinor: number | null;
-  /** FLAT: the fee. PERCENT: unused. COMBINED: the fixed part, charged once per paid ticket. */
+  /**
+   * FLAT: the fee, once per order. PERCENT: unused. COMBINED: the fixed part, charged once per
+   * paid ticket. FIXED_PER_TICKET: the fee for each paid ticket.
+   */
   feeMinor: number;
   /** Omitted means FLAT, so every band written before percentages behaves exactly as before. */
   type?: FeeTierType;
   /** PERCENT and COMBINED: the share of the order in basis points (500 = 5%). */
   percentBps?: number | null;
-  /** PERCENT, optional: the least this band charges. */
+  /**
+   * PERCENT, COMBINED and FIXED_PER_TICKET, optional: the least this band charges for the whole
+   * order. Null (the default) is no minimum.
+   */
   minFeeMinor?: number | null;
-  /** PERCENT, optional: the most this band charges. */
+  /** The same, the most this band charges for the whole order. Null is no maximum. */
   maxFeeMinor?: number | null;
 }
 
@@ -44,12 +51,21 @@ export function feeTierFromRule(rule: {
     minMinor: rule.minMinor,
     maxMinor: rule.maxMinor,
     feeMinor: rule.feeMinor,
-    type:
-      rule.feeType === 'PERCENT' ? 'PERCENT' : rule.feeType === 'COMBINED' ? 'COMBINED' : 'FLAT',
+    type: tierType(rule.feeType),
     percentBps: rule.feePercentBps ?? null,
     minFeeMinor: rule.minFeeMinor ?? null,
     maxFeeMinor: rule.maxFeeMinor ?? null,
   };
+}
+
+/** A stored type as a band type. Anything unknown or missing is FLAT, as every old row was. */
+function tierType(t: FeeTierType | string | null | undefined): FeeTierType {
+  return t === 'PERCENT' || t === 'COMBINED' || t === 'FIXED_PER_TICKET' ? t : 'FLAT';
+}
+
+/** Whether a band type charges per paid ticket (and so explains itself with a breakdown). */
+export function isPerTicketType(t: FeeTierType | string | null | undefined): boolean {
+  return t === 'COMBINED' || t === 'FIXED_PER_TICKET';
 }
 
 /**
@@ -64,12 +80,32 @@ export function feeTierFromRule(rule: {
  * still charges no more than its ceiling - money the customer is told is the most, is the most.
  */
 export function feeForTier(tier: FeeTier, amountMinor: number, ticketCount = 1): number {
-  if (tier.type === 'COMBINED') return combinedFeeParts(tier, amountMinor, ticketCount).totalMinor;
+  if (isPerTicketType(tier.type)) {
+    return perTicketFeeParts(tier, amountMinor, ticketCount).totalMinor;
+  }
   if (tier.type !== 'PERCENT') return tier.feeMinor;
-  let fee = percentOf(amountMinor, tier.percentBps);
-  if (tier.minFeeMinor != null) fee = Math.max(fee, tier.minFeeMinor);
-  if (tier.maxFeeMinor != null) fee = Math.min(fee, tier.maxFeeMinor);
-  return fee;
+  return applyFeeLimits(percentOf(amountMinor, tier.percentBps), tier).feeMinor;
+}
+
+/**
+ * Hold a whole-order fee between a band's optional minimum and maximum.
+ *
+ * The minimum is applied before the maximum, exactly as PERCENT bands always have, so a band
+ * misconfigured with minimum above maximum still charges no more than its maximum - the most
+ * the customer is told is the most. (The admin console and API refuse that configuration; this
+ * is only the order of operations.) `limitApplied` says which limit, if any, changed the fee.
+ */
+export function applyFeeLimits(
+  computedMinor: number,
+  limits: Pick<FeeTier, 'minFeeMinor' | 'maxFeeMinor'>,
+): { feeMinor: number; limitApplied: 'MIN' | 'MAX' | null } {
+  let fee = computedMinor;
+  if (limits.minFeeMinor != null) fee = Math.max(fee, limits.minFeeMinor);
+  if (limits.maxFeeMinor != null) fee = Math.min(fee, limits.maxFeeMinor);
+  return {
+    feeMinor: fee,
+    limitApplied: fee > computedMinor ? 'MIN' : fee < computedMinor ? 'MAX' : null,
+  };
 }
 
 /** `bps` basis points of an amount, rounded half up to the nearest minor unit. */
@@ -78,25 +114,40 @@ function percentOf(amountMinor: number, bps: number | null | undefined): number 
 }
 
 /**
- * How a COMBINED fee was worked out, as the booking snapshots it.
+ * How a per-ticket fee (COMBINED or FIXED_PER_TICKET) was worked out, as the booking snapshots
+ * it.
  *
- * Only present on a result whose booking fee came from a COMBINED band or policy, so every
- * order priced any other way returns exactly the shape it always did.
+ * Only present on a result whose booking fee came from such a band or policy, so every order
+ * priced any other way returns exactly the shape it always did.
+ *
+ * The limit fields are present only when the band or policy HAS a minimum or maximum, so a
+ * COMBINED fee with none snapshots exactly what it did before limits existed.
  */
 export interface PlatformFeeBreakdown {
-  type: 'COMBINED';
+  type: 'COMBINED' | 'FIXED_PER_TICKET';
+  /** COMBINED: the percentage. FIXED_PER_TICKET: always 0. */
   percentBps: number;
   fixedPerTicketMinor: number;
   /** The paid tickets the fixed part was charged on. */
   ticketCount: number;
-  /** `percentBps` of the order after discount, rounded half up once. */
+  /** `percentBps` of the order after discount, rounded half up once. 0 for FIXED_PER_TICKET. */
   percentPartMinor: number;
   /** `fixedPerTicketMinor * ticketCount`. Exact; nothing to round. */
   fixedPartMinor: number;
+  /** The configured minimum for the whole order, when there is one. */
+  minFeeMinor?: number | null;
+  /** The configured maximum for the whole order, when there is one. */
+  maxFeeMinor?: number | null;
+  /**
+   * Which limit changed the fee: 'MIN' raised it, 'MAX' lowered it, null neither. Present
+   * whenever a limit is configured. When set, the charged fee is NOT the sum of the parts.
+   */
+  limitApplied?: 'MIN' | 'MAX' | null;
 }
 
 /**
- * A COMBINED band: a share of the order plus a fixed amount per paid ticket.
+ * A per-ticket band. COMBINED: a share of the order plus a fixed amount per paid ticket.
+ * FIXED_PER_TICKET: the fixed amount per paid ticket alone.
  *
  * ── THE ARITHMETIC ─────────────────────────────────────────────────────────────────
  *   fee = round_half_up(order_after_discount * bps / 10000) + fixed * paid_tickets
@@ -120,27 +171,55 @@ export interface PlatformFeeBreakdown {
  * cart is not charged the fixed part. An order with nothing to pay is never charged at all
  * (`calculateFees` answers zero before it reads any band).
  *
- * COMBINED takes no floor or ceiling. A limit on the total would quietly turn "plus Rs 5 per
- * ticket" into something else on large orders, which is not what the band says.
+ * ── FIXED_PER_TICKET ───────────────────────────────────────────────────────────────
+ *   fee = fixed * paid_tickets
+ * The same per-ticket part with no percentage: Rs 5 per ticket is Rs 15 for three tickets. It is
+ * a different type from FLAT, which charges its amount ONCE per order whatever the ticket count
+ * (and keeps doing exactly that).
+ *
+ * ── OPTIONAL MINIMUM AND MAXIMUM (owner decision 2026-10-29) ───────────────────────
+ * Both unset by default. When set, they hold the WHOLE-ORDER fee, after the parts are added up
+ * (`applyFeeLimits`): "3% + Rs 5 per ticket, at least Rs 20, at most Rs 500". The parts are
+ * still reported as computed, and `limitApplied` says the charge differs from their sum.
  */
-export function combinedFeeParts(
-  tier: Pick<FeeTier, 'feeMinor' | 'percentBps'>,
+export function perTicketFeeParts(
+  tier: Pick<FeeTier, 'type' | 'feeMinor' | 'percentBps' | 'minFeeMinor' | 'maxFeeMinor'>,
   amountMinor: number,
   ticketCount: number,
 ): PlatformFeeBreakdown & { totalMinor: number } {
+  const type = tier.type === 'FIXED_PER_TICKET' ? 'FIXED_PER_TICKET' : 'COMBINED';
   const tickets = Math.max(0, Math.floor(ticketCount));
   const fixedPerTicketMinor = Math.max(0, tier.feeMinor);
-  const percentPartMinor = percentOf(amountMinor, tier.percentBps);
+  const percentBps = type === 'COMBINED' ? Math.max(0, tier.percentBps ?? 0) : 0;
+  const percentPartMinor = type === 'COMBINED' ? percentOf(amountMinor, percentBps) : 0;
   const fixedPartMinor = fixedPerTicketMinor * tickets;
+  const hasLimits = tier.minFeeMinor != null || tier.maxFeeMinor != null;
+  const limited = applyFeeLimits(percentPartMinor + fixedPartMinor, tier);
   return {
-    type: 'COMBINED',
-    percentBps: Math.max(0, tier.percentBps ?? 0),
+    type,
+    percentBps,
     fixedPerTicketMinor,
     ticketCount: tickets,
     percentPartMinor,
     fixedPartMinor,
-    totalMinor: percentPartMinor + fixedPartMinor,
+    ...(hasLimits
+      ? {
+          minFeeMinor: tier.minFeeMinor ?? null,
+          maxFeeMinor: tier.maxFeeMinor ?? null,
+          limitApplied: limited.limitApplied,
+        }
+      : {}),
+    totalMinor: limited.feeMinor,
   };
+}
+
+/** A COMBINED band's parts. Kept for callers that name the type; see `perTicketFeeParts`. */
+export function combinedFeeParts(
+  tier: Pick<FeeTier, 'feeMinor' | 'percentBps' | 'minFeeMinor' | 'maxFeeMinor'>,
+  amountMinor: number,
+  ticketCount: number,
+): PlatformFeeBreakdown & { totalMinor: number } {
+  return perTicketFeeParts({ ...tier, type: 'COMBINED' }, amountMinor, ticketCount);
 }
 
 /** Where a sale happens, as a fee band is scoped: the VENUE's country and region. */
@@ -225,8 +304,8 @@ export interface FeeCalcInput {
   tiers?: FeeTier[];
   paymentFeeBps?: number;
   /**
-   * Paid tickets in the order, for a COMBINED band's per-ticket part. Every other band type
-   * ignores it. Omitted means one, which is what a single-ticket price (the advertised "from"
+   * Paid tickets in the order, for a COMBINED or FIXED_PER_TICKET band's per-ticket part. Every
+   * other band type (FLAT included: it is per order) ignores it. Omitted means one, which is what a single-ticket price (the advertised "from"
    * price) is.
    */
   ticketCount?: number;
@@ -283,8 +362,8 @@ export interface FeeCalcResult {
   /** Amount charged to the customer, tax included. */
   totalMinor: number;
   /**
-   * How the booking fee was worked out, when a COMBINED band or policy set it. Absent for
-   * every other fee, so those results are unchanged.
+   * How the booking fee was worked out, when a COMBINED or FIXED_PER_TICKET band or policy set
+   * it. Absent for every other fee, so those results are unchanged.
    */
   platformFeeBreakdown?: PlatformFeeBreakdown;
 }
@@ -313,6 +392,13 @@ function resolveBookingTier(amountMinor: number, tiers: FeeTier[]): FeeTier | nu
     : tiers.reduce((best, t) => (t.minMinor < best.minMinor ? t : best));
 }
 
+/** The snapshot shape: every part, without the charged total (that is `bookingFeeMinor`). */
+function breakdownOf(parts: PlatformFeeBreakdown & { totalMinor: number }): PlatformFeeBreakdown {
+  const { totalMinor: _total, ...rest } = parts;
+  void _total;
+  return rest;
+}
+
 /**
  * Pure fee calculation. Deterministic and side-effect free so it can be unit
  * tested and reused for both live pricing and historical booking snapshots.
@@ -326,13 +412,16 @@ export function calculateFees(input: FeeCalcInput): FeeCalcResult {
 
   /*
     The band is chosen by the ORDER (its net subtotal), as it always has been, and each type
-    charges per order - except COMBINED's fixed part, which is per paid ticket by definition.
-    A mixed cart therefore falls in one band, chosen by its total, and pays that band's terms.
+    charges per order - except the fixed part of COMBINED and FIXED_PER_TICKET, which is per
+    paid ticket by definition. A mixed cart therefore falls in one band, chosen by its total,
+    and pays that band's terms.
   */
   const tier = netSubtotalMinor === 0 ? null : resolveBookingTier(netSubtotalMinor, tiers);
   const ticketCount = input.ticketCount ?? 1;
   const combined =
-    tier?.type === 'COMBINED' ? combinedFeeParts(tier, netSubtotalMinor, ticketCount) : null;
+    tier && isPerTicketType(tier.type)
+      ? perTicketFeeParts(tier, netSubtotalMinor, ticketCount)
+      : null;
   const bookingFeeMinor = !tier
     ? 0
     : combined
@@ -378,17 +467,6 @@ export function calculateFees(input: FeeCalcInput): FeeCalcResult {
     taxLines,
     taxMinor,
     totalMinor: netSubtotalMinor + customerFeeMinor + taxMinor,
-    ...(combined
-      ? {
-          platformFeeBreakdown: {
-            type: combined.type,
-            percentBps: combined.percentBps,
-            fixedPerTicketMinor: combined.fixedPerTicketMinor,
-            ticketCount: combined.ticketCount,
-            percentPartMinor: combined.percentPartMinor,
-            fixedPartMinor: combined.fixedPartMinor,
-          },
-        }
-      : {}),
+    ...(combined ? { platformFeeBreakdown: breakdownOf(combined) } : {}),
   };
 }

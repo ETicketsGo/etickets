@@ -67,14 +67,17 @@ export function bandStatus(rule: Pick<FeeRule, 'active'> & { deletedAt?: string 
 
 /**
  * What a band charges, in words: "Rs 10.00", "5% of the order (min Rs 20.00, max Rs 500.00)",
- * or "3% of the order + Rs 5.00 per ticket".
+ * "3% of the order + Rs 5.00 per ticket", or "Rs 5.00 per ticket (min Rs 20.00)".
+ *
+ * A FLAT band charges once per order; FIXED_PER_TICKET charges for each paid ticket. The words
+ * say "per ticket" only for the second, so the two cannot be confused in the table.
  *
  * One function for the table and the dialog preview, so the admin reads the same sentence in
  * both places and cannot be shown one charge while saving another.
  */
 export function describeCharge(
   band: {
-    feeType?: 'FLAT' | 'PERCENT' | 'COMBINED';
+    feeType?: FeeBandType;
     feeMinor: number;
     feePercentBps?: number | null;
     minFeeMinor?: number | null;
@@ -83,13 +86,37 @@ export function describeCharge(
   currency: string,
 ): string {
   const pct = `${(band.feePercentBps ?? 0) / 100}% of the order`;
-  if (band.feeType === 'COMBINED') return `${pct} + ${money(band.feeMinor, currency)} per ticket`;
-  if (band.feeType !== 'PERCENT') return money(band.feeMinor, currency);
   const limits = [
     band.minFeeMinor != null ? `min ${money(band.minFeeMinor, currency)}` : null,
     band.maxFeeMinor != null ? `max ${money(band.maxFeeMinor, currency)}` : null,
   ].filter(Boolean);
-  return limits.length ? `${pct} (${limits.join(', ')})` : pct;
+  const withLimits = (text: string) => (limits.length ? `${text} (${limits.join(', ')})` : text);
+  if (band.feeType === 'COMBINED') {
+    return withLimits(`${pct} + ${money(band.feeMinor, currency)} per ticket`);
+  }
+  if (band.feeType === 'FIXED_PER_TICKET') {
+    return withLimits(`${money(band.feeMinor, currency)} per ticket`);
+  }
+  if (band.feeType !== 'PERCENT') return money(band.feeMinor, currency);
+  return withLimits(pct);
+}
+
+/** How a band charges. FLAT is once per order; FIXED_PER_TICKET is for each paid ticket. */
+export type FeeBandType = 'FLAT' | 'PERCENT' | 'COMBINED' | 'FIXED_PER_TICKET';
+
+/**
+ * A whole-order fee held between an optional minimum and maximum, as the API does it: minimum
+ * first, then maximum. Returns the fee and which limit, if any, changed it.
+ */
+export function limitFee(
+  fee: number,
+  minFeeMinor: number | null | undefined,
+  maxFeeMinor: number | null | undefined,
+): { fee: number; limit: 'MIN' | 'MAX' | null } {
+  let out = fee;
+  if (minFeeMinor != null) out = Math.max(out, minFeeMinor);
+  if (maxFeeMinor != null) out = Math.min(out, maxFeeMinor);
+  return { fee: out, limit: out > fee ? 'MIN' : out < fee ? 'MAX' : null };
 }
 
 /**
@@ -105,27 +132,53 @@ export function describeCharge(
  */
 export function combinedExample(
   band: {
+    /** Omitted means COMBINED. FIXED_PER_TICKET has no percentage. */
+    type?: 'COMBINED' | 'FIXED_PER_TICKET';
     percentBps: number | null;
     fixedPerTicketMinor: number;
     minMinor: number;
     maxMinor: number | null;
+    /** Optional whole-order limits, applied after the parts are added up. */
+    minFeeMinor?: number | null;
+    maxFeeMinor?: number | null;
   },
   currency: string,
 ): string | null {
-  if (band.percentBps === null || !Number.isFinite(band.fixedPerTicketMinor)) return null;
+  const perTicketOnly = band.type === 'FIXED_PER_TICKET';
+  if ((!perTicketOnly && band.percentBps === null) || !Number.isFinite(band.fixedPerTicketMinor)) {
+    return null;
+  }
+  const bps = perTicketOnly ? 0 : band.percentBps!;
   const inBand = (amount: number) =>
     amount >= band.minMinor && (band.maxMinor === null || amount <= band.maxMinor);
   const sample = band.minMinor > 0 ? band.minMinor : inBand(100_000) ? 100_000 : band.maxMinor;
   if (!sample || sample <= 0) return null;
-  const fee = (order: number, tickets: number) =>
-    Math.round((order * band.percentBps!) / 10_000) + band.fixedPerTicketMinor * tickets;
-  const pctPart = Math.round((sample * band.percentBps) / 10_000);
-  const one = `One ticket of ${money(sample, currency)}: ${money(pctPart, currency)} + ${money(
-    band.fixedPerTicketMinor,
-    currency,
-  )} = ${money(fee(sample, 1), currency)}.`;
+  const parts = (order: number, tickets: number) => ({
+    pct: Math.round((order * bps) / 10_000),
+    fixed: band.fixedPerTicketMinor * tickets,
+  });
+  const charged = (order: number, tickets: number) => {
+    const p = parts(order, tickets);
+    return limitFee(p.pct + p.fixed, band.minFeeMinor, band.maxFeeMinor);
+  };
+  const limitWords = (r: { fee: number; limit: 'MIN' | 'MAX' | null }) =>
+    r.limit === 'MIN'
+      ? `, raised to the minimum fee of ${money(r.fee, currency)}`
+      : r.limit === 'MAX'
+        ? `, held at the maximum fee of ${money(r.fee, currency)}`
+        : '';
+  const p1 = parts(sample, 1);
+  const c1 = charged(sample, 1);
+  const sum = perTicketOnly
+    ? money(p1.fixed, currency)
+    : `${money(p1.pct, currency)} + ${money(p1.fixed, currency)} = ${money(p1.pct + p1.fixed, currency)}`;
+  const one = `One ticket of ${money(sample, currency)}: ${sum}${limitWords(c1)}.`;
   if (!inBand(sample * 3)) return one;
-  return `${one} Three tickets of ${money(sample, currency)} each: ${money(fee(sample * 3, 3), currency)}.`;
+  const c3 = charged(sample * 3, 3);
+  const three = c3.limit
+    ? `${money(parts(sample * 3, 3).pct + parts(sample * 3, 3).fixed, currency)}${limitWords(c3)}`
+    : money(c3.fee, currency);
+  return `${one} Three tickets of ${money(sample, currency)} each: ${three}.`;
 }
 
 /** A short money range for the dialog preview, using the same formatter as the label. */
