@@ -19,6 +19,8 @@
  * translator both expect to find it.
  */
 
+import { marketFor } from './markets';
+
 /** A legal person that operates the platform in a market. Never guessed. */
 export interface LegalEntity {
   /** The registered name, exactly as it is written on the registration. */
@@ -91,11 +93,151 @@ export const PLATFORM_OPERATOR: LegalEntity = LEGAL_ENTITIES.US;
  * than to nothing, since somebody is always the counterparty.
  */
 export function legalEntityFor(country: string | null | undefined): LegalEntity {
-  const needle = (country ?? '').trim().toLowerCase();
-  if (!needle) return PLATFORM_OPERATOR;
-  if (needle === 'us' || needle === 'usa' || needle === 'united states') return LEGAL_ENTITIES.US;
-  if (needle === 'in' || needle === 'india') return LEGAL_ENTITIES.IN;
-  return PLATFORM_OPERATOR;
+  return entityForCountry(country) ?? PLATFORM_OPERATOR;
+}
+
+/**
+ * The entity incorporated in `country`, or null when we have none there.
+ *
+ * Unlike `legalEntityFor`, this does not fall back. The resolver below needs to know the
+ * difference between "this transaction is in India" and "this transaction is somewhere we
+ * have no company", so it can move on to the next signal.
+ */
+export function entityForCountry(country: string | null | undefined): LegalEntity | null {
+  const code = marketFor(country)?.code;
+  return code ? (LEGAL_ENTITIES[code] ?? null) : null;
+}
+
+/**
+ * The entity whose merchant account takes payment in `currency`, or null when no currency
+ * belongs to one entity alone.
+ *
+ * This mirrors the payment routing and does not decide it: INR routes to the Indian gateway
+ * account (Razorpay) and USD to the US one (Stripe). Every other currency returns null here
+ * and is resolved by the next signal, so this table cannot drift into a second routing rule.
+ */
+export function entityForCurrency(currency: string | null | undefined): LegalEntity | null {
+  const c = (currency ?? '').trim().toUpperCase();
+  if (c === 'INR') return LEGAL_ENTITIES.IN;
+  if (c === 'USD') return LEGAL_ENTITIES.US;
+  return null;
+}
+
+/**
+ * A merchant of record, as callers hold it: an entity country code ("IN", "US"), or the
+ * payment provider that took the money ("RAZORPAY", "STRIPE", "RAZORPAY_BILLING", ...).
+ * Anything else, including the test double, is not evidence and returns null.
+ */
+export function entityForMerchantOfRecord(mor: string | null | undefined): LegalEntity | null {
+  const m = (mor ?? '').trim().toUpperCase();
+  if (!m) return null;
+  if (m.startsWith('RAZORPAY')) return LEGAL_ENTITIES.IN;
+  if (m.startsWith('STRIPE')) return LEGAL_ENTITIES.US;
+  return LEGAL_ENTITIES[m] ?? null;
+}
+
+/** Which signal decided an entity. Recorded so a reviewer can see why a document names it. */
+export type LegalEntityBasis =
+  'MERCHANT_OF_RECORD' | 'TRANSACTION_COUNTRY' | 'CURRENCY' | 'MARKET' | 'DEFAULT';
+
+export interface ResolveLegalEntityInput {
+  /** Who actually took the money: an entity code or a payment provider key. Strongest. */
+  merchantOfRecord?: string | null;
+  /** Where the transaction happened: a venue's country, a billing account's country. */
+  transactionCountry?: string | null;
+  /** The transaction currency. Follows the payment routing (INR India, USD United States). */
+  currency?: string | null;
+  /** The market a page is showing. Weakest: it says what a reader is browsing, not a sale. */
+  market?: string | null;
+}
+
+export interface LegalEntityResolution {
+  entity: LegalEntity;
+  basis: LegalEntityBasis;
+}
+
+/**
+ * THE way to ask which DeepTrics company a transaction or a page is with.
+ *
+ * -- THE ORDER, AND WHY ---------------------------------------------------------------
+ * 1. Merchant of record. Who took the money is the answer, when we know it.
+ * 2. Transaction country. A booking at a venue in India, a billing account in India.
+ * 3. Currency. The payment routing sends INR to the Indian account and USD to the US one,
+ *    so the currency says whose account the money landed in when no country is known.
+ * 4. Market. What the reader is browsing. Only for pages, never for a financial record.
+ * 5. The platform operator (DeepTrics LLC), the entity behind the brand itself.
+ *
+ * The first signal that names an entity wins. A signal for a country where we have no
+ * company (Canada, say) is skipped rather than allowed to stop the search.
+ *
+ * Changing this does not change payment routing, merchant accounts, tax registrations or who
+ * settles a payout. It only decides the NAME printed on a document or a page.
+ */
+export function resolveLegalEntity(input: ResolveLegalEntityInput): LegalEntityResolution {
+  const steps: [LegalEntityBasis, LegalEntity | null][] = [
+    ['MERCHANT_OF_RECORD', entityForMerchantOfRecord(input.merchantOfRecord)],
+    ['TRANSACTION_COUNTRY', entityForCountry(input.transactionCountry)],
+    ['CURRENCY', entityForCurrency(input.currency)],
+    ['MARKET', entityForCountry(input.market)],
+  ];
+  for (const [basis, entity] of steps) if (entity) return { entity, basis };
+  return { entity: PLATFORM_OPERATOR, basis: 'DEFAULT' };
+}
+
+/**
+ * The entity a PUBLIC page should name for the market a reader selected, or null when the
+ * market is unknown or is one where we have no company.
+ *
+ * Null is deliberate. A page with no market must not guess: it names both companies (see
+ * `NEUTRAL_OPERATOR_SENTENCE`), which is true wherever it is read. It never falls back to an
+ * IP-derived country on its own; callers pass a market the reader chose.
+ */
+export function publicLegalEntity(market: string | null | undefined): LegalEntity | null {
+  return entityForCountry(market);
+}
+
+/** "India", "the United States": the place an entity operates the platform in, in a sentence. */
+const OPERATING_REGION: Readonly<Record<string, string>> = Object.freeze({
+  IN: 'India',
+  US: 'the United States',
+});
+
+/**
+ * The public line for one entity, verbatim as the owner wrote it:
+ *   "ETicketsGo is operated in India by DeepTrics Software Solutions Private Limited."
+ *   "ETicketsGo is operated in the United States by DeepTrics LLC."
+ *
+ * English. The storefront and the email read the same sentence from the i18n catalogue
+ * (`common.legalEntity`), and a test holds the two identical.
+ */
+export function operatorSentence(entity: LegalEntity): string {
+  return `ETicketsGo is operated in ${OPERATING_REGION[entity.country] ?? entity.country} by ${entity.legalName}.`;
+}
+
+/** The line for a reader whose market is unknown: both companies, each where it operates. */
+export const NEUTRAL_OPERATOR_SENTENCE = `ETicketsGo is operated in India by ${LEGAL_ENTITIES.IN.legalName} and in the United States by ${LEGAL_ENTITIES.US.legalName}.`;
+
+/** The public line for a selected market, or the neutral one when it names no entity. */
+export function publicOperatorSentence(market: string | null | undefined): string {
+  const entity = publicLegalEntity(market);
+  return entity ? operatorSentence(entity) : NEUTRAL_OPERATOR_SENTENCE;
+}
+
+/**
+ * The platform operator as stored on a NEW financial document, so the name survives later
+ * changes to this file. A document issued before this field existed has none, and keeps
+ * rendering exactly as it was issued.
+ */
+export interface DocumentOperator {
+  legalName: string;
+  /** ISO-3166 alpha-2 of the entity. */
+  country: string;
+  basis: LegalEntityBasis;
+}
+
+export function documentOperator(input: ResolveLegalEntityInput): DocumentOperator {
+  const { entity, basis } = resolveLegalEntity(input);
+  return { legalName: entity.legalName, country: entity.country, basis };
 }
 
 /** The documents the registry knows how to resolve. */

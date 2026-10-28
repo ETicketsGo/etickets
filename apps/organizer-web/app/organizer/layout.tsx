@@ -23,6 +23,7 @@ import { OrgProvider, OrgSwitcher } from '@/components/org-context';
 import { useOnboardingDismissed, useOnboardingProgress } from '@/lib/onboarding';
 import { WorkspaceTheme, useWorkspace } from '@/components/workspace-chrome';
 import { DeskNotificationsButton, DeskSchemeSwitch } from '@/components/desk-chrome';
+import { OrganizerLegalFooter } from '@/components/organizer-legal-footer';
 
 /**
  * A page that exists to become paper gets no shell.
@@ -141,6 +142,7 @@ function OrganizerChrome({ children }: { children: React.ReactNode }) {
         {/* Finance's Payouts / Receipts / Refunds as tabs. */}
         <SectionTabs items={nav} pathname={pathname} />
         {children}
+        <OrganizerLegalFooter country={workspace.registeredCountry} />
       </OrgProvider>
     </AppShell>
   );

@@ -45,6 +45,8 @@ export function useWorkspace(): {
   can: OrgPermissions;
   /** This member's role in THIS organization, in words: the line under their name. */
   roleLabel: string | null;
+  /** Where the organization is registered: decides which DeepTrics company the footer names. */
+  registeredCountry: string | null;
 } {
   const activeId = useActiveOrgId();
   const { data } = useQuery({
@@ -72,6 +74,7 @@ export function useWorkspace(): {
     */
     can: orgPermissions(org?.myRole),
     roleLabel: ORG_ROLE_LABEL[org?.myRole ?? ''] ?? null,
+    registeredCountry: org?.registeredCountry ?? null,
   };
 }
 

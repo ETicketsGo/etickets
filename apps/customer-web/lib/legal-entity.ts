@@ -1,8 +1,11 @@
 import {
   INDIA_OPERATOR,
-  PLATFORM_OPERATOR,
+  LEGAL_ENTITIES,
+  operatorSentence,
+  publicLegalEntity,
+  publicOperatorSentence,
+  resolveLegalEntity,
   type LegalEntity,
-  type PolicyJurisdiction,
 } from '@eticketsgo/shared-types';
 import { BUSINESS_DETAILS, publishedDetail } from '@eticketsgo/web-kit';
 
@@ -26,7 +29,10 @@ import { BUSINESS_DETAILS, publishedDetail } from '@eticketsgo/web-kit';
  */
 
 /** The owner's sentence, verbatim. The About page and the India documents show it. */
-export const INDIA_OPERATOR_SENTENCE = `ETicketsGo is operated in India by ${INDIA_OPERATOR.legalName}.`;
+export const INDIA_OPERATOR_SENTENCE = operatorSentence(INDIA_OPERATOR);
+
+/** The US counterpart, for the US supplements of the legal documents. */
+export const US_OPERATOR_SENTENCE = operatorSentence(LEGAL_ENTITIES.US);
 
 /**
  * The sender header registered on DLT under the Principal Entity above, and the signature
@@ -41,19 +47,51 @@ export const INDIA_SMS_SIGNATURE = 'DeepTrics';
 export const LEGAL_INFORMATION_HREF = '/about#legal-information';
 
 /**
- * The operator line under a legal document.
+ * The operator line under a legal document, for the market the reader SELECTED.
  *
- * India readers get the India sentence. Everyone else keeps the line they had - the brand's
- * own entity - plus the India sentence, because the reviewer who checks the India entity may
- * well open the page without an India market selected, and the statement is true wherever
- * it is read.
+ * India: the India sentence. United States: the US sentence. Anything else, or no selection:
+ * one sentence naming both companies, each where it operates. That fallback is deliberate.
+ * It is true wherever it is read, it still shows the India company to the DLT reviewer who
+ * opens the page with no market chosen, and it never rests on a guess from an IP address.
  */
-export function operatorSentences(country?: PolicyJurisdiction | null): string[] {
-  if (country === 'IN') return [INDIA_OPERATOR_SENTENCE];
-  return [
-    `ETicketsGo is operated by ${PLATFORM_OPERATOR.legalName}.`,
-    `In India, ETicketsGo is operated by ${INDIA_OPERATOR.legalName}.`,
-  ];
+export function operatorSentences(market?: string | null): string[] {
+  return [publicOperatorSentence(market)];
+}
+
+/** A catalogue message: a key under `common.legalEntity` and its values. */
+export interface OperatorMessage {
+  key: 'operatedIN' | 'operatedUS' | 'operatedNeutral';
+  values: Record<string, string>;
+}
+
+/**
+ * The same operator sentence, as a catalogue message so the storefront can say it in French.
+ * `entity` null is the neutral line. The English text equals `publicOperatorSentence`; a test
+ * holds them identical.
+ */
+export function operatorMessage(
+  entity: Pick<LegalEntity, 'legalName' | 'country'> | null,
+): OperatorMessage {
+  if (entity?.country === 'IN') return { key: 'operatedIN', values: { entity: entity.legalName } };
+  if (entity?.country === 'US') return { key: 'operatedUS', values: { entity: entity.legalName } };
+  return {
+    key: 'operatedNeutral',
+    values: { india: LEGAL_ENTITIES.IN.legalName, us: LEGAL_ENTITIES.US.legalName },
+  };
+}
+
+/**
+ * The footer copyright line for a selected market: the company's short name when one is
+ * selected, and no company at all when none is (the operator line beside it names both).
+ */
+export function footerRights(
+  market: string | null | undefined,
+  year: number,
+): { key: 'rights' | 'rightsNeutral'; values: Record<string, string | number> } {
+  const entity = publicLegalEntity(market);
+  return entity
+    ? { key: 'rights', values: { year, entity: entity.shortName } }
+    : { key: 'rightsNeutral', values: { year } };
 }
 
 /** One row of the legal and business information section. */
@@ -100,4 +138,14 @@ export function legalBusinessFacts(
     value: `Sent under the sender ID ${INDIA_SMS_SENDER_HEADER}, registered to ${INDIA_OPERATOR.legalName}. Each message ends with the name ${INDIA_SMS_SIGNATURE}.`,
   });
   return facts;
+}
+
+/**
+ * The country of the company a checkout's money goes to, from the booking currency: the same
+ * resolver, and the same answer, as the receipt that booking will get (INR the Indian
+ * company, USD the US one, any other currency the platform operator). Never the reader's
+ * market: somebody in the US buying an Indian ticket pays the Indian company.
+ */
+export function checkoutOperatorCountry(currency: string | null | undefined): string {
+  return resolveLegalEntity({ currency }).entity.country;
 }

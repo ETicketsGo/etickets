@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { NotificationType } from '@eticketsgo/shared-types';
+import { LEGAL_ENTITIES, NotificationType } from '@eticketsgo/shared-types';
 import { NotificationTemplateService } from '../src/notifications/templates/notification-template.service';
 import { buildEmailView } from '../src/notifications/templates/email-view';
 import { renderEmailHtml } from '../src/notifications/templates/email-html';
@@ -234,7 +234,11 @@ for (const locale of ['en', 'fr-CA'] as const) {
       },
       link: (target) => target,
       unsubscribeUrl: 'https://qa.eticketsgo.com/unsubscribe/sample',
-      platform: { legalName: 'DeepTrics Software Solutions Private Limited', postalAddress: null },
+      platform: {
+        legalName: LEGAL_ENTITIES.IN.legalName,
+        country: LEGAL_ENTITIES.IN.country,
+        postalAddress: null,
+      },
     });
     const name = `${locale}-CAMPAIGN-${key}.html`;
     fs.writeFileSync(path.join(OUT, name), html);

@@ -22,7 +22,7 @@
  * storefront keeps saying so, and that notice disappears on its own once they are filled in.
  */
 
-import { PUBLISHED_SUPPORT_EMAIL } from '@eticketsgo/shared-types';
+import { PLATFORM_OPERATOR, PUBLISHED_SUPPORT_EMAIL } from '@eticketsgo/shared-types';
 
 /** A detail that is either published, or honestly absent. Never a plausible-looking stand-in. */
 type Published = string | null;
@@ -53,11 +53,12 @@ export interface BusinessDetails {
  *
  * `legalName` is the entity behind the BRAND, which is what "Operated by DeepTrics LLC" means
  * and what an unincorporated market resolves to. It is not the counterparty for every sale:
- * an Indian transaction is with the Indian entity. Ask `legalEntityFor(country)` in
+ * an Indian transaction is with the Indian entity. Ask `resolveLegalEntity(...)` in
  * `@eticketsgo/shared-types` when the market is known, and use this only for the brand line.
+ * Read from the entity registry, never typed here.
  */
 export const BUSINESS_DETAILS: BusinessDetails = {
-  legalName: 'DeepTrics LLC',
+  legalName: PLATFORM_OPERATOR.legalName,
   // Shared with the API, which mails every Contact and Help form message to this mailbox.
   supportEmail: PUBLISHED_SUPPORT_EMAIL,
   organizerEmail: null,

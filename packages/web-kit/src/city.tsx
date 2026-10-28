@@ -145,6 +145,25 @@ function readStoredCity(): string | null {
  */
 const MARKET_COOKIE = 'etg_market';
 
+/**
+ * The market the person CHOSE, mirrored for server-rendered pages. Written only from a city
+ * they picked, so the legal pages can name a company without trusting an IP address. Same
+ * shape and lifetime as `etg_market`. See `CityPreference.selectedCountry`.
+ */
+export const SELECTED_MARKET_COOKIE = 'etg_selected_market';
+
+export function rememberSelectedMarket(country: string | null): void {
+  if (typeof document === 'undefined') return;
+  try {
+    const secure = location.protocol === 'https:' ? '; Secure' : '';
+    document.cookie = country
+      ? `${SELECTED_MARKET_COOKIE}=${encodeURIComponent(country)}; Path=/; Max-Age=31536000; SameSite=Lax${secure}`
+      : `${SELECTED_MARKET_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax${secure}`;
+  } catch {
+    /* a preference we cannot persist is still worth honouring for this session */
+  }
+}
+
 export function rememberMarketCountry(country: string | null): void {
   if (typeof document === 'undefined') return;
   try {
@@ -205,6 +224,16 @@ export interface CityPreference {
    * field can default to where somebody actually is without a second request.
    */
   locatedCountry: string | null;
+  /**
+   * The country of a city the person CHOSE (picked, searched, or found with "use my current
+   * location"), or null. Never a guess from the network or the device.
+   *
+   * Not `country` above, which may be the edge header's guess. This is the market a page may
+   * name a company for: "ETicketsGo is operated in India by ..." is said to somebody who
+   * picked an Indian city, not to somebody whose IP address looks Indian. Optional so a test
+   * double of this interface does not have to carry it.
+   */
+  selectedCountry?: string | null;
   /** A few cities worth offering immediately. Never the complete list — see `searchCities`. */
   topCities: SellableCity[];
   /** A guess we have not applied, worth offering. Null once accepted or dismissed. */
@@ -390,6 +419,8 @@ export function useCityPreference(): CityPreference {
     // Storage cleared rather than set to '__all__': this is "I have not chosen a city",
     // not "I want everywhere", so the next visit is free to guess again.
     writeStoredCity(null);
+    // No city chosen means no market chosen.
+    rememberSelectedMarket(null);
   }, []);
 
   const requestPicker = useCallback(() => setPickerRequests((n) => n + 1), []);
@@ -475,6 +506,16 @@ export function useCityPreference(): CityPreference {
    * Every result names its country beside the city, so "Springfield" is still a choice
    * between places rather than a guess.
    */
+  /*
+    The chosen city's own country, or nothing. "All cities" carries no place, so it selects no
+    market either: that choice widens a filter, it does not say where somebody is.
+  */
+  const selectedCountry = chosen && city !== ALL_CITIES ? isoCountry(place?.country ?? null) : null;
+  useEffect(() => {
+    // Only once a choice has been read back from storage; until then nothing is known.
+    if (chosen) rememberSelectedMarket(selectedCountry);
+  }, [chosen, selectedCountry]);
+
   const searchCities = useCallback(
     /*
       `anywhere`: a city we sell nothing in is still found, after every city that has events.
@@ -494,6 +535,7 @@ export function useCityPreference(): CityPreference {
     place: city === ALL_CITIES ? null : place,
     country,
     locatedCountry,
+    selectedCountry,
     topCities,
     suggestion,
     chosen,

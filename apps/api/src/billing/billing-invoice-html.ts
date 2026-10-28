@@ -28,6 +28,20 @@ export interface BillingInvoiceView {
   billedTo: { name: string; country: string; taxId: string | null; email: string | null };
 }
 
+/** What every invoice said before invoices recorded their issuing company. */
+export const LEGACY_INVOICE_SELLER = 'ETicketsGo';
+
+/**
+ * The seller name an invoice prints: the company frozen on its document when it was issued,
+ * or, for an invoice issued before that was recorded, exactly what it printed then.
+ */
+export function invoiceSellerName(documentJson: unknown): string {
+  const seller = (documentJson as { seller?: { legalName?: unknown } } | null | undefined)?.seller;
+  return typeof seller?.legalName === 'string' && seller.legalName.trim()
+    ? seller.legalName
+    : LEGACY_INVOICE_SELLER;
+}
+
 function esc(v: unknown): string {
   return String(v ?? '')
     .replace(/&/g, '&amp;')

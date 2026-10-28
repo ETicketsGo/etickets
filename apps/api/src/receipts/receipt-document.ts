@@ -6,6 +6,8 @@
  * with no I/O in it.
  */
 
+import type { DocumentOperator } from '@eticketsgo/shared-types';
+
 export const RECEIPT_DOCUMENT_VERSION = 1;
 
 export type ReceiptKindName = 'RECEIPT' | 'TAX_INVOICE' | 'CREDIT_NOTE';
@@ -115,6 +117,14 @@ export interface ReceiptDocument {
   /** Set on a credit note: the number of the sale document it reverses. */
   reverses?: { number: string; issuedAt: string } | null;
   reason?: string | null;
+  /**
+   * The DeepTrics company that operates ETicketsGo for this sale, frozen at issue.
+   *
+   * The SELLER above is the organizer; this is the platform, printed as one line in the
+   * footer. Optional, because every document issued before it existed has none, and those
+   * keep rendering exactly as they were issued: the field is never back-filled.
+   */
+  operator?: DocumentOperator;
 }
 
 export interface BuildReceiptInput {
@@ -132,6 +142,7 @@ export interface BuildReceiptInput {
   feeParts?: ReceiptFeeParts;
   reverses?: { number: string; issuedAt: Date } | null;
   reason?: string | null;
+  operator?: DocumentOperator;
 }
 
 /**
@@ -193,6 +204,7 @@ export function buildReceiptDocument(input: BuildReceiptInput): ReceiptDocument 
       ? { number: input.reverses.number, issuedAt: input.reverses.issuedAt.toISOString() }
       : null,
     reason: input.reason ?? null,
+    ...(input.operator ? { operator: input.operator } : {}),
   };
 }
 

@@ -28,6 +28,7 @@ import {
   type ProviderHealthRow,
   type SettlementLine,
 } from '@eticketsgo/web-kit';
+import { NEUTRAL_LINE, legalEntityRows, type LegalEntityRow } from '@/lib/legal-entities';
 import { paymentConfigEnv } from '@/lib/payment-config-env';
 
 const ENVS: PaymentEnvValue[] = ['LOCAL', 'DEV', 'QA', 'UAT', 'STAGING', 'PRODUCTION'];
@@ -150,6 +151,8 @@ export default function PaymentConfigPage() {
           <OperationsSection />
         </>
       )}
+
+      <LegalEntitiesCard />
 
       {editing && (
         <ProviderDialog
@@ -742,6 +745,64 @@ function LiveReadinessCard() {
           </p>
         </div>
       )}
+    </Card>
+  );
+}
+
+/**
+ * Which DeepTrics company operates ETicketsGo where, read-only.
+ *
+ * The same registry every receipt, invoice, email footer and public page reads. Shown here
+ * beside the routing because the two must agree: INR routes to the Indian account and names
+ * the Indian company, USD routes to the US account and names DeepTrics LLC. Changing a name
+ * is a code change with a review, so there is nothing to edit.
+ */
+function LegalEntitiesCard() {
+  const columns: Column<LegalEntityRow>[] = [
+    {
+      key: 'entity',
+      header: 'Company',
+      render: (r) => (
+        <div className="min-w-0 space-y-1">
+          <p className="text-text-primary">
+            {r.legalName} <span className="text-text-muted">({r.country})</span>
+          </p>
+          <p className="text-caption text-text-muted">Short form: {r.shortName}</p>
+          <p className="text-caption text-text-muted">{r.publicLine}</p>
+        </div>
+      ),
+    },
+    {
+      key: 'usedFor',
+      header: 'Named on',
+      render: (r) => <p className="text-caption text-text-secondary">{r.usedFor}</p>,
+    },
+    {
+      key: 'record',
+      header: 'Company record',
+      render: (r) => (
+        <p className="text-caption text-text-muted">
+          Registered office: {r.registeredOffice}. Company ID: {r.companyId}. Tax ID: {r.taxId}.
+        </p>
+      ),
+    },
+  ];
+  return (
+    <Card
+      title="Operating entities"
+      action={<span className="text-xs text-text-muted">Read-only. Set in code.</span>}
+    >
+      <div data-testid="legal-entities">
+        <DataTable
+          columns={columns}
+          rows={legalEntityRows()}
+          rowKey={(r) => r.legalName}
+          mobile="cards"
+        />
+        <p className="mt-3 text-caption text-text-muted">
+          A public page with no market selected says: {NEUTRAL_LINE}
+        </p>
+      </div>
     </Card>
   );
 }

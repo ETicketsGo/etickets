@@ -4,6 +4,7 @@ import { messageClassOf } from '../message-class';
 import { moneyValue, whenValue } from './notification-template.service';
 import { safeHref, type EmailRow, type EmailView } from './email-html';
 import { supportMessage, supportReplyLine, supportRequestRows } from './support-request';
+import { entityForPayload, operatorLine } from '../../common/operator-line';
 
 /**
  * What each email SHOWS, as opposed to what it says.
@@ -232,5 +233,10 @@ export function buildEmailView(input: {
         }
       : null,
     legal: t(locale, 'emails.layout.legal', { year: new Date().getFullYear() }),
+    /*
+      The company, from what the message is about: its currency, else a country a producer
+      set. A message about neither (a password reset) names both companies rather than guess.
+    */
+    operator: operatorLine(locale, entityForPayload(payload)),
   };
 }

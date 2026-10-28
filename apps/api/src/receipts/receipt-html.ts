@@ -1,6 +1,7 @@
 import { DEFAULT_LOCALE, HTML_LANG, isLocale, t, type Locale } from '@eticketsgo/i18n';
 import { money as formatMoney, moneyFractionDigits } from '@eticketsgo/shared-types';
 import type { ReceiptDocument } from './receipt-document';
+import { operatorLine } from '../common/operator-line';
 
 /**
  * Render an issued document as a standalone, printable HTML page.
@@ -429,6 +430,13 @@ export function renderReceiptHtml(d: ReceiptDocument, localeInput?: string): str
 
   <footer>
     ${d.seller.contactEmail ? `Questions about this document: ${esc(d.seller.contactEmail)}` : ''}
+    ${
+      /*
+        The platform's company, as frozen on the document at issue. A document issued before
+        this existed has no operator and prints exactly what it always printed.
+      */
+      d.operator ? `<div class="operator">${esc(operatorLine(locale, d.operator))}</div>` : ''
+    }
   </footer>
 </div>
 </body>

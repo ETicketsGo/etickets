@@ -2,13 +2,25 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createTranslator } from 'next-intl';
-import { INDIA_OPERATOR, type LegalEntity } from '@eticketsgo/shared-types';
+import {
+  INDIA_OPERATOR,
+  LEGAL_ENTITIES,
+  NEUTRAL_OPERATOR_SENTENCE,
+  publicLegalEntity,
+  publicOperatorSentence,
+  type LegalEntity,
+} from '@eticketsgo/shared-types';
 import en from '@eticketsgo/i18n/messages/en/common.json';
 import frCA from '@eticketsgo/i18n/messages/fr-CA/common.json';
+import storefrontEn from '@eticketsgo/i18n/messages/en/storefront.json';
 import {
   INDIA_OPERATOR_SENTENCE,
   LEGAL_INFORMATION_HREF,
+  US_OPERATOR_SENTENCE,
+  checkoutOperatorCountry,
+  footerRights,
   legalBusinessFacts,
+  operatorMessage,
   operatorSentences,
 } from './legal-entity';
 
@@ -49,8 +61,22 @@ describe('the footer line', () => {
     // The marketing footer used to carry its own hardcoded English line.
     for (const file of ['components/site-footer.tsx', 'components/marketing/footer.tsx']) {
       const src = read(file);
-      expect(src, file).toMatch(/f\('rights', \{[^}]*entity: INDIA_OPERATOR\.shortName/);
-      expect(src, file).not.toMatch(/All rights reserved/);
+      expect(src, file).toContain('<FooterLegalLines />');
+      expect(src, file).not.toMatch(/All rights reserved|DeepTrics/);
+    }
+  });
+
+  it('names the company for the selected market, and none when there is none', () => {
+    expect(footerRights('IN', 2026)).toEqual({
+      key: 'rights',
+      values: { year: 2026, entity: 'DeepTrics Software Solutions Pvt Ltd' },
+    });
+    expect(footerRights('US', 2026)).toEqual({
+      key: 'rights',
+      values: { year: 2026, entity: 'DeepTrics LLC' },
+    });
+    for (const m of [null, undefined, 'CA', 'GLOBAL']) {
+      expect(footerRights(m, 2026)).toEqual({ key: 'rightsNeutral', values: { year: 2026 } });
     }
   });
 });
@@ -62,18 +88,40 @@ describe('the operator statement', () => {
     );
   });
 
-  it('is shown alone to an India reader, and beside the brand entity elsewhere', () => {
+  it('follows the selected market, and names both companies when there is none', () => {
     expect(operatorSentences('IN')).toEqual([INDIA_OPERATOR_SENTENCE]);
-    for (const c of ['US', 'CA', 'GLOBAL', undefined] as const) {
-      expect(operatorSentences(c)).toEqual([
-        'ETicketsGo is operated by DeepTrics LLC.',
-        'In India, ETicketsGo is operated by DeepTrics Software Solutions Private Limited.',
-      ]);
+    expect(operatorSentences('US')).toEqual([US_OPERATOR_SENTENCE]);
+    expect(US_OPERATOR_SENTENCE).toBe(
+      'ETicketsGo is operated in the United States by DeepTrics LLC.',
+    );
+    for (const c of ['CA', 'GLOBAL', undefined, null]) {
+      expect(operatorSentences(c)).toEqual([NEUTRAL_OPERATOR_SENTENCE]);
     }
   });
 
+  it('says the same words in the storefront catalogue as in the registry', () => {
+    const t = createTranslator({
+      locale: 'en',
+      messages: { common: en },
+      namespace: 'common.legalEntity',
+    });
+    for (const market of ['IN', 'US', 'CA', null]) {
+      const m = operatorMessage(publicLegalEntity(market));
+      expect(t(m.key, m.values)).toBe(publicOperatorSentence(market));
+    }
+    const fr = createTranslator({
+      locale: 'fr-CA',
+      messages: { common: frCA },
+      namespace: 'common.legalEntity',
+    });
+    const india = operatorMessage(LEGAL_ENTITIES.IN);
+    expect(fr(india.key, india.values)).toBe(
+      'ETicketsGo est exploité en Inde par DeepTrics Software Solutions Private Limited.',
+    );
+  });
+
   it('never says who the contract is with, which is still open with counsel', () => {
-    for (const c of ['IN', 'US', 'GLOBAL'] as const) {
+    for (const c of ['IN', 'US', 'GLOBAL']) {
       expect(operatorSentences(c).join(' ')).not.toMatch(/contract/i);
     }
   });
@@ -82,7 +130,7 @@ describe('the operator statement', () => {
     expect(read('app/[locale]/about/page.tsx')).toContain('{INDIA_OPERATOR_SENTENCE}');
     for (const page of ['terms', 'privacy', 'refunds', 'sms', 'cookies']) {
       expect(read(`app/[locale]/${page}/page.tsx`), page).toContain(
-        '<OperatorLine country={country} />',
+        '<OperatorLine market={market} />',
       );
     }
     expect(read('app/[locale]/contact/page.tsx')).toContain('{INDIA_OPERATOR_SENTENCE}');
@@ -152,5 +200,39 @@ describe('legal and business information', () => {
     ).map((f) => f.key);
     expect(keys).not.toContain('cin');
     expect(keys).not.toContain('supportEmail');
+  });
+});
+
+/*
+  The checkout disclosure names the company the money goes to, from the booking currency -
+  the same resolver as the receipt - and never the reader's market.
+*/
+describe('the checkout disclosure', () => {
+  it('INR is the Indian company, USD is DeepTrics LLC, anything else the platform operator', () => {
+    expect(checkoutOperatorCountry('INR')).toBe('IN');
+    expect(checkoutOperatorCountry('USD')).toBe('US');
+    expect(checkoutOperatorCountry('CAD')).toBe('US');
+    expect(operatorMessage(publicLegalEntity(checkoutOperatorCountry('INR')))).toEqual({
+      key: 'operatedIN',
+      values: { entity: 'DeepTrics Software Solutions Private Limited' },
+    });
+  });
+
+  it('is on both payment screens, read from the booking currency', () => {
+    const src = read('app/[locale]/booking/[id]/payment/page.tsx');
+    expect(src).toContain('market={checkoutOperatorCountry(booking.currency)}');
+    expect(src).toContain('market={checkoutOperatorCountry(view.currency)}');
+    expect(src).not.toMatch(/DeepTrics/);
+  });
+
+  it('the gateway-activation line names the company from the registry', () => {
+    const t = createTranslator({
+      locale: 'en',
+      messages: { storefront: storefrontEn },
+      namespace: 'storefront.checkout',
+    });
+    expect(t('paymentsActivatingOperator', { entity: INDIA_OPERATOR.legalName })).toContain(
+      'operated in India by DeepTrics Software Solutions Private Limited',
+    );
   });
 });
