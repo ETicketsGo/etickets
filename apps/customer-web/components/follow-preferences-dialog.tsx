@@ -1,5 +1,6 @@
 'use client';
 
+import type { RefObject } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
 import { Dialog } from '@eticketsgo/web-kit';
@@ -24,6 +25,7 @@ export function FollowPreferencesDialog({
   onClose,
   onUnfollow,
   unfollowPending = false,
+  returnFocusRef,
 }: {
   open: boolean;
   mode: 'followed' | 'manage';
@@ -32,6 +34,8 @@ export function FollowPreferencesDialog({
   onClose: () => void;
   onUnfollow: () => void;
   unfollowPending?: boolean;
+  /** Where focus goes when the dialog closes (the Follow button). */
+  returnFocusRef?: RefObject<HTMLElement | null>;
 }) {
   const t = useTranslations('storefront.follow');
 
@@ -50,6 +54,7 @@ export function FollowPreferencesDialog({
       onClose={onClose}
       brand
       sheetOnMobile
+      returnFocusRef={returnFocusRef}
       title={mode === 'followed' ? t('followedTitle', name) : t('manageTitle', name)}
       description={mode === 'followed' ? t('followedLead') : t('manageLead')}
       footer={

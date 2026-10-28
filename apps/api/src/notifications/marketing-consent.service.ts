@@ -1,5 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { AuditService } from '../audit/audit.service';
+import { SuppressionService } from './delivery/suppression.service';
+
+/** The audit action when the account-wide setting lifts an "unsubscribe from all marketing". */
+export const MARKETING_UNSUBSCRIBE_LIFTED = 'MARKETING_UNSUBSCRIBE_LIFTED';
 
 /** How a consent decision was obtained. Recorded verbatim; never inferred. */
 export interface ConsentContext {
@@ -15,6 +20,12 @@ export interface ConsentContext {
    * messaging channel - see the schema comment. Anything else is left null.
    */
   phone?: string | null;
+  /**
+   * True only when the decision was made on the person's ACCOUNT-WIDE notification settings.
+   * Only then does a granted `email` decision lift an earlier "unsubscribe from all marketing
+   * email" (owner decision 2026-10-28). Set by the server, never accepted from a client.
+   */
+  accountWide?: boolean;
 }
 
 export interface ConsentSubject {
@@ -46,7 +57,11 @@ export interface ConsentState {
 export class MarketingConsentService {
   private readonly logger = new Logger('MarketingConsent');
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly suppression?: SuppressionService,
+    @Optional() private readonly audit?: AuditService,
+  ) {}
 
   private normalise(email: string | null | undefined): string | null {
     const trimmed = email?.trim().toLowerCase();
@@ -106,6 +121,28 @@ export class MarketingConsentService {
         phone: channel === 'sms' || channel === 'whatsapp' ? phone : null,
       },
     });
+
+    /*
+      ── THE ONLY WAY BACK FROM "UNSUBSCRIBE FROM ALL MARKETING EMAIL" ─────────────────
+      A global unsubscribe stays in force until the person turns marketing email back on
+      in their account-wide settings. That is this branch and nothing else: allowing one
+      organizer's email records that organizer's consent but never lifts this row. Only the
+      UNSUBSCRIBED reason is lifted; a complaint or a hard bounce needs an operator.
+    */
+    if (granted && channel === 'email' && context.accountWide && this.suppression) {
+      const lifted = await this.suppression.liftMarketingOptOut('email', email);
+      if (lifted) {
+        await this.audit?.record({
+          actorUserId: subject.userId ?? null,
+          action: MARKETING_UNSUBSCRIBE_LIFTED,
+          entityType: 'SuppressedDestination',
+          entityId: subject.userId ?? null,
+          // No address: the audit log outlives an account deletion.
+          metadata: { channel, scope: 'MARKETING', reason: 'UNSUBSCRIBED', source: context.source },
+          ip: context.ipAddress ?? null,
+        });
+      }
+    }
   }
 
   /**

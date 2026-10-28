@@ -1019,7 +1019,9 @@
     "cadenceLabel": "How often",
     "cadenceInstant": "When it happens",
     "cadenceWeekly": "One summary each week",
-    "consentNote": "Following does not turn on email. Email starts only if you turn it on here. You can stop it at any time."
+    "consentNote": "Following does not turn on email. Email starts only if you turn it on here. You can stop it at any time.",
+    "globalOffNote": "Email from organizers is off because you unsubscribed from all marketing email. We save your choices here, but we send no email until you turn marketing email on again in your <link>notification settings</link>.",
+    "savedGlobalOff": "Saved. We send no email from organizers until you turn marketing email on again."
   },
   "walletCard": {
     "badgeMovie": "Movie",

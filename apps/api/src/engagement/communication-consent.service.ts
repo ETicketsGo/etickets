@@ -1,6 +1,10 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
-import { getApplicablePolicy, policyVersionLabel } from '@eticketsgo/shared-types';
+import {
+  SuppressionReason,
+  getApplicablePolicy,
+  policyVersionLabel,
+} from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { MarketingConsentService } from '../notifications/marketing-consent.service';
@@ -31,6 +35,11 @@ export interface ConsentDecisionContext {
   actorUserId?: string | null;
   /** The market whose text was shown. Only used to pick the policy version. */
   country?: string | null;
+  /**
+   * True only for the person's ACCOUNT-WIDE marketing email setting. Only that decision may
+   * lift an "unsubscribe from all marketing email". Set by the server, never by a client.
+   */
+  accountWide?: boolean;
 }
 
 export interface ConsentDecision {
@@ -105,6 +114,7 @@ export class CommunicationConsentService {
           userAgent: context.userAgent ?? null,
           country: context.country ?? null,
           policyVersion,
+          accountWide: context.accountWide === true,
         },
       );
     } else {
@@ -131,9 +141,17 @@ export class CommunicationConsentService {
         },
       });
       /*
-        An explicit opt-in from the person's own account lifts an earlier unsubscribe from
-        this organizer. Without this, the suppression would silently overrule the consent
-        they just gave. Lifted, never deleted, so the history stays.
+        An explicit opt-in for THIS organizer lifts an earlier unsubscribe from this organizer,
+        and only that (owner decision 2026-10-28). Without it the suppression would silently
+        overrule the consent they just gave.
+
+        Only reason UNSUBSCRIBED. A spam complaint about this organizer's mail is never
+        lifted by a preference change; that takes an operator. Other organizers are not
+        touched. Lifted, never deleted, so the history stays.
+
+        An "unsubscribe from all marketing email" is NOT lifted here. The consent row above is
+        recorded, but it takes effect only once the person turns marketing email back on in
+        their account-wide settings (see `MarketingConsentService.record`).
       */
       if (decision.granted && channel === 'email') {
         await db.organizerSuppression.updateMany({
@@ -141,21 +159,12 @@ export class CommunicationConsentService {
             organizationId: decision.organizationId,
             channel: 'email',
             destinationHash: SuppressionService.hash('email', subject.email),
+            reason: SuppressionReason.UNSUBSCRIBED,
             liftedAt: null,
           },
           data: { liftedAt: new Date() },
         });
       }
-    }
-
-    /*
-      An explicit opt-in from the person's own account also lifts an earlier "unsubscribe from
-      all marketing email" (a MARKETING-scope suppression). That unsubscribe withdrew every
-      organizer consent it found, so lifting it re-opens only what the person grants again.
-      A complaint is not lifted here: that takes an operator.
-    */
-    if (decision.granted && channel === 'email') {
-      await this.suppression.liftMarketingOptOut('email', subject.email, tx ?? this.prisma);
     }
 
     const entry = {
@@ -223,6 +232,25 @@ export class CommunicationConsentService {
       source: state?.source ?? null,
       policyVersion: null,
     };
+  }
+
+  /**
+   * Whether the person's "unsubscribe from all marketing email" is in force: an active
+   * MARKETING-scope UNSUBSCRIBED suppression. Only the account-wide marketing email setting
+   * lifts it. Read so the follow screens can say why organizer email will not arrive.
+   */
+  async globalMarketingUnsubscribed(email: string): Promise<boolean> {
+    const row = await this.prisma.suppressedDestination.findFirst({
+      where: {
+        channel: 'email',
+        destinationHash: SuppressionService.hash('email', email),
+        scope: 'MARKETING',
+        reason: SuppressionReason.UNSUBSCRIBED,
+        liftedAt: null,
+      },
+      select: { id: true },
+    });
+    return !!row;
   }
 
   /**

@@ -8084,6 +8084,12 @@ export interface FollowPreferences {
   cadence: 'INSTANT' | 'WEEKLY_DIGEST';
   /** Email about new events. Off by default. */
   emailUpdates: boolean;
+  /**
+   * True while the person's "unsubscribe from all marketing email" stands. The email choices
+   * are still saved, but no organizer email is sent until marketing email is turned back on in
+   * the account notification settings. Optional for an older API that does not send it.
+   */
+  globalMarketingUnsubscribed?: boolean;
 }
 
 export interface FollowedOrganizer {

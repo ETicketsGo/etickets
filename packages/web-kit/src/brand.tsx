@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
+import { forwardRef, useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
 
 /*
   ── THE BRAND LAYER'S SHARED PIECES ────────────────────────────────────────────────
@@ -59,20 +59,29 @@ export function brandButtonClasses(
   ].join(' ');
 }
 
-export function BrandButton({
-  variant = 'primary',
-  size = 'md',
-  className = '',
-  type = 'button',
-  ...rest
-}: ButtonHTMLAttributes<HTMLButtonElement> & {
-  variant?: BrandButtonVariant;
-  size?: BrandButtonSize;
-}) {
+/**
+ * Forwards its ref to the `<button>`, so a caller can put focus back on it (a dialog it
+ * opened closes, and the button was disabled meanwhile so the browser dropped focus).
+ */
+export const BrandButton = forwardRef<
+  HTMLButtonElement,
+  ButtonHTMLAttributes<HTMLButtonElement> & {
+    variant?: BrandButtonVariant;
+    size?: BrandButtonSize;
+  }
+>(function BrandButton(
+  { variant = 'primary', size = 'md', className = '', type = 'button', ...rest },
+  ref,
+) {
   return (
-    <button type={type} className={`${brandButtonClasses(variant, size)} ${className}`} {...rest} />
+    <button
+      ref={ref}
+      type={type}
+      className={`${brandButtonClasses(variant, size)} ${className}`}
+      {...rest}
+    />
   );
-}
+});
 
 /**
  * A filter or choice chip (a city, a date, a category). `selected` is shown by fill AND by

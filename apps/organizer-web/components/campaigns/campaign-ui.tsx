@@ -2,7 +2,13 @@
 
 import Link from 'next/link';
 import { Lock, MailX } from 'lucide-react';
-import { Badge, EmptyState, type AudiencePreview, type CampaignStatus } from '@eticketsgo/web-kit';
+import {
+  Badge,
+  EmptyState,
+  type AudiencePreview,
+  type CampaignReview,
+  type CampaignStatus,
+} from '@eticketsgo/web-kit';
 import { STATUS_WORDS, type Gate } from '@/lib/campaigns';
 
 /** A campaign's status as a chip: a dot and words, never colour alone. */
@@ -153,5 +159,21 @@ export function AudienceCounts({ counts }: { counts: AudiencePreview }) {
           : `You have only ${counts.quotaRemaining.toLocaleString()} left this month.`}
       </p>
     </div>
+  );
+}
+
+/**
+ * The review step's note when campaign mail is not fully separate from ticket mail.
+ *
+ * SHARED_TRANSACTIONAL means the marketing sender address OR the marketing delivery
+ * configuration is not set here, so at least one of the two is the ticket mail one. The From
+ * may well be the marketing address. The words say only what is true in every case.
+ */
+export function SendingModeNote({ mode }: { mode: CampaignReview['sendingMode'] }) {
+  if (mode !== 'SHARED_TRANSACTIONAL') return null;
+  return (
+    <p className="text-caption text-text-muted" data-testid="sending-mode-note">
+      Test environment: campaign mail shares some delivery settings with ticket mail here.
+    </p>
   );
 }

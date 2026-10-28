@@ -229,6 +229,8 @@ export class MeCommunicationConsentController {
         userAgent,
         actorUserId: user.id,
         country: policyJurisdictionFor(body.country),
+        // The account-wide setting: the one decision that may lift a global unsubscribe.
+        accountWide: true,
       },
     );
     return this.get(user);
