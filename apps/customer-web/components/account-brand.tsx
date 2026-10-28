@@ -265,8 +265,13 @@ export function BrandToggle({
       />
       <span
         aria-hidden="true"
-        onClick={() => {
+        onClick={(e) => {
           // The drawn track stands in for the input, so a click on it does what a label would.
+          // preventDefault: when the switch sits inside a <label>, the same click would ALSO
+          // activate that label, which clicks the input and fires onChange a second time (two
+          // saves and two "Saved" messages for one tap). Cancelling the click stops the label's
+          // activation, so one click is exactly one change wherever the switch is placed.
+          e.preventDefault();
           if (!disabled) onChange(!checked);
         }}
         className={[
