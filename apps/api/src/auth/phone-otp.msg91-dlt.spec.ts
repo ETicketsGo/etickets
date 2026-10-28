@@ -11,6 +11,7 @@ import {
   renderDltSms,
 } from '../notifications/templates/dlt-sms-templates';
 import { withTransactions } from './test-support/otp-sms-memory-store';
+import * as dltRegistry from '../notifications/templates/dlt-sms-templates';
 
 /**
  * A sign-in code to an Indian number, through the real chain, once DLT is approved.
@@ -52,6 +53,16 @@ function build(values: Record<string, string | undefined>) {
   });
   return { service: new PhoneOtpService(prisma as never, sms, config), updateMany };
 }
+
+/*
+  The approved templates' registered text is not verified yet, so every kind is refused at the
+  approval gate today. The tests in this file prove the pipeline BEHIND that gate, as it will
+  run once a template is verified; the gate itself is proved in dlt-sms-templates.spec.ts and
+  in 'MSG91 SMS: only approved, verified templates send'.
+*/
+beforeEach(() => {
+  jest.spyOn(dltRegistry, 'dltSendRefusal').mockReturnValue(null);
+});
 
 describe('phone sign-in over MSG91 with DLT approved', () => {
   let fetchMock: jest.Mock;

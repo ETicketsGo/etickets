@@ -2,13 +2,17 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { NotificationType } from '@eticketsgo/shared-types';
 import {
+  DLT_ID_PATTERN,
   DLT_SMS_REPLACEMENTS,
   DLT_SMS_TEMPLATES,
   DLT_VARIABLE,
   DLT_VARIABLE_MAX_LENGTH,
   DOCUMENTED_APPROVED_SENDER_HEADERS,
   OTP_SMS_KIND,
+  PASSWORD_UPDATE_SMS_KIND,
+  PAYMENT_PENDING_SMS_KIND,
   REJECTED_SENDER_HEADERS,
+  dltSendRefusal,
   dltVariablesFromPayload,
   fitDltVariable,
   formatMinor,
@@ -42,8 +46,11 @@ const REPLACEMENT_PACK = readFileSync(
 
 describe('DLT SMS registry', () => {
   const all = Object.values(DLT_SMS_TEMPLATES);
+  // The templates whose wording this code holds. The others are approved but their text is
+  // not known here, so they are unsendable (see "the eight approved DLT templates").
+  const worded = all.filter((t): t is DltSmsTemplate & { text: string } => t.text !== null);
 
-  it('covers the sign-in code, booking confirmed, cancelled, refunded and show cancelled', () => {
+  it('covers the eight approved templates, plus the two kinds with no approval', () => {
     expect(Object.keys(DLT_SMS_TEMPLATES).sort()).toEqual(
       [
         OTP_SMS_KIND,
@@ -51,11 +58,16 @@ describe('DLT SMS registry', () => {
         NotificationType.BOOKING_CONFIRMED,
         NotificationType.REFUND_COMPLETED,
         NotificationType.SHOW_CANCELLED,
+        NotificationType.PASSWORD_RESET_REQUESTED,
+        NotificationType.PASSWORD_CHANGED,
+        NotificationType.EVENT_REMINDER,
+        PASSWORD_UPDATE_SMS_KIND,
+        PAYMENT_PENDING_SMS_KIND,
       ].sort(),
     );
   });
 
-  it.each(all.map((t) => [t.kind, t] as const))(
+  it.each(worded.map((t) => [t.kind, t] as const))(
     '%s is registrable: ASCII, one name per {#var#}, fixed text around them',
     (_kind, t) => {
       expect(t.text).toMatch(/^[\x20-\x7E]+$/);
@@ -185,7 +197,7 @@ describe('DLT SMS registry', () => {
     it.each(all.map((t) => [t.kind, t] as const))(
       'carries the exact %s text and both key names',
       (_kind, t) => {
-        expect(DOC).toContain(t.text);
+        if (t.text !== null) expect(DOC).toContain(t.text);
         expect(DOC).toContain(t.msg91TemplateIdEnv);
         expect(DOC).toContain(t.dltTemplateIdEnv);
       },
@@ -374,5 +386,129 @@ describe('replacement show-cancelled wording', () => {
       expect(REPLACEMENT_PACK).toContain('ETKTGO');
       expect(REPLACEMENT_PACK).not.toMatch(/ETKTGO[^\n]*rejected/i);
     });
+  });
+});
+
+/*
+  The owner's eight approved DLT templates (2026-10-28), pinned: which kind sends under which
+  approval, the 19-digit DLT id, the configuration keys, and the variable order. MSG91's own
+  ids are configuration only. The registered TEXT could not be read from MSG91 (it has no list
+  API), so every one is textVerified=false and therefore refused until somebody copies it in.
+*/
+describe('the eight approved DLT templates', () => {
+  const APPROVED: [string, string, string, string, string, string[]][] = [
+    // name, kind, DLT id, MSG91 key, DLT key, variables in order
+    [
+      'OTP_LOGIN',
+      OTP_SMS_KIND,
+      '1777179239436687127',
+      'MSG91_SMS_TEMPLATE_OTP',
+      'DLT_TEMPLATE_ID_OTP',
+      ['otp', 'minutes'],
+    ],
+    [
+      'PASSWORD_RESET',
+      NotificationType.PASSWORD_RESET_REQUESTED,
+      '1777179240353412789',
+      'MSG91_SMS_TEMPLATE_PASSWORD_RESET',
+      'DLT_TEMPLATE_ID_PASSWORD_RESET',
+      [],
+    ],
+    [
+      'PASSWORD_CHANGE',
+      NotificationType.PASSWORD_CHANGED,
+      '1777179240360916280',
+      'MSG91_SMS_TEMPLATE_PASSWORD_CHANGE',
+      'DLT_TEMPLATE_ID_PASSWORD_CHANGE',
+      [],
+    ],
+    [
+      'PASSWORD_UPDATE',
+      PASSWORD_UPDATE_SMS_KIND,
+      '1777179239457786914',
+      'MSG91_SMS_TEMPLATE_PASSWORD_UPDATE',
+      'DLT_TEMPLATE_ID_PASSWORD_UPDATE',
+      [],
+    ],
+    [
+      'BOOKING_CONFIRMED',
+      NotificationType.BOOKING_CONFIRMED,
+      '1777179239474119451',
+      'MSG91_SMS_TEMPLATE_BOOKING_CONFIRMED',
+      'DLT_TEMPLATE_ID_BOOKING_CONFIRMED',
+      ['reference', 'event', 'when'],
+    ],
+    [
+      'BOOKING_CANCELLED',
+      NotificationType.BOOKING_CANCELLED,
+      '1777179239566169492',
+      'MSG91_SMS_TEMPLATE_BOOKING_CANCELLED',
+      'DLT_TEMPLATE_ID_BOOKING_CANCELLED',
+      ['reference'],
+    ],
+    [
+      'PAYMENT_PENDING',
+      PAYMENT_PENDING_SMS_KIND,
+      '1777179239515564360',
+      'MSG91_SMS_TEMPLATE_PAYMENT_PENDING',
+      'DLT_TEMPLATE_ID_PAYMENT_PENDING',
+      [],
+    ],
+    [
+      'EVENT_REMINDER',
+      NotificationType.EVENT_REMINDER,
+      '1777179240387088578',
+      'MSG91_SMS_TEMPLATE_EVENT_REMINDER',
+      'DLT_TEMPLATE_ID_EVENT_REMINDER',
+      [],
+    ],
+  ];
+
+  it('there are exactly eight, with distinct DLT ids', () => {
+    const approved = Object.values(DLT_SMS_TEMPLATES).filter((t) => t.approved);
+    expect(approved.map((t) => t.approved!.name).sort()).toEqual(APPROVED.map((a) => a[0]).sort());
+    expect(new Set(approved.map((t) => t.approved!.dltTemplateId)).size).toBe(8);
+  });
+
+  it.each(APPROVED)(
+    '%s maps to its kind, DLT id, keys and variables',
+    (name, kind, dltId, msg91Key, dltKey, vars) => {
+      const t = DLT_SMS_TEMPLATES[kind as keyof typeof DLT_SMS_TEMPLATES];
+      expect(t.approved).toEqual({ name, dltTemplateId: dltId });
+      expect(dltId).toMatch(DLT_ID_PATTERN);
+      expect(t.msg91TemplateIdEnv).toBe(msg91Key);
+      expect(t.dltTemplateIdEnv).toBe(dltKey);
+      expect(t.variables).toEqual(vars);
+    },
+  );
+
+  it.each(APPROVED)(
+    '%s is unsendable while its registered text is unverified',
+    (_n, kind, dltId) => {
+      const t = DLT_SMS_TEMPLATES[kind as keyof typeof DLT_SMS_TEMPLATES];
+      expect(t.textVerified).toBe(false);
+      expect(dltSendRefusal(t, dltId)).toMatch(/unverified/);
+    },
+  );
+
+  it('show cancelled and refund have no approved template, so MSG91 never sends them', () => {
+    for (const t of [
+      DLT_SMS_TEMPLATES[NotificationType.SHOW_CANCELLED],
+      DLT_SMS_TEMPLATES[NotificationType.REFUND_COMPLETED],
+      ...DLT_SMS_REPLACEMENTS,
+    ]) {
+      expect(t.approved).toBeNull();
+      expect(dltSendRefusal(t, '1777179239436687127')).toMatch(
+        /no approved DLT template.*email only/,
+      );
+    }
+  });
+
+  it('a verified template sends only under its own approved DLT id', () => {
+    const verified: DltSmsTemplate = { ...DLT_SMS_TEMPLATES[OTP_SMS_KIND], textVerified: true };
+    expect(dltSendRefusal(verified, '1777179239436687127')).toBeNull();
+    expect(dltSendRefusal(verified, undefined)).toBeNull();
+    // Booking Confirmation's id in the OTP slot: two templates swapped.
+    expect(dltSendRefusal(verified, '1777179239474119451')).toMatch(/not the approved DLT id/);
   });
 });

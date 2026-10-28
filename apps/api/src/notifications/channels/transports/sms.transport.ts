@@ -13,6 +13,7 @@ import {
   DLT_VARIABLE_MAX_LENGTH,
   OTP_SMS_KIND,
   REJECTED_SENDER_HEADERS,
+  dltSendRefusal,
   dltVariablesFromPayload,
   matchDltSms,
   selectDltTemplate,
@@ -324,6 +325,16 @@ export class Msg91SmsTransport implements SmsTransport {
       throw new TransportError(selection.refused, this.name, FailureClass.TEMPLATE_NOT_FOUND);
     }
     const { template, replacement } = selection;
+
+    /*
+      Only the owner's approved DLT templates, with their registered text verified against
+      MSG91, are sent. A kind with no approved template (show cancelled, refund) is refused
+      here for good and reaches its reader by email; nothing is guessed.
+    */
+    const refusal = dltSendRefusal(template, this.config.get<string>(template.dltTemplateIdEnv));
+    if (refusal) {
+      throw new TransportError(refusal, this.name, FailureClass.TEMPLATE_NOT_FOUND);
+    }
 
     if (!this.senderHeader) {
       throw new TransportError(

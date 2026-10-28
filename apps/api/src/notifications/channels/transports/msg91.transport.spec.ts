@@ -12,6 +12,7 @@ import {
   renderDltSms,
   type DltSmsTemplate,
 } from '../../templates/dlt-sms-templates';
+import * as dltRegistry from '../../templates/dlt-sms-templates';
 
 /**
  * The MSG91 adapters, against a mocked HTTP layer.
@@ -50,6 +51,16 @@ function msg(over: Partial<RenderedNotification> = {}): RenderedNotification {
     ...over,
   };
 }
+
+/*
+  The approved templates' registered text is not verified yet, so every kind is refused at the
+  approval gate today. The tests in this file prove the pipeline BEHIND that gate, as it will
+  run once a template is verified; the gate itself is proved in dlt-sms-templates.spec.ts and
+  in 'MSG91 SMS: only approved, verified templates send'.
+*/
+beforeEach(() => {
+  jest.spyOn(dltRegistry, 'dltSendRefusal').mockReturnValue(null);
+});
 
 let fetchMock: jest.Mock;
 const originalFetch = global.fetch;
@@ -599,5 +610,92 @@ describe('MSG91 SMS: India numbers and the non-production recipient guard', () =
     expect(all).not.toContain('9876543210');
     expect(all).not.toContain(AUTH_KEY);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('a sign-in code to a number not on the allowlist is never sent to MSG91 in QA', async () => {
+    const out = await new Msg91SmsTransport(
+      config({
+        ...READY,
+        APP_ENV: 'QA',
+        SMS_TEST_RECIPIENT_ALLOWLIST: '+919000000001',
+        MSG91_SMS_TEMPLATE_OTP: 'tmpl-otp',
+        DLT_TEMPLATE_ID_OTP: '1777179239436687127',
+      }),
+    ).send(
+      msg({
+        type: 'ACCOUNT_SECURITY' as never,
+        body: '482913 is your ETicketsGo sign-in code. It expires in 10 minutes. Never share it with anyone.',
+      }),
+    );
+    expect(out).toEqual({ provider: 'log' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('acceptance is only acceptance: the outcome carries no delivered state', async () => {
+    // DELIVERED comes only from MSG91's delivery report (parseMsg91), never from this answer.
+    respond(200, { type: 'success', message: 'req-9' });
+    const out = await new Msg91SmsTransport(config({ ...READY, APP_ENV: 'PRODUCTION' })).send(
+      cancelled(),
+    );
+    expect(out).toEqual({ provider: 'msg91', providerMessageId: 'req-9' });
+  });
+});
+
+describe('MSG91 SMS: only approved, verified templates send', () => {
+  // The real gate, not the pass-through the pipeline tests above use.
+  beforeEach(() => jest.restoreAllMocks());
+
+  const HEADER = { MSG91_SENDER_ID: 'ETKTGO', DLT_SENDER_HEADER: 'ETKTGO', APP_ENV: 'PRODUCTION' };
+  const PAYLOAD = {
+    reference: 'ETG-IN-2026-000042',
+    eventTitle: 'Show',
+    startsAt: '2026-11-01T14:00:00Z',
+    amountMinor: 1000,
+    currency: 'INR',
+  };
+
+  async function refusal(over: Record<string, string>, m: Partial<RenderedNotification>) {
+    const err = await new Msg91SmsTransport(config({ ...HEADER, ...over }))
+      .send(msg(m))
+      .catch((e: unknown) => e as TransportError);
+    expect(err).toBeInstanceOf(TransportError);
+    expect(fetchMock).not.toHaveBeenCalled();
+    return err as TransportError;
+  }
+
+  it.each([
+    [NotificationType.SHOW_CANCELLED, 'SHOW_CANCELLED'],
+    [NotificationType.REFUND_COMPLETED, 'REFUND_COMPLETED'],
+  ])('%s has no approved template: refused for good, MSG91 never called', async (type, key) => {
+    const err = await refusal(
+      {
+        [`MSG91_SMS_TEMPLATE_${key}`]: 'tmpl-x',
+        [`DLT_TEMPLATE_ID_${key}`]: '1777179239474119451',
+      },
+      { type, payload: PAYLOAD },
+    );
+    expect(err.failureClass).toBe(FailureClass.TEMPLATE_NOT_FOUND);
+    expect(err.retryable).toBe(false);
+    expect(err.message).toMatch(/email only/);
+  });
+
+  it.each(
+    Object.values(DLT_SMS_TEMPLATES)
+      .filter((t) => t.approved)
+      .map((t) => [t.approved!.name, t] as const),
+  )('approved %s is refused while its registered text is unverified', async (_name, t) => {
+    const err = await refusal(
+      { [t.msg91TemplateIdEnv]: 'tmpl-x', [t.dltTemplateIdEnv]: t.approved!.dltTemplateId },
+      {
+        type: t.kind as never,
+        body: '482913 is your ETicketsGo sign-in code. It expires in 10 minutes. Never share it with anyone.',
+        payload: PAYLOAD,
+      },
+    );
+    expect(err.failureClass).toBe(FailureClass.TEMPLATE_NOT_FOUND);
+    expect(err.message).toMatch(/unverified/);
+    // Never the code, never the key.
+    expect(err.message).not.toContain('482913');
+    expect(err.message).not.toContain(AUTH_KEY);
   });
 });
