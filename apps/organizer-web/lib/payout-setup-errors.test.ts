@@ -24,6 +24,16 @@ describe('payoutSetupErrorMessage', () => {
     );
   });
 
+  it('linked account not found: check the id (was a 500 "Something went wrong.")', () => {
+    expect(
+      payoutSetupErrorMessage(
+        err('PAYOUT_ACCOUNT_NOT_FOUND', 422, 'The id provided does not exist'),
+      ),
+    ).toBe(
+      'We could not find that Razorpay linked account. Check the account ID (acc_...) and try again.',
+    );
+  });
+
   it('provider not set up on this site, with a support reference', () => {
     const m = payoutSetupErrorMessage(err('PAYMENT_PROVIDER_NOT_CONFIGURED', 503));
     expect(m).toContain(PAYOUT_SETUP_MESSAGES.NOT_CONFIGURED);

@@ -72,6 +72,12 @@ export const ErrorCodes = {
   PAYMENT_PROVIDER_NOT_CONFIGURED: 'PAYMENT_PROVIDER_NOT_CONFIGURED',
   PAYOUT_COUNTRY_UNSUPPORTED: 'PAYOUT_COUNTRY_UNSUPPORTED',
   ORGANIZATION_DETAILS_INCOMPLETE: 'ORGANIZATION_DETAILS_INCOMPLETE',
+  /**
+   * The payout account id the organizer entered (a Razorpay linked account `acc_...`) does
+   * not exist or is not readable by our platform account. The organizer can fix it by
+   * checking the id; retrying the same id will not help.
+   */
+  PAYOUT_ACCOUNT_NOT_FOUND: 'PAYOUT_ACCOUNT_NOT_FOUND',
   INVENTORY_PROVIDER_UNAVAILABLE: 'INVENTORY_PROVIDER_UNAVAILABLE',
   INVENTORY_SOURCE_UNSUPPORTED: 'INVENTORY_SOURCE_UNSUPPORTED',
   /*

@@ -191,6 +191,60 @@ describe('OrganizerConnectService.createOrGetAccount', () => {
   });
 });
 
+describe('OrganizerConnectService.createOrGetAccount - country gate', () => {
+  /*
+    QA certification of main 60eee811: POST stripe/account took the caller's `country`
+    (default US) straight to Stripe, without the gate the onboarding link applies.
+  */
+  it('refuses an Indian organization before asking Stripe anything', async () => {
+    const { service, provider, user } = makeService({
+      account: null,
+      org: { id: 'org1', contactEmail: 'o@x.io', registeredCountry: 'IN' },
+    });
+    const r = await refusal(service.createOrGetAccount(user, 'org1', { country: 'US' }));
+    expect(r.status).toBe(422);
+    expect(r.code).toBe('PAYOUT_COUNTRY_UNSUPPORTED');
+    expect(r.details).toMatchObject({ country: 'IN' });
+    expect(provider.createConnectedAccount).not.toHaveBeenCalled();
+  });
+
+  it('asks for the country of registration when it is missing, before asking Stripe', async () => {
+    const { service, provider, user } = makeService({
+      account: null,
+      org: { id: 'org1', contactEmail: 'o@x.io', registeredCountry: null },
+    });
+    const r = await refusal(service.createOrGetAccount(user, 'org1', {}));
+    expect(r.status).toBe(422);
+    expect(r.code).toBe('ORGANIZATION_DETAILS_INCOMPLETE');
+    expect(r.details).toMatchObject({ fields: ['registeredCountry'] });
+    expect(provider.createConnectedAccount).not.toHaveBeenCalled();
+  });
+
+  it('refuses a country that is not the country of registration, before asking Stripe', async () => {
+    const { service, provider, user } = makeService({
+      account: null,
+      org: { id: 'org1', contactEmail: 'o@x.io', registeredCountry: 'Canada' },
+    });
+    const r = await refusal(service.createOrGetAccount(user, 'org1', { country: 'US' }));
+    expect(r.status).toBe(422);
+    expect(r.code).toBe('VALIDATION_FAILED');
+    expect(r.details).toMatchObject({ fields: ['country'], registeredCountry: 'CA' });
+    expect(provider.createConnectedAccount).not.toHaveBeenCalled();
+  });
+
+  it('opens the account in the country of registration when the caller sends none', async () => {
+    const { service, provider, created, user } = makeService({
+      account: null,
+      org: { id: 'org1', contactEmail: 'o@x.io', registeredCountry: 'Canada' },
+    });
+    await service.createOrGetAccount(user, 'org1', {});
+    expect(provider.createConnectedAccount).toHaveBeenCalledWith(
+      expect.objectContaining({ country: 'CA' }),
+    );
+    expect(created[0]).toMatchObject({ country: 'CA' });
+  });
+});
+
 describe('OrganizerConnectService.createOnboardingLink', () => {
   /** The read after creation finds the row the upsert wrote. */
   function withStoredAccount(prisma: { organizerPaymentAccount: Record<string, unknown> }) {

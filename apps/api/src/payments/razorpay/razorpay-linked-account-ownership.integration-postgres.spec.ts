@@ -48,12 +48,23 @@ describe('integration-real-postgres: Razorpay linked-account ownership', () => {
     }
     orgA = (
       await db!.organization.create({
-        data: { name: `Own A ${stamp}`, slug: `own-a-${stamp}`, status: 'APPROVED' },
+        data: {
+          name: `Own A ${stamp}`,
+          slug: `own-a-${stamp}`,
+          status: 'APPROVED',
+          // Razorpay Route links only for organizations registered in India.
+          registeredCountry: 'IN',
+        },
       })
     ).id;
     orgB = (
       await db!.organization.create({
-        data: { name: `Own B ${stamp}`, slug: `own-b-${stamp}`, status: 'APPROVED' },
+        data: {
+          name: `Own B ${stamp}`,
+          slug: `own-b-${stamp}`,
+          status: 'APPROVED',
+          registeredCountry: 'IN',
+        },
       })
     ).id;
     const provider = {
