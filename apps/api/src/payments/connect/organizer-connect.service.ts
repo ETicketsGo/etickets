@@ -2,7 +2,9 @@ import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   Role,
+  isCountryConsistent,
   mapStripeAccountToOnboardingStatus,
+  marketFor,
   type ConnectOnboardingStatus,
 } from '@eticketsgo/shared-types';
 import type { CreateConnectAccountInput } from '@eticketsgo/validation';
@@ -46,6 +48,74 @@ type ConnectCapableProvider = PaymentProvider &
     Pick<PaymentProvider, 'createConnectedAccount' | 'getConnectedAccount' | 'createOnboardingLink'>
   >;
 
+/** The sentence for every "this server cannot use the provider" cause. Names no provider. */
+const NOT_CONFIGURED_MESSAGE =
+  'Payout setup is not switched on for this site yet. Contact ETicketsGo support.';
+
+/*
+  The Stripe SDK's error classes, by the `type` each instance carries. Matched by name rather
+  than `instanceof` so the classification does not depend on which copy of the SDK threw.
+
+  PLATFORM: Stripe refused OUR request or OUR credentials. That is our configuration - the
+  QA refusal "Stripe no longer recommends Accounts v1 ... enable Accounts v1 support in the
+  Dashboard" is one - and nothing the organizer does will change it.
+  TRANSIENT: Stripe was unreachable, failed, or rate-limited us. Trying again can work.
+*/
+const STRIPE_PLATFORM_ERRORS = new Set([
+  'StripeInvalidRequestError',
+  'StripePermissionError',
+  'StripeAuthenticationError',
+]);
+const STRIPE_TRANSIENT_ERRORS = new Set([
+  'StripeConnectionError',
+  'StripeAPIError',
+  'StripeRateLimitError',
+  'StripeIdempotencyError',
+]);
+/** Stripe request parameters that come from OUR organization row, as its field names. */
+const ORGANIZATION_PARAMS: Record<string, string> = { email: 'contactEmail' };
+
+/**
+ * A provider failure during payout setup, as a refusal the organizer can act on.
+ *
+ * Stripe's own sentence goes to the log with the correlation id, never to the organizer: it
+ * names our platform's settings and products ("Accounts v1", "the Dashboard"), and the person
+ * reading the console can do nothing about either. It used to be returned verbatim in a 502,
+ * and before that swallowed into a bare "Something went wrong."
+ */
+export function payoutSetupFailure(err: unknown, logger: Logger, step: string): AppException {
+  const e = (err ?? {}) as { type?: unknown; message?: unknown; param?: unknown; code?: unknown };
+  const type = typeof e.type === 'string' ? e.type : '';
+  const detail = typeof e.message === 'string' ? e.message : 'unknown error';
+  logger.error(
+    `Stripe refused ${step}: [${type || 'non-Stripe error'}${typeof e.code === 'string' ? ` ${e.code}` : ''}] ${detail.slice(0, 500)}`,
+  );
+
+  const field = typeof e.param === 'string' ? ORGANIZATION_PARAMS[e.param] : undefined;
+  if (type === 'StripeInvalidRequestError' && field) {
+    return new AppException(
+      ErrorCodes.ORGANIZATION_DETAILS_INCOMPLETE,
+      'Your organization details are incomplete. Check them in Settings, then try again.',
+      HttpStatus.UNPROCESSABLE_ENTITY,
+      { fields: [field] },
+    );
+  }
+  if (STRIPE_PLATFORM_ERRORS.has(type)) {
+    return new AppException(
+      ErrorCodes.PAYMENT_PROVIDER_NOT_CONFIGURED,
+      NOT_CONFIGURED_MESSAGE,
+      HttpStatus.SERVICE_UNAVAILABLE,
+      { retryable: false },
+    );
+  }
+  return new AppException(
+    ErrorCodes.PAYMENT_PROVIDER_UNAVAILABLE,
+    'The payout provider is not answering right now. Try again in a few minutes.',
+    STRIPE_TRANSIENT_ERRORS.has(type) ? HttpStatus.SERVICE_UNAVAILABLE : HttpStatus.BAD_GATEWAY,
+    { retryable: true },
+  );
+}
+
 /**
  * Organizer-facing Stripe Connect onboarding. Reuses the active PAYMENT_PROVIDER
  * (Stripe for the US marketplace). Stores only non-secret account identifiers +
@@ -80,21 +150,77 @@ export class OrganizerConnectService {
   }
 
   private connectProvider(): ConnectCapableProvider {
-    // Constructing throws with a clear message when Stripe's secrets are missing, which
-    // beats reporting that some other provider lacks a capability nobody asked it for.
-    const provider = this.resolver.get(this.providerName);
+    /*
+      Constructing throws when Stripe's secrets are missing. That plain Error used to reach the
+      exception filter as a 500 "Something went wrong." - the organizer could not tell it from a
+      bug. A missing key, and the not-activated stand-in (which has no Connect methods), are the
+      same fact for the organizer: this site cannot set up Stripe payouts yet.
+    */
+    let provider: PaymentProvider;
+    try {
+      provider = this.resolver.get(this.providerName);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '';
+      if (!/requires [A-Z0-9_]+ to be set/.test(message)) throw err;
+      this.logger.error(`Stripe payout setup is not configured on this server: ${message}`);
+      throw new AppException(
+        ErrorCodes.PAYMENT_PROVIDER_NOT_CONFIGURED,
+        NOT_CONFIGURED_MESSAGE,
+        HttpStatus.SERVICE_UNAVAILABLE,
+        { retryable: false },
+      );
+    }
     if (
       !provider.createConnectedAccount ||
       !provider.getConnectedAccount ||
       !provider.createOnboardingLink
     ) {
+      this.logger.error(`The ${provider.name} adapter on this server has no connected accounts.`);
       throw new AppException(
-        ErrorCodes.PAYMENT_PROVIDER_UNAVAILABLE,
-        `The ${provider.name} adapter does not support connected accounts.`,
-        HttpStatus.NOT_IMPLEMENTED,
+        ErrorCodes.PAYMENT_PROVIDER_NOT_CONFIGURED,
+        NOT_CONFIGURED_MESSAGE,
+        HttpStatus.SERVICE_UNAVAILABLE,
+        { retryable: false },
       );
     }
     return provider as ConnectCapableProvider;
+  }
+
+  /**
+   * The country a new connected account is opened in: where the organization is registered.
+   *
+   * It was hardcoded `US`, so a Canadian organizer was sent through United States onboarding,
+   * and an Indian one selling in dollars (who is shown the card panel) had a US account
+   * created for a business that is not in the US. Both are refused or corrected here, BEFORE
+   * Stripe is asked to create anything.
+   */
+  private async stripeCountryFor(organizationId: string): Promise<string> {
+    const org = await this.prisma.organization.findUnique({
+      where: { id: organizationId },
+      select: { id: true, registeredCountry: true },
+    });
+    if (!org) {
+      throw new AppException(ErrorCodes.NOT_FOUND, 'Organization not found.', HttpStatus.NOT_FOUND);
+    }
+    if (!org.registeredCountry?.trim()) {
+      throw new AppException(
+        ErrorCodes.ORGANIZATION_DETAILS_INCOMPLETE,
+        'Your organization details are incomplete: add your country of registration in Settings, then try again.',
+        HttpStatus.UNPROCESSABLE_ENTITY,
+        { fields: ['registeredCountry'] },
+      );
+    }
+    const market = marketFor(org.registeredCountry);
+    const code = market?.code ?? org.registeredCountry.trim().toUpperCase();
+    if (!market || !isCountryConsistent('stripe', code)) {
+      throw new AppException(
+        ErrorCodes.PAYOUT_COUNTRY_UNSUPPORTED,
+        'Payout setup here is not available for your country yet.',
+        HttpStatus.UNPROCESSABLE_ENTITY,
+        { country: code },
+      );
+    }
+    return code;
   }
 
   private async requireOrganization(
@@ -131,17 +257,13 @@ export class OrganizerConnectService {
 
     const org = await this.requireOrganization(organizationId);
     /*
-      Stripe's own words, not "Something went wrong".
+      Classified, not "Something went wrong", and not Stripe's own sentence either.
 
-      Onboarding failed on QA with a bare 500, and the reason was sitting in the response we
-      threw away: *"Stripe no longer recommends Accounts v1 for new Connect integrations…
-      enable Accounts v1 support in the Dashboard"*. That is a setting somebody can go and
-      change in under a minute, and swallowing it turned a one-minute fix into an
-      investigation.
-
-      Surfaced as a 502, because the refusal came from upstream and is not the caller's
-      fault; the message is Stripe's, truncated, and carries no PII — Connect account
-      creation sends an organization id and a business email we already hold.
+      Onboarding failed on QA with a bare 500, then (after a first fix) with Stripe's text
+      printed to the organizer: *"Stripe no longer recommends Accounts v1 for new Connect
+      integrations... enable Accounts v1 support in the Dashboard"*. That sentence is for
+      whoever runs our Stripe account, so it goes to the log (with the correlation id the
+      organizer can quote); the organizer gets a code and words they can act on.
     */
     let created: { accountId: string };
     try {
@@ -151,13 +273,7 @@ export class OrganizerConnectService {
         email: input.email ?? org.contactEmail ?? undefined,
       });
     } catch (err) {
-      const detail = err instanceof Error ? err.message : 'unknown error';
-      this.logger.error(`Stripe refused to create a connected account: ${detail}`);
-      throw new AppException(
-        ErrorCodes.PAYMENT_PROVIDER_UNAVAILABLE,
-        `Stripe could not create the connected account: ${detail.slice(0, 400)}`,
-        HttpStatus.BAD_GATEWAY,
-      );
+      throw payoutSetupFailure(err, this.logger, 'to create a connected account');
     }
 
     const accountType = this.config.get<string>('STRIPE_CONNECT_ACCOUNT_TYPE') ?? 'express';
@@ -193,40 +309,50 @@ export class OrganizerConnectService {
   ): Promise<{ url: string; expiresAt?: number }> {
     await this.access.assertMember(user, organizationId, MANAGE_ROLES);
     const provider = this.connectProvider();
+    const country = await this.stripeCountryFor(organizationId);
 
     // Ensure an account exists (idempotent) before generating the link.
-    const status = await this.createOrGetAccount(user, organizationId, { country: 'US' });
+    const status = await this.createOrGetAccount(user, organizationId, { country });
     const account = await this.prisma.organizerPaymentAccount.findUniqueOrThrow({
       where: { organizationId_provider: { organizationId, provider: provider.name } },
     });
     if (!account.providerAccountId) {
       throw new AppException(
         ErrorCodes.PAYMENT_PROVIDER_UNAVAILABLE,
-        'The connected account could not be created.',
+        'The payout provider is not answering right now. Try again in a few minutes.',
         HttpStatus.BAD_GATEWAY,
+        { retryable: true },
       );
     }
     void status;
 
-    const link = await provider.createOnboardingLink({
-      accountId: account.providerAccountId,
-      // Derived from ORGANIZER_WEB_URL, so an organizer part-way through Stripe's hosted
-      // onboarding is returned to the console they came from rather than to localhost.
-      returnUrl: redirectUrl(this.config, {
-        overrideVariable: 'STRIPE_CONNECT_RETURN_URL',
-        site: 'organizer',
-        path: '/organizer/payouts',
-        query: 'onboarding=return',
-        purpose: 'Stripe Connect onboarding return',
-      }),
-      refreshUrl: redirectUrl(this.config, {
-        overrideVariable: 'STRIPE_CONNECT_REFRESH_URL',
-        site: 'organizer',
-        path: '/organizer/payouts',
-        query: 'onboarding=refresh',
-        purpose: 'Stripe Connect onboarding refresh',
-      }),
+    // Derived from ORGANIZER_WEB_URL, so an organizer part-way through Stripe's hosted
+    // onboarding is returned to the console they came from rather than to localhost.
+    const returnUrl = redirectUrl(this.config, {
+      overrideVariable: 'STRIPE_CONNECT_RETURN_URL',
+      site: 'organizer',
+      path: '/organizer/payouts',
+      query: 'onboarding=return',
+      purpose: 'Stripe Connect onboarding return',
     });
+    const refreshUrl = redirectUrl(this.config, {
+      overrideVariable: 'STRIPE_CONNECT_REFRESH_URL',
+      site: 'organizer',
+      path: '/organizer/payouts',
+      query: 'onboarding=refresh',
+      purpose: 'Stripe Connect onboarding refresh',
+    });
+    // Stripe's refusal here was not caught at all: any failure became a 500.
+    let link: { url: string; expiresAt?: number };
+    try {
+      link = await provider.createOnboardingLink({
+        accountId: account.providerAccountId,
+        returnUrl,
+        refreshUrl,
+      });
+    } catch (err) {
+      throw payoutSetupFailure(err, this.logger, 'to create an onboarding link');
+    }
 
     await this.audit.record({
       actorUserId: user.id,
@@ -285,7 +411,12 @@ export class OrganizerConnectService {
         HttpStatus.NOT_IMPLEMENTED,
       );
     }
-    return provider.createDashboardLink(account.providerAccountId);
+    try {
+      return await provider.createDashboardLink(account.providerAccountId);
+    } catch (err) {
+      if (err instanceof AppException) throw err;
+      throw payoutSetupFailure(err, this.logger, 'to create a dashboard link');
+    }
   }
 
   /**
