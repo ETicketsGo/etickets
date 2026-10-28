@@ -94,21 +94,53 @@ export function deletionImpact(
   active: readonly CoverageBand[],
   currency: string,
 ): DeletionImpact {
+  return coverageImpact(target, null, active, currency);
+}
+
+/**
+ * Judge changing `target` into `replacement` - or removing it, when `replacement` is null or
+ * inactive - against the ACTIVE bands of its currency (`active` may include the target).
+ *
+ * ── WHY AN EDIT IS JUDGED LIKE A DELETE (owner decision 2026-10-29) ────────────────
+ * Switching a band off, narrowing its range or moving it to another country or state takes
+ * coverage away from the place it used to price exactly as a delete does, and fails just as
+ * silently at checkout. So every such edit is held to the same rule: refused when the band's
+ * place would be left with no band, or with an uncovered range it did not already have.
+ *
+ * Only the band's OLD place is judged. Wherever the edited band applies now, it adds coverage
+ * there and cannot remove any. An inactive target prices nothing today, so an edit to it is
+ * always allowed (switching it on only adds coverage, and the overlap check still runs).
+ */
+export function coverageImpact(
+  target: CoverageBand & { active: boolean },
+  replacement: (CoverageBand & { active: boolean }) | null,
+  active: readonly CoverageBand[],
+  currency: string,
+): DeletionImpact {
   if (!target.active) return { ok: true };
   const place: FeePlace = {
     country: target.country === '*' ? undefined : target.country,
     region: target.region === '*' ? undefined : target.region,
   };
-  const withTarget = [...active.filter((b) => b.id !== target.id), target];
-  const before = applicableTiers(withTarget, place);
+  const others = active.filter((b) => b.id !== target.id);
+  const before = applicableTiers([...others, target], place);
   const after = applicableTiers(
-    active.filter((b) => b.id !== target.id),
+    replacement?.active ? [...others, { ...replacement, id: target.id }] : others,
     place,
   );
   if (after.length === 0) return { ok: false, reason: 'NO_BAND_LEFT' };
 
-  const key = (g: CoverageGap) => `${g.afterMinor ?? '-'}:${g.beforeMinor ?? '-'}`;
-  const existing = new Set(coverageGaps(before, currency).map(key));
-  const created = coverageGaps(after, currency).filter((g) => !existing.has(key(g)));
+  /*
+    A gap afterwards is this change's doing unless it lies wholly inside a gap that was
+    already there. Comparing ranges, not exact endpoints, matters for edits: widening a band
+    next to an existing hole shrinks that hole, and its endpoints move - that is less
+    uncovered than before, not a new gap.
+  */
+  const existing = coverageGaps(before, currency);
+  const lo = (g: CoverageGap) => g.afterMinor ?? Number.NEGATIVE_INFINITY;
+  const hi = (g: CoverageGap) => g.beforeMinor ?? Number.POSITIVE_INFINITY;
+  const created = coverageGaps(after, currency).filter(
+    (g) => !existing.some((e) => lo(e) <= lo(g) && hi(g) <= hi(e)),
+  );
   return created.length > 0 ? { ok: false, reason: 'GAP', gaps: created } : { ok: true };
 }

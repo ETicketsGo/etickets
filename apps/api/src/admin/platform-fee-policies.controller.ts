@@ -12,7 +12,7 @@ import { PlatformFeePoliciesService } from './platform-fee-policies.service';
   preview and the create refuse the same things in the same words.
 */
 const termsFields = {
-  kind: z.enum(['WAIVE', 'FIXED', 'PERCENT', 'COMBINED']),
+  kind: z.enum(['WAIVE', 'FIXED', 'PERCENT', 'COMBINED', 'FIXED_PER_TICKET']),
   feeMinor: z.number().int().min(0).max(100_000_000).nullable().optional(),
   percentBps: z
     .number()
@@ -47,7 +47,7 @@ const previewSchema = z.object({
   ...termsFields,
   currency: z.string().trim().length(3),
   subtotalMinor: z.number().int().min(0).max(100_000_000),
-  // Paid tickets in the sample basket; only a COMBINED fee (fixed part per ticket) reads it.
+  // Paid tickets in the sample basket; only a per-ticket fee reads it.
   ticketCount: z.number().int().min(0).max(1_000).optional(),
   feeMode: z.enum(['CUSTOMER_PAYS', 'ORGANIZER_PAYS', 'SHARED']).optional(),
 });

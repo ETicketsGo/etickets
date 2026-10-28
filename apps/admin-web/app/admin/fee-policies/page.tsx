@@ -664,32 +664,51 @@ function NewPolicyDrawer({
             />
           </div>
         )}
+        {draft.kind === 'FIXED_PER_TICKET' && (
+          <Input
+            label="Fee per ticket"
+            inputMode="decimal"
+            value={draft.fixedAmount}
+            onChange={(e) => set({ fixedAmount: e.target.value })}
+            error={errors.fixedAmount}
+            hint="Charged once for each paid ticket, in the currency below, like 5.00. Free tickets pay nothing."
+          />
+        )}
         {draft.kind === 'PERCENT' && (
-          <div className="space-y-3">
+          <Input
+            label="Percentage of the order"
+            inputMode="decimal"
+            value={draft.percent}
+            onChange={(e) => set({ percent: e.target.value })}
+            error={errors.percent}
+            hint="For example 2.5 means 2.5%."
+          />
+        )}
+        {/*
+          A lowest and highest fee for the whole order. Optional and empty by default for the
+          percentage, combined and per-ticket kinds (owner decision 2026-10-29). Applied after
+          the fee is worked out, and the policy still never charges more than the schedule.
+        */}
+        {(draft.kind === 'PERCENT' ||
+          draft.kind === 'COMBINED' ||
+          draft.kind === 'FIXED_PER_TICKET') && (
+          <div className="grid gap-3 sm:grid-cols-2">
             <Input
-              label="Percentage of the order"
+              label="Lowest fee for the order (optional)"
               inputMode="decimal"
-              value={draft.percent}
-              onChange={(e) => set({ percent: e.target.value })}
-              error={errors.percent}
-              hint="For example 2.5 means 2.5%."
+              value={draft.minAmount}
+              onChange={(e) => set({ minAmount: e.target.value })}
+              error={errors.minAmount}
+              hint="Leave empty for no lowest fee."
             />
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Input
-                label="Lowest fee (optional)"
-                inputMode="decimal"
-                value={draft.minAmount}
-                onChange={(e) => set({ minAmount: e.target.value })}
-                error={errors.minAmount}
-              />
-              <Input
-                label="Highest fee (optional)"
-                inputMode="decimal"
-                value={draft.maxAmount}
-                onChange={(e) => set({ maxAmount: e.target.value })}
-                error={errors.maxAmount}
-              />
-            </div>
+            <Input
+              label="Highest fee for the order (optional)"
+              inputMode="decimal"
+              value={draft.maxAmount}
+              onChange={(e) => set({ maxAmount: e.target.value })}
+              error={errors.maxAmount}
+              hint="Leave empty for no highest fee."
+            />
           </div>
         )}
 

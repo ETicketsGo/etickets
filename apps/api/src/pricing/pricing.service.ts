@@ -209,7 +209,7 @@ export class PricingService {
       feeMode,
       discountMinor,
       currency,
-      // Only a COMBINED band or policy reads this (its fixed part is per paid ticket).
+      // Only a per-ticket band or policy (COMBINED, FIXED_PER_TICKET) reads this.
       ticketCount: paidTicketCount(admissionLines),
       baseTiers: tiers,
       policy: feePolicyRow ? { ...feePolicyRow, applied: appliedFeePolicy(feePolicyRow) } : null,
@@ -228,7 +228,7 @@ export class PricingService {
       this reduces the charge, it does not move it.
     */
     const cap = policy?.maxOnlineFeeMinor ?? null;
-    // A capped fee is no longer "percentage plus fixed", so its breakdown is not carried.
+    // A capped fee is no longer what its per-ticket terms say, so its breakdown is not carried.
     const { platformFeeBreakdown: _breakdown, ...uncappedPlain } = uncapped;
     void _breakdown;
     const fees =
@@ -364,7 +364,7 @@ export class PricingService {
  * coupon re-price all build from the cart (or from the booking's own stored items), so the
  * three cannot count differently. A free ticket in a mixed cart is not counted. With no lines
  * (a caller that does not know the cart), the order is one ticket - the answer every fee type
- * but COMBINED ignores anyway.
+ * but COMBINED and FIXED_PER_TICKET ignore anyway.
  */
 export function paidTicketCount(
   lines?: readonly { unitPriceMinor: number; quantity: number }[],

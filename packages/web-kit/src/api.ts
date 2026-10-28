@@ -3939,7 +3939,7 @@ export interface BookingResult {
     /** The combined rate inside that figure — 1800 for 18%, 0 when nothing is taxed. */
     feeTaxRateBasisPoints?: number;
     feeTaxMinor?: number;
-    /** How a COMBINED platform fee (percentage + fixed per ticket) was worked out. */
+    /** How a per-ticket platform fee (COMBINED or FIXED_PER_TICKET) was worked out. */
     platformFeeBreakdown?: PlatformFeeBreakdown | null;
     totalMinor: number;
     discountMinor: number;
@@ -3983,7 +3983,7 @@ export interface BookingDetail {
   maintenanceMinor?: number;
   maintenanceTreatment?:
     'NOT_APPLICABLE' | 'INCLUDED_IN_TICKET_PRICE' | 'ADDED_TO_TICKET_PRICE' | 'UNCONFIRMED';
-  /** The booking's snapshot of a COMBINED platform fee, when one priced it. */
+  /** The booking's snapshot of a per-ticket platform fee, when one priced it. */
   platformFeeBreakdown?: PlatformFeeBreakdown | null;
   buyerName: string;
   buyerEmail: string;
@@ -7659,13 +7659,13 @@ export interface FeeRule {
    * How the band charges. Optional on input (a band with no type is a fixed amount, as every
    * band was before percentages); always present on what the API returns.
    */
-  feeType?: 'FLAT' | 'PERCENT' | 'COMBINED';
+  feeType?: 'FLAT' | 'PERCENT' | 'COMBINED' | 'FIXED_PER_TICKET';
   /** PERCENT and COMBINED: the share of the order in basis points. 500 is 5%. COMBINED also
-   * charges `feeMinor` once per paid ticket. */
+   * charges `feeMinor` once per paid ticket; FIXED_PER_TICKET charges only that. */
   feePercentBps?: number | null;
-  /** PERCENT, optional: the least the band charges, in minor units. */
+  /** PERCENT, COMBINED, FIXED_PER_TICKET, optional: the least the band charges an order. */
   minFeeMinor?: number | null;
-  /** PERCENT, optional: the most the band charges, in minor units. */
+  /** PERCENT, COMBINED, FIXED_PER_TICKET, optional: the most the band charges an order. */
   maxFeeMinor?: number | null;
   /**
    * Where the band applies — '*' for anywhere.

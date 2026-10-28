@@ -77,7 +77,11 @@ describe('AdminService.updateFeeRule', () => {
   });
 
   it('allows an open-ended top band', async () => {
-    const { svc, update } = make();
+    // Another band keeps the orders below it covered, so moving this one to the top is not
+    // refused by the coverage check (see fee-rule-disable.spec.ts).
+    const { svc, update } = make(RULE, [
+      { id: 'low', label: 'low', minMinor: 0, maxMinor: 99_999, currency: 'INR', active: true },
+    ]);
     await svc.updateFeeRule('admin-1', 'rule-1', { minMinor: 100_000, maxMinor: null });
     expect(update.mock.calls[0][0].data.maxMinor).toBeNull();
   });

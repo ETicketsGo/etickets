@@ -3,7 +3,10 @@ import { feeBandLabel, money } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { AppException, ErrorCodes } from '../common/errors';
-import { deletionImpact, type CoverageGap } from './fee-band-coverage';
+import { coverageImpact, type CoverageGap } from './fee-band-coverage';
+
+/** How a fee band charges. FIXED_PER_TICKET: a fixed amount for each paid ticket. */
+type FeeBandType = 'FLAT' | 'PERCENT' | 'COMBINED' | 'FIXED_PER_TICKET';
 import { groupScopeWhere, type GroupScope } from './group-scope';
 import { countryWhere } from './country-filter';
 import { allOf, dayRangeWhere, type ListFilters } from './list-filters';
@@ -226,7 +229,7 @@ export class AdminService {
       minMinor: number;
       maxMinor: number | null;
       feeMinor?: number;
-      feeType?: 'FLAT' | 'PERCENT' | 'COMBINED';
+      feeType?: FeeBandType;
       feePercentBps?: number | null;
       minFeeMinor?: number | null;
       maxFeeMinor?: number | null;
@@ -302,13 +305,13 @@ export class AdminService {
    *    who made it is still looking at the form.
    */
   private normaliseCharge(c: {
-    feeType: 'FLAT' | 'PERCENT' | 'COMBINED';
+    feeType: FeeBandType;
     feeMinor: number | undefined;
     feePercentBps: number | null;
     minFeeMinor: number | null;
     maxFeeMinor: number | null;
   }): {
-    feeType: 'FLAT' | 'PERCENT' | 'COMBINED';
+    feeType: FeeBandType;
     feeMinor: number;
     feePercentBps: number | null;
     minFeeMinor: number | null;
@@ -330,9 +333,9 @@ export class AdminService {
       };
     }
     /*
-      COMBINED: a percentage of the order plus a fixed amount per paid ticket. It needs both,
-      and takes no floor or ceiling (a limit on the total would quietly change what "plus Rs 5
-      per ticket" means on a large order), so any stored limits are cleared.
+      COMBINED: a percentage of the order plus a fixed amount per paid ticket. It needs both.
+      A minimum and a maximum fee for the whole order are optional (owner decision
+      2026-10-29) and both unset by default.
     */
     if (c.feeType === 'COMBINED') {
       if (c.feePercentBps === null || c.feePercentBps < 1 || c.feePercentBps > 10_000) {
@@ -347,12 +350,33 @@ export class AdminService {
           'A combined band needs a fixed amount per ticket above zero. For a percentage only, choose a percentage band.',
         );
       }
+      this.assertFeeLimits(c.minFeeMinor, c.maxFeeMinor);
       return {
         feeType: 'COMBINED',
         feeMinor: c.feeMinor,
         feePercentBps: c.feePercentBps,
-        minFeeMinor: null,
-        maxFeeMinor: null,
+        minFeeMinor: c.minFeeMinor,
+        maxFeeMinor: c.maxFeeMinor,
+      };
+    }
+    /*
+      FIXED_PER_TICKET: a fixed amount for each paid ticket, and no percentage. Not the same as
+      FLAT, which charges its amount once per order. Optional whole-order minimum and maximum.
+    */
+    if (c.feeType === 'FIXED_PER_TICKET') {
+      if (c.feeMinor === undefined) {
+        throw new AppException(
+          ErrorCodes.VALIDATION_FAILED,
+          'A per-ticket band needs its amount per ticket.',
+        );
+      }
+      this.assertFeeLimits(c.minFeeMinor, c.maxFeeMinor);
+      return {
+        feeType: 'FIXED_PER_TICKET',
+        feeMinor: c.feeMinor,
+        feePercentBps: null,
+        minFeeMinor: c.minFeeMinor,
+        maxFeeMinor: c.maxFeeMinor,
       };
     }
     if (c.feePercentBps === null || c.feePercentBps < 1 || c.feePercentBps > 10_000) {
@@ -361,12 +385,7 @@ export class AdminService {
         'A percentage band needs a percentage above 0% and no more than 100%.',
       );
     }
-    if (c.minFeeMinor !== null && c.maxFeeMinor !== null && c.minFeeMinor > c.maxFeeMinor) {
-      throw new AppException(
-        ErrorCodes.VALIDATION_FAILED,
-        'The minimum fee cannot be more than the maximum fee.',
-      );
-    }
+    this.assertFeeLimits(c.minFeeMinor, c.maxFeeMinor);
     return {
       feeType: 'PERCENT',
       feeMinor: 0,
@@ -374,6 +393,75 @@ export class AdminService {
       minFeeMinor: c.minFeeMinor,
       maxFeeMinor: c.maxFeeMinor,
     };
+  }
+
+  /** A minimum and maximum fee are each optional, never negative, and minimum <= maximum. */
+  private assertFeeLimits(min: number | null, max: number | null): void {
+    if ((min !== null && min < 0) || (max !== null && max < 0)) {
+      throw new AppException(
+        ErrorCodes.VALIDATION_FAILED,
+        'The minimum and maximum fee cannot be below zero.',
+      );
+    }
+    if (min !== null && max !== null && min > max) {
+      throw new AppException(
+        ErrorCodes.VALIDATION_FAILED,
+        'The minimum fee cannot be more than the maximum fee.',
+      );
+    }
+  }
+
+  /**
+   * Refuse (409) a change that takes coverage away from the place a band prices: a delete, a
+   * switch-off, a narrower range, or a move to another country or state. `replacement` is the
+   * band after the change, or null for a delete. See `fee-band-coverage.ts`.
+   *
+   * Gaps that were already there do not block, and an inactive band is never checked: it
+   * prices nothing today.
+   */
+  private async assertCoverageKept(
+    existing: BandPlace & { id: string; currency: string },
+    replacement: BandPlace | null,
+  ): Promise<void> {
+    if (!existing.active) return;
+    const active = await this.prisma.feeRule.findMany({
+      where: { currency: existing.currency, active: true, deletedAt: null },
+    });
+    const impact = coverageImpact(
+      existing,
+      replacement ? { ...replacement, id: existing.id } : null,
+      active,
+      existing.currency,
+    );
+    if (impact.ok) return;
+
+    const label = feeBandLabel(existing, existing.currency);
+    const where =
+      existing.region !== '*'
+        ? `${existing.region}, ${existing.country}`
+        : existing.country !== '*'
+          ? existing.country
+          : 'everywhere';
+    const action =
+      replacement === null
+        ? { subject: `Deleting "${label}"`, short: 'Deleting it' }
+        : !replacement.active
+          ? { subject: `Switching off "${label}"`, short: 'Switching it off' }
+          : { subject: `This change to "${label}"`, short: 'This change' };
+    if (impact.reason === 'NO_BAND_LEFT') {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        `"${label}" is the last active ${existing.currency} band for ${where}. ${action.short} would leave no band there, and those orders would be charged the built-in default fees. Add the replacement band first.`,
+        HttpStatus.CONFLICT,
+        { reason: 'NO_BAND_LEFT' },
+      );
+    }
+    throw new AppException(
+      ErrorCodes.CONFLICT,
+      `${action.subject} would leave ${describeGaps(impact.gaps, existing.currency)} with no ${existing.currency} band in ${where}. Add or change a band so that range stays covered first. Bands in one place cannot overlap, so to stop what this band charges, change its fee to match a neighbour instead.`,
+      HttpStatus.CONFLICT,
+      { reason: 'GAP', gaps: impact.gaps },
+    );
   }
 
   /** An inverted band matches nothing and silently reprices via the fall-through tier. */
@@ -443,7 +531,7 @@ export class AdminService {
       minMinor?: number;
       maxMinor?: number | null;
       feeMinor?: number;
-      feeType?: 'FLAT' | 'PERCENT' | 'COMBINED';
+      feeType?: FeeBandType;
       feePercentBps?: number | null;
       minFeeMinor?: number | null;
       maxFeeMinor?: number | null;
@@ -467,13 +555,20 @@ export class AdminService {
     // Each charge field falls back to what is stored, so a patch that only changes the label
     // of a percentage band keeps its percentage, floor and ceiling.
     const pick = <T>(value: T | undefined, stored: T): T => (value === undefined ? stored : value);
+    // A row with no type predates percentages, and every such row was a fixed amount.
+    const feeType = pick(patch.feeType, existing.feeType) ?? 'FLAT';
+    /*
+      A band that changes type does not inherit the old type's minimum and maximum unless the
+      patch states them: a floor set for a percentage would otherwise quietly hold a new
+      per-ticket fee that nobody configured with one.
+    */
+    const keepLimits = feeType === existing.feeType;
     const charge = this.normaliseCharge({
-      // A row with no type predates percentages, and every such row was a fixed amount.
-      feeType: pick(patch.feeType, existing.feeType) ?? 'FLAT',
+      feeType,
       feeMinor: pick(patch.feeMinor, existing.feeMinor),
       feePercentBps: pick(patch.feePercentBps, existing.feePercentBps),
-      minFeeMinor: pick(patch.minFeeMinor, existing.minFeeMinor),
-      maxFeeMinor: pick(patch.maxFeeMinor, existing.maxFeeMinor),
+      minFeeMinor: pick(patch.minFeeMinor, keepLimits ? existing.minFeeMinor : null),
+      maxFeeMinor: pick(patch.maxFeeMinor, keepLimits ? existing.maxFeeMinor : null),
     });
     const next = {
       label: patch.label ?? existing.label,
@@ -494,6 +589,12 @@ export class AdminService {
         region: next.region,
       });
     }
+    /*
+      Owner decision 2026-10-29: switching a band off, or any edit that takes coverage away
+      (a narrower range, another country or state), is checked exactly like a delete. Currency
+      is not editable at all, so it cannot move a band out of its schedule.
+    */
+    await this.assertCoverageKept(existing, next);
 
     const updated = await this.prisma.feeRule.update({ where: { id }, data: next });
 
@@ -536,11 +637,13 @@ export class AdminService {
    * See `fee-band-coverage.ts`. In short: a delete that leaves the band's place with no band at
    * all (pricing would silently use the built-in India defaults, in any currency), or that opens
    * a range of order amounts no band covers (the nearest band would quietly price it). The
-   * message names the range so the admin knows which neighbour to widen first.
+   * message names the range.
    *
-   * An inactive band prices nothing, so deleting one is always allowed. That is also the way to
-   * retire a band whose range a neighbour should take over: switch it off, widen the neighbour,
-   * then delete it.
+   * An inactive band prices nothing, so deleting one is always allowed. Since owner decision
+   * 2026-10-29 an ACTIVE band cannot be switched off into a gap either, so the old route
+   * (switch it off, widen the neighbour, delete it) is closed: bands in one place cannot
+   * overlap, so a middle band's range cannot be handed to a neighbour one edit at a time. To
+   * stop what a middle band charges, change its fee to match a neighbour.
    */
   async deleteFeeRule(actorUserId: string, id: string) {
     const existing = await this.prisma.feeRule.findUnique({ where: { id } });
@@ -548,35 +651,7 @@ export class AdminService {
       throw new AppException(ErrorCodes.NOT_FOUND, 'Fee rule not found.', HttpStatus.NOT_FOUND);
     }
     const label = feeBandLabel(existing, existing.currency);
-    const where =
-      existing.region !== '*'
-        ? `${existing.region}, ${existing.country}`
-        : existing.country !== '*'
-          ? existing.country
-          : 'everywhere';
-
-    if (existing.active) {
-      const active = await this.prisma.feeRule.findMany({
-        where: { currency: existing.currency, active: true, deletedAt: null },
-      });
-      const impact = deletionImpact(existing, active, existing.currency);
-      if (!impact.ok && impact.reason === 'NO_BAND_LEFT') {
-        throw new AppException(
-          ErrorCodes.CONFLICT,
-          `"${label}" is the last active ${existing.currency} band for ${where}. Deleting it would leave no band there, and those orders would be charged the built-in default fees. Add the replacement band first.`,
-          HttpStatus.CONFLICT,
-          { reason: 'NO_BAND_LEFT' },
-        );
-      }
-      if (!impact.ok && impact.reason === 'GAP') {
-        throw new AppException(
-          ErrorCodes.CONFLICT,
-          `Deleting "${label}" would leave ${describeGaps(impact.gaps, existing.currency)} with no ${existing.currency} band in ${where}. Change a neighbouring band to cover that range first: switch this band off, widen the neighbour, then delete this band.`,
-          HttpStatus.CONFLICT,
-          { reason: 'GAP', gaps: impact.gaps },
-        );
-      }
-    }
+    await this.assertCoverageKept(existing, null);
 
     const deleted = await this.prisma.feeRule.update({
       where: { id },
@@ -609,6 +684,15 @@ export class AdminService {
 
     return { ...deleted, displayLabel: label };
   }
+}
+
+/** The parts of a band that decide where and for which amounts it prices. */
+interface BandPlace {
+  minMinor: number;
+  maxMinor: number | null;
+  country: string;
+  region: string;
+  active: boolean;
 }
 
 /** An uncovered range in words, for the refusal: "orders between Rs 499 and Rs 1,000". */

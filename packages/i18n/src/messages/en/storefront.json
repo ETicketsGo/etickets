@@ -57,6 +57,7 @@
     "feesCombined": "Booking & payment fees",
     "paymentFeeHint": "Charged by the payment network, not ETicketsGo",
     "combinedFeeHint": "{percent} of the tickets + {amount} per ticket, for {count, plural, one {# ticket} other {# tickets}}",
+    "fixedPerTicketFeeHint": "{amount} per ticket, for {count, plural, one {# ticket} other {# tickets}}",
     "taxDetailsShow": "Tax details",
     "taxDetailsHide": "Hide tax details",
     "galleryLabel": "Event images",
