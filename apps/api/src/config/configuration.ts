@@ -1180,6 +1180,13 @@ const envSchema = z.object({
   /** Random path secret embedded in the MSG91 delivery-report URL. */
   MSG91_WEBHOOK_SECRET: z.string().optional(),
   /*
+    QA safety guard for MSG91 (India). Outside APP_ENV=PRODUCTION, MSG91 sends ONLY to the
+    E.164 numbers listed here (comma-separated, e.g. `+919812345678`); every other number is
+    handled exactly as log mode (nothing is sent). Empty or unset outside PRODUCTION means
+    MSG91 sends to nobody. Ignored in PRODUCTION.
+  */
+  SMS_TEST_RECIPIENT_ALLOWLIST: z.string().optional(),
+  /*
     Whether WhatsApp needs an affirmative opt-in before it may carry a TRANSACTIONAL message.
 
     A different question from marketing consent, and kept separate from it: somebody who

@@ -187,6 +187,7 @@ parameter; the route is the template's (transactional/service).
 | `MSG91_SENDER_ID`                          | same value (must equal `DLT_SENDER_HEADER`, or boot is refused) |
 | `DLT_PRINCIPAL_ENTITY_ID`                  | the 19-digit PE ID                                              |
 | `MSG91_WEBHOOK_SECRET`                     | secret, 32+ random characters, in the DLR URL                   |
+| `SMS_TEST_RECIPIENT_ALLOWLIST`             | non-PRODUCTION only: E.164 numbers MSG91 may text; empty = none |
 | `MSG91_SMS_TEMPLATE_OTP`                   | MSG91 template id for 2.1                                       |
 | `DLT_TEMPLATE_ID_OTP`                      | 19-digit DLT template ID for 2.1                                |
 | `MSG91_SMS_TEMPLATE_SHOW_CANCELLED`        | MSG91 template id for 2.2                                       |
@@ -222,6 +223,12 @@ DLT id is required either way.
 - **Logs and records.** No log line or notification row holds a sign-in code outside
   LOCAL/DEV. Phone numbers are masked (`+91***10`); MSG91 refusal text is redacted before
   it is stored. The MSG91 request id is logged on acceptance.
+- **Non-production guard.** Outside `APP_ENV=PRODUCTION`, MSG91 texts only the numbers in
+  `SMS_TEST_RECIPIENT_ALLOWLIST`; every other number is handled as log mode (MSG91 is not
+  called). Empty or unset means MSG91 texts nobody on QA/UAT. The guard runs after the
+  template checks, so QA still proves every id mapping.
+- **India mobiles only.** MSG91 is called only for `+91` then ten digits starting 6-9; any
+  other number fails permanently (`INVALID_DESTINATION`, no retries).
 - **Delivery status.** For notifications, the MSG91 DLR updates the `NotificationDelivery` row
   (delivered, failed, DND-blocked, and so on) and suppresses a DND or blocked number. A
   sign-in code has no notification row by design, so its DLR is held unmatched; match it by

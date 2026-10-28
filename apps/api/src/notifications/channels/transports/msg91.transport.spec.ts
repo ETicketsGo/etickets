@@ -1,6 +1,7 @@
+import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { FailureClass, NotificationType } from '@eticketsgo/shared-types';
-import { Msg91SmsTransport, parseTemplateIds } from './sms.transport';
+import { Msg91SmsTransport, indianMobileDigits, parseTemplateIds } from './sms.transport';
 import { Msg91WhatsAppTransport, parseTemplateNames } from './whatsapp.transport';
 import { TransportError } from './transport-http';
 import type { RenderedNotification } from '../notification-channel.interface';
@@ -484,5 +485,119 @@ describe('the template maps', () => {
   it('is empty rather than partly wrong when the value is malformed', () => {
     expect(parseTemplateIds('nonsense')).toEqual({});
     expect(parseTemplateIds(undefined)).toEqual({});
+  });
+});
+
+describe('MSG91 SMS: India numbers and the non-production recipient guard', () => {
+  const READY = {
+    MSG91_SENDER_ID: 'ETKTGO',
+    DLT_SENDER_HEADER: 'ETKTGO',
+    MSG91_SMS_TEMPLATE_BOOKING_CANCELLED: 'tmpl-123',
+    DLT_TEMPLATE_ID_BOOKING_CANCELLED: '1707000000000000001',
+  };
+  const cancelled = (over: Partial<RenderedNotification> = {}) =>
+    msg({ payload: { reference: 'ETG-IN-2026-000042' }, ...over });
+
+  it.each([
+    ['+919876543210', '919876543210'],
+    ['919876543210', '919876543210'],
+    ['+91 98765-43210', '919876543210'],
+    ['+916000000000', '916000000000'],
+  ])('normalises %s to %s', (input, out) => {
+    expect(indianMobileDigits(input)).toBe(out);
+  });
+
+  it.each([
+    ['a landline', '+914023456789'],
+    ['a mobile starting 5', '+915876543210'],
+    ['a bare ten-digit number', '9876543210'],
+    ['too short', '+91987654321'],
+    ['a US number', '+12025550123'],
+  ])('refuses %s permanently, calling nobody', async (_why, destination) => {
+    const err = await new Msg91SmsTransport(config(READY))
+      .send(cancelled({ destination }))
+      .catch((e: unknown) => e as TransportError);
+    expect((err as TransportError).failureClass).toBe(FailureClass.INVALID_DESTINATION);
+    expect((err as TransportError).retryable).toBe(false);
+    // The number never appears whole in the error.
+    expect((err as TransportError).message).not.toContain(destination.replace(/^\+/, ''));
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('PRODUCTION has no gate: an Indian mobile is sent to MSG91', async () => {
+    respond(200, { type: 'success', message: 'req-1' });
+    const out = await new Msg91SmsTransport(config({ ...READY, APP_ENV: 'PRODUCTION' })).send(
+      cancelled(),
+    );
+    expect(out).toEqual({ provider: 'msg91', providerMessageId: 'req-1' });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['QA', 'UAT', 'LOCAL'])(
+    '%s with an empty allowlist sends nothing and answers as log mode',
+    async (env) => {
+      const out = await new Msg91SmsTransport(config({ ...READY, APP_ENV: env })).send(cancelled());
+      expect(out).toEqual({ provider: 'log' });
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it('QA sends to an allowlisted number only', async () => {
+    respond(200, { type: 'success', message: 'req-2' });
+    const transport = new Msg91SmsTransport(
+      config({
+        ...READY,
+        APP_ENV: 'QA',
+        SMS_TEST_RECIPIENT_ALLOWLIST: ' +91 98765-43210 , not-a-number,+919000000001',
+      }),
+    );
+    const allowed = await transport.send(cancelled());
+    expect(allowed).toEqual({ provider: 'msg91', providerMessageId: 'req-2' });
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+    expect(body.recipients[0].mobiles).toBe('919876543210');
+    expect(body.sender).toBe('ETKTGO');
+
+    const other = await transport.send(cancelled({ destination: '+919812345678' }));
+    expect(other).toEqual({ provider: 'log' });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('the guard runs after the template checks, so QA still proves the mapping', async () => {
+    const err = await new Msg91SmsTransport(
+      config({ ...READY, APP_ENV: 'QA', DLT_TEMPLATE_ID_BOOKING_CANCELLED: '' }),
+    )
+      .send(cancelled())
+      .catch((e: unknown) => e as TransportError);
+    expect((err as TransportError).failureClass).toBe(FailureClass.TEMPLATE_NOT_FOUND);
+  });
+
+  it('the guard log line masks the number and never carries the code or the key', async () => {
+    const logs: string[] = [];
+    const spy = jest
+      .spyOn(Logger.prototype, 'log')
+      .mockImplementation((m: unknown) => void logs.push(String(m)));
+    try {
+      await new Msg91SmsTransport(
+        config({
+          ...READY,
+          APP_ENV: 'QA',
+          MSG91_SMS_TEMPLATE_OTP: 'tmpl-otp',
+          DLT_TEMPLATE_ID_OTP: '1707000000000000009',
+        }),
+      ).send(
+        msg({
+          type: 'ACCOUNT_SECURITY' as never,
+          body: '482913 is your ETicketsGo sign-in code. It expires in 10 minutes. Never share it with anyone.',
+        }),
+      );
+    } finally {
+      spy.mockRestore();
+    }
+    const all = logs.join('\n');
+    expect(all).toContain('SMS_TEST_RECIPIENT_ALLOWLIST');
+    expect(all).not.toContain('482913');
+    expect(all).not.toContain('9876543210');
+    expect(all).not.toContain(AUTH_KEY);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
