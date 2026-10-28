@@ -22,15 +22,31 @@ export function buildOrganizationJsonLd(input: {
   legalName?: string | null;
   /** A published support mailbox. */
   email?: string | null;
+  /**
+   * The companies that operate the brand, each in its own country. Used instead of one
+   * `legalName` where the page cannot know which market the reader is in.
+   */
+  operators?: { legalName: string; country: string }[];
 }): JsonLd {
+  const id = `${input.siteUrl}/#organization`;
   return {
     '@context': 'https://schema.org',
     '@type': 'Organization',
-    '@id': `${input.siteUrl}/#organization`,
+    '@id': id,
     name: 'ETicketsGo',
     url: `${input.siteUrl}/`,
     logo: `${input.siteUrl}/icon-512.png`,
     ...(input.legalName ? { legalName: input.legalName } : {}),
+    ...(input.operators?.length
+      ? {
+          subOrganization: input.operators.map((o) => ({
+            '@type': 'Organization',
+            legalName: o.legalName,
+            address: { '@type': 'PostalAddress', addressCountry: o.country },
+            parentOrganization: { '@id': id },
+          })),
+        }
+      : {}),
     ...(input.email
       ? {
           email: input.email,

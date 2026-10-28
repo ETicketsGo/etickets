@@ -292,6 +292,10 @@ test.describe('the public compliance surface', () => {
       const card = page.getByTestId('contact-operator');
       await expect(card).toContainText('DeepTrics Software Solutions Private Limited');
       await expect(card.locator('a[href="mailto:support@eticketsgo.com"]')).toHaveCount(1);
+      // A chosen market names only that company.
+      await page.goto(`${CUSTOMER}/contact?country=US`);
+      await expect(card).toContainText('DeepTrics LLC');
+      await expect(card).not.toContainText('DeepTrics Software Solutions Private Limited');
     });
 
     test('/cancellation reaches the cancellation policy', async ({ page }) => {

@@ -11,6 +11,8 @@ import {
 import { resolveJurisdiction, resolveSelectedMarket } from '@/lib/market';
 import { BUSINESS_DETAILS, publishedDetail } from '@eticketsgo/web-kit';
 import { BrandPage } from '@/components/storefront-brand';
+import { NEUTRAL_OPERATOR_SENTENCE } from '@eticketsgo/shared-types';
+import { selectedMarketEntity } from '@/lib/legal-entity';
 
 /**
  * The public description of the text-message programme.
@@ -53,7 +55,8 @@ export default async function SmsPage({
   const market = await resolveSelectedMarket(asked);
   const supportEmail = publishedDetail(BUSINESS_DETAILS.supportEmail);
   const supportPhone = publishedDetail(BUSINESS_DETAILS.supportPhone);
-  const legalName = publishedDetail(BUSINESS_DETAILS.legalName);
+  // The sender company for the chosen market, from the entity registry. No market: both.
+  const sender = selectedMarketEntity(market);
 
   return (
     <BrandPage>
@@ -69,8 +72,9 @@ export default async function SmsPage({
           <h2>Who sends these messages</h2>
           <p>
             Text messages come from <strong>ETicketsGo</strong>
-            {legalName ? <> ({legalName})</> : null}, the ticketing platform you booked through. We
-            sell tickets for events and check guests in at the door.
+            {sender ? <> ({sender.legalName})</> : null}, the ticketing platform you booked through.
+            We sell tickets for events and check guests in at the door.
+            {sender ? null : <> {NEUTRAL_OPERATOR_SENTENCE}</>}
           </p>
 
           <h2>What we send</h2>
