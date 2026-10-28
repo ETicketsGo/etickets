@@ -38,6 +38,11 @@ export const ErrorCodes = {
   MFA_LOCKED: 'MFA_LOCKED',
   NOT_FOUND: 'NOT_FOUND',
   CONFLICT: 'CONFLICT',
+  /**
+   * A ticket type that bookings or tickets still name (even fully refunded ones) cannot be
+   * deleted: that history is kept. The organizer console says to deactivate it instead.
+   */
+  TICKET_TYPE_HAS_HISTORY: 'TICKET_TYPE_HAS_HISTORY',
   EMAIL_ALREADY_REGISTERED: 'EMAIL_ALREADY_REGISTERED',
   INVALID_CREDENTIALS: 'INVALID_CREDENTIALS',
   INVALID_REFRESH_TOKEN: 'INVALID_REFRESH_TOKEN',
