@@ -3,6 +3,7 @@ import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import { assignInvoiceNumber } from './invoice-number';
+import { documentOperator } from '@eticketsgo/shared-types';
 import type { BillingTaxLine, BillingTaxQuote } from './billing-tax.service';
 
 /**
@@ -118,13 +119,18 @@ export class BillingInvoiceService {
             issuedAt: at.toISOString(),
             organizationId: invoice.account.organizationId,
             billingCountry: invoice.account.country,
+            // The issuing company, frozen: the same country the number series follows.
+            seller: documentOperator({
+              transactionCountry: invoice.account.country,
+              currency: invoice.currency,
+            }),
             taxId: invoice.account.taxId,
             currency: invoice.currency,
             lines: invoice.lines,
             subtotalMinor: invoice.subtotalMinor,
             taxMinor: invoice.taxMinor,
             totalMinor: invoice.totalMinor,
-          } as Prisma.InputJsonValue,
+          } as unknown as Prisma.InputJsonValue,
         },
       });
     });
@@ -198,6 +204,16 @@ export class BillingInvoiceService {
           paidAt: input.paidAt.toISOString(),
           organizationId: account.organizationId,
           billingCountry: account.country,
+          /*
+            The issuing company, frozen with the number. Resolved from the account country -
+            the same country the series follows, so an ETGB number is always issued by the
+            Indian company - then the currency. A document issued before this field existed
+            has none and keeps printing what it printed.
+          */
+          seller: documentOperator({
+            transactionCountry: account.country,
+            currency: input.currency,
+          }),
           taxId: account.taxId,
           currency: input.currency,
           lines: input.lines,

@@ -57,6 +57,21 @@ export const ErrorCodes = {
   BOOKING_NOT_PAYABLE: 'BOOKING_NOT_PAYABLE',
   PAYMENT_WEBHOOK_INVALID: 'PAYMENT_WEBHOOK_INVALID',
   PAYMENT_PROVIDER_UNAVAILABLE: 'PAYMENT_PROVIDER_UNAVAILABLE',
+  /*
+    ── PAYOUT SETUP REFUSALS ──────────────────────────────────────────────────────────
+    Three causes that PAYMENT_PROVIDER_UNAVAILABLE used to cover (or a bare 500 did), each
+    leading somewhere different, so the organizer console can say which:
+    - NOT_CONFIGURED: this server cannot use the provider at all (no keys, payments not
+      activated, or the provider refuses OUR platform account's setup). Nothing the organizer
+      can do; retrying will not help; an operator has to act.
+    - COUNTRY_UNSUPPORTED: the provider does not pay out to where the organization is registered.
+    - DETAILS_INCOMPLETE: the organization is missing a detail setup needs; `details.fields`
+      names it (schema field names, which the console turns into words).
+    PAYMENT_PROVIDER_UNAVAILABLE stays for the provider being down or slow: try again later.
+  */
+  PAYMENT_PROVIDER_NOT_CONFIGURED: 'PAYMENT_PROVIDER_NOT_CONFIGURED',
+  PAYOUT_COUNTRY_UNSUPPORTED: 'PAYOUT_COUNTRY_UNSUPPORTED',
+  ORGANIZATION_DETAILS_INCOMPLETE: 'ORGANIZATION_DETAILS_INCOMPLETE',
   INVENTORY_PROVIDER_UNAVAILABLE: 'INVENTORY_PROVIDER_UNAVAILABLE',
   INVENTORY_SOURCE_UNSUPPORTED: 'INVENTORY_SOURCE_UNSUPPORTED',
   /*

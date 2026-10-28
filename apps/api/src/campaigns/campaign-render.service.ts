@@ -138,7 +138,11 @@ export class CampaignRenderService {
       },
       unsubscribeUrl: opts.unsubscribeUrl,
       unsubscribeAllUrl: opts.unsubscribeAllUrl,
-      platform: { legalName: entity.legalName, postalAddress: footer.address },
+      platform: {
+        legalName: entity.legalName,
+        country: entity.country,
+        postalAddress: footer.address,
+      },
       isTest: opts.isTest,
     });
   }

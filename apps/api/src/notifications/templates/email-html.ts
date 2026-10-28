@@ -91,6 +91,11 @@ export interface EmailView {
   footerNote: string;
   help: { prompt: string; label: string; url: string } | null;
   legal: string;
+  /**
+   * Which DeepTrics company operates ETicketsGo for this reader: "ETicketsGo is operated in
+   * India by ...". Optional so a view built without it renders exactly as before.
+   */
+  operator?: string;
 }
 
 /** HTML-escapes a value. Ampersand first, or the other escapes are escaped again. */
@@ -283,6 +288,13 @@ export function renderEmailHtml(view: EmailView): string {
                       )}" style="color:${BRAND};text-decoration:underline;">${escapeHtml(
                         help.label,
                       )}</a></p>`
+                    : ''
+                }
+                ${
+                  view.operator
+                    ? `<p style="font-family:${FONT};margin:0 0 6px;color:${MUTED};font-size:12px;line-height:1.6;">${escapeHtml(
+                        view.operator,
+                      )}</p>`
                     : ''
                 }
                 <p style="font-family:${FONT};margin:0;color:${MUTED};font-size:12px;line-height:1.6;">${escapeHtml(

@@ -11,7 +11,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { EntitlementService } from './entitlements/entitlement.service';
 import { BillingReadService } from './billing-read.service';
 import { BillingCheckoutService } from './billing-checkout.service';
-import { renderBillingInvoiceHtml } from './billing-invoice-html';
+import { invoiceSellerName, renderBillingInvoiceHtml } from './billing-invoice-html';
 import { billingCancelSchema, checkoutSchema, creditPackCheckoutSchema } from './billing.schemas';
 
 /** Plans and invoices name what the organization pays: owners and managers, as receipts. */
@@ -103,7 +103,11 @@ export class OrganizerBillingController {
       totalMinor: invoice.totalMinor,
       periodStart: invoice.periodStart,
       periodEnd: invoice.periodEnd,
-      sellerName: 'ETicketsGo',
+      /*
+        The company stored on the invoice when it was issued. An invoice issued before the
+        field existed said "ETicketsGo", and still does: an issued document is never rewritten.
+      */
+      sellerName: invoiceSellerName(invoice.documentJson),
       billedTo: {
         name: org.legalName || org.name,
         country: invoice.account.country,

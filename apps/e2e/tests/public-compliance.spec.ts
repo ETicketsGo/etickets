@@ -193,10 +193,9 @@ test.describe('the public compliance surface', () => {
     }) => {
       await page.goto(`${CUSTOMER}/terms`);
       const t = await page.locator('body').innerText();
-      // The brand's own entity stays; the owner's India statement sits beside it.
-      expect(t).toContain('operated by DeepTrics LLC');
+      // No market selected: one line naming both companies, each where it operates.
       expect(t).toContain(
-        'In India, ETicketsGo is operated by DeepTrics Software Solutions Private Limited.',
+        'ETicketsGo is operated in India by DeepTrics Software Solutions Private Limited and in the United States by DeepTrics LLC.',
       );
       // The old misspelling must not survive anywhere a carrier compares against DLT.
       expect(t).not.toContain('Deeptrics Software Solution Pvt Ltd');
@@ -208,7 +207,8 @@ test.describe('the public compliance surface', () => {
       browser,
     }) => {
       const ctx = await browser.newContext();
-      await ctx.addCookies([{ name: 'etg_market', value: 'IN', url: CUSTOMER }]);
+      // The market the reader CHOSE (a city they picked), never the network's guess.
+      await ctx.addCookies([{ name: 'etg_selected_market', value: 'IN', url: CUSTOMER }]);
       const page = await ctx.newPage();
       for (const path of LEGAL_PAGES) {
         await page.goto(`${CUSTOMER}${path}`);
@@ -238,13 +238,40 @@ test.describe('the public compliance surface', () => {
     */
     // The owner's line is "© 2026 ETicketsGo, ..."; the year is the current one, as in the app.
     const FOOTER = `© ${new Date().getFullYear()} ETicketsGo, DeepTrics Software Solutions Pvt Ltd | All rights reserved.`;
+    const FOOTER_NEUTRAL = `© ${new Date().getFullYear()} ETicketsGo | All rights reserved.`;
 
-    test('both footers carry the owner line exactly', async ({ page }) => {
+    test('both footers name the India company in full with no market selected', async ({
+      page,
+    }) => {
       // `/` renders the storefront footer; `/about` renders the marketing one.
       for (const path of ['/', '/about', '/events']) {
         await page.goto(`${CUSTOMER}${path}`);
-        await expect(page.getByTestId('footer-rights'), path).toHaveText(FOOTER);
+        await expect(page.getByTestId('footer-rights'), path).toHaveText(FOOTER_NEUTRAL);
+        await expect(page.getByTestId('footer-operator'), path).toHaveText(
+          'ETicketsGo is operated in India by DeepTrics Software Solutions Private Limited and in the United States by DeepTrics LLC.',
+        );
       }
+    });
+
+    test('both footers carry the owner line exactly once an Indian city is chosen', async ({
+      browser,
+    }) => {
+      const ctx = await browser.newContext();
+      await ctx.addInitScript(() => {
+        localStorage.setItem(
+          'etg.city',
+          JSON.stringify({ city: 'Hyderabad', region: 'Telangana', country: 'India' }),
+        );
+      });
+      const page = await ctx.newPage();
+      for (const path of ['/', '/about']) {
+        await page.goto(`${CUSTOMER}${path}`);
+        await expect(page.getByTestId('footer-rights'), path).toHaveText(FOOTER);
+        await expect(page.getByTestId('footer-operator'), path).toHaveText(
+          'ETicketsGo is operated in India by DeepTrics Software Solutions Private Limited.',
+        );
+      }
+      await ctx.close();
     });
 
     test('About states the operator and lists the company', async ({ page }) => {
