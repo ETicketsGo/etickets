@@ -3435,6 +3435,13 @@ model FeeRule {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  /// Set when an admin deletes the band. Deletion is SOFT: the row stays (switched off), so the
+  /// audit trail keeps pointing at something real. Bookings never referenced a band - they
+  /// snapshot the fee amounts - so nothing already sold changes.
+  deletedAt       DateTime?
+  /// The admin who deleted it. A plain id, like the other actor columns on config rows.
+  deletedByUserId String?
+
   @@index([active, country, region])
 }
 

@@ -30,6 +30,7 @@ const STEP_UP: Array<[string, new (...a: never[]) => unknown, string[]]> = [
     [
       'createFeeRule',
       'updateFeeRule',
+      'deleteFeeRule',
       'createTaxRule',
       'updateTaxRule',
       'supersedeTaxRule',

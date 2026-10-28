@@ -20,6 +20,14 @@ import {
   type FeeRule,
 } from '@eticketsgo/web-kit';
 import { NO_READ_ACCESS, READ_ONLY_NOTE, useConfigAccess } from '@/lib/capabilities';
+import {
+  bandName,
+  bandPlace,
+  bandStatus,
+  deleteConfirmation,
+  draftBandName,
+  rangeText,
+} from '@/lib/fee-bands';
 
 /**
  * A readable name for each market currency. Editing never changes a rule's currency.
@@ -33,7 +41,6 @@ const CURRENCY_LABELS: Record<string, string> = Object.fromEntries(
 
 /** Draft state for the edit dialog. Kept as strings so a half-typed value does not fight the input. */
 interface Draft {
-  label: string;
   minMinor: string;
   maxMinor: string;
   feeMinor: string;
@@ -47,12 +54,9 @@ interface Draft {
   country: string;
   region: string;
   active: boolean;
-  /** True once an admin types their own label, so the derived one stops overwriting it. */
-  labelEdited?: boolean;
 }
 
 const toDraft = (r: FeeRule): Draft => ({
-  label: r.label,
   minMinor: String(r.minMinor),
   maxMinor: r.maxMinor === null ? '' : String(r.maxMinor),
   feeMinor: String(r.feeMinor),
@@ -68,8 +72,6 @@ const toDraft = (r: FeeRule): Draft => ({
   country: r.country ?? '*',
   region: r.region ?? '*',
   active: r.active,
-  // An existing label is the admin's, whatever produced it.
-  labelEdited: true,
 });
 
 /** The country whose currency this is — unambiguous across the platform's eight markets. */
@@ -79,32 +81,6 @@ const defaultCountryFor = (currency: string): string =>
 /** What a country calls its subdivisions, for the label on the second dropdown. */
 const regionLabelFor = (country: string): string =>
   country === '*' ? 'State / province' : (marketFor(country)?.regionLabel ?? 'State / province');
-
-/**
- * The label a band would be given, from the band itself.
- *
- * Ranges are written the way a person reads money, not in minor units: an admin typing 5000
- * and 9999 into a USD band means "$50 – $99.99", and writing that out by hand is how a label
- * comes to describe a range the rule no longer has.
- */
-const bandLabel = (
-  draft: Pick<Draft, 'minMinor' | 'maxMinor'>,
-  currency: string | null,
-): string => {
-  if (!currency) return '';
-  const min = Number(draft.minMinor);
-  if (!Number.isFinite(min)) return '';
-  const from = money(min || 0, currency);
-  const rawMax = draft.maxMinor.trim();
-  if (rawMax === '') return `${from} and above`;
-  const max = Number(rawMax);
-  if (!Number.isFinite(max)) return '';
-  return `${from} – ${money(max, currency)}`;
-};
-
-/** Keeps the label in step with the bounds, unless the admin has taken it over. */
-const withDerivedLabel = (draft: Draft, currency: string | null): Draft =>
-  draft.labelEdited ? draft : { ...draft, label: bandLabel(draft, currency) };
 
 /**
  * What a band charges, in words: "Rs 10.00", or "5% (min Rs 20.00, max Rs 500.00)".
@@ -145,18 +121,14 @@ const percentToBps = (raw: string): number | null => {
 const optionalMinor = (raw: string): number | null =>
   raw.trim() === '' ? null : Number(raw.trim());
 
-/** Where a band applies, for the list. */
-const scopeOf = (r: FeeRule): string =>
-  r.region && r.region !== '*'
-    ? `${r.region}, ${r.country}`
-    : r.country && r.country !== '*'
-      ? r.country
-      : 'Everywhere';
-
 export default function AdminSettings() {
   const qc = useQueryClient();
   const toast = useToast();
   const [editing, setEditing] = useState<FeeRule | null>(null);
+  // The band whose delete is waiting for confirmation.
+  const [deleting, setDeleting] = useState<FeeRule | null>(null);
+  // Deleted bands price nothing and are hidden unless an admin asks to see them.
+  const [showDeleted, setShowDeleted] = useState(false);
   // Non-null while adding a band; holds the currency the new band belongs to.
   const [creatingCurrency, setCreatingCurrency] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -168,9 +140,25 @@ export default function AdminSettings() {
   const mayEdit = access.mayEdit;
 
   const { data, isLoading } = useQuery({
-    queryKey: ['admin', 'fee-rules'],
-    queryFn: () => api.admin.feeRules(),
+    queryKey: ['admin', 'fee-rules', { showDeleted }],
+    queryFn: () => api.admin.feeRules({ includeDeleted: showDeleted }),
     enabled: access.mayRead,
+  });
+
+  /*
+    Delete goes through the shared client, so a stale second-factor check opens the same
+    "Confirm it is you" dialog an edit does and the request is repeated once. A 409 (the delete
+    would leave orders with no band) is shown in the API's own words, which name the range.
+  */
+  const remove = useMutation({
+    mutationFn: (id: string) => api.admin.deleteFeeRule(id),
+    onSuccess: () => {
+      toast.push('Fee band deleted.', 'success');
+      void qc.invalidateQueries({ queryKey: ['admin', 'fee-rules'] });
+      setDeleting(null);
+    },
+    onError: (err: unknown) =>
+      toast.push(err instanceof Error ? err.message : 'Could not delete the fee band.', 'error'),
   });
 
   const save = useMutation({
@@ -210,7 +198,6 @@ export default function AdminSettings() {
     setCreatingCurrency(currency);
     // Blank draft; the API validates the band against the existing ones in this currency.
     setDraft({
-      label: '',
       minMinor: '',
       maxMinor: '',
       feeMinor: '',
@@ -238,8 +225,8 @@ export default function AdminSettings() {
     if (!draft) return;
     const trimmedMax = draft.maxMinor.trim();
     // Empty means "and above" — a real value, distinct from leaving the field alone.
+    // No label: the API names the band from its boundaries, so the name cannot go stale.
     const fields = {
-      label: draft.label.trim(),
       minMinor: Number(draft.minMinor),
       maxMinor: trimmedMax === '' ? null : Number(trimmedMax),
       // A percentage band sends its percentage and limits; the fixed amount is stored as 0.
@@ -271,10 +258,18 @@ export default function AdminSettings() {
     draft.minFeeMinor.trim() !== '' &&
     draft.maxFeeMinor.trim() !== '' &&
     Number(draft.minFeeMinor) > Number(draft.maxFeeMinor);
+  // The API refuses this too; saying so here keeps the admin on the form.
+  const boundsInverted =
+    !!draft &&
+    draft.maxMinor.trim() !== '' &&
+    Number.isFinite(Number(draft.maxMinor)) &&
+    Number(draft.maxMinor) <= Number(draft.minMinor);
   const invalid =
     !draft ||
-    draft.label.trim() === '' ||
+    draft.minMinor.trim() === '' ||
     !Number.isInteger(Number(draft.minMinor)) ||
+    Number(draft.minMinor) < 0 ||
+    boundsInverted ||
     (draft.maxMinor.trim() !== '' && !Number.isInteger(Number(draft.maxMinor))) ||
     (draft.feeType === 'FLAT'
       ? draft.feeMinor.trim() === '' || !Number.isInteger(Number(draft.feeMinor))
@@ -284,13 +279,14 @@ export default function AdminSettings() {
         floorAboveCeiling);
 
   const allColumns = (currency: string): Column<FeeRule>[] => [
-    { key: 'label', header: 'Band', render: (r) => r.label },
+    // Written from the boundaries, so an edited band is renamed with it.
+    { key: 'label', header: 'Band', render: (r) => bandName(r) },
     {
       key: 'scope',
       header: 'Applies',
       render: (r) => (
         <span className={r.region !== '*' ? 'font-medium' : 'text-text-secondary'}>
-          {scopeOf(r)}
+          {bandPlace(r)}
         </span>
       ),
     },
@@ -301,15 +297,22 @@ export default function AdminSettings() {
       render: (r) => (r.maxMinor == null ? 'and above' : money(r.maxMinor, currency)),
     },
     { key: 'fee', header: 'Booking fee', render: (r) => describeCharge(r, currency) },
-    { key: 'active', header: 'Active', render: (r) => (r.active ? 'Yes' : 'No') },
+    { key: 'active', header: 'Active', render: (r) => bandStatus(r) },
     {
       key: 'actions',
       header: '',
-      render: (r) => (
-        <Button size="sm" variant="secondary" onClick={() => openEditor(r)}>
-          Edit
-        </Button>
-      ),
+      // A deleted band is history: nothing to edit and nothing left to delete.
+      render: (r) =>
+        r.deletedAt ? null : (
+          <div className="flex justify-end gap-2">
+            <Button size="sm" variant="secondary" onClick={() => openEditor(r)}>
+              Edit
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setDeleting(r)}>
+              Delete
+            </Button>
+          </div>
+        ),
     },
   ];
 
@@ -367,6 +370,15 @@ export default function AdminSettings() {
           </ButtonLink>
         }
       />
+
+      <label className="flex items-center gap-2 text-sm text-text-secondary">
+        <input
+          type="checkbox"
+          checked={showDeleted}
+          onChange={(e) => setShowDeleted(e.target.checked)}
+        />
+        Show deleted bands
+      </label>
 
       {isLoading && <Card title="Booking fee rules">Loading…</Card>}
 
@@ -467,6 +479,13 @@ export default function AdminSettings() {
             Bands may only overlap <em>across</em> scopes. Two bands covering the same amount in the
             same place is still refused, because the charge would depend on row order.
           </li>
+          <li>A band&apos;s name is written from its range, so changing the range renames it.</li>
+          <li>
+            Deleting a band switches it off and keeps it on file for the audit log. Bookings already
+            made keep the fee they were charged. A delete is refused when it would leave orders in a
+            place with no band, or open a range of order amounts that no band covers. To hand a
+            range to a neighbour, switch the band off, widen the neighbour, then delete the band.
+          </li>
           <li>Every change is recorded in the audit log with its before and after values.</li>
         </ul>
       </Card>
@@ -489,38 +508,33 @@ export default function AdminSettings() {
         {draft && dialogCurrency && (
           <div className="space-y-3">
             {/*
-              The label writes itself from the band it describes.
+              The name is written from the range and is not editable.
 
-              It is what an admin reads in the table, and it was typed by hand next to the two
-              numbers it is meant to describe — so "$0–$9.99" outlived an edit to the bounds and
-              went on describing a band that no longer existed. Derived, it cannot disagree;
-              still editable, because a band sometimes deserves a name rather than a range.
+              It used to be a typed label, and even once it was pre-filled an existing band kept
+              its old one: "$0-$9.99" outlived an edit to the bounds and went on naming a band
+              that no longer existed. The API now names every band from its range when it is
+              shown, so this is only a preview of that.
             */}
-            <Input
-              label="Label"
-              value={draft.label}
-              hint={
-                draft.label === bandLabel(draft, dialogCurrency)
-                  ? 'Written from the amounts below. Type here to name it yourself.'
-                  : 'Custom. Clear it to go back to the amounts below.'
-              }
-              onChange={(e) => setDraft({ ...draft, label: e.target.value, labelEdited: true })}
-            />
+            <p className="text-sm">
+              <span className="text-text-secondary">Name: </span>
+              <strong data-testid="fee-band-name">
+                {draftBandName(draft, dialogCurrency) || 'Enter the range below'}
+              </strong>
+            </p>
             <Input
               label={`From (minor units, ${dialogCurrency})`}
               inputMode="numeric"
               value={draft.minMinor}
-              onChange={(e) =>
-                setDraft(withDerivedLabel({ ...draft, minMinor: e.target.value }, dialogCurrency))
-              }
+              onChange={(e) => setDraft({ ...draft, minMinor: e.target.value })}
             />
             <Input
-              label={`To (minor units — leave empty for "and above")`}
+              label={`To (minor units, leave empty for "and above")`}
               inputMode="numeric"
               value={draft.maxMinor}
-              onChange={(e) =>
-                setDraft(withDerivedLabel({ ...draft, maxMinor: e.target.value }, dialogCurrency))
+              hint={
+                boundsInverted ? 'The upper bound must be more than the lower bound.' : undefined
               }
+              onChange={(e) => setDraft({ ...draft, maxMinor: e.target.value })}
             />
             <Select
               label="How this band charges"
@@ -635,11 +649,13 @@ export default function AdminSettings() {
             </Select>
 
             <p className="text-xs text-text-muted">
-              Preview: {money(Number(draft.minMinor) || 0, dialogCurrency)} –{' '}
-              {draft.maxMinor.trim() === ''
-                ? 'and above'
-                : money(Number(draft.maxMinor) || 0, dialogCurrency)}{' '}
-              → fee{' '}
+              Preview: orders of{' '}
+              {rangeText(
+                Number(draft.minMinor) || 0,
+                draft.maxMinor.trim() === '' ? null : Number(draft.maxMinor) || 0,
+                dialogCurrency,
+              )}{' '}
+              pay a fee of{' '}
               {describeCharge(
                 draft.feeType === 'PERCENT'
                   ? {
@@ -671,6 +687,35 @@ export default function AdminSettings() {
                   : creatingCurrency
                     ? 'Add band'
                     : 'Save changes'}
+              </Button>
+            </div>
+          </div>
+        )}
+      </Dialog>
+
+      {/*
+        Confirmed, because a delete is not taken back from this screen. The API checks the
+        schedule that is left and refuses (409) when orders would have no band; that sentence is
+        shown as a toast and the dialog stays open so the admin can cancel.
+      */}
+      <Dialog
+        open={!!deleting}
+        onClose={() => setDeleting(null)}
+        title={deleting ? deleteConfirmation(deleting).title : 'Delete fee band'}
+      >
+        {deleting && (
+          <div className="space-y-3">
+            <p className="text-sm text-text-secondary">{deleteConfirmation(deleting).body}</p>
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" onClick={() => setDeleting(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                loading={remove.isPending}
+                onClick={() => remove.mutate(deleting.id)}
+              >
+                Delete band
               </Button>
             </div>
           </div>
