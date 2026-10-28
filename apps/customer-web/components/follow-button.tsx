@@ -76,10 +76,25 @@ export function FollowButton({
     setDialogOpen(true);
   };
 
-  const refresh = () => {
+  /*
+    The button is disabled while a follow saves, so the browser drops focus to <body>, and the
+    dialog opens only after that. The dialog is told to give focus back to this button.
+  */
+  const buttonRef = useRef<HTMLButtonElement>(null);
+
+  const refresh = (opts: { preferences: 'refetch' | 'drop' } = { preferences: 'refetch' }) => {
     qc.invalidateQueries({ queryKey: ['following'] });
     qc.invalidateQueries({ queryKey: ['organizer', organizationId] });
-    qc.invalidateQueries({ queryKey: followPreferencesKey(organizationId) });
+    /*
+      After an unfollow the preferences no longer exist: reading them is a 404. The dialog's
+      query is still mounted at this moment, so invalidating it would refetch. Drop it.
+    */
+    if (opts.preferences === 'drop') {
+      void qc.cancelQueries({ queryKey: followPreferencesKey(organizationId) });
+      qc.removeQueries({ queryKey: followPreferencesKey(organizationId) });
+    } else {
+      qc.invalidateQueries({ queryKey: followPreferencesKey(organizationId) });
+    }
   };
 
   const follow = useMutation({
@@ -124,7 +139,7 @@ export function FollowButton({
       });
       setDialogOpen(false);
       toast.push(t('unfollowed', { name: organizationName }), 'success');
-      refresh();
+      refresh({ preferences: 'drop' });
     },
   });
 
@@ -160,6 +175,7 @@ export function FollowButton({
 
   const button = (
     <BrandButton
+      ref={buttonRef}
       variant={following ? 'secondary' : 'primary'}
       size={size}
       onClick={onClick}
@@ -190,6 +206,7 @@ export function FollowButton({
         organizationId={organizationId}
         organizationName={organizationName}
         onClose={() => setDialogOpen(false)}
+        returnFocusRef={buttonRef}
         onUnfollow={() => unfollow.mutate()}
         unfollowPending={unfollow.isPending}
       />

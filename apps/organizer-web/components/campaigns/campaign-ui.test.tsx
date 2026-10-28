@@ -5,6 +5,7 @@ import {
   BarList,
   CampaignGateNotice,
   CampaignStatusChip,
+  SendingModeNote,
   SeriesBars,
 } from './campaign-ui';
 
@@ -85,5 +86,18 @@ describe('charts', () => {
       <SeriesBars label="New followers" points={[{ start: '2026-10-20', count: 3 }]} />,
     );
     expect(series).toContain('New followers: 2026-10-20 3');
+  });
+});
+
+describe('review step sending-mode note', () => {
+  it('SHARED_TRANSACTIONAL says settings are shared, never that the sender is the ticket sender', () => {
+    const html = renderToStaticMarkup(<SendingModeNote mode="SHARED_TRANSACTIONAL" />);
+    expect(html).toContain('shares some delivery settings with ticket mail');
+    expect(html).not.toContain('same sender');
+  });
+  it('a dedicated or log-only sender shows no note', () => {
+    expect(renderToStaticMarkup(<SendingModeNote mode="DEDICATED_MARKETING" />)).toBe('');
+    expect(renderToStaticMarkup(<SendingModeNote mode="LOG_ONLY" />)).toBe('');
+    expect(renderToStaticMarkup(<SendingModeNote mode={null} />)).toBe('');
   });
 });

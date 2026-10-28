@@ -39,7 +39,7 @@ import {
   setupProblems,
   zonedLocalToIso,
 } from '@/lib/campaigns';
-import { AudienceCounts, CampaignGateNotice } from './campaign-ui';
+import { AudienceCounts, CampaignGateNotice, SendingModeNote } from './campaign-ui';
 
 interface Draft {
   name: string;
@@ -1007,11 +1007,7 @@ function ReviewStep({
           </div>
         </dl>
         {r.audience && <AudienceCounts counts={r.audience} />}
-        {r.sendingMode === 'SHARED_TRANSACTIONAL' && (
-          <p className="text-caption text-text-muted">
-            Test environment: campaign mail uses the same sender as ticket mail here.
-          </p>
-        )}
+        <SendingModeNote mode={r.sendingMode} />
         <Problems items={r.problems} />
         {!blocked && (
           <>

@@ -1122,6 +1122,7 @@ export function Dialog({
   size = 'md',
   brand = false,
   sheetOnMobile = false,
+  returnFocusRef,
 }: {
   open: boolean;
   onClose: () => void;
@@ -1154,10 +1155,16 @@ export function Dialog({
    * the centred dialog as usual. Opt-in: every other caller keeps the centred panel.
    */
   sheetOnMobile?: boolean;
+  /**
+   * Where focus goes when the dialog closes. Optional: by default it goes back to whatever had
+   * focus when the dialog opened. Pass the opener when that is not it - a dialog opened after
+   * an async action, while its button was disabled, would otherwise send focus to <body>.
+   */
+  returnFocusRef?: React.RefObject<HTMLElement | null>;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const descriptionId = useId();
-  const onPanelKeyDown = useModalFocus(open, onClose, panelRef);
+  const onPanelKeyDown = useModalFocus(open, onClose, panelRef, false, returnFocusRef);
   // Whole class names only: Tailwind finds classes by reading the source, not by running it.
   const width = sheetOnMobile
     ? size === 'lg'
@@ -1265,6 +1272,7 @@ function useModalFocus(
   onClose: () => void,
   panelRef: React.RefObject<HTMLElement | null>,
   defer = false,
+  returnFocusRef?: React.RefObject<HTMLElement | null>,
 ) {
   const previouslyFocused = useRef<HTMLElement | null>(null);
 
@@ -1290,10 +1298,10 @@ function useModalFocus(
       const panel = panelRef.current;
       const active = document.activeElement;
       if (!defer || !active || active === document.body || (panel && panel.contains(active))) {
-        previouslyFocused.current?.focus?.();
+        (returnFocusRef?.current ?? previouslyFocused.current)?.focus?.();
       }
     };
-  }, [open, panelRef]);
+  }, [open, panelRef, returnFocusRef]);
 
   return (e: ReactKeyboardEvent<HTMLElement>) => {
     if (e.key !== 'Tab') return;

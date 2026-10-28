@@ -30,6 +30,12 @@ export interface FollowPreferencesView {
   cadence: OrganizerUpdateCadence;
   /** Email permission for new-event news (ORGANIZER_UPDATES). Off by default. */
   emailUpdates: boolean;
+  /**
+   * True while the person's "unsubscribe from all marketing email" stands. The switches above
+   * still record their choice for this organizer, but no organizer email is sent until they
+   * turn marketing email back on in their account-wide settings.
+   */
+  globalMarketingUnsubscribed: boolean;
 }
 
 export interface FollowPreferencesInput {
@@ -182,11 +188,12 @@ export class OrganizerFollowService {
     opts: { requireFollow?: boolean } = {},
   ): Promise<FollowPreferencesView> {
     if (opts.requireFollow !== false) await this.assertFollowing(user, organizationId);
-    const [pref, state] = await Promise.all([
+    const [pref, state, globalMarketingUnsubscribed] = await Promise.all([
       this.prisma.organizerNotificationPreference.findUnique({
         where: { userId_organizationId: { userId: user.id, organizationId } },
       }),
       this.consent.organizerState({ userId: user.id, email: user.email }, organizationId),
+      this.consent.globalMarketingUnsubscribed(user.email),
     ]);
     return {
       organizationId,
@@ -199,6 +206,7 @@ export class OrganizerFollowService {
       offers: state.OFFERS.granted,
       cadence: pref?.cadence ?? 'INSTANT',
       emailUpdates: state.ORGANIZER_UPDATES.granted,
+      globalMarketingUnsubscribed,
     };
   }
 

@@ -1019,7 +1019,9 @@
     "cadenceLabel": "À quelle fréquence",
     "cadenceInstant": "Dès que cela arrive",
     "cadenceWeekly": "Un résumé par semaine",
-    "consentNote": "Suivre n'active aucun courriel. Les courriels commencent seulement si vous les activez ici. Vous pouvez les arrêter à tout moment."
+    "consentNote": "Suivre n'active aucun courriel. Les courriels commencent seulement si vous les activez ici. Vous pouvez les arrêter à tout moment.",
+    "globalOffNote": "Les courriels des organisateurs sont désactivés parce que vous vous êtes désabonné de tous les courriels de marketing. Nous enregistrons vos choix ici, mais nous n'envoyons aucun courriel tant que vous n'avez pas réactivé les courriels de marketing dans vos <link>paramètres de notification</link>.",
+    "savedGlobalOff": "Enregistré. Nous n'envoyons aucun courriel des organisateurs tant que vous n'avez pas réactivé les courriels de marketing."
   },
   "walletCard": {
     "badgeMovie": "Film",

@@ -158,7 +158,16 @@ export class UnsubscribeService {
             tx,
           );
         }
-        // The organizer's own do-not-mail list. Re-armed if an earlier one was lifted.
+        /*
+          The organizer's own do-not-mail list. Re-armed if an earlier one was lifted. A row
+          that is still in force keeps its reason: an active COMPLAINT must never be rewritten
+          as UNSUBSCRIBED, because an opt-in for this organizer lifts an UNSUBSCRIBED row and
+          a complaint is lifted only by an operator.
+        */
+        await tx.organizerSuppression.updateMany({
+          where: { organizationId, channel: 'email', destinationHash, liftedAt: { not: null } },
+          data: { liftedAt: null, reason: SuppressionReason.UNSUBSCRIBED },
+        });
         await tx.organizerSuppression.upsert({
           where: {
             organizationId_channel_destinationHash: {
@@ -173,7 +182,7 @@ export class UnsubscribeService {
             destinationHash,
             reason: SuppressionReason.UNSUBSCRIBED,
           },
-          update: { liftedAt: null, reason: SuppressionReason.UNSUBSCRIBED },
+          update: {},
         });
         // Keep the follower's topic mirror honest: these two are email-only topics.
         if (claims.userId) {

@@ -269,10 +269,16 @@ export class SuppressionService {
   }
 
   /**
-   * Lift an "unsubscribe from all marketing email" because the person opted in again from
-   * their own account. Only that row: a COMPLAINT stays until an operator lifts it, and an
-   * ALL-scope row is about the address working, which an opt-in says nothing about.
-   * Never deleted, so the history stays.
+   * Lift an "unsubscribe from all marketing email" because the person turned marketing email
+   * back on in their ACCOUNT-WIDE settings (owner decision 2026-10-28).
+   *
+   * Call it from that one path only (`MarketingConsentService.record` with `accountWide`).
+   * Allowing one organizer's email is NOT a reason: that consent is recorded, but it does not
+   * take effect while this row stands.
+   *
+   * Only the MARKETING-scope UNSUBSCRIBED row. A COMPLAINT stays until an operator lifts it,
+   * and an ALL-scope row (a hard bounce) is about the address working, which an opt-in says
+   * nothing about. Never deleted, so the history stays.
    */
   async liftMarketingOptOut(
     channel: string,
@@ -287,7 +293,7 @@ export class SuppressionService {
         reason: SuppressionReason.UNSUBSCRIBED,
         liftedAt: null,
       },
-      data: { liftedAt: new Date(), liftedBy: 'account:opt-in' },
+      data: { liftedAt: new Date(), liftedBy: 'account:global-opt-in' },
     });
     return res.count > 0;
   }

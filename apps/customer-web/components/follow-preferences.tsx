@@ -6,6 +6,8 @@ import { useTranslations } from 'next-intl';
 import { useToast } from '@eticketsgo/web-kit';
 import { api, type FollowPreferences as Prefs } from '@/lib/api';
 import { BrandToggle } from '@/components/account-brand';
+import { BRAND_LINK } from '@/components/booking-brand';
+import { Link } from '@/i18n/navigation';
 
 export const followPreferencesKey = (organizationId: string) =>
   ['follow-preferences', organizationId] as const;
@@ -29,6 +31,12 @@ type PreferenceChange = Partial<Omit<Prefs, 'organizationId'>>;
  *
  * The defaults come from the server and are not changed here: the in-account notice is on,
  * every email is off until the person turns it on.
+ *
+ * ── AFTER "UNSUBSCRIBE FROM ALL MARKETING EMAIL" ───────────────────────────────────
+ * The email switches still save this organizer's choice, but no organizer email is sent until
+ * the person turns marketing email back on in their account notification settings (owner
+ * decision 2026-10-28). A plain "Saved" would imply the mail will arrive, so the panel says
+ * why it will not and links to the one place that turns it back on.
  */
 export function FollowPreferences({
   organizationId,
@@ -45,6 +53,7 @@ export function FollowPreferences({
   const [prefs, setPrefs] = useState(initial);
   const [status, setStatus] = useState<'saved' | 'error' | null>(null);
   useEffect(() => setPrefs(initial), [initial]);
+  const globalOff = prefs.globalMarketingUnsubscribed === true;
 
   const save = useMutation({
     mutationFn: (body: PreferenceChange) => api.setFollowPreferences(organizationId, body),
@@ -57,7 +66,8 @@ export function FollowPreferences({
     onSuccess: (next) => {
       setPrefs(next);
       if (feedback === 'inline') setStatus('saved');
-      else toast.push(t('saved'), 'success');
+      else
+        toast.push(next.globalMarketingUnsubscribed ? t('savedGlobalOff') : t('saved'), 'success');
       qc.setQueryData(followPreferencesKey(organizationId), next);
       qc.invalidateQueries({ queryKey: ['following'] });
       qc.invalidateQueries({ queryKey: ['communication-consent'] });
@@ -90,6 +100,20 @@ export function FollowPreferences({
 
   return (
     <div className="space-y-4" data-testid="follow-preferences">
+      {globalOff && (
+        <p
+          className="rounded-brand-card border border-brand-line bg-brand-caution-tint p-3 text-brand-ui text-brand-ink"
+          data-testid="follow-preferences-global-off"
+        >
+          {t.rich('globalOffNote', {
+            link: (chunks) => (
+              <Link href="/account/notification-settings" className={BRAND_LINK}>
+                {chunks}
+              </Link>
+            ),
+          })}
+        </p>
+      )}
       <ul className="divide-y divide-brand-line">
         {row('newEvents', t('prefNewEvents'), t('prefNewEventsHint'))}
         {row('emailUpdates', t('prefEmailUpdates'), t('prefEmailUpdatesHint'))}
@@ -128,7 +152,13 @@ export function FollowPreferences({
             status === 'error' ? 'text-brand-critical' : 'text-brand-ink-2'
           }`}
         >
-          {status === 'saved' ? t('saved') : status === 'error' ? t('saveError') : ''}
+          {status === 'saved'
+            ? globalOff
+              ? t('savedGlobalOff')
+              : t('saved')
+            : status === 'error'
+              ? t('saveError')
+              : ''}
         </p>
       )}
     </div>

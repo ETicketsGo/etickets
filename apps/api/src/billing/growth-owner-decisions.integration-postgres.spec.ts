@@ -548,10 +548,10 @@ describe('integration-real-postgres: owner decisions 2026-10-27', () => {
   );
 
   maybe(
-    '"unsubscribe from all marketing email" stops every organizer, never tickets, and an opt-in lifts it',
+    '"unsubscribe from all marketing email" stops every organizer, never tickets, and only the account-wide setting lifts it',
     async () => {
       const suppression = new SuppressionService(db as never);
-      const marketing = new MarketingConsentService(db as never);
+      const marketing = new MarketingConsentService(db as never, suppression, audit);
       const consent = new CommunicationConsentService(db as never, audit, marketing, suppression);
       const unsubscribe = new UnsubscribeService(
         db as never,
@@ -589,11 +589,21 @@ describe('integration-real-postgres: owner decisions 2026-10-27', () => {
       expect(await consent.mayEmailForOrganizer(subject, orgB, 'OFFERS')).toBe(false);
       expect((await consent.platformMarketingEmail(subject)).granted).toBe(false);
 
-      // Opting in again to ONE organizer from the account re-opens that one only.
+      // Opting in again to ONE organizer records that consent but never lifts the global
+      // unsubscribe (owner decision 2026-10-28): marketing stays blocked.
       await consent.record(
         subject,
         { purpose: 'OFFERS', organizationId: orgA, granted: true },
         { source: 'account', actorUserId: u.id },
+      );
+      expect(await suppression.isSuppressed('email', u.email, 'marketing')).toBe(true);
+      expect(await consent.mayEmailForOrganizer(subject, orgA, 'OFFERS')).toBe(false);
+
+      // Turning marketing email back on account-wide lifts it; only orgA was granted again.
+      await consent.record(
+        subject,
+        { purpose: 'MARKETING_EMAIL', organizationId: null, granted: true },
+        { source: 'account-settings:marketing-email', actorUserId: u.id, accountWide: true },
       );
       expect(await suppression.isSuppressed('email', u.email, 'marketing')).toBe(false);
       expect(await consent.mayEmailForOrganizer(subject, orgA, 'OFFERS')).toBe(true);

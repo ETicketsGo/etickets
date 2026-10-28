@@ -372,6 +372,102 @@ describe('FollowButton', () => {
     expect(button().textContent).toContain('Following');
   });
 
+  it('after a new follow, closing the dialog puts focus back on the Follow button', async () => {
+    notFollowingYet();
+    let release!: () => void;
+    routes['PUT /me/following/org-1'] = {
+      status: 200,
+      body: { organizationId: 'org-1', following: true, created: true },
+      wait: new Promise<void>((r) => (release = r)),
+    };
+    await mount(true);
+    await ready();
+    button().focus();
+    await act(async () => button().click());
+    await flush();
+    /*
+      The button is disabled while the follow saves. A real browser then drops focus to
+      <body>; jsdom does not, so do what the browser does. The dialog opening next must not
+      take <body> as the place to return to.
+    */
+    expect(button().disabled).toBe(true);
+    // jsdom will not blur a disabled button, so park focus on a node and remove it.
+    const parked = document.createElement('input');
+    document.body.appendChild(parked);
+    parked.focus();
+    parked.remove();
+    expect(document.activeElement).toBe(document.body);
+    await act(async () => release());
+    await until(() => byTestId('follow-preferences') !== null);
+    await act(async () => (byTestId('follow-dialog-done') as HTMLButtonElement).click());
+    await until(() => dialog() === null);
+    expect(document.activeElement).toBe(button());
+  });
+
+  it('unfollow does not read the preferences again (that read is a 404 once unfollowed)', async () => {
+    alreadyFollowing();
+    await mount(true);
+    await ready();
+    await act(async () => button().click());
+    await until(() => byTestId('follow-preferences') !== null);
+    // Once unfollowed the API answers 404 for the preferences.
+    routes['GET /me/following/org-1/preferences'] = {
+      status: 404,
+      body: { code: 'NOT_FOUND', message: 'You do not follow this organizer.' },
+    };
+    await act(async () => (byTestId('follow-dialog-unfollow') as HTMLButtonElement).click());
+    await until(() => dialog() === null);
+    await flush();
+    await flush();
+    const deleteAt = calls.findIndex(
+      (c) => c.method === 'DELETE' && c.path === '/me/following/org-1',
+    );
+    expect(deleteAt).toBeGreaterThanOrEqual(0);
+    const readsAfter = calls
+      .slice(deleteAt + 1)
+      .filter((c) => c.method === 'GET' && c.path === '/me/following/org-1/preferences');
+    expect(readsAfter).toEqual([]);
+  });
+
+  it('after "unsubscribe from all marketing email" the dialog says why no email will come', async () => {
+    notFollowingYet();
+    routes['GET /me/following/org-1/preferences'] = {
+      status: 200,
+      body: { ...DEFAULT_PREFS, globalMarketingUnsubscribed: true },
+    };
+    routes['PUT /me/following/org-1/preferences'] = {
+      status: 200,
+      body: { ...DEFAULT_PREFS, offers: true, globalMarketingUnsubscribed: true },
+    };
+    await mount(true);
+    await ready();
+    await act(async () => button().click());
+    await until(() => byTestId('follow-preferences') !== null);
+    const note = byTestId('follow-preferences-global-off');
+    expect(note).not.toBeNull();
+    expect(note!.textContent).toContain('unsubscribed from all marketing email');
+    expect(note!.querySelector('a')!.getAttribute('href')).toContain(
+      '/account/notification-settings',
+    );
+    // The switch still works and records the choice, but never claims mail will arrive.
+    await act(async () => switchNamed('Offers by email').click());
+    await until(() => byTestId('follow-preferences-status')!.textContent !== '');
+    expect(prefPuts().map((c) => c.body)).toEqual([{ offers: true }]);
+    expect(switchNamed('Offers by email').checked).toBe(true);
+    expect(byTestId('follow-preferences-status')!.textContent).toContain(
+      'We send no email from organizers until you turn marketing email on again',
+    );
+  });
+
+  it('no notice when marketing email is not unsubscribed', async () => {
+    notFollowingYet();
+    await mount(true);
+    await ready();
+    await act(async () => button().click());
+    await until(() => byTestId('follow-preferences') !== null);
+    expect(byTestId('follow-preferences-global-off')).toBeNull();
+  });
+
   it('does not act on an intent for a different organizer', async () => {
     window.history.replaceState(null, '', '/organizers/org-1?follow=org-2');
     routes['GET /me/following/org-1'] = {
