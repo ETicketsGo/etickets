@@ -65,6 +65,69 @@ export function bandStatus(rule: Pick<FeeRule, 'active'> & { deletedAt?: string 
   return rule.active ? 'Yes' : 'No';
 }
 
+/**
+ * What a band charges, in words: "Rs 10.00", "5% of the order (min Rs 20.00, max Rs 500.00)",
+ * or "3% of the order + Rs 5.00 per ticket".
+ *
+ * One function for the table and the dialog preview, so the admin reads the same sentence in
+ * both places and cannot be shown one charge while saving another.
+ */
+export function describeCharge(
+  band: {
+    feeType?: 'FLAT' | 'PERCENT' | 'COMBINED';
+    feeMinor: number;
+    feePercentBps?: number | null;
+    minFeeMinor?: number | null;
+    maxFeeMinor?: number | null;
+  },
+  currency: string,
+): string {
+  const pct = `${(band.feePercentBps ?? 0) / 100}% of the order`;
+  if (band.feeType === 'COMBINED') return `${pct} + ${money(band.feeMinor, currency)} per ticket`;
+  if (band.feeType !== 'PERCENT') return money(band.feeMinor, currency);
+  const limits = [
+    band.minFeeMinor != null ? `min ${money(band.minFeeMinor, currency)}` : null,
+    band.maxFeeMinor != null ? `max ${money(band.maxFeeMinor, currency)}` : null,
+  ].filter(Boolean);
+  return limits.length ? `${pct} (${limits.join(', ')})` : pct;
+}
+
+/**
+ * A worked example for a COMBINED band, from a one-ticket order inside the band: "One ticket of
+ * Rs 1,000: Rs 30 + Rs 5 = Rs 35. Three tickets of Rs 1,000 each: Rs 105."
+ *
+ * The sample ticket is the band's lower bound, or Rs 1,000 (100,000 minor units) when the band
+ * starts at zero and reaches that far. The three-ticket line is shown only while three such
+ * tickets still fall inside the band, because a band is chosen by the order total.
+ *
+ * The same arithmetic as the API: the percentage rounded half up once on the order, plus the
+ * fixed amount times the paid tickets. A preview only - the API prices every real order.
+ */
+export function combinedExample(
+  band: {
+    percentBps: number | null;
+    fixedPerTicketMinor: number;
+    minMinor: number;
+    maxMinor: number | null;
+  },
+  currency: string,
+): string | null {
+  if (band.percentBps === null || !Number.isFinite(band.fixedPerTicketMinor)) return null;
+  const inBand = (amount: number) =>
+    amount >= band.minMinor && (band.maxMinor === null || amount <= band.maxMinor);
+  const sample = band.minMinor > 0 ? band.minMinor : inBand(100_000) ? 100_000 : band.maxMinor;
+  if (!sample || sample <= 0) return null;
+  const fee = (order: number, tickets: number) =>
+    Math.round((order * band.percentBps!) / 10_000) + band.fixedPerTicketMinor * tickets;
+  const pctPart = Math.round((sample * band.percentBps) / 10_000);
+  const one = `One ticket of ${money(sample, currency)}: ${money(pctPart, currency)} + ${money(
+    band.fixedPerTicketMinor,
+    currency,
+  )} = ${money(fee(sample, 1), currency)}.`;
+  if (!inBand(sample * 3)) return one;
+  return `${one} Three tickets of ${money(sample, currency)} each: ${money(fee(sample * 3, 3), currency)}.`;
+}
+
 /** A short money range for the dialog preview, using the same formatter as the label. */
 export function rangeText(minMinor: number, maxMinor: number | null, currency: string): string {
   return maxMinor === null

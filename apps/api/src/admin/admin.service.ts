@@ -226,7 +226,7 @@ export class AdminService {
       minMinor: number;
       maxMinor: number | null;
       feeMinor?: number;
-      feeType?: 'FLAT' | 'PERCENT';
+      feeType?: 'FLAT' | 'PERCENT' | 'COMBINED';
       feePercentBps?: number | null;
       minFeeMinor?: number | null;
       maxFeeMinor?: number | null;
@@ -302,13 +302,13 @@ export class AdminService {
    *    who made it is still looking at the form.
    */
   private normaliseCharge(c: {
-    feeType: 'FLAT' | 'PERCENT';
+    feeType: 'FLAT' | 'PERCENT' | 'COMBINED';
     feeMinor: number | undefined;
     feePercentBps: number | null;
     minFeeMinor: number | null;
     maxFeeMinor: number | null;
   }): {
-    feeType: 'FLAT' | 'PERCENT';
+    feeType: 'FLAT' | 'PERCENT' | 'COMBINED';
     feeMinor: number;
     feePercentBps: number | null;
     minFeeMinor: number | null;
@@ -325,6 +325,32 @@ export class AdminService {
         feeType: 'FLAT',
         feeMinor: c.feeMinor,
         feePercentBps: null,
+        minFeeMinor: null,
+        maxFeeMinor: null,
+      };
+    }
+    /*
+      COMBINED: a percentage of the order plus a fixed amount per paid ticket. It needs both,
+      and takes no floor or ceiling (a limit on the total would quietly change what "plus Rs 5
+      per ticket" means on a large order), so any stored limits are cleared.
+    */
+    if (c.feeType === 'COMBINED') {
+      if (c.feePercentBps === null || c.feePercentBps < 1 || c.feePercentBps > 10_000) {
+        throw new AppException(
+          ErrorCodes.VALIDATION_FAILED,
+          'A combined band needs a percentage above 0% and no more than 100%.',
+        );
+      }
+      if (c.feeMinor === undefined || c.feeMinor < 1) {
+        throw new AppException(
+          ErrorCodes.VALIDATION_FAILED,
+          'A combined band needs a fixed amount per ticket above zero. For a percentage only, choose a percentage band.',
+        );
+      }
+      return {
+        feeType: 'COMBINED',
+        feeMinor: c.feeMinor,
+        feePercentBps: c.feePercentBps,
         minFeeMinor: null,
         maxFeeMinor: null,
       };
@@ -417,7 +443,7 @@ export class AdminService {
       minMinor?: number;
       maxMinor?: number | null;
       feeMinor?: number;
-      feeType?: 'FLAT' | 'PERCENT';
+      feeType?: 'FLAT' | 'PERCENT' | 'COMBINED';
       feePercentBps?: number | null;
       minFeeMinor?: number | null;
       maxFeeMinor?: number | null;

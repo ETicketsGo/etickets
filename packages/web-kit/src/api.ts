@@ -76,6 +76,7 @@ export type {
 } from '@eticketsgo/shared-types';
 
 import { markApiReachable, markApiUnreachable } from './connectivity';
+import type { PlatformFeeBreakdown } from './price-breakdown';
 import type {
   AdminBillingAccountDetail,
   AdminBillingMetrics,
@@ -3938,6 +3939,8 @@ export interface BookingResult {
     /** The combined rate inside that figure — 1800 for 18%, 0 when nothing is taxed. */
     feeTaxRateBasisPoints?: number;
     feeTaxMinor?: number;
+    /** How a COMBINED platform fee (percentage + fixed per ticket) was worked out. */
+    platformFeeBreakdown?: PlatformFeeBreakdown | null;
     totalMinor: number;
     discountMinor: number;
     /** Zero unless the seller's market has a configured tax rule. */
@@ -3980,6 +3983,8 @@ export interface BookingDetail {
   maintenanceMinor?: number;
   maintenanceTreatment?:
     'NOT_APPLICABLE' | 'INCLUDED_IN_TICKET_PRICE' | 'ADDED_TO_TICKET_PRICE' | 'UNCONFIRMED';
+  /** The booking's snapshot of a COMBINED platform fee, when one priced it. */
+  platformFeeBreakdown?: PlatformFeeBreakdown | null;
   buyerName: string;
   buyerEmail: string;
   event: {
@@ -7654,8 +7659,9 @@ export interface FeeRule {
    * How the band charges. Optional on input (a band with no type is a fixed amount, as every
    * band was before percentages); always present on what the API returns.
    */
-  feeType?: 'FLAT' | 'PERCENT';
-  /** PERCENT: the share of the order in basis points. 500 is 5%. */
+  feeType?: 'FLAT' | 'PERCENT' | 'COMBINED';
+  /** PERCENT and COMBINED: the share of the order in basis points. 500 is 5%. COMBINED also
+   * charges `feeMinor` once per paid ticket. */
   feePercentBps?: number | null;
   /** PERCENT, optional: the least the band charges, in minor units. */
   minFeeMinor?: number | null;
