@@ -15,7 +15,8 @@ import { inter } from '@eticketsgo/web-kit/fonts/inter';
 // The brand layer's display face (DESIGN-SYSTEM.md). Only sets --font-brand-display; nothing
 // renders in it until a page opts into `data-brand`.
 import { brandDisplay } from '@eticketsgo/web-kit/fonts/brand-display';
-import { PLATFORM_OPERATOR, PUBLISHED_SUPPORT_EMAIL } from '@eticketsgo/shared-types';
+import { PUBLISHED_SUPPORT_EMAIL } from '@eticketsgo/shared-types';
+import { operatingEntitiesForJsonLd } from '@/lib/legal-entity';
 import { canonicalSiteUrl } from '@/lib/site-url';
 import {
   HOME_DESCRIPTION,
@@ -98,11 +99,15 @@ const metadata: Metadata = {
 /*
   Who we are and how to search the site, for search engines. Facts from the entity registry
   and the published support address only; nothing here is a guess.
+
+  No single `legalName`: this layout is pre-rendered once for every visitor, so it cannot know
+  the market a reader chose, and "DeepTrics LLC" on an Indian page was wrong. Both companies
+  are listed as sub-organizations, each in its own country, which is true for every reader.
 */
 const SITE_JSON_LD = [
   buildOrganizationJsonLd({
     siteUrl: SITE_URL,
-    legalName: PLATFORM_OPERATOR.legalName,
+    operators: operatingEntitiesForJsonLd(),
     email: PUBLISHED_SUPPORT_EMAIL,
   }),
   buildWebSiteJsonLd({ siteUrl: SITE_URL }),

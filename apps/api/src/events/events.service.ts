@@ -179,6 +179,16 @@ function eventDetailsData(input: Partial<CreateEventInput>): EventDetailsData {
 const PAUSED_BY_ADMIN_MESSAGE =
   'This event was paused by the platform team. Contact support to resume it.';
 
+/** A ticket type that bookings or tickets name: refused, never deleted with its history. */
+function ticketTypeHasHistory(details: Record<string, unknown>): AppException {
+  return new AppException(
+    ErrorCodes.TICKET_TYPE_HAS_HISTORY,
+    'This ticket type has orders that use it, so it cannot be deleted. Deactivate it instead.',
+    HttpStatus.CONFLICT,
+    details,
+  );
+}
+
 @Injectable()
 export class EventsService {
   constructor(
@@ -1673,7 +1683,15 @@ export class EventsService {
     };
   }
 
-  /** Delete a ticket type only when nothing has been sold or held against it. */
+  /**
+   * Delete a ticket type only when nothing has been sold or held against it, and no booking
+   * or ticket has ever named it.
+   *
+   * The sold/held counters are not enough: after a full refund they are back to 0, but the
+   * refunded tickets and booking lines still reference the type, and the foreign key turned
+   * the delete into a 500. Those rows are history and are never deleted; the type is refused
+   * with TICKET_TYPE_HAS_HISTORY (409) and can be deactivated instead.
+   */
   async deleteTicketType(user: RequestUser, id: string) {
     const tt = await this.loadOwnedTicketType(user, id);
     if ((tt.inventory?.quantitySold ?? 0) > 0 || (tt.inventory?.quantityHeld ?? 0) > 0) {
@@ -1683,10 +1701,22 @@ export class EventsService {
         HttpStatus.CONFLICT,
       );
     }
-    await this.prisma.$transaction([
-      this.prisma.ticketInventory.deleteMany({ where: { ticketTypeId: id } }),
-      this.prisma.ticketType.delete({ where: { id } }),
+    const [bookingItems, tickets] = await Promise.all([
+      this.prisma.bookingItem.count({ where: { ticketTypeId: id } }),
+      this.prisma.ticket.count({ where: { ticketTypeId: id } }),
     ]);
+    if (bookingItems > 0 || tickets > 0) throw ticketTypeHasHistory({ bookingItems, tickets });
+    try {
+      await this.prisma.$transaction([
+        this.prisma.ticketInventory.deleteMany({ where: { ticketTypeId: id } }),
+        this.prisma.ticketType.delete({ where: { id } }),
+      ]);
+    } catch (err) {
+      // P2003: a row the checks did not see (a booking that landed since, a bundle) still
+      // names the type. Refuse with the same code; the transaction left everything in place.
+      if ((err as { code?: string }).code === 'P2003') throw ticketTypeHasHistory({});
+      throw err;
+    }
     await this.audit.record({
       actorUserId: user.id,
       organizationId: tt.eventSession.event.organizationId,

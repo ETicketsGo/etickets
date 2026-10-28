@@ -18,7 +18,10 @@ import {
   LEGAL_INFORMATION_HREF,
   US_OPERATOR_SENTENCE,
   checkoutOperatorCountry,
+  contactOperator,
   footerRights,
+  operatingEntitiesForJsonLd,
+  selectedMarketEntity,
   legalBusinessFacts,
   operatorMessage,
   operatorSentences,
@@ -133,7 +136,7 @@ describe('the operator statement', () => {
         '<OperatorLine market={market} />',
       );
     }
-    expect(read('app/[locale]/contact/page.tsx')).toContain('{INDIA_OPERATOR_SENTENCE}');
+    expect(read('app/[locale]/contact/page.tsx')).toContain('{operator.sentence}');
   });
 
   it('links to the section that exists', () => {
@@ -234,5 +237,58 @@ describe('the checkout disclosure', () => {
     expect(t('paymentsActivatingOperator', { entity: INDIA_OPERATOR.legalName })).toContain(
       'operated in India by DeepTrics Software Solutions Private Limited',
     );
+  });
+});
+
+/*
+  QA 2026-10-28: /sms?country=IN said "DeepTrics LLC", /contact always named the Indian
+  company, and the site JSON-LD said "DeepTrics LLC" on every page. Each now follows the
+  market the reader chose, and names both companies when there is none.
+*/
+describe('pages follow the chosen market', () => {
+  it('selectedMarketEntity names the chosen market and nobody when none is chosen', () => {
+    expect(selectedMarketEntity('IN')?.legalName).toBe(
+      'DeepTrics Software Solutions Private Limited',
+    );
+    expect(selectedMarketEntity('US')?.legalName).toBe('DeepTrics LLC');
+    expect(selectedMarketEntity(null)).toBeNull();
+    expect(selectedMarketEntity('CA')).toBeNull();
+  });
+
+  it('the SMS page reads the sender from the chosen market, not a fixed business name', () => {
+    const src = read('app/[locale]/sms/page.tsx');
+    expect(src).not.toContain('BUSINESS_DETAILS.legalName');
+    expect(src).toContain('selectedMarketEntity(market)');
+    expect(src).toContain('NEUTRAL_OPERATOR_SENTENCE');
+  });
+
+  it('the Contact page names the chosen market, and both companies with no choice', () => {
+    expect(contactOperator('IN').heading).toBe(LEGAL_ENTITIES.IN.legalName);
+    expect(contactOperator('IN').sentence).toBe(INDIA_OPERATOR_SENTENCE);
+    expect(contactOperator('IN').description).toContain(LEGAL_ENTITIES.IN.legalName);
+    expect(contactOperator('US').heading).toBe('DeepTrics LLC');
+    expect(contactOperator('US').description).not.toContain(LEGAL_ENTITIES.IN.legalName);
+    const neutral = contactOperator(null);
+    expect(neutral.sentence).toBe(NEUTRAL_OPERATOR_SENTENCE);
+    expect(neutral.heading).not.toMatch(/DeepTrics/);
+    expect(neutral.description).toContain(LEGAL_ENTITIES.IN.legalName);
+    expect(neutral.description).toContain(LEGAL_ENTITIES.US.legalName);
+    for (const m of ['IN', 'US', null]) {
+      // eslint-disable-next-line no-control-regex
+      expect(JSON.stringify(contactOperator(m))).toMatch(/^[\x00-\x7F]*$/);
+    }
+    const src = read('app/[locale]/contact/page.tsx');
+    expect(src).not.toContain('INDIA_OPERATOR');
+    expect(src).toContain('resolveSelectedMarket(');
+  });
+
+  it('the site JSON-LD names no single company, and lists both in their countries', () => {
+    expect(operatingEntitiesForJsonLd()).toEqual([
+      { legalName: 'DeepTrics Software Solutions Private Limited', country: 'IN' },
+      { legalName: 'DeepTrics LLC', country: 'US' },
+    ]);
+    const src = read('app/[locale]/layout.tsx');
+    expect(src).not.toContain('PLATFORM_OPERATOR.legalName');
+    expect(src).toContain('operators: operatingEntitiesForJsonLd()');
   });
 });
