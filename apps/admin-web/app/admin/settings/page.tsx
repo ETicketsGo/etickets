@@ -24,7 +24,9 @@ import {
   bandName,
   bandPlace,
   bandStatus,
+  combinedExample,
   deleteConfirmation,
+  describeCharge,
   draftBandName,
   rangeText,
 } from '@/lib/fee-bands';
@@ -44,9 +46,9 @@ interface Draft {
   minMinor: string;
   maxMinor: string;
   feeMinor: string;
-  /** A fixed amount, or a percentage of the order. */
-  feeType: 'FLAT' | 'PERCENT';
-  /** PERCENT: typed as a person says it - "5" or "2.5" - and stored as basis points. */
+  /** A fixed amount, a percentage of the order, or both (COMBINED: % + fixed per ticket). */
+  feeType: 'FLAT' | 'PERCENT' | 'COMBINED';
+  /** PERCENT/COMBINED: typed as a person says it - "5" or "2.5" - stored as basis points. */
   percent: string;
   /** PERCENT, optional limits, in minor units like every other amount on this form. */
   minFeeMinor: string;
@@ -60,7 +62,7 @@ const toDraft = (r: FeeRule): Draft => ({
   minMinor: String(r.minMinor),
   maxMinor: r.maxMinor === null ? '' : String(r.maxMinor),
   feeMinor: String(r.feeMinor),
-  feeType: r.feeType === 'PERCENT' ? 'PERCENT' : 'FLAT',
+  feeType: r.feeType === 'PERCENT' || r.feeType === 'COMBINED' ? r.feeType : 'FLAT',
   percent: r.feePercentBps == null ? '' : String(r.feePercentBps / 100),
   minFeeMinor: r.minFeeMinor == null ? '' : String(r.minFeeMinor),
   maxFeeMinor: r.maxFeeMinor == null ? '' : String(r.maxFeeMinor),
@@ -81,31 +83,6 @@ const defaultCountryFor = (currency: string): string =>
 /** What a country calls its subdivisions, for the label on the second dropdown. */
 const regionLabelFor = (country: string): string =>
   country === '*' ? 'State / province' : (marketFor(country)?.regionLabel ?? 'State / province');
-
-/**
- * What a band charges, in words: "Rs 10.00", or "5% (min Rs 20.00, max Rs 500.00)".
- *
- * One function for the table and the dialog preview, so the admin reads the same sentence in
- * both places and cannot be shown one charge while saving another.
- */
-const describeCharge = (
-  band: {
-    feeType?: 'FLAT' | 'PERCENT';
-    feeMinor: number;
-    feePercentBps?: number | null;
-    minFeeMinor?: number | null;
-    maxFeeMinor?: number | null;
-  },
-  currency: string,
-): string => {
-  if (band.feeType !== 'PERCENT') return money(band.feeMinor, currency);
-  const limits = [
-    band.minFeeMinor != null ? `min ${money(band.minFeeMinor, currency)}` : null,
-    band.maxFeeMinor != null ? `max ${money(band.maxFeeMinor, currency)}` : null,
-  ].filter(Boolean);
-  const pct = `${(band.feePercentBps ?? 0) / 100}% of the order`;
-  return limits.length ? `${pct} (${limits.join(', ')})` : pct;
-};
 
 /** A typed percentage as basis points, or null when it is not a usable percentage. */
 const percentToBps = (raw: string): number | null => {
@@ -231,6 +208,7 @@ export default function AdminSettings() {
       maxMinor: trimmedMax === '' ? null : Number(trimmedMax),
       // A percentage band sends its percentage and limits; the fixed amount is stored as 0.
       // A fixed band sends its amount, and the API clears any percentage it used to have.
+      // A combined band sends both its percentage and its fixed amount per ticket, no limits.
       ...(draft.feeType === 'PERCENT'
         ? {
             feeType: 'PERCENT' as const,
@@ -239,7 +217,15 @@ export default function AdminSettings() {
             minFeeMinor: optionalMinor(draft.minFeeMinor),
             maxFeeMinor: optionalMinor(draft.maxFeeMinor),
           }
-        : { feeType: 'FLAT' as const, feeMinor: Number(draft.feeMinor) }),
+        : draft.feeType === 'COMBINED'
+          ? {
+              feeType: 'COMBINED' as const,
+              feeMinor: Number(draft.feeMinor),
+              feePercentBps: percentToBps(draft.percent),
+              minFeeMinor: null,
+              maxFeeMinor: null,
+            }
+          : { feeType: 'FLAT' as const, feeMinor: Number(draft.feeMinor) }),
       country: draft.country.trim() || '*',
       region: draft.region.trim() || '*',
       active: draft.active,
@@ -273,10 +259,15 @@ export default function AdminSettings() {
     (draft.maxMinor.trim() !== '' && !Number.isInteger(Number(draft.maxMinor))) ||
     (draft.feeType === 'FLAT'
       ? draft.feeMinor.trim() === '' || !Number.isInteger(Number(draft.feeMinor))
-      : percentToBps(draft.percent) === null ||
-        !optionalInteger(draft.minFeeMinor) ||
-        !optionalInteger(draft.maxFeeMinor) ||
-        floorAboveCeiling);
+      : draft.feeType === 'COMBINED'
+        ? percentToBps(draft.percent) === null ||
+          draft.feeMinor.trim() === '' ||
+          !Number.isInteger(Number(draft.feeMinor)) ||
+          Number(draft.feeMinor) < 1
+        : percentToBps(draft.percent) === null ||
+          !optionalInteger(draft.minFeeMinor) ||
+          !optionalInteger(draft.maxFeeMinor) ||
+          floorAboveCeiling);
 
   const allColumns = (currency: string): Column<FeeRule>[] => [
     // Written from the boundaries, so an edited band is renamed with it.
@@ -470,6 +461,12 @@ export default function AdminSettings() {
             percentage is of the order after any discount, rounded to the nearest paisa or cent.
           </li>
           <li>
+            A <strong>combined</strong> band charges a percentage of the order plus a fixed amount
+            for each paid ticket. For example 3% + Rs 5 on one Rs 1,000 ticket is Rs 35, and on
+            three such tickets Rs 105. Free tickets do not pay the fixed amount. A combined band has
+            no minimum or maximum fee.
+          </li>
+          <li>
             A band naming a <strong>state</strong> beats one naming only a country, which beats{' '}
             <code>*</code>, for any amount they both cover. An amount that only the broader schedule
             covers keeps the broader band, so adding one band for one place changes that range and
@@ -540,13 +537,55 @@ export default function AdminSettings() {
               label="How this band charges"
               value={draft.feeType}
               onChange={(e) =>
-                setDraft({ ...draft, feeType: e.target.value === 'PERCENT' ? 'PERCENT' : 'FLAT' })
+                setDraft({
+                  ...draft,
+                  feeType:
+                    e.target.value === 'PERCENT' || e.target.value === 'COMBINED'
+                      ? e.target.value
+                      : 'FLAT',
+                })
               }
             >
               <option value="FLAT">A fixed amount</option>
               <option value="PERCENT">A percentage of the order</option>
+              <option value="COMBINED">A percentage plus a fixed amount per ticket</option>
             </Select>
-            {draft.feeType === 'FLAT' ? (
+            {draft.feeType === 'COMBINED' ? (
+              <>
+                <div className="grid grid-cols-2 gap-3">
+                  <Input
+                    label="Percentage of the order (%)"
+                    inputMode="decimal"
+                    value={draft.percent}
+                    hint="For example 3 for 3%. Up to two decimal places."
+                    onChange={(e) => setDraft({ ...draft, percent: e.target.value })}
+                  />
+                  <Input
+                    label={`Fixed amount per ticket (minor units, ${dialogCurrency})`}
+                    inputMode="numeric"
+                    value={draft.feeMinor}
+                    hint="Charged once for each paid ticket. Enter 500 for 5.00."
+                    onChange={(e) => setDraft({ ...draft, feeMinor: e.target.value })}
+                  />
+                </div>
+                {(() => {
+                  const example = combinedExample(
+                    {
+                      percentBps: percentToBps(draft.percent),
+                      fixedPerTicketMinor: Number(draft.feeMinor),
+                      minMinor: Number(draft.minMinor) || 0,
+                      maxMinor: draft.maxMinor.trim() === '' ? null : Number(draft.maxMinor),
+                    },
+                    dialogCurrency,
+                  );
+                  return example ? (
+                    <p className="text-xs text-text-muted" data-testid="combined-example">
+                      {example}
+                    </p>
+                  ) : null;
+                })()}
+              </>
+            ) : draft.feeType === 'FLAT' ? (
               <Input
                 label={`Booking fee (minor units, ${dialogCurrency})`}
                 inputMode="numeric"
@@ -665,7 +704,13 @@ export default function AdminSettings() {
                       minFeeMinor: optionalMinor(draft.minFeeMinor),
                       maxFeeMinor: optionalMinor(draft.maxFeeMinor),
                     }
-                  : { feeType: 'FLAT', feeMinor: Number(draft.feeMinor) || 0 },
+                  : draft.feeType === 'COMBINED'
+                    ? {
+                        feeType: 'COMBINED',
+                        feeMinor: Number(draft.feeMinor) || 0,
+                        feePercentBps: percentToBps(draft.percent) ?? 0,
+                      }
+                    : { feeType: 'FLAT', feeMinor: Number(draft.feeMinor) || 0 },
                 dialogCurrency,
               )}
             </p>

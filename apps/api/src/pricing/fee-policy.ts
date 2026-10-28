@@ -28,10 +28,16 @@ import {
  * Every kind is a reduction (waive, a reduced fixed fee, a reduced percentage). A fixed Rs 10
  * meant as a discount on a Rs 20 band would otherwise charge MORE than the schedule on a small
  * order whose band is Rs 5. So the customer pays the lower of the two, always.
+ *
+ * COMBINED is held to the same rule, compared on the ORDER's total booking fee: the policy's
+ * percentage plus its fixed part times the paid tickets, against what the schedule charges the
+ * same order (with the same ticket count, so a COMBINED schedule band is compared like for
+ * like). A "3% + Rs 5 per ticket" policy on an order the schedule would charge less is not
+ * applied, and the order is priced by the schedule.
  */
 
 export type FeePolicyScope = 'EVENT' | 'ORGANIZATION';
-export type FeePolicyKind = 'WAIVE' | 'FIXED' | 'PERCENT';
+export type FeePolicyKind = 'WAIVE' | 'FIXED' | 'PERCENT' | 'COMBINED';
 export type FeePolicyStatus = 'ACTIVE' | 'INACTIVE' | 'EXPIRED' | 'EXHAUSTED';
 
 /** The terms of a policy, as stored. */
@@ -102,6 +108,19 @@ export function policyFeeTiers(terms: FeePolicyTerms): FeeTier[] {
           percentBps: Math.max(0, terms.percentBps ?? 0),
           minFeeMinor: terms.minFeeMinor ?? null,
           maxFeeMinor: terms.maxFeeMinor ?? null,
+        },
+      ];
+    case 'COMBINED':
+      // A share of the order plus a fixed amount per paid ticket. No floor or ceiling.
+      return [
+        {
+          minMinor: 0,
+          maxMinor: null,
+          feeMinor: Math.max(0, terms.feeMinor ?? 0),
+          type: 'COMBINED',
+          percentBps: Math.max(0, terms.percentBps ?? 0),
+          minFeeMinor: null,
+          maxFeeMinor: null,
         },
       ];
     default:

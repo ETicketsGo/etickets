@@ -482,6 +482,7 @@ function NewPolicyDrawer({
   const [errors, setErrors] = useState<DraftErrors>({});
   const [submitError, setSubmitError] = useState<{ message: string; policyId: string | null }>();
   const [subtotal, setSubtotal] = useState('500.00');
+  const [tickets, setTickets] = useState('1');
   const [previewCurrency, setPreviewCurrency] = useState('INR');
   const [feeMode, setFeeMode] = useState<'' | FeeMode>('');
   const [previewError, setPreviewError] = useState<string>();
@@ -497,6 +498,7 @@ function NewPolicyDrawer({
     setSubmitError(undefined);
     setPreviewError(undefined);
     setSubtotal('500.00');
+    setTickets('1');
     setFeeMode('');
     preview.reset();
   };
@@ -544,10 +546,16 @@ function NewPolicyDrawer({
       setPreviewError('Enter the basket subtotal as a number, like 500.00.');
       return;
     }
+    const ticketCount = Number(tickets.trim() || '1');
+    if (!Number.isInteger(ticketCount) || ticketCount < 0 || ticketCount > 1000) {
+      setPreviewError('Enter the number of paid tickets as a whole number, like 1 or 3.');
+      return;
+    }
     preview.mutate({
       ...terms,
       currency: currencyForPreview,
       subtotalMinor,
+      ticketCount,
       ...(feeMode ? { feeMode } : {}),
     });
   };
@@ -635,6 +643,26 @@ function NewPolicyDrawer({
             error={errors.fixedAmount}
             hint="In the currency below, like 10.00."
           />
+        )}
+        {draft.kind === 'COMBINED' && (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Input
+              label="Percentage of the order"
+              inputMode="decimal"
+              value={draft.percent}
+              onChange={(e) => set({ percent: e.target.value })}
+              error={errors.percent}
+              hint="For example 3 means 3%."
+            />
+            <Input
+              label="Fixed fee per ticket"
+              inputMode="decimal"
+              value={draft.fixedAmount}
+              onChange={(e) => set({ fixedAmount: e.target.value })}
+              error={errors.fixedAmount}
+              hint="Charged once for each paid ticket, in the currency below, like 5.00."
+            />
+          </div>
         )}
         {draft.kind === 'PERCENT' && (
           <div className="space-y-3">
@@ -733,6 +761,13 @@ function NewPolicyDrawer({
               inputMode="decimal"
               value={subtotal}
               onChange={(e) => setSubtotal(e.target.value)}
+            />
+            <Input
+              label="Paid tickets"
+              inputMode="numeric"
+              value={tickets}
+              hint="Only a per-ticket fee uses this."
+              onChange={(e) => setTickets(e.target.value)}
             />
             {draft.currency.trim() ? (
               <Input label="Currency" value={draft.currency} disabled />
