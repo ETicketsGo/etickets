@@ -15,6 +15,7 @@ import { AppException, ErrorCodes } from '../../common/errors';
 import type { RequestUser } from '../../common/decorators';
 import { offlineRevocationWindowMs } from '../../config/offline-revocation-window';
 import { deviceIsOperational, deviceNotActiveError } from './device-gate';
+import { bookingAdmits } from '../booking-admission';
 
 const STAFF_ROLES = [Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER, Role.CHECKIN_STAFF];
 
@@ -130,7 +131,13 @@ export class OfflineManifestService {
         eventSessionId,
         status: { in: [TicketStatus.ACTIVE, TicketStatus.CHECKED_IN] },
       },
-      select: { id: true, nonce: true, qrVersion: true, status: true },
+      select: {
+        id: true,
+        nonce: true,
+        qrVersion: true,
+        status: true,
+        booking: { select: { status: true } },
+      },
     });
 
     const now = Date.now();
@@ -157,7 +164,8 @@ export class OfflineManifestService {
       nonce: t.nonce,
       version: t.qrVersion,
       status: t.status,
-      eligible: t.status === TicketStatus.ACTIVE,
+      // Same rule as the online gate: a refunded or unpaid booking admits no one offline either.
+      eligible: t.status === TicketStatus.ACTIVE && bookingAdmits(t.booking.status),
     }));
     const signature = this.sign(meta, entries);
 
@@ -223,14 +231,21 @@ export class OfflineManifestService {
 
     const changed = await this.prisma.ticket.findMany({
       where: { eventSessionId, updatedAt: { gt: new Date(sinceMs) } },
-      select: { id: true, nonce: true, qrVersion: true, status: true },
+      select: {
+        id: true,
+        nonce: true,
+        qrVersion: true,
+        status: true,
+        booking: { select: { status: true } },
+      },
     });
     const changes: DeltaChange[] = changed.map((t) => ({
       ticketId: t.id,
       nonce: t.nonce,
       version: t.qrVersion,
       status: t.status,
-      eligible: t.status === TicketStatus.ACTIVE,
+      // Same rule as the online gate: a refunded or unpaid booking admits no one offline either.
+      eligible: t.status === TicketStatus.ACTIVE && bookingAdmits(t.booking.status),
     }));
     const base = {
       eventSessionId,
