@@ -44,6 +44,21 @@ Authoritative: `ns05.domaincontrol.com`, `ns06.domaincontrol.com` (GoDaddy).
 | `organizer-qa`                                                              | CNAME | `31by3s2m.up.railway.app`                                                           | QA organizer-web                     |
 | `_railway-verify.{www,api,admin,organizer,qa,api-qa,admin-qa,organizer-qa}` | TXT   | `railway-verify=...` (one per host)                                                 | Railway domain verification          |
 
+### Findings 2026-10-26 (draft zone prepared)
+
+- **Draft import file:** `docs/release/dns/eticketsgo.com.cloudflare-draft.zone` (BIND), built from
+  live DNS plus the SES record list the owner downloaded (`dns-records.csv`, 2026-09-08). **Not
+  complete:** do not import it until it is reconciled with the GoDaddy export.
+- **New public record** missing from the table above: apex TXT `v=verifydomain MS=2720010`
+  (Microsoft domain verification). Added to the draft.
+- **SES DKIM:** the three CNAMEs in `dns-records.csv` are live, but they belong to an
+  **ap-south-2 (Hyderabad)** SES identity. The platform sends from **ap-south-1 (Mumbai)**, and the
+  MAIL FROM MX is the Mumbai one. The Mumbai identity's three DKIM CNAMEs (hidden names) are
+  therefore NOT in that file. They must come from the GoDaddy export, or from SES > Verified
+  identities > eticketsgo.com (ap-south-1) > DKIM. Losing them would break DMARC
+  (`p=quarantine`) for every platform email.
+- Owner to confirm which SES region is in use, and whether the Hyderabad identity is still wanted.
+
 **Not discoverable from outside, so the GoDaddy export is mandatory before migrating:** the
 Amazon SES DKIM records (three CNAMEs named `<token>._domainkey`), any SES verification TXT,
 any other `_domainkey`, `_acme-challenge`, SRV or CAA records, and records on names not listed
