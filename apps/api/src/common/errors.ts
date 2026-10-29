@@ -43,6 +43,11 @@ export const ErrorCodes = {
    * deleted: that history is kept. The organizer console says to deactivate it instead.
    */
   TICKET_TYPE_HAS_HISTORY: 'TICKET_TYPE_HAS_HISTORY',
+  /**
+   * A ticket type with no order history that a bundle still includes cannot be deleted:
+   * the bundle would lose a line. Remove it from the bundle first. History outranks this.
+   */
+  TICKET_TYPE_IN_BUNDLE: 'TICKET_TYPE_IN_BUNDLE',
   EMAIL_ALREADY_REGISTERED: 'EMAIL_ALREADY_REGISTERED',
   INVALID_CREDENTIALS: 'INVALID_CREDENTIALS',
   INVALID_REFRESH_TOKEN: 'INVALID_REFRESH_TOKEN',

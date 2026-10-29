@@ -11,7 +11,13 @@ describe('EventsService.deleteTicketType', () => {
   const owner = { id: 'u1', roles: [] } as never;
 
   function setup(
-    opts: { sold?: number; held?: number; bookingItems?: number; tickets?: number } = {},
+    opts: {
+      sold?: number;
+      held?: number;
+      bookingItems?: number;
+      tickets?: number;
+      bundleItems?: number;
+    } = {},
   ) {
     const prisma = {
       ticketType: {
@@ -26,6 +32,7 @@ describe('EventsService.deleteTicketType', () => {
       ticketInventory: { deleteMany: jest.fn().mockReturnValue('inventory-op') },
       bookingItem: { count: jest.fn().mockResolvedValue(opts.bookingItems ?? 0) },
       ticket: { count: jest.fn().mockResolvedValue(opts.tickets ?? 0) },
+      bundleItem: { count: jest.fn().mockResolvedValue(opts.bundleItems ?? 0) },
       $transaction: jest.fn().mockResolvedValue([]),
     };
     const access = { assertMember: jest.fn().mockResolvedValue(undefined) };
@@ -69,6 +76,30 @@ describe('EventsService.deleteTicketType', () => {
     await expect(service.deleteTicketType(owner, 'tt1')).rejects.toMatchObject({
       code: 'TICKET_TYPE_HAS_HISTORY',
     });
+  });
+
+  it('refuses with 409 TICKET_TYPE_IN_BUNDLE when only a bundle names it', async () => {
+    const { service, prisma, audit } = setup({ bundleItems: 2 });
+    const err = await service.deleteTicketType(owner, 'tt1').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(AppException);
+    expect(err).toMatchObject({
+      code: ErrorCodes.TICKET_TYPE_IN_BUNDLE,
+      details: { bundleItems: 2 },
+    });
+    expect((err as AppException).getStatus()).toBe(HttpStatus.CONFLICT);
+    expect((err as AppException).message).not.toMatch(/orders/);
+    // eslint-disable-next-line no-control-regex
+    expect((err as AppException).message).toMatch(/^[\x00-\x7F]*$/);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it('history outranks the bundle check', async () => {
+    const { service, prisma } = setup({ tickets: 1, bundleItems: 1 });
+    await expect(service.deleteTicketType(owner, 'tt1')).rejects.toMatchObject({
+      code: 'TICKET_TYPE_HAS_HISTORY',
+    });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
   it('maps a foreign-key failure from a late booking to the same 409, never a 500', async () => {
