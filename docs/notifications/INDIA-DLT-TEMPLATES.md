@@ -50,14 +50,44 @@ API that lists them, so copy each one from the MSG91 dashboard (SMS > Templates)
 
 | Approved template    | DLT id              | Kind in code               | DLT id key                          | MSG91 id key                           | Text verified | Trigger                                |
 | -------------------- | ------------------- | -------------------------- | ----------------------------------- | -------------------------------------- | ------------- | -------------------------------------- |
-| Login OTP            | 1777179239436687127 | `ACCOUNT_SECURITY`         | `DLT_TEMPLATE_ID_OTP`               | `MSG91_SMS_TEMPLATE_OTP`               | **no**        | phone sign-in                          |
-| Password Reset       | 1777179240353412789 | `PASSWORD_RESET_REQUESTED` | `DLT_TEMPLATE_ID_PASSWORD_RESET`    | `MSG91_SMS_TEMPLATE_PASSWORD_RESET`    | **no**        | exists; policy sends email only        |
-| Password Change      | 1777179240360916280 | `PASSWORD_CHANGED`         | `DLT_TEMPLATE_ID_PASSWORD_CHANGE`   | `MSG91_SMS_TEMPLATE_PASSWORD_CHANGE`   | **no**        | exists; policy sends email only        |
+| Login OTP            | 1777179239436687127 | `ACCOUNT_SECURITY`         | `DLT_TEMPLATE_ID_OTP`               | `MSG91_SMS_TEMPLATE_OTP`               | **yes**       | phone sign-in                          |
+| Password Reset       | 1777179240353412789 | `PASSWORD_RESET_REQUESTED` | `DLT_TEMPLATE_ID_PASSWORD_RESET`    | `MSG91_SMS_TEMPLATE_PASSWORD_RESET`    | **yes**       | exists; policy sends email only        |
+| Password Change      | 1777179240360916280 | `PASSWORD_CHANGED`         | `DLT_TEMPLATE_ID_PASSWORD_CHANGE`   | `MSG91_SMS_TEMPLATE_PASSWORD_CHANGE`   | **yes**       | exists; policy sends email only        |
 | Password Update      | 1777179239457786914 | `PASSWORD_UPDATE`          | `DLT_TEMPLATE_ID_PASSWORD_UPDATE`   | `MSG91_SMS_TEMPLATE_PASSWORD_UPDATE`   | **no**        | not implemented                        |
-| Booking Confirmation | 1777179239474119451 | `BOOKING_CONFIRMED`        | `DLT_TEMPLATE_ID_BOOKING_CONFIRMED` | `MSG91_SMS_TEMPLATE_BOOKING_CONFIRMED` | **no**        | exists; policy sends no SMS            |
-| Booking Cancellation | 1777179239566169492 | `BOOKING_CANCELLED`        | `DLT_TEMPLATE_ID_BOOKING_CANCELLED` | `MSG91_SMS_TEMPLATE_BOOKING_CANCELLED` | **no**        | exists; policy sends no SMS            |
-| Payment Pending      | 1777179239515564360 | `PAYMENT_PENDING`          | `DLT_TEMPLATE_ID_PAYMENT_PENDING`   | `MSG91_SMS_TEMPLATE_PAYMENT_PENDING`   | **no**        | not implemented (no notification type) |
-| Event Reminder       | 1777179240387088578 | `EVENT_REMINDER`           | `DLT_TEMPLATE_ID_EVENT_REMINDER`    | `MSG91_SMS_TEMPLATE_EVENT_REMINDER`    | **no**        | show-reminder job; policy sends no SMS |
+| Booking Confirmation | 1777179239474119451 | `BOOKING_CONFIRMED`        | `DLT_TEMPLATE_ID_BOOKING_CONFIRMED` | `MSG91_SMS_TEMPLATE_BOOKING_CONFIRMED` | **yes**       | exists; policy sends no SMS            |
+| Booking Cancellation | 1777179239566169492 | `BOOKING_CANCELLED`        | `DLT_TEMPLATE_ID_BOOKING_CANCELLED` | `MSG91_SMS_TEMPLATE_BOOKING_CANCELLED` | **yes**       | exists; policy sends no SMS            |
+| Payment Pending      | 1777179239515564360 | `PAYMENT_PENDING`          | `DLT_TEMPLATE_ID_PAYMENT_PENDING`   | `MSG91_SMS_TEMPLATE_PAYMENT_PENDING`   | **yes**       | not implemented (no notification type) |
+| Event Reminder       | 1777179240387088578 | `EVENT_REMINDER`           | `DLT_TEMPLATE_ID_EVENT_REMINDER`    | `MSG91_SMS_TEMPLATE_EVENT_REMINDER`    | **yes**       | show-reminder job; policy sends no SMS |
+
+### Registered in MSG91 (read back 2026-10-29)
+
+Each row was read from MSG91 (`getTemplateVersions`): DLT-verified, sender ETKTGO, DLT id
+matching the table above. The MSG91 template id is not a secret; it is set as
+`MSG91_SMS_TEMPLATE_<KIND>`. Password Update is approved on DLT but **not added in MSG91**,
+so it cannot send.
+
+| Template             | MSG91 template id        | Registered wording (MSG91 variables)                                                                                        |
+| -------------------- | ------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| Login OTP            | 6ae2c05f95642b7a550d6c32 | Your ETicketsGo verification code is ##num##. Valid for 5 minutes. Do not share this code.                                  |
+| Password Reset       | 6ae2c1b46655943701016402 | Your ETicketsGo password reset code is ##num##. Valid for 5 minutes. Do not share this code.                                |
+| Password Change      | 6ae2c2246b90591b2a0196e2 | Your ETicketsGo password was changed successfully. If this was not you, contact our support team immediately.               |
+| Booking Confirmation | 6ae2c2af9aa037348c0f8612 | ETicketsGo: Your booking ##alp1## for ##alp2## on ##alp3## is confirmed. View your ticket in your account.                  |
+| Booking Cancellation | 6ae2c278b17dc355cf032122 | ETicketsGo: Your booking ##alp1## for ##alp2## has been cancelled. Check your account for refund details, if applicable.    |
+| Payment Pending      | 6ae2c4bceee4c4ebcf0cb723 | ETicketsGo: Your booking ##alp## is awaiting payment confirmation. Check your booking status before making another payment. |
+| Event Reminder       | 6ae2c31a5da0579e850ca872 | ETicketsGo: Reminder! Your event ##alp1## is scheduled for ##alp2##. Please carry your ticket QR code for entry.            |
+| Password Update      | (not in MSG91)           | -                                                                                                                           |
+
+DLT form (each `{#var#}` is one variable) of the templates not shown in section 2:
+
+```text
+Your ETicketsGo password reset code is {#var#}. Valid for 5 minutes. Do not share this code.
+Your ETicketsGo password was changed successfully. If this was not you, contact our support team immediately.
+ETicketsGo: Your booking {#var#} is awaiting payment confirmation. Check your booking status before making another payment.
+ETicketsGo: Reminder! Your event {#var#} is scheduled for {#var#}. Please carry your ticket QR code for entry.
+```
+
+The sign-in text says "Valid for 5 minutes"; a code is accepted for `OTP_TTL_MINUTES` (10) in
+`auth/phone-otp.service.ts`. Owner decision: keep 10, or shorten to 5 to match the wording.
 
 **Text verified = no** means the registered wording and its variables could not be read back
 from MSG91, so the kind is refused (never sent) until somebody copies the exact registered text
@@ -103,11 +133,11 @@ configuration change.
 ### 2.1 Sign-in code (OTP)
 
 ```text
-{#var#} is your ETicketsGo sign-in code. It expires in {#var#} minutes. Never share it with anyone.
+Your ETicketsGo verification code is {#var#}. Valid for 5 minutes. Do not share this code.
 ```
 
 - Variables, in order: `otp` (6 digits), `minutes` (10).
-- MSG91 template content: `##otp## is your ETicketsGo sign-in code. It expires in ##minutes## minutes. Never share it with anyone.`
+- MSG91 template content: `Your ETicketsGo verification code is ##num##. Valid for 5 minutes. Do not share this code.`
 - Env: `MSG91_SMS_TEMPLATE_OTP`, `DLT_TEMPLATE_ID_OTP`
 - Leave `OTP_SMS_TEMPLATE` **unset**. Its default is this exact text; a different value makes
   the API refuse to boot when MSG91 carries SMS.
@@ -129,7 +159,7 @@ ETicketsGo: {#var#} on {#var#} is cancelled. Booking {#var#}. Check your email f
 ### 2.3 Booking confirmed
 
 ```text
-ETicketsGo: Booking {#var#} for {#var#} on {#var#} is confirmed. Your tickets are in your email and in your account. - DeepTrics
+ETicketsGo: Your booking {#var#} for {#var#} on {#var#} is confirmed. View your ticket in your account.
 ```
 
 - Variables, in order: `reference`, `event`, `when`.
@@ -138,7 +168,7 @@ ETicketsGo: Booking {#var#} for {#var#} on {#var#} is confirmed. Your tickets ar
 ### 2.4 Booking cancelled
 
 ```text
-ETicketsGo: Booking {#var#} is cancelled. Check your email for refund details. - DeepTrics
+ETicketsGo: Your booking {#var#} for {#var#} has been cancelled. Check your account for refund details, if applicable.
 ```
 
 - Variables: `reference`.

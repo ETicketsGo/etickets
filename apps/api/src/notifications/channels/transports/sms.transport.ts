@@ -418,7 +418,7 @@ export class Msg91SmsTransport implements SmsTransport {
     }
 
     const recipient: Record<string, string> = { mobiles: mobile };
-    template.variables.forEach((name, i) => {
+    (template.msg91Variables ?? template.variables).forEach((name, i) => {
       recipient[name] = values[i];
     });
 

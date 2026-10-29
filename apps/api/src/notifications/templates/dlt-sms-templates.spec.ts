@@ -98,12 +98,12 @@ describe('DLT SMS registry', () => {
           startsAt: '2026-11-01T13:30:00.000Z',
           timeZone: 'Asia/Kolkata',
         },
-        'ETicketsGo: Booking ETG-IN-2026-000042 for Kalki 2898 AD on 01 Nov 2026, 07:00 PM is confirmed. Your tickets are in your email and in your account. - DeepTrics',
+        'ETicketsGo: Your booking ETG-IN-2026-000042 for Kalki 2898 AD on 01 Nov 2026, 07:00 PM is confirmed. View your ticket in your account.',
       ],
       [
         NotificationType.BOOKING_CANCELLED,
-        { reference: 'ETG-IN-2026-000042' },
-        'ETicketsGo: Booking ETG-IN-2026-000042 is cancelled. Check your email for refund details. - DeepTrics',
+        { reference: 'ETG-IN-2026-000042', eventTitle: 'Kalki 2898 AD' },
+        'ETicketsGo: Your booking ETG-IN-2026-000042 for Kalki 2898 AD has been cancelled. Check your account for refund details, if applicable.',
       ],
       [
         NotificationType.REFUND_COMPLETED,
@@ -136,8 +136,8 @@ describe('DLT SMS registry', () => {
 
     it('the sign-in code text, filled as PhoneOtpService fills it', () => {
       const t = DLT_SMS_TEMPLATES[OTP_SMS_KIND];
-      expect(renderDltSms(t, ['042917', '10'])).toBe(
-        '042917 is your ETicketsGo sign-in code. It expires in 10 minutes. Never share it with anyone.',
+      expect(renderDltSms(t, ['042917'])).toBe(
+        'Your ETicketsGo verification code is 042917. Valid for 5 minutes. Do not share this code.',
       );
     });
   });
@@ -148,7 +148,7 @@ describe('DLT SMS registry', () => {
       must be the registered text, or every code in India is refused before it is sent.
     */
     const src = readFileSync(join(__dirname, '../../auth/phone-otp.service.ts'), 'utf8');
-    const m = src.match(/'(\{code\} is your [^']+)'/);
+    const m = src.match(/'(Your ETicketsGo verification code is \{code\}[^']+)'/);
     expect(m).not.toBeNull();
     const asDlt = (m as RegExpMatchArray)[1]
       .replace('{code}', DLT_VARIABLE)
@@ -168,14 +168,14 @@ describe('DLT SMS registry', () => {
     expect(
       matchDltSms(
         t,
-        '042917 is your ETicketsGo sign-in code. It expires in 10 minutes. Never share it with anyone',
+        'Your ETicketsGo verification code is 042917. Valid for 5 minutes. Do not share this code',
       ),
     ).toBeNull();
     // A variable longer than DLT allows is not the registered message either.
     expect(
       matchDltSms(
         t,
-        `${'9'.repeat(31)} is your ETicketsGo sign-in code. It expires in 10 minutes. Never share it with anyone.`,
+        `Your ETicketsGo verification code is ${'9'.repeat(31)}. Valid for 5 minutes. Do not share this code.`,
       ),
     ).toBeNull();
   });
@@ -404,7 +404,7 @@ describe('the eight approved DLT templates', () => {
       '1777179239436687127',
       'MSG91_SMS_TEMPLATE_OTP',
       'DLT_TEMPLATE_ID_OTP',
-      ['otp', 'minutes'],
+      ['otp'],
     ],
     [
       'PASSWORD_RESET',
@@ -412,7 +412,7 @@ describe('the eight approved DLT templates', () => {
       '1777179240353412789',
       'MSG91_SMS_TEMPLATE_PASSWORD_RESET',
       'DLT_TEMPLATE_ID_PASSWORD_RESET',
-      [],
+      ['code'],
     ],
     [
       'PASSWORD_CHANGE',
@@ -444,7 +444,7 @@ describe('the eight approved DLT templates', () => {
       '1777179239566169492',
       'MSG91_SMS_TEMPLATE_BOOKING_CANCELLED',
       'DLT_TEMPLATE_ID_BOOKING_CANCELLED',
-      ['reference'],
+      ['reference', 'event'],
     ],
     [
       'PAYMENT_PENDING',
@@ -452,7 +452,7 @@ describe('the eight approved DLT templates', () => {
       '1777179239515564360',
       'MSG91_SMS_TEMPLATE_PAYMENT_PENDING',
       'DLT_TEMPLATE_ID_PAYMENT_PENDING',
-      [],
+      ['reference'],
     ],
     [
       'EVENT_REMINDER',
@@ -460,7 +460,7 @@ describe('the eight approved DLT templates', () => {
       '1777179240387088578',
       'MSG91_SMS_TEMPLATE_EVENT_REMINDER',
       'DLT_TEMPLATE_ID_EVENT_REMINDER',
-      [],
+      ['event', 'when'],
     ],
   ];
 
@@ -482,14 +482,67 @@ describe('the eight approved DLT templates', () => {
     },
   );
 
-  it.each(APPROVED)(
-    '%s is unsendable while its registered text is unverified',
-    (_n, kind, dltId) => {
-      const t = DLT_SMS_TEMPLATES[kind as keyof typeof DLT_SMS_TEMPLATES];
+  /*
+    Read back from MSG91 (getTemplateVersions, 2026-10-29): each MSG91 template, its DLT id,
+    sender ETKTGO, wording and `##name##` variables. PASSWORD_UPDATE is not in the MSG91 account.
+  */
+  const REGISTERED: Record<string, { msg91: string; vars: string[] } | null> = {
+    OTP_LOGIN: {
+      msg91:
+        'Your ETicketsGo verification code is ##num##. Valid for 5 minutes. Do not share this code.',
+      vars: ['num'],
+    },
+    PASSWORD_RESET: {
+      msg91:
+        'Your ETicketsGo password reset code is ##num##. Valid for 5 minutes. Do not share this code.',
+      vars: ['num'],
+    },
+    PASSWORD_CHANGE: {
+      msg91:
+        'Your ETicketsGo password was changed successfully. If this was not you, contact our support team immediately.',
+      vars: [],
+    },
+    PASSWORD_UPDATE: null,
+    BOOKING_CONFIRMED: {
+      msg91:
+        'ETicketsGo: Your booking ##alp1## for ##alp2## on ##alp3## is confirmed. View your ticket in your account.',
+      vars: ['alp1', 'alp2', 'alp3'],
+    },
+    BOOKING_CANCELLED: {
+      msg91:
+        'ETicketsGo: Your booking ##alp1## for ##alp2## has been cancelled. Check your account for refund details, if applicable.',
+      vars: ['alp1', 'alp2'],
+    },
+    PAYMENT_PENDING: {
+      msg91:
+        'ETicketsGo: Your booking ##alp## is awaiting payment confirmation. Check your booking status before making another payment.',
+      vars: ['alp'],
+    },
+    EVENT_REMINDER: {
+      msg91:
+        'ETicketsGo: Reminder! Your event ##alp1## is scheduled for ##alp2##. Please carry your ticket QR code for entry.',
+      vars: ['alp1', 'alp2'],
+    },
+  };
+
+  it.each(APPROVED)('%s matches its MSG91 registration, or is unsendable', (name, kind, dltId) => {
+    const t = DLT_SMS_TEMPLATES[kind as keyof typeof DLT_SMS_TEMPLATES];
+    const reg = REGISTERED[name];
+    if (!reg) {
       expect(t.textVerified).toBe(false);
       expect(dltSendRefusal(t, dltId)).toMatch(/unverified/);
-    },
-  );
+      return;
+    }
+    expect(t.textVerified).toBe(true);
+    const names = t.msg91Variables ?? t.variables;
+    expect(names).toEqual(reg.vars);
+    expect(
+      t
+        .text!.split(DLT_VARIABLE)
+        .reduce((o, p, i) => (i === 0 ? p : `${o}##${names[i - 1]}##${p}`), ''),
+    ).toBe(reg.msg91);
+    expect(dltSendRefusal(t, dltId)).toBeNull();
+  });
 
   it('show cancelled and refund have no approved template, so MSG91 never sends them', () => {
     for (const t of [

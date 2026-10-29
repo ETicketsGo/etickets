@@ -130,6 +130,12 @@ export interface DltSmsTemplate {
    * check below; the names are what MSG91 matches on.
    */
   variables: readonly string[];
+  /**
+   * The variable names as registered in MSG91 (`##num##`, `##alp1##` ...), same order as
+   * `variables`. The flow API fills the template by these names, so they go on the wire;
+   * `variables` says where each value comes from. Omitted when the two are the same.
+   */
+  msg91Variables?: readonly string[];
   /** Env var holding MSG91's own template id for this kind. */
   msg91TemplateIdEnv: string;
   /** Env var holding the 19-digit DLT Content Template ID for this kind. */
@@ -148,44 +154,47 @@ export interface DltSmsTemplate {
 
 export const DLT_SMS_TEMPLATES: Readonly<Record<DltSmsKind, DltSmsTemplate>> = {
   /*
-    Word for word the default in PhoneOtpService, so a deployment that leaves OTP_SMS_TEMPLATE
-    unset sends the registered text. The minutes are a variable because the lifetime is a
-    constant in the auth code, and a number written into the approval would silently go stale
-    the day somebody changed it.
+    Word for word the default in PhoneOtpService and the MSG91 registration. The lifetime is
+    fixed text in the approved wording; the code itself lives OTP_TTL_MINUTES (see that file).
   */
   [OTP_SMS_KIND]: {
     kind: OTP_SMS_KIND,
     label: 'Sign-in code (OTP)',
     category: 'SERVICE_IMPLICIT',
-    text: '{#var#} is your ETicketsGo sign-in code. It expires in {#var#} minutes. Never share it with anyone.',
-    variables: ['otp', 'minutes'],
+    text: 'Your ETicketsGo verification code is {#var#}. Valid for 5 minutes. Do not share this code.',
+    variables: ['otp'],
+    msg91Variables: ['num'],
     msg91TemplateIdEnv: 'MSG91_SMS_TEMPLATE_OTP',
     dltTemplateIdEnv: 'DLT_TEMPLATE_ID_OTP',
     approved: { name: 'OTP_LOGIN', dltTemplateId: '1777179239436687127' },
-    // The registered wording could not be read back from MSG91 (no list API): unproven.
-    textVerified: false,
+    // Compared with MSG91 (getTemplateVersions, 2026-10-29): wording, DLT id and sender ETKTGO.
+    textVerified: true,
   },
   [NotificationType.BOOKING_CONFIRMED]: {
     kind: NotificationType.BOOKING_CONFIRMED,
     label: 'Booking confirmed',
     category: 'SERVICE_IMPLICIT',
-    text: 'ETicketsGo: Booking {#var#} for {#var#} on {#var#} is confirmed. Your tickets are in your email and in your account. - DeepTrics',
+    text: 'ETicketsGo: Your booking {#var#} for {#var#} on {#var#} is confirmed. View your ticket in your account.',
     variables: ['reference', 'event', 'when'],
+    msg91Variables: ['alp1', 'alp2', 'alp3'],
     msg91TemplateIdEnv: 'MSG91_SMS_TEMPLATE_BOOKING_CONFIRMED',
     dltTemplateIdEnv: 'DLT_TEMPLATE_ID_BOOKING_CONFIRMED',
     approved: { name: 'BOOKING_CONFIRMED', dltTemplateId: '1777179239474119451' },
-    textVerified: false,
+    // Compared with MSG91 (getTemplateVersions, 2026-10-29): wording, DLT id and sender ETKTGO.
+    textVerified: true,
   },
   [NotificationType.BOOKING_CANCELLED]: {
     kind: NotificationType.BOOKING_CANCELLED,
     label: 'Booking cancelled',
     category: 'SERVICE_IMPLICIT',
-    text: 'ETicketsGo: Booking {#var#} is cancelled. Check your email for refund details. - DeepTrics',
-    variables: ['reference'],
+    text: 'ETicketsGo: Your booking {#var#} for {#var#} has been cancelled. Check your account for refund details, if applicable.',
+    variables: ['reference', 'event'],
+    msg91Variables: ['alp1', 'alp2'],
     msg91TemplateIdEnv: 'MSG91_SMS_TEMPLATE_BOOKING_CANCELLED',
     dltTemplateIdEnv: 'DLT_TEMPLATE_ID_BOOKING_CANCELLED',
     approved: { name: 'BOOKING_CANCELLED', dltTemplateId: '1777179239566169492' },
-    textVerified: false,
+    // Compared with MSG91 (getTemplateVersions, 2026-10-29): wording, DLT id and sender ETKTGO.
+    textVerified: true,
   },
   [NotificationType.REFUND_COMPLETED]: {
     kind: NotificationType.REFUND_COMPLETED,
@@ -215,32 +224,36 @@ export const DLT_SMS_TEMPLATES: Readonly<Record<DltSmsKind, DltSmsTemplate>> = {
     approved: null,
     textVerified: false,
   },
-  /*
-    Approved on DLT, wording not known to this code. Unsendable until the registered text and
-    its variables are copied in from MSG91 and `textVerified` is set.
-  */
   [NotificationType.PASSWORD_RESET_REQUESTED]: {
     kind: NotificationType.PASSWORD_RESET_REQUESTED,
     label: 'Password reset',
     category: 'SERVICE_IMPLICIT',
-    text: null,
-    variables: [],
+    text: 'Your ETicketsGo password reset code is {#var#}. Valid for 5 minutes. Do not share this code.',
+    variables: ['code'],
+    msg91Variables: ['num'],
     msg91TemplateIdEnv: 'MSG91_SMS_TEMPLATE_PASSWORD_RESET',
     dltTemplateIdEnv: 'DLT_TEMPLATE_ID_PASSWORD_RESET',
     approved: { name: 'PASSWORD_RESET', dltTemplateId: '1777179240353412789' },
-    textVerified: false,
+    // Compared with MSG91 (getTemplateVersions, 2026-10-29): wording, DLT id and sender ETKTGO.
+    textVerified: true,
   },
   [NotificationType.PASSWORD_CHANGED]: {
     kind: NotificationType.PASSWORD_CHANGED,
     label: 'Password changed',
     category: 'SERVICE_IMPLICIT',
-    text: null,
+    text: 'Your ETicketsGo password was changed successfully. If this was not you, contact our support team immediately.',
     variables: [],
     msg91TemplateIdEnv: 'MSG91_SMS_TEMPLATE_PASSWORD_CHANGE',
     dltTemplateIdEnv: 'DLT_TEMPLATE_ID_PASSWORD_CHANGE',
     approved: { name: 'PASSWORD_CHANGE', dltTemplateId: '1777179240360916280' },
-    textVerified: false,
+    // Compared with MSG91 (getTemplateVersions, 2026-10-29): wording, DLT id and sender ETKTGO.
+    textVerified: true,
   },
+  /*
+    Approved on DLT (1777179239457786914) but NOT added to the MSG91 account: getTemplateVersions
+    knows no template for it. Unsendable until the owner adds it in MSG91 and its wording is
+    copied in here.
+  */
   [PASSWORD_UPDATE_SMS_KIND]: {
     kind: PASSWORD_UPDATE_SMS_KIND,
     label: 'Password updated',
@@ -256,23 +269,27 @@ export const DLT_SMS_TEMPLATES: Readonly<Record<DltSmsKind, DltSmsTemplate>> = {
     kind: PAYMENT_PENDING_SMS_KIND,
     label: 'Payment pending',
     category: 'SERVICE_IMPLICIT',
-    text: null,
-    variables: [],
+    text: 'ETicketsGo: Your booking {#var#} is awaiting payment confirmation. Check your booking status before making another payment.',
+    variables: ['reference'],
+    msg91Variables: ['alp'],
     msg91TemplateIdEnv: 'MSG91_SMS_TEMPLATE_PAYMENT_PENDING',
     dltTemplateIdEnv: 'DLT_TEMPLATE_ID_PAYMENT_PENDING',
     approved: { name: 'PAYMENT_PENDING', dltTemplateId: '1777179239515564360' },
-    textVerified: false,
+    // Compared with MSG91 (getTemplateVersions, 2026-10-29): wording, DLT id and sender ETKTGO.
+    textVerified: true,
   },
   [NotificationType.EVENT_REMINDER]: {
     kind: NotificationType.EVENT_REMINDER,
     label: 'Event reminder',
     category: 'SERVICE_IMPLICIT',
-    text: null,
-    variables: [],
+    text: 'ETicketsGo: Reminder! Your event {#var#} is scheduled for {#var#}. Please carry your ticket QR code for entry.',
+    variables: ['event', 'when'],
+    msg91Variables: ['alp1', 'alp2'],
     msg91TemplateIdEnv: 'MSG91_SMS_TEMPLATE_EVENT_REMINDER',
     dltTemplateIdEnv: 'DLT_TEMPLATE_ID_EVENT_REMINDER',
     approved: { name: 'EVENT_REMINDER', dltTemplateId: '1777179240387088578' },
-    textVerified: false,
+    // Compared with MSG91 (getTemplateVersions, 2026-10-29): wording, DLT id and sender ETKTGO.
+    textVerified: true,
   },
 };
 
@@ -527,6 +544,7 @@ export function dltVariablesFromPayload(
   const zone = text('timeZone') || text('timezone') || 'Asia/Kolkata';
   const source: Record<string, () => string> = {
     reference: () => text('reference'),
+    code: () => text('code'),
     event: () => fitDltVariable(text('eventTitle') || text('eventName')),
     when: () => formatShowTime(text('startsAt'), zone),
     amount: () => formatMinor(p['amountMinor'], text('currency')),

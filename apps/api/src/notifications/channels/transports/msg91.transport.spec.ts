@@ -95,7 +95,7 @@ describe('MSG91 SMS', () => {
   const templated = (over: Record<string, string> = {}) =>
     new Msg91SmsTransport(config({ ...READY, ...over }));
   const cancelled = (over: Partial<RenderedNotification> = {}) =>
-    msg({ payload: { reference: 'ETG-IN-2026-000042' }, ...over });
+    msg({ payload: { reference: 'ETG-IN-2026-000042', eventTitle: 'Kalki 2898 AD' }, ...over });
 
   it('refuses permanently when no DLT template is configured for the type', async () => {
     /*
@@ -190,7 +190,8 @@ describe('MSG91 SMS', () => {
     // Exactly the registered variables: no `body`, nothing a payload smuggled in.
     expect(body.recipients[0]).toEqual({
       mobiles: '919876543210',
-      reference: 'ETG-IN-2026-000042',
+      alp1: 'ETG-IN-2026-000042',
+      alp2: 'Kalki 2898 AD',
     });
   });
 
@@ -198,7 +199,11 @@ describe('MSG91 SMS', () => {
     respond(200, { type: 'success', message: 'req-1' });
     await templated().send(
       cancelled({
-        payload: { reference: 'ETG-IN-2026-000042', smsTemplateVars: { body: 'anything' } },
+        payload: {
+          reference: 'ETG-IN-2026-000042',
+          eventTitle: 'Kalki 2898 AD',
+          smsTemplateVars: { body: 'anything' },
+        },
       }),
     );
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
@@ -227,15 +232,14 @@ describe('MSG91 SMS', () => {
       respond(200, { type: 'success', message: 'req-otp' });
       await new Msg91SmsTransport(config(OTP)).send(
         otp(
-          '042917 is your ETicketsGo sign-in code. It expires in 10 minutes. Never share it with anyone.',
+          'Your ETicketsGo verification code is 042917. Valid for 5 minutes. Do not share this code.',
         ),
       );
       const body = JSON.parse(fetchMock.mock.calls[0][1].body);
       expect(body.template_id).toBe('tmpl-otp');
       expect(body.recipients[0]).toEqual({
         mobiles: '919876543210',
-        otp: '042917',
-        minutes: '10',
+        num: '042917',
       });
     });
 
@@ -353,10 +357,11 @@ describe('MSG91 SMS: show cancelled, online and cash', () => {
   /** What the operator will read, rebuilt from the request: MSG91 fills the template by name. */
   function sentText(template: DltSmsTemplate): string {
     const recipient = JSON.parse(fetchMock.mock.calls[0][1].body).recipients[0];
-    expect(Object.keys(recipient).sort()).toEqual(['mobiles', ...template.variables].sort());
+    const names = template.msg91Variables ?? template.variables;
+    expect(Object.keys(recipient).sort()).toEqual(['mobiles', ...names].sort());
     const text = renderDltSms(
       template,
-      template.variables.map((name) => recipient[name]),
+      names.map((name) => recipient[name]),
     );
     // The guard: what goes out is an instance of the registered wording, or it is not sent.
     expect(matchDltSms(template, text)).not.toBeNull();
@@ -507,7 +512,7 @@ describe('MSG91 SMS: India numbers and the non-production recipient guard', () =
     DLT_TEMPLATE_ID_BOOKING_CANCELLED: '1707000000000000001',
   };
   const cancelled = (over: Partial<RenderedNotification> = {}) =>
-    msg({ payload: { reference: 'ETG-IN-2026-000042' }, ...over });
+    msg({ payload: { reference: 'ETG-IN-2026-000042', eventTitle: 'Kalki 2898 AD' }, ...over });
 
   it.each([
     ['+919876543210', '919876543210'],
@@ -598,7 +603,7 @@ describe('MSG91 SMS: India numbers and the non-production recipient guard', () =
       ).send(
         msg({
           type: 'ACCOUNT_SECURITY' as never,
-          body: '482913 is your ETicketsGo sign-in code. It expires in 10 minutes. Never share it with anyone.',
+          body: 'Your ETicketsGo verification code is 482913. Valid for 5 minutes. Do not share this code.',
         }),
       );
     } finally {
@@ -624,7 +629,7 @@ describe('MSG91 SMS: India numbers and the non-production recipient guard', () =
     ).send(
       msg({
         type: 'ACCOUNT_SECURITY' as never,
-        body: '482913 is your ETicketsGo sign-in code. It expires in 10 minutes. Never share it with anyone.',
+        body: 'Your ETicketsGo verification code is 482913. Valid for 5 minutes. Do not share this code.',
       }),
     );
     expect(out).toEqual({ provider: 'log' });
@@ -681,14 +686,14 @@ describe('MSG91 SMS: only approved, verified templates send', () => {
 
   it.each(
     Object.values(DLT_SMS_TEMPLATES)
-      .filter((t) => t.approved)
+      .filter((t) => t.approved && !t.textVerified)
       .map((t) => [t.approved!.name, t] as const),
   )('approved %s is refused while its registered text is unverified', async (_name, t) => {
     const err = await refusal(
       { [t.msg91TemplateIdEnv]: 'tmpl-x', [t.dltTemplateIdEnv]: t.approved!.dltTemplateId },
       {
         type: t.kind as never,
-        body: '482913 is your ETicketsGo sign-in code. It expires in 10 minutes. Never share it with anyone.',
+        body: 'Your ETicketsGo verification code is 482913. Valid for 5 minutes. Do not share this code.',
         payload: PAYLOAD,
       },
     );
@@ -697,5 +702,37 @@ describe('MSG91 SMS: only approved, verified templates send', () => {
     // Never the code, never the key.
     expect(err.message).not.toContain('482913');
     expect(err.message).not.toContain(AUTH_KEY);
+  });
+
+  it.each(
+    Object.values(DLT_SMS_TEMPLATES)
+      .filter((t) => t.approved && t.textVerified)
+      .map((t) => [t.approved!.name, t] as const),
+  )('verified %s sends under MSG91 variable names, filling the registered text', async (_n, t) => {
+    respond(200, { type: 'success', message: 'req-v' });
+    await new Msg91SmsTransport(
+      config({
+        ...HEADER,
+        [t.msg91TemplateIdEnv]: 'tmpl-v',
+        [t.dltTemplateIdEnv]: t.approved!.dltTemplateId,
+      }),
+    ).send(
+      msg({
+        type: t.kind as never,
+        body: 'Your ETicketsGo verification code is 482913. Valid for 5 minutes. Do not share this code.',
+        payload: { ...PAYLOAD, code: '551204' },
+      }),
+    );
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.template_id).toBe('tmpl-v');
+    const names = t.msg91Variables ?? t.variables;
+    const recipient = body.recipients[0];
+    expect(Object.keys(recipient).sort()).toEqual(['mobiles', ...names].sort());
+    const filled = renderDltSms(
+      t,
+      names.map((n) => recipient[n]),
+    );
+    expect(filled).not.toMatch(/\{#var#\}|undefined/);
+    expect(filled).toMatch(/ETicketsGo/);
   });
 });

@@ -194,7 +194,7 @@ export class PhoneOtpService {
     */
     const template =
       this.config.get<string>('OTP_SMS_TEMPLATE') ??
-      '{code} is your ETicketsGo sign-in code. It expires in {minutes} minutes. Never share it with anyone.';
+      'Your ETicketsGo verification code is {code}. Valid for 5 minutes. Do not share this code.';
     const body = template.replace('{code}', code).replace('{minutes}', String(OTP_TTL_MINUTES));
     let outcome;
     try {

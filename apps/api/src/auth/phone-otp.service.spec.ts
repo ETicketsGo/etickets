@@ -202,7 +202,7 @@ describe('PhoneOtpService.requestCode', () => {
     const { service, sent } = setup();
     await service.requestCode('+919704464007');
     expect(sent[0].body).toMatch(/\d{6}/);
-    expect(sent[0].body).toMatch(/never share/i);
+    expect(sent[0].body).toMatch(/do not share/i);
   });
 
   it('never returns the code to the caller', async () => {
