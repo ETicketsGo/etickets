@@ -93,6 +93,22 @@ export class PendingPaymentRecoveryService {
     const payment = booking.payment as NonNullable<GuardableBooking['payment']>;
     const orderId = payment.providerOrderId as string;
 
+    /*
+      Close the checkout first, then ask what happened on it. A checkout still open after the
+      hold lapses can be paid at any moment - including after the seat is resold - so it is
+      shut before the seat goes back. If it cannot be shut (the provider is unreachable, or
+      refuses because the buyer is mid-payment) nothing is released: the next sweep tries again.
+    */
+    const closed = await this.closeCheckout(payment.provider, orderId);
+    if (closed !== true) {
+      this.logger.warn(
+        `Holding back expiry of booking ${booking.id}: ${payment.provider} checkout ${orderId} ` +
+          `could not be closed (${closed}). Stock stays held; will retry.`,
+      );
+      this.metrics.recordPaymentWebhook?.(payment.provider, 'expiry_close_failed');
+      return 'hold_back';
+    }
+
     const verdict = await this.classifyOrder(payment.provider, orderId);
 
     if (verdict.kind === 'none') {
@@ -137,6 +153,9 @@ export class PendingPaymentRecoveryService {
         bookingId: booking.id,
         providerRef: verdict.providerRef,
         amountMinor: verdict.amountMinor,
+        // So the confirm path checks the currency charged, not just the number.
+        currency: verdict.currency,
+        checkoutSessionId: orderId,
       });
     } catch (err) {
       /*
@@ -163,6 +182,28 @@ export class PendingPaymentRecoveryService {
     */
     void this.alerts?.notify(expiryFoundCaptureAlert({ ...captured, outcome: 'recovered' }));
     return 'recovered';
+  }
+
+  /**
+   * Shut the provider checkout so it can no longer be paid. `true` when it is shut or was
+   * never open; otherwise the reason it could not be. An adapter without `closeOrder` (its
+   * orders cannot be paid after the fact, or it has no way to shut them) counts as shut, and
+   * the order lookup that follows still decides.
+   */
+  private async closeCheckout(providerName: string, orderId: string): Promise<true | string> {
+    let provider: { closeOrder?: (id: string) => Promise<unknown> };
+    try {
+      provider = this.resolver.get(providerName) as never;
+    } catch {
+      return `provider ${providerName} unavailable`;
+    }
+    if (!provider.closeOrder) return true;
+    try {
+      await provider.closeOrder(orderId);
+      return true;
+    } catch (err) {
+      return (err as Error)?.message ?? 'unknown error';
+    }
   }
 
   /** The provider question, with every failure mode collapsed to `unverifiable`. */
