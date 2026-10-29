@@ -268,10 +268,18 @@ export class Msg91SmsTransport implements SmsTransport {
    * keys and the legacy map are the whole answer.
    */
   private readonly bindings?: TemplateBindingService;
+  /**
+   * Outside PRODUCTION, the only numbers MSG91 may text (null = no gate). See
+   * `testRecipientGate`. Every other number is handled exactly as log mode.
+   */
+  private readonly testRecipients: ReadonlySet<string> | null;
+  private readonly logMode: SmsLogTransport;
 
   constructor(config: ConfigService, bindings?: TemplateBindingService) {
     this.config = config;
     this.authKey = requireKey(config, 'msg91', 'MSG91_AUTH_KEY');
+    this.testRecipients = testRecipientGate(config);
+    this.logMode = new SmsLogTransport(config);
     const base = (config.get<string>('MSG91_BASE_URL') ?? 'https://control.msg91.com').replace(
       /\/+$/,
       '',
@@ -367,8 +375,38 @@ export class Msg91SmsTransport implements SmsTransport {
       );
     }
 
+    /*
+      MSG91 here carries India only, and DLT covers Indian mobiles only: +91, then ten digits
+      starting 6-9. Anything else (a landline, a short number, a foreign number routed here by
+      a misconfigured table) is refused before MSG91 is called, and never retried.
+    */
+    const mobile = indianMobileDigits(to);
+    if (!mobile) {
+      throw new TransportError(
+        `MSG91 sends to Indian mobile numbers only (+91 then 10 digits starting 6-9); ` +
+          `${maskPhone(to)} is not one.`,
+        this.name,
+        FailureClass.INVALID_DESTINATION,
+      );
+    }
+
     const values = this.variablesFor(template, msg);
-    const recipient: Record<string, string> = { mobiles: to.replace(/^\+/, '') };
+
+    /*
+      QA safety guard, checked after every template check so QA still proves the mapping, and
+      before the network call so nothing leaves the platform. Outside PRODUCTION a number not
+      on SMS_TEST_RECIPIENT_ALLOWLIST is treated exactly as log mode: no request to MSG91, the
+      content withheld outside LOCAL/DEV, and the outcome says provider "log".
+    */
+    if (this.testRecipients && !this.testRecipients.has(mobile)) {
+      this.logger.log(
+        `[sms:${msg.type}] msg91 not called: ${maskPhone(to)} is not on ` +
+          `SMS_TEST_RECIPIENT_ALLOWLIST (non-production guard)`,
+      );
+      return this.logMode.send(msg);
+    }
+
+    const recipient: Record<string, string> = { mobiles: mobile };
     template.variables.forEach((name, i) => {
       recipient[name] = values[i];
     });
@@ -458,6 +496,37 @@ export class Msg91SmsTransport implements SmsTransport {
     }
     return result.values;
   }
+}
+
+/**
+ * An Indian mobile number as MSG91 wants it (`91` + ten digits starting 6-9, no `+`), or null
+ * when the input is not one. Accepts `+91XXXXXXXXXX` and `91XXXXXXXXXX`, with spaces or
+ * hyphens. A bare ten-digit number is NOT accepted: every destination here is E.164 already,
+ * and guessing the country is how a US visitor's code once went to a stranger in India.
+ */
+export function indianMobileDigits(phone: string | null | undefined): string | null {
+  if (!phone) return null;
+  const digits = phone.replace(/[\s-]/g, '').replace(/^\+/, '');
+  return /^91[6-9]\d{9}$/.test(digits) ? digits : null;
+}
+
+/**
+ * The non-production recipient gate for MSG91.
+ *
+ * PRODUCTION: null (no gate). Any other APP_ENV: the set of allowlisted numbers, normalised as
+ * `indianMobileDigits` does; an empty or unset list is an EMPTY set, so MSG91 texts nobody.
+ * APP_ENV is always present at runtime (the schema defaults it to LOCAL); it is absent only
+ * in a hand-built ConfigService in a unit test, which is treated as no gate.
+ */
+export function testRecipientGate(config: Pick<ConfigService, 'get'>): ReadonlySet<string> | null {
+  const env = config.get<string>('APP_ENV');
+  if (!env || env === 'PRODUCTION') return null;
+  const allowed = new Set<string>();
+  for (const entry of (config.get<string>('SMS_TEST_RECIPIENT_ALLOWLIST') ?? '').split(',')) {
+    const digits = indianMobileDigits(entry.trim());
+    if (digits) allowed.add(digits);
+  }
+  return allowed;
 }
 
 interface Msg91Response {
