@@ -1,6 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 import { NotificationReadinessService } from './notification-readiness.service';
 import { TemplateBindingService } from '../templates/template-binding.service';
+import * as dltRegistry from '../templates/dlt-sms-templates';
 
 /**
  * What readiness says about India SMS while DLT is part-way done.
@@ -46,6 +47,16 @@ function build(values: Record<string, string>) {
 
 const sms = async (values: Record<string, string>) =>
   (await build(values).forMarket('IN')).components.find((c) => c.key === 'sms')!;
+
+/*
+  The approved templates' registered text is not verified yet, so every kind is refused at the
+  approval gate today. The tests in this file prove the pipeline BEHIND that gate, as it will
+  run once a template is verified; the gate itself is proved in dlt-sms-templates.spec.ts and
+  in 'MSG91 SMS: only approved, verified templates send'.
+*/
+beforeEach(() => {
+  jest.spyOn(dltRegistry, 'dltSendRefusal').mockReturnValue(null);
+});
 
 describe('readiness: India SMS and DLT templates', () => {
   it('is BLOCKED_DLT with no template ids, and names the sign-in code first', async () => {

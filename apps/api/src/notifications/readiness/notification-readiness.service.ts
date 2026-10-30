@@ -13,6 +13,7 @@ import { messageContentLoggable } from '../channels/transports/content-logging';
 import {
   OTP_SMS_KIND,
   REJECTED_SENDER_HEADERS,
+  dltSendRefusal,
   dltTemplateFor,
 } from '../templates/dlt-sms-templates';
 
@@ -226,6 +227,11 @@ export class NotificationReadinessService {
       const template = dltTemplateFor(kind);
       if (!template) {
         gaps.push(`registered DLT wording for ${kind}`);
+        continue;
+      }
+      const refusal = dltSendRefusal(template, this.config.get<string>(template.dltTemplateIdEnv));
+      if (refusal) {
+        gaps.push(`${template.label}: ${refusal}`);
         continue;
       }
       const missing = [template.msg91TemplateIdEnv, template.dltTemplateIdEnv].filter(

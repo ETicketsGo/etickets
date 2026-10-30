@@ -1168,6 +1168,16 @@ const envSchema = z.object({
   DLT_TEMPLATE_ID_REFUND_COMPLETED: z.string().trim().optional(),
   MSG91_SMS_TEMPLATE_SHOW_CANCELLED: z.string().trim().optional(),
   DLT_TEMPLATE_ID_SHOW_CANCELLED: z.string().trim().optional(),
+  MSG91_SMS_TEMPLATE_PASSWORD_RESET: z.string().trim().optional(),
+  DLT_TEMPLATE_ID_PASSWORD_RESET: z.string().trim().optional(),
+  MSG91_SMS_TEMPLATE_PASSWORD_CHANGE: z.string().trim().optional(),
+  DLT_TEMPLATE_ID_PASSWORD_CHANGE: z.string().trim().optional(),
+  MSG91_SMS_TEMPLATE_PASSWORD_UPDATE: z.string().trim().optional(),
+  DLT_TEMPLATE_ID_PASSWORD_UPDATE: z.string().trim().optional(),
+  MSG91_SMS_TEMPLATE_PAYMENT_PENDING: z.string().trim().optional(),
+  DLT_TEMPLATE_ID_PAYMENT_PENDING: z.string().trim().optional(),
+  MSG91_SMS_TEMPLATE_EVENT_REMINDER: z.string().trim().optional(),
+  DLT_TEMPLATE_ID_EVENT_REMINDER: z.string().trim().optional(),
   /*
     Replacement show-cancelled wording (DLT_SMS_REPLACEMENTS), one pair per reader. Unset, the
     registered SHOW_CANCELLED template above stays in use for online buyers and a cash buyer

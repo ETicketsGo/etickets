@@ -10,6 +10,7 @@ import { RenderedNotification } from '../notification-channel.interface';
 import { Msg91SmsTransport, TwilioSmsTransport, classifyTwilioError } from './sms.transport';
 import { CloudWhatsAppTransport, Msg91WhatsAppTransport } from './whatsapp.transport';
 import { TransportError } from './transport-http';
+import * as dltRegistry from '../../templates/dlt-sms-templates';
 
 /**
  * The provider-contract harness: every adapter, against every way a provider can misbehave.
@@ -124,6 +125,17 @@ const ADAPTERS: Adapter[] = [
       ).send(msg({ channel: 'whatsapp' })),
   },
 ];
+
+/*
+  The MSG91 approval gate (dltSendRefusal) refuses every kind today, because no approved
+  template's registered text is verified yet. This contract is about provider misbehaviour
+  BEHIND that gate, so the gate is passed through here; it is proved in
+  dlt-sms-templates.spec.ts and msg91.transport.spec.ts.
+*/
+beforeEach(() => {
+  jest.spyOn(dltRegistry, 'dltSendRefusal').mockReturnValue(null);
+});
+afterEach(() => jest.restoreAllMocks());
 
 describe('provider contract: every adapter, against every provider misbehaviour', () => {
   describe.each(ADAPTERS)('$name', (adapter) => {

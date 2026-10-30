@@ -281,7 +281,7 @@ describe('loadConfig: SMS', () => {
     it('accepts an OTP_SMS_TEMPLATE identical to the registered wording', () => {
       process.env = env({
         OTP_SMS_TEMPLATE:
-          '{code} is your ETicketsGo sign-in code. It expires in {minutes} minutes. Never share it with anyone.',
+          'Your ETicketsGo verification code is {code}. Valid for 5 minutes. Do not share this code.',
       });
       expect(() => loadConfig()).not.toThrow();
     });

@@ -13,6 +13,7 @@ import {
   DLT_VARIABLE_MAX_LENGTH,
   OTP_SMS_KIND,
   REJECTED_SENDER_HEADERS,
+  dltSendRefusal,
   dltVariablesFromPayload,
   matchDltSms,
   selectDltTemplate,
@@ -325,6 +326,16 @@ export class Msg91SmsTransport implements SmsTransport {
     }
     const { template, replacement } = selection;
 
+    /*
+      Only the owner's approved DLT templates, with their registered text verified against
+      MSG91, are sent. A kind with no approved template (show cancelled, refund) is refused
+      here for good and reaches its reader by email; nothing is guessed.
+    */
+    const refusal = dltSendRefusal(template, this.config.get<string>(template.dltTemplateIdEnv));
+    if (refusal) {
+      throw new TransportError(refusal, this.name, FailureClass.TEMPLATE_NOT_FOUND);
+    }
+
     if (!this.senderHeader) {
       throw new TransportError(
         'MSG91 has no sender header. Set DLT_SENDER_HEADER (and MSG91_SENDER_ID, the same ' +
@@ -407,7 +418,7 @@ export class Msg91SmsTransport implements SmsTransport {
     }
 
     const recipient: Record<string, string> = { mobiles: mobile };
-    template.variables.forEach((name, i) => {
+    (template.msg91Variables ?? template.variables).forEach((name, i) => {
       recipient[name] = values[i];
     });
 

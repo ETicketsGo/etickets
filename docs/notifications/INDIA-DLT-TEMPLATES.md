@@ -26,9 +26,9 @@ This replaces the earlier record (2026-10-14) that the portal had rejected ETKTG
 | Principal Entity (PE) | DeepTrics Software Solutions Private Limited | registered                                         |
 | PE registration ID    | 1701179092181018311                          | registered                                         |
 | PE-TM chain (MSG91)   | PE linked to MSG91 as telemarketer           | **APPROVED** (owner, 2026-10-25)                   |
-| Sender header         | **ETKTGO** (header ID: owner to supply)      | **APPROVED** (owner, 2026-10-25)                   |
+| Sender header         | **ETKTGO** (header ID 1705179235688275119)   | **APPROVED** (owner, 2026-10-25)                   |
 | Sender header         | **DPTRCS** (header ID 1705179188054799869)   | **APPROVED** (earlier; still accepted by the code) |
-| Content templates     | eight (section 1.1)                          | **APPROVED** (owner, 2026-10-25); ids not in repo  |
+| Content templates     | eight (section 1.1)                          | **APPROVED** (owner, 2026-10-28 ids in 1.1)        |
 
 A header approval does not approve any template, and a template is approved under ONE header.
 Configure the header the eight templates are linked to. Until a kind has both of its ids set,
@@ -39,44 +39,72 @@ not six letters, if the two differ, if either is a header in `REJECTED_SENDER_HE
 today; kept so a future rejection is one line in `dlt-sms-templates.ts`), or if any DLT id below
 is not 19 digits. ETKTGO and DPTRCS are both accepted.
 
-### 1.1 What the repository knows, and what the owner must supply
+### 1.1 The eight approved templates (owner, 2026-10-28)
 
-The repository knows: the PE ID, both header names, the DPTRCS header ID, the exact wording of
-each kind below, and the env key names. It holds **no template id**, and must not.
+The DLT ids are pinned in `dlt-sms-templates.ts` (`approved.dltTemplateId`) as a CHECK only:
+the value sent is still read from `DLT_TEMPLATE_ID_<KIND>`, and a configured id that differs
+from the approved one is refused. MSG91's own template ids (24 hex, the flow API's
+`template_id`) are a different thing and are never replaced by a DLT id. MSG91 has no read-only
+API that lists them, so copy each one from the MSG91 dashboard (SMS > Templates) into
+`MSG91_SMS_TEMPLATE_<KIND>`. The MSG91 auth key used is named "ETGProdSMS" in MSG91.
 
-The owner must supply (set as environment values out of band, never committed):
+| Approved template    | DLT id              | Kind in code               | DLT id key                          | MSG91 id key                           | Text verified | Trigger                                |
+| -------------------- | ------------------- | -------------------------- | ----------------------------------- | -------------------------------------- | ------------- | -------------------------------------- |
+| Login OTP            | 1777179239436687127 | `ACCOUNT_SECURITY`         | `DLT_TEMPLATE_ID_OTP`               | `MSG91_SMS_TEMPLATE_OTP`               | **yes**       | phone sign-in                          |
+| Password Reset       | 1777179240353412789 | `PASSWORD_RESET_REQUESTED` | `DLT_TEMPLATE_ID_PASSWORD_RESET`    | `MSG91_SMS_TEMPLATE_PASSWORD_RESET`    | **yes**       | exists; policy sends email only        |
+| Password Change      | 1777179240360916280 | `PASSWORD_CHANGED`         | `DLT_TEMPLATE_ID_PASSWORD_CHANGE`   | `MSG91_SMS_TEMPLATE_PASSWORD_CHANGE`   | **yes**       | exists; policy sends email only        |
+| Password Update      | 1777179239457786914 | `PASSWORD_UPDATE`          | `DLT_TEMPLATE_ID_PASSWORD_UPDATE`   | `MSG91_SMS_TEMPLATE_PASSWORD_UPDATE`   | **no**        | not implemented                        |
+| Booking Confirmation | 1777179239474119451 | `BOOKING_CONFIRMED`        | `DLT_TEMPLATE_ID_BOOKING_CONFIRMED` | `MSG91_SMS_TEMPLATE_BOOKING_CONFIRMED` | **yes**       | exists; policy sends no SMS            |
+| Booking Cancellation | 1777179239566169492 | `BOOKING_CANCELLED`        | `DLT_TEMPLATE_ID_BOOKING_CANCELLED` | `MSG91_SMS_TEMPLATE_BOOKING_CANCELLED` | **yes**       | exists; policy sends no SMS            |
+| Payment Pending      | 1777179239515564360 | `PAYMENT_PENDING`          | `DLT_TEMPLATE_ID_PAYMENT_PENDING`   | `MSG91_SMS_TEMPLATE_PAYMENT_PENDING`   | **yes**       | not implemented (no notification type) |
+| Event Reminder       | 1777179240387088578 | `EVENT_REMINDER`           | `DLT_TEMPLATE_ID_EVENT_REMINDER`    | `MSG91_SMS_TEMPLATE_EVENT_REMINDER`    | **yes**       | show-reminder job; policy sends no SMS |
 
-| Value                                    | Where it goes                             |
-| ---------------------------------------- | ----------------------------------------- |
-| ETKTGO 19-digit header ID                | this page, section 1 (a record only)      |
-| `ETKTGO` as the configured header        | `DLT_SENDER_HEADER` and `MSG91_SENDER_ID` |
-| per approved template: 19-digit DLT id   | `DLT_TEMPLATE_ID_<KIND>`                  |
-| per approved template: MSG91 template id | `MSG91_SMS_TEMPLATE_<KIND>`               |
+### Registered in MSG91 (read back 2026-10-29)
 
-The code supports seven kinds (`DLT_SMS_TEMPLATES` and `DLT_SMS_REPLACEMENTS`):
+Each row was read from MSG91 (`getTemplateVersions`): DLT-verified, sender ETKTGO, DLT id
+matching the table above. The MSG91 template id is not a secret; it is set as
+`MSG91_SMS_TEMPLATE_<KIND>`. Password Update is approved on DLT but **not added in MSG91**,
+so it cannot send.
 
-| `<KIND>`                | Wording | Which of the owner's eight | DLT id key                              | MSG91 id key                               |
-| ----------------------- | ------- | -------------------------- | --------------------------------------- | ------------------------------------------ |
-| `OTP`                   | 2.1     | **OPEN - owner to say**    | `DLT_TEMPLATE_ID_OTP`                   | `MSG91_SMS_TEMPLATE_OTP`                   |
-| `SHOW_CANCELLED`        | 2.2     | **OPEN - owner to say**    | `DLT_TEMPLATE_ID_SHOW_CANCELLED`        | `MSG91_SMS_TEMPLATE_SHOW_CANCELLED`        |
-| `SHOW_CANCELLED_ONLINE` | pack A  | **OPEN - owner to say**    | `DLT_TEMPLATE_ID_SHOW_CANCELLED_ONLINE` | `MSG91_SMS_TEMPLATE_SHOW_CANCELLED_ONLINE` |
-| `SHOW_CANCELLED_CASH`   | pack B  | **OPEN - owner to say**    | `DLT_TEMPLATE_ID_SHOW_CANCELLED_CASH`   | `MSG91_SMS_TEMPLATE_SHOW_CANCELLED_CASH`   |
-| `BOOKING_CONFIRMED`     | 2.3     | **OPEN - owner to say**    | `DLT_TEMPLATE_ID_BOOKING_CONFIRMED`     | `MSG91_SMS_TEMPLATE_BOOKING_CONFIRMED`     |
-| `BOOKING_CANCELLED`     | 2.4     | **OPEN - owner to say**    | `DLT_TEMPLATE_ID_BOOKING_CANCELLED`     | `MSG91_SMS_TEMPLATE_BOOKING_CANCELLED`     |
-| `REFUND_COMPLETED`      | 2.5     | **OPEN - owner to say**    | `DLT_TEMPLATE_ID_REFUND_COMPLETED`      | `MSG91_SMS_TEMPLATE_REFUND_COMPLETED`      |
+| Template             | MSG91 template id        | Registered wording (MSG91 variables)                                                                                        |
+| -------------------- | ------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| Login OTP            | 6ae2c05f95642b7a550d6c32 | Your ETicketsGo verification code is ##num##. Valid for 5 minutes. Do not share this code.                                  |
+| Password Reset       | 6ae2c1b46655943701016402 | Your ETicketsGo password reset code is ##num##. Valid for 5 minutes. Do not share this code.                                |
+| Password Change      | 6ae2c2246b90591b2a0196e2 | Your ETicketsGo password was changed successfully. If this was not you, contact our support team immediately.               |
+| Booking Confirmation | 6ae2c2af9aa037348c0f8612 | ETicketsGo: Your booking ##alp1## for ##alp2## on ##alp3## is confirmed. View your ticket in your account.                  |
+| Booking Cancellation | 6ae2c278b17dc355cf032122 | ETicketsGo: Your booking ##alp1## for ##alp2## has been cancelled. Check your account for refund details, if applicable.    |
+| Payment Pending      | 6ae2c4bceee4c4ebcf0cb723 | ETicketsGo: Your booking ##alp## is awaiting payment confirmation. Check your booking status before making another payment. |
+| Event Reminder       | 6ae2c31a5da0579e850ca872 | ETicketsGo: Reminder! Your event ##alp1## is scheduled for ##alp2##. Please carry your ticket QR code for entry.            |
+| Password Update      | (not in MSG91)           | -                                                                                                                           |
 
-("pack A/B" are in [INDIA-DLT-SHOW-CANCELLED-REPLACEMENT.md](INDIA-DLT-SHOW-CANCELLED-REPLACEMENT.md).)
+DLT form (each `{#var#}` is one variable) of the templates not shown in section 2:
 
-Open questions for the owner (not guessed here):
+```text
+Your ETicketsGo password reset code is {#var#}. Valid for 5 minutes. Do not share this code.
+Your ETicketsGo password was changed successfully. If this was not you, contact our support team immediately.
+ETicketsGo: Your booking {#var#} is awaiting payment confirmation. Check your booking status before making another payment.
+ETicketsGo: Reminder! Your event {#var#} is scheduled for {#var#}. Please carry your ticket QR code for entry.
+```
 
-1. Which of the eight approved templates is which kind above? Eight approvals against seven
-   kinds means at least one approved template has no kind in the code yet. Name it and what it
-   is for, so it can be added (wording here first) or left unused.
-2. Is each approved text **character for character** the wording in section 2 (or the pack)?
-   An operator drops a message whose fixed text differs, so do not set the ids of a kind whose
-   approved wording differs until the code carries that wording.
-3. Are all eight linked to header ETKTGO (not DPTRCS)? The configured header must be the one
-   the templates are linked to.
+The sign-in text says "Valid for 5 minutes"; a code is accepted for `OTP_TTL_MINUTES` (10) in
+`auth/phone-otp.service.ts`. Owner decision: keep 10, or shorten to 5 to match the wording.
+
+**Text verified = no** means the registered wording and its variables could not be read back
+from MSG91, so the kind is refused (never sent) until somebody copies the exact registered text
+and variable names, in order, into `dlt-sms-templates.ts` and sets `textVerified: true`. The
+wording in section 2 is what the code expected to register; it is not proof of what was.
+
+Kinds with **no** approved template are never sent by MSG91, whatever ids are set; their
+readers get email only: `SHOW_CANCELLED` (`DLT_TEMPLATE_ID_SHOW_CANCELLED`,
+`MSG91_SMS_TEMPLATE_SHOW_CANCELLED`), `SHOW_CANCELLED_ONLINE`
+(`DLT_TEMPLATE_ID_SHOW_CANCELLED_ONLINE`, `MSG91_SMS_TEMPLATE_SHOW_CANCELLED_ONLINE`),
+`SHOW_CANCELLED_CASH` (`DLT_TEMPLATE_ID_SHOW_CANCELLED_CASH`,
+`MSG91_SMS_TEMPLATE_SHOW_CANCELLED_CASH`) and `REFUND_COMPLETED`
+(`DLT_TEMPLATE_ID_REFUND_COMPLETED`, `MSG91_SMS_TEMPLATE_REFUND_COMPLETED`). ("pack A/B" are in
+[INDIA-DLT-SHOW-CANCELLED-REPLACEMENT.md](INDIA-DLT-SHOW-CANCELLED-REPLACEMENT.md).)
+
+Set `DLT_SENDER_HEADER` and `MSG91_SENDER_ID` to `ETKTGO`, and `DLT_PRINCIPAL_ENTITY_ID` to the
+PE ID above.
 
 ---
 
@@ -105,11 +133,11 @@ configuration change.
 ### 2.1 Sign-in code (OTP)
 
 ```text
-{#var#} is your ETicketsGo sign-in code. It expires in {#var#} minutes. Never share it with anyone.
+Your ETicketsGo verification code is {#var#}. Valid for 5 minutes. Do not share this code.
 ```
 
 - Variables, in order: `otp` (6 digits), `minutes` (10).
-- MSG91 template content: `##otp## is your ETicketsGo sign-in code. It expires in ##minutes## minutes. Never share it with anyone.`
+- MSG91 template content: `Your ETicketsGo verification code is ##num##. Valid for 5 minutes. Do not share this code.`
 - Env: `MSG91_SMS_TEMPLATE_OTP`, `DLT_TEMPLATE_ID_OTP`
 - Leave `OTP_SMS_TEMPLATE` **unset**. Its default is this exact text; a different value makes
   the API refuse to boot when MSG91 carries SMS.
@@ -131,7 +159,7 @@ ETicketsGo: {#var#} on {#var#} is cancelled. Booking {#var#}. Check your email f
 ### 2.3 Booking confirmed
 
 ```text
-ETicketsGo: Booking {#var#} for {#var#} on {#var#} is confirmed. Your tickets are in your email and in your account. - DeepTrics
+ETicketsGo: Your booking {#var#} for {#var#} on {#var#} is confirmed. View your ticket in your account.
 ```
 
 - Variables, in order: `reference`, `event`, `when`.
@@ -140,7 +168,7 @@ ETicketsGo: Booking {#var#} for {#var#} on {#var#} is confirmed. Your tickets ar
 ### 2.4 Booking cancelled
 
 ```text
-ETicketsGo: Booking {#var#} is cancelled. Check your email for refund details. - DeepTrics
+ETicketsGo: Your booking {#var#} for {#var#} has been cancelled. Check your account for refund details, if applicable.
 ```
 
 - Variables: `reference`.
