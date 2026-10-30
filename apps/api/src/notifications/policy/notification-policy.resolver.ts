@@ -6,7 +6,11 @@ import { MarketingConsentService } from '../marketing-consent.service';
 import { NotificationPreferencesService } from '../notification-preferences.service';
 import { isTransactional, messageClassOf } from '../message-class';
 import { PrismaService } from '../../prisma/prisma.service';
-import { smsTransactionalEnabled, smsTransactionalRefusal } from './sms-transactional';
+import {
+  parseSmsTransactionalMarkets,
+  smsTransactionalEnabled,
+  smsTransactionalRefusal,
+} from './sms-transactional';
 import {
   policyFor,
   permittedChannels,
@@ -119,7 +123,7 @@ export class NotificationPolicyResolver {
       : permittedChannels(input.type, input.requested);
     let channels = allowed.filter((c) => input.known(c));
 
-    // 1b. SMS for this type, when SMS_TRANSACTIONAL_TYPES names it (India, verified phone).
+    // 1b. SMS for this type, when SMS_TRANSACTIONAL_TYPES names it (enabled market, verified phone).
     channels = await this.applySmsSwitch(input, transactional, channels, removed);
 
     // 2. What the customer turned off — except what they may not turn off.
@@ -179,6 +183,7 @@ export class NotificationPolicyResolver {
       phone: user?.phone,
       phoneVerifiedAt: user?.phoneVerifiedAt,
       payload: input.payload,
+      markets: parseSmsTransactionalMarkets(this.config?.get<string>('SMS_TRANSACTIONAL_MARKETS')),
     });
     if (refusal) {
       removed.push({ channel: 'sms', reason: refusal });
