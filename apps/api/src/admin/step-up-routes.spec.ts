@@ -11,6 +11,7 @@ import { AdminOrganizationsController } from '../organizations/organizations.con
 import { AdminBillingController } from '../billing/billing-admin.controller';
 import { AdminCampaignsController } from '../campaigns/campaigns.controller';
 import { PlatformFeePoliciesController } from './platform-fee-policies.controller';
+import { FeeSchedulesController } from './fee-schedules.controller';
 
 /*
   The staff writes that now also need a fresh second-factor check, beside the ones listed in
@@ -47,6 +48,7 @@ const STEP_UP: Array<[string, new (...a: never[]) => unknown, string[]]> = [
     PlatformFeePoliciesController,
     ['createPlatformFeePolicy', 'deactivatePlatformFeePolicy'],
   ],
+  ['fee schedule publish', FeeSchedulesController, ['publishFeeSchedule']],
   [
     'payment config',
     PaymentAdminController,
@@ -95,6 +97,8 @@ const STEP_UP: Array<[string, new (...a: never[]) => unknown, string[]]> = [
 const NOT_STEP_UP: Array<[new (...a: never[]) => unknown, string[]]> = [
   [AdminController, ['feeRules', 'taxRules', 'cinemaPricingPolicies']],
   [PlatformFeePoliciesController, ['list', 'detail', 'preview']],
+  // Drafts change no price; only the publish does.
+  [FeeSchedulesController, ['overview', 'draft', 'createDraft', 'saveDraft', 'discardDraft']],
   [PaymentAdminController, ['overview', 'health']],
   [PaymentOutageController, ['status']],
   [AdminOrganizationsController, ['list', 'reviewSignals']],

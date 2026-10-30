@@ -32,6 +32,7 @@ import {
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
 } from 'react';
+import { pushToast } from './toast-queue';
 import { BRAND_FOCUS } from './brand';
 import { titleCase } from './format';
 import { tileClasses, type TileTone } from './primitives';
@@ -1482,10 +1483,26 @@ const ToastContext = createContext<{ push: (message: string, tone?: BadgeTone) =
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const timers = useRef(new Map<number, ReturnType<typeof setTimeout>>());
+  /*
+    The same message with the same tone is shown once (`pushToast`): pushing it again while it
+    is on screen restarts its timer instead of stacking a copy.
+  */
   const push = useCallback((message: string, tone: BadgeTone = 'info') => {
-    const id = Date.now() + Math.random();
-    setToasts((t) => [...t, { id, message, tone }]);
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4000);
+    const candidate = { id: Date.now() + Math.random(), message, tone };
+    setToasts((t) => {
+      const next = pushToast(t, candidate);
+      const previous = timers.current.get(next.id);
+      if (previous) clearTimeout(previous);
+      timers.current.set(
+        next.id,
+        setTimeout(() => {
+          timers.current.delete(next.id);
+          setToasts((x) => x.filter((y) => y.id !== next.id));
+        }, 4000),
+      );
+      return next.duplicate ? t : next.list;
+    });
   }, []);
 
   return (

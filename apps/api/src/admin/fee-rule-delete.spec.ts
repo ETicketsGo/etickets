@@ -119,7 +119,7 @@ describe('AdminService.deleteFeeRule', () => {
     const err = await statusOf(svc.deleteFeeRule('admin-1', 'c'));
     expect(err.getStatus()).toBe(HttpStatus.CONFLICT);
     expect(err.message).toContain('"Tickets ₹500 - ₹999"');
-    expect(err.message).toContain('orders between ₹499 and ₹1,000');
+    expect(err.message).toContain('orders from ₹499.01 to ₹999.99');
     expect(err.message).toContain('India');
     expect(err.details).toMatchObject({
       reason: 'GAP',
@@ -133,7 +133,7 @@ describe('AdminService.deleteFeeRule', () => {
     const { svc } = make(INR);
     const err = await statusOf(svc.deleteFeeRule('admin-1', 'd'));
     expect(err.getStatus()).toBe(HttpStatus.CONFLICT);
-    expect(err.message).toContain('orders above ₹999');
+    expect(err.message).toContain('orders of ₹999.01 and above');
   });
 
   it('refuses deleting the last band, which would fall back to the built-in defaults', async () => {

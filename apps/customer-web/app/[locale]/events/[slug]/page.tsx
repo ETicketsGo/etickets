@@ -418,7 +418,10 @@ export default function EventDetailPage() {
         bundles: bundles
           .filter((b) => (bundleQty[b.id] ?? 0) > 0)
           .map((b) => ({ bundleId: b.id, quantity: bundleQty[b.id] })),
-        ...(buyerRegion ? { buyerRegion } : {}),
+        ...(buyerRegion ? { buyerRegion } : {}), // The fee schedule this quote used: a schedule published since is refused, not charged.
+        ...(quoteQ.data?.feeScheduleVersion
+          ? { feeScheduleVersion: quoteQ.data.feeScheduleVersion }
+          : {}),
       };
       /*
         A guest buys through the guest route, with the name and email they just typed.
@@ -453,6 +456,8 @@ export default function EventDetailPage() {
     },
     onSuccess: (booking) => router.push(nextStepAfterBooking(booking)),
     onError: (e) => {
+      // The fee schedule changed since the quote: show the new total before anything else.
+      if (e instanceof ApiRequestError && e.code === 'FEE_SCHEDULE_CHANGED') void quoteQ.refetch();
       const message = (e as Error).message;
       if (e instanceof ApiRequestError) setError(e.message);
       // 'details' is the form talking to itself: the fields already say what is missing.

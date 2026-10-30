@@ -286,6 +286,20 @@ export function applicableTiers<T extends ScopedRule>(rules: T[], place: FeePlac
     .sort((a, b) => specificity(b) - specificity(a) || a.minMinor - b.minMinor);
 }
 
+/**
+ * The tiers that price a sale at `place` from these stored bands, exactly as checkout picks
+ * them: the applicable bands most specific first, or the built-in defaults when none apply.
+ * Shared by live pricing and the admin's draft-schedule preview, so a preview cannot use a
+ * second pricing rule.
+ */
+export function scheduleTiers(
+  rules: (ScopedRule & Parameters<typeof feeTierFromRule>[0])[],
+  place: FeePlace = {},
+): FeeTier[] {
+  const applicable = applicableTiers(rules, place);
+  return applicable.length === 0 ? DEFAULT_FEE_TIERS : applicable.map(feeTierFromRule);
+}
+
 /** India seed defaults (section 13). Subtotal-tiered booking fee. */
 export const DEFAULT_FEE_TIERS: FeeTier[] = [
   { minMinor: 0, maxMinor: 19_900, feeMinor: 500 }, // ₹0–₹199 -> ₹5

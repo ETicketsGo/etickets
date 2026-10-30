@@ -500,6 +500,10 @@ export default function SeatSelectionPage() {
         // Carried through, so the price quoted on this screen is the price booked.
         ...(appliedCode && !codeRejected ? { couponCode: appliedCode } : {}),
         ...(buyerRegion ? { buyerRegion } : {}),
+        // The fee schedule this quote used: a schedule published since is refused, not charged.
+        ...(quoteQ.data?.feeScheduleVersion
+          ? { feeScheduleVersion: quoteQ.data.feeScheduleVersion }
+          : {}),
       };
       /*
         A guest buys through the guest route. `startBooking` has already validated the name
@@ -540,6 +544,8 @@ export default function SeatSelectionPage() {
     onError: (e) => {
       // 'details' is the guest form talking to itself: the fields already say what is missing.
       if ((e as Error).message === 'details') return;
+      // The fee schedule changed since the quote: show the new total before anything else.
+      if (e instanceof ApiRequestError && e.code === 'FEE_SCHEDULE_CHANGED') void quoteQ.refetch();
       /*
         The show cannot be sold online. Said in the buyer's language, in the same words the
         page would have used had it known sooner - and now it does know, so the map closes.

@@ -2402,6 +2402,8 @@ export const api = {
     }) =>
       request<{
         fees: BookingResult['fees'];
+        /** Send back on the booking, so a schedule published in between is not charged. */
+        feeScheduleVersion?: string | null;
         coupon: { code: string | null; applied: boolean };
       }>('/bookings/quote', { method: 'POST', body: JSON.stringify(body), auth: false }),
     /** Codes the organizer chose to advertise. Private codes are never listed. */
@@ -3238,6 +3240,37 @@ export const api = {
         organizationId ? `/admin/payout-settings/${organizationId}` : '/admin/payout-settings',
         { method: 'POST', body: JSON.stringify(body) },
       ),
+    /**
+     * Booking-fee schedules edited as a draft and published whole (see FeeSchedulesService).
+     * Saving a draft changes no price; only `publish` does, and it asks for a fresh second
+     * factor through the shared step-up handler.
+     */
+    feeSchedules: {
+      overview: (currency: string) =>
+        request<FeeScheduleOverview>(`/admin/fee-schedules/${encodeURIComponent(currency)}`),
+      draft: (id: string) =>
+        request<FeeScheduleDraft>(`/admin/fee-schedules/drafts/${encodeURIComponent(id)}`),
+      createDraft: (currency: string) =>
+        request<FeeScheduleDraft>('/admin/fee-schedules/drafts', {
+          method: 'POST',
+          body: JSON.stringify({ currency }),
+        }),
+      saveDraft: (id: string, bands: FeeScheduleBand[]) =>
+        request<FeeScheduleDraft>(`/admin/fee-schedules/drafts/${encodeURIComponent(id)}`, {
+          method: 'PUT',
+          body: JSON.stringify({ bands }),
+        }),
+      discardDraft: (id: string) =>
+        request<{ id: string; status: 'DISCARDED' }>(
+          `/admin/fee-schedules/drafts/${encodeURIComponent(id)}`,
+          { method: 'DELETE' },
+        ),
+      publish: (id: string) =>
+        request<FeeSchedulePublished>(
+          `/admin/fee-schedules/drafts/${encodeURIComponent(id)}/publish`,
+          { method: 'POST' },
+        ),
+    },
     /** Fee bands. Deleted ones are left out unless `includeDeleted` is set. */
     feeRules: (opts: { includeDeleted?: boolean } = {}) =>
       request<FeeRule[]>(`/admin/fee-rules${opts.includeDeleted ? '?includeDeleted=true' : ''}`),
@@ -3901,6 +3934,11 @@ export interface BookingRequest {
   couponCode?: string;
   /** Ask to pay in cash at the venue. Refused unless the organizer has enabled it. */
   paymentMethod?: 'ONLINE' | 'CASH';
+  /**
+   * The `feeScheduleVersion` of the quote the buyer was shown. When the booking fee schedule
+   * changed since, the API refuses with 409 FEE_SCHEDULE_CHANGED and the client re-quotes.
+   */
+  feeScheduleVersion?: string | null;
 }
 export interface BookingResult {
   id: string;
@@ -7645,6 +7683,72 @@ export interface TaxRule {
    * switched on and not yet started, or switched on and long superseded.
    */
   inForceNow?: boolean;
+}
+
+/** One band of a draft fee schedule. Amounts in minor units; a percentage in basis points. */
+export interface FeeScheduleBand {
+  key: string;
+  /** The live band this row was copied from, or null for a new band. */
+  sourceId: string | null;
+  minMinor: number;
+  maxMinor: number | null;
+  feeType: 'FLAT' | 'PERCENT' | 'COMBINED' | 'FIXED_PER_TICKET';
+  feeMinor: number;
+  feePercentBps: number | null;
+  minFeeMinor: number | null;
+  maxFeeMinor: number | null;
+  country: string;
+  region: string;
+  active: boolean;
+}
+
+/** A problem (error) or a remark (note) the check found in a draft schedule. */
+export interface FeeScheduleIssue {
+  code: 'BAND_INVALID' | 'WRONG_MARKET' | 'OVERLAP' | 'GAP' | 'NO_BAND';
+  severity: 'error' | 'note';
+  message: string;
+  bandKeys: string[];
+  place: string;
+  fromMinor?: number;
+  toMinor?: number | null;
+}
+
+export interface FeeScheduleDraft {
+  id: string;
+  currency: string;
+  status: 'OPEN' | 'PUBLISHED' | 'DISCARDED';
+  version: number | null;
+  createdAt: string;
+  updatedAt: string;
+  publishedAt: string | null;
+  bands: FeeScheduleBand[];
+  /** The live schedule changed after this draft was started; it cannot be published. */
+  stale: boolean;
+  validation: { valid: boolean; issues: FeeScheduleIssue[] };
+  /** Booking fee for sample orders, now and after publish, from the checkout's own engine. */
+  preview: {
+    place: string;
+    rows: { orderMinor: number; tickets: number; liveFeeMinor: number; draftFeeMinor: number }[];
+  };
+}
+
+export interface FeeScheduleOverview {
+  currency: string;
+  /** 0 until the first draft is published. */
+  liveVersion: number;
+  liveFingerprint: string;
+  live: FeeScheduleBand[];
+  openDraft: { id: string; createdAt: string; createdByUserId: string; updatedAt: string } | null;
+  history: { id: string; version: number; publishedAt: string; publishedByUserId: string }[];
+}
+
+export interface FeeSchedulePublished {
+  id: string;
+  currency: string;
+  version: number;
+  created: number;
+  updated: number;
+  deleted: number;
 }
 
 export interface FeeRule {

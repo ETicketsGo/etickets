@@ -1,3 +1,4 @@
+import { money } from '@eticketsgo/shared-types';
 import { applicableTiers, type FeePlace } from '../pricing/fee-calculator';
 
 /**
@@ -58,13 +59,20 @@ export function majorUnitMinor(currency: string): number {
   }
 }
 
-/** The uncovered ranges of [0, infinity) under these bands, ignoring scope. */
+/**
+ * The uncovered ranges of [0, infinity) under these bands, ignoring scope.
+ *
+ * `toleranceMinor` is how far the next band may start after the previous one ends and still
+ * count as continuous: one major unit by default (see above), 1 for the strict reading where
+ * every minor unit must be inside a band.
+ */
 export function coverageGaps(
   bands: readonly Pick<CoverageBand, 'minMinor' | 'maxMinor'>[],
   currency: string,
+  toleranceMinor: number = majorUnitMinor(currency),
 ): CoverageGap[] {
   if (bands.length === 0) return [{ afterMinor: null, beforeMinor: null }];
-  const step = majorUnitMinor(currency);
+  const step = toleranceMinor;
   const sorted = [...bands].sort((a, b) => a.minMinor - b.minMinor);
   const gaps: CoverageGap[] = [];
   if (sorted[0].minMinor > 0) gaps.push({ afterMinor: null, beforeMinor: sorted[0].minMinor });
@@ -143,4 +151,34 @@ export function coverageImpact(
     (g) => !existing.some((e) => lo(e) <= lo(g) && hi(g) <= hi(e)),
   );
   return created.length > 0 ? { ok: false, reason: 'GAP', gaps: created } : { ok: true };
+}
+
+/**
+ * The amounts a gap leaves uncovered, as the first and last uncovered amount.
+ *
+ * A `CoverageGap` stores the COVERED amounts on either side of the hole (the last one before,
+ * the first one after). Those are not in the hole: with "$0 - $99.99" and "$1,000 and above",
+ * the orders nobody prices are $100.00 to $999.99, one minor unit inside each side. Printing the
+ * two stored ends instead told an admin that "$99.99 to $1,000.00" was uncovered while the table
+ * showed a band from $100 - the message named amounts that ARE priced.
+ */
+export function uncoveredRange(gap: CoverageGap): { fromMinor: number; toMinor: number | null } {
+  return {
+    fromMinor: gap.afterMinor === null ? 0 : gap.afterMinor + 1,
+    toMinor: gap.beforeMinor === null ? null : gap.beforeMinor - 1,
+  };
+}
+
+/** One uncovered range in words: "orders from $100.00 to $999.99". */
+export function describeGap(gap: CoverageGap, currency: string): string {
+  if (gap.afterMinor === null && gap.beforeMinor === null) return 'every order';
+  const { fromMinor, toMinor } = uncoveredRange(gap);
+  if (toMinor === null) return `orders of ${money(fromMinor, currency)} and above`;
+  if (fromMinor === toMinor) return `orders of exactly ${money(fromMinor, currency)}`;
+  return `orders from ${money(fromMinor, currency)} to ${money(toMinor, currency)}`;
+}
+
+/** Several uncovered ranges in words, joined with "and". */
+export function describeGaps(gaps: CoverageGap[], currency: string): string {
+  return gaps.map((g) => describeGap(g, currency)).join(' and ');
 }

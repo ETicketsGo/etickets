@@ -11,6 +11,8 @@ import { AdminService } from './admin.service';
 import { AdminGroupingService } from './admin-grouping.service';
 import { PlatformFeePoliciesController } from './platform-fee-policies.controller';
 import { PlatformFeePoliciesService } from './platform-fee-policies.service';
+import { FeeSchedulesController } from './fee-schedules.controller';
+import { FeeSchedulesService } from './fee-schedules.service';
 import { PricingModule } from '../pricing/pricing.module';
 import { FirstAdminBootstrap } from './first-admin.bootstrap';
 import { AuthModule } from '../auth/auth.module';
@@ -27,6 +29,7 @@ import { OrganizationsModule } from '../organizations/organizations.module';
     AdminStaffController,
     AdminUsersController,
     PlatformFeePoliciesController,
+    FeeSchedulesController,
   ],
   providers: [
     AdminService,
@@ -37,6 +40,7 @@ import { OrganizationsModule } from '../organizations/organizations.module';
     TaxRulesService,
     CinemaPricingPoliciesService,
     PlatformFeePoliciesService,
+    FeeSchedulesService,
   ],
 })
 export class AdminModule {}

@@ -1,36 +1,20 @@
 'use client';
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import {
   api,
-  Button,
   Card,
-  Dialog,
-  Input,
   PageHeader,
   ButtonLink,
-  Select,
   DataTable,
   money,
-  useToast,
   MARKETS,
-  marketFor,
   type Column,
   type FeeRule,
 } from '@eticketsgo/web-kit';
 import { NO_READ_ACCESS, READ_ONLY_NOTE, useConfigAccess } from '@/lib/capabilities';
-import {
-  bandName,
-  bandPlace,
-  bandStatus,
-  combinedExample,
-  deleteConfirmation,
-  describeCharge,
-  draftBandName,
-  rangeText,
-  type FeeBandType,
-} from '@/lib/fee-bands';
+import { bandName, bandPlace, bandStatus, describeCharge } from '@/lib/fee-bands';
 
 /**
  * A readable name for each market currency. Editing never changes a rule's currency.
@@ -42,86 +26,18 @@ const CURRENCY_LABELS: Record<string, string> = Object.fromEntries(
   MARKETS.map((m) => [m.currency, `${m.name} (${m.currency})`]),
 );
 
-/** Draft state for the edit dialog. Kept as strings so a half-typed value does not fight the input. */
-interface Draft {
-  minMinor: string;
-  maxMinor: string;
-  feeMinor: string;
-  /**
-   * A fixed amount per order (FLAT), a percentage of the order, both (COMBINED: % + fixed per
-   * ticket), or a fixed amount for each paid ticket (FIXED_PER_TICKET).
-   */
-  feeType: FeeBandType;
-  /** PERCENT/COMBINED: typed as a person says it - "5" or "2.5" - stored as basis points. */
-  percent: string;
-  /**
-   * PERCENT, COMBINED and FIXED_PER_TICKET: optional whole-order limits, in minor units like
-   * every other amount on this form. Empty (the default) is no limit.
-   */
-  minFeeMinor: string;
-  maxFeeMinor: string;
-  country: string;
-  region: string;
-  active: boolean;
-}
-
-const toDraft = (r: FeeRule): Draft => ({
-  minMinor: String(r.minMinor),
-  maxMinor: r.maxMinor === null ? '' : String(r.maxMinor),
-  feeMinor: String(r.feeMinor),
-  feeType:
-    r.feeType === 'PERCENT' || r.feeType === 'COMBINED' || r.feeType === 'FIXED_PER_TICKET'
-      ? r.feeType
-      : 'FLAT',
-  percent: r.feePercentBps == null ? '' : String(r.feePercentBps / 100),
-  minFeeMinor: r.minFeeMinor == null ? '' : String(r.minFeeMinor),
-  maxFeeMinor: r.maxFeeMinor == null ? '' : String(r.maxFeeMinor),
-  /*
-    An existing rule keeps whatever scope it has. A NEW one defaults to the country whose
-    currency it is in — see `defaultCountryFor`. Editing a USD band and being shown an empty
-    country box is an invitation to type "USA", which is not the spelling venues store.
-  */
-  country: r.country ?? '*',
-  region: r.region ?? '*',
-  active: r.active,
-});
-
-/** The country whose currency this is — unambiguous across the platform's eight markets. */
-const defaultCountryFor = (currency: string): string =>
-  MARKETS.find((m) => m.currency === currency)?.name ?? '*';
-
-/** What a country calls its subdivisions, for the label on the second dropdown. */
-const regionLabelFor = (country: string): string =>
-  country === '*' ? 'State / province' : (marketFor(country)?.regionLabel ?? 'State / province');
-
-/** A typed percentage as basis points, or null when it is not a usable percentage. */
-const percentToBps = (raw: string): number | null => {
-  const value = Number(raw.trim());
-  if (raw.trim() === '' || !Number.isFinite(value)) return null;
-  const bps = Math.round(value * 100);
-  // Two decimal places at most: 2.55% is 255 basis points; 2.555% cannot be stored exactly.
-  if (Math.abs(bps - value * 100) > 1e-6 || bps < 1 || bps > 10_000) return null;
-  return bps;
-};
-
-/** An optional minor-unit amount: empty is "no limit". */
-const optionalMinor = (raw: string): number | null =>
-  raw.trim() === '' ? null : Number(raw.trim());
-
 export default function AdminSettings() {
-  const qc = useQueryClient();
-  const toast = useToast();
-  const [editing, setEditing] = useState<FeeRule | null>(null);
-  // The band whose delete is waiting for confirmation.
-  const [deleting, setDeleting] = useState<FeeRule | null>(null);
   // Deleted bands price nothing and are hidden unless an admin asks to see them.
   const [showDeleted, setShowDeleted] = useState(false);
-  // Non-null while adding a band; holds the currency the new band belongs to.
-  const [creatingCurrency, setCreatingCurrency] = useState<string | null>(null);
-  const [draft, setDraft] = useState<Draft | null>(null);
   /*
-    The page opens with PLATFORM_CONFIG_READ; adding or editing a band needs PLATFORM_CONFIG.
-    Without it the bands are shown and the controls that the API would refuse are not.
+    The page opens with PLATFORM_CONFIG_READ; changing a schedule needs PLATFORM_CONFIG.
+
+    ── CHANGED AS A DRAFT, NOT ONE BAND AT A TIME ───────────────────────────────────
+    Bands used to be edited and deleted here one by one, each change checked against the live
+    schedule. A reorganisation could not be done that way (every intermediate step was a gap or
+    an overlap), each refused attempt stacked another error, and amounts were typed in minor
+    units. Changes now go through a draft of the whole schedule (`/admin/settings/schedule`),
+    checked as a whole and published in one step.
   */
   const access = useConfigAccess();
   const mayEdit = access.mayEdit;
@@ -131,173 +47,6 @@ export default function AdminSettings() {
     queryFn: () => api.admin.feeRules({ includeDeleted: showDeleted }),
     enabled: access.mayRead,
   });
-
-  /*
-    Delete goes through the shared client, so a stale second-factor check opens the same
-    "Confirm it is you" dialog an edit does and the request is repeated once. A 409 (the delete
-    would leave orders with no band) is shown in the API's own words, which name the range.
-  */
-  const remove = useMutation({
-    mutationFn: (id: string) => api.admin.deleteFeeRule(id),
-    onSuccess: () => {
-      toast.push('Fee band deleted.', 'success');
-      void qc.invalidateQueries({ queryKey: ['admin', 'fee-rules'] });
-      setDeleting(null);
-    },
-    onError: (err: unknown) =>
-      toast.push(err instanceof Error ? err.message : 'Could not delete the fee band.', 'error'),
-  });
-
-  const save = useMutation({
-    mutationFn: ({
-      id,
-      patch,
-    }: {
-      id: string;
-      patch: Parameters<typeof api.admin.updateFeeRule>[1];
-    }) => api.admin.updateFeeRule(id, patch),
-    onSuccess: () => {
-      toast.push('Fee rule updated.', 'success');
-      void qc.invalidateQueries({ queryKey: ['admin', 'fee-rules'] });
-      setEditing(null);
-      setDraft(null);
-    },
-    // The API rejects inverted and overlapping bands; surface its reason rather than a generic
-    // failure, because "why was this refused" is the whole value of those checks.
-    onError: (err: unknown) =>
-      toast.push(err instanceof Error ? err.message : 'Could not update the fee rule.', 'error'),
-  });
-
-  const create = useMutation({
-    mutationFn: (input: Parameters<typeof api.admin.createFeeRule>[0]) =>
-      api.admin.createFeeRule(input),
-    onSuccess: () => {
-      toast.push('Fee band added.', 'success');
-      void qc.invalidateQueries({ queryKey: ['admin', 'fee-rules'] });
-      setCreatingCurrency(null);
-      setDraft(null);
-    },
-    onError: (err: unknown) =>
-      toast.push(err instanceof Error ? err.message : 'Could not add the fee band.', 'error'),
-  });
-
-  const openCreator = (currency: string) => {
-    setCreatingCurrency(currency);
-    // Blank draft; the API validates the band against the existing ones in this currency.
-    setDraft({
-      minMinor: '',
-      maxMinor: '',
-      feeMinor: '',
-      feeType: 'FLAT',
-      percent: '',
-      minFeeMinor: '',
-      maxFeeMinor: '',
-      /*
-        Opens on the country this currency belongs to rather than "Anywhere". A USD band that
-        applies everywhere is not what anybody means — it would match an Indian venue selling
-        in rupees only if the fee resolver ignored currency, which it does not.
-      */
-      country: defaultCountryFor(currency),
-      region: '*',
-      active: true,
-    });
-  };
-
-  const openEditor = (rule: FeeRule) => {
-    setEditing(rule);
-    setDraft(toDraft(rule));
-  };
-
-  const submit = () => {
-    if (!draft) return;
-    const trimmedMax = draft.maxMinor.trim();
-    // Empty means "and above" — a real value, distinct from leaving the field alone.
-    // No label: the API names the band from its boundaries, so the name cannot go stale.
-    const fields = {
-      minMinor: Number(draft.minMinor),
-      maxMinor: trimmedMax === '' ? null : Number(trimmedMax),
-      // A percentage band sends its percentage and limits; the fixed amount is stored as 0.
-      // A fixed band sends its amount, and the API clears any percentage it used to have.
-      // A combined band sends both its percentage and its fixed amount per ticket; a per-ticket
-      // band sends its amount per ticket. Both send their optional limits (empty is none).
-      ...(draft.feeType === 'PERCENT'
-        ? {
-            feeType: 'PERCENT' as const,
-            feeMinor: 0,
-            feePercentBps: percentToBps(draft.percent),
-            minFeeMinor: optionalMinor(draft.minFeeMinor),
-            maxFeeMinor: optionalMinor(draft.maxFeeMinor),
-          }
-        : draft.feeType === 'COMBINED'
-          ? {
-              feeType: 'COMBINED' as const,
-              feeMinor: Number(draft.feeMinor),
-              feePercentBps: percentToBps(draft.percent),
-              minFeeMinor: optionalMinor(draft.minFeeMinor),
-              maxFeeMinor: optionalMinor(draft.maxFeeMinor),
-            }
-          : draft.feeType === 'FIXED_PER_TICKET'
-            ? {
-                feeType: 'FIXED_PER_TICKET' as const,
-                feeMinor: Number(draft.feeMinor),
-                feePercentBps: null,
-                minFeeMinor: optionalMinor(draft.minFeeMinor),
-                maxFeeMinor: optionalMinor(draft.maxFeeMinor),
-              }
-            : { feeType: 'FLAT' as const, feeMinor: Number(draft.feeMinor) }),
-      country: draft.country.trim() || '*',
-      region: draft.region.trim() || '*',
-      active: draft.active,
-    };
-    if (creatingCurrency) {
-      create.mutate({ currency: creatingCurrency, ...fields });
-      return;
-    }
-    if (editing) save.mutate({ id: editing.id, patch: fields });
-  };
-
-  /** Numeric fields are minor units; block a submit that would send NaN to a money endpoint. */
-  const optionalInteger = (raw: string) => raw.trim() === '' || Number.isInteger(Number(raw));
-  const floorAboveCeiling =
-    !!draft &&
-    draft.minFeeMinor.trim() !== '' &&
-    draft.maxFeeMinor.trim() !== '' &&
-    Number(draft.minFeeMinor) > Number(draft.maxFeeMinor);
-  // The API refuses this too; saying so here keeps the admin on the form.
-  const boundsInverted =
-    !!draft &&
-    draft.maxMinor.trim() !== '' &&
-    Number.isFinite(Number(draft.maxMinor)) &&
-    Number(draft.maxMinor) <= Number(draft.minMinor);
-  // Optional limits, shared by the three types that take them: whole numbers, min <= max.
-  const limitsInvalid =
-    !!draft &&
-    (!optionalInteger(draft.minFeeMinor) ||
-      !optionalInteger(draft.maxFeeMinor) ||
-      Number(draft.minFeeMinor) < 0 ||
-      Number(draft.maxFeeMinor) < 0 ||
-      floorAboveCeiling);
-  const invalid =
-    !draft ||
-    draft.minMinor.trim() === '' ||
-    !Number.isInteger(Number(draft.minMinor)) ||
-    Number(draft.minMinor) < 0 ||
-    boundsInverted ||
-    (draft.maxMinor.trim() !== '' && !Number.isInteger(Number(draft.maxMinor))) ||
-    (draft.feeType === 'FLAT'
-      ? draft.feeMinor.trim() === '' || !Number.isInteger(Number(draft.feeMinor))
-      : draft.feeType === 'COMBINED'
-        ? percentToBps(draft.percent) === null ||
-          draft.feeMinor.trim() === '' ||
-          !Number.isInteger(Number(draft.feeMinor)) ||
-          Number(draft.feeMinor) < 1 ||
-          limitsInvalid
-        : draft.feeType === 'FIXED_PER_TICKET'
-          ? draft.feeMinor.trim() === '' ||
-            !Number.isInteger(Number(draft.feeMinor)) ||
-            Number(draft.feeMinor) < 0 ||
-            limitsInvalid
-          : percentToBps(draft.percent) === null || limitsInvalid);
 
   const allColumns = (currency: string): Column<FeeRule>[] => [
     // Written from the boundaries, so an edited band is renamed with it.
@@ -319,26 +68,9 @@ export default function AdminSettings() {
     },
     { key: 'fee', header: 'Booking fee', render: (r) => describeCharge(r, currency) },
     { key: 'active', header: 'Active', render: (r) => bandStatus(r) },
-    {
-      key: 'actions',
-      header: '',
-      // A deleted band is history: nothing to edit and nothing left to delete.
-      render: (r) =>
-        r.deletedAt ? null : (
-          <div className="flex justify-end gap-2">
-            <Button size="sm" variant="secondary" onClick={() => openEditor(r)}>
-              Edit
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => setDeleting(r)}>
-              Delete
-            </Button>
-          </div>
-        ),
-    },
   ];
 
-  const columns = (currency: string) =>
-    mayEdit ? allColumns(currency) : allColumns(currency).filter((c) => c.key !== 'actions');
+  const columns = allColumns;
 
   // Group by currency: bands only make sense compared against others in the same currency,
   // and fees are resolved per currency at booking time.
@@ -355,12 +87,6 @@ export default function AdminSettings() {
   const unconfigured = Array.from(new Set(MARKETS.map((m) => m.currency))).filter(
     (c) => !byCurrency[c],
   );
-  const [newCurrency, setNewCurrency] = useState('');
-
-  // The dialog serves both modes, so it reads its currency from whichever is active rather
-  // than assuming an existing rule. Amounts are minor units, and the labels/preview must
-  // name the right currency or an admin can enter cents thinking they are paise.
-  const dialogCurrency = creatingCurrency ?? editing?.currency ?? null;
 
   // Until the operator is known nothing is fetched, so say so rather than show an empty list.
   if (!access.known || !access.mayRead) {
@@ -416,9 +142,13 @@ export default function AdminSettings() {
             />
             {mayEdit && (
               <div className="mt-3 flex justify-end">
-                <Button size="sm" variant="secondary" onClick={() => openCreator(currency)}>
-                  Add band
-                </Button>
+                <ButtonLink
+                  size="sm"
+                  variant="secondary"
+                  href={`/admin/settings/schedule?currency=${currency}`}
+                >
+                  Change this schedule
+                </ButtonLink>
               </div>
             )}
           </Card>
@@ -429,33 +159,20 @@ export default function AdminSettings() {
       {mayEdit && !isLoading && unconfigured.length > 0 && (
         <Card title="Set up fees for another market">
           <p className="mb-3 text-sm text-text-secondary">
-            These markets have no fee bands of their own yet, so they use the built-in defaults. Add
-            a first band to give one its own schedule.
+            These markets have no fee bands of their own yet, so they use the built-in defaults.
+            Start a draft to give one its own schedule.
           </p>
-          <div className="flex flex-wrap items-end gap-3">
-            <Select
-              label="Market"
-              value={newCurrency}
-              onChange={(e) => setNewCurrency(e.target.value)}
-            >
-              <option value="">Choose a market</option>
-              {unconfigured.map((c) => (
-                <option key={c} value={c}>
-                  {CURRENCY_LABELS[c] ?? c}
-                </option>
-              ))}
-            </Select>
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={!newCurrency}
-              onClick={() => {
-                openCreator(newCurrency);
-                setNewCurrency('');
-              }}
-            >
-              Add first band
-            </Button>
+          <div className="flex flex-wrap gap-2">
+            {unconfigured.map((c) => (
+              <ButtonLink
+                key={c}
+                size="sm"
+                variant="secondary"
+                href={`/admin/settings/schedule?currency=${c}`}
+              >
+                Set up {CURRENCY_LABELS[c] ?? c}
+              </ButtonLink>
+            ))}
           </div>
         </Card>
       )}
@@ -476,12 +193,10 @@ export default function AdminSettings() {
             contains the order subtotal.
           </li>
           <li>
-            All amounts are <strong>minor units</strong> — paise for INR, cents for USD/CAD/AUD.
-            Enter 500 for ₹5 or $5.00.
-          </li>
-          <li>
-            Bands within a currency must not overlap while active. The API refuses an overlapping
-            edit, because first-match resolution would make the fee depend on row order.
+            To change a schedule, start a <strong>draft</strong>. A draft can have gaps and overlaps
+            while you work; it is checked as a whole and published in one step, only when every
+            order amount has exactly one band. Amounts are typed in the currency, for example
+            100.00.
           </li>
           <li>Leave the upper bound empty for the top band (&ldquo;and above&rdquo;).</li>
           <li>
@@ -508,316 +223,12 @@ export default function AdminSettings() {
           </li>
           <li>A band&apos;s name is written from its range, so changing the range renames it.</li>
           <li>
-            Deleting a band switches it off and keeps it on file for the audit log. Bookings already
-            made keep the fee they were charged. A delete is refused when it would leave orders in a
-            place with no band, or open a range of order amounts that no band covers. Switching a
-            band off, or making its range smaller, is checked the same way. To stop what a band in
-            the middle charges, change its fee to match a neighbour.
+            A band removed in a draft is switched off and kept on file for the audit log when the
+            draft is published. Bookings already made keep the fee they were charged.
           </li>
           <li>Every change is recorded in the audit log with its before and after values.</li>
         </ul>
       </Card>
-
-      <Dialog
-        open={!!editing || !!creatingCurrency}
-        onClose={() => {
-          setEditing(null);
-          setCreatingCurrency(null);
-          setDraft(null);
-        }}
-        title={
-          creatingCurrency
-            ? `Add fee band — ${creatingCurrency}`
-            : editing
-              ? `Edit fee rule — ${editing.currency}`
-              : 'Fee rule'
-        }
-      >
-        {draft && dialogCurrency && (
-          <div className="space-y-3">
-            {/*
-              The name is written from the range and is not editable.
-
-              It used to be a typed label, and even once it was pre-filled an existing band kept
-              its old one: "$0-$9.99" outlived an edit to the bounds and went on naming a band
-              that no longer existed. The API now names every band from its range when it is
-              shown, so this is only a preview of that.
-            */}
-            <p className="text-sm">
-              <span className="text-text-secondary">Name: </span>
-              <strong data-testid="fee-band-name">
-                {draftBandName(draft, dialogCurrency) || 'Enter the range below'}
-              </strong>
-            </p>
-            <Input
-              label={`From (minor units, ${dialogCurrency})`}
-              inputMode="numeric"
-              value={draft.minMinor}
-              onChange={(e) => setDraft({ ...draft, minMinor: e.target.value })}
-            />
-            <Input
-              label={`To (minor units, leave empty for "and above")`}
-              inputMode="numeric"
-              value={draft.maxMinor}
-              hint={
-                boundsInverted ? 'The upper bound must be more than the lower bound.' : undefined
-              }
-              onChange={(e) => setDraft({ ...draft, maxMinor: e.target.value })}
-            />
-            <Select
-              label="How this band charges"
-              value={draft.feeType}
-              onChange={(e) =>
-                setDraft({
-                  ...draft,
-                  feeType:
-                    e.target.value === 'PERCENT' ||
-                    e.target.value === 'COMBINED' ||
-                    e.target.value === 'FIXED_PER_TICKET'
-                      ? e.target.value
-                      : 'FLAT',
-                })
-              }
-            >
-              <option value="FLAT">A fixed amount per order</option>
-              <option value="FIXED_PER_TICKET">A fixed amount per ticket</option>
-              <option value="PERCENT">A percentage of the order</option>
-              <option value="COMBINED">A percentage plus a fixed amount per ticket</option>
-            </Select>
-            {draft.feeType === 'FIXED_PER_TICKET' ? (
-              <Input
-                label={`Fee per ticket (minor units, ${dialogCurrency})`}
-                inputMode="numeric"
-                value={draft.feeMinor}
-                hint="Charged once for each paid ticket. Free tickets pay nothing. Enter 500 for 5.00."
-                onChange={(e) => setDraft({ ...draft, feeMinor: e.target.value })}
-              />
-            ) : draft.feeType === 'COMBINED' ? (
-              <>
-                <div className="grid grid-cols-2 gap-3">
-                  <Input
-                    label="Percentage of the order (%)"
-                    inputMode="decimal"
-                    value={draft.percent}
-                    hint="For example 3 for 3%. Up to two decimal places."
-                    onChange={(e) => setDraft({ ...draft, percent: e.target.value })}
-                  />
-                  <Input
-                    label={`Fixed amount per ticket (minor units, ${dialogCurrency})`}
-                    inputMode="numeric"
-                    value={draft.feeMinor}
-                    hint="Charged once for each paid ticket. Enter 500 for 5.00."
-                    onChange={(e) => setDraft({ ...draft, feeMinor: e.target.value })}
-                  />
-                </div>
-              </>
-            ) : draft.feeType === 'FLAT' ? (
-              <Input
-                label={`Booking fee (minor units, ${dialogCurrency})`}
-                inputMode="numeric"
-                value={draft.feeMinor}
-                onChange={(e) => setDraft({ ...draft, feeMinor: e.target.value })}
-              />
-            ) : (
-              <Input
-                label="Percentage of the order (%)"
-                inputMode="decimal"
-                value={draft.percent}
-                hint="For example 5 for 5%, or 2.5 for 2.5%. Up to two decimal places."
-                onChange={(e) => setDraft({ ...draft, percent: e.target.value })}
-              />
-            )}
-            {/*
-              Optional whole-order limits for the percentage, combined and per-ticket types
-              (owner decision 2026-10-29). Empty by default; applied after the fee is worked out.
-            */}
-            {draft.feeType !== 'FLAT' && (
-              <div className="grid grid-cols-2 gap-3">
-                <Input
-                  label={`Minimum fee for the order (minor units, optional)`}
-                  inputMode="numeric"
-                  value={draft.minFeeMinor}
-                  hint="Leave empty for no minimum."
-                  onChange={(e) => setDraft({ ...draft, minFeeMinor: e.target.value })}
-                />
-                <Input
-                  label={`Maximum fee for the order (minor units, optional)`}
-                  inputMode="numeric"
-                  value={draft.maxFeeMinor}
-                  hint={
-                    floorAboveCeiling
-                      ? 'The minimum is above the maximum.'
-                      : 'Leave empty for no maximum.'
-                  }
-                  onChange={(e) => setDraft({ ...draft, maxFeeMinor: e.target.value })}
-                />
-              </div>
-            )}
-            {(draft.feeType === 'COMBINED' || draft.feeType === 'FIXED_PER_TICKET') &&
-              (() => {
-                const example = combinedExample(
-                  {
-                    type: draft.feeType,
-                    percentBps: percentToBps(draft.percent),
-                    fixedPerTicketMinor: Number(draft.feeMinor),
-                    minMinor: Number(draft.minMinor) || 0,
-                    maxMinor: draft.maxMinor.trim() === '' ? null : Number(draft.maxMinor),
-                    minFeeMinor: optionalMinor(draft.minFeeMinor),
-                    maxFeeMinor: optionalMinor(draft.maxFeeMinor),
-                  },
-                  dialogCurrency,
-                );
-                return example ? (
-                  <p className="text-xs text-text-muted" data-testid="combined-example">
-                    {example}
-                  </p>
-                ) : null;
-              })()}
-            {/*
-              Where the band applies.
-
-              Fees were scoped by currency alone, which is not the unit anybody regulates —
-              several Indian states cap what may be charged for booking a cinema ticket
-              online. A rule naming a state replaces the national schedule where it applies,
-              so a national default can stay exactly as it is.
-            */}
-            {/*
-              ── PICKED, NOT TYPED ─────────────────────────────────────────────────────
-              These were free-text boxes holding a country name and a region name that have to
-              match what a VENUE stores, exactly, for the rule to ever apply. A typo does not
-              fail here — it saves a rule that silently matches nothing, and the fee quietly
-              falls back to a broader band. That is the worst kind of configuration bug: it
-              looks like it worked.
-
-              The country also defaults to the market whose currency this band is in. Editing
-              a USD rule and being shown a blank country box invites somebody to type
-              "USA" — which is not what venues store.
-            */}
-            <div className="grid grid-cols-2 gap-3">
-              <Select
-                label="Country"
-                value={draft.country}
-                hint="Where the band applies. Anywhere is the national/global default."
-                onChange={(e) => setDraft({ ...draft, country: e.target.value, region: '*' })}
-              >
-                <option value="*">Anywhere</option>
-                {MARKETS.map((m) => (
-                  <option key={m.code} value={m.name}>
-                    {m.name}
-                  </option>
-                ))}
-              </Select>
-              <Select
-                label={regionLabelFor(draft.country)}
-                value={draft.region}
-                disabled={draft.country === '*'}
-                hint={
-                  draft.country === '*'
-                    ? 'Pick a country first — a state has to belong to one.'
-                    : 'A band naming a state replaces the national schedule where it applies.'
-                }
-                onChange={(e) => setDraft({ ...draft, region: e.target.value })}
-              >
-                <option value="*">
-                  All of {draft.country === '*' ? 'the country' : draft.country}
-                </option>
-                {(marketFor(draft.country)?.regions ?? []).map((r) => (
-                  <option key={r.name} value={r.name}>
-                    {r.name}
-                  </option>
-                ))}
-              </Select>
-            </div>
-            <Select
-              label="Active"
-              value={draft.active ? 'yes' : 'no'}
-              onChange={(e) => setDraft({ ...draft, active: e.target.value === 'yes' })}
-            >
-              <option value="yes">Yes</option>
-              <option value="no">No</option>
-            </Select>
-
-            <p className="text-xs text-text-muted">
-              Preview: orders of{' '}
-              {rangeText(
-                Number(draft.minMinor) || 0,
-                draft.maxMinor.trim() === '' ? null : Number(draft.maxMinor) || 0,
-                dialogCurrency,
-              )}{' '}
-              pay a fee of{' '}
-              {describeCharge(
-                draft.feeType === 'PERCENT'
-                  ? {
-                      feeType: 'PERCENT',
-                      feeMinor: 0,
-                      feePercentBps: percentToBps(draft.percent) ?? 0,
-                      minFeeMinor: optionalMinor(draft.minFeeMinor),
-                      maxFeeMinor: optionalMinor(draft.maxFeeMinor),
-                    }
-                  : draft.feeType === 'COMBINED' || draft.feeType === 'FIXED_PER_TICKET'
-                    ? {
-                        feeType: draft.feeType,
-                        feeMinor: Number(draft.feeMinor) || 0,
-                        feePercentBps: percentToBps(draft.percent) ?? 0,
-                        minFeeMinor: optionalMinor(draft.minFeeMinor),
-                        maxFeeMinor: optionalMinor(draft.maxFeeMinor),
-                      }
-                    : { feeType: 'FLAT', feeMinor: Number(draft.feeMinor) || 0 },
-                dialogCurrency,
-              )}
-            </p>
-
-            <div className="flex justify-end gap-2 pt-2">
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  setEditing(null);
-                  setCreatingCurrency(null);
-                  setDraft(null);
-                }}
-              >
-                Cancel
-              </Button>
-              <Button onClick={submit} disabled={invalid || save.isPending || create.isPending}>
-                {save.isPending || create.isPending
-                  ? 'Saving…'
-                  : creatingCurrency
-                    ? 'Add band'
-                    : 'Save changes'}
-              </Button>
-            </div>
-          </div>
-        )}
-      </Dialog>
-
-      {/*
-        Confirmed, because a delete is not taken back from this screen. The API checks the
-        schedule that is left and refuses (409) when orders would have no band; that sentence is
-        shown as a toast and the dialog stays open so the admin can cancel.
-      */}
-      <Dialog
-        open={!!deleting}
-        onClose={() => setDeleting(null)}
-        title={deleting ? deleteConfirmation(deleting).title : 'Delete fee band'}
-      >
-        {deleting && (
-          <div className="space-y-3">
-            <p className="text-sm text-text-secondary">{deleteConfirmation(deleting).body}</p>
-            <div className="flex justify-end gap-2">
-              <Button variant="secondary" onClick={() => setDeleting(null)}>
-                Cancel
-              </Button>
-              <Button
-                variant="danger"
-                loading={remove.isPending}
-                onClick={() => remove.mutate(deleting.id)}
-              >
-                Delete band
-              </Button>
-            </div>
-          </div>
-        )}
-      </Dialog>
     </div>
   );
 }
