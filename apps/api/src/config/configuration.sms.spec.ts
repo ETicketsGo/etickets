@@ -327,4 +327,28 @@ describe('loadConfig: SMS', () => {
       },
     );
   });
+  describe('SMS_TRANSACTIONAL_MARKETS', () => {
+    it('boots with the setting absent (the default: India only)', () => {
+      process.env = env({ APP_ENV: 'DEV', NODE_ENV: 'development' });
+      expect(() => loadConfig()).not.toThrow();
+    });
+
+    it('boots with IN, US and CA named', () => {
+      process.env = env({
+        APP_ENV: 'DEV',
+        NODE_ENV: 'development',
+        SMS_TRANSACTIONAL_MARKETS: 'IN, us,CA',
+      });
+      expect(() => loadConfig()).not.toThrow();
+    });
+
+    it.each(['GB', 'XX'])('refuses %s, which has no SMS path', (name) => {
+      process.env = env({
+        APP_ENV: 'DEV',
+        NODE_ENV: 'development',
+        SMS_TRANSACTIONAL_MARKETS: `IN,${name}`,
+      });
+      expect(() => loadConfig()).toThrow(new RegExp(`SMS_TRANSACTIONAL_MARKETS names ${name}`));
+    });
+  });
 });

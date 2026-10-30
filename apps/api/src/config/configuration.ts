@@ -22,6 +22,8 @@ import {
 import { railwayEmailHostWarnings } from '../common/email-host-warnings';
 import {
   SMS_TRANSACTIONAL_ELIGIBLE,
+  SMS_TRANSACTIONAL_MARKETS_SUPPORTED,
+  invalidSmsTransactionalMarkets,
   invalidSmsTransactionalTypes,
 } from '../notifications/policy/sms-transactional';
 
@@ -1218,10 +1220,17 @@ const envSchema = z.object({
     Transactional SMS in India, one notification type at a time (comma list). EMPTY by
     default: no type sends an SMS until it is named here. Eligible names: BOOKING_CONFIRMED,
     BOOKING_CANCELLED, PASSWORD_CHANGED, EVENT_REMINDER. Only an account with a VERIFIED Indian
-    number gets it; the US and Canada are untouched. Sign-in codes do not read this. Set it on
+    number gets it (and +1, only if SMS_TRANSACTIONAL_MARKETS says so). Sign-in codes do not read this. Set it on
     the api AND the worker (the worker composes reminders and delivers every row).
   */
   SMS_TRANSACTIONAL_TYPES: z.string().optional(),
+  /*
+    Which countries' numbers SMS_TRANSACTIONAL_TYPES may text (comma list). Default IN. US and
+    CA go through the existing Twilio route with the type's rendered text (no DLT). A +1 number
+    may be either, so it is texted only when BOTH US and CA are named. Keep +1 off until the
+    Twilio sender is certified. Set it on the api AND the worker, like the types list.
+  */
+  SMS_TRANSACTIONAL_MARKETS: z.string().optional(),
   /*
     Show reminders. OFF by default, and that default is the point: turning this on starts
     messaging every ticket holder on the platform about every future show. That is a product
@@ -2235,6 +2244,14 @@ function assertNotificationConfigConsistency(cfg: AppConfig): void {
     errors.push(
       `  - SMS_TRANSACTIONAL_TYPES names ${badSmsTypes.join(', ')}, which may not send an SMS. ` +
         `Allowed: ${SMS_TRANSACTIONAL_ELIGIBLE.join(', ')}.`,
+    );
+  }
+
+  const badSmsMarkets = invalidSmsTransactionalMarkets(cfg.SMS_TRANSACTIONAL_MARKETS);
+  if (badSmsMarkets.length > 0) {
+    errors.push(
+      `  - SMS_TRANSACTIONAL_MARKETS names ${badSmsMarkets.join(', ')}, which has no SMS path. ` +
+        `Allowed: ${SMS_TRANSACTIONAL_MARKETS_SUPPORTED.join(', ')}.`,
     );
   }
 
