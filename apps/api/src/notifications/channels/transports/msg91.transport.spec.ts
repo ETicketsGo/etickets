@@ -8,6 +8,7 @@ import type { RenderedNotification } from '../notification-channel.interface';
 import {
   DLT_SMS_REPLACEMENTS,
   DLT_SMS_TEMPLATES,
+  PASSWORD_UPDATE_SMS_KIND,
   matchDltSms,
   renderDltSms,
   type DltSmsTemplate,
@@ -684,11 +685,12 @@ describe('MSG91 SMS: only approved, verified templates send', () => {
     expect(err.message).toMatch(/email only/);
   });
 
-  it.each(
-    Object.values(DLT_SMS_TEMPLATES)
-      .filter((t) => t.approved && !t.textVerified)
-      .map((t) => [t.approved!.name, t] as const),
-  )('approved %s is refused while its registered text is unverified', async (_name, t) => {
+  it('an approved template is refused while its registered text is unverified', async () => {
+    // All eight are verified today; un-verify one for the duration of this test.
+    const t = DLT_SMS_TEMPLATES[PASSWORD_UPDATE_SMS_KIND] as {
+      textVerified: boolean;
+    } & DltSmsTemplate;
+    t.textVerified = false;
     const err = await refusal(
       { [t.msg91TemplateIdEnv]: 'tmpl-x', [t.dltTemplateIdEnv]: t.approved!.dltTemplateId },
       {
@@ -696,7 +698,9 @@ describe('MSG91 SMS: only approved, verified templates send', () => {
         body: 'Your ETicketsGo verification code is 482913. Valid for 5 minutes. Do not share this code.',
         payload: PAYLOAD,
       },
-    );
+    ).finally(() => {
+      t.textVerified = true;
+    });
     expect(err.failureClass).toBe(FailureClass.TEMPLATE_NOT_FOUND);
     expect(err.message).toMatch(/unverified/);
     // Never the code, never the key.

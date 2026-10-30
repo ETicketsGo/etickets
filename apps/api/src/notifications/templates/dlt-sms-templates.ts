@@ -249,21 +249,18 @@ export const DLT_SMS_TEMPLATES: Readonly<Record<DltSmsKind, DltSmsTemplate>> = {
     // Compared with MSG91 (getTemplateVersions, 2026-10-29): wording, DLT id and sender ETKTGO.
     textVerified: true,
   },
-  /*
-    Approved on DLT (1777179239457786914) but NOT added to the MSG91 account: getTemplateVersions
-    knows no template for it. Unsendable until the owner adds it in MSG91 and its wording is
-    copied in here.
-  */
   [PASSWORD_UPDATE_SMS_KIND]: {
     kind: PASSWORD_UPDATE_SMS_KIND,
     label: 'Password updated',
     category: 'SERVICE_IMPLICIT',
-    text: null,
+    // Registered in MSG91 with the same wording as Password Change, under its own DLT id.
+    text: 'Your ETicketsGo password was changed successfully. If this was not you, contact our support team immediately.',
     variables: [],
     msg91TemplateIdEnv: 'MSG91_SMS_TEMPLATE_PASSWORD_UPDATE',
     dltTemplateIdEnv: 'DLT_TEMPLATE_ID_PASSWORD_UPDATE',
     approved: { name: 'PASSWORD_UPDATE', dltTemplateId: '1777179239457786914' },
-    textVerified: false,
+    // Compared with MSG91 (getTemplateVersions, 2026-10-30): wording, DLT id and sender ETKTGO.
+    textVerified: true,
   },
   [PAYMENT_PENDING_SMS_KIND]: {
     kind: PAYMENT_PENDING_SMS_KIND,
