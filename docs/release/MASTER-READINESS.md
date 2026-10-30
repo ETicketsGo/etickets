@@ -1,5 +1,7 @@
 # ETicketsGo master readiness tracker
 
+> **Status note (2026-10-30):** historical record, superseded for the current state; see [PRODUCT-CURRENT-STATE.md](../PRODUCT-CURRENT-STATE.md).
+
 The one list of everything still open. Every item stays here until it has evidence of
 completion, is cancelled by the owner, or is deferred with a reason. Update it at the end of
 every session; never delete an open row because something newer became urgent.
