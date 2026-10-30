@@ -41,7 +41,7 @@ import { OtpSmsGuard, type OtpSendRefusal } from './otp-sms-guard';
  */
 
 /** Long enough to arrive and be typed, short enough that a stolen code is usually dead. */
-const OTP_TTL_MINUTES = 10;
+const OTP_TTL_MINUTES = 5;
 
 /**
  * How many wrong guesses one code survives.

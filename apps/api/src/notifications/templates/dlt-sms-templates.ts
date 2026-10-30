@@ -155,7 +155,7 @@ export interface DltSmsTemplate {
 export const DLT_SMS_TEMPLATES: Readonly<Record<DltSmsKind, DltSmsTemplate>> = {
   /*
     Word for word the default in PhoneOtpService and the MSG91 registration. The lifetime is
-    fixed text in the approved wording; the code itself lives OTP_TTL_MINUTES (see that file).
+    fixed text in the approved wording; OTP_TTL_MINUTES in that file must say the same (tested).
   */
   [OTP_SMS_KIND]: {
     kind: OTP_SMS_KIND,

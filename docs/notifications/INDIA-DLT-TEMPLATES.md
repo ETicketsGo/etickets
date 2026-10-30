@@ -86,8 +86,9 @@ ETicketsGo: Your booking {#var#} is awaiting payment confirmation. Check your bo
 ETicketsGo: Reminder! Your event {#var#} is scheduled for {#var#}. Please carry your ticket QR code for entry.
 ```
 
-The sign-in text says "Valid for 5 minutes"; a code is accepted for `OTP_TTL_MINUTES` (10) in
-`auth/phone-otp.service.ts`. Owner decision: keep 10, or shorten to 5 to match the wording.
+The sign-in text says "Valid for 5 minutes", and a code is accepted for exactly that long
+(`OTP_TTL_MINUTES` = 5 in `auth/phone-otp.service.ts`, owner decision 2026-10-29). A test
+fails if the two ever differ.
 
 **Text verified = no** means the registered wording and its variables could not be read back
 from MSG91, so the kind is refused (never sent) until somebody copies the exact registered text
