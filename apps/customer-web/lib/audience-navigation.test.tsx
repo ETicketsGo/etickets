@@ -101,12 +101,19 @@ function labels(el: Element): string[] {
 const MARKETING_LINKS = ['Features', 'Solutions', 'Pricing', 'For organizers', 'For attendees'];
 const APP_LINKS = ['Explore', 'Movies', 'Tickets'];
 /*
-  With no market selected the footer names no company in the copyright line and both companies
-  in the operator line - true wherever it is read, and never a guess from an IP address.
+  The copyright line names no company and is the same for every reader. The operator line is
+  there only for a market the reader selected; with none, the footer names no company at all
+  (never both, and never a guess from an IP address). The Legal & Policies pages list both.
 */
-const LEGAL_LINE = '© 2026 ETicketsGo | All rights reserved.';
-const NEUTRAL_OPERATOR =
-  'ETicketsGo is operated in India by DeepTrics Software Solutions Private Limited and in the United States by DeepTrics LLC.';
+const LEGAL_LINE = `© ${new Date().getFullYear()} ETicketsGo. All rights reserved.`;
+const INDIA_LINE = 'Operated in India by DeepTrics Software Solutions Private Limited.';
+const US_LINE = 'Operated in the United States by DeepTrics LLC.';
+/** The footer names no company: the neutral copyright line only. */
+function expectNeutral(footer: HTMLElement) {
+  expect(footer.querySelector('[data-testid="footer-rights"]')?.textContent).toBe(LEGAL_LINE);
+  expect(footer.querySelector('[data-testid="footer-operator"]')).toBeNull();
+  expect(footer.textContent).not.toContain('DeepTrics');
+}
 
 describe('the marketing header', () => {
   it.each(['/features', '/pricing', '/organizers', '/legal', '/docs/api'])(
@@ -324,8 +331,7 @@ describe('the storefront footer', () => {
     const { footer } = await mount('/', false);
     expect(footer.querySelector('a[href="/features"]')).not.toBeNull();
     expect(footer.querySelector('a[href="/organizers"]')).not.toBeNull();
-    expect(footer.textContent).toContain(LEGAL_LINE);
-    expect(footer.textContent).toContain(NEUTRAL_OPERATOR);
+    expectNeutral(footer);
   });
 });
 
@@ -338,38 +344,82 @@ describe('the footer names the company for the selected market', () => {
     localStorage.setItem('etg.city', JSON.stringify({ city, region, country }));
   }
 
-  it('India: the Indian company, short form in the copyright and in full in the line', async () => {
+  it('India: the copyright line and the Indian company', async () => {
     choose('Hyderabad', 'Telangana', 'India');
     const { footer } = await mount('/', false);
-    expect(footer.textContent).toContain(
-      '© 2026 ETicketsGo, DeepTrics Software Solutions Pvt Ltd | All rights reserved.',
-    );
-    expect(footer.textContent).toContain(
-      'ETicketsGo is operated in India by DeepTrics Software Solutions Private Limited.',
-    );
+    expect(footer.querySelector('[data-testid="footer-rights"]')?.textContent).toBe(LEGAL_LINE);
+    expect(footer.querySelector('[data-testid="footer-operator"]')?.textContent).toBe(INDIA_LINE);
     expect(footer.textContent).not.toContain('DeepTrics LLC');
   });
 
   it('United States: DeepTrics LLC', async () => {
     choose('Austin', 'Texas', 'United States');
     const { footer } = await mount('/features', false);
-    expect(footer.textContent).toContain('© 2026 ETicketsGo, DeepTrics LLC | All rights reserved.');
-    expect(footer.textContent).toContain(
-      'ETicketsGo is operated in the United States by DeepTrics LLC.',
-    );
+    expect(footer.querySelector('[data-testid="footer-rights"]')?.textContent).toBe(LEGAL_LINE);
+    expect(footer.querySelector('[data-testid="footer-operator"]')?.textContent).toBe(US_LINE);
     expect(footer.textContent).not.toContain('Private Limited');
   });
 
-  it('a market with no company, or "All cities", falls back to both', async () => {
+  it('a market with no company: the neutral copyright line only', async () => {
     choose('Toronto', 'Ontario', 'Canada');
-    let { footer } = await mount('/', false);
-    expect(footer.textContent).toContain(LEGAL_LINE);
-    expect(footer.textContent).toContain(NEUTRAL_OPERATOR);
-    cleanup?.();
-    cleanup = null;
+    const { footer } = await mount('/', false);
+    expectNeutral(footer);
+  });
+
+  it('"All cities" in India still names the Indian company, never both', async () => {
+    // The reader picked an Indian city before (the cookie), then "All cities"; the storefront
+    // is scoped to India. "All cities" means every city in India.
     localStorage.setItem('etg.city', '__all__');
-    ({ footer } = await mount('/', false));
-    expect(footer.textContent).toContain(NEUTRAL_OPERATOR);
+    document.cookie = 'etg_selected_market=IN; Path=/';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) =>
+        String(url).includes('/public/location/resolve')
+          ? Promise.resolve(
+              new Response(
+                JSON.stringify({
+                  city: null,
+                  region: null,
+                  country: 'IN',
+                  scopeCountry: 'IN',
+                  confident: false,
+                  topCities: [],
+                }),
+                { status: 200, headers: { 'content-type': 'application/json' } },
+              ),
+            )
+          : new Promise(() => {}),
+      ),
+    );
+    try {
+      const { footer } = await mount('/', false);
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 0));
+      });
+      expect(footer.querySelector('[data-testid="footer-operator"]')?.textContent).toBe(INDIA_LINE);
+      expect(footer.textContent).not.toContain('DeepTrics LLC');
+      // "All cities" keeps the market for the server-rendered legal pages too.
+      expect(document.cookie).toContain('etg_selected_market=IN');
+    } finally {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() => new Promise(() => {})),
+      );
+    }
+  });
+
+  it('"All cities" with no market ever selected names no company', async () => {
+    localStorage.setItem('etg.city', '__all__');
+    const { footer } = await mount('/', false);
+    expectNeutral(footer);
+  });
+
+  it('server-renders the neutral line, so hydration never shows a wrong company', () => {
+    choose('Austin', 'Texas', 'United States');
+    path = '/';
+    const html = renderToStaticMarkup(tree(false));
+    expect(html).toContain(LEGAL_LINE);
+    expect(html).not.toContain('DeepTrics');
   });
 
   it('the choice is mirrored for the server-rendered legal pages', async () => {
@@ -387,9 +437,8 @@ describe('the footer names the company for the selected market', () => {
   the city choice, then neither company. Never the network guess (etg_market).
 */
 describe('on a legal page the footer follows the market the page body follows', () => {
-  const INDIA_OPERATOR_LINE =
-    'ETicketsGo is operated in India by DeepTrics Software Solutions Private Limited.';
-  const US_OPERATOR_LINE = 'ETicketsGo is operated in the United States by DeepTrics LLC.';
+  const INDIA_OPERATOR_LINE = INDIA_LINE;
+  const US_OPERATOR_LINE = US_LINE;
 
   it.each(['/terms', '/privacy', '/refunds', '/cookies', '/sms'])(
     '%s?country=IN names the Indian company in the footer',
@@ -399,9 +448,7 @@ describe('on a legal page the footer follows the market the page body follows', 
       expect(footer.querySelector('[data-testid="footer-operator"]')?.textContent).toBe(
         INDIA_OPERATOR_LINE,
       );
-      expect(footer.textContent).toContain(
-        '© 2026 ETicketsGo, DeepTrics Software Solutions Pvt Ltd | All rights reserved.',
-      );
+      expect(footer.textContent).toContain(LEGAL_LINE);
     },
   );
 
@@ -426,7 +473,7 @@ describe('on a legal page the footer follows the market the page body follows', 
     document.cookie = 'etg_market=IN; Path=/';
     try {
       const { footer } = await mount('/terms', false);
-      expect(footer.textContent).toContain(NEUTRAL_OPERATOR);
+      expectNeutral(footer);
     } finally {
       document.cookie = 'etg_market=; Max-Age=0; Path=/';
     }
@@ -435,7 +482,7 @@ describe('on a legal page the footer follows the market the page body follows', 
   it('off the legal pages ?country= changes nothing (the city choice still decides)', async () => {
     search = 'country=IN';
     const { footer } = await mount('/features', false);
-    expect(footer.textContent).toContain(NEUTRAL_OPERATOR);
+    expectNeutral(footer);
   });
 });
 

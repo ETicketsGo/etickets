@@ -6,7 +6,7 @@ import { useTranslations } from 'next-intl';
 import { publicLegalEntity } from '@eticketsgo/shared-types';
 import { SELECTED_MARKET_COOKIE, useCity } from '@eticketsgo/web-kit';
 import { usePathname } from '@/i18n/navigation';
-import { footerRights, operatorMessage } from '@/lib/legal-entity';
+import { footerOperator, operatorMessage } from '@/lib/legal-entity';
 
 /**
  * The market the reader selected, for naming a company: the country of a city they chose,
@@ -66,7 +66,7 @@ const noSubscription = () => () => {};
  * On a legal page it is resolved the way the page body resolves it, so the two never disagree:
  * `/terms?country=IN` named the Indian company in the body and neither in the footer, because
  * the footer read only the city choice. Order: explicit `?country=`, the `etg_selected_market`
- * cookie, the city choice, then null (both companies). Never `etg_market`, which can hold the
+ * cookie, the city choice, then null (no company). Never `etg_market`, which can hold the
  * network's guess. Everywhere else it is the city choice, as before.
  */
 function useFooterMarket(chosen: string | null): string | null {
@@ -81,17 +81,22 @@ function useFooterMarket(chosen: string | null): string | null {
 
 function FooterLines({ market }: { market: string | null }) {
   const f = useTranslations('common.footer');
-  const rights = footerRights(market, new Date().getFullYear());
+  const operator = footerOperator(market);
   return (
     <div className="space-y-1">
       {/*
         The year is read at render rather than typed: a literal is wrong on 1 January. The
-        company is read from the entity registry for the market the reader chose, so it
-        cannot drift from the legal pages; with no market the line names no company and the
-        operator line under it names both.
+        copyright line names no company, so it is the same for every reader.
+
+        The operator line appears only for a market the reader selected (India or the United
+        States) and names that market's company from the entity registry. With no market, or
+        one with no company, there is no operator line at all: the footer never names both
+        companies (the Legal & Policies pages list both in full). The server render and the
+        first client render have no market, so they agree, and the line is filled in once the
+        city choice is read - neutral then filled, never one company then the other.
       */}
-      <p data-testid="footer-rights">{f(rights.key, rights.values)}</p>
-      <OperatorStatement market={market} testId="footer-operator" />
+      <p data-testid="footer-rights">{f('copyright', { year: new Date().getFullYear() })}</p>
+      {operator && <p data-testid="footer-operator">{f(operator.key, operator.values)}</p>}
     </div>
   );
 }

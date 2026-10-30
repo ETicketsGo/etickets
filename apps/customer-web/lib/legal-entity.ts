@@ -81,17 +81,19 @@ export function operatorMessage(
 }
 
 /**
- * The footer copyright line for a selected market: the company's short name when one is
- * selected, and no company at all when none is (the operator line beside it names both).
+ * The footer's operator line for a selected market, as a `common.footer` message, or null.
+ *
+ * India: "Operated in India by <legal name>." United States: "Operated in the United States
+ * by <legal name>." Anything else, or no market: null, and the footer shows only the neutral
+ * copyright line. The footer never names both companies; the Legal & Policies pages do.
  */
-export function footerRights(
+export function footerOperator(
   market: string | null | undefined,
-  year: number,
-): { key: 'rights' | 'rightsNeutral'; values: Record<string, string | number> } {
+): { key: 'operatedIN' | 'operatedUS'; values: { entity: string } } | null {
   const entity = publicLegalEntity(market);
-  return entity
-    ? { key: 'rights', values: { year, entity: entity.shortName } }
-    : { key: 'rightsNeutral', values: { year } };
+  if (entity?.country === 'IN') return { key: 'operatedIN', values: { entity: entity.legalName } };
+  if (entity?.country === 'US') return { key: 'operatedUS', values: { entity: entity.legalName } };
+  return null;
 }
 
 /** One row of the legal and business information section. */
