@@ -6,8 +6,8 @@ import {
 } from '@eticketsgo/shared-types';
 import { loadConfig } from '../config/configuration';
 import {
-  POSTAL_ADDRESS_PLACEHOLDER,
   campaignFooterAddress,
+  isPlausiblePostalAddress,
   campaignSendingConfig,
 } from '../campaigns/campaign-sending-config';
 import { unsubscribeKey } from '../engagement/unsubscribe-token';
@@ -20,6 +20,11 @@ import { scopeForReason } from '../notifications/delivery/suppression.service';
  * (loader, publication, tax, numbering under concurrency, suppression) are in
  * growth-owner-decisions.integration-postgres.spec.ts.
  */
+// Fictional fixtures shaped like real addresses (never a real one).
+const IN_ADDR = '1 Test Road, Test Nagar, Vijayawada 520001, India';
+const US_ADDR = '100 Test Street, Suite 1, Springfield, IL 62701, USA';
+const OLD_ADDR = '9 Legacy Lane, Springfield, IL 62702, USA';
+
 const cfg = (values: Record<string, string | undefined>) => ({
   get: <T>(key: string) => values[key] as T | undefined,
 });
@@ -129,21 +134,21 @@ describe('owner decisions 2026-10-27', () => {
 
     it('the footer uses the address of the organizer country, never the other one', () => {
       const both = {
-        MARKETING_POSTAL_ADDRESS_IN: 'IN address',
-        MARKETING_POSTAL_ADDRESS_US: 'US address',
+        MARKETING_POSTAL_ADDRESS_IN: IN_ADDR,
+        MARKETING_POSTAL_ADDRESS_US: US_ADDR,
       };
       expect(campaignFooterAddress(cfg({ APP_ENV: 'PRODUCTION', ...both }), 'India').address).toBe(
-        'IN address',
+        IN_ADDR,
       );
       expect(campaignFooterAddress(cfg({ APP_ENV: 'PRODUCTION', ...both }), 'US').address).toBe(
-        'US address',
+        US_ADDR,
       );
       // Any other country is the platform operator, DeepTrics LLC: the US address.
       expect(campaignFooterAddress(cfg({ APP_ENV: 'PRODUCTION', ...both }), 'CA').address).toBe(
-        'US address',
+        US_ADDR,
       );
       const onlyUs = campaignFooterAddress(
-        cfg({ APP_ENV: 'PRODUCTION', MARKETING_POSTAL_ADDRESS_US: 'US address' }),
+        cfg({ APP_ENV: 'PRODUCTION', MARKETING_POSTAL_ADDRESS_US: US_ADDR }),
         'IN',
       );
       expect(onlyUs.address).toBeNull();
@@ -152,22 +157,48 @@ describe('owner decisions 2026-10-27', () => {
 
     it('the old single address is a fallback only', () => {
       const r = campaignFooterAddress(
-        cfg({ APP_ENV: 'STAGING', MARKETING_POSTAL_ADDRESS: 'Old address' }),
+        cfg({ APP_ENV: 'STAGING', MARKETING_POSTAL_ADDRESS: OLD_ADDR }),
         'IN',
       );
-      expect(r).toMatchObject({ address: 'Old address', source: 'LEGACY', refusal: null });
+      expect(r).toMatchObject({ address: OLD_ADDR, source: 'LEGACY', refusal: null });
     });
 
-    it('STAGING and PRODUCTION refuse without an address; QA prints a labelled placeholder', () => {
-      for (const env of ['STAGING', 'PRODUCTION']) {
-        expect(campaignFooterAddress(cfg({ APP_ENV: env }), 'US').refusal).toBeTruthy();
+    it('every environment refuses without an address: there is no placeholder anywhere', () => {
+      for (const env of ['LOCAL', 'DEV', 'QA', 'UAT', 'STAGING', 'PRODUCTION']) {
+        for (const country of ['IN', 'US']) {
+          const r = campaignFooterAddress(cfg({ APP_ENV: env }), country);
+          expect(r.address).toBeNull();
+          expect(r.source).toBeNull();
+          expect(r.refusal).toMatch(new RegExp(`MARKETING_POSTAL_ADDRESS_${country}`));
+        }
       }
-      for (const env of ['LOCAL', 'DEV', 'QA', 'UAT']) {
-        const r = campaignFooterAddress(cfg({ APP_ENV: env }), 'IN');
-        expect(r.refusal).toBeNull();
-        expect(r.address).toBe(POSTAL_ADDRESS_PLACEHOLDER);
-        expect(r.address).toBe('Postal address pending verification (QA)');
+    });
+
+    it('QA with a valid address is allowed and prints exactly that address', () => {
+      const r = campaignFooterAddress(
+        cfg({ APP_ENV: 'QA', MARKETING_POSTAL_ADDRESS_IN: IN_ADDR }),
+        'IN',
+      );
+      expect(r).toMatchObject({ address: IN_ADDR, source: 'COUNTRY', refusal: null });
+    });
+
+    it('a value that is not a postal address is refused, never printed', () => {
+      for (const bad of [
+        'Postal address pending verification (QA)',
+        'TBD',
+        'placeholder 123 street road',
+        'Some Street, Some Town, India',
+      ]) {
+        expect(isPlausiblePostalAddress(bad)).toBe(false);
+        const r = campaignFooterAddress(
+          cfg({ APP_ENV: 'QA', MARKETING_POSTAL_ADDRESS_US: bad }),
+          'US',
+        );
+        expect(r.address).toBeNull();
+        expect(r.refusal).toBeTruthy();
       }
+      expect(isPlausiblePostalAddress(IN_ADDR)).toBe(true);
+      expect(isPlausiblePostalAddress(US_ADDR)).toBe(true);
     });
 
     it('STAGING and PRODUCTION refuse campaigns without UNSUBSCRIBE_SIGNING_SECRET', () => {

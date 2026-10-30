@@ -56,6 +56,9 @@ const CONFIG: Record<string, string> = {
   JWT_ACCESS_SECRET: 'integration-test-secret-integration-test-secret',
   APP_ENV: 'LOCAL',
   PUBLIC_API_URL: 'https://api.example.test',
+  // Every environment needs a footer address (no placeholder). Fictional, address-shaped.
+  MARKETING_POSTAL_ADDRESS_IN: '1 Test Road, Test Nagar, Vijayawada 520001, India',
+  MARKETING_POSTAL_ADDRESS_US: '100 Test Street, Suite 1, Springfield, IL 62701, USA',
 };
 const config = { get: (k: string) => CONFIG[k] } as never;
 

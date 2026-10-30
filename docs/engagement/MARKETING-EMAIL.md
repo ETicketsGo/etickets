@@ -27,9 +27,10 @@ Fallback rules (`campaignFooterAddress`):
 1. The variable for that entity's country.
 2. Only if it is unset: the old single `MARKETING_POSTAL_ADDRESS`, when it exists.
 3. Never the other country's address.
-4. STAGING and PRODUCTION: neither set means the campaign is refused at review, at send and
+4. Every environment (LOCAL, DEV, QA, UAT, STAGING, PRODUCTION): neither set, or a value that
+   is not a complete postal address, means the campaign is refused at review, at send and
    before each message (the worker pauses the campaign with `POSTAL_ADDRESS_MISSING`).
-5. LOCAL, DEV, QA and UAT print the placeholder "Postal address pending verification (QA)".
+5. There is no placeholder fallback. Tests put an address in their own config fixtures.
 
 No address is written in code or in this document. Only a verified address goes in the variable.
 
