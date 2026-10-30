@@ -493,7 +493,7 @@ describe('the eight approved DLT templates', () => {
 
   /*
     Read back from MSG91 (getTemplateVersions, 2026-10-29): each MSG91 template, its DLT id,
-    sender ETKTGO, wording and `##name##` variables. PASSWORD_UPDATE is not in the MSG91 account.
+    sender ETKTGO, wording and `##name##` variables. PASSWORD_UPDATE was added 2026-10-30.
   */
   const REGISTERED: Record<string, { msg91: string; vars: string[] } | null> = {
     OTP_LOGIN: {
@@ -511,7 +511,11 @@ describe('the eight approved DLT templates', () => {
         'Your ETicketsGo password was changed successfully. If this was not you, contact our support team immediately.',
       vars: [],
     },
-    PASSWORD_UPDATE: null,
+    PASSWORD_UPDATE: {
+      msg91:
+        'Your ETicketsGo password was changed successfully. If this was not you, contact our support team immediately.',
+      vars: [],
+    },
     BOOKING_CONFIRMED: {
       msg91:
         'ETicketsGo: Your booking ##alp1## for ##alp2## on ##alp3## is confirmed. View your ticket in your account.',
