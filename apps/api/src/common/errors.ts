@@ -39,6 +39,11 @@ export const ErrorCodes = {
   NOT_FOUND: 'NOT_FOUND',
   CONFLICT: 'CONFLICT',
   /**
+   * PATCH/POST/DELETE /admin/fee-rules: retired. Fee bands change only through a published
+   * fee schedule (/admin/fee-schedules), which validates, locks and versions the change.
+   */
+  FEE_RULE_ENDPOINT_GONE: 'FEE_RULE_ENDPOINT_GONE',
+  /**
    * A ticket type that bookings or tickets still name (even fully refunded ones) cannot be
    * deleted: that history is kept. The organizer console says to deactivate it instead.
    */

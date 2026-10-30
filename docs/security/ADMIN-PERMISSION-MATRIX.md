@@ -196,7 +196,7 @@ These stay on the read capability on purpose:
 
 | Route                               | Read needs           | Write needs     |
 | ----------------------------------- | -------------------- | --------------- |
-| `/admin/fee-rules/**`               | PLATFORM_CONFIG_READ | PLATFORM_CONFIG |
+| `/admin/fee-rules/**` (writes: 410) | PLATFORM_CONFIG_READ | PLATFORM_CONFIG |
 | `/admin/tax-rules/**`               | PLATFORM_CONFIG_READ | PLATFORM_CONFIG |
 | `/admin/cinema-pricing-policies/**` | PLATFORM_CONFIG_READ | PLATFORM_CONFIG |
 | `/admin/ops/maintenance`            | OPS_READ             | PLATFORM_CONFIG |
