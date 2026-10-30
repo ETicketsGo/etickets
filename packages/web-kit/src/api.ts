@@ -3271,15 +3271,13 @@ export const api = {
           { method: 'POST' },
         ),
     },
-    /** Fee bands. Deleted ones are left out unless `includeDeleted` is set. */
+    /**
+     * Fee bands. Deleted ones are left out unless `includeDeleted` is set. Read only: bands
+     * change through `feeSchedules` (draft, check, publish); the old single-band writes answer
+     * 410 Gone.
+     */
     feeRules: (opts: { includeDeleted?: boolean } = {}) =>
       request<FeeRule[]>(`/admin/fee-rules${opts.includeDeleted ? '?includeDeleted=true' : ''}`),
-    /**
-     * Delete a band (soft: switched off and kept for the audit trail). Refused with 409 when it
-     * would leave a place with no band or open a range no band covers; the message says which.
-     */
-    deleteFeeRule: (id: string) =>
-      request<FeeRule>(`/admin/fee-rules/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
     /** Every tax rule, with whether each is in force right now. */
     taxRules: () => request<TaxRule[]>('/admin/tax-rules'),
@@ -3308,40 +3306,6 @@ export const api = {
     /** Delete a rule that is switched off. A live one is refused. */
     deleteTaxRule: (id: string) =>
       request<{ deleted: true }>(`/admin/tax-rules/${id}`, { method: 'DELETE' }),
-    /** Create a band. `currency` is required — a band only means anything within one. */
-    createFeeRule: (
-      input: Omit<FeeRule, 'id' | 'label' | 'displayLabel' | 'deletedAt' | 'deletedByUserId'> & {
-        label?: string;
-      },
-    ) => request<FeeRule>('/admin/fee-rules', { method: 'POST', body: JSON.stringify(input) }),
-    /**
-     * Update one fee rule. `currency` is not editable — the amounts are minor units, so
-     * switching currency would reinterpret ₹5 as $5. Omit a field to leave it unchanged;
-     * pass `maxMinor: null` to make a band open-ended ("and above").
-     */
-    updateFeeRule: (
-      id: string,
-      patch: Partial<
-        Pick<
-          FeeRule,
-          | 'label'
-          | 'minMinor'
-          | 'maxMinor'
-          | 'feeMinor'
-          | 'feeType'
-          | 'feePercentBps'
-          | 'minFeeMinor'
-          | 'maxFeeMinor'
-          | 'country'
-          | 'region'
-          | 'active'
-        >
-      >,
-    ) =>
-      request<FeeRule>(`/admin/fee-rules/${id}`, {
-        method: 'PATCH',
-        body: JSON.stringify(patch),
-      }),
 
     // ─── Marketplace settlements (admin/finance) ───
     /**

@@ -91,7 +91,14 @@ describe('delete confirmation', () => {
   });
 });
 
-describe('delete request', () => {
+describe('fee band requests', () => {
+  it('has no single-band write left: bands change only through a published schedule', () => {
+    const admin = api.admin as Record<string, unknown>;
+    expect(admin.createFeeRule).toBeUndefined();
+    expect(admin.updateFeeRule).toBeUndefined();
+    expect(admin.deleteFeeRule).toBeUndefined();
+  });
+
   afterEach(() => {
     vi.unstubAllGlobals();
     setStepUpHandler(null);
@@ -99,36 +106,6 @@ describe('delete request', () => {
 
   const reply = (status: number, body: unknown) =>
     new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
-
-  it('sends DELETE to the band and repeats it once after a fresh code', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(
-        reply(403, { code: 'MFA_STEP_UP_REQUIRED', message: 'Confirm it is you.' }),
-      )
-      .mockResolvedValueOnce(reply(200, { id: 'fr1', deletedAt: '2026-10-28T00:00:00Z' }));
-    vi.stubGlobal('fetch', fetchMock);
-    const ask = vi.fn(async () => true);
-    setStepUpHandler(ask);
-
-    const out = await api.admin.deleteFeeRule('fr1');
-    expect(out).toMatchObject({ id: 'fr1' });
-    expect(ask).toHaveBeenCalledTimes(1);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    const [url, init] = fetchMock.mock.calls[1];
-    expect(String(url)).toMatch(/\/admin\/fee-rules\/fr1$/);
-    expect(init.method).toBe('DELETE');
-  });
-
-  it('keeps the API sentence when the delete would leave a gap', async () => {
-    const message =
-      'Deleting "Tickets ₹500 - ₹999" would leave orders between ₹499 and ₹1,000 with no INR band in India.';
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue(reply(409, { code: 'CONFLICT', message, details: {} })),
-    );
-    await expect(api.admin.deleteFeeRule('fr1')).rejects.toMatchObject({ message });
-  });
 
   it('asks for deleted bands only when told to', async () => {
     const fetchMock = vi.fn(async (_url: string) => reply(200, []));

@@ -1,5 +1,17 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpStatus,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Res,
+} from '@nestjs/common';
+import type { Response } from 'express';
+import { ApiBearerAuth, ApiGoneResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
 import { AdminPermission, MovieStatus, Role } from '@eticketsgo/shared-types';
 import { paginationSchema } from '@eticketsgo/validation';
@@ -26,72 +38,31 @@ import {
   type RequestUser,
 } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { AppException, ErrorCodes } from '../common/errors';
+
+/** When the single-band fee routes were deprecated (RFC 9745 `@` + Unix seconds). */
+export const SINGLE_BAND_FEE_DEPRECATED_AT = '@1793318400'; // 2026-10-30T00:00:00Z
+/** When they may be removed (RFC 8594 HTTP-date). */
+export const SINGLE_BAND_FEE_SUNSET = 'Thu, 31 Dec 2026 00:00:00 GMT';
+export const FEE_SCHEDULES_PATH = '/api/admin/fee-schedules';
 
 /**
- * Editable fields of a fee rule. `currency` is intentionally absent: the amounts are integer
- * minor units, so moving a rule between currencies would silently reinterpret ₹5 as $5.
- * `maxMinor` accepts null to mean "and above" for the top band, so `.nullable()` is required
- * and is distinct from omitting the key (which leaves the value unchanged).
+ * The refusal every single-band fee write gets. Sets the deprecation headers first (the
+ * response object is shared with the exception filter, so they survive the throw), then throws
+ * 410 with a stable code. Nothing is read or written.
  */
-/*
-  How a band charges. FLAT is a fixed amount (`feeMinor`); PERCENT is a share of the order in
-  BASIS POINTS - 500 is 5%, not 500% - optionally held between a floor and a ceiling in minor
-  units. Whether the combination makes sense (a percentage on a PERCENT band, a floor not above
-  the ceiling) is checked on the RESULT in AdminService, because a patch only carries the fields
-  that changed.
-*/
-const feeChargeFields = {
-  feeType: z.enum(['FLAT', 'PERCENT', 'COMBINED', 'FIXED_PER_TICKET']).optional(),
-  feePercentBps: z
-    .number()
-    .int()
-    .min(1, 'A percentage fee must be above 0%.')
-    .max(10_000, 'Basis points: 500 is 5%. A booking fee cannot exceed 100% (10000).')
-    .nullable()
-    .optional(),
-  minFeeMinor: z.number().int().min(0).nullable().optional(),
-  maxFeeMinor: z.number().int().min(0).nullable().optional(),
-};
-
-const feeRulePatchSchema = z
-  .object({
-    label: z.string().trim().min(1).max(60).optional(),
-    minMinor: z.number().int().min(0).optional(),
-    maxMinor: z.number().int().min(0).nullable().optional(),
-    feeMinor: z.number().int().min(0).optional(),
-    ...feeChargeFields,
-    // Where the band applies. '*' is anywhere; a named region beats a named country.
-    country: z.string().trim().max(60).optional(),
-    region: z.string().trim().max(60).optional(),
-    active: z.boolean().optional(),
-  })
-  .refine((v) => Object.keys(v).length > 0, { message: 'Provide at least one field to update.' });
-
-type FeeRulePatch = z.infer<typeof feeRulePatchSchema>;
-
-/**
- * A new band. `currency` IS required here (unlike the patch, where it is immutable) — a band
- * only means anything relative to the other bands in its currency, and the amounts are minor
- * units, so the currency has to be stated rather than guessed.
- */
-const feeRuleCreateSchema = z.object({
-  currency: z
-    .string()
-    .trim()
-    .regex(/^[A-Z]{3}$/, 'Use a 3-letter ISO currency code, e.g. INR or USD.'),
-  // Optional: a band is shown under the name its boundaries give it. Stored only as history.
-  label: z.string().trim().min(1).max(60).optional(),
-  minMinor: z.number().int().min(0),
-  maxMinor: z.number().int().min(0).nullable(),
-  // FLAT: the fee. COMBINED/FIXED_PER_TICKET: the amount per ticket. Ignored on PERCENT.
-  feeMinor: z.number().int().min(0).optional(),
-  ...feeChargeFields,
-  country: z.string().trim().max(60).optional(),
-  region: z.string().trim().max(60).optional(),
-  active: z.boolean().optional(),
-});
-
-type FeeRuleCreate = z.infer<typeof feeRuleCreateSchema>;
+export function refuseSingleBandFeeWrite(res: Pick<Response, 'setHeader'>): never {
+  res.setHeader('Deprecation', SINGLE_BAND_FEE_DEPRECATED_AT);
+  res.setHeader('Sunset', SINGLE_BAND_FEE_SUNSET);
+  res.setHeader('Link', `<${FEE_SCHEDULES_PATH}>; rel="successor-version"`);
+  throw new AppException(
+    ErrorCodes.FEE_RULE_ENDPOINT_GONE,
+    'Fee bands are no longer changed one at a time. Start a draft of the whole schedule at ' +
+      '/admin/fee-schedules, check it, then publish it.',
+    HttpStatus.GONE,
+    { replacement: FEE_SCHEDULES_PATH },
+  );
+}
 
 /*
   A tax rule as an administrator types it.
@@ -331,40 +302,52 @@ export class AdminController {
     a fee, tax or regulated-price rule changes what every buyer pays from the next sale on, so
     a console left open on an unlocked machine must not be able to change one.
   */
+  /*
+    ── DEPRECATED: SINGLE-BAND FEE WRITES ──────────────────────────────────────────────
+    Fee bands are now changed only through /admin/fee-schedules: a whole-currency draft,
+    checked, then published under the per-currency publish lock, with a version bump that a
+    quote taken before the change is held to, and an audit row. These three routes used to
+    edit one band in place, which skipped all of that, so they now REFUSE (410 Gone) and
+    change nothing. No console, script or app still calls them (checked 2026-10-30).
+
+    They keep the permission and fresh second-factor check a publish needs, so a caller that
+    could not publish learns nothing new here, and the handler names stay for the step-up
+    list. Remove the routes once the sunset date has passed.
+  */
   @Post('fee-rules')
   @RequiresAdmin(AdminPermission.PLATFORM_CONFIG)
   @RequiresRecentMfa()
-  @ApiOperation({ summary: 'Create a platform fee-rule band (admin).' })
-  createFeeRule(
-    @CurrentUser() user: { id: string },
-    @Body(new ZodValidationPipe(feeRuleCreateSchema)) body: FeeRuleCreate,
-  ) {
-    return this.admin.createFeeRule(user.id, body);
+  @ApiOperation({
+    summary: 'Gone: create fee bands through /admin/fee-schedules (draft, check, publish).',
+    deprecated: true,
+  })
+  @ApiGoneResponse({ description: 'Always. Use /admin/fee-schedules.' })
+  createFeeRule(@Res({ passthrough: true }) res: Response): never {
+    return refuseSingleBandFeeWrite(res);
   }
 
   @Patch('fee-rules/:id')
   @RequiresAdmin(AdminPermission.PLATFORM_CONFIG)
   @RequiresRecentMfa()
-  @ApiOperation({ summary: 'Update a platform fee rule (admin).' })
-  updateFeeRule(
-    @CurrentUser() user: { id: string },
-    @Param('id') id: string,
-    @Body(new ZodValidationPipe(feeRulePatchSchema)) body: FeeRulePatch,
-  ) {
-    return this.admin.updateFeeRule(user.id, id, body);
+  @ApiOperation({
+    summary: 'Gone: change fee bands through /admin/fee-schedules (draft, check, publish).',
+    deprecated: true,
+  })
+  @ApiGoneResponse({ description: 'Always. Use /admin/fee-schedules.' })
+  updateFeeRule(@Res({ passthrough: true }) res: Response): never {
+    return refuseSingleBandFeeWrite(res);
   }
 
-  /*
-    Soft delete: the band is switched off and kept for the audit trail. Refused with 409 when it
-    would leave a place with no band (pricing would fall back to the built-in defaults) or open
-    a range of order amounts that no band covers. See AdminService.deleteFeeRule.
-  */
   @Delete('fee-rules/:id')
   @RequiresAdmin(AdminPermission.PLATFORM_CONFIG)
   @RequiresRecentMfa()
-  @ApiOperation({ summary: 'Delete a platform fee rule (admin, soft delete).' })
-  deleteFeeRule(@CurrentUser() user: { id: string }, @Param('id') id: string) {
-    return this.admin.deleteFeeRule(user.id, id);
+  @ApiOperation({
+    summary: 'Gone: remove fee bands through /admin/fee-schedules (draft, check, publish).',
+    deprecated: true,
+  })
+  @ApiGoneResponse({ description: 'Always. Use /admin/fee-schedules.' })
+  deleteFeeRule(@Res({ passthrough: true }) res: Response): never {
+    return refuseSingleBandFeeWrite(res);
   }
 
   /*

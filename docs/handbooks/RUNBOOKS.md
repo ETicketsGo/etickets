@@ -199,5 +199,6 @@ surprise. Tracked for the Operations sprint.
   `NotificationChannel` stubs — channels are log-only today.
 - **S3/MinIO storage** — the storage abstraction defaults to a local driver.
 - **AI model bindings** behind the `ai.ports.ts` ports — Noop implementations only.
-- **Admin fee-rule write endpoint** (`PATCH /admin/fee-rules/:id`) — the admin UI
-  displays seeded `FeeRule`s read-only.
+- **Single-band fee writes** (`POST/PATCH/DELETE /admin/fee-rules`) — retired: they answer
+  410 `FEE_RULE_ENDPOINT_GONE` (with `Deprecation`/`Sunset` headers) and change nothing. Fee
+  bands change only through `/admin/fee-schedules` (draft, check, publish).

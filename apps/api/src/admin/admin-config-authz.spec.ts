@@ -70,16 +70,29 @@ const CONFIG_ROUTES: {
   path: string;
   kind: 'read' | 'write';
   body?: unknown;
+  /** A retired route: allowed callers get 410 and the handler reaches no service. */
+  gone?: boolean;
 }[] = [
   { method: 'GET', path: '/admin/fee-rules', kind: 'read' },
+  /*
+    Retired single-band writes: still guarded exactly like a publish, but an allowed caller is
+    answered 410 Gone and no service is reached (`gone`).
+  */
   {
     method: 'POST',
     path: '/admin/fee-rules',
     kind: 'write',
     body: { currency: 'INR', label: 'Band', minMinor: 0, maxMinor: null, feeMinor: 0 },
+    gone: true,
   },
-  { method: 'PATCH', path: '/admin/fee-rules/fr1', kind: 'write', body: { label: 'Band' } },
-  { method: 'DELETE', path: '/admin/fee-rules/fr1', kind: 'write' },
+  {
+    method: 'PATCH',
+    path: '/admin/fee-rules/fr1',
+    kind: 'write',
+    body: { label: 'Band' },
+    gone: true,
+  },
+  { method: 'DELETE', path: '/admin/fee-rules/fr1', kind: 'write', gone: true },
   { method: 'GET', path: '/admin/tax-rules', kind: 'read' },
   { method: 'GET', path: '/admin/tax-rules/readiness', kind: 'read' },
   {
@@ -241,7 +254,11 @@ describe('platform configuration is least-privilege', () => {
 
   const ok = (status: number) => status >= 200 && status < 300;
 
-  describe.each(CONFIG_ROUTES)('$method $path ($kind)', ({ method, path, kind, body }) => {
+  describe.each(CONFIG_ROUTES)('$method $path ($kind)', ({ method, path, kind, body, gone }) => {
+    // What "let through" looks like: the handler ran, or (retired route) it refused with 410.
+    const allowed = (r: { status: number; ran: boolean }) =>
+      gone ? r.status === 410 && !r.ran : ok(r.status) && r.ran;
+
     it('refuses the support desk (BOOKING_READ only) with 403', async () => {
       const { status, ran } = await call('bookingReadOnly', method, path, body);
       expect(status).toBe(403);
@@ -255,9 +272,7 @@ describe('platform configuration is least-privilege', () => {
     });
 
     it('lets a super admin through, by role, with no grant rows', async () => {
-      const { status, ran } = await call('superAdmin', method, path, body);
-      expect(ok(status)).toBe(true);
-      expect(ran).toBe(true);
+      expect(allowed(await call('superAdmin', method, path, body))).toBe(true);
     });
 
     if (kind === 'read') {
@@ -271,9 +286,7 @@ describe('platform configuration is least-privilege', () => {
       });
     } else {
       it('opens to PLATFORM_CONFIG', async () => {
-        const { status, ran } = await call('configEditor', method, path, body);
-        expect(ok(status)).toBe(true);
-        expect(ran).toBe(true);
+        expect(allowed(await call('configEditor', method, path, body))).toBe(true);
       });
       it('is refused to a read-only config account', async () => {
         expect((await call('configReader', method, path, body)).status).toBe(403);

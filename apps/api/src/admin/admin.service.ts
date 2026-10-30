@@ -218,6 +218,7 @@ export class AdminService {
    * because resolution is first-match. Both fail silently at booking time, so they are
    * refused here.
    */
+  /** @deprecated No route reaches this (the /admin/fee-rules writes answer 410). Fee bands change only through FeeSchedulesService.publish; kept for the specs that pin its rules until removal. */
   async createFeeRule(
     actorUserId: string,
     input: {
@@ -404,6 +405,7 @@ export class AdminService {
     }
   }
 
+  /** @deprecated No route reaches this (the /admin/fee-rules writes answer 410). Fee bands change only through FeeSchedulesService.publish; kept for the specs that pin its rules until removal. */
   async updateFeeRule(
     actorUserId: string,
     id: string,
@@ -526,6 +528,7 @@ export class AdminService {
    * overlap, so a middle band's range cannot be handed to a neighbour one edit at a time. To
    * stop what a middle band charges, change its fee to match a neighbour.
    */
+  /** @deprecated No route reaches this (the /admin/fee-rules writes answer 410). Fee bands change only through FeeSchedulesService.publish; kept for the specs that pin its rules until removal. */
   async deleteFeeRule(actorUserId: string, id: string) {
     const existing = await this.prisma.feeRule.findUnique({ where: { id } });
     if (!existing || existing.deletedAt) {
