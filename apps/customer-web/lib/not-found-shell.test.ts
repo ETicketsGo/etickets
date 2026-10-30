@@ -22,10 +22,9 @@ vi.mock('next/navigation', () => ({
   permanentRedirect: vi.fn(),
 }));
 
-// No market is selected on a server render, so the line names both companies, the India one
-// in full: the reviewer following a dead link still sees it.
-const LEGAL_LINE =
-  'ETicketsGo is operated in India by DeepTrics Software Solutions Private Limited and in the United States by DeepTrics LLC.';
+// No market is selected on a server render, so the footer shows the neutral copyright line
+// only and names no company (the Legal & Policies pages, linked from it, name both).
+const LEGAL_LINE = `© ${new Date().getFullYear()} ETicketsGo. All rights reserved.`;
 
 function render(): string {
   return renderToStaticMarkup(createElement(NotFoundInShell));
@@ -35,8 +34,9 @@ describe('the 404 inside the storefront shell', () => {
   it('has the footer with the exact legal line', () => {
     const html = render();
     expect(html).toContain('<footer');
-    // The ampersand-free line, as the footer prints it (React escapes nothing in it).
     expect(html).toContain(LEGAL_LINE);
+    expect(html).not.toContain('data-testid="footer-operator"');
+    expect(html).toMatch(/href="\/legal"/);
   });
 
   it('has the storefront header and the main landmark the skip link points at', () => {

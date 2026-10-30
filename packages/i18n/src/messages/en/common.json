@@ -133,8 +133,9 @@
       "legal": "Legal & Policies"
     },
     "tagline": "Buy tickets, keep them on your phone, and get in without queueing.",
-    "rights": "© {year} ETicketsGo, {entity} | All rights reserved.",
-    "rightsNeutral": "© {year} ETicketsGo | All rights reserved.",
+    "copyright": "© {year} ETicketsGo. All rights reserved.",
+    "operatedIN": "Operated in India by {entity}.",
+    "operatedUS": "Operated in the United States by {entity}.",
     "build": "Build {id}",
     "testEnvironment": "Test environment - payments are simulated."
   },

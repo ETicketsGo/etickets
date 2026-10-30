@@ -236,20 +236,15 @@ test.describe('the public compliance surface', () => {
       Entity - DeepTrics Software Solutions Private Limited - and connects it to the brand,
       on pages anybody can open without signing in.
     */
-    // The owner's line is "© 2026 ETicketsGo, ..."; the year is the current one, as in the app.
-    const FOOTER = `© ${new Date().getFullYear()} ETicketsGo, DeepTrics Software Solutions Pvt Ltd | All rights reserved.`;
-    const FOOTER_NEUTRAL = `© ${new Date().getFullYear()} ETicketsGo | All rights reserved.`;
+    // The owner's line is "© 2026 ETicketsGo. All rights reserved."; the year is the current one.
+    const FOOTER = `© ${new Date().getFullYear()} ETicketsGo. All rights reserved.`;
 
-    test('both footers name the India company in full with no market selected', async ({
-      page,
-    }) => {
+    test('both footers name no company with no market selected', async ({ page }) => {
       // `/` renders the storefront footer; `/about` renders the marketing one.
       for (const path of ['/', '/about', '/events']) {
         await page.goto(`${CUSTOMER}${path}`);
-        await expect(page.getByTestId('footer-rights'), path).toHaveText(FOOTER_NEUTRAL);
-        await expect(page.getByTestId('footer-operator'), path).toHaveText(
-          'ETicketsGo is operated in India by DeepTrics Software Solutions Private Limited and in the United States by DeepTrics LLC.',
-        );
+        await expect(page.getByTestId('footer-rights'), path).toHaveText(FOOTER);
+        await expect(page.getByTestId('footer-operator'), path).toHaveCount(0);
       }
     });
 
@@ -268,7 +263,7 @@ test.describe('the public compliance surface', () => {
         await page.goto(`${CUSTOMER}${path}`);
         await expect(page.getByTestId('footer-rights'), path).toHaveText(FOOTER);
         await expect(page.getByTestId('footer-operator'), path).toHaveText(
-          'ETicketsGo is operated in India by DeepTrics Software Solutions Private Limited.',
+          'Operated in India by DeepTrics Software Solutions Private Limited.',
         );
       }
       await ctx.close();
