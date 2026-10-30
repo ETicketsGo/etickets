@@ -773,10 +773,19 @@ model PhoneOtp {
   /// Kept for abuse investigation only, never to identify anybody.
   requestedIp String?
 
+  /// Who carried the text and their id for it, so the provider's delivery report can be
+  /// matched back to this row. Never the code: that lives only in the message and `codeHash`.
+  provider          String?
+  providerMessageId String?
+  /// A DeliveryState name (ACCEPTED, DELIVERED, ...). Moves forward only; DELIVERED is final.
+  deliveryStatus    String?
+  deliveredAt       DateTime?
+
   createdAt DateTime @default(now())
 
   @@index([phone, createdAt])
   @@index([expiresAt])
+  @@index([provider, providerMessageId])
 }
 
 model PasswordResetToken {

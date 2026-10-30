@@ -79,4 +79,12 @@ describe('a sign-in code that was never sent', () => {
     const { service } = makeService(LOCAL, 'log');
     await expect(service.requestCode('+14155550132')).resolves.toMatchObject({ sent: true });
   });
+
+  it('records no provider message id for a log-mode send: there is no report to wait for', async () => {
+    const { service, updateMany } = makeService(LOCAL, 'log');
+    await service.requestCode('+14155550132');
+    for (const [args] of updateMany.mock.calls) {
+      expect(args.data).not.toHaveProperty('providerMessageId');
+    }
+  });
 });

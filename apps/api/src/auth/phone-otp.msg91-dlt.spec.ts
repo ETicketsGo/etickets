@@ -47,7 +47,7 @@ function build(values: Record<string, string | undefined>) {
   const prisma = withTransactions({
     phoneOtp: {
       count: jest.fn().mockResolvedValue(0),
-      create: jest.fn().mockResolvedValue({}),
+      create: jest.fn().mockResolvedValue({ id: 'otp-new' }),
       updateMany,
     },
   });
@@ -114,6 +114,21 @@ describe('phone sign-in over MSG91 with DLT approved', () => {
     expect(all).not.toContain(recipient.num);
     expect(all).not.toContain('9704464007');
     expect(all).toContain('req-otp-1');
+  });
+
+  it("keeps MSG91's request id on the code's row, so the delivery report can find it", async () => {
+    const { service, updateMany } = build(APPROVED);
+    await service.requestCode('+919704464007');
+
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { id: 'otp-new' },
+      data: { provider: 'msg91', providerMessageId: 'req-otp-1', deliveryStatus: 'ACCEPTED' },
+    });
+    // The code and the number stay out of the log while doing so.
+    const num = JSON.parse(fetchMock.mock.calls[0][1].body).recipients[0].num;
+    const all = logged.join('\n');
+    expect(all).not.toContain(num);
+    expect(all).not.toContain('9704464007');
   });
 
   it('refuses, consumes the code and calls nobody when the OTP template is not approved', async () => {
