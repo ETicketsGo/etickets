@@ -3,6 +3,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { AuthController } from './auth.controller';
 import { PhoneOtpService } from './phone-otp.service';
+import { PhoneOtpDeliverySink } from './phone-otp-delivery.sink';
 import { OtpSmsGuard } from './otp-sms-guard';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
@@ -22,6 +23,8 @@ import { NotificationsModule } from '../notifications/notifications.module';
     AuthService,
     JwtStrategy,
     PhoneOtpService,
+    // Matches the SMS provider's delivery report to the sign-in code it was about.
+    PhoneOtpDeliverySink,
     OtpSmsGuard,
     MfaService,
     MfaGuard,
