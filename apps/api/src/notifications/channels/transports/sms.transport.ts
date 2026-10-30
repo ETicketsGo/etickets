@@ -412,7 +412,7 @@ export class Msg91SmsTransport implements SmsTransport {
     if (this.testRecipients && !this.testRecipients.has(mobile)) {
       this.logger.log(
         `[sms:${msg.type}] msg91 not called: ${maskPhone(to)} is not on ` +
-          `SMS_TEST_RECIPIENT_ALLOWLIST (non-production guard)`,
+          `SMS_TEST_RECIPIENT_ALLOWLIST (recipient allowlist)`,
       );
       return this.logMode.send(msg);
     }
@@ -522,18 +522,26 @@ export function indianMobileDigits(phone: string | null | undefined): string | n
 }
 
 /**
- * The non-production recipient gate for MSG91.
+ * The recipient gate for MSG91.
  *
- * PRODUCTION: null (no gate). Any other APP_ENV: the set of allowlisted numbers, normalised as
- * `indianMobileDigits` does; an empty or unset list is an EMPTY set, so MSG91 texts nobody.
+ * Any APP_ENV but PRODUCTION: the set of allowlisted numbers, normalised as `indianMobileDigits`
+ * does; an empty or unset list is an EMPTY set, so MSG91 texts nobody.
+ *
+ * PRODUCTION: no gate, unless SMS_TEST_RECIPIENT_ALLOWLIST names at least one number. That is
+ * the controlled first send: India is routed to MSG91 with the list holding only the owner's
+ * test phone, and emptying the list opens it to everyone. An entry that is not an Indian mobile
+ * does not count, so a typo cannot silently open production either: it closes it instead.
+ *
  * APP_ENV is always present at runtime (the schema defaults it to LOCAL); it is absent only
  * in a hand-built ConfigService in a unit test, which is treated as no gate.
  */
 export function testRecipientGate(config: Pick<ConfigService, 'get'>): ReadonlySet<string> | null {
   const env = config.get<string>('APP_ENV');
-  if (!env || env === 'PRODUCTION') return null;
+  if (!env) return null;
+  const raw = (config.get<string>('SMS_TEST_RECIPIENT_ALLOWLIST') ?? '').trim();
+  if (env === 'PRODUCTION' && raw === '') return null;
   const allowed = new Set<string>();
-  for (const entry of (config.get<string>('SMS_TEST_RECIPIENT_ALLOWLIST') ?? '').split(',')) {
+  for (const entry of raw.split(',')) {
     const digits = indianMobileDigits(entry.trim());
     if (digits) allowed.add(digits);
   }
