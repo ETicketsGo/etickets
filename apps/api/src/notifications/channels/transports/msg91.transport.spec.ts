@@ -550,6 +550,24 @@ describe('MSG91 SMS: India numbers and the non-production recipient guard', () =
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it('PRODUCTION with an allowlist texts only the listed number (controlled first send)', async () => {
+    respond(200, { type: 'success', message: 'req-p' });
+    const t = new Msg91SmsTransport(
+      config({ ...READY, APP_ENV: 'PRODUCTION', SMS_TEST_RECIPIENT_ALLOWLIST: '+919876543210' }),
+    );
+    expect(await t.send(cancelled())).toEqual({ provider: 'msg91', providerMessageId: 'req-p' });
+    expect(await t.send(cancelled({ destination: '+919123456789' }))).toEqual({ provider: 'log' });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('PRODUCTION with an allowlist holding no valid number texts nobody', async () => {
+    const out = await new Msg91SmsTransport(
+      config({ ...READY, APP_ENV: 'PRODUCTION', SMS_TEST_RECIPIENT_ALLOWLIST: '98765' }),
+    ).send(cancelled());
+    expect(out).toEqual({ provider: 'log' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it.each(['QA', 'UAT', 'LOCAL'])(
     '%s with an empty allowlist sends nothing and answers as log mode',
     async (env) => {
