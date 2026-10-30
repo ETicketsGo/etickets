@@ -120,16 +120,52 @@ export class FeeSchedulesService {
     };
   }
 
-  /** Replace the draft's bands. Nothing live changes; the check runs on what was saved. */
+  /**
+   * Replace the draft's bands. Nothing live changes; the check runs on what was saved.
+   *
+   * Every save that changes the bands writes one audit entry, in the same transaction as the
+   * save: who, which draft and currency, the live version and fingerprint it was copied from,
+   * and the bands added, removed and changed (before/after, minor units). A save that changes
+   * nothing writes no entry.
+   */
   async saveDraft(actorUserId: string, id: string, bands: ScheduleBand[]) {
     const row = await this.openDraft(id);
-    await this.prisma.feeScheduleDraft.update({
-      where: { id: row.id },
-      data: {
-        bands: bands as unknown as Prisma.InputJsonValue,
-        updatedByUserId: actorUserId,
-      },
+    const previous = row.bands as unknown as ScheduleBand[];
+    const changes = diffBands(previous, bands);
+    let audit: AuditEntry | undefined;
+    if (changes) {
+      const base = await this.prisma.feeScheduleDraft.aggregate({
+        where: { currency: row.currency, status: 'PUBLISHED', publishedAt: { lte: row.createdAt } },
+        _max: { version: true },
+      });
+      audit = {
+        actorUserId,
+        action: 'FEE_SCHEDULE_DRAFT_SAVED',
+        entityType: 'FeeScheduleDraft',
+        entityId: row.id,
+        metadata: {
+          currency: row.currency,
+          baseVersion: base._max.version ?? 0,
+          baseFingerprint: row.baseFingerprint,
+          bandsBefore: previous.length,
+          bandsAfter: bands.length,
+          changes,
+          savedAt: new Date().toISOString(),
+        },
+      };
+    }
+    const entry = audit;
+    await this.prisma.$transaction(async (tx) => {
+      await tx.feeScheduleDraft.update({
+        where: { id: row.id },
+        data: {
+          bands: bands as unknown as Prisma.InputJsonValue,
+          updatedByUserId: actorUserId,
+        },
+      });
+      if (entry) await this.audit.recordInTransaction(tx, entry);
     });
+    if (entry) this.audit.afterCommit(entry);
     return this.draft(id);
   }
 
@@ -266,6 +302,63 @@ export function toScheduleBand(r: FeeRule): ScheduleBand {
     region: r.region,
     active: r.active,
   };
+}
+
+const BAND_FIELDS = [
+  'minMinor',
+  'maxMinor',
+  'feeType',
+  'feeMinor',
+  'feePercentBps',
+  'minFeeMinor',
+  'maxFeeMinor',
+  'country',
+  'region',
+  'active',
+] as const;
+type BandField = (typeof BAND_FIELDS)[number];
+
+function compactBand(b: ScheduleBand) {
+  const out: Record<string, unknown> = { key: b.key, sourceId: b.sourceId ?? null };
+  for (const f of BAND_FIELDS) out[f] = b[f] ?? null;
+  return out;
+}
+
+/**
+ * What a draft save changed, band by band (matched on the draft's `key`), or null when nothing
+ * did. Order is ignored: the same bands in another order are the same schedule. Only the band
+ * fields are listed, so the entry carries amounts and markets and nothing about any person.
+ */
+export function diffBands(before: ScheduleBand[], after: ScheduleBand[]) {
+  const prior = new Map<string, ScheduleBand>();
+  for (const b of before) if (!prior.has(b.key)) prior.set(b.key, b);
+  const seen = new Set<string>();
+  const added: Record<string, unknown>[] = [];
+  const changed: {
+    key: string;
+    sourceId: string | null;
+    fields: Partial<Record<BandField, { before: unknown; after: unknown }>>;
+  }[] = [];
+  for (const b of after) {
+    const old = seen.has(b.key) ? undefined : prior.get(b.key);
+    if (!old) {
+      added.push(compactBand(b));
+      continue;
+    }
+    seen.add(b.key);
+    const fields: Partial<Record<BandField, { before: unknown; after: unknown }>> = {};
+    for (const f of BAND_FIELDS) {
+      const was = old[f] ?? null;
+      const now = b[f] ?? null;
+      if (was !== now) fields[f] = { before: was, after: now };
+    }
+    if (Object.keys(fields).length > 0) {
+      changed.push({ key: b.key, sourceId: b.sourceId ?? null, fields });
+    }
+  }
+  const removed = before.filter((b) => !seen.has(b.key)).map(compactBand);
+  if (added.length === 0 && removed.length === 0 && changed.length === 0) return null;
+  return { added, removed, changed };
 }
 
 /**

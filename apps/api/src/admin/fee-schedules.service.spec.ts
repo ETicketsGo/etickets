@@ -142,13 +142,20 @@ function store() {
         Object.assign(d, data);
         return d;
       }),
-      aggregate: jest.fn(async ({ where }: { where: Partial<Draft> }) => ({
-        _max: {
-          version: drafts
-            .filter((d) => matchDraft(d, where))
-            .reduce<number | null>((m, d) => Math.max(m ?? 0, d.version ?? 0), null),
-        },
-      })),
+      aggregate: jest.fn(
+        async ({ where }: { where: Partial<Draft> & { publishedAt?: { lte: Date } } }) => ({
+          _max: {
+            version: drafts
+              .filter((d) => {
+                const { publishedAt, ...rest } = where;
+                if (publishedAt && !(d.publishedAt && d.publishedAt <= publishedAt.lte))
+                  return false;
+                return matchDraft(d, rest);
+              })
+              .reduce<number | null>((m, d) => Math.max(m ?? 0, d.version ?? 0), null),
+          },
+        }),
+      ),
     },
     $executeRaw: jest.fn(async () => 1),
     auditLog: { create: jest.fn() },
@@ -233,7 +240,9 @@ describe('FeeSchedulesService', () => {
         metadata: expect.objectContaining({ currency: 'USD', version: 1 }),
       }),
     );
-    expect(audit.afterCommit).toHaveBeenCalledTimes(1);
+    expect(
+      audit.afterCommit.mock.calls.filter(([e]) => e.action === 'FEE_SCHEDULE_PUBLISHED'),
+    ).toHaveLength(1);
   });
 
   it('replacing several bands with one soft-deletes the rest', async () => {
@@ -322,4 +331,104 @@ describe('FeeSchedulesService', () => {
     await svc.publish('admin', d.id);
     expect(scheduleFingerprint(live('USD'))).not.toBe(before);
   });
+
+  describe('saving a draft is audited', () => {
+    const saves = (audit: ReturnType<typeof store>['audit']) =>
+      [...audit.record.mock.calls, ...audit.recordInTransaction.mock.calls.map((c) => [c[1]])]
+        .map((c) => c[0])
+        .filter((e) => e.action === 'FEE_SCHEDULE_DRAFT_SAVED');
+
+    it('writes exactly one entry with actor, draft, currency, base version and the changes', async () => {
+      const { svc, audit, rules } = store();
+      const before = snapshot(rules);
+      const d = await svc.createDraft('admin-1', 'USD');
+      const [low, high] = d.bands;
+      await svc.saveDraft('admin-2', d.id, [
+        { ...high, feeMinor: 349 },
+        {
+          key: 'k-new',
+          sourceId: null,
+          ...stripKey(high),
+          minMinor: 100_000,
+          maxMinor: null,
+          feeMinor: 499,
+        },
+      ]);
+      const entries = saves(audit);
+      expect(entries).toHaveLength(1);
+      const e = entries[0];
+      expect(e).toMatchObject({
+        actorUserId: 'admin-2',
+        entityType: 'FeeScheduleDraft',
+        entityId: d.id,
+      });
+      expect(e.metadata).toMatchObject({
+        currency: 'USD',
+        baseVersion: 0,
+        baseFingerprint: scheduleFingerprint(rules.filter((r) => r.currency === 'USD')),
+        bandsBefore: 2,
+        bandsAfter: 2,
+      });
+      expect(typeof e.metadata.savedAt).toBe('string');
+      expect(e.metadata.changes.removed).toEqual([
+        expect.objectContaining({ key: low.key, minMinor: 0, maxMinor: 9_999, feeMinor: 199 }),
+      ]);
+      expect(e.metadata.changes.added).toEqual([
+        expect.objectContaining({ key: 'k-new', minMinor: 100_000, maxMinor: null, feeMinor: 499 }),
+      ]);
+      expect(e.metadata.changes.changed).toEqual([
+        { key: high.key, sourceId: 'usd-high', fields: { feeMinor: { before: 299, after: 349 } } },
+      ]);
+      // The live bands are not touched by a save.
+      expect(snapshot(rules)).toBe(before);
+    });
+
+    it('a second save is compared with the previous save, and carries the published base version', async () => {
+      const { svc, audit } = store();
+      const first = await svc.createDraft('admin', 'USD');
+      await svc.saveDraft('admin', first.id, [
+        first.bands[0],
+        { ...first.bands[1], feeMinor: 301 },
+      ]);
+      await svc.publish('admin', first.id);
+      const d = await svc.createDraft('admin', 'USD');
+      audit.record.mockClear();
+      audit.recordInTransaction.mockClear();
+      await svc.saveDraft('admin', d.id, [d.bands[0], { ...d.bands[1], feeMinor: 310 }]);
+      await svc.saveDraft('admin', d.id, [
+        d.bands[0],
+        { ...d.bands[1], feeMinor: 320, feeType: 'FLAT' },
+      ]);
+      const entries = saves(audit);
+      expect(entries).toHaveLength(2);
+      expect(entries[0].metadata.baseVersion).toBe(1);
+      expect(entries[1].metadata.changes.changed).toEqual([
+        expect.objectContaining({ fields: { feeMinor: { before: 310, after: 320 } } }),
+      ]);
+    });
+
+    it('a save that changes nothing writes no entry', async () => {
+      const { svc, audit } = store();
+      const d = await svc.createDraft('admin', 'USD');
+      await svc.saveDraft('admin', d.id, d.bands);
+      // Same bands in a different order are the same schedule.
+      await svc.saveDraft('admin', d.id, [...d.bands].reverse());
+      expect(saves(audit)).toHaveLength(0);
+    });
+
+    it('a refused save (closed draft) writes no entry', async () => {
+      const { svc, audit } = store();
+      const d = await svc.createDraft('admin', 'USD');
+      await svc.discardDraft('admin', d.id);
+      await expect(
+        svc.saveDraft('admin', d.id, [{ ...d.bands[0], feeMinor: 1 }]),
+      ).rejects.toMatchObject({ status: 409 });
+      expect(saves(audit)).toHaveLength(0);
+    });
+  });
 });
+
+function stripKey(b: ScheduleBand) {
+  const { key: _k, sourceId: _s, ...rest } = b;
+  return rest;
+}
