@@ -164,6 +164,43 @@ export function rememberSelectedMarket(country: string | null): void {
   }
 }
 
+/** The market last mirrored by `rememberSelectedMarket`, or null. Never `etg_market`. */
+function readSelectedMarket(): string | null {
+  try {
+    const prefix = `${SELECTED_MARKET_COOKIE}=`;
+    const entry = globalThis.document?.cookie
+      .split('; ')
+      .find((c) => c.startsWith(prefix) && c.length > prefix.length);
+    return entry ? isoCountry(decodeURIComponent(entry.slice(prefix.length))) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The market the reader selected, from their city choice. See `CityPreference.selectedCountry`.
+ *
+ * A city: that city's country. "All cities": every city IN the current market, never both
+ * countries. So "All cities" keeps the market the reader last selected (`remembered`, from
+ * the `etg_selected_market` cookie or the city they had before) - but only while the page is
+ * still scoped to that same country. If the scope is something else (for example the network's
+ * guess on a later visit), nothing is selected: naming a company needs an explicit choice.
+ */
+export function selectedMarketFor(input: {
+  chosen: boolean;
+  city: string | null;
+  place: CityPlace | null;
+  country: string | null;
+  remembered: string | null;
+}): string | null {
+  if (!input.chosen) return null;
+  // Choosing "All cities" in this session leaves `city` null; read back from storage it is
+  // ALL_CITIES. Both mean the same thing.
+  if (input.city && input.city !== ALL_CITIES) return isoCountry(input.place?.country ?? null);
+  const scope = isoCountry(input.country);
+  return input.remembered && scope && input.remembered === scope ? input.remembered : null;
+}
+
 export function rememberMarketCountry(country: string | null): void {
   if (typeof document === 'undefined') return;
   try {
@@ -305,12 +342,17 @@ export function useCityPreference(): CityPreference {
   const [city, setCityState] = useState<string | null>(null);
   const [chosen, setChosen] = useState<boolean>(false);
   const [place, setPlace] = useState<CityPlace | null>(null);
+  // The market last selected from a city, which "All cities" keeps (see `selectedMarketFor`).
+  const [remembered, setRemembered] = useState<string | null>(null);
   useIsomorphicLayoutEffect(() => {
     const stored = readStored();
     if (!stored) return;
     setCityState(stored.city);
     setChosen(true);
     setPlace(stored.city !== ALL_CITIES ? stored.place : null);
+    setRemembered(
+      stored.city !== ALL_CITIES ? isoCountry(stored.place.country) : readSelectedMarket(),
+    );
   }, []);
   const [country, setCountry] = useState<string | null>(null);
   const [locatedCountry, setLocatedCountry] = useState<string | null>(null);
@@ -395,6 +437,8 @@ export function useCityPreference(): CityPreference {
       setCountry(own);
       rememberMarketCountry(own);
     }
+    // A city replaces the remembered market; "All cities" (next null) keeps it.
+    if (next) setRemembered(own);
     /*
       Clearing the city widens to the COUNTRY, not to the world -- so the country hint is
       deliberately left alone here.
@@ -420,6 +464,7 @@ export function useCityPreference(): CityPreference {
     // not "I want everywhere", so the next visit is free to guess again.
     writeStoredCity(null);
     // No city chosen means no market chosen.
+    setRemembered(null);
     rememberSelectedMarket(null);
   }, []);
 
@@ -507,14 +552,17 @@ export function useCityPreference(): CityPreference {
    * between places rather than a guess.
    */
   /*
-    The chosen city's own country, or nothing. "All cities" carries no place, so it selects no
-    market either: that choice widens a filter, it does not say where somebody is.
+    The chosen city's own country; for "All cities", the market the reader already selected,
+    while the page is still scoped to it. "All cities" means every city in the current market,
+    never both countries - it used to select no market at all, and cleared the cookie, so the
+    footer named both companies to somebody who had only widened a city filter in India.
   */
-  const selectedCountry = chosen && city !== ALL_CITIES ? isoCountry(place?.country ?? null) : null;
+  const selectedCountry = selectedMarketFor({ chosen, city, place, country, remembered });
   useEffect(() => {
     // Only once a choice has been read back from storage; until then nothing is known.
-    if (chosen) rememberSelectedMarket(selectedCountry);
-  }, [chosen, selectedCountry]);
+    // "All cities" never writes: it keeps the market selected before it, and so does the cookie.
+    if (chosen && city && city !== ALL_CITIES) rememberSelectedMarket(selectedCountry);
+  }, [chosen, city, selectedCountry]);
 
   const searchCities = useCallback(
     /*
