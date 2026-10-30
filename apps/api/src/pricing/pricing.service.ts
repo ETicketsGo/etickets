@@ -2,10 +2,10 @@ import { HttpStatus, Inject, Injectable, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { FeeMode } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
+import { scheduleFingerprint } from './fee-schedule-fingerprint';
 import {
-  applicableTiers,
   DEFAULT_FEE_TIERS,
-  feeTierFromRule,
+  scheduleTiers,
   type FeeCalcResult,
   type FeePlace,
   type FeeTier,
@@ -40,6 +40,12 @@ export type PricedFees = FeeCalcResult & {
   baseBookingFeeMinor?: number | null;
   /** How much of it the policy took off, before any cinema cap. */
   feeWaivedMinor?: number | null;
+  /**
+   * Fingerprint of the fee schedule that priced this (`scheduleFingerprint`). A quote hands it
+   * to the buyer's client and the booking compares it, so a schedule published between the two
+   * is refused rather than charged silently. Internal: stripped from the buyer's fee object.
+   */
+  feeScheduleVersion?: string;
 };
 
 /**
@@ -50,8 +56,14 @@ export function buyerFees(fees: PricedFees): FeeCalcResult & {
   feePolicyKind?: string;
   feeWaivedMinor?: number | null;
 } {
-  const { appliedFeePolicy: applied, baseBookingFeeMinor: _base, ...rest } = fees;
+  const {
+    appliedFeePolicy: applied,
+    baseBookingFeeMinor: _base,
+    feeScheduleVersion: _version,
+    ...rest
+  } = fees;
   void _base;
+  void _version;
   return applied ? { ...rest, feePolicyKind: applied.kind } : rest;
 }
 
@@ -95,16 +107,19 @@ export class PricingService {
    * Ordering (and the reason it changed) lives in `applicableTiers`, so live pricing and the
    * advertised "from" price cannot drift apart: both call it.
    */
-  private async loadTiers(currency: string, place: FeePlace = {}): Promise<FeeTier[]> {
+  private async loadTiers(
+    currency: string,
+    place: FeePlace = {},
+  ): Promise<{ tiers: FeeTier[]; feeScheduleVersion: string }> {
     const rules = await this.prisma.feeRule.findMany({
       where: { active: true, currency },
       orderBy: { minMinor: 'asc' },
     });
-    if (rules.length === 0) return DEFAULT_FEE_TIERS;
-
-    const applicable = applicableTiers(rules, place);
-    if (applicable.length === 0) return DEFAULT_FEE_TIERS;
-    return applicable.map(feeTierFromRule);
+    // The fingerprint of every active band in the currency, not only the ones that applied
+    // here: cheap, and any published change to the schedule changes it.
+    const feeScheduleVersion = scheduleFingerprint(rules);
+    if (rules.length === 0) return { tiers: DEFAULT_FEE_TIERS, feeScheduleVersion };
+    return { tiers: scheduleTiers(rules, place), feeScheduleVersion };
   }
 
   /**
@@ -119,11 +134,15 @@ export class PricingService {
     currency: string,
     place: FeePlace,
     feePolicy?: FeePolicySelection,
-  ): Promise<{ tiers: FeeTier[]; policy: FeePolicyRow | null }> {
-    const tiers = await this.loadTiers(currency, place);
-    if (!feePolicy || !this.feePolicies) return { tiers, policy: null };
-    if ('pinned' in feePolicy) return { tiers, policy: feePolicy.pinned };
-    return { tiers, policy: await this.feePolicies.resolve(currency, feePolicy.context) };
+  ): Promise<{ tiers: FeeTier[]; policy: FeePolicyRow | null; feeScheduleVersion: string }> {
+    const { tiers, feeScheduleVersion } = await this.loadTiers(currency, place);
+    if (!feePolicy || !this.feePolicies) return { tiers, policy: null, feeScheduleVersion };
+    if ('pinned' in feePolicy) return { tiers, policy: feePolicy.pinned, feeScheduleVersion };
+    return {
+      tiers,
+      policy: await this.feePolicies.resolve(currency, feePolicy.context),
+      feeScheduleVersion,
+    };
   }
 
   /**
@@ -196,7 +215,11 @@ export class PricingService {
   ): Promise<PricedFees> {
     // The venue's location decides the fee schedule, for the same reason it decides the
     // admission's place of supply: a cap applies to the sale that happens there.
-    const { tiers, policy: feePolicyRow } = await this.resolveFeeTiers(
+    const {
+      tiers,
+      policy: feePolicyRow,
+      feeScheduleVersion,
+    } = await this.resolveFeeTiers(
       currency,
       { country: taxPlace.country, region: taxPlace.region },
       feePolicy,
@@ -353,6 +376,7 @@ export class PricingService {
       */
       totalMinor:
         fees.netSubtotalMinor + fees.customerFeeMinor + maintenanceAddedMinor + taxAddedMinor,
+      feeScheduleVersion,
     };
   }
 }

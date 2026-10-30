@@ -282,7 +282,7 @@ describe('integration-real-postgres: fee band delete and names', () => {
     try {
       await expect(admin.deleteFeeRule(adminId, b.id)).rejects.toMatchObject({
         status: 409,
-        message: expect.stringContaining('orders between ₹499 and ₹1,000'),
+        message: expect.stringContaining('orders from ₹499.01 to ₹999.99'),
       });
       await expect(admin.deleteFeeRule(adminId, c.id)).rejects.toMatchObject({ status: 409 });
       const untouched = await db!.feeRule.findUniqueOrThrow({ where: { id: b.id } });

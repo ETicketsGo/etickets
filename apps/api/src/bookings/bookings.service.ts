@@ -630,6 +630,22 @@ export class BookingsService {
     );
 
     /*
+      ── THE QUOTE'S FEE SCHEDULE ─────────────────────────────────────────────────────
+      The buyer's client sends the fee schedule fingerprint of the quote it showed. When an
+      admin published a new schedule in between, the fee just computed may differ from the one
+      on screen, so the booking is refused and the client re-quotes. Without a version (older
+      clients) nothing changes: the booking is priced, as always, by the live schedule.
+    */
+    if (input.feeScheduleVersion && input.feeScheduleVersion !== fees.feeScheduleVersion) {
+      throw new AppException(
+        ErrorCodes.FEE_SCHEDULE_CHANGED,
+        'The booking fee changed while you were checking out. Check the new total and try again.',
+        HttpStatus.CONFLICT,
+        { reason: 'FEE_SCHEDULE_CHANGED' },
+      );
+    }
+
+    /*
       ── THE PILOT'S LIMITS ───────────────────────────────────────────────────────────
       After the price, because two of them are about the total. The daily cap is checked again
       inside the transaction below, under the pilot lock, which is what makes it hold for two
@@ -1515,6 +1531,8 @@ export class BookingsService {
 
     return {
       fees: buyerFees(fees),
+      // Send it back on the booking: a schedule published in between is refused, not charged.
+      feeScheduleVersion: fees.feeScheduleVersion ?? null,
       // Stated rather than inferred from a zero discount: "the code you typed was not
       // recognised" and "you typed no code" are different answers and the screen says which.
       coupon: input.couponCode

@@ -142,6 +142,11 @@ export const ErrorCodes = {
   TAX_CLASSIFICATION_MISSING: 'TAX_CLASSIFICATION_MISSING',
   /** The ticket is classified, but no active tax rule covers that classification and price. */
   TAX_RULE_NOT_FOUND: 'TAX_RULE_NOT_FOUND',
+  /** The booking fee schedule changed between the buyer's quote and the booking. Re-quote. */
+  FEE_SCHEDULE_CHANGED: 'FEE_SCHEDULE_CHANGED',
+  /** A draft fee schedule cannot be published: it has problems, or the live one moved on. */
+  FEE_SCHEDULE_INVALID: 'FEE_SCHEDULE_INVALID',
+  FEE_SCHEDULE_STALE: 'FEE_SCHEDULE_STALE',
   /**
    * A text message cannot be delivered to this number: it is not a reachable mobile, or its
    * owner has opted out. Deliberately one code for both, so it cannot be used to learn which.

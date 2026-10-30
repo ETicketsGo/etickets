@@ -39,6 +39,8 @@ describe('the admin menu', () => {
     */
     const FROM_PARENT: Record<string, string> = {
       '/admin/cinema-pricing/legal-types': '/admin/cinema-pricing',
+      // The draft editor is opened from a schedule on the Booking fees page.
+      '/admin/settings/schedule': '/admin/settings',
     };
     const missing = adminRoutes().filter(
       (r) => !hrefs.has(r) && !(FROM_PARENT[r] && hrefs.has(FROM_PARENT[r])),

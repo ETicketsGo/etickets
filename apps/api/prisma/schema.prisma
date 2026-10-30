@@ -3469,6 +3469,51 @@ model FeeRule {
   @@index([active, country, region])
 }
 
+/// Where a draft booking-fee schedule is in its life.
+enum FeeScheduleDraftStatus {
+  /// Being edited. Prices nothing.
+  OPEN
+  /// Written to the live bands in one transaction. Never changed again: it is the history.
+  PUBLISHED
+  /// Thrown away without publishing.
+  DISCARDED
+}
+
+/// A copy of one currency's booking-fee schedule that an admin edits before it goes live.
+///
+/// ── WHY A DRAFT ──────────────────────────────────────────────────────────────────
+/// Bands were edited one at a time, and every single edit had to leave the live schedule
+/// whole (no gap, no overlap). So no reorganisation was possible: turning "$100 and above" into
+/// "$1,000 and above" opened a gap until the next band existed, and adding that band first was
+/// an overlap. A draft may be broken while it is edited; it is checked as a whole and written to
+/// the live `FeeRule` rows in one transaction, and only when it is whole.
+///
+/// The live bands are untouched until a publish succeeds. `baseFingerprint` is the live
+/// schedule this draft was copied from: a publish is refused when it changed since, so one
+/// admin's publish cannot silently overwrite another's.
+model FeeScheduleDraft {
+  id                String                 @id @default(cuid())
+  currency          String
+  status            FeeScheduleDraftStatus @default(OPEN)
+  /// `scheduleFingerprint` of the live (not deleted) bands of the currency when copied.
+  baseFingerprint   String
+  /// The draft bands: [{ key, sourceId, minMinor, maxMinor, feeType, feeMinor, feePercentBps,
+  /// minFeeMinor, maxFeeMinor, country, region, active }]. `sourceId` names the live band a row
+  /// was copied from (null for a new one), so a publish updates, adds and deletes exactly.
+  bands             Json
+  /// Set on publish: the schedule version for this currency, 1, 2, 3...
+  version           Int?
+  createdByUserId   String
+  updatedByUserId   String?
+  publishedByUserId String?
+  publishedAt       DateTime?
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+
+  @@unique([currency, version])
+  @@index([currency, status])
+}
+
 /// What a tax rule is levied on.
 ///
 /// Split because the answer differs by jurisdiction and is a question for a tax advisor,

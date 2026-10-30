@@ -70,7 +70,7 @@ describe('AdminService.updateFeeRule - coverage when a band is switched off or n
     const attempt = svc.updateFeeRule('admin', 'b2', { active: false });
     await expect(attempt).rejects.toMatchObject(conflict('GAP'));
     await expect(svc.updateFeeRule('admin', 'b2', { active: false })).rejects.toThrow(
-      /Switching off "Tickets ₹200 - ₹499" would leave orders between ₹199 and ₹500 with no INR band/,
+      /Switching off "Tickets ₹200 - ₹499" would leave orders from ₹199.01 to ₹499.99 with no INR band/,
     );
     expect(update).not.toHaveBeenCalled();
   });
