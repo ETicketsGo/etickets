@@ -273,7 +273,13 @@ describe('integration-real-postgres: retrying a failed refund', () => {
     expect((await db!.ticket.findUnique({ where: { id: f.ticketId } })).status).toBe('REFUNDED');
     expect((await db!.booking.findUnique({ where: { id: f.bookingId } })).status).toBe('REFUNDED');
     expect(receipts.issueCreditNote).toHaveBeenCalledTimes(1);
-    expect(notifications.sendCritical).toHaveBeenCalledTimes(1);
+    // One refund notice, and one BOOKING_CANCELLED (SMS only) because the booking ended.
+    const told = notifications.sendCritical.mock.calls.map(
+      (c: unknown[]) => (c[1] as { type: string }).type,
+    );
+    expect(told.filter((t) => t === 'REFUND_COMPLETED')).toHaveLength(1);
+    expect(told.filter((t) => t === 'BOOKING_CANCELLED')).toHaveLength(1);
+    expect(told).toHaveLength(2);
     expect(provider.calls).toBe(3); // approval + two retries
 
     await expect(refunds.retry(admin, f.refundId, {})).rejects.toBeInstanceOf(AppException);
