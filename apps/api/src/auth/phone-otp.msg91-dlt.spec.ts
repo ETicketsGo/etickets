@@ -92,7 +92,7 @@ describe('phone sign-in over MSG91 with DLT approved', () => {
     const { service } = build(APPROVED);
     await expect(service.requestCode('+919704464007')).resolves.toEqual({
       sent: true,
-      expiresInMinutes: 10,
+      expiresInMinutes: 5,
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);

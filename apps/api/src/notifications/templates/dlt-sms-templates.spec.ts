@@ -142,6 +142,15 @@ describe('DLT SMS registry', () => {
     });
   });
 
+  it('a sign-in code lives exactly as long as the registered text says', () => {
+    // The approved wording fixes the lifetime ("Valid for 5 minutes"); the code must match it.
+    const src = readFileSync(join(__dirname, '../../auth/phone-otp.service.ts'), 'utf8');
+    const ttl = src.match(/const OTP_TTL_MINUTES = (\d+);/);
+    expect(ttl).not.toBeNull();
+    expect(DLT_SMS_TEMPLATES[OTP_SMS_KIND].text).toContain(`Valid for ${ttl![1]} minutes.`);
+    expect(ttl![1]).toBe('5');
+  });
+
   it('PhoneOtpService default text is the registered sign-in wording', () => {
     /*
       The OTP body is rendered in the auth code, which this change does not touch. Its default

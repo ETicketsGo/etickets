@@ -195,7 +195,7 @@ describe('PhoneOtpService.requestCode', () => {
       template: 'Your ETicketsGo code is {code}. Valid {minutes} min. Do not share.',
     });
     await service.requestCode('+919704464007');
-    expect(sent[0].body).toMatch(/^Your ETicketsGo code is \d{6}\. Valid 10 min\. Do not share\.$/);
+    expect(sent[0].body).toMatch(/^Your ETicketsGo code is \d{6}\. Valid 5 min\. Do not share\.$/);
   });
 
   it('falls back to a readable default when no template is configured', async () => {
