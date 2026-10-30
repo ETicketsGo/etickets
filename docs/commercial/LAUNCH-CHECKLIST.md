@@ -1,5 +1,7 @@
 # ETicketsGo — Commercial Launch Checklist
 
+> **Status note (2026-10-30):** historical record, superseded for the current state; see [PRODUCT-CURRENT-STATE.md](../PRODUCT-CURRENT-STATE.md).
+
 Cross-functional readiness for onboarding the first paying organizers. Pairs with the
 technical [DEPLOYMENT-CHECKLIST](../release/DEPLOYMENT-CHECKLIST.md) and the
 [PILOT-EXECUTION-PLAN](../launch/PILOT-EXECUTION-PLAN.md).

@@ -1,41 +1,37 @@
 # ETicketsGo
 
-A global **event operating system** for customers, organizers, and administrators — covering the full
-lifecycle: _discover → view → select ticket → book → pay → receive QR ticket → check in → analytics & payouts._
+A ticketing platform for **events and cinema** in **India** (launch city Hyderabad, INR, Razorpay)
+and the **USA** (launch city Meridian, Idaho, USD, Stripe). Customers discover, book, pay and get a
+QR ticket; organizers run events, seat maps, check-in, audience and payouts; admins approve,
+configure fees, refund and audit. India is operated by DeepTrics Software Solutions Private
+Limited and the USA by DeepTrics LLC.
 
 Built as a **modular monolith** in a Turborepo monorepo with strict TypeScript.
 
-> **Status:** Production-candidate (v2.1). The core platform (auth/RBAC, events, booking, payments,
-> tickets/QR, check-in, refunds, payouts, reporting, audit) plus all shipped milestones — **Public
-> Experience** (marketing + discovery), **Organizer Growth** (dashboard 2.0, event duplication,
-> marketing tools, sales reports, insights, organizer profiles, notification center), **Experience
-> Commerce** (add-ons, bundles, unified cart, mixed orders), **Mobile Platform** (installable PWA,
-> bottom nav, browser Web Push, offline wallet/tickets), and **AI & Growth** (organizer assistant,
-> event summaries, growth recommendations, smart search, risk signals, admin AI console) — are
-> implemented and verified across all three web apps, a movies/cinema domain, a standalone worker,
-> **Playwright** e2e, and **CI**. AI, offline check-in and web-push ship **disabled/placeholder by
-> default** (see [docs/ops/CAPABILITY-INVENTORY.md](docs/ops/CAPABILITY-INVENTORY.md)). A v2.1
-> enterprise-readiness audit added scalability indexes, a bounded commerce report, AI rate limiting,
-> and a hardened readiness probe — see
-> [docs/release/PRODUCTION-CERTIFICATION-v2.1.md](docs/release/PRODUCTION-CERTIFICATION-v2.1.md).
+> **Status (2026-10-30):** live in production for India (paid Razorpay sales, MSG91 login OTP and
+> transactional SMS, SES email). US Stripe payments, payout transfers, billing and campaigns are
+> implemented but switched off. The master reference for what is live, disabled, certified or
+> planned is **[docs/PRODUCT-CURRENT-STATE.md](docs/PRODUCT-CURRENT-STATE.md)**; the launch
+> checklist is [docs/release/LAUNCH-READINESS-CHECKLIST.md](docs/release/LAUNCH-READINESS-CHECKLIST.md).
 
 ---
 
 ## Tech stack
 
-| Layer      | Choice                                                                  |
-| ---------- | ----------------------------------------------------------------------- |
-| Monorepo   | Turborepo 2 + npm workspaces, TypeScript 5.6 strict, Node ≥ 20          |
-| Backend    | NestJS 11 (Express 5), Prisma 5, PostgreSQL 16, REST + OpenAPI/Swagger  |
-| Frontend   | Next.js 15 (App Router), React 18, Tailwind CSS, TanStack Query, RHF    |
-| Mobile     | Expo 56 + React 19 (`apps/customer-mobile`)                             |
-| i18n       | next-intl + `@eticketsgo/i18n` — English and Canadian French            |
-| Validation | Zod (shared between API and web via `@eticketsgo/validation`)           |
-| Infra      | Redis 7 (holds/cache/queues), BullMQ, S3-compatible storage abstraction |
-| Payments   | Razorpay (India/INR), Stripe (US/USD), mock provider locally            |
-| Auth       | Email/password + phone OTP, JWT access + rotating refresh tokens, RBAC  |
-| Testing    | Jest (API units), Vitest (packages), Playwright (critical e2e)          |
-| Local dev  | Docker Compose (Postgres + Redis)                                       |
+| Layer      | Choice                                                                 |
+| ---------- | ---------------------------------------------------------------------- |
+| Monorepo   | Turborepo 2 + npm workspaces, TypeScript 5.6 strict, Node ≥ 20         |
+| Backend    | NestJS 11 (Express 5), Prisma 5, PostgreSQL 16, REST + OpenAPI/Swagger |
+| Frontend   | Next.js 15 (App Router), React 18, Tailwind CSS, TanStack Query, RHF   |
+| Mobile     | Expo 57 + React Native 0.86 (`apps/customer-mobile`, the Android app)  |
+| i18n       | next-intl + `@eticketsgo/i18n` — English and Canadian French           |
+| Validation | Zod (shared between API and web via `@eticketsgo/validation`)          |
+| Infra      | Redis 7 (holds/cache/queues), BullMQ, Railway (QA, UAT, PROD)          |
+| Messaging  | Amazon SES + SNS (email), MSG91 (India SMS), Twilio (US/CA SMS)        |
+| Payments   | Razorpay + Route (India/INR), Stripe + Connect (US/USD), mock locally  |
+| Auth       | Email/password + phone OTP, JWT access + rotating refresh tokens, RBAC |
+| Testing    | Jest (API units), Vitest (packages), Playwright (critical e2e)         |
+| Local dev  | Docker Compose (Postgres + Redis)                                      |
 
 ---
 
@@ -49,10 +45,12 @@ eticketsgo/
 │  ├─ customer-web/   # Public + customer app (browse→book→pay→QR wallet)          ✅  :3000
 │  ├─ organizer-web/  # Organizer console (events, orders, check-in, reports)      ✅  :3001
 │  ├─ admin-web/      # Admin console (approvals, refunds, payouts, audit)         ✅  :3002
+│  ├─ customer-mobile/ # Expo Android app (release candidate, not on Play yet)
 │  └─ e2e/            # Playwright critical-path tests                             ✅
 ├─ packages/
 │  ├─ config/         # Shared tsconfig presets                        ✅
 │  ├─ design-tokens/  # Semantic tokens (CSS vars) + Tailwind preset   ✅
+│  ├─ i18n/           # Shared message catalogue (English, French)     ✅
 │  ├─ shared-types/   # Enums + transport types (no runtime deps)      ✅
 │  ├─ validation/     # Zod schemas shared by API and web              ✅
 │  └─ web-kit/        # Shared client: API client, hooks, UI kit, shell ✅
@@ -139,8 +137,15 @@ All seed accounts use the password **`Password123!`**.
 
 ## Documentation
 
-In-depth docs live under [`docs/`](docs):
+In-depth docs live under [`docs/`](docs) (index: [docs/README.md](docs/README.md)):
 
+- **[Product current state](docs/PRODUCT-CURRENT-STATE.md)** — the master reference: every
+  capability with its status (live, disabled, QA certified, in development, planned, blocked).
+- [Launch readiness checklist](docs/release/LAUNCH-READINESS-CHECKLIST.md) — Hyderabad,
+  Meridian and mobile, with owner and engineering actions.
+- [Platform fees](docs/commercial/PLATFORM-FEES.md) · [India SMS templates](docs/notifications/INDIA-DLT-TEMPLATES.md) ·
+  [Marketing email](docs/engagement/MARKETING-EMAIL.md) · [Billing providers](docs/billing/BILLING-PROVIDERS.md) ·
+  [Android Play release](apps/customer-mobile/docs/PLAY-RELEASE.md)
 - **New to the team? [Start here](docs/START-HERE.md)** — what the product is, the tech
   stack, your first hour, and how we test. Written for a developer or QA joining the team.
 - [Architecture Handbook](docs/handbooks/ARCHITECTURE-HANDBOOK.md) — bounded
@@ -184,7 +189,12 @@ Prisma models cover the full domain (`User`, `Organization`, `OrganizationMember
 
 ### Pricing / fees
 
-Configurable, tiered platform fee rules (`FeeRule`), seeded with the India defaults:
+Platform fee bands (`FeeRule`) by currency, country and region. Each band is a fixed fee per order
+(`FLAT`), a fixed fee per paid ticket (`FIXED_PER_TICKET`), a percentage (`PERCENT`) or a percentage
+plus a fixed fee per paid ticket (`COMBINED`), with an optional minimum and maximum. Free events
+pay no fee. Admins change bands only through a draft that is validated, previewed and published
+(MFA, versioned, audited); event and organizer overrides take precedence. Details:
+[docs/commercial/PLATFORM-FEES.md](docs/commercial/PLATFORM-FEES.md). The original seed defaults were:
 
 | Subtotal  | Booking fee |
 | --------- | ----------- |

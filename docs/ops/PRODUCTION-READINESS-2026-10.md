@@ -1,5 +1,7 @@
 # Production infrastructure readiness - October 2026
 
+> **Status note (2026-10-30):** historical record, superseded for the current state; see [PRODUCT-CURRENT-STATE.md](../PRODUCT-CURRENT-STATE.md).
+
 Prepared 2026-10-11 from the repository at `origin/main 6d9b4d1` and the owner's dated working
 notes. No credential value appears here.
 

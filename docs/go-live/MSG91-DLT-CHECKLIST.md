@@ -1,5 +1,7 @@
 # MSG91 and DLT checklist (India SMS), with WhatsApp and Twilio gates
 
+> **Status 2026-10-30:** PROD India SMS is LIVE (login OTP; booking confirmed/cancelled and password changed). Reminders stay off. Current state: [../PRODUCT-CURRENT-STATE.md](../PRODUCT-CURRENT-STATE.md). The 2026-10-26 note below is historical.
+
 > **Status 2026-10-26 (supersedes the ETKTGO statements below):** the owner confirmed ETKTGO approved, along with the PE-TM chain and eight DLT templates (2026-10-25; not to be reopened). The code accepts ETKTGO since #489 (`68fe4907`); DPTRCS is still accepted. Gates 0 and 1 are DONE. Still open: the template id mapping (MASTER-READINESS M3), the MSG91 key rotation (M4) and QA routing (M5). PROD India SMS stays off until a cost review and explicit approval (M6).
 
 Owner requirements (2026-10-20):
