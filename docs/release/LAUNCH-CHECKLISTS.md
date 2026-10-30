@@ -1,5 +1,7 @@
 # Launch Checklists (P6.11)
 
+> **Status note (2026-10-30):** historical record, superseded for the current state; see [PRODUCT-CURRENT-STATE.md](../PRODUCT-CURRENT-STATE.md).
+
 Consolidated go/no-go gates. The pilot-specific gate is `ETICKETSGO-PILOT-LAUNCH-CHECKLIST.md`; this
 adds GO-LIVE, rollback, incident, support, and onboarding. Nothing launches with an open **blocker**.
 

@@ -50,14 +50,14 @@ API that lists them, so copy each one from the MSG91 dashboard (SMS > Templates)
 
 | Approved template    | DLT id              | Kind in code               | DLT id key                          | MSG91 id key                           | Text verified | Trigger                                |
 | -------------------- | ------------------- | -------------------------- | ----------------------------------- | -------------------------------------- | ------------- | -------------------------------------- |
-| Login OTP            | 1777179239436687127 | `ACCOUNT_SECURITY`         | `DLT_TEMPLATE_ID_OTP`               | `MSG91_SMS_TEMPLATE_OTP`               | **yes**       | phone sign-in                          |
-| Password Reset       | 1777179240353412789 | `PASSWORD_RESET_REQUESTED` | `DLT_TEMPLATE_ID_PASSWORD_RESET`    | `MSG91_SMS_TEMPLATE_PASSWORD_RESET`    | **yes**       | exists; policy sends email only        |
-| Password Change      | 1777179240360916280 | `PASSWORD_CHANGED`         | `DLT_TEMPLATE_ID_PASSWORD_CHANGE`   | `MSG91_SMS_TEMPLATE_PASSWORD_CHANGE`   | **yes**       | exists; policy sends email only        |
-| Password Update      | 1777179239457786914 | `PASSWORD_UPDATE`          | `DLT_TEMPLATE_ID_PASSWORD_UPDATE`   | `MSG91_SMS_TEMPLATE_PASSWORD_UPDATE`   | **yes**       | not implemented                        |
-| Booking Confirmation | 1777179239474119451 | `BOOKING_CONFIRMED`        | `DLT_TEMPLATE_ID_BOOKING_CONFIRMED` | `MSG91_SMS_TEMPLATE_BOOKING_CONFIRMED` | **yes**       | exists; policy sends no SMS            |
-| Booking Cancellation | 1777179239566169492 | `BOOKING_CANCELLED`        | `DLT_TEMPLATE_ID_BOOKING_CANCELLED` | `MSG91_SMS_TEMPLATE_BOOKING_CANCELLED` | **yes**       | exists; policy sends no SMS            |
+| Login OTP            | 1777179239436687127 | `ACCOUNT_SECURITY`         | `DLT_TEMPLATE_ID_OTP`               | `MSG91_SMS_TEMPLATE_OTP`               | **yes**       | phone sign-in (live in PROD)           |
+| Password Reset       | 1777179240353412789 | `PASSWORD_RESET_REQUESTED` | `DLT_TEMPLATE_ID_PASSWORD_RESET`    | `MSG91_SMS_TEMPLATE_PASSWORD_RESET`    | **yes**       | exists; SMS deferred (email only)      |
+| Password Change      | 1777179240360916280 | `PASSWORD_CHANGED`         | `DLT_TEMPLATE_ID_PASSWORD_CHANGE`   | `MSG91_SMS_TEMPLATE_PASSWORD_CHANGE`   | **yes**       | live in PROD                           |
+| Password Update      | 1777179239457786914 | `PASSWORD_UPDATE`          | `DLT_TEMPLATE_ID_PASSWORD_UPDATE`   | `MSG91_SMS_TEMPLATE_PASSWORD_UPDATE`   | **yes**       | not sent (one SMS per change)          |
+| Booking Confirmation | 1777179239474119451 | `BOOKING_CONFIRMED`        | `DLT_TEMPLATE_ID_BOOKING_CONFIRMED` | `MSG91_SMS_TEMPLATE_BOOKING_CONFIRMED` | **yes**       | live in PROD                           |
+| Booking Cancellation | 1777179239566169492 | `BOOKING_CANCELLED`        | `DLT_TEMPLATE_ID_BOOKING_CANCELLED` | `MSG91_SMS_TEMPLATE_BOOKING_CANCELLED` | **yes**       | live in PROD (free and paid)           |
 | Payment Pending      | 1777179239515564360 | `PAYMENT_PENDING`          | `DLT_TEMPLATE_ID_PAYMENT_PENDING`   | `MSG91_SMS_TEMPLATE_PAYMENT_PENDING`   | **yes**       | not implemented (no notification type) |
-| Event Reminder       | 1777179240387088578 | `EVENT_REMINDER`           | `DLT_TEMPLATE_ID_EVENT_REMINDER`    | `MSG91_SMS_TEMPLATE_EVENT_REMINDER`    | **yes**       | show-reminder job; policy sends no SMS |
+| Event Reminder       | 1777179240387088578 | `EVENT_REMINDER`           | `DLT_TEMPLATE_ID_EVENT_REMINDER`    | `MSG91_SMS_TEMPLATE_EVENT_REMINDER`    | **yes**       | enabled type; reminders job off        |
 
 ### Registered in MSG91 (read back 2026-10-29)
 

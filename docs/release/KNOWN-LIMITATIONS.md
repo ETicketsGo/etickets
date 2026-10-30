@@ -1,5 +1,7 @@
 # ETicketsGo RC1 — Known Limitations
 
+> **Status note (2026-10-30):** historical record, superseded for the current state; see [PRODUCT-CURRENT-STATE.md](../PRODUCT-CURRENT-STATE.md).
+
 Accepted limitations for RC1, each with its risk, current mitigation, and recommended
 follow-up. None is a go-live blocker for a controlled launch; several matter before
 high-scale or specific-feature rollout. These are the audit items deliberately **not**

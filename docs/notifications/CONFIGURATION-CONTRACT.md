@@ -2,6 +2,8 @@
 
 Every variable the notification platform reads, what happens without it, and where it stands.
 
+> **Status note (2026-10-30):** the per-environment status columns are an older snapshot; for the production state see [../PRODUCT-CURRENT-STATE.md](../PRODUCT-CURRENT-STATE.md).
+
 **No value appears on this page.** Names and states only.
 
 ## How the columns were established

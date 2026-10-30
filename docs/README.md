@@ -2,6 +2,9 @@
 
 A map of the `docs/` tree.
 
+**Current state of the product:** [PRODUCT-CURRENT-STATE](PRODUCT-CURRENT-STATE.md) (master reference, 2026-10-30) ·
+[LAUNCH-READINESS-CHECKLIST](release/LAUNCH-READINESS-CHECKLIST.md) (Hyderabad, Meridian, mobile).
+
 **Joining the team?** Read [START-HERE](START-HERE.md) first — the product, the tech stack,
 your first hour, and how we test, in one page for developers and QA.
 
@@ -17,7 +20,7 @@ your first hour, and how we test, in one page for developers and QA.
 
 ## Release (`release/`)
 
-[RC1-RELEASE-NOTES](release/RC1-RELEASE-NOTES.md) · [RC-READINESS-REPORT](release/RC-READINESS-REPORT.md) · [DEPLOYMENT-CHECKLIST](release/DEPLOYMENT-CHECKLIST.md) · [ROLLBACK-CHECKLIST](release/ROLLBACK-CHECKLIST.md) · [OPERATIONS-CHECKLIST](release/OPERATIONS-CHECKLIST.md) · [KNOWN-LIMITATIONS](release/KNOWN-LIMITATIONS.md) · [EXTERNAL-DEPENDENCIES](release/EXTERNAL-DEPENDENCIES.md)
+[LAUNCH-READINESS-CHECKLIST](release/LAUNCH-READINESS-CHECKLIST.md) · [RC1-RELEASE-NOTES](release/RC1-RELEASE-NOTES.md) · [RC-READINESS-REPORT](release/RC-READINESS-REPORT.md) · [DEPLOYMENT-CHECKLIST](release/DEPLOYMENT-CHECKLIST.md) · [ROLLBACK-CHECKLIST](release/ROLLBACK-CHECKLIST.md) · [OPERATIONS-CHECKLIST](release/OPERATIONS-CHECKLIST.md) · [KNOWN-LIMITATIONS](release/KNOWN-LIMITATIONS.md) · [EXTERNAL-DEPENDENCIES](release/EXTERNAL-DEPENDENCIES.md)
 
 ## Commercial (`commercial/`)
 
