@@ -189,6 +189,16 @@ function ticketTypeHasHistory(details: Record<string, unknown>): AppException {
   );
 }
 
+/** A ticket type with no history that a bundle still includes: refused, the bundle is kept. */
+function ticketTypeInBundle(details: Record<string, unknown>): AppException {
+  return new AppException(
+    ErrorCodes.TICKET_TYPE_IN_BUNDLE,
+    'This ticket type is part of a bundle, so it cannot be deleted. Remove it from the bundle first.',
+    HttpStatus.CONFLICT,
+    details,
+  );
+}
+
 @Injectable()
 export class EventsService {
   constructor(
@@ -1690,7 +1700,8 @@ export class EventsService {
    * The sold/held counters are not enough: after a full refund they are back to 0, but the
    * refunded tickets and booking lines still reference the type, and the foreign key turned
    * the delete into a 500. Those rows are history and are never deleted; the type is refused
-   * with TICKET_TYPE_HAS_HISTORY (409) and can be deactivated instead.
+   * with TICKET_TYPE_HAS_HISTORY (409) and can be deactivated instead. A type with no history
+   * that only a bundle includes is refused with TICKET_TYPE_IN_BUNDLE (409); history wins.
    */
   async deleteTicketType(user: RequestUser, id: string) {
     const tt = await this.loadOwnedTicketType(user, id);
@@ -1706,14 +1717,17 @@ export class EventsService {
       this.prisma.ticket.count({ where: { ticketTypeId: id } }),
     ]);
     if (bookingItems > 0 || tickets > 0) throw ticketTypeHasHistory({ bookingItems, tickets });
+    // Checked only after history: a type with orders is history first, whatever bundles name it.
+    const bundleItems = await this.prisma.bundleItem.count({ where: { ticketTypeId: id } });
+    if (bundleItems > 0) throw ticketTypeInBundle({ bundleItems });
     try {
       await this.prisma.$transaction([
         this.prisma.ticketInventory.deleteMany({ where: { ticketTypeId: id } }),
         this.prisma.ticketType.delete({ where: { id } }),
       ]);
     } catch (err) {
-      // P2003: a row the checks did not see (a booking that landed since, a bundle) still
-      // names the type. Refuse with the same code; the transaction left everything in place.
+      // P2003: a row the checks did not see (a booking that landed since) still names the
+      // type. Refuse as history; the transaction left everything in place.
       if ((err as { code?: string }).code === 'P2003') throw ticketTypeHasHistory({});
       throw err;
     }
