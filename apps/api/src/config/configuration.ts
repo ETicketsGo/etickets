@@ -20,6 +20,10 @@ import {
   offlineWindowContradictions,
 } from './offline-revocation-window';
 import { railwayEmailHostWarnings } from '../common/email-host-warnings';
+import {
+  SMS_TRANSACTIONAL_ELIGIBLE,
+  invalidSmsTransactionalTypes,
+} from '../notifications/policy/sms-transactional';
 
 /** Validated environment. Fails fast on boot if misconfigured. */
 const envSchema = z.object({
@@ -1211,6 +1215,14 @@ const envSchema = z.object({
   */
   WHATSAPP_TRANSACTIONAL_OPT_IN_REQUIRED: z.string().optional(),
   /*
+    Transactional SMS in India, one notification type at a time (comma list). EMPTY by
+    default: no type sends an SMS until it is named here. Eligible names: BOOKING_CONFIRMED,
+    BOOKING_CANCELLED, PASSWORD_CHANGED, EVENT_REMINDER. Only an account with a VERIFIED Indian
+    number gets it; the US and Canada are untouched. Sign-in codes do not read this. Set it on
+    the api AND the worker (the worker composes reminders and delivers every row).
+  */
+  SMS_TRANSACTIONAL_TYPES: z.string().optional(),
+  /*
     Show reminders. OFF by default, and that default is the point: turning this on starts
     messaging every ticket holder on the platform about every future show. That is a product
     launch -- somebody has to have decided the copy is right and the volume is wanted -- not
@@ -2214,6 +2226,18 @@ function assertNotificationConfigConsistency(cfg: AppConfig): void {
     WhatsApp from everybody who has not consented, and if consent cannot be recorded that is
     everybody, permanently -- a silent shutdown of a channel, presented as a policy setting.
   */
+  /*
+    A name that is not eligible is refused at boot, not ignored: PASSWORD_RESET_REQUESTED in
+    particular has an approved wording with a code in it, and the reset flow sends a link.
+  */
+  const badSmsTypes = invalidSmsTransactionalTypes(cfg.SMS_TRANSACTIONAL_TYPES);
+  if (badSmsTypes.length > 0) {
+    errors.push(
+      `  - SMS_TRANSACTIONAL_TYPES names ${badSmsTypes.join(', ')}, which may not send an SMS. ` +
+        `Allowed: ${SMS_TRANSACTIONAL_ELIGIBLE.join(', ')}.`,
+    );
+  }
+
   if (cfg.WHATSAPP_TRANSACTIONAL_OPT_IN_REQUIRED === 'true') {
     const anyWhatsApp =
       (cfg.WHATSAPP_PROVIDER ?? 'log') !== 'log' ||

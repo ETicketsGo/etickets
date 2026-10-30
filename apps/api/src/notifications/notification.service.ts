@@ -1003,6 +1003,7 @@ export class NotificationService {
         requested: input.channels,
         known: (c) => this.channels.has(c),
         allowDeferred: input.allowDeferredChannel === true,
+        payload: input.payload,
       });
       return resolved.channels;
     }
