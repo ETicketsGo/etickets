@@ -5,6 +5,12 @@ import type { ChannelKey } from '../channels/notification-channel.interface';
 import { MarketingConsentService } from '../marketing-consent.service';
 import { NotificationPreferencesService } from '../notification-preferences.service';
 import { isTransactional, messageClassOf } from '../message-class';
+import { PrismaService } from '../../prisma/prisma.service';
+import {
+  parseSmsTransactionalMarkets,
+  smsTransactionalEnabled,
+  smsTransactionalRefusal,
+} from './sms-transactional';
 import {
   policyFor,
   permittedChannels,
@@ -76,6 +82,11 @@ export class NotificationPolicyResolver {
     private readonly preferences: NotificationPreferencesService,
     private readonly consent: MarketingConsentService,
     private readonly config?: ConfigService,
+    /*
+      Optional so the suites that build this by hand keep working. Absent, the per-type SMS
+      switch (SMS_TRANSACTIONAL_TYPES) adds nothing: it cannot read the recipient's phone.
+    */
+    private readonly prisma?: PrismaService,
   ) {}
 
   /**
@@ -93,6 +104,8 @@ export class NotificationPolicyResolver {
     known: (channel: string) => boolean;
     /** Only the fallback service sets this. See NotifyInput.allowDeferredChannel. */
     allowDeferred?: boolean;
+    /** The message payload. Read only to check the SMS template variables are all present. */
+    payload?: Record<string, unknown>;
   }): Promise<ResolvedPolicy> {
     const policy: EventPolicy = policyFor(input.type);
     const transactional = isTransactional(input.type);
@@ -110,6 +123,9 @@ export class NotificationPolicyResolver {
       : permittedChannels(input.type, input.requested);
     let channels = allowed.filter((c) => input.known(c));
 
+    // 1b. SMS for this type, when SMS_TRANSACTIONAL_TYPES names it (enabled market, verified phone).
+    channels = await this.applySmsSwitch(input, transactional, channels, removed);
+
     // 2. What the customer turned off — except what they may not turn off.
     channels = await this.applyPreferences(input, policy, channels, removed);
 
@@ -125,6 +141,55 @@ export class NotificationPolicyResolver {
     }
 
     return { channels, urgency: policy.urgency, fallback: policy.fallback, transactional, removed };
+  }
+
+  /**
+   * Add SMS for a type the owner switched on, for a recipient it can truthfully reach.
+   *
+   * Transactional only, and only when the caller did not ask for a narrower list without SMS.
+   * Then preferences (step 2) still apply: SMS is never guaranteed, so a customer who turned
+   * it off for this type does not get it. Suppression is checked at send, as for every row.
+   * The phone number is never logged: the reason names the rule, not the number.
+   */
+  private async applySmsSwitch(
+    input: {
+      type: NotificationType;
+      recipient: PolicyRecipient;
+      requested?: string[];
+      known: (channel: string) => boolean;
+      payload?: Record<string, unknown>;
+    },
+    transactional: boolean,
+    channels: ChannelKey[],
+    removed: { channel: ChannelKey; reason: string }[],
+  ): Promise<ChannelKey[]> {
+    if (channels.includes('sms')) return channels;
+    if (!transactional || !this.prisma) return channels;
+    if (!smsTransactionalEnabled(input.type, this.config?.get<string>('SMS_TRANSACTIONAL_TYPES'))) {
+      return channels;
+    }
+    if (input.requested && !input.requested.includes('sms')) return channels;
+    if (!input.known('sms')) return channels;
+    const userId = input.recipient.userId ?? null;
+    if (!userId) {
+      removed.push({ channel: 'sms', reason: 'no account' });
+      return channels;
+    }
+    const user = await this.prisma.user
+      .findUnique({ where: { id: userId }, select: { phone: true, phoneVerifiedAt: true } })
+      .catch(() => null);
+    const refusal = smsTransactionalRefusal({
+      type: input.type,
+      phone: user?.phone,
+      phoneVerifiedAt: user?.phoneVerifiedAt,
+      payload: input.payload,
+      markets: parseSmsTransactionalMarkets(this.config?.get<string>('SMS_TRANSACTIONAL_MARKETS')),
+    });
+    if (refusal) {
+      removed.push({ channel: 'sms', reason: refusal });
+      return channels;
+    }
+    return [...channels, 'sms'];
   }
 
   /**

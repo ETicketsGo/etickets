@@ -298,4 +298,57 @@ describe('loadConfig: SMS', () => {
       expect(() => loadConfig()).not.toThrow();
     });
   });
+
+  describe('SMS_TRANSACTIONAL_TYPES', () => {
+    it('boots with the setting absent (the default: no type sends an SMS)', () => {
+      process.env = env({ APP_ENV: 'DEV', NODE_ENV: 'development' });
+      expect(() => loadConfig()).not.toThrow();
+    });
+
+    it('boots with eligible types named', () => {
+      process.env = env({
+        APP_ENV: 'DEV',
+        NODE_ENV: 'development',
+        SMS_TRANSACTIONAL_TYPES:
+          'BOOKING_CONFIRMED, booking_cancelled,PASSWORD_CHANGED,EVENT_REMINDER',
+      });
+      expect(() => loadConfig()).not.toThrow();
+    });
+
+    it.each(['PASSWORD_RESET_REQUESTED', 'SHOW_CANCELLED', 'PAYMENT_PENDING', 'NOT_A_TYPE'])(
+      'refuses %s, which may not send a transactional SMS',
+      (name) => {
+        process.env = env({
+          APP_ENV: 'DEV',
+          NODE_ENV: 'development',
+          SMS_TRANSACTIONAL_TYPES: `BOOKING_CONFIRMED,${name}`,
+        });
+        expect(() => loadConfig()).toThrow(new RegExp(`SMS_TRANSACTIONAL_TYPES names ${name}`));
+      },
+    );
+  });
+  describe('SMS_TRANSACTIONAL_MARKETS', () => {
+    it('boots with the setting absent (the default: India only)', () => {
+      process.env = env({ APP_ENV: 'DEV', NODE_ENV: 'development' });
+      expect(() => loadConfig()).not.toThrow();
+    });
+
+    it('boots with IN, US and CA named', () => {
+      process.env = env({
+        APP_ENV: 'DEV',
+        NODE_ENV: 'development',
+        SMS_TRANSACTIONAL_MARKETS: 'IN, us,CA',
+      });
+      expect(() => loadConfig()).not.toThrow();
+    });
+
+    it.each(['GB', 'XX'])('refuses %s, which has no SMS path', (name) => {
+      process.env = env({
+        APP_ENV: 'DEV',
+        NODE_ENV: 'development',
+        SMS_TRANSACTIONAL_MARKETS: `IN,${name}`,
+      });
+      expect(() => loadConfig()).toThrow(new RegExp(`SMS_TRANSACTIONAL_MARKETS names ${name}`));
+    });
+  });
 });

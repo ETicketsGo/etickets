@@ -19,7 +19,7 @@ import {
   US_OPERATOR_SENTENCE,
   checkoutOperatorCountry,
   contactOperator,
-  footerRights,
+  footerOperator,
   operatingEntitiesForJsonLd,
   selectedMarketEntity,
   legalBusinessFacts,
@@ -38,26 +38,40 @@ const ROOT = join(__dirname, '..');
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf8');
 
 describe('the footer line', () => {
-  it('is the owner line exactly, in English', () => {
-    const t = createTranslator({
-      locale: 'en',
-      messages: { common: en },
+  const footer = (locale: 'en' | 'fr-CA') =>
+    createTranslator({
+      locale,
+      messages: { common: locale === 'en' ? en : frCA },
       namespace: 'common.footer',
     });
-    expect(t('rights', { year: 2026, entity: INDIA_OPERATOR.shortName })).toBe(
-      '© 2026 ETicketsGo, DeepTrics Software Solutions Pvt Ltd | All rights reserved.',
+
+  it('is the owner copyright line exactly, naming no company', () => {
+    expect(footer('en')('copyright', { year: 2026 })).toBe(
+      '© 2026 ETicketsGo. All rights reserved.',
+    );
+    expect(footer('fr-CA')('copyright', { year: 2026 })).toBe(
+      '© 2026 ETicketsGo. Tous droits réservés.',
     );
   });
 
-  it('keeps the legal name untranslated in French', () => {
-    const t = createTranslator({
-      locale: 'fr-CA',
-      messages: { common: frCA },
-      namespace: 'common.footer',
-    });
-    expect(t('rights', { year: 2026, entity: INDIA_OPERATOR.shortName })).toBe(
-      '© 2026 ETicketsGo, DeepTrics Software Solutions Pvt Ltd | Tous droits réservés.',
+  it('India: the owner operator line, with the legal name untranslated in French', () => {
+    const m = footerOperator('IN')!;
+    expect(footer('en')(m.key, m.values)).toBe(
+      'Operated in India by DeepTrics Software Solutions Private Limited.',
     );
+    expect(footer('fr-CA')(m.key, m.values)).toBe(
+      'Exploité en Inde par DeepTrics Software Solutions Private Limited.',
+    );
+  });
+
+  it('United States: the owner operator line', () => {
+    const m = footerOperator('US')!;
+    expect(footer('en')(m.key, m.values)).toBe('Operated in the United States by DeepTrics LLC.');
+    expect(footer('fr-CA')(m.key, m.values)).toBe('Exploité aux États-Unis par DeepTrics LLC.');
+  });
+
+  it('an unknown market has no operator line at all, never both companies', () => {
+    for (const m of [null, undefined, '', 'CA', 'GLOBAL']) expect(footerOperator(m)).toBeNull();
   });
 
   it('is what BOTH footers render, from the registry rather than typed', () => {
@@ -66,20 +80,6 @@ describe('the footer line', () => {
       const src = read(file);
       expect(src, file).toContain('<FooterLegalLines />');
       expect(src, file).not.toMatch(/All rights reserved|DeepTrics/);
-    }
-  });
-
-  it('names the company for the selected market, and none when there is none', () => {
-    expect(footerRights('IN', 2026)).toEqual({
-      key: 'rights',
-      values: { year: 2026, entity: 'DeepTrics Software Solutions Pvt Ltd' },
-    });
-    expect(footerRights('US', 2026)).toEqual({
-      key: 'rights',
-      values: { year: 2026, entity: 'DeepTrics LLC' },
-    });
-    for (const m of [null, undefined, 'CA', 'GLOBAL']) {
-      expect(footerRights(m, 2026)).toEqual({ key: 'rightsNeutral', values: { year: 2026 } });
     }
   });
 });
