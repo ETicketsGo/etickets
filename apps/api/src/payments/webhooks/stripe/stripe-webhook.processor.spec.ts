@@ -331,3 +331,82 @@ describe('StripeWebhookProcessor.process — failure/dead-letter', () => {
     );
   });
 });
+
+/*
+  One Stripe test account serves ticket payments AND organizer subscriptions. A dispute on a
+  subscription charge also reaches the ticket webhook, and used to create a ticket Dispute row
+  with no booking. A dispute is ours only when its payment intent is one of our ticket Payment
+  rows; billing disputes are handled by the billing webhook on its own endpoint.
+*/
+describe('StripeWebhookProcessor — disputes are routed by our own Payment rows', () => {
+  const dispute = (over: Record<string, unknown> = {}) => ({
+    id: 'dp_1',
+    charge: 'ch_1',
+    payment_intent: 'pi_1',
+    amount: 5000,
+    currency: 'usd',
+    reason: 'fraudulent',
+    status: 'needs_response',
+    ...over,
+  });
+  const disputeEvent = (object: Record<string, unknown>, eventType = 'charge.dispute.created') =>
+    record({ eventType, payload: { object } });
+
+  it('a dispute on a subscription charge (no ticket Payment) creates no Dispute and is IGNORED', async () => {
+    const { processor, disputes, updates, prisma } = makeProcessor({
+      record: disputeEvent(dispute({ payment_intent: 'pi_subscription_invoice' })),
+      payment: null,
+    });
+    await processor.process('w1');
+    expect(prisma.payment.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { providerPaymentIntentId: 'pi_subscription_invoice' } }),
+    );
+    expect(disputes.syncFromWebhook).not.toHaveBeenCalled();
+    expect(updates.at(-1)).toMatchObject({ processingStatus: 'IGNORED' });
+  });
+
+  it('a dispute that names no payment intent cannot be verified as ours: IGNORED', async () => {
+    const { processor, disputes, updates, prisma } = makeProcessor({
+      record: disputeEvent(dispute({ payment_intent: null })),
+      payment: { id: 'p1' },
+    });
+    await processor.process('w1');
+    expect(prisma.payment.findFirst).not.toHaveBeenCalled();
+    expect(disputes.syncFromWebhook).not.toHaveBeenCalled();
+    expect(updates.at(-1)).toMatchObject({ processingStatus: 'IGNORED' });
+  });
+
+  it('updated and closed disputes on a subscription charge are IGNORED too', async () => {
+    for (const type of ['charge.dispute.updated', 'charge.dispute.closed']) {
+      const { processor, disputes, updates } = makeProcessor({
+        record: disputeEvent(dispute({ payment_intent: 'pi_sub', status: 'lost' }), type),
+        payment: null,
+      });
+      await processor.process('w1');
+      expect(disputes.syncFromWebhook).not.toHaveBeenCalled();
+      expect(updates.at(-1)).toMatchObject({ processingStatus: 'IGNORED' });
+    }
+  });
+
+  it('a dispute on a ticket charge is synced as before and PROCESSED', async () => {
+    const obj = dispute();
+    const { processor, disputes, updates } = makeProcessor({
+      record: disputeEvent(obj),
+      payment: { id: 'p1' },
+    });
+    await processor.process('w1');
+    expect(disputes.syncFromWebhook).toHaveBeenCalledWith(obj);
+    expect(updates.at(-1)).toMatchObject({ processingStatus: 'PROCESSED' });
+  });
+
+  it('a duplicate delivery of a dispute is a no-op (the claim is lost)', async () => {
+    const { processor, disputes, updates } = makeProcessor({
+      record: disputeEvent(dispute()),
+      payment: { id: 'p1' },
+      claimCount: 0,
+    });
+    await processor.process('w1');
+    expect(disputes.syncFromWebhook).not.toHaveBeenCalled();
+    expect(updates).toHaveLength(0);
+  });
+});
