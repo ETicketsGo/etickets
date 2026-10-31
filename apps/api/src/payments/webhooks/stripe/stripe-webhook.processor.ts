@@ -230,8 +230,7 @@ export class StripeWebhookProcessor {
       case 'charge.dispute.created':
       case 'charge.dispute.updated':
       case 'charge.dispute.closed':
-        await this.disputes.syncFromWebhook(payload.object as StripeDisputeLike);
-        return 'processed';
+        return this.handleDispute(payload.object as StripeDisputeLike);
       case 'transfer.failed':
         await this.settlements.onTransferFailed((payload.object as TransferLike).id);
         return 'processed';
@@ -322,6 +321,30 @@ export class StripeWebhookProcessor {
       charge.currency ?? 'usd',
       organizerShare,
     );
+    return 'processed';
+  }
+
+  /*
+    One Stripe account serves ticket payments AND organizer subscriptions, so a dispute on a
+    subscription invoice's charge is delivered here too. It used to become a ticket Dispute row
+    with no booking. A dispute is a ticket dispute only when its payment intent is one of OUR
+    ticket Payment rows (the same verified id the payment and refund paths use); anything
+    else is recorded IGNORED and left to the billing webhook, which handles its own disputes.
+    Never matched by email, description or naming.
+  */
+  private async handleDispute(dispute: StripeDisputeLike): Promise<DispatchResult> {
+    const pi = typeof dispute?.payment_intent === 'string' ? dispute.payment_intent : null;
+    if (!dispute?.id || !pi) return 'ignored';
+    const ticketPayment = await this.prisma.payment.findFirst({
+      // The same key DisputeService and charge.refunded resolve by: a Stripe `pi_` id we stored.
+      where: { providerPaymentIntentId: pi },
+      select: { id: true },
+    });
+    if (!ticketPayment) {
+      this.logger.log(`Stripe dispute ${dispute.id} is not on a ticket payment; ignored here.`);
+      return 'ignored';
+    }
+    await this.disputes.syncFromWebhook(dispute);
     return 'processed';
   }
 
