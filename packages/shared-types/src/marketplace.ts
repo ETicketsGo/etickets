@@ -163,7 +163,21 @@ export function mapStripeAccountToOnboardingStatus(
 ): ConnectOnboardingStatus {
   if (!a.hasAccount) return 'NOT_STARTED';
   if (a.disabledReason) {
-    return a.disabledReason.startsWith('rejected') ? 'REJECTED' : 'DISABLED';
+    if (a.disabledReason.startsWith('rejected')) return 'REJECTED';
+    /*
+      Stripe also sets disabled_reason on accounts that are simply not finished: every
+      Express account whose owner opened onboarding and left reads requirements.past_due.
+      Calling that "turned off" told organizers their account was dead when it only
+      needed finishing. Still never a status that can receive settlements.
+    */
+    if (a.disabledReason === 'requirements.past_due' && !a.detailsSubmitted) return 'ONBOARDING';
+    if (
+      a.disabledReason === 'requirements.pending_verification' ||
+      a.disabledReason === 'under_review'
+    ) {
+      return 'PENDING_VERIFICATION';
+    }
+    return 'DISABLED';
   }
   if (a.chargesEnabled && a.payoutsEnabled) {
     return a.requirementsCurrentlyDue.length > 0 ? 'RESTRICTED' : 'ENABLED';

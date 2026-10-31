@@ -204,10 +204,31 @@ describe('mapStripeAccountToOnboardingStatus', () => {
       }),
     ).toBe('RESTRICTED');
   });
-  it('DISABLED / REJECTED from disabled_reason', () => {
+  it('a half-finished account (past_due, details not submitted) is still ONBOARDING', () => {
+    // Stripe sets disabled_reason=requirements.past_due on every Express account whose
+    // owner opened onboarding and left; that is "being set up", not "turned off".
     expect(
       mapStripeAccountToOnboardingStatus({ ...base, disabledReason: 'requirements.past_due' }),
+    ).toBe('ONBOARDING');
+  });
+  it('PENDING_VERIFICATION while Stripe is reviewing', () => {
+    for (const r of ['requirements.pending_verification', 'under_review']) {
+      expect(
+        mapStripeAccountToOnboardingStatus({ ...base, detailsSubmitted: true, disabledReason: r }),
+      ).toBe('PENDING_VERIFICATION');
+    }
+  });
+  it('DISABLED / REJECTED from disabled_reason', () => {
+    expect(
+      mapStripeAccountToOnboardingStatus({
+        ...base,
+        detailsSubmitted: true,
+        disabledReason: 'requirements.past_due',
+      }),
     ).toBe('DISABLED');
+    expect(mapStripeAccountToOnboardingStatus({ ...base, disabledReason: 'platform_paused' })).toBe(
+      'DISABLED',
+    );
     expect(mapStripeAccountToOnboardingStatus({ ...base, disabledReason: 'rejected.fraud' })).toBe(
       'REJECTED',
     );
