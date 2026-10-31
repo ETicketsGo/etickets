@@ -3,6 +3,7 @@ import { RazorpaySubscriptionsProvider } from './razorpay-subscriptions.provider
 import { BillingProviderRegistry } from './billing-provider.registry';
 import { DisabledBillingProvider, MockBillingProvider } from './billing-provider';
 import { assertUsableKey, keyModeOf, resolveCredential } from './billing-credentials';
+import { BillingCheckoutService } from '../billing-checkout.service';
 import {
   RAZORPAY_TEST_WEBHOOK_SECRET,
   STRIPE_TEST_WEBHOOK_SECRET,
@@ -520,5 +521,86 @@ describe('billing credentials and provider routing', () => {
     );
     expect(await r.forCountry('US')).toBe(mock);
     expect(await r.forCountry('IN')).toBe(mock);
+  });
+});
+
+describe('production live markets (BILLING_LIVE_MARKETS)', () => {
+  const prodEnv = (markets: string): Record<string, string> => ({
+    APP_ENV: 'PRODUCTION',
+    BILLING_ENABLED: 'true',
+    BILLING_PROVIDER: 'providers',
+    BILLING_LIVE_ENABLED: 'true',
+    BILLING_LIVE_MARKETS: markets,
+    STRIPE_BILLING_SECRET_KEY: 'sk_live_x',
+    STRIPE_BILLING_WEBHOOK_SECRET: 'whsec_x',
+    // The ticket Razorpay account is configured, but IN is not a listed billing market.
+    RAZORPAY_KEY_ID: 'rzp_live_ticket',
+    RAZORPAY_KEY_SECRET: 's',
+    RAZORPAY_BILLING_WEBHOOK_SECRET: 'w',
+  });
+  const registry = (env: Record<string, string>) =>
+    new BillingProviderRegistry(
+      { get: (k: string) => env[k] } as never,
+      new DisabledBillingProvider(),
+      null,
+    );
+
+  it('a listed market keeps its route (US to Stripe); an unlisted one gets nothing', async () => {
+    const r = registry(prodEnv('US'));
+    expect(r.liveMarketOpen('US')).toBe(true);
+    expect(r.liveMarketOpen('IN')).toBe(false);
+    expect(r.configuredFor('US')).toBe(true);
+    expect(r.configuredFor('IN')).toBe(false);
+    expect((await r.forCountry('US')).key).toBe('STRIPE_BILLING');
+    expect((await r.forCountry('IN')).key).toBe('NONE');
+  });
+
+  it('the master switch off closes every market', () => {
+    const r = registry({ ...prodEnv('US,IN'), BILLING_LIVE_ENABLED: 'false' });
+    expect(r.liveMarketOpen('US')).toBe(false);
+    expect(r.configuredFor('US')).toBe(false);
+  });
+
+  it('PRODUCTION never falls back to the ticket keys', () => {
+    const env = prodEnv('US,IN');
+    delete env.STRIPE_BILLING_SECRET_KEY;
+    env.STRIPE_SECRET_KEY = 'sk_live_ticket';
+    const r = registry(env);
+    expect(r.configuredFor('US')).toBe(false);
+    expect(r.configuredFor('IN')).toBe(false);
+  });
+
+  it('outside PRODUCTION the markets list plays no part (QA unchanged)', () => {
+    const r = registry({
+      APP_ENV: 'QA',
+      BILLING_PROVIDER: 'providers',
+      STRIPE_SECRET_KEY: 'sk_test_x',
+      STRIPE_BILLING_WEBHOOK_SECRET: 'whsec_x',
+    });
+    expect(r.liveMarketOpen('US')).toBe(true);
+    expect(r.configuredFor('US')).toBe(true);
+  });
+
+  it('checkout refuses an unlisted market with a clear error', () => {
+    const env = prodEnv('US');
+    const svc = new BillingCheckoutService(
+      null as never,
+      { get: (k: string) => env[k] } as never,
+      registry(env),
+      null as never,
+      null as never,
+      null as never,
+    );
+    const assertEnabled = (c: string) =>
+      (svc as unknown as { assertEnabled(c: string): void }).assertEnabled(c);
+    expect(() => assertEnabled('US')).not.toThrow();
+    let err: { code?: string; message?: string } = {};
+    try {
+      assertEnabled('IN');
+    } catch (e) {
+      err = e as typeof err;
+    }
+    expect(err.code).toBe('BILLING_NOT_ENABLED');
+    expect(err.message).toMatch(/not open in your country yet/);
   });
 });

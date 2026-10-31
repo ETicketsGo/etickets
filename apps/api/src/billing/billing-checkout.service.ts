@@ -43,6 +43,17 @@ export class BillingCheckoutService {
 
   private assertEnabled(country: string) {
     if (
+      this.config.get<string>('BILLING_ENABLED') === 'true' &&
+      !this.registry.liveMarketOpen(country)
+    ) {
+      // PRODUCTION: this country is not in BILLING_LIVE_MARKETS.
+      throw new AppException(
+        ErrorCodes.BILLING_NOT_ENABLED,
+        'Paying for a plan is not open in your country yet.',
+        HttpStatus.CONFLICT,
+      );
+    }
+    if (
       this.config.get<string>('BILLING_ENABLED') !== 'true' ||
       !this.registry.configuredFor(country)
     ) {

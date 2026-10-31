@@ -67,11 +67,11 @@ the RAW bytes, stored, then processed in the same request, idempotently:
 | Variable                             | Meaning                                                                                      |
 | ------------------------------------ | -------------------------------------------------------------------------------------------- |
 | `BILLING_ENABLED`                    | `false` by default. `true` opens checkout.                                                   |
-| `BILLING_PROVIDER`                   | `disabled` (default), `mock` (LOCAL/DEV/QA), `providers` (LOCAL/DEV/QA, test keys)           |
-| `STRIPE_BILLING_SECRET_KEY`          | Stripe secret key for billing. Falls back to `STRIPE_SECRET_KEY`.                            |
+| `BILLING_PROVIDER`                   | `disabled` (default), `mock` (LOCAL/DEV/QA), `providers` (LOCAL/DEV/QA test keys; PROD gate) |
+| `STRIPE_BILLING_SECRET_KEY`          | Stripe secret key for billing. Falls back to `STRIPE_SECRET_KEY` (never in PRODUCTION).      |
 | `STRIPE_BILLING_WEBHOOK_SECRET`      | Signing secret of the BILLING webhook endpoint. No fallback.                                 |
-| `RAZORPAY_BILLING_KEY_ID`            | Razorpay key id for billing. Falls back to `RAZORPAY_KEY_ID`.                                |
-| `RAZORPAY_BILLING_KEY_SECRET`        | Its secret. Falls back to `RAZORPAY_KEY_SECRET`.                                             |
+| `RAZORPAY_BILLING_KEY_ID`            | Razorpay key id for billing. Falls back to `RAZORPAY_KEY_ID` (never in PRODUCTION).          |
+| `RAZORPAY_BILLING_KEY_SECRET`        | Its secret. Falls back to `RAZORPAY_KEY_SECRET` (never in PRODUCTION).                       |
 | `RAZORPAY_BILLING_WEBHOOK_SECRET`    | Secret of the BILLING webhook. No fallback.                                                  |
 | `RAZORPAY_BILLING_MANDATE_MAX_MINOR` | Largest recurring debit in paise without per-debit approval. Default `1500000` (INR 15,000). |
 | `RAZORPAY_BILLING_UPI_AUTOPAY`       | `false` by default. Never assumed.                                                           |
@@ -86,10 +86,57 @@ Every credential above may instead be given as a secret reference in `<NAME>_REF
 `STRIPE_BILLING_WEBHOOK_SECRET_REF=billing/stripe/test/webhook-secret`), resolved through
 `SECRET_MANAGER`.
 
-Boot refuses (`billingConfigurationErrors`): `BILLING_PROVIDER=providers` outside LOCAL, DEV
-and QA; `BILLING_ENABLED=true` in STAGING or PRODUCTION; any LIVE key (`sk_live_`, `rk_live_`,
-`rzp_live_`) for billing; `BILLING_ENABLED=true` with neither provider fully configured. A
-production configuration needs the owner's approval and a later change.
+Boot refuses (`billingConfigurationErrors`) outside PRODUCTION: `BILLING_PROVIDER=providers`
+outside LOCAL, DEV and QA; `BILLING_ENABLED=true` in STAGING; any LIVE key (`sk_live_`,
+`rk_live_`, `rzp_live_`) for billing; `BILLING_ENABLED=true` with neither provider fully
+configured; `BILLING_LIVE_ENABLED=true` or a non-empty `BILLING_LIVE_MARKETS`. QA and the other
+non-production environments are unchanged by the production gate below.
+
+## Production live billing (the gate)
+
+Two more variables, both OFF by default, open billing in PRODUCTION only:
+
+| Variable               | Meaning                                                                             |
+| ---------------------- | ----------------------------------------------------------------------------------- |
+| `BILLING_LIVE_ENABLED` | `false` by default. PRODUCTION master switch. Refused outside PRODUCTION.           |
+| `BILLING_LIVE_MARKETS` | Empty by default. Comma-separated subset of `US`, `IN`. Refused outside PRODUCTION. |
+
+PRODUCTION billing works only when ALL of these hold; otherwise the boot stops and names the
+variable (never its value):
+
+- `BILLING_ENABLED=true`, `BILLING_LIVE_ENABLED=true`, `BILLING_PROVIDER=providers`.
+- `BILLING_LIVE_MARKETS` lists at least one market, and only `US` and `IN`.
+- For `US`: `STRIPE_BILLING_SECRET_KEY` is a live key (`sk_live_` or `rk_live_`) and
+  `STRIPE_BILLING_WEBHOOK_SECRET` starts with `whsec_`.
+- For `IN`: `RAZORPAY_BILLING_KEY_ID` is a live key (`rzp_live_`), and
+  `RAZORPAY_BILLING_KEY_SECRET` and `RAZORPAY_BILLING_WEBHOOK_SECRET` are set.
+- Any billing key that is set in PRODUCTION is live, for a listed market or not.
+
+In PRODUCTION billing never falls back to the ticket keys (`STRIPE_SECRET_KEY`,
+`RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`): it reads only its own `*_BILLING_*` variables, set
+directly. A `<NAME>_REF` for a billing credential is refused there, because the boot check could
+not see what kind of key it is.
+
+At runtime the routing stays US to Stripe Billing and IN to Razorpay Subscriptions. An organizer
+whose country is not in `BILLING_LIVE_MARKETS` cannot start a subscription or buy a credit pack:
+checkout answers `BILLING_NOT_ENABLED` ("Paying for a plan is not open in your country yet.").
+
+Activation, US only (on the api service):
+
+```
+BILLING_ENABLED=true
+BILLING_PROVIDER=providers
+BILLING_LIVE_ENABLED=true
+BILLING_LIVE_MARKETS=US
+STRIPE_BILLING_SECRET_KEY=<sk_live_ or rk_live_ key>
+STRIPE_BILLING_WEBHOOK_SECRET=<whsec_ secret of the live BILLING webhook endpoint>
+```
+
+Activation, India only: the same first three lines, then `BILLING_LIVE_MARKETS=IN`,
+`RAZORPAY_BILLING_KEY_ID=<rzp_live_ key id>`, `RAZORPAY_BILLING_KEY_SECRET` and
+`RAZORPAY_BILLING_WEBHOOK_SECRET`. Both: `BILLING_LIVE_MARKETS=US,IN` with both sets. Each paid
+`BillingPrice` also needs its LIVE provider price ref (`providerPriceRefLive`) before checkout can
+sell it.
 
 ## Setting up a QA sandbox (test mode)
 

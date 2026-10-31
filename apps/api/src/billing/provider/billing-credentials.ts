@@ -37,6 +37,29 @@ export const RAZORPAY_BILLING_CREDENTIALS = {
   webhookSecret: { name: 'RAZORPAY_BILLING_WEBHOOK_SECRET' },
 } as const satisfies Record<string, CredentialSpec>;
 
+/**
+ * The markets live (PRODUCTION) billing may open, one per real provider route. A market is a
+ * country code: US (Stripe Billing), IN (Razorpay Subscriptions).
+ */
+export const BILLING_LIVE_MARKET_CODES = ['US', 'IN'] as const;
+
+/** BILLING_LIVE_MARKETS as upper-case codes; blanks dropped. Unknown codes are kept (refused at boot). */
+export function parseBillingLiveMarkets(raw: unknown): string[] {
+  if (typeof raw !== 'string') return [];
+  return raw
+    .split(',')
+    .map((m) => m.trim().toUpperCase())
+    .filter((m) => m !== '');
+}
+
+/**
+ * In PRODUCTION, billing reads only its OWN credentials: never a ticket payments' key, and never
+ * a secret reference (the boot check could not see its prefix).
+ */
+export function productionSpec(spec: CredentialSpec, appEnv: string | undefined): CredentialSpec {
+  return appEnv === 'PRODUCTION' ? { name: spec.name } : spec;
+}
+
 type Reader = Pick<ConfigService, 'get'>;
 
 function read(config: Reader, name: string): string | undefined {

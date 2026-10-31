@@ -26,6 +26,10 @@ import {
   invalidSmsTransactionalMarkets,
   invalidSmsTransactionalTypes,
 } from '../notifications/policy/sms-transactional';
+import {
+  BILLING_LIVE_MARKET_CODES,
+  parseBillingLiveMarkets,
+} from '../billing/provider/billing-credentials';
 
 /** Validated environment. Fails fast on boot if misconfigured. */
 const envSchema = z.object({
@@ -549,6 +553,18 @@ const envSchema = z.object({
    * a production configuration. See docs/billing/BILLING-PROVIDERS.md.
    */
   BILLING_PROVIDER: z.enum(['disabled', 'mock', 'providers']).default('disabled'),
+  /**
+   * PRODUCTION master switch for LIVE organizer billing. Off by default. Refused outside
+   * PRODUCTION. In PRODUCTION, BILLING_ENABLED=true and BILLING_PROVIDER=providers need it, and
+   * it needs at least one market in BILLING_LIVE_MARKETS with that market's live credentials.
+   */
+  BILLING_LIVE_ENABLED: z.enum(['true', 'false']).default('false'),
+  /**
+   * Comma-separated markets live billing opens in PRODUCTION: a subset of US (Stripe Billing)
+   * and IN (Razorpay Subscriptions). Empty by default. An organizer in a market not listed
+   * cannot start a subscription. Refused outside PRODUCTION.
+   */
+  BILLING_LIVE_MARKETS: z.string().default(''),
   /**
    * Billing credentials. Each may instead be given as a secret reference in `<NAME>_REF`,
    * resolved through SECRET_MANAGER. API keys fall back to the ticket payments' keys on the same
@@ -1719,8 +1735,10 @@ function assertPaymentActivationPending(cfg: AppConfig): void {
  * Follows the payment-environment rules (payments/configuration/payment-environment.ts): the
  * test double is refused where real money could be expected, and the fail-closed environments
  * (STAGING, PRODUCTION) stay closed: the real providers (BILLING_PROVIDER=providers) run on TEST
- * keys in LOCAL, DEV and QA only until the owner approves a production configuration, so enabling
- * billing there stops the boot with a plain reason instead of opening a checkout.
+ * keys in LOCAL, DEV and QA only. STAGING stays closed. PRODUCTION opens only behind
+ * BILLING_LIVE_ENABLED=true, for the markets in BILLING_LIVE_MARKETS, each with its own LIVE
+ * billing credentials (never the ticket keys). Anything else stops the boot with a plain reason
+ * instead of opening a checkout.
  *
  * Only variable NAMES appear in the messages, never a value.
  */
@@ -1746,55 +1764,163 @@ export function billingConfigurationErrors(
         'Name a provider, or leave billing off.',
     );
   }
-  if (enabled && ['STAGING', 'PRODUCTION'].includes(env)) {
+  const liveEnabled = cfg.BILLING_LIVE_ENABLED === 'true';
+  const liveMarkets = parseBillingLiveMarkets(cfg.BILLING_LIVE_MARKETS);
+  const production = env === 'PRODUCTION';
+  const has = (name: string) => {
+    const v = cfg[name];
+    return typeof v === 'string' && v.trim() !== '';
+  };
+  const value = (name: string, fallback?: string): string =>
+    String((has(name) ? cfg[name] : fallback && has(fallback) ? cfg[fallback] : '') ?? '').trim();
+
+  if (!production) {
+    if (liveEnabled) {
+      errors.push(
+        `  - BILLING_LIVE_ENABLED=true is refused in ${env}: live billing runs in PRODUCTION only.`,
+      );
+    }
+    if (liveMarkets.length > 0) {
+      errors.push(
+        `  - BILLING_LIVE_MARKETS is refused in ${env}: live billing runs in PRODUCTION only. ` +
+          'Leave it empty.',
+      );
+    }
+  }
+  if (enabled && env === 'STAGING') {
     errors.push(
       `  - BILLING_ENABLED=true is refused in ${env}: no real billing provider configuration is ` +
         'approved here yet. Leave billing off until the owner approves one.',
     );
   }
+  if (enabled && production && !liveEnabled) {
+    errors.push(
+      '  - BILLING_ENABLED=true is refused in PRODUCTION without BILLING_LIVE_ENABLED=true ' +
+        '(the live billing master switch). Leave billing off until the owner approves it.',
+    );
+  }
+  if (production && liveEnabled) {
+    if (cfg.BILLING_PROVIDER !== 'providers') {
+      errors.push(
+        '  - BILLING_LIVE_ENABLED=true needs BILLING_PROVIDER=providers: nothing else can take a ' +
+          'live payment.',
+      );
+    }
+    if (liveMarkets.length === 0) {
+      errors.push(
+        '  - BILLING_LIVE_ENABLED=true but BILLING_LIVE_MARKETS lists no market. List US, IN ' +
+          'or both.',
+      );
+    }
+    for (const m of liveMarkets) {
+      if (!(BILLING_LIVE_MARKET_CODES as readonly string[]).includes(m)) {
+        errors.push(
+          `  - BILLING_LIVE_MARKETS names ${m.replace(/[^A-Z0-9_-]/g, '?').slice(0, 8)}: only ` +
+            `${BILLING_LIVE_MARKET_CODES.join(' and ')} have a billing provider.`,
+        );
+      }
+    }
+    // Live billing reads its own credentials directly: no ticket-key fallback, no _REF.
+    for (const name of [
+      'STRIPE_BILLING_SECRET_KEY',
+      'STRIPE_BILLING_WEBHOOK_SECRET',
+      'RAZORPAY_BILLING_KEY_SECRET',
+      'RAZORPAY_BILLING_WEBHOOK_SECRET',
+    ]) {
+      if (has(`${name}_REF`)) {
+        errors.push(
+          `  - ${name}_REF is refused in PRODUCTION: live billing credentials are set directly ` +
+            `in ${name} so their kind can be checked at boot.`,
+        );
+      }
+    }
+    const missing = (name: string) => `  - ${name} is not set. BILLING_LIVE_MARKETS lists `;
+    if (liveMarkets.includes('US')) {
+      if (!has('STRIPE_BILLING_SECRET_KEY')) {
+        errors.push(
+          `${missing('STRIPE_BILLING_SECRET_KEY')}US. Live billing never uses STRIPE_SECRET_KEY.`,
+        );
+      }
+      if (!has('STRIPE_BILLING_WEBHOOK_SECRET')) {
+        errors.push(`${missing('STRIPE_BILLING_WEBHOOK_SECRET')}US.`);
+      } else if (!value('STRIPE_BILLING_WEBHOOK_SECRET').startsWith('whsec_')) {
+        errors.push(
+          '  - STRIPE_BILLING_WEBHOOK_SECRET is not a Stripe webhook signing secret (whsec_).',
+        );
+      }
+    }
+    if (liveMarkets.includes('IN')) {
+      if (!has('RAZORPAY_BILLING_KEY_ID')) {
+        errors.push(
+          `${missing('RAZORPAY_BILLING_KEY_ID')}IN. Live billing never uses RAZORPAY_KEY_ID.`,
+        );
+      }
+      if (!has('RAZORPAY_BILLING_KEY_SECRET')) {
+        errors.push(
+          `${missing('RAZORPAY_BILLING_KEY_SECRET')}IN. Live billing never uses RAZORPAY_KEY_SECRET.`,
+        );
+      }
+      if (!has('RAZORPAY_BILLING_WEBHOOK_SECRET')) {
+        errors.push(`${missing('RAZORPAY_BILLING_WEBHOOK_SECRET')}IN.`);
+      }
+    }
+    // Any billing key present in PRODUCTION must be live, listed market or not.
+    const stripeBillingKey = value('STRIPE_BILLING_SECRET_KEY');
+    if (stripeBillingKey !== '' && !/^(sk|rk)_live_/.test(stripeBillingKey)) {
+      errors.push(
+        '  - STRIPE_BILLING_SECRET_KEY is not a LIVE key (sk_live_ or rk_live_). PRODUCTION ' +
+          'billing uses live keys only.',
+      );
+    }
+    const rzpBillingKey = value('RAZORPAY_BILLING_KEY_ID');
+    if (rzpBillingKey !== '' && !rzpBillingKey.startsWith('rzp_live_')) {
+      errors.push(
+        '  - RAZORPAY_BILLING_KEY_ID is not a LIVE key (rzp_live_). PRODUCTION billing uses ' +
+          'live keys only.',
+      );
+    }
+  }
   if (cfg.BILLING_PROVIDER === 'providers') {
-    const has = (name: string) => {
-      const v = cfg[name];
-      return typeof v === 'string' && v.trim() !== '';
-    };
-    const value = (name: string, fallback?: string): string =>
-      String((has(name) ? cfg[name] : fallback && has(fallback) ? cfg[fallback] : '') ?? '').trim();
-    if (!testDoubleEnv) {
+    if (!testDoubleEnv && !(production && liveEnabled)) {
       errors.push(
         `  - BILLING_PROVIDER=providers is refused in ${env}: billing providers run on test keys ` +
-          'in LOCAL, DEV and QA only. Use BILLING_PROVIDER=disabled.',
+          'in LOCAL, DEV and QA only' +
+          (production ? ', and on live keys here only with BILLING_LIVE_ENABLED=true' : '') +
+          '. Use BILLING_PROVIDER=disabled.',
       );
     }
-    const stripeKey = value('STRIPE_BILLING_SECRET_KEY', 'STRIPE_SECRET_KEY');
-    const rzpKey = value('RAZORPAY_BILLING_KEY_ID', 'RAZORPAY_KEY_ID');
-    if (/^(sk|rk)_live_/.test(stripeKey)) {
-      errors.push(
-        '  - The Stripe key billing would use (STRIPE_BILLING_SECRET_KEY, else STRIPE_SECRET_KEY) ' +
-          'is a LIVE key. Billing uses test keys only.',
-      );
-    }
-    if (rzpKey.startsWith('rzp_live_')) {
-      errors.push(
-        '  - The Razorpay key billing would use (RAZORPAY_BILLING_KEY_ID, else RAZORPAY_KEY_ID) ' +
-          'is a LIVE key. Billing uses test keys only.',
-      );
-    }
-    const stripeReady =
-      (has('STRIPE_BILLING_SECRET_KEY_REF') || stripeKey !== '') &&
-      (has('STRIPE_BILLING_WEBHOOK_SECRET') || has('STRIPE_BILLING_WEBHOOK_SECRET_REF'));
-    const razorpayReady =
-      rzpKey !== '' &&
-      (has('RAZORPAY_BILLING_KEY_SECRET') ||
-        has('RAZORPAY_BILLING_KEY_SECRET_REF') ||
-        has('RAZORPAY_KEY_SECRET')) &&
-      (has('RAZORPAY_BILLING_WEBHOOK_SECRET') || has('RAZORPAY_BILLING_WEBHOOK_SECRET_REF'));
-    if (enabled && !stripeReady && !razorpayReady) {
-      errors.push(
-        '  - BILLING_ENABLED=true with BILLING_PROVIDER=providers, but neither provider is ' +
-          'configured. Stripe needs a key (STRIPE_BILLING_SECRET_KEY or STRIPE_SECRET_KEY) and ' +
-          'STRIPE_BILLING_WEBHOOK_SECRET; Razorpay needs RAZORPAY_BILLING_KEY_ID (or ' +
-          'RAZORPAY_KEY_ID), its secret and RAZORPAY_BILLING_WEBHOOK_SECRET.',
-      );
+    if (!production) {
+      const stripeKey = value('STRIPE_BILLING_SECRET_KEY', 'STRIPE_SECRET_KEY');
+      const rzpKey = value('RAZORPAY_BILLING_KEY_ID', 'RAZORPAY_KEY_ID');
+      if (/^(sk|rk)_live_/.test(stripeKey)) {
+        errors.push(
+          '  - The Stripe key billing would use (STRIPE_BILLING_SECRET_KEY, else STRIPE_SECRET_KEY) ' +
+            'is a LIVE key. Billing uses test keys only.',
+        );
+      }
+      if (rzpKey.startsWith('rzp_live_')) {
+        errors.push(
+          '  - The Razorpay key billing would use (RAZORPAY_BILLING_KEY_ID, else RAZORPAY_KEY_ID) ' +
+            'is a LIVE key. Billing uses test keys only.',
+        );
+      }
+      const stripeReady =
+        (has('STRIPE_BILLING_SECRET_KEY_REF') || stripeKey !== '') &&
+        (has('STRIPE_BILLING_WEBHOOK_SECRET') || has('STRIPE_BILLING_WEBHOOK_SECRET_REF'));
+      const razorpayReady =
+        rzpKey !== '' &&
+        (has('RAZORPAY_BILLING_KEY_SECRET') ||
+          has('RAZORPAY_BILLING_KEY_SECRET_REF') ||
+          has('RAZORPAY_KEY_SECRET')) &&
+        (has('RAZORPAY_BILLING_WEBHOOK_SECRET') || has('RAZORPAY_BILLING_WEBHOOK_SECRET_REF'));
+      if (enabled && !stripeReady && !razorpayReady) {
+        errors.push(
+          '  - BILLING_ENABLED=true with BILLING_PROVIDER=providers, but neither provider is ' +
+            'configured. Stripe needs a key (STRIPE_BILLING_SECRET_KEY or STRIPE_SECRET_KEY) and ' +
+            'STRIPE_BILLING_WEBHOOK_SECRET; Razorpay needs RAZORPAY_BILLING_KEY_ID (or ' +
+            'RAZORPAY_KEY_ID), its secret and RAZORPAY_BILLING_WEBHOOK_SECRET.',
+        );
+      }
     }
   }
   return errors;
