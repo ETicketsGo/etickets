@@ -218,14 +218,59 @@ describe('the subscription state machine', () => {
   describe('the details of each move', () => {
     it('renewal starts at the old period end, applies a scheduled change and clears grace', () => {
       const { next } = transition(
-        snap('GRACE', { scheduledPlanId: 'premium' }),
+        snap('GRACE', { scheduledPlanId: 'premium', currentPeriodEnd: at(-2) }),
         { type: 'RENEW', periodEnd: at(50), evidence: PAID },
         NOW,
       );
-      expect(next.currentPeriodStart).toEqual(at(20));
+      expect(next.currentPeriodStart).toEqual(at(-2));
       expect(next.planId).toBe('premium');
       expect(next.scheduledPlanId).toBeNull();
       expect(next.graceEndsAt).toBeNull();
+    });
+
+    it('a renewal paid after the old period end starts at that end', () => {
+      const { next } = transition(
+        snap('ACTIVE', { currentPeriodStart: at(-40), currentPeriodEnd: at(-10) }),
+        { type: 'RENEW', periodEnd: at(20), evidence: PAID },
+        NOW,
+      );
+      expect(next.currentPeriodStart).toEqual(at(-10));
+      expect(grantsEntitlements(next, NOW)).toBe(true);
+    });
+
+    // A renewal paid BEFORE the old period ends (the provider reset the billing cycle, or charged
+    // early): the customer has paid continuously, so the new period must not start in the future.
+    // It used to start at the old end, and `grantsEntitlements` then answered FREE until that day.
+    it.each<SubscriptionStatus>(['ACTIVE', 'PAST_DUE', 'GRACE'])(
+      'a renewal paid before the old period end keeps the plan from %s',
+      (status) => {
+        const { next } = transition(
+          snap(status, { currentPeriodEnd: at(20) }),
+          { type: 'RENEW', periodEnd: at(395), evidence: PAID },
+          NOW,
+        );
+        expect(next.status).toBe('ACTIVE');
+        expect(next.currentPeriodStart.getTime()).toBeLessThanOrEqual(NOW.getTime());
+        expect(next.currentPeriodEnd).toEqual(at(395));
+        expect(grantsEntitlements(next, NOW)).toBe(true);
+        expect(grantsEntitlements(next, at(1))).toBe(true);
+      },
+    );
+
+    it('a failed renewal then paid (recovery) keeps the plan throughout', () => {
+      const active = snap('ACTIVE', { currentPeriodStart: at(-30), currentPeriodEnd: NOW });
+      const failedAt = new Date(NOW.getTime() + 60 * 60 * 1000);
+      const pastDue = transition(active, { type: 'PAYMENT_FAILED' }, failedAt).next;
+      expect(grantsEntitlements(pastDue, failedAt)).toBe(true);
+      const paidAt = at(3);
+      const recovered = transition(
+        pastDue,
+        { type: 'RENEW', periodEnd: at(30), evidence: PAID },
+        paidAt,
+      ).next;
+      expect(recovered.status).toBe('ACTIVE');
+      expect(recovered.currentPeriodStart).toEqual(NOW);
+      expect(grantsEntitlements(recovered, paidAt)).toBe(true);
     });
 
     it('a subscription set to cancel at period end does not renew', () => {
@@ -342,6 +387,20 @@ describe('the subscription state machine', () => {
       ['cancelled', snap('CANCELLED'), NOW, false],
       ['expired', snap('EXPIRED'), NOW, false],
       ['anything before it starts', snap('ACTIVE'), at(-11), false],
+      [
+        'an active plan on the last instant of its period',
+        snap('ACTIVE'),
+        new Date(at(20).getTime() - 1),
+        true,
+      ],
+      [
+        'an active plan exactly at its period end (renewal not yet in)',
+        snap('ACTIVE'),
+        at(20),
+        true,
+      ],
+      ['grace just before its end', snap('GRACE'), new Date(at(5).getTime() - 1), true],
+      ['past due long after its period', snap('PAST_DUE'), at(60), true],
     ])('%s', (_name, s, when, expected) => {
       expect(grantsEntitlements(s, when)).toBe(expected);
     });
