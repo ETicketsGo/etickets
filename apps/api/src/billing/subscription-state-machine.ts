@@ -248,13 +248,18 @@ export function transition(
         );
       }
       requireVerifiedPayment(event.evidence);
-      const start = current!.currentPeriodEnd ?? now;
-      if (event.periodEnd.getTime() <= start.getTime()) {
+      const follows = current!.currentPeriodEnd ?? now;
+      if (event.periodEnd.getTime() <= follows.getTime()) {
         throw new SubscriptionTransitionError(
           'INVALID_INPUT',
           'A renewal must end after the period it follows.',
         );
       }
+      // The new period starts where the old one ended, but never later than now. A renewal paid
+      // before the old end (the provider reset the billing cycle, or charged early) would
+      // otherwise start in the future, and `grantsEntitlements` refuses a period that has not
+      // started: a customer who has just paid would drop to FREE until the old end.
+      const start = follows.getTime() > now.getTime() ? now : follows;
       return keep({
         status: 'ACTIVE',
         planId: current!.scheduledPlanId ?? current!.planId,
