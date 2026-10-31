@@ -11,6 +11,7 @@ import { BillingReadService } from './billing-read.service';
 import { BillingCheckoutService } from './billing-checkout.service';
 import { BillingProviderEventService } from './billing-provider-events.service';
 import { BillingSweepService } from './billing-sweep.service';
+import { BillingPriceReconcileService } from './billing-price-reconcile.service';
 import { CreditPackPricesService } from './credit-pack-prices.service';
 import { BillingTaxService } from './billing-tax.service';
 import { OrganizerBillingController } from './billing.controller';
@@ -61,6 +62,7 @@ import {
     BillingCheckoutService,
     BillingProviderEventService,
     BillingSweepService,
+    BillingPriceReconcileService,
     CreditPackPricesService,
     BillingTaxService,
   ],
@@ -69,6 +71,7 @@ import {
     EntitlementGuard,
     SubscriptionService,
     BillingSweepService,
+    BillingPriceReconcileService,
     BILLING_PROVIDER,
   ],
 })

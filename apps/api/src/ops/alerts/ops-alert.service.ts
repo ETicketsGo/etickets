@@ -37,7 +37,9 @@ export type OpsAlertKind =
   /** Back-office duties granted, changed or removed, or a back-office account suspended. */
   | 'ADMIN_ACCESS_CHANGED'
   /** Many different accounts started a sign-in wait in one window: password guessing at scale. */
-  | 'LOGIN_BACKOFF_BURST';
+  | 'LOGIN_BACKOFF_BURST'
+  /** A plan price in the admin catalogue no longer matches its price at the billing provider. */
+  | 'BILLING_PRICE_MISMATCH';
 
 /** A fact printed in the alert. Ids, amounts, codes and statuses only - never a person. */
 export type OpsAlertFact = string | number | boolean | null | undefined;
@@ -112,6 +114,8 @@ const THROTTLE_MS: Record<OpsAlertKind, number> = {
   ADMIN_ACCESS_CHANGED: DEFAULT_THROTTLE_MS,
   // Keyed by window, and raised once per window by the counter itself (login-backoff.ts).
   LOGIN_BACKOFF_BURST: DEFAULT_THROTTLE_MS,
+  // Keyed by key mode; the check runs daily, so one email a day while the drift lasts.
+  BILLING_PRICE_MISMATCH: PER_DAY_THROTTLE_MS,
 };
 
 /**

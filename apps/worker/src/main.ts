@@ -8,6 +8,7 @@ import {
   AppModule,
   AuthService,
   BillingSweepService,
+  BillingPriceReconcileService,
   BookingsService,
   LocalBookingOrchestrator,
   EventsService,
@@ -300,6 +301,7 @@ async function main(): Promise<void> {
   const reversalReconcile = app.get(ReversalReconciliationService);
   const payoutRuns = app.get(PayoutRunService);
   const billingSweep = app.get(BillingSweepService);
+  const billingPriceCheck = app.get(BillingPriceReconcileService);
   const seatOverrides = app.get(SeatOverridesService);
   const syncProcessor = app.get(SyncEventProcessor);
   const syncPolling = app.get(SyncPollingService);
@@ -334,6 +336,17 @@ async function main(): Promise<void> {
     Number.isFinite(RAW_BILLING_SWEEP_MS) && RAW_BILLING_SWEEP_MS > 0
       ? RAW_BILLING_SWEEP_MS
       : 15 * 60_000;
+  /*
+    The plan-price check: each catalogue price against its Stripe price. Read-only on both
+    sides - a difference is audited and alerted, never applied (the admin catalogue is
+    authoritative). Daily: a price changed on the Stripe side is rare and costs a checkout, not
+    money, because activation refuses a payment that does not match the catalogue.
+  */
+  const RAW_BILLING_PRICE_CHECK_MS = Number(process.env.BILLING_PRICE_CHECK_INTERVAL_MS ?? DAY_MS);
+  const BILLING_PRICE_CHECK_MS =
+    Number.isFinite(RAW_BILLING_PRICE_CHECK_MS) && RAW_BILLING_PRICE_CHECK_MS > 0
+      ? RAW_BILLING_PRICE_CHECK_MS
+      : DAY_MS;
   /*
     How often the read-only reversal sweep asks whether any ambiguous reversal is worth a
     provider query. Fifteen minutes, because the shortest candidate maturity window is five
@@ -657,6 +670,19 @@ async function main(): Promise<void> {
     },
   );
 
+  await queue.add(
+    'billing-price-check',
+    {},
+    {
+      repeat: { every: BILLING_PRICE_CHECK_MS },
+      jobId: 'billing-price-check',
+      removeOnComplete: 20,
+      removeOnFail: 20,
+      attempts: 2,
+      backoff: { type: 'exponential', delay: 30_000 },
+    },
+  );
+
   const worker = new Worker(
     QUEUE_NAME,
     async (job) => {
@@ -664,6 +690,18 @@ async function main(): Promise<void> {
         const report = await billingSweep.run();
         if (Object.values(report).some((n) => n > 0)) log('info', 'billing sweep', { ...report });
         return report;
+      }
+      if (job.name === 'billing-price-check') {
+        const report = await billingPriceCheck.run({ record: true });
+        if (report.checked > 0 || report.unreachable.length > 0) {
+          log('info', 'billing price check', {
+            mode: report.mode,
+            checked: report.checked,
+            mismatches: report.mismatches.length,
+            unreachable: report.unreachable.length,
+          });
+        }
+        return { checked: report.checked, mismatches: report.mismatches.length };
       }
       if (job.name === 'payout-runs') {
         const run = await payoutRuns.runDue();

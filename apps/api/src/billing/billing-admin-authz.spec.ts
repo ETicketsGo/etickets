@@ -55,6 +55,12 @@ const ROUTES: Route[] = [
   },
   {
     method: 'GET',
+    path: '/admin/billing/prices/provider-check',
+    template: 'GET admin/billing/prices/provider-check',
+    needs: P.BILLING_READ,
+  },
+  {
+    method: 'GET',
     path: '/admin/billing/subscriptions',
     template: 'GET admin/billing/subscriptions',
     needs: P.BILLING_READ,

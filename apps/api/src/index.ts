@@ -29,6 +29,7 @@ export { OutboxDispatcher } from './common/domain-events/outbox/outbox-dispatche
 export { OutboxRetentionService } from './common/domain-events/outbox/outbox-retention.service';
 // The organizer billing clock (trial/period/grace ends, dunning, webhook retries).
 export { BillingSweepService } from './billing/billing-sweep.service';
+export { BillingPriceReconcileService } from './billing/billing-price-reconcile.service';
 export { CampaignDispatchService, RetryableSendError } from './campaigns/campaign-dispatch.service';
 export { campaignSendingConfig } from './campaigns/campaign-sending-config';
 export {
