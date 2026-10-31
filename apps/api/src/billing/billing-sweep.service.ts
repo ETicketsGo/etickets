@@ -1,11 +1,11 @@
-import { Injectable, Logger, Optional } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppException } from '../common/errors';
 import { AdminAudienceService } from '../notifications/admin-audience.service';
 import { SubscriptionService } from './subscription.service';
 import { BillingProviderEventService } from './billing-provider-events.service';
-import { dunningStageFor, sendDunning } from './billing-dunning';
+import { dunningLink, dunningStageFor, sendDunning } from './billing-dunning';
 import { RENEWAL_TOLERANCE_MS } from './subscription-state-machine';
 import { BillingProviderRegistry } from './provider/billing-provider.registry';
 import type { BillingProviderKey } from './provider/billing-provider';
@@ -53,7 +53,9 @@ export class BillingSweepService {
     private readonly subscriptions: SubscriptionService,
     private readonly providerEvents: BillingProviderEventService,
     private readonly registry: BillingProviderRegistry,
-    @Optional() private readonly audience: AdminAudienceService | null = null,
+    @Optional()
+    @Inject(AdminAudienceService)
+    private readonly audience: AdminAudienceService | null = null,
   ) {}
 
   private days(name: string, fallback: number): number {
@@ -136,6 +138,7 @@ export class BillingSweepService {
         planName: s.plan.name,
         currentPeriodEnd: s.currentPeriodEnd,
         graceEndsAt: s.graceEndsAt,
+        link: dunningLink(this.config),
       });
       report.reminders += 1;
     }

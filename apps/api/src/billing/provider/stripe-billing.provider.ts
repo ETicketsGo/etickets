@@ -10,6 +10,7 @@ import type {
   CreditPackCheckoutRequest,
   ProviderDisputeRecord,
   ProviderPaymentRecord,
+  ProviderPriceRecord,
   ProviderSubscriptionRecord,
   ProviderSubscriptionStatus,
   VerifiedBillingEvent,
@@ -454,6 +455,45 @@ export class StripeBillingProvider implements BillingProvider {
       amountMinor: Number(d.amount ?? 0),
       currency: (str(d.currency) ?? '').toUpperCase(),
       reason: str(d.reason),
+    };
+  }
+
+  /**
+   * Read-only, for the catalogue check (BillingPriceReconcileService). A price Stripe does not
+   * have is `found: false`, not an error: that is exactly the mismatch the check reports.
+   */
+  async fetchPrice(priceRef: string): Promise<ProviderPriceRecord> {
+    let p: Obj;
+    try {
+      p = (await this.client.prices.retrieve(priceRef)) as unknown as Obj;
+    } catch (err) {
+      if ((err as { code?: string })?.code === 'resource_missing') {
+        return {
+          ref: priceRef,
+          found: false,
+          amountMinor: null,
+          currency: null,
+          interval: null,
+          intervalCount: null,
+          active: null,
+          taxBehavior: null,
+        };
+      }
+      const type = (err as { type?: string })?.type ?? 'unknown';
+      throw providerUnavailable(`Stripe could not complete the billing request (${type}).`);
+    }
+    const recurring = (p.recurring ?? null) as Obj | null;
+    const interval = recurring?.interval;
+    return {
+      ref: str(p.id) ?? priceRef,
+      found: true,
+      amountMinor: typeof p.unit_amount === 'number' ? p.unit_amount : null,
+      currency: (str(p.currency) ?? '').toUpperCase() || null,
+      interval: interval === 'month' ? 'MONTH' : interval === 'year' ? 'YEAR' : null,
+      intervalCount:
+        typeof recurring?.interval_count === 'number' ? recurring.interval_count : null,
+      active: typeof p.active === 'boolean' ? p.active : null,
+      taxBehavior: str(p.tax_behavior),
     };
   }
 

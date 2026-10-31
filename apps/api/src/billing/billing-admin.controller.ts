@@ -15,6 +15,7 @@ import { BillingReadService } from './billing-read.service';
 import { BillingOffersService } from './billing-offers.service';
 import { SubscriptionService } from './subscription.service';
 import { CreditPackPricesService } from './credit-pack-prices.service';
+import { BillingPriceReconcileService } from './billing-price-reconcile.service';
 import {
   createPriceSchema,
   endGrantSchema,
@@ -67,6 +68,7 @@ export class AdminBillingController {
     private readonly offers: BillingOffersService,
     private readonly subscriptions: SubscriptionService,
     private readonly packPrices: CreditPackPricesService,
+    private readonly priceCheck: BillingPriceReconcileService,
   ) {}
 
   // ── Email credit packs ──────────────────────────────────────────────────────
@@ -134,6 +136,16 @@ export class AdminBillingController {
   @ApiOperation({ summary: 'Plans with their prices and entitlements.' })
   plans() {
     return this.catalog.list();
+  }
+
+  @Get('prices/provider-check')
+  @ApiOperation({
+    summary:
+      'Compare each plan price with its Stripe price. Read-only: reports differences and ' +
+      'changes nothing (the catalogue is authoritative).',
+  })
+  providerCheck() {
+    return this.priceCheck.run({ record: false });
   }
 
   @Post('catalog/load-provisional')

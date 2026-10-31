@@ -930,6 +930,10 @@ describe('integration-real-postgres: billing providers (Stripe Billing, Razorpay
         .slice(before)
         .map((d) => d.payload.stage);
       expect(stages).toEqual(expect.arrayContaining(['PAST_DUE', 'GRACE']));
+      // Every reminder says where to fix the payment.
+      for (const d of dunning.filter((x) => x.organizationId === orgSweep).slice(before)) {
+        expect(d.payload.link).toBe('https://organizer.test/organizer/billing');
+      }
     },
   );
 

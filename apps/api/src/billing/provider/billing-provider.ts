@@ -181,6 +181,21 @@ export interface ProviderDisputeRecord {
   reason: string | null;
 }
 
+/** A provider's own record of a recurring price, read back for the catalogue check. */
+export interface ProviderPriceRecord {
+  ref: string;
+  /** False when the provider has no price with this ref (deleted, or another account/mode). */
+  found: boolean;
+  amountMinor: number | null;
+  currency: string | null;
+  /** MONTH or YEAR when the price recurs once per month or year; null otherwise. */
+  interval: 'MONTH' | 'YEAR' | null;
+  intervalCount: number | null;
+  active: boolean | null;
+  /** Stripe's tax_behavior: 'exclusive', 'inclusive' or 'unspecified'. */
+  taxBehavior: string | null;
+}
+
 export interface BillingProvider {
   readonly key: BillingProviderKey;
   /** False for the disabled provider: nothing can be bought. */
@@ -201,6 +216,8 @@ export interface BillingProvider {
   fetchPaymentRecord?(paymentRef: string): Promise<ProviderPaymentRecord>;
   fetchSubscription?(subscriptionRef: string): Promise<ProviderSubscriptionRecord>;
   fetchDispute?(disputeRef: string): Promise<ProviderDisputeRecord>;
+  /** Read-only: the provider's record of a plan price (Stripe only). */
+  fetchPrice?(priceRef: string): Promise<ProviderPriceRecord>;
   createCreditPackCheckout?(req: CreditPackCheckoutRequest): Promise<BillingCheckoutSession>;
   /** A provider-hosted page to change the payment method or cancel (Stripe only). */
   createPortal?(customerRef: string, returnUrl: string): Promise<{ url: string }>;
