@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable, Logger, Optional } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma, type OrganizerBillingAccount, type OrganizerSubscription } from '@prisma/client';
 import { EMAIL_CREDITS_LEDGER_KEY } from '@eticketsgo/shared-types';
@@ -22,7 +22,7 @@ import {
   type BillingTaxQuote,
 } from './billing-tax.service';
 import type { InvoiceTax } from './billing-invoice.service';
-import { sendDunning, type DunningStage } from './billing-dunning';
+import { dunningLink, sendDunning, type DunningStage } from './billing-dunning';
 import {
   isTerminal,
   type PaymentEvidence,
@@ -113,8 +113,10 @@ export class BillingProviderEventService {
     private readonly invoices: BillingInvoiceService,
     private readonly registry: BillingProviderRegistry,
     private readonly config: ConfigService,
-    @Optional() private readonly audience: AdminAudienceService | null = null,
-    @Optional() private readonly tax: BillingTaxService | null = null,
+    @Optional()
+    @Inject(AdminAudienceService)
+    private readonly audience: AdminAudienceService | null = null,
+    @Optional() @Inject(BillingTaxService) private readonly tax: BillingTaxService | null = null,
   ) {}
 
   /**
@@ -703,6 +705,7 @@ export class BillingProviderEventService {
         planName: local.plan.name,
         currentPeriodEnd: after.currentPeriodEnd,
         graceEndsAt: after.graceEndsAt,
+        link: dunningLink(this.config),
       });
     }
     return {

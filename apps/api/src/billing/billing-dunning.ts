@@ -1,5 +1,7 @@
+import type { ConfigService } from '@nestjs/config';
 import { NotificationType } from '@eticketsgo/shared-types';
 import type { AdminAudienceService } from '../notifications/admin-audience.service';
+import { redirectUrl } from '../common/console-urls';
 
 export type DunningStage = 'PAST_DUE' | 'GRACE' | 'GRACE_ENDING';
 
@@ -19,6 +21,24 @@ export function dunningStageFor(
 }
 
 /**
+ * Where the owner fixes the payment: Billing & plans in the organizer console, which opens the
+ * provider's portal to change the card. An absolute URL, so the email can carry a button; null
+ * when this deployment cannot say where the console lives (the message still goes, without it).
+ */
+export function dunningLink(config: ConfigService | null | undefined): string | null {
+  if (!config) return null;
+  try {
+    return redirectUrl(config, {
+      site: 'organizer',
+      path: '/organizer/billing',
+      purpose: 'billing payment reminder',
+    });
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Tells the organization's owners that the plan payment failed. Through the transactional
  * notification path (BILLING_PAYMENT_FAILED is classified TRANSACTIONAL), deduplicated per
  * subscription, stage and period - so calling this every sweep sends each stage once.
@@ -33,6 +53,8 @@ export async function sendDunning(
     planName: string;
     currentPeriodEnd: Date | null;
     graceEndsAt: Date | null;
+    /** The billing page (dunningLink). Not part of the dedupe key. */
+    link?: string | null;
   },
 ): Promise<number> {
   if (!audience) return 0;
@@ -45,6 +67,7 @@ export async function sendDunning(
       planName: input.planName,
       periodEnd: (input.currentPeriodEnd ?? new Date(0)).toISOString(),
       deadline: input.graceEndsAt ? input.graceEndsAt.toISOString().slice(0, 10) : '',
+      ...(input.link ? { link: input.link } : {}),
     },
   );
 }
