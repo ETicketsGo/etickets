@@ -101,6 +101,75 @@ describe('StripeWebhookProcessor — a completed session is not necessarily a pa
   });
 });
 
+/*
+  Organizer billing runs on the SAME Stripe account as tickets, and the ticket endpoint subscribes
+  to checkout.session.completed, so Stripe delivers billing's Checkout Sessions here too. A billing
+  session carries the ORGANIZATION id in client_reference_id; read as a booking id it 404'd, retried
+  and dead-lettered with a "customer paid, booking not confirmed" alert. Billing has its own
+  endpoint (billing/webhooks/stripe); here those sessions are recorded IGNORED.
+*/
+describe('StripeWebhookProcessor — organizer billing sessions are not ticket payments', () => {
+  const billingSession = (mode: string, purpose: string) => ({
+    mode,
+    client_reference_id: 'org_1',
+    metadata: { organizationId: 'org_1', billingAccountId: 'ba_1', etg_purpose: purpose },
+    amount_total: 1900,
+    payment_intent: null,
+    payment_status: 'paid',
+  });
+
+  it.each([
+    ['checkout.session.completed', 'subscription', 'etg_billing_subscription'],
+    ['checkout.session.completed', 'payment', 'etg_billing_credit_pack'],
+    ['checkout.session.async_payment_succeeded', 'payment', 'etg_billing_credit_pack'],
+    ['checkout.session.async_payment_failed', 'payment', 'etg_billing_credit_pack'],
+  ])('%s for a billing %s session is IGNORED', async (eventType, mode, purpose) => {
+    const { processor, payments, updates } = makeProcessor({
+      record: record({ eventType, payload: { object: billingSession(mode, purpose) } }),
+    });
+    await processor.process('w1');
+    expect(payments.processVerifiedEvent).not.toHaveBeenCalled();
+    expect(updates.at(-1)).toMatchObject({ processingStatus: 'IGNORED' });
+  });
+
+  it('a subscription-mode session is never a ticket payment, whatever its metadata', async () => {
+    const { processor, payments } = makeProcessor({
+      record: record({
+        payload: {
+          object: {
+            mode: 'subscription',
+            client_reference_id: 'x',
+            amount_total: 1,
+            payment_status: 'paid',
+          },
+        },
+      }),
+    });
+    await processor.process('w1');
+    expect(payments.processVerifiedEvent).not.toHaveBeenCalled();
+  });
+
+  it('a ticket session that names its booking only in client_reference_id still confirms', async () => {
+    const { processor, payments } = makeProcessor({
+      record: record({
+        payload: {
+          object: {
+            mode: 'payment',
+            client_reference_id: 'b9',
+            amount_total: 5000,
+            payment_intent: 'pi_9',
+            payment_status: 'paid',
+          },
+        },
+      }),
+    });
+    await processor.process('w1');
+    expect(payments.processVerifiedEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'payment.succeeded', bookingId: 'b9' }),
+    );
+  });
+});
+
 describe('StripeWebhookProcessor.process — idempotency', () => {
   it('no-ops when the atomic claim is lost (duplicate/concurrent delivery)', async () => {
     const { processor, payments, prisma } = makeProcessor({ record: record(), claimCount: 0 });

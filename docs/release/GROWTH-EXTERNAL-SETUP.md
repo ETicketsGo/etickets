@@ -61,11 +61,16 @@ Prices in the catalogue are BEFORE tax (USD):
 | Pro     | 19.00   | 190.00       |
 | Premium | 49.00   | 490.00       |
 
-1. Stripe dashboard, TEST mode. Products: "ETicketsGo Pro", "ETicketsGo Premium". For each, two
-   recurring Prices in USD at exactly the amounts above (monthly, yearly), tax behavior
-   **exclusive**, no trial.
-2. Send engineering the four Price ids (`price_...`, not secret). Engineering writes them into
-   `BillingPrice.providerPriceRefTest` through admin (Plans & prices).
+1. DONE 2026-10-30 (engineering, TEST mode, account shared by QA and UAT): products
+   "ETicketsGo Pro" `prod_VXSOjHKz2qYRP7` and "ETicketsGo Premium" `prod_VXSO6NIr7tYMCR`, four
+   recurring USD prices, tax behavior **exclusive**, no trial, found by lookup key:
+   `etg_pro_usd_month` `price_1UWNU52W0PwCkcw5K2LLhmAc` (19.00),
+   `etg_pro_usd_year` `price_1UWNU52W0PwCkcw5n0DFUbdw` (190.00),
+   `etg_premium_usd_month` `price_1UWNU62W0PwCkcw5idX3RWhW` (49.00),
+   `etg_premium_usd_year` `price_1UWNU62W0PwCkcw5S4JeNnhg` (490.00).
+2. Write those ids into `BillingPrice.providerPriceRefTest` (US rows) through admin (Plans &
+   prices) after the catalogue is loaded on QA. The app finds prices by these ids, not by lookup
+   key.
 3. Settings > Billing > Customer portal: allow updating payment methods and cancelling at period
    end; turn OFF plan switching and proration.
 4. Developers > Webhooks > Add endpoint: `https://api-qa.eticketsgo.com/api/billing/webhooks/stripe`,
@@ -73,7 +78,10 @@ Prices in the catalogue are BEFORE tax (USD):
    `checkout.session.completed`, `customer.subscription.created`,
    `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.paid`,
    `invoice.payment_failed`, `invoice.finalized`, `charge.dispute.created`.
-   This must be a DIFFERENT endpoint from the ticket webhook.
+   This must be a DIFFERENT endpoint from the ticket webhook. Set its API version to
+   `2026-06-24.dahlia` (the version the installed Stripe SDK pins; invoice events are read from
+   `invoice.parent.subscription_details`, which older versions do not send). The ticket endpoint
+   on the same account also receives billing's Checkout Sessions; it records them IGNORED.
 5. Put the endpoint's signing secret (`whsec_...`) directly into Railway QA variables as
    `STRIPE_BILLING_WEBHOOK_SECRET` on api and worker (do not paste it in chat). Billing uses the
    existing `STRIPE_SECRET_KEY` test key unless `STRIPE_BILLING_SECRET_KEY` is set.

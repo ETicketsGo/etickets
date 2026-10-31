@@ -1,5 +1,7 @@
 # INDIA LAUNCH READINESS
 
+> **Status note (2026-10-30):** historical record, superseded for the current state; see [PRODUCT-CURRENT-STATE.md](PRODUCT-CURRENT-STATE.md).
+
 Assessed at `main = c77a9cd`, 2026-10-05, while production deployment was blocked waiting for a
 verified database backup. Read-only against production: nothing was deployed, activated or
 charged.

@@ -11,6 +11,10 @@ import { organizerShareOfProviderRefund } from '../../settlement/refund-organize
 import type { PaymentEvent } from '../../provider/payment-provider.interface';
 import { OpsAlertService } from '../../../ops/alerts/ops-alert.service';
 import { webhookDeadLetteredAlert } from '../../../ops/alerts/ops-alert-messages';
+import {
+  STRIPE_PURPOSE_CREDIT_PACK,
+  STRIPE_PURPOSE_SUBSCRIPTION,
+} from '../../../billing/provider/stripe-billing.provider';
 
 /** Max processing attempts before an event is dead-lettered for ops review. */
 const MAX_ATTEMPTS = 6;
@@ -19,6 +23,8 @@ const RETRY_BACKOFF_MS = 30_000;
 
 // ─── Minimal shapes of the Stripe objects we read (avoids importing SDK types here) ───
 interface SessionLike {
+  /** 'payment' for tickets; billing also uses 'subscription'. */
+  mode?: string | null;
   /** 'paid' | 'unpaid' | 'no_payment_required'. A delayed method completes 'unpaid'. */
   payment_status?: string | null;
   metadata?: Record<string, string> | null;
@@ -340,6 +346,18 @@ export class StripeWebhookProcessor {
   }
 
   private fromSession(session: SessionLike, type: PaymentEvent['type']): PaymentEvent | null {
+    /*
+      Organizer billing shares this Stripe account, so its Checkout Sessions are delivered here
+      too. They carry the ORGANIZATION id in client_reference_id, which must never be read as a
+      booking id (it 404'd, retried and dead-lettered as an unconfirmed paid booking). Billing
+      applies them on its own endpoint (billing/webhooks/stripe). Tickets never use subscription
+      mode.
+    */
+    if (session.mode === 'subscription') return null;
+    const purpose = session.metadata?.etg_purpose;
+    if (purpose === STRIPE_PURPOSE_SUBSCRIPTION || purpose === STRIPE_PURPOSE_CREDIT_PACK) {
+      return null;
+    }
     const bookingId = session.metadata?.bookingId ?? session.client_reference_id ?? undefined;
     const amountMinor = session.amount_total;
     if (!bookingId || typeof amountMinor !== 'number') return null;

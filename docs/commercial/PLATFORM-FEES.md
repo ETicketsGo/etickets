@@ -3,6 +3,27 @@
 How ETicketsGo charges fees, and how an organizer configures who pays them. This
 documents the **existing** fee engine (`apps/api/src/pricing/`) — no behavior changes.
 
+## Current fee model (2026-10-30)
+
+The booking (platform) fee is a set of bands per currency, country and region (`FeeRule`). Each
+band uses one fee type:
+
+| Fee type           | Charges                                          | Example              |
+| ------------------ | ------------------------------------------------ | -------------------- |
+| `FLAT`             | A fixed amount once per order                    | Rs 20 per order      |
+| `FIXED_PER_TICKET` | A fixed amount for each paid ticket              | Rs 5 x 3 = Rs 15     |
+| `PERCENT`          | A percentage of the order                        | 3%                   |
+| `COMBINED`         | A percentage plus a fixed amount per paid ticket | 3% + Rs 5 per ticket |
+
+Any band can have an optional minimum and maximum fee. Free events pay no fee. An event override
+beats an organizer override, which beats the published schedule (`PlatformFeePolicy`).
+
+Admins change the schedule only through a draft: edit, validate, preview, then publish. Publish
+needs admin MFA, writes every band in one transaction and keeps the draft as a version; every
+draft save and publish is audited. A quote carries the schedule version, and a booking is refused
+if the schedule changed after the quote. The tiered defaults below are the original seed values,
+not the production schedule. Status per item: [../PRODUCT-CURRENT-STATE.md](../PRODUCT-CURRENT-STATE.md).
+
 ## Fee components
 
 Every booking's fees are computed deterministically in integer minor units
