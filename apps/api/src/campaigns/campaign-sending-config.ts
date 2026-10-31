@@ -144,16 +144,26 @@ export function isSimulatorAddress(email: string): boolean {
 /** The default marketing sender, once SES has verified it. Documented, never assumed. */
 export const DEFAULT_MARKETING_EMAIL_FROM = 'updates@eticketsgo.com';
 
-/** What QA and local footers print while no verified address exists. Never a real address. */
-export const POSTAL_ADDRESS_PLACEHOLDER = 'Postal address pending verification (QA)';
+/**
+ * Whether a configured value can be a real mailing address: long enough to hold a street and
+ * a town, with a number in it (a street number, PIN code or ZIP code), and not an obvious
+ * stand-in. A light check of shape only; the owner is still the one who verifies the address.
+ */
+export function isPlausiblePostalAddress(value: string): boolean {
+  const v = value.trim();
+  if (v.length < 15 || !/\d/.test(v)) return false;
+  return !/placeholder|pending|tbd|todo|to be (confirmed|decided)|example|changeme|lorem|n\/a/i.test(
+    v,
+  );
+}
 
 export interface CampaignFooterAddress {
-  /** The address to print, or the QA placeholder. Null only with a refusal. */
+  /** The address to print. Null only with a refusal. */
   address: string | null;
   /** Which DeepTrics entity the footer names, and so whose address it is: IN or US. */
   entityCountry: string;
   /** Which variable it came from. */
-  source: 'COUNTRY' | 'LEGACY' | 'PLACEHOLDER' | null;
+  source: 'COUNTRY' | 'LEGACY' | null;
   /** Null when a campaign may be sent. Otherwise a sentence for a person. */
   refusal: string | null;
 }
@@ -169,35 +179,35 @@ export interface CampaignFooterAddress {
  *   2. The address is MARKETING_POSTAL_ADDRESS_<IN|US> for that entity.
  *   3. Fallback ONLY: the old single MARKETING_POSTAL_ADDRESS, when it is set. Never the other
  *      country's address: a US address under the Indian company's name would be wrong.
- *   4. STAGING and PRODUCTION refuse the campaign when neither is set.
- *   5. LOCAL, DEV, QA and UAT print a clearly labelled placeholder instead, so a test send
- *      shows where the address goes without anybody inventing one.
+ *   4. EVERY environment (LOCAL, DEV, QA, UAT, STAGING, PRODUCTION) refuses the campaign when
+ *      neither is set, or the value is not a plausible address (`isPlausiblePostalAddress`).
+ *      There is no placeholder fallback anywhere: a QA send is a real email to a real inbox,
+ *      and a footer without an address is a marketing email the law does not allow. Tests
+ *      configure an address in their fixtures instead.
+ *   The refusal blocks review and preview, and pauses dispatch with POSTAL_ADDRESS_MISSING.
  */
 export function campaignFooterAddress(
   config: Pick<ConfigService, 'get'>,
   organizerCountry: string | null | undefined,
 ): CampaignFooterAddress {
-  const appEnv = String(config.get<string>('APP_ENV') ?? 'LOCAL').toUpperCase();
   const entityCountry = legalEntityFor(organizerCountry).country;
   const variable = `MARKETING_POSTAL_ADDRESS_${entityCountry}`;
-  const perCountry = config.get<string>(variable)?.trim() || null;
-  if (perCountry) {
-    return { address: perCountry, entityCountry, source: 'COUNTRY', refusal: null };
-  }
-  const legacy = config.get<string>('MARKETING_POSTAL_ADDRESS')?.trim() || null;
-  if (legacy) return { address: legacy, entityCountry, source: 'LEGACY', refusal: null };
-  if (LIVE.includes(appEnv)) {
-    return {
-      address: null,
-      entityCountry,
-      source: null,
-      refusal: `Campaigns need ${variable} (the verified business mailing address for the email footer) in this environment.`,
-    };
-  }
-  return {
-    address: POSTAL_ADDRESS_PLACEHOLDER,
+  const refuse = (why: string): CampaignFooterAddress => ({
+    address: null,
     entityCountry,
-    source: 'PLACEHOLDER',
-    refusal: null,
-  };
+    source: null,
+    refusal: `Campaigns need ${variable} (the verified business mailing address for the email footer) ${why}.`,
+  });
+  const perCountry = config.get<string>(variable)?.trim() || null;
+  const legacy = config.get<string>('MARKETING_POSTAL_ADDRESS')?.trim() || null;
+  const found: { address: string; source: 'COUNTRY' | 'LEGACY' } | null = perCountry
+    ? { address: perCountry, source: 'COUNTRY' }
+    : legacy
+      ? { address: legacy, source: 'LEGACY' }
+      : null;
+  if (!found) return refuse('in this environment');
+  if (!isPlausiblePostalAddress(found.address)) {
+    return refuse('to be a complete postal address; the value set does not look like one');
+  }
+  return { address: found.address, entityCountry, source: found.source, refusal: null };
 }

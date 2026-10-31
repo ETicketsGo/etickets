@@ -62,6 +62,9 @@ const CONFIG: Record<string, string> = {
   PUBLIC_API_URL: 'https://api.example.test',
   CUSTOMER_WEB_URL: 'https://shop.example.test',
   CAMPAIGN_SEND_RATE_PER_SECOND: '5',
+  // Every environment needs a footer address (no placeholder). Fictional, address-shaped.
+  MARKETING_POSTAL_ADDRESS_IN: '1 Test Road, Test Nagar, Vijayawada 520001, India',
+  MARKETING_POSTAL_ADDRESS_US: '100 Test Street, Suite 1, Springfield, IL 62701, USA',
 };
 const config = { get: (k: string) => CONFIG[k] } as never;
 
@@ -769,6 +772,46 @@ describe('integration-real-postgres: organizer campaigns', () => {
     transport.behaviour.delete(people.eligible.email);
     await campaigns.cancel(ownerA, orgA, id, c.version);
   });
+
+  run(
+    'QA without a postal address: review and preview refused, dispatch paused POSTAL_ADDRESS_MISSING',
+    async () => {
+      const id = await launch(orgA, ownerA); // allowed: the fixture configures an address
+      await dispatch.tick();
+      const r = await db!.campaignRecipient.findFirst({
+        where: { campaignId: id, status: 'QUEUED' },
+      });
+      const keep = {
+        IN: CONFIG.MARKETING_POSTAL_ADDRESS_IN,
+        US: CONFIG.MARKETING_POSTAL_ADDRESS_US,
+      };
+      delete CONFIG.MARKETING_POSTAL_ADDRESS_IN;
+      delete CONFIG.MARKETING_POSTAL_ADDRESS_US;
+      expect(CONFIG.APP_ENV).toBe('QA');
+      const sentBefore = transport.sent.length;
+      try {
+        const draft = await campaigns.create(ownerA, orgA, {
+          templateKey: 'THANK_YOU',
+          quietHours: null,
+        });
+        const review = await campaigns.review(ownerA, orgA, draft.id);
+        expect(review.problems.join(' ')).toMatch(/MARKETING_POSTAL_ADDRESS_/);
+        expect(review.confirmationToken).toBeNull();
+        await expect(campaigns.preview(ownerA, orgA, draft.id)).rejects.toThrow(
+          /MARKETING_POSTAL_ADDRESS_/,
+        );
+        expect(await dispatch.sendOne(r.id)).toBe('provider_paused');
+        const c = await db!.campaign.findUnique({ where: { id } });
+        expect(c.status).toBe('PAUSED');
+        expect(c.pausedReason).toBe('POSTAL_ADDRESS_MISSING');
+        expect(transport.sent.length).toBe(sentBefore);
+        await campaigns.cancel(ownerA, orgA, id, c.version);
+      } finally {
+        CONFIG.MARKETING_POSTAL_ADDRESS_IN = keep.IN;
+        CONFIG.MARKETING_POSTAL_ADDRESS_US = keep.US;
+      }
+    },
+  );
 
   run('admin pause: audited, and the organizer cannot resume it', async () => {
     const id = await launch(orgA, ownerA);

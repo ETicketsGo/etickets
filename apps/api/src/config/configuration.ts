@@ -1080,8 +1080,8 @@ const envSchema = z.object({
    * The verified DeepTrics business mailing address printed in every campaign footer
    * (anti-spam law asks for one), PER COUNTRY of the entity the footer names: the Indian
    * company for an organizer registered in India, DeepTrics LLC for everyone else
-   * (campaignFooterAddress). STAGING and PRODUCTION refuse a campaign whose country has none;
-   * LOCAL/DEV/QA/UAT print "Postal address pending verification (QA)". Never invented.
+   * (campaignFooterAddress). EVERY environment refuses a campaign whose country has none
+   * (POSTAL_ADDRESS_MISSING); there is no placeholder fallback. Never invented.
    */
   MARKETING_POSTAL_ADDRESS_IN: z.string().optional(),
   MARKETING_POSTAL_ADDRESS_US: z.string().optional(),
