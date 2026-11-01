@@ -18,7 +18,7 @@ describe('billing configuration', () => {
     ['STAGING', 'false', 'mock', /test double and is refused in STAGING/],
     ['PRODUCTION', 'false', 'mock', /test double and is refused in PRODUCTION/],
     ['LOCAL', 'true', 'disabled', /nothing could take a payment/],
-    ['PRODUCTION', 'true', 'disabled', /refused in PRODUCTION: no real billing provider/],
+    ['PRODUCTION', 'true', 'disabled', /refused in PRODUCTION without BILLING_LIVE_ENABLED=true/],
     ['STAGING', 'true', 'disabled', /refused in STAGING: no real billing provider/],
   ];
 
@@ -80,6 +80,176 @@ describe('billing configuration', () => {
       expect(
         errors('QA', 'true', { STRIPE_SECRET_KEY: 'sk_test_x', STRIPE_WEBHOOK_SECRET: 'whsec_t' }),
       ).toMatch(/neither provider is configured/);
+    });
+  });
+
+  describe('production live billing (BILLING_LIVE_ENABLED + BILLING_LIVE_MARKETS)', () => {
+    const US_LIVE = {
+      STRIPE_BILLING_SECRET_KEY: 'sk_live_SECRETVALUE',
+      STRIPE_BILLING_WEBHOOK_SECRET: 'whsec_live',
+    };
+    const IN_LIVE = {
+      RAZORPAY_BILLING_KEY_ID: 'rzp_live_KEYID',
+      RAZORPAY_BILLING_KEY_SECRET: 'rzpsecretVALUE',
+      RAZORPAY_BILLING_WEBHOOK_SECRET: 'rzpwebhookVALUE',
+    };
+    const prod = (extra: Record<string, string> = {}) =>
+      billingConfigurationErrors({
+        APP_ENV: 'PRODUCTION',
+        BILLING_ENABLED: 'true',
+        BILLING_PROVIDER: 'providers',
+        BILLING_LIVE_ENABLED: 'true',
+        ...extra,
+      }).join('\n');
+
+    it('US only: opens with the dedicated live Stripe billing key and whsec_ secret', () => {
+      expect(prod({ BILLING_LIVE_MARKETS: 'US', ...US_LIVE })).toBe('');
+    });
+
+    it('IN only: opens with the live Razorpay billing key id, secret and webhook secret', () => {
+      expect(prod({ BILLING_LIVE_MARKETS: 'IN', ...IN_LIVE })).toBe('');
+    });
+
+    it('both markets, listed in any case and spacing', () => {
+      expect(prod({ BILLING_LIVE_MARKETS: ' us , IN ', ...US_LIVE, ...IN_LIVE })).toBe('');
+    });
+
+    it('the ticket Stripe key never stands in for the billing key in PRODUCTION', () => {
+      const out = prod({
+        BILLING_LIVE_MARKETS: 'US',
+        STRIPE_SECRET_KEY: 'sk_live_TICKET',
+        STRIPE_BILLING_WEBHOOK_SECRET: 'whsec_live',
+      });
+      expect(out).toMatch(/STRIPE_BILLING_SECRET_KEY is not set/);
+      expect(out).not.toContain('sk_live_TICKET');
+    });
+
+    it('the ticket Razorpay key and secret never stand in for the billing ones', () => {
+      const out = prod({
+        BILLING_LIVE_MARKETS: 'IN',
+        RAZORPAY_KEY_ID: 'rzp_live_TICKET',
+        RAZORPAY_KEY_SECRET: 'ticketsecret',
+        RAZORPAY_BILLING_WEBHOOK_SECRET: 'w',
+      });
+      expect(out).toMatch(/RAZORPAY_BILLING_KEY_ID is not set/);
+      expect(out).toMatch(/RAZORPAY_BILLING_KEY_SECRET is not set/);
+    });
+
+    it('refuses billing in PRODUCTION without the master switch', () => {
+      expect(prod({ BILLING_LIVE_ENABLED: 'false', ...US_LIVE })).toMatch(
+        /BILLING_LIVE_ENABLED=true/,
+      );
+      expect(
+        billingConfigurationErrors({
+          APP_ENV: 'PRODUCTION',
+          BILLING_ENABLED: 'false',
+          BILLING_PROVIDER: 'providers',
+          ...US_LIVE,
+        }).join('\n'),
+      ).toMatch(/BILLING_PROVIDER=providers is refused in PRODUCTION/);
+    });
+
+    it('refuses the master switch with no markets listed', () => {
+      expect(prod({ ...US_LIVE })).toMatch(/BILLING_LIVE_MARKETS lists no market/);
+    });
+
+    it('refuses an unknown market', () => {
+      expect(prod({ BILLING_LIVE_MARKETS: 'US,CA', ...US_LIVE })).toMatch(
+        /BILLING_LIVE_MARKETS names CA/,
+      );
+    });
+
+    it('refuses the master switch without the real providers', () => {
+      expect(
+        prod({ BILLING_PROVIDER: 'disabled', BILLING_LIVE_MARKETS: 'US', ...US_LIVE }),
+      ).toMatch(/BILLING_LIVE_ENABLED=true needs BILLING_PROVIDER=providers/);
+    });
+
+    it('refuses a listed market whose credentials are missing, naming the variable only', () => {
+      const out = prod({ BILLING_LIVE_MARKETS: 'US,IN', ...US_LIVE });
+      expect(out).toMatch(/RAZORPAY_BILLING_KEY_ID is not set/);
+      expect(out).toMatch(/RAZORPAY_BILLING_KEY_SECRET is not set/);
+      expect(out).toMatch(/RAZORPAY_BILLING_WEBHOOK_SECRET is not set/);
+      expect(prod({ BILLING_LIVE_MARKETS: 'US', STRIPE_BILLING_SECRET_KEY: 'sk_live_x' })).toMatch(
+        /STRIPE_BILLING_WEBHOOK_SECRET is not set/,
+      );
+    });
+
+    it('refuses test credentials in PRODUCTION, never echoing them', () => {
+      const us = prod({
+        BILLING_LIVE_MARKETS: 'US',
+        ...US_LIVE,
+        STRIPE_BILLING_SECRET_KEY: 'sk_test_SECRETVALUE',
+      });
+      expect(us).toMatch(/STRIPE_BILLING_SECRET_KEY is not a LIVE key/);
+      expect(us).not.toContain('SECRETVALUE');
+      expect(
+        prod({ BILLING_LIVE_MARKETS: 'IN', ...IN_LIVE, RAZORPAY_BILLING_KEY_ID: 'rzp_test_x' }),
+      ).toMatch(/RAZORPAY_BILLING_KEY_ID is not a LIVE key/);
+      // An unlisted market's test key is still a test key in PRODUCTION.
+      expect(
+        prod({ BILLING_LIVE_MARKETS: 'US', ...US_LIVE, RAZORPAY_BILLING_KEY_ID: 'rzp_test_x' }),
+      ).toMatch(/RAZORPAY_BILLING_KEY_ID is not a LIVE key/);
+    });
+
+    it('refuses a Stripe billing webhook secret that is not whsec_', () => {
+      expect(
+        prod({ BILLING_LIVE_MARKETS: 'US', ...US_LIVE, STRIPE_BILLING_WEBHOOK_SECRET: 'nope' }),
+      ).toMatch(/STRIPE_BILLING_WEBHOOK_SECRET is not a Stripe webhook signing secret/);
+    });
+
+    it('refuses secret references for live billing (the prefix could not be checked)', () => {
+      expect(
+        prod({
+          BILLING_LIVE_MARKETS: 'US',
+          ...US_LIVE,
+          STRIPE_BILLING_SECRET_KEY_REF: 'billing/stripe/live/secret-key',
+        }),
+      ).toMatch(/STRIPE_BILLING_SECRET_KEY_REF is refused in PRODUCTION/);
+    });
+
+    it('refuses live billing outside PRODUCTION; QA test keys are unchanged', () => {
+      for (const env of ['QA', 'LOCAL', 'DEV', 'UAT', 'STAGING']) {
+        expect(
+          billingConfigurationErrors({
+            APP_ENV: env,
+            BILLING_ENABLED: 'false',
+            BILLING_PROVIDER: 'disabled',
+            BILLING_LIVE_ENABLED: 'true',
+          }).join('\n'),
+        ).toMatch(new RegExp(`BILLING_LIVE_ENABLED=true is refused in ${env}`));
+      }
+      expect(
+        billingConfigurationErrors({
+          APP_ENV: 'QA',
+          BILLING_ENABLED: 'true',
+          BILLING_PROVIDER: 'providers',
+          BILLING_LIVE_MARKETS: 'US',
+          STRIPE_SECRET_KEY: 'sk_test_x',
+          STRIPE_BILLING_WEBHOOK_SECRET: 'whsec_x',
+        }).join('\n'),
+      ).toMatch(/BILLING_LIVE_MARKETS is refused in QA/);
+      expect(
+        billingConfigurationErrors({
+          APP_ENV: 'QA',
+          BILLING_ENABLED: 'true',
+          BILLING_PROVIDER: 'providers',
+          STRIPE_SECRET_KEY: 'sk_test_x',
+          STRIPE_BILLING_WEBHOOK_SECRET: 'whsec_x',
+          RAZORPAY_KEY_ID: 'rzp_test_x',
+          RAZORPAY_KEY_SECRET: 's',
+          RAZORPAY_BILLING_WEBHOOK_SECRET: 'w',
+        }),
+      ).toEqual([]);
+      // Live keys are still refused in QA.
+      expect(
+        billingConfigurationErrors({
+          APP_ENV: 'QA',
+          BILLING_ENABLED: 'true',
+          BILLING_PROVIDER: 'providers',
+          ...US_LIVE,
+        }).join('\n'),
+      ).toMatch(/LIVE key/);
     });
   });
 

@@ -13,6 +13,8 @@ import {
   STRIPE_BILLING_CREDENTIALS,
   assertUsableKey,
   credentialConfigured,
+  parseBillingLiveMarkets,
+  productionSpec,
   resolveCredential,
 } from './billing-credentials';
 import { StripeBillingProvider } from './stripe-billing.provider';
@@ -73,9 +75,30 @@ export class BillingProviderRegistry {
     return this.config.get<string>('BILLING_PROVIDER') ?? 'disabled';
   }
 
+  private appEnv(): string | undefined {
+    return this.config.get<string>('APP_ENV');
+  }
+
+  /**
+   * Whether this country may start a subscription in this environment. In PRODUCTION only the
+   * markets the owner listed in BILLING_LIVE_MARKETS, behind BILLING_LIVE_ENABLED=true; every
+   * other environment is unchanged (the boot check keeps it on test keys).
+   */
+  liveMarketOpen(country: string | null | undefined): boolean {
+    if (this.appEnv() !== 'PRODUCTION') return true;
+    if (this.config.get<string>('BILLING_LIVE_ENABLED') !== 'true') return false;
+    return (
+      !!country &&
+      parseBillingLiveMarkets(this.config.get<string>('BILLING_LIVE_MARKETS')).includes(
+        country.toUpperCase(),
+      )
+    );
+  }
+
   /** The provider key that would serve this country, without building anything. */
   keyForCountry(country: string | null | undefined): BillingProviderKey {
     if (this.mode() !== 'providers') return this.fallback.key;
+    if (!this.liveMarketOpen(country)) return 'NONE';
     return (country && BILLING_PROVIDER_BY_COUNTRY[country]) || 'NONE';
   }
 
@@ -84,15 +107,15 @@ export class BillingProviderRegistry {
     const key = this.keyForCountry(country);
     if (this.overrides.has(key)) return this.overrides.get(key)!.enabled;
     if (this.mode() !== 'providers') return this.fallback.enabled;
+    const env = this.appEnv();
     if (key === 'STRIPE_BILLING') {
-      return (
-        credentialConfigured(this.config, STRIPE_BILLING_CREDENTIALS.secretKey) &&
-        credentialConfigured(this.config, STRIPE_BILLING_CREDENTIALS.webhookSecret)
+      return Object.values(STRIPE_BILLING_CREDENTIALS).every((c) =>
+        credentialConfigured(this.config, productionSpec(c, env)),
       );
     }
     if (key === 'RAZORPAY_BILLING') {
       return Object.values(RAZORPAY_BILLING_CREDENTIALS).every((c) =>
-        credentialConfigured(this.config, c),
+        credentialConfigured(this.config, productionSpec(c, env)),
       );
     }
     return false;
@@ -129,7 +152,7 @@ export class BillingProviderRegistry {
   private async build(key: RealKey): Promise<BillingProvider> {
     const appEnv = this.config.get<string>('APP_ENV') ?? 'LOCAL';
     const need = async (spec: { name: string; fallback?: string }) => {
-      const v = await resolveCredential(this.config, this.secrets, spec);
+      const v = await resolveCredential(this.config, this.secrets, productionSpec(spec, appEnv));
       if (!v) throw new Error(`${spec.name} is not configured.`);
       return v;
     };
