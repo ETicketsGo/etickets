@@ -19,6 +19,17 @@ const minor = z.number().int().min(0).max(100_000_000);
 /** Nothing to choose: the prices and the 10x annual rule are the owner's (2026-10-27). */
 export const loadCatalogSchema = z.object({}).strict();
 
+/** Which Stripe key mode's refs to write; must be the mode of this environment's key. */
+export const syncProviderRefsQuerySchema = z
+  .object({
+    mode: z.enum(['live', 'test']),
+    dryRun: z
+      .enum(['true', 'false'])
+      .default('false')
+      .transform((v) => v === 'true'),
+  })
+  .strict();
+
 export const updatePlanSchema = z
   .object({
     name: z.string().trim().min(1).max(60).optional(),

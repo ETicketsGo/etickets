@@ -218,6 +218,8 @@ export interface BillingProvider {
   fetchDispute?(disputeRef: string): Promise<ProviderDisputeRecord>;
   /** Read-only: the provider's record of a plan price (Stripe only). */
   fetchPrice?(priceRef: string): Promise<ProviderPriceRecord>;
+  /** Read-only: the provider's price with this lookup key (Stripe only); `found: false` if none. */
+  findPriceByLookupKey?(lookupKey: string): Promise<ProviderPriceRecord>;
   createCreditPackCheckout?(req: CreditPackCheckoutRequest): Promise<BillingCheckoutSession>;
   /** A provider-hosted page to change the payment method or cancel (Stripe only). */
   createPortal?(customerRef: string, returnUrl: string): Promise<{ url: string }>;

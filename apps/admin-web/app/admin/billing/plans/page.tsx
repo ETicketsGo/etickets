@@ -51,6 +51,9 @@ export default function BillingPlansPage() {
   const plans = useQuery({ queryKey: KEY, queryFn: () => api.admin.billing.plans() });
 
   const [loading, setLoading] = useState(false);
+  const [linking, setLinking] = useState(false);
+  const [linkMode, setLinkMode] = useState<'live' | 'test'>('live');
+  const [linkResult, setLinkResult] = useState<string | null>(null);
   const [editingPlan, setEditingPlan] = useState<AdminBillingPlan | null>(null);
   const [editingEntitlements, setEditingEntitlements] = useState<AdminBillingPlan | null>(null);
   const [addingPriceTo, setAddingPriceTo] = useState<AdminBillingPlan | null>(null);
@@ -73,6 +76,19 @@ export default function BillingPlansPage() {
     onError: failed,
   });
 
+  const link = useMutation({
+    mutationFn: (dryRun: boolean) => api.admin.billing.syncProviderRefs(linkMode, dryRun),
+    onSuccess: (r) => {
+      const rows = r.written.map((w) => `${w.lookupKey} -> ${w.providerPriceRef}`).join('\n');
+      setLinkResult(
+        `${r.dryRun ? 'Would link' : 'Linked'}: ${r.written.length}. Already linked: ${r.unchanged.length}.` +
+          (rows ? `\n${rows}` : ''),
+      );
+      if (!r.dryRun) refresh();
+    },
+    onError: (e) => setLinkResult(errorMessage(e)),
+  });
+
   const deactivate = useMutation({
     mutationFn: (id: string) => api.admin.billing.deactivatePrice(id),
     onSuccess: () => {
@@ -92,9 +108,20 @@ export default function BillingPlansPage() {
         description="The plans organizers can be on, what each one includes, and what it costs."
         action={
           mayManage ? (
-            <Button variant="outline" onClick={() => setLoading(true)}>
-              Load provisional catalogue
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={() => setLoading(true)}>
+                Load provisional catalogue
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setLinkResult(null);
+                  setLinking(true);
+                }}
+              >
+                Link Stripe prices
+              </Button>
+            </div>
           ) : undefined
         }
       />
@@ -276,6 +303,54 @@ export default function BillingPlansPage() {
             }
           >
             <p className="text-sm text-text-secondary">{BILLING_COPY.loadExplains}</p>
+          </Dialog>
+
+          <Dialog
+            open={linking}
+            onClose={() => setLinking(false)}
+            title="Link Stripe prices"
+            footer={
+              <>
+                <Button variant="outline" onClick={() => setLinking(false)}>
+                  Close
+                </Button>
+                <Button
+                  variant="outline"
+                  loading={link.isPending && link.variables === true}
+                  onClick={() => link.mutate(true)}
+                >
+                  Check
+                </Button>
+                <Button
+                  loading={link.isPending && link.variables === false}
+                  onClick={() => link.mutate(false)}
+                >
+                  Link
+                </Button>
+              </>
+            }
+          >
+            <div className="space-y-3 text-sm text-text-secondary">
+              <p>
+                Finds the Stripe price for each paid USD price by its lookup key (for example
+                etg_pro_usd_month). It links a price only if the amount, currency, interval and tax
+                setting match exactly. If one price does not match, nothing is linked. Nothing is
+                published and no price changes.
+              </p>
+              <Select
+                label="Stripe mode"
+                value={linkMode}
+                onChange={(e) => setLinkMode(e.target.value as 'live' | 'test')}
+              >
+                <option value="live">Live</option>
+                <option value="test">Test</option>
+              </Select>
+              {linkResult && (
+                <pre className="whitespace-pre-wrap rounded-md border border-border p-2 text-xs text-text-primary">
+                  {linkResult}
+                </pre>
+              )}
+            </div>
           </Dialog>
 
           <PlanDialog plan={editingPlan} onClose={() => setEditingPlan(null)} onSaved={refresh} />

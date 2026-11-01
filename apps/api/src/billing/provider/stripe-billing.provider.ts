@@ -482,19 +482,32 @@ export class StripeBillingProvider implements BillingProvider {
       const type = (err as { type?: string })?.type ?? 'unknown';
       throw providerUnavailable(`Stripe could not complete the billing request (${type}).`);
     }
-    const recurring = (p.recurring ?? null) as Obj | null;
-    const interval = recurring?.interval;
-    return {
-      ref: str(p.id) ?? priceRef,
-      found: true,
-      amountMinor: typeof p.unit_amount === 'number' ? p.unit_amount : null,
-      currency: (str(p.currency) ?? '').toUpperCase() || null,
-      interval: interval === 'month' ? 'MONTH' : interval === 'year' ? 'YEAR' : null,
-      intervalCount:
-        typeof recurring?.interval_count === 'number' ? recurring.interval_count : null,
-      active: typeof p.active === 'boolean' ? p.active : null,
-      taxBehavior: str(p.tax_behavior),
-    };
+    return priceRecord(p, priceRef);
+  }
+
+  /**
+   * Read-only: the price carrying this lookup key (etg_<plan>_<currency>_<month|year>), active or
+   * not, so the catalogue can be pointed at it by staff (BillingPriceReconcileService
+   * .syncProviderRefs). No such price is `found: false`; a lookup key is unique in a Stripe account.
+   */
+  async findPriceByLookupKey(lookupKey: string): Promise<ProviderPriceRecord> {
+    const list = (await this.call(() =>
+      this.client.prices.list({ lookup_keys: [lookupKey], limit: 2 }),
+    )) as unknown as { data: Obj[] };
+    const p = list.data[0];
+    if (!p) {
+      return {
+        ref: '',
+        found: false,
+        amountMinor: null,
+        currency: null,
+        interval: null,
+        intervalCount: null,
+        active: null,
+        taxBehavior: null,
+      };
+    }
+    return priceRecord(p, '');
   }
 
   /** Provider failures become a plain 502; Stripe's own message is not echoed to the organizer. */
@@ -507,6 +520,21 @@ export class StripeBillingProvider implements BillingProvider {
       throw providerUnavailable(`Stripe could not complete the billing request (${type}).`);
     }
   }
+}
+
+function priceRecord(p: Obj, fallbackRef: string): ProviderPriceRecord {
+  const recurring = (p.recurring ?? null) as Obj | null;
+  const interval = recurring?.interval;
+  return {
+    ref: str(p.id) ?? fallbackRef,
+    found: true,
+    amountMinor: typeof p.unit_amount === 'number' ? p.unit_amount : null,
+    currency: (str(p.currency) ?? '').toUpperCase() || null,
+    interval: interval === 'month' ? 'MONTH' : interval === 'year' ? 'YEAR' : null,
+    intervalCount: typeof recurring?.interval_count === 'number' ? recurring.interval_count : null,
+    active: typeof p.active === 'boolean' ? p.active : null,
+    taxBehavior: str(p.tax_behavior),
+  };
 }
 
 function priceNotSetUp(): AppException {
