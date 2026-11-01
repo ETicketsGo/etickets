@@ -1,10 +1,10 @@
 # ETicketsGo: product current state
 
-> **As of 2026-10-30.** This is the master reference for what the product is and what state each
+> **As of 2026-11-01.** This is the master reference for what the product is and what state each
 > part is in. When another document disagrees with this page about the _current_ state, this page
 > wins. Dated reports, certifications and trackers stay as historical records.
 >
-> Sources: the code on `main` (`700c69f5`), `apps/api/prisma/schema.prisma`, merged PR titles
+> Sources: the code on `main` (`d5144d3f`), `apps/api/prisma/schema.prisma`, merged PR titles
 > (`git log --first-parent main`), and the release records of the team. A fact marked
 > **(unverified)** comes from a report and was not checked against code or a running environment
 > for this page.
@@ -114,7 +114,7 @@ receipt, never inside "Convenience fees".
 | ------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
 | Draft, validate, preview, publish: a draft prices nothing; publish writes all bands in one transaction (#531) | Live in production                                              |
 | Publishing needs admin MFA; each published draft is kept as a version (history is never edited)               | Live in production                                              |
-| Every draft save is audited, not only publish (#533)                                                          | Live in production (api only)                                   |
+| Every draft save is audited, not only publish (#533)                                                          | Live in production                                              |
 | Single-band write endpoints retired; bands change only by publish (#532)                                      | Live in production                                              |
 | Quote and booking carry the fee-schedule version; a booking refuses if the schedule changed after the quote   | Live in production                                              |
 | Precedence: event override, then organizer override, then the published schedule (`PlatformFeePolicy`)        | Live in production (0 policies configured in PROD (unverified)) |
@@ -133,12 +133,18 @@ receipt, never inside "Convenience fees".
 
 ### Subscriptions and entitlements
 
-| Behaviour                                                                                                       | Status                                                        |
-| --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| Plans, prices, entitlement overrides, billing payments and webhooks (`BillingPlan`, `EntitlementOverride`, ...) | Implemented but disabled                                      |
-| Billing providers (Razorpay / Stripe subscriptions)                                                             | Implemented but disabled (`BILLING_*` unset in PROD; 0 plans) |
-| Invoice numbering: India `ETGB-<FY>-NNNNNN`, US `ETG-BIL-US-YYYY-NNNNNN`                                        | Implemented but disabled                                      |
-| Whether plan prices include tax                                                                                 | Blocked (owner decision)                                      |
+| Behaviour                                                                                                                                                                                                                                                           | Status                                                     |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| Plans, prices, entitlement overrides, billing payments and webhooks (`BillingPlan`, `EntitlementOverride`, ...)                                                                                                                                                     | Implemented but disabled                                   |
+| USA (Stripe): checkout, invoice, webhooks, portal, cancellation, failed-payment email with billing link, renewal recovery, early-renewal fix, daily price reconciliation                                                                                            | QA certified (test mode)                                   |
+| USA (Stripe) in PROD: live billing key, webhook (8 events) and portal configured; 2 live products, 4 prices (Pro $19/$190, Premium $49/$490, tax-exclusive, lookup keys); gate `BILLING_PROVIDER=providers`, `BILLING_LIVE_ENABLED=true`, `BILLING_LIVE_MARKETS=US` | Implemented but disabled (`BILLING_ENABLED` off: no sales) |
+| USA (Stripe) in PROD: billing catalogue loaded and linked to the live prices                                                                                                                                                                                        | Blocked (owner admin step)                                 |
+| USA (Stripe) tax: live product tax code is `txcd_10103101` (correct to `txcd_10103001`); no Stripe Tax registrations                                                                                                                                                | Blocked (owner)                                            |
+| India (Razorpay): code and tests ready; QA test billing webhook (9 events) with a real signed delivery verified                                                                                                                                                     | In development                                             |
+| India (Razorpay): GST treatment, Razorpay test plans (amounts include GST; at 18% Pro Rs 1,178.82/mo, Premium Rs 3,538.82/mo), `PLATFORM_SERVICES` IN tax rule and `PLATFORM_TAX_REGION` on QA                                                                      | Blocked (owner GST confirmation)                           |
+| India (Razorpay): Premium annual exceeds the default Rs 15,000 e-mandate limit                                                                                                                                                                                      | Blocked (owner decision)                                   |
+| India billing in PROD                                                                                                                                                                                                                                               | Implemented but disabled (off)                             |
+| Invoice numbering: India `ETGB-<FY>-NNNNNN`, US `ETG-BIL-US-YYYY-NNNNNN`                                                                                                                                                                                            | Implemented but disabled                                   |
 
 See [commercial/PLATFORM-FEES.md](commercial/PLATFORM-FEES.md) and
 [billing/BILLING-PROVIDERS.md](billing/BILLING-PROVIDERS.md).
@@ -147,16 +153,17 @@ See [commercial/PLATFORM-FEES.md](commercial/PLATFORM-FEES.md) and
 
 ## 4. Audience and growth
 
-| Capability                                                                                            | Status                                                                 |
-| ----------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| Follow an organizer (`OrganizerFollow`)                                                               | Live in production                                                     |
-| Per-follow notification preferences                                                                   | Live in production                                                     |
-| Consent and unsubscribe precedence: an account-level opt-out or unsubscribe beats a follow preference | Live in production                                                     |
-| Signed unsubscribe links (`UNSUBSCRIBE_SIGNING_SECRET`)                                               | Live in production                                                     |
-| Basic audience view and segmentation for organizers                                                   | Live in production                                                     |
-| Campaigns (compose, send, link tracking, analytics)                                                   | QA certified; disabled in PROD (`CAMPAIGNS_ENABLED` unset)             |
-| Marketing sender `updates@` in SES                                                                    | Blocked (owner SES setup)                                              |
-| Campaign send in PROD                                                                                 | Blocked (verified postal addresses for both entities + owner approval) |
+| Capability                                                                                                                                        | Status                                                                 |
+| ------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| Follow an organizer (`OrganizerFollow`)                                                                                                           | Live in production                                                     |
+| Per-follow notification preferences                                                                                                               | Live in production                                                     |
+| Consent and unsubscribe precedence: an account-level opt-out or unsubscribe beats a follow preference                                             | Live in production                                                     |
+| Signed unsubscribe links (`UNSUBSCRIBE_SIGNING_SECRET`)                                                                                           | Live in production                                                     |
+| Basic audience view and segmentation for organizers                                                                                               | Live in production                                                     |
+| Campaigns (compose, send, link tracking, analytics)                                                                                               | QA certified; disabled in PROD (`CAMPAIGNS_ENABLED` unset)             |
+| Configured postal address required in every environment, no placeholder; QA refuses campaigns until `MARKETING_POSTAL_ADDRESS_IN` / `_US` are set | Live in production                                                     |
+| Marketing sender `updates@` in SES                                                                                                                | Blocked (owner SES setup)                                              |
+| Campaign send in PROD                                                                                                                             | Blocked (verified postal addresses for both entities + owner approval) |
 
 Suppression rules: a complaint suppresses marketing only; a hard bounce suppresses all email.
 See [engagement/MARKETING-EMAIL.md](engagement/MARKETING-EMAIL.md) and
@@ -239,18 +246,26 @@ Play steps: [apps/customer-mobile/docs/PLAY-RELEASE.md](../apps/customer-mobile/
 
 ## 8. Production state
 
-| Item                                           | Value                                                                 |
-| ---------------------------------------------- | --------------------------------------------------------------------- |
-| api                                            | `700c69f5` (main, includes #533 draft-save audit)                     |
-| worker, customer-web, organizer-web, admin-web | `76c304da` (#527 to #532)                                             |
-| Migrations                                     | 151 applied, 0 failed                                                 |
-| Backups                                        | Nightly verified `pg_dump`, plus a pre-deploy backup for each release |
-| Payout transfers                               | Disabled                                                              |
-| Billing                                        | Disabled                                                              |
-| Campaigns                                      | Disabled                                                              |
-| India SMS                                      | OTP + three transactional types live; reminders off                   |
-| Coupons                                        | Disabled (unverified)                                                 |
-| Admin MFA enrolment                            | Deferred in PROD (unverified); fee publish requires MFA               |
+| Item                        | Value                                                                                                         |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| api, worker, admin-web      | `702a51bc` (#533 to #542)                                                                                     |
+| customer-web, organizer-web | `76c304da`                                                                                                    |
+| Migrations                  | 151 applied, 0 failed                                                                                         |
+| Backups                     | Nightly verified `pg_dump`, plus a pre-deploy backup for each release                                         |
+| Payout transfers            | Disabled (`PAYOUT_EXECUTION_ENABLED` unset)                                                                   |
+| Ticket payments             | Razorpay live (INR); no Stripe ticket keys (`PAYMENT_LIVE_ENABLED=false`)                                     |
+| Billing                     | US live gate, keys, webhook and portal set; `BILLING_ENABLED` off (no sales); catalogue not linked; India off |
+| Campaigns                   | Disabled; postal address required                                                                             |
+| India SMS                   | OTP + three transactional types live; reminders off; guest, password reset and payment pending SMS deferred   |
+| US/CA SMS                   | Twilio OTP unchanged; transactional SMS off (`SMS_TRANSACTIONAL_MARKETS` default `IN`)                        |
+| Coupons                     | Disabled (unverified)                                                                                         |
+| Admin MFA enrolment         | Deferred in PROD (unverified); fee publish requires MFA                                                       |
+
+Releases since 2026-10-30: #533 to #542 (fee-draft save audit; legal footer; India transactional SMS
+including paid cancellation; fee schedule editor; legacy fee-rule endpoints retired with 410; payout
+status fix; billing webhook isolation; marketing postal address required everywhere; billing dunning
+email and DI fix; early-renewal entitlement fix; production billing gate; catalogue live price-ref
+sync). #543 (billing gate safety tests) is merged; tests only.
 
 QA runs `main` on all five services. UAT is a separate isolated environment.
 
@@ -258,16 +273,20 @@ QA runs `main` on all five services. UAT is a separate isolated environment.
 
 ## 9. Known blockers
 
-| Blocker                                                         | Owner of next step  | Blocks                     |
-| --------------------------------------------------------------- | ------------------- | -------------------------- |
-| Verified postal addresses for both legal entities               | Owner               | Campaigns, marketing email |
-| SES marketing sender (`updates@`) and its IAM permission        | Owner               | Campaigns                  |
-| Tax treatment of plan prices; GST activation decision           | Owner               | Billing; GST on fees       |
-| Stripe live account and Connect onboarding for US organizers    | Owner               | Paid sales in Meridian     |
-| Razorpay Route activation and post-transfer gate                | Owner + engineering | Automated India payouts    |
-| Google Play organization account verification and store listing | Owner               | Android release            |
-| iOS PRs #458/#459 review; Apple developer account (unverified)  | Owner + engineering | iOS release                |
-| Public sale approval and real organizer events in PROD          | Owner               | Launch in both cities      |
+| Blocker                                                                             | Owner of next step  | Blocks                     |
+| ----------------------------------------------------------------------------------- | ------------------- | -------------------------- |
+| Verified postal addresses for both legal entities                                   | Owner               | Campaigns, marketing email |
+| SES marketing sender (`updates@`) and its IAM permission                            | Owner               | Campaigns                  |
+| Load and link the PROD billing catalogue to the live Stripe prices                  | Owner (admin step)  | US billing                 |
+| Correct the Stripe live tax code (`txcd_10103001`); Stripe Tax registrations        | Owner               | US billing                 |
+| Approval to set `BILLING_ENABLED` in PROD                                           | Owner               | US billing sales           |
+| GST treatment of India plans; Razorpay test plans; mandate limit for Premium annual | Owner + engineering | India billing              |
+| GST activation decision on the platform fee                                         | Owner               | GST on fees                |
+| Stripe live account and Connect onboarding for US organizers                        | Owner               | Paid sales in Meridian     |
+| Razorpay Route activation and post-transfer gate                                    | Owner + engineering | Automated India payouts    |
+| Google Play organization account verification and store listing                     | Owner               | Android release            |
+| iOS PRs #458/#459 review; Apple developer account (unverified)                      | Owner + engineering | iOS release                |
+| Public sale approval and real organizer events in PROD                              | Owner               | Launch in both cities      |
 
 ---
 
@@ -276,8 +295,11 @@ QA runs `main` on all five services. UAT is a separate isolated environment.
 1. Onboard the first real organizers and events in Hyderabad and Meridian.
 2. Stripe live mode and Connect payout onboarding for US organizers.
 3. Owner supplies verified addresses and the SES marketing sender; then a controlled first campaign.
-4. Decide reminder SMS (`NOTIFICATION_REMINDERS_ENABLED`) and the deferred SMS types.
-5. Android Play release from the organization account; iOS foundation review.
-6. Keep the payout-transfer gate closed until the post-transfer checks are proven.
+4. US billing: load and link the catalogue, fix the tax code, then the owner decides `BILLING_ENABLED`.
+5. India billing: confirm GST, create Razorpay test plans, certify on QA.
+6. Decide reminder SMS (`NOTIFICATION_REMINDERS_ENABLED`) and the deferred SMS types.
+7. Android Play release from the organization account; iOS foundation review.
+8. Keep the payout-transfer gate closed until the post-transfer checks are proven.
+9. Upgrade to Node 22 before January 2027 (AWS SDK end-of-support warning).
 
 Launch checklist: [release/LAUNCH-READINESS-CHECKLIST.md](release/LAUNCH-READINESS-CHECKLIST.md).

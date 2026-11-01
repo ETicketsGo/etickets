@@ -280,4 +280,6 @@ does not list it and a checkout for it is refused.
   cancelling and buying the other plan, or through staff.
 - Provider-side trials and promotion codes (trials are staff grants; discounts would mismatch).
 - Refunds of plan payments (staff, in the provider dashboard; record a credit note).
-- Production: live keys, live price/plan refs, the owner-approved boot configuration.
+- Production India: live keys and plans. Production US: live key, webhook, portal, prices and the
+  gate are configured (2026-11-01); linking the catalogue to the live price refs and
+  `BILLING_ENABLED` await the owner.
