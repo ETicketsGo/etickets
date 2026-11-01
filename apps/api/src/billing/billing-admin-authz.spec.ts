@@ -85,6 +85,13 @@ const ROUTES: Route[] = [
     body: {},
   },
   {
+    method: 'POST',
+    path: '/admin/billing/catalog/sync-provider-refs?mode=live',
+    template: 'POST admin/billing/catalog/sync-provider-refs',
+    needs: P.BILLING_MANAGE,
+    body: {},
+  },
+  {
     method: 'PATCH',
     path: '/admin/billing/plans/p1',
     template: 'PATCH admin/billing/plans/:id',

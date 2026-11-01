@@ -31,6 +31,7 @@ import {
   setCreditPackPriceSchema,
   setPlanEntitlementsSchema,
   subscriptionSearchSchema,
+  syncProviderRefsQuerySchema,
   updatePlanSchema,
   updatePriceSchema,
 } from './billing.schemas';
@@ -159,6 +160,27 @@ export class AdminBillingController {
     @Body(pipe(loadCatalogSchema)) _body: Payload<typeof loadCatalogSchema>,
   ) {
     return this.catalog.loadProvisional(actor.id);
+  }
+
+  @Post('catalog/sync-provider-refs')
+  @RequiresAdmin(AdminPermission.BILLING_MANAGE)
+  @RequiresRecentMfa()
+  @ApiOperation({
+    summary:
+      'Point each Stripe catalogue price at its Stripe price by lookup key ' +
+      '(etg_<plan>_<currency>_<month|year>). Writes only empty refs of the given mode, all or ' +
+      'nothing, after an exact amount/currency/interval/active/tax check. Idempotent; never ' +
+      'publishes, creates or changes a price. ?dryRun=true reports without writing.',
+  })
+  syncProviderRefs(
+    @CurrentUser() actor: RequestUser,
+    @Query(pipe(syncProviderRefsQuerySchema)) q: Payload<typeof syncProviderRefsQuerySchema>,
+  ) {
+    return this.priceCheck.syncProviderRefs({
+      mode: q.mode,
+      dryRun: q.dryRun,
+      actorUserId: actor.id,
+    });
   }
 
   @Patch('plans/:id')

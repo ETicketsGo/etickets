@@ -2676,6 +2676,17 @@ export const api = {
           '/admin/billing/catalog/load-provisional',
           { method: 'POST', body: JSON.stringify({}) },
         ),
+      /** Point the Stripe catalogue prices at their Stripe prices by lookup key (all or nothing). */
+      syncProviderRefs: (mode: 'live' | 'test', dryRun: boolean) =>
+        request<{
+          mode: 'live' | 'test';
+          dryRun: boolean;
+          written: Array<{ lookupKey: string; providerPriceRef: string }>;
+          unchanged: Array<{ lookupKey: string; providerPriceRef: string }>;
+        }>(
+          `/admin/billing/catalog/sync-provider-refs?mode=${mode}&dryRun=${dryRun ? 'true' : 'false'}`,
+          { method: 'POST', body: JSON.stringify({}) },
+        ),
       updatePlan: (
         id: string,
         body: { name?: string; description?: string | null; active?: boolean; sortOrder?: number },

@@ -1,9 +1,13 @@
-import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { OpsAlertService } from '../ops/alerts/ops-alert.service';
-import { BillingProviderRegistry } from './provider/billing-provider.registry';
+import { AppException, ErrorCodes } from '../common/errors';
+import {
+  BILLING_PROVIDER_BY_COUNTRY,
+  BillingProviderRegistry,
+} from './provider/billing-provider.registry';
 import type { BillingKeyMode, ProviderPriceRecord } from './provider/billing-provider';
 
 /** One way a catalogue price and its provider price disagree. */
@@ -28,6 +32,31 @@ export interface PriceReconcileReport {
   /** Provider unreachable for these refs: not a mismatch, checked again next run. */
   unreachable: string[];
   mismatches: PriceMismatch[];
+}
+
+/** One catalogue price pointed (or already pointing) at its Stripe price. */
+export interface ProviderRefSyncRow {
+  priceId: string;
+  planCode: string;
+  country: string;
+  interval: string;
+  amountMinor: number;
+  lookupKey: string;
+  providerPriceRef: string;
+}
+
+export interface ProviderRefSyncReport {
+  mode: BillingKeyMode;
+  dryRun: boolean;
+  /** Refs written by this run (or, with dryRun, that would be). */
+  written: ProviderRefSyncRow[];
+  /** Already pointing at the matching Stripe price: left as they are. */
+  unchanged: ProviderRefSyncRow[];
+}
+
+/** The Stripe lookup key of a catalogue price: etg_pro_usd_month, etg_premium_usd_year, ... */
+export function stripeLookupKey(planCode: string, currency: string, interval: string): string {
+  return `etg_${planCode}_${currency}_${interval}`.toLowerCase();
 }
 
 /**
@@ -131,6 +160,132 @@ export class BillingPriceReconcileService {
     }
 
     if (options.record && report.mismatches.length > 0) await this.record(mode, report);
+    return report;
+  }
+
+  /**
+   * Points each Stripe-priced catalogue price at its Stripe price, found by lookup key
+   * (`etg_<plan>_<currency>_<month|year>`, e.g. etg_pro_usd_month). Writes ONLY the ref of the
+   * key mode in use (providerPriceRefLive with a live key, providerPriceRefTest with a test key)
+   * and only where it is empty. Never creates or changes a plan, a price amount, `active`, an
+   * entitlement or a Stripe object, and opens no market (selling stays behind
+   * BILLING_LIVE_ENABLED / BILLING_LIVE_MARKETS).
+   *
+   * All or nothing: every price must resolve and match exactly (amount, currency, a 1-month or
+   * 1-year interval, active, tax_behavior exclusive) and no price may already point at a
+   * DIFFERENT Stripe price; otherwise nothing is written and the refusal lists each problem.
+   * Run again it changes nothing (idempotent). `dryRun` reports what it would write.
+   */
+  async syncProviderRefs(input: {
+    mode: BillingKeyMode;
+    dryRun: boolean;
+    actorUserId: string;
+  }): Promise<ProviderRefSyncReport> {
+    const provider = await this.registry.byKey('STRIPE_BILLING');
+    if (provider.key !== 'STRIPE_BILLING' || !provider.findPriceByLookupKey || !provider.mode) {
+      throw new AppException(
+        ErrorCodes.BILLING_PROVIDER_UNAVAILABLE,
+        'Stripe Billing is not configured here (BILLING_PROVIDER=providers and the Stripe ' +
+          'billing key are needed). Nothing was changed.',
+        HttpStatus.CONFLICT,
+      );
+    }
+    if (provider.mode !== input.mode) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        `This environment's Stripe billing key is a ${provider.mode} key, so it cannot read ` +
+          `${input.mode} prices. Nothing was changed.`,
+        HttpStatus.CONFLICT,
+      );
+    }
+    const stripeCountries = Object.entries(BILLING_PROVIDER_BY_COUNTRY)
+      .filter(([, key]) => key === 'STRIPE_BILLING')
+      .map(([country]) => country);
+    const prices = await this.prisma.billingPrice.findMany({
+      where: { country: { in: stripeCountries }, active: true, amountMinor: { gt: 0 } },
+      include: { plan: { select: { code: true } } },
+      orderBy: [{ country: 'asc' }, { id: 'asc' }],
+    });
+    if (prices.length === 0) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'There are no paid Stripe prices in the catalogue. Load the provisional catalogue ' +
+          'first (POST admin/billing/catalog/load-provisional). Nothing was changed.',
+        HttpStatus.CONFLICT,
+      );
+    }
+    const field = input.mode === 'live' ? 'providerPriceRefLive' : 'providerPriceRefTest';
+    const report: ProviderRefSyncReport = {
+      mode: input.mode,
+      dryRun: input.dryRun,
+      written: [],
+      unchanged: [],
+    };
+    const problems: Array<{ priceId: string; lookupKey: string; problems: string[] }> = [];
+    for (const price of prices) {
+      const lookupKey = stripeLookupKey(price.plan.code, price.currency, price.interval);
+      const rec = await provider.findPriceByLookupKey(lookupKey);
+      const wrong: string[] = mismatchFields(price, rec);
+      const current = price[field];
+      if (rec.found && current && current !== rec.ref) wrong.push('already_points_elsewhere');
+      if (wrong.length > 0) {
+        problems.push({ priceId: price.id, lookupKey, problems: wrong });
+        continue;
+      }
+      const row = {
+        priceId: price.id,
+        planCode: price.plan.code,
+        country: price.country,
+        interval: price.interval,
+        amountMinor: price.amountMinor,
+        lookupKey,
+        providerPriceRef: rec.ref,
+      };
+      (current === rec.ref ? report.unchanged : report.written).push(row);
+    }
+    if (problems.length > 0) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        `${problems.length} catalogue price(s) do not match their Stripe ${input.mode} price. ` +
+          'Nothing was changed.',
+        HttpStatus.CONFLICT,
+        { problems },
+      );
+    }
+    if (input.dryRun || report.written.length === 0) return report;
+
+    await this.prisma.$transaction(async (tx) => {
+      for (const w of report.written) {
+        // Only where still empty: a ref set meanwhile by someone else is never overwritten.
+        const done = await tx.billingPrice.updateMany({
+          where: { id: w.priceId, [field]: null },
+          data: { [field]: w.providerPriceRef },
+        });
+        if (done.count !== 1) {
+          throw new AppException(
+            ErrorCodes.CONFLICT,
+            'A price changed while this ran. Nothing was changed; run it again.',
+            HttpStatus.CONFLICT,
+          );
+        }
+      }
+      await this.audit.recordInTransaction(tx, {
+        actorUserId: input.actorUserId,
+        action: 'BILLING_PRICE_PROVIDER_REFS_SYNCED',
+        entityType: 'BillingPrice',
+        entityId: null,
+        metadata: {
+          mode: input.mode,
+          field,
+          written: report.written.map((w) => ({
+            priceId: w.priceId,
+            lookupKey: w.lookupKey,
+            providerPriceRef: w.providerPriceRef,
+          })),
+          unchanged: report.unchanged.length,
+        },
+      });
+    });
     return report;
   }
 
