@@ -148,6 +148,12 @@ In-depth docs live under [`docs/`](docs) (index: [docs/README.md](docs/README.md
   [Android Play release](apps/customer-mobile/docs/PLAY-RELEASE.md)
 - **New to the team? [Start here](docs/START-HERE.md)** — what the product is, the tech
   stack, your first hour, and how we test. Written for a developer or QA joining the team.
+- **Architecture (as built, 2026-11-01):** [Architecture](docs/architecture/ARCHITECTURE.md)
+  (C4 context and container diagrams, module map, queues, cross-cutting mechanisms) ·
+  [Data model](docs/architecture/DATA-MODEL.md) (ERD by domain, state machines) ·
+  [Key flows](docs/architecture/FLOWS.md) (sequence diagrams) ·
+  [Deployment and operations](docs/DEPLOYMENT-GUIDE.md) ·
+  [Review guide](docs/architecture/REVIEW-GUIDE.md) (reading order, risks, how to verify).
 - [Architecture Handbook](docs/handbooks/ARCHITECTURE-HANDBOOK.md) — bounded
   contexts, layering, the strategy seams (inventory/pricing/notifications/discovery/
   recommendations/AI), atomicity guarantees, feature flags, and context/dependency
@@ -159,7 +165,7 @@ In-depth docs live under [`docs/`](docs) (index: [docs/README.md](docs/README.md
 - [Sequence Diagrams](docs/diagrams/SEQUENCE-DIAGRAMS.md) and
   [Context Map](docs/diagrams/CONTEXT-MAP.md) — Mermaid diagrams of the core flows
   and inter-context rules.
-- [Architecture Decision Records](docs/adr) (ADR-009…023) and
+- [Architecture Decision Records](docs/adr) (ADR-009…054, index [ADR-STATUS](docs/adr/ADR-STATUS.md)) and
   [engineering reports](docs/reports).
 
 ---
@@ -168,7 +174,7 @@ In-depth docs live under [`docs/`](docs) (index: [docs/README.md](docs/README.md
 
 ### Data model
 
-Prisma models cover the full domain (`User`, `Organization`, `OrganizationMember`, `Venue`, `VenueArea`,
+139 Prisma models cover the full domain (see [DATA-MODEL](docs/architecture/DATA-MODEL.md) for all of them; core ones: `User`, `Organization`, `OrganizationMember`, `Venue`, `VenueArea`,
 `Event`, `EventSession`, `TicketType`, `TicketInventory`, `Booking`, `BookingItem`, `Ticket`, `Payment`,
 `PaymentAttempt`, `Refund`, `Coupon`, `CheckIn`, `Payout`, `Notification`, `AuditLog`, `IdempotencyRecord`,
 `RefreshToken`, `FeeRule`). Tenant-owned records carry `organizationId`, timestamps, and a `status` enum.

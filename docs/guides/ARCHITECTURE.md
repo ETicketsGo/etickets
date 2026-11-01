@@ -2,6 +2,9 @@
 
 A high-level map of the system. Detailed decisions live in [docs/adr/](../adr/).
 
+> **2026-11-01:** the full as-built reference (C4 diagrams, module map, data model, flows) is
+> [architecture/ARCHITECTURE.md](../architecture/ARCHITECTURE.md). This page is the short version.
+
 ## Shape
 
 A **modular monolith** API plus focused frontends and a background worker, in a Turborepo /
@@ -10,16 +13,18 @@ npm-workspaces monorepo.
 ```
 apps/
   api/            NestJS modular monolith (REST, /api prefix)
-  worker/         BullMQ worker (holds expiry, notifications, finance recon, token prune)
-  customer-web/   Next.js 14 App Router — attendees
-  organizer-web/  Next.js 14 App Router — organizers
-  admin-web/      Next.js 14 App Router — platform admins
+  worker/         BullMQ worker (holds expiry, notifications, webhooks, outbox, finance, billing, campaigns)
+  customer-web/   Next.js 15 App Router — attendees
+  organizer-web/  Next.js 15 App Router — organizers
+  admin-web/      Next.js 15 App Router — platform admins
+  customer-mobile/ Expo SDK 57 (React Native) — Android buyer app
   e2e/            Playwright end-to-end tests
 packages/
   shared-types/   pure domain types + rules (framework-free, unit-tested)
   web-kit/         API client + shared React UI
   validation/      zod schemas
   design-tokens/   design system tokens
+  i18n/            message catalogue (en, fr-CA)
   config/          shared config
 ```
 
@@ -27,9 +32,9 @@ packages/
 
 - **PostgreSQL** via **Prisma** — system of record. Money is **integer minor units**;
   migrations are **additive-only** (`prisma migrate deploy`).
-- **Redis** — cache (fail-open), BullMQ queue, maintenance flag. Booking **seat holds are
+- **Redis** — cache (fail-open), BullMQ queues (`holds`, `campaigns`, `inventory-sync-events`), rate limits and OTP send guards, maintenance flag. Booking **seat holds are
   DB-backed** with lazy + swept expiry, so booking survives a Redis outage.
-- **Worker** — idempotent repeatable jobs (bounded batches) with retry/backoff + failed-job
+- **Worker** — idempotent repeatable jobs (holds, notifications, webhooks, outbox, finance, payouts ledger, billing, campaigns; full list in [architecture/ARCHITECTURE.md](../architecture/ARCHITECTURE.md#33-bullmq-queues-and-jobs-from-appsworkersrcmaints)) (bounded batches) with retry/backoff + failed-job
   retention.
 
 ## Key domains (API modules)

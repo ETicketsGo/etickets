@@ -1,6 +1,7 @@
 # ADR-023: Analytics Platform
 
 - **Status:** Accepted · **Date:** 2026-07-14 · **Scope:** Analytics Platform (Prompt 6)
+- **Status (2026-11-01):** current.
 
 ## Context
 

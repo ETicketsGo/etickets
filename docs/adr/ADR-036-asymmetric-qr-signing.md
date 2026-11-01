@@ -2,6 +2,8 @@
 
 Status: **Proposed** (hardening for offline gate check-in; not yet implemented)
 
+**Status (2026-11-01):** current: still proposed and not implemented. QR codes and offline manifests are signed with HMAC secrets (`QR_SIGNING_SECRET`, `MANIFEST_SIGNING_SECRET`).
+
 ## Context
 
 QR tokens and offline check-in manifests are currently signed with **symmetric

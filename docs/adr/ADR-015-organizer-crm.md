@@ -1,6 +1,7 @@
 # ADR-015: Organizer CRM
 
 - **Status:** Proposed (foundation only)
+- **Status (2026-11-01):** partly superseded: organizer email campaigns, saved segments and the audience view are now built (`CampaignsModule`, `EngagementModule`), gated by `CAMPAIGNS_ENABLED` and billing entitlements. Memberships and loyalty are still not built. The admin sales CRM (`Crm*` tables) is a separate feature.
 - **Date:** 2026-07-13
 - **Relates to:** ADR-018 (AI Foundations), feature-flag architecture
 - **Scope:** PR-4 — architecture/flag only, no live implementation

@@ -1,6 +1,7 @@
 # ADR-045: Market-aware notification provider routing
 
 - **Status:** Accepted
+- **Status (2026-11-01):** current.
 - **Date:** 2026-09-06
 - **Supersedes:** the provider note in ADR-020 (not ADR-020 itself)
 - **Scope:** Provider-neutral notification platform, Phase 1
