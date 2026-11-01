@@ -1,6 +1,7 @@
 # ADR-044: Session Seating is a Setting, Until the First Commitment
 
 - **Status:** Accepted
+- **Status (2026-11-01):** current.
 - **Date:** 2026-08-30
 - **Deciders:** Principal Architect
 - **Builds on:** ADR-037 (inventory provider seam), and the seated-events change (PR #77) that

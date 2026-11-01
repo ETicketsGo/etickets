@@ -1,6 +1,7 @@
 # ADR-010: Inventory Strategy
 
 - **Status:** Accepted
+- **Status (2026-11-01):** current. Strategies live in `apps/api/src/inventory/`.
 - **Date:** 2026-07-13
 - **Deciders:** Principal Architect
 - **Relates to:** ADR-009 (Experience Platform)

@@ -1,6 +1,7 @@
 # ADR-012: Venue Platform
 
 - **Status:** Accepted (incremental)
+- **Status (2026-11-01):** current in direction, but the topology changed: a `Screen` (bookable space) now links to its `Venue` directly and `cinemaId` is optional; `VenueArea` is no longer used by the API. See [DATA-MODEL](../architecture/DATA-MODEL.md).
 - **Date:** 2026-07-13
 - **Relates to:** ADR-011 (Movie Domain)
 - **Scope:** PR-2 — the venue/cinema/screen layer needed for movies

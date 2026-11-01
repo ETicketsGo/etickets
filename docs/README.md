@@ -8,6 +8,15 @@ A map of the `docs/` tree.
 **Joining the team?** Read [START-HERE](START-HERE.md) first — the product, the tech stack,
 your first hour, and how we test, in one page for developers and QA.
 
+## Architecture (`architecture/`)
+
+As-built reference for architects and senior engineers (2026-11-01):
+[ARCHITECTURE](architecture/ARCHITECTURE.md) · [DATA-MODEL](architecture/DATA-MODEL.md) ·
+[FLOWS](architecture/FLOWS.md) · [REVIEW-GUIDE](architecture/REVIEW-GUIDE.md) ·
+[DEPLOYMENT-GUIDE](DEPLOYMENT-GUIDE.md) · [SYSTEM-ARCHITECTURE](SYSTEM-ARCHITECTURE.md) (one-page summary) ·
+booking deep-dives [BOOKING-STATE-TRANSITION-MATRIX](architecture/BOOKING-STATE-TRANSITION-MATRIX.md),
+[BOOKING-COMPENSATION-MATRIX](architecture/BOOKING-COMPENSATION-MATRIX.md), [EVENT-CATALOGUE](architecture/EVENT-CATALOGUE.md).
+
 ## Product guides (`guides/`)
 
 - **Users:** [USER-GUIDE](guides/USER-GUIDE.md) · [ORGANIZER-GUIDE](guides/ORGANIZER-GUIDE.md) · [ADMINISTRATOR-GUIDE](guides/ADMINISTRATOR-GUIDE.md)
@@ -38,5 +47,5 @@ material in `reports/`, `exec/`, `gtm/`, `strategy/`, `pilot/`.
 
 ---
 
-_New to the codebase? Read the root [README](../README.md) → [ARCHITECTURE](guides/ARCHITECTURE.md)
+_New to the codebase? Read the root [README](../README.md) → [ARCHITECTURE](architecture/ARCHITECTURE.md)
 → the relevant role guide. Contributors: run `npm run verify` for the local quality gate._

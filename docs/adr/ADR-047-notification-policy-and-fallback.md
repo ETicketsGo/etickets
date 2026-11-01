@@ -1,6 +1,7 @@
 # ADR-047: Notification policy, consent, and controlled fallback
 
 - **Status:** Accepted
+- **Status (2026-11-01):** current.
 - **Date:** 2026-09-07
 - **Extends:** [ADR-045](./ADR-045-notification-provider-routing.md), [ADR-046](./ADR-046-notification-delivery-receipts.md)
 - **Scope:** Provider-neutral notification platform, Phase 3

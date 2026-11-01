@@ -1,6 +1,7 @@
 # ADR-046: Delivery receipts, suppression, and what we can honestly claim
 
 - **Status:** Accepted
+- **Status (2026-11-01):** current.
 - **Date:** 2026-09-07
 - **Extends:** [ADR-045](./ADR-045-notification-provider-routing.md)
 - **Scope:** Provider-neutral notification platform, Phase 2

@@ -1,5 +1,9 @@
 # ETicketsGo — Context Map
 
+> **Status (2026-11-01):** the dependency rules below are still enforced. Contexts added since
+> (billing, campaigns, engagement, CRM, support, storage) are listed in
+> [architecture/ARCHITECTURE.md](../architecture/ARCHITECTURE.md#4-api-module-map-appsapisrc).
+
 > The bounded contexts of the modular monolith, their allowed dependencies, and
 > the rules that keep the import graph acyclic. Enforced in CI by
 > `npm run deps:check` (`madge --circular`). See the
@@ -103,6 +107,7 @@ carry meaning.
 1. **Talk through application services, published interfaces, or registries — never
    another domain's repository.** A domain never reaches into another domain's
    Prisma models directly. Examples in the code:
+
    - `BookingsService` / `PaymentsService` reserve stock via the
      `InventoryStrategy` **interface** (resolved by `InventoryService`), not by
      writing `TicketInventory`/`ShowSeat` from inside bookings.

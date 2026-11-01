@@ -1,6 +1,7 @@
 # ADR-048: Notification cost accounting, and what we can honestly total
 
 - **Status:** Accepted
+- **Status (2026-11-01):** current.
 - **Date:** 2026-09-08
 - **Extends:** [ADR-045](./ADR-045-notification-provider-routing.md), [ADR-046](./ADR-046-notification-delivery-receipts.md), [ADR-047](./ADR-047-notification-policy-and-fallback.md)
 - **Scope:** Provider-neutral notification platform, Phase 4

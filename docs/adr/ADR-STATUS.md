@@ -5,6 +5,10 @@ several ADR numbers are cited in code comments and docs but were never written u
 standalone files. They are listed here honestly so the references aren't dangling — the
 decisions were made and implemented; only the formal ADR document is outstanding.
 
+Each ADR carries a one-line `Status (2026-11-01)` note saying whether the decision is still
+current, partly superseded or superseded. The system as built is described in
+[architecture/ARCHITECTURE.md](../architecture/ARCHITECTURE.md).
+
 ## Written (files present)
 
 | ADR | Title                                                                           |

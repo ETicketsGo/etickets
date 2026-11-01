@@ -1,6 +1,7 @@
 # ADR-016: Community
 
 - **Status:** Accepted
+- **Status (2026-11-01):** partly superseded: following an organizer is now also a server-side `OrganizerFollow` record (`EngagementModule`), not only a browser store.
 - **Date:** 2026-07-13
 - **Scope:** PR-4 — consolidation of existing community features
 
