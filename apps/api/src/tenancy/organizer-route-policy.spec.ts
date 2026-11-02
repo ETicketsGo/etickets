@@ -283,6 +283,9 @@ export const ORGANIZER_ROUTE_POLICY: Record<string, StaffPolicy> = {
   'GET /organizations/:id/billing': 'NONE',
   'GET /organizations/:id/billing/invoices': 'NONE',
   'GET /organizations/:id/billing/invoices/:invoiceId/html': 'NONE',
+  /** Reads only: the quote before paying, and where a checkout in another tab stands. */
+  'GET /organizations/:id/billing/quote': 'NONE',
+  'GET /organizations/:id/billing/checkout-status': 'NONE',
   /** The organization's own decision to pay for a plan, buy credits, or stop paying. */
   'POST /organizations/:id/billing/checkout': 'ORGANIZER_ONLY',
   'POST /organizations/:id/billing/credit-packs/checkout': 'ORGANIZER_ONLY',
