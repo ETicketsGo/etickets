@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
-import { WebProviders, workspaceThemeScript } from '@eticketsgo/web-kit';
+import { WebProviders, sessionPresenceScript, workspaceThemeScript } from '@eticketsgo/web-kit';
 // Self-hosted, so `next build` never downloads fonts; the display face is for titles only.
 import { inter } from '@eticketsgo/web-kit/fonts/inter';
 import { display } from '@eticketsgo/web-kit/fonts/display';
@@ -56,6 +56,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           the first paint: the parser executes it before reading the markup below it.
         */}
         <script dangerouslySetInnerHTML={{ __html: workspaceThemeScript }} />
+        {/* Before the markup below, for the same reason: see `sessionPresenceScript`. */}
+        <script dangerouslySetInnerHTML={{ __html: sessionPresenceScript }} />
         <WebProviders>{children}</WebProviders>
       </body>
     </html>

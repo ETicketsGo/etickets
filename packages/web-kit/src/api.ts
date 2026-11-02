@@ -119,6 +119,8 @@ export const API_URL =
 
 const ACCESS_KEY = 'etg_access';
 const REFRESH_KEY = 'etg_refresh';
+/** Where the access token lives; read before paint by `sessionPresenceScript` (hooks.tsx). */
+export const ACCESS_TOKEN_STORAGE_KEY = ACCESS_KEY;
 
 /**
  * Listeners notified whenever the stored session changes.

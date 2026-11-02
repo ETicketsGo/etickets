@@ -10,7 +10,14 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from 'react';
-import { api, tokenStore, getAuthSnapshot, getServerAuthSnapshot, type AuthUser } from './api';
+import {
+  ACCESS_TOKEN_STORAGE_KEY,
+  api,
+  tokenStore,
+  getAuthSnapshot,
+  getServerAuthSnapshot,
+  type AuthUser,
+} from './api';
 import { Spinner } from './components';
 import {
   subscribeConnectivity,
@@ -18,6 +25,36 @@ import {
   getServerConnectivitySnapshot,
   type ConnectivitySnapshot,
 } from './connectivity';
+
+const subscribeNothing = () => () => {};
+
+/**
+ * False during the server render and hydration, true in every render after it.
+ *
+ * For a component whose first render must match the server HTML but which may know better
+ * straight after - and for one mounted later, which can trust the browser from its first render.
+ */
+export function useHydrated(): boolean {
+  return useSyncExternalStore(
+    subscribeNothing,
+    () => true,
+    () => false,
+  );
+}
+
+/**
+ * Marks <html> with `data-session="in"` when this browser holds a session token, before the
+ * first paint. Rendered by each console's root layout beside `workspaceThemeScript`.
+ *
+ * It does not authorise anything: it only chooses which of the two waiting screens that
+ * `RequireAuth` puts in the server HTML is visible (the CSS is `[data-session-only]` in the
+ * console's globals.css), so a signed-in refresh shows the console frame and a signed-out one
+ * the plain spinner on its way to sign in. Wrapped, because a private window can throw on
+ * localStorage, and then nothing is marked and the spinner shows, as before.
+ */
+export const sessionPresenceScript = `(function(){try{
+if(localStorage.getItem('${ACCESS_TOKEN_STORAGE_KEY}')){document.documentElement.setAttribute('data-session','in');}
+}catch(e){}})();`;
 
 /** Fetches the current user; null when signed out. */
 export function useAuthUser() {
@@ -49,6 +86,7 @@ export function RequireAuth({
   children,
   loginPath = '/login',
   roleMismatchRedirect,
+  pendingFrame,
 }: {
   roles?: string[];
   children: ReactNode;
@@ -63,10 +101,18 @@ export function RequireAuth({
    * them access to it.
    */
   roleMismatchRedirect?: string;
+  /**
+   * The console's own frame, drawn around the spinner while a SIGNED-IN person's session is
+   * being confirmed. See `sessionPresenceScript` for why both answers are in the server HTML.
+   * Without it the wait is a bare spinner on an empty page - which, on every refresh of every
+   * console page, was a blank screen for a moment and then the whole console appearing round it.
+   */
+  pendingFrame?: (content: ReactNode) => ReactNode;
 }) {
   const router = useRouter();
   const pathname = usePathname();
   const { user, isLoading } = useAuthUser();
+  const hydrated = useHydrated();
   const hasToken = typeof window !== 'undefined' && !!tokenStore.access;
   /*
     Re-read the session when it changes. A session can end under an open page - a team removal
@@ -84,10 +130,30 @@ export function RequireAuth({
   }, [hasToken, router, pathname, loginPath]);
 
   if (!hasToken || isLoading) {
-    return (
+    const spinner = (
       <div className="flex h-64 items-center justify-center text-text-muted">
         <Spinner />
       </div>
+    );
+    if (!pendingFrame) return spinner;
+    /*
+      ── THE WAIT LOOKS LIKE THE CONSOLE, FROM THE FIRST FRAME ──────────────────────────────
+      The token is in localStorage, which the server cannot read, so the server HTML carries
+      both answers: the console frame (signed in) and the bare spinner (signed out, on the way
+      to sign in). `sessionPresenceScript` marks <html> before the first paint and CSS shows
+      the one that is true. Once hydrated the token is readable and only the true one is
+      rendered; the wrappers stay in place so the frame is not remounted, and lose the marker
+      so a later sign-out is not hidden by a stale <html> attribute.
+    */
+    return (
+      <>
+        {(!hydrated || hasToken) && (
+          <div data-session-only={hydrated ? undefined : 'in'}>{pendingFrame(spinner)}</div>
+        )}
+        {(!hydrated || !hasToken) && (
+          <div data-session-only={hydrated ? undefined : 'out'}>{spinner}</div>
+        )}
+      </>
     );
   }
 

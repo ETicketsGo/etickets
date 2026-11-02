@@ -13,7 +13,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
 } from 'react';
-import { useAuthUser, useLogout } from './hooks';
+import { useAuthUser, useHydrated, useLogout } from './hooks';
 import { apiAssetUrl } from './api';
 import { Wordmark, WordmarkMonogram } from './wordmark';
 import { consolePageTitle, navCurrentLabel, visibleNav, type NavItem } from './nav';
@@ -243,8 +243,11 @@ export function AppShell({
   /*
     Read after mount, not during render: the server has no localStorage, and a sidebar that
     rendered collapsed on the server and expanded on the client would be a hydration error.
+    A shell mounted AFTER hydration - the console replacing RequireAuth's waiting frame - reads
+    it at once, or a collapsed sidebar would open for a frame at that swap.
   */
-  const [collapsed, setCollapsed] = useState(false);
+  const hydrated = useHydrated();
+  const [collapsed, setCollapsed] = useState(() => hydrated && readCollapsed());
   useEffect(() => setCollapsed(readCollapsed()), []);
   const toggleCollapsed = () =>
     setCollapsed((c) => {

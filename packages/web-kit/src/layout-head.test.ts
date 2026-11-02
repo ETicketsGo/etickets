@@ -17,6 +17,10 @@ describe('console root layouts', () => {
       expect(code).toMatch(
         /<body(?: data-brand="console")?>\s*<script dangerouslySetInnerHTML=\{\{ __html: workspaceThemeScript \}\} \/>/,
       );
+      // The pre-paint session mark RequireAuth's waiting screens depend on (refresh flicker).
+      expect(code).toMatch(
+        /<script dangerouslySetInnerHTML=\{\{ __html: workspaceThemeScript \}\} \/>\s*<script dangerouslySetInnerHTML=\{\{ __html: sessionPresenceScript \}\} \/>/,
+      );
     });
   }
 });

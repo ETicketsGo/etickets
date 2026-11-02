@@ -22,9 +22,8 @@ import { useSignInHref } from '@/lib/use-sign-in-href';
 
   The right-hand side follows the REAL session, read from the same hook as the storefront bar
   (`useShellAuth`), so the two can never disagree. Signed in: "Go to app" and the account menu,
-  never "Sign in". Signed out: "Sign in" (back to this page) and "Get started". While the answer
-  is not known yet, a blank space of the same size: showing "Sign in" to somebody who is signed
-  in reads as being signed out.
+  never "Sign in". Signed out: "Sign in" (back to this page) and "Get started". The server draws
+  the right one from the session-hint cookie, so neither appears a moment after the page.
 */
 
 /**
@@ -167,7 +166,7 @@ export function MarketingHeader({ initialSignedIn = false }: { initialSignedIn?:
   const h = useTranslations('home.header');
   const pathname = usePathname();
   const signInHref = useSignInHref();
-  const { authed, known } = useShellAuth(initialSignedIn);
+  const { authed } = useShellAuth(initialSignedIn);
   const signOut = useSignOut();
   const [open, setOpen] = useState(false);
 
@@ -176,9 +175,6 @@ export function MarketingHeader({ initialSignedIn = false }: { initialSignedIn?:
 
   const actions = (layout: 'bar' | 'menu') => {
     const width = layout === 'menu' ? 'w-full' : '';
-    if (!known) {
-      return <span aria-hidden data-auth="pending" className="inline-block h-11 w-24" />;
-    }
     if (authed) {
       return (
         <Link
@@ -215,7 +211,7 @@ export function MarketingHeader({ initialSignedIn = false }: { initialSignedIn?:
         <div className="ml-auto flex shrink-0 items-center gap-2">
           <div className="hidden items-center gap-2 lg:flex">{actions('bar')}</div>
           {/* The account menu is in the bar at every width: who you are is not a menu item. */}
-          {known && authed && <AccountMenu onSignOut={signOut} />}
+          {authed && <AccountMenu onSignOut={signOut} />}
           <PlatformMenuButton
             open={open}
             controls="marketing-menu"

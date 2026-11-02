@@ -13,9 +13,16 @@ import { StepUpProvider } from '@/components/step-up';
   `PageAccessGate` shows "You do not have access to this page" in place of a page whose menu
   link this operator could not see (`lib/page-access.ts`), instead of a refused request.
 */
+/*
+  While a signed-in operator's session is confirmed, the wait is drawn inside the console frame
+  (RequireAuth's `pendingFrame`), so a refresh does not paint an empty page with a spinner and
+  then the whole console round it. The frame asks the API for nothing of its own.
+*/
+const adminPendingFrame = (content: React.ReactNode) => <AdminShell>{content}</AdminShell>;
+
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   return (
-    <RequireAuth roles={['ADMIN', 'SUPER_ADMIN']}>
+    <RequireAuth roles={['ADMIN', 'SUPER_ADMIN']} pendingFrame={adminPendingFrame}>
       <MfaGate>
         <StepUpProvider>
           <AdminShell>
