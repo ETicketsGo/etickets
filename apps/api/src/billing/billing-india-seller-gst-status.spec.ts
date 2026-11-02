@@ -608,3 +608,22 @@ describe('snapshots are immutable', () => {
     expect(invoiceDocumentFacts(old).seller?.gstin).toBe(TEST_GSTIN_TG);
   });
 });
+
+describe('an invoice service without configuration', () => {
+  it('records no GST status rather than guessing one, so a taxed payment still invoices', async () => {
+    const t = invoiceTx();
+    await new BillingInvoiceService({} as never).recordPaidInTx(t.tx as never, {
+      ...PAID_NO_GST,
+      taxMinor: 17982,
+      tax: {
+        ...PAID_NO_GST.tax,
+        lines: [
+          { label: 'IGST', rateBasisPoints: 1800, baseMinor: 99900, amountMinor: 17982 },
+        ] as never,
+      },
+    });
+    const doc = t.create.mock.calls[0][0].data.documentJson as Record<string, unknown>;
+    expect(doc.sellerGstStatus).toBeNull();
+    expect(doc.taxNote).toBeNull();
+  });
+});

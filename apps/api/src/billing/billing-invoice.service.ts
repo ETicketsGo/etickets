@@ -76,7 +76,9 @@ export class BillingInvoiceService {
     const d = indiaSellerDetails((n) => this.get(n));
     return {
       ...operator,
-      gstStatus: d.gstStatus,
+      // Without configuration (a bare harness) nothing is known: no status is recorded rather
+      // than one guessed, and the invoice prints as it did before the status existed.
+      gstStatus: this.config ? d.gstStatus : null,
       gstin: d.gstin,
       sac: d.sac,
       address: d.address,
