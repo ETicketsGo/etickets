@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Header, HttpStatus, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Header, HttpStatus, Param, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { z } from 'zod';
 import { Role } from '@eticketsgo/shared-types';
@@ -11,7 +11,11 @@ import { PrismaService } from '../prisma/prisma.service';
 import { EntitlementService } from './entitlements/entitlement.service';
 import { BillingReadService } from './billing-read.service';
 import { BillingCheckoutService } from './billing-checkout.service';
-import { invoiceSellerName, renderBillingInvoiceHtml } from './billing-invoice-html';
+import {
+  invoiceDocumentFacts,
+  invoiceSellerName,
+  renderBillingInvoiceHtml,
+} from './billing-invoice-html';
 import { billingCancelSchema, checkoutSchema, creditPackCheckoutSchema } from './billing.schemas';
 
 /** Plans and invoices name what the organization pays: owners and managers, as receipts. */
@@ -84,6 +88,7 @@ export class OrganizerBillingController {
       where: { id },
       select: { name: true, legalName: true },
     });
+    const facts = invoiceDocumentFacts(invoice.documentJson);
     const doc = (invoice.documentJson ?? {}) as {
       taxLines?: { label: string; rateBasisPoints: number; amountMinor: number }[];
       placeOfSupply?: { region?: string | null; country?: string } | null;
@@ -108,13 +113,48 @@ export class OrganizerBillingController {
         field existed said "ETicketsGo", and still does: an issued document is never rewritten.
       */
       sellerName: invoiceSellerName(invoice.documentJson),
+      seller: facts.seller,
+      paymentRef: facts.paymentRef,
+      // The buyer as frozen at issue; an older invoice falls back to today's details.
       billedTo: {
-        name: org.legalName || org.name,
+        name: facts.buyer?.name || org.legalName || org.name,
         country: invoice.account.country,
-        taxId: invoice.account.taxId,
+        taxId: facts.buyer ? facts.buyer.taxId : invoice.account.taxId,
         email: invoice.account.billingEmail,
+        state: facts.buyer?.state ?? null,
       },
     });
+  }
+
+  @Get(':id/billing/quote')
+  @ApiOperation({
+    summary:
+      'What a plan price costs with tax, itemised (base, CGST + SGST or IGST, total), before checkout.',
+  })
+  async quote(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @Query('priceId') priceId: string,
+  ) {
+    await this.access.assertMember(user, id, BILLING_VIEWER_ROLES);
+    if (typeof priceId !== 'string' || !priceId.trim()) {
+      throw new AppException(ErrorCodes.VALIDATION_FAILED, 'Choose a price.');
+    }
+    return this.checkouts.quotePlan(id, priceId.trim());
+  }
+
+  @Get(':id/billing/checkout-status')
+  @ApiOperation({
+    summary:
+      'Where a plan checkout stands, from the server and the provider record. Never activates anything.',
+  })
+  async checkoutStatus(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @Query('ref') ref: string,
+  ) {
+    await this.access.assertMember(user, id, BILLING_VIEWER_ROLES);
+    return this.checkouts.checkoutStatus(id, typeof ref === 'string' ? ref.trim() : '');
   }
 
   @Post(':id/billing/checkout')

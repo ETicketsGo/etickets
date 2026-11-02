@@ -83,6 +83,23 @@ export class BillingReadService {
         })
       : null;
 
+    /*
+      Whether a price can actually be bought here now: billing open for this country (the flag,
+      a live market in PRODUCTION, the provider's credentials) AND the price has its provider
+      plan for this deployment's key mode. A real provider refuses a price with no plan ref, so
+      the console must not offer one (it says "not available to buy yet" instead).
+    */
+    const open = this.billingEnabled(country);
+    const providerKey = this.registry.keyForCountry(country);
+    const live = this.config.get<string>('APP_ENV') === 'PRODUCTION';
+    const purchasable = (x: {
+      providerPriceRefLive: string | null;
+      providerPriceRefTest: string | null;
+    }) =>
+      open &&
+      (providerKey === 'MOCK' ||
+        !!(live ? x.providerPriceRefLive : x.providerPriceRefTest)?.trim());
+
     const plans =
       catalog.length > 0
         ? catalog.map((p) => ({
@@ -100,6 +117,7 @@ export class BillingReadService {
               amountMinor: x.amountMinor,
               currency: x.currency,
               trialDays: x.trialDays,
+              purchasable: purchasable(x),
             })),
           }))
         : (['FREE', 'PRO', 'PREMIUM'] as const).map((code) => ({
@@ -116,7 +134,7 @@ export class BillingReadService {
 
     return {
       organizationId,
-      billingEnabled: this.billingEnabled(country),
+      billingEnabled: open,
       /** Who takes this account's payments, once it has paid through one. */
       provider: account?.provider ?? 'NONE',
       /** The provider that serves this country, so the console offers the right controls. */

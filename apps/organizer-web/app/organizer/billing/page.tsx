@@ -19,6 +19,7 @@ import {
   errorMessage,
   money,
   useToast,
+  type BillingPlanPrice,
   type BillingPlanSummary,
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
@@ -32,8 +33,15 @@ import {
   PAID_PLANS_CLOSED,
   PAYMENT_CONFIRMED,
   PAYMENT_NOT_CONFIRMED_YET,
+  PAYMENT_TAB_BLOCKED,
+  QUOTE_MISMATCH,
+  REFRESH_STATUS_LABEL,
   RETURN_MESSAGES,
   checkoutReturn,
+  checkoutStatusPanel,
+  purchasablePrices,
+  quoteCanContinue,
+  quoteRows,
   paidPlanConfirmed,
   paidPlanControls,
   type CheckoutReturn,
@@ -61,11 +69,26 @@ import {
  * says "confirmed" only when the server reports the paid plan active - which happens only after
  * the provider's verified payment reached the webhook. It never trusts the redirect.
  *
+ * ── RAZORPAY CANNOT SEND YOU BACK ────────────────────────────────────────────────────
+ * Razorpay's subscription page takes no return address (its API refuses callback_url). So an
+ * Indian checkout opens in a NEW TAB and this tab waits: it asks the server where the checkout
+ * stands every few seconds, and offers "I have paid - check again". The plan is shown as
+ * active only when the server says so. Stripe still returns to this page (?checkout=success).
+ *
+ * ── PRICE BEFORE PAYING ──────────────────────────────────────────────────────────────
+ * Every upgrade first shows the server's quote: plan price, each tax with its rate, total. If
+ * the provider's plan would charge a different total, the page says so and does not continue
+ * (the server refuses that checkout too).
+ *
  * ── NO DEAD BUTTONS ────────────────────────────────────────────────────────────────
  * While paid plans are not open (BILLING_ENABLED off, the default), every plan offers "Ask about
  * <plan>", which sends a message to support through the channel that already exists. Nothing on
  * this page pretends a payment can be made. The API refuses checkout either way.
  */
+/** How often, and for how long, the page asks about a checkout open in another tab. */
+const PENDING_POLL_MS = 4_000;
+const PENDING_POLL_WINDOW_MS = 15 * 60 * 1000;
+
 export default function BillingPage() {
   const { activeOrg, activeOrgSentenceName } = useOrg();
   const toast = useToast();
@@ -77,6 +100,19 @@ export default function BillingPage() {
   const [pollUntil, setPollUntil] = useState(0);
   const [cancelling, setCancelling] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
+  // The price the organizer chose; its quote is shown before anything is paid.
+  const [quoting, setQuoting] = useState<{
+    plan: BillingPlanSummary;
+    price: BillingPlanPrice;
+  } | null>(null);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
+  // A checkout open in another tab (Razorpay), waiting for the server to confirm it.
+  const [pending, setPending] = useState<{
+    ref: string;
+    url: string;
+    blocked: boolean;
+    until: number;
+  } | null>(null);
 
   // Read the provider's redirect once, then drop it from the address bar so a reload does not
   // show "confirming" again.
@@ -114,6 +150,32 @@ export default function BillingPage() {
     queryKey: ['billing-invoices', activeOrg.id],
     queryFn: () => api.billing.invoices(activeOrg.id),
   });
+  const quote = useQuery({
+    queryKey: ['billing-quote', activeOrg.id, quoting?.price.id],
+    queryFn: () => api.billing.quote(activeOrg.id, quoting!.price.id),
+    enabled: quoting !== null,
+    retry: false,
+    staleTime: 0,
+  });
+  // The server's answer about the checkout in the other tab. Never the browser's.
+  const pendingStatus = useQuery({
+    queryKey: ['billing-checkout-status', activeOrg.id, pending?.ref],
+    queryFn: () => api.billing.checkoutStatus(activeOrg.id, pending!.ref),
+    enabled: pending !== null,
+    refetchInterval: (q) => {
+      if (!pending || Date.now() > pending.until) return false;
+      return checkoutStatusPanel(q.state.data ?? null).done ? false : PENDING_POLL_MS;
+    },
+  });
+  const pendingPanel = checkoutStatusPanel(pendingStatus.data ?? null);
+  const refetchBilling = billing.refetch;
+  const refetchInvoices = invoices.refetch;
+  useEffect(() => {
+    if (pendingPanel.confirmed) {
+      void refetchBilling();
+      void refetchInvoices();
+    }
+  }, [pendingPanel.confirmed, refetchBilling, refetchInvoices]);
 
   const send = async () => {
     if (!asking) return;
@@ -136,13 +198,34 @@ export default function BillingPage() {
     }
   };
 
-  const checkout = async (priceId: string) => {
+  const checkout = async (priceId: string, providerForCountry: string | undefined) => {
     setPaying(priceId);
+    setCheckoutError(null);
+    // Razorpay: open the tab now, inside the click, so the browser does not block it.
+    const newTab = providerForCountry === 'RAZORPAY_BILLING';
+    const tab = newTab ? window.open('', '_blank') : null;
     try {
       const session = await api.billing.checkout(activeOrg.id, priceId);
-      window.location.assign(session.url);
+      if (!newTab) {
+        window.location.assign(session.url);
+        return;
+      }
+      if (tab) {
+        tab.opener = null;
+        tab.location.href = session.url;
+      }
+      setPending({
+        ref: session.sessionRef,
+        url: session.url,
+        blocked: !tab,
+        until: Date.now() + PENDING_POLL_WINDOW_MS,
+      });
+      setQuoting(null);
+      setPaying(null);
     } catch (err) {
-      toast.push(errorMessage(err), 'error');
+      tab?.close();
+      // Said in the dialog, next to the quote, not only in a passing toast.
+      setCheckoutError(errorMessage(err));
       setPaying(null);
     }
   };
@@ -258,6 +341,59 @@ export default function BillingPage() {
               <Info className="mt-0.5 h-5 w-5 shrink-0 text-action-primary" aria-hidden />
             )}
             <p className="text-[0.9375rem] text-text-secondary">{returnMessage}</p>
+          </div>
+        </Card>
+      )}
+
+      {pending && (
+        <Card>
+          <div className="flex items-start gap-3" role="status" aria-live="polite">
+            {pendingPanel.confirmed ? (
+              <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-status-success" aria-hidden />
+            ) : (
+              <Info className="mt-0.5 h-5 w-5 shrink-0 text-action-primary" aria-hidden />
+            )}
+            <div className="space-y-3">
+              <p className="text-[0.9375rem] text-text-secondary">
+                {pending.blocked && !pendingStatus.data
+                  ? PAYMENT_TAB_BLOCKED
+                  : pendingPanel.message}
+              </p>
+              {!pendingPanel.done && Date.now() > pending.until && (
+                <p className="text-[0.9375rem] text-text-secondary">{PAYMENT_NOT_CONFIRMED_YET}</p>
+              )}
+              {pendingStatus.isError && (
+                <p className="text-sm text-status-error">{errorMessage(pendingStatus.error)}</p>
+              )}
+              {!pendingPanel.done && (
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    loading={pendingStatus.isFetching}
+                    onClick={() => {
+                      setPending({ ...pending, until: Date.now() + PENDING_POLL_WINDOW_MS });
+                      void pendingStatus.refetch();
+                    }}
+                  >
+                    {REFRESH_STATUS_LABEL}
+                  </Button>
+                  <a
+                    href={pending.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center rounded-md border border-border px-3 py-1.5 text-sm font-medium text-text-primary"
+                  >
+                    Open the payment page
+                  </a>
+                </div>
+              )}
+              {pendingPanel.done && (
+                <Button size="sm" variant="outline" onClick={() => setPending(null)}>
+                  Close
+                </Button>
+              )}
+            </div>
           </div>
         </Card>
       )}
@@ -380,14 +516,21 @@ export default function BillingPage() {
                     {action.label}
                   </Button>
                 )}
+                {action.kind === 'unavailable' && (
+                  <p className="mt-4 text-sm text-text-muted">{action.label}</p>
+                )}
                 {action.kind === 'checkout' && (
                   <div className="mt-4 flex flex-wrap gap-2">
-                    {plan.prices.map((p) => (
+                    {purchasablePrices(plan).map((p) => (
                       <Button
                         key={p.id}
                         size="sm"
                         loading={paying === p.id}
-                        onClick={() => void checkout(p.id)}
+                        disabled={pending !== null && !pendingPanel.done}
+                        onClick={() => {
+                          setCheckoutError(null);
+                          setQuoting({ plan, price: p });
+                        }}
                       >
                         <CreditCard className="h-4 w-4" aria-hidden />
                         {action.label} ({p.interval === 'YEAR' ? 'yearly' : 'monthly'})
@@ -462,6 +605,69 @@ export default function BillingPage() {
           </Card>
         )}
       </section>
+
+      <Dialog
+        open={quoting !== null}
+        onClose={() => setQuoting(null)}
+        title={quoting ? `${quoting.plan.name}: what you pay` : 'What you pay'}
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setQuoting(null)} disabled={paying !== null}>
+              Not now
+            </Button>
+            <Button
+              loading={paying !== null}
+              disabled={!quote.data || !quoteCanContinue(quote.data)}
+              onClick={() => quoting && void checkout(quoting.price.id, b.providerForCountry)}
+            >
+              <CreditCard className="h-4 w-4" aria-hidden />
+              Continue to payment
+            </Button>
+          </>
+        }
+      >
+        {quote.isLoading ? (
+          <Skeleton className="h-24" />
+        ) : quote.isError ? (
+          <p className="text-sm text-status-error" role="alert">
+            {errorMessage(quote.error)}
+          </p>
+        ) : quote.data ? (
+          <div className="space-y-3">
+            <table className="w-full text-sm tabular-nums">
+              <tbody>
+                {quoteRows(quote.data).map((r) => (
+                  <tr
+                    key={r.label}
+                    className={r.total ? 'border-t border-border font-semibold' : ''}
+                  >
+                    <th scope="row" className="py-1 text-left font-normal text-text-secondary">
+                      {r.label}
+                    </th>
+                    <td className="py-1 text-right text-text-primary">{r.amount}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {!quoteCanContinue(quote.data) && (
+              <p className="text-sm text-status-error" role="alert">
+                {QUOTE_MISMATCH}
+              </p>
+            )}
+            {b.providerForCountry === 'RAZORPAY_BILLING' && quoteCanContinue(quote.data) && (
+              <p className="text-sm text-text-muted">
+                The payment page opens in a new tab. This amount is charged now and again each{' '}
+                {quote.data.interval === 'YEAR' ? 'year' : 'month'} until you cancel.
+              </p>
+            )}
+          </div>
+        ) : null}
+        {checkoutError && (
+          <p className="mt-3 text-sm text-status-error" role="alert">
+            {checkoutError}
+          </p>
+        )}
+      </Dialog>
 
       <Dialog
         open={cancelOpen}

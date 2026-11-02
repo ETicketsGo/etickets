@@ -25,7 +25,57 @@ export interface BillingInvoiceView {
   periodStart: Date | null;
   periodEnd: Date | null;
   sellerName: string;
-  billedTo: { name: string; country: string; taxId: string | null; email: string | null };
+  /** Registration facts frozen on the document (India: GSTIN, SAC, address, state). */
+  seller?: InvoiceSellerFacts | null;
+  billedTo: {
+    name: string;
+    country: string;
+    taxId: string | null;
+    email: string | null;
+    /** The organizer's state, as frozen on the document. */
+    state?: string | null;
+  };
+  /** The provider's payment id. */
+  paymentRef?: string | null;
+}
+
+export interface InvoiceSellerFacts {
+  gstin: string | null;
+  sac: string | null;
+  address: string | null;
+  state: string | null;
+  stateCode: string | null;
+}
+
+const text = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v : null);
+
+/**
+ * The seller facts, buyer and payment reference frozen on an invoice's document. An invoice
+ * issued before they were recorded has none of them, and renders as it did.
+ */
+export function invoiceDocumentFacts(documentJson: unknown): {
+  seller: InvoiceSellerFacts | null;
+  buyer: { name: string | null; state: string | null; taxId: string | null } | null;
+  paymentRef: string | null;
+} {
+  const doc = (documentJson ?? {}) as Record<string, unknown>;
+  const s = (doc.seller ?? null) as Record<string, unknown> | null;
+  const b = (doc.buyer ?? null) as Record<string, unknown> | null;
+  const seller =
+    s && (text(s.gstin) || text(s.sac) || text(s.address) || text(s.state))
+      ? {
+          gstin: text(s.gstin),
+          sac: text(s.sac),
+          address: text(s.address),
+          state: text(s.state),
+          stateCode: text(s.stateCode),
+        }
+      : null;
+  return {
+    seller,
+    buyer: b ? { name: text(b.name), state: text(b.state), taxId: text(b.taxId) } : null,
+    paymentRef: text(doc.paymentRef),
+  };
 }
 
 /** What every invoice said before invoices recorded their issuing company. */
@@ -58,7 +108,7 @@ export function renderBillingInvoiceHtml(v: BillingInvoiceView): string {
   const rows = v.lines
     .map(
       (l) =>
-        `<tr><td>${esc(l.description)}</td><td class="num">${esc(l.quantity)}</td>` +
+        `<tr><td>${esc(l.description)}${v.seller?.sac ? ` <span class="muted">(SAC ${esc(v.seller.sac)})</span>` : ''}</td><td class="num">${esc(l.quantity)}</td>` +
         `<td class="num">${money(l.unitAmountMinor)}</td>` +
         `<td class="num">${money(l.quantity * l.unitAmountMinor)}</td></tr>`,
     )
@@ -82,12 +132,27 @@ export function renderBillingInvoiceHtml(v: BillingInvoiceView): string {
           .join('\n      ')
       : `<tr><th colspan="3">Tax</th><td class="num">${money(v.taxMinor)}</td></tr>`;
   const supply = v.placeOfSupply ? `<li>Place of supply: ${esc(v.placeOfSupply)}.</li>` : '';
+  const f = v.seller ?? null;
+  // A GST tax invoice says so, and names the seller's registration.
+  const title = f?.gstin ? 'Tax invoice' : 'Invoice';
+  const sellerFacts = f
+    ? [
+        f.address ? `<div class="muted">${esc(f.address)}</div>` : '',
+        f.state
+          ? `<div class="muted">State: ${esc(f.state)}${f.stateCode ? ` (code ${esc(f.stateCode)})` : ''}</div>`
+          : '',
+        f.gstin ? `<div>GSTIN: ${esc(f.gstin)}</div>` : '',
+      ].join('')
+    : '';
+  const sac = f?.sac ? `<li>SAC: ${esc(f.sac)}.</li>` : '';
+  const paymentRef = v.paymentRef ? `<li>Payment reference: ${esc(v.paymentRef)}.</li>` : '';
+  const buyerTaxLabel = v.billedTo.country === 'IN' ? 'GSTIN' : 'Tax ID';
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Invoice ${esc(v.number)}</title>
+<title>${title} ${esc(v.number)}</title>
 <style>
   :root { color-scheme: light; }
   * { box-sizing: border-box; }
@@ -101,6 +166,7 @@ export function renderBillingInvoiceHtml(v: BillingInvoiceView): string {
   .number { font-size: 15px; font-weight: 600; }
   .muted { color: #555; }
   .seller { text-align: right; font-weight: 600; font-size: 15px; }
+  .seller .facts { font-weight: 400; font-size: 13px; margin-top: 4px; }
   .label { text-transform: uppercase; letter-spacing: .08em; font-size: 11px; color: #666; margin: 24px 0 4px; }
   .paid { display: inline-block; margin-top: 6px; padding: 2px 8px; border: 1px solid #1a1a1a;
           font-size: 12px; font-weight: 700; letter-spacing: .08em; }
@@ -120,17 +186,17 @@ export function renderBillingInvoiceHtml(v: BillingInvoiceView): string {
 <div class="sheet">
   <header>
     <div>
-      <h1>Invoice</h1>
+      <h1>${title}</h1>
       <div class="number">${esc(v.number)}</div>
       <div class="muted">Issued ${esc(day(v.issuedAt))}</div>
       ${period}
       ${v.status === 'PAID' ? '<div class="paid">PAID</div>' : ''}
     </div>
-    <div class="seller">${esc(v.sellerName)}</div>
+    <div class="seller">${esc(v.sellerName)}${sellerFacts ? `<div class="facts">${sellerFacts}</div>` : ''}</div>
   </header>
   <div class="label">Billed to</div>
   <div>${esc(v.billedTo.name)}</div>
-  <div class="muted">${esc(v.billedTo.country)}${v.billedTo.taxId ? ` - Tax ID ${esc(v.billedTo.taxId)}` : ''}</div>
+  <div class="muted">${v.billedTo.state ? `${esc(v.billedTo.state)}, ` : ''}${esc(v.billedTo.country)}${v.billedTo.taxId ? ` - ${buyerTaxLabel} ${esc(v.billedTo.taxId)}` : ''}</div>
   ${v.billedTo.email ? `<div class="muted">${esc(v.billedTo.email)}</div>` : ''}
   <table>
     <thead><tr><th>Description</th><th class="num">Qty</th><th class="num">Price</th><th class="num">Amount</th></tr></thead>
@@ -146,6 +212,8 @@ ${rows}
   <ul class="notes">
     ${taxNote}
     ${supply}
+    ${sac}
+    ${paymentRef}
     <li>This invoice is for an ETicketsGo plan or credits. It is not a ticket receipt.</li>
   </ul>
 </div>

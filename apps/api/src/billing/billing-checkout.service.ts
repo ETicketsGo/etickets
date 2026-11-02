@@ -6,7 +6,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import { redirectUrl } from '../common/console-urls';
 import { SubscriptionService } from './subscription.service';
-import { ensureBillingAccount } from './billing-account';
+import { billingCountryOf, ensureBillingAccount } from './billing-account';
+import { assertIndiaSellerReady } from './billing-seller';
 import { CreditPackPricesService } from './credit-pack-prices.service';
 import { BillingTaxService } from './billing-tax.service';
 import { BillingProviderRegistry } from './provider/billing-provider.registry';
@@ -63,6 +64,8 @@ export class BillingCheckoutService {
         HttpStatus.CONFLICT,
       );
     }
+    // India: no checkout while a GST tax invoice could not be issued for it (PRODUCTION).
+    assertIndiaSellerReady((n) => this.config.get<string>(n), country);
   }
 
   private returnUrl(query: string): string {
@@ -171,6 +174,124 @@ export class BillingCheckoutService {
       successUrl: this.returnUrl('checkout=success'),
       cancelUrl: this.returnUrl('checkout=cancelled'),
     });
+  }
+
+  /**
+   * What a plan price costs with tax, itemised, before the organizer is sent to pay: the same
+   * quote the checkout uses, plus - where the provider's plan carries the amount (Razorpay) -
+   * what that plan will actually charge, so the console can refuse to continue on a mismatch.
+   * Reads only: nothing is created here, not even the billing account.
+   */
+  async quotePlan(organizationId: string, priceId: string) {
+    const [org, account] = await Promise.all([
+      this.prisma.organization.findUnique({
+        where: { id: organizationId },
+        select: { registeredCountry: true },
+      }),
+      this.prisma.organizerBillingAccount.findUnique({ where: { organizationId } }),
+    ]);
+    const country =
+      account?.country && account.country !== 'XX'
+        ? account.country
+        : (billingCountryOf(org?.registeredCountry) ?? 'XX');
+    this.assertEnabled(country);
+    const price = await this.prisma.billingPrice.findUnique({ where: { id: priceId } });
+    if (!price || !price.active || price.country !== country) {
+      throw new AppException(
+        ErrorCodes.NOT_FOUND,
+        'That price is not offered in your country.',
+        HttpStatus.NOT_FOUND,
+      );
+    }
+    const tax = await this.tax.quote({
+      organizationId,
+      country,
+      currency: price.currency,
+      amountMinor: price.amountMinor,
+    });
+    const provider = await this.registry.forCountry(country);
+    const ref = provider.mode === 'live' ? price.providerPriceRefLive : price.providerPriceRefTest;
+    let providerChargeMinor: number | null = null;
+    if (provider.planCharge && ref && tax.mode === 'MANUAL') {
+      try {
+        const charge = await provider.planCharge(ref);
+        providerChargeMinor = charge.currency === price.currency ? charge.amountMinor : -1;
+      } catch {
+        providerChargeMinor = null;
+      }
+    }
+    return {
+      priceId: price.id,
+      interval: price.interval,
+      currency: price.currency,
+      mode: tax.mode,
+      netMinor: tax.netMinor,
+      taxMinor: tax.taxMinor,
+      totalMinor: tax.totalMinor,
+      lines: tax.lines.map((l) => ({
+        label: l.label,
+        rateBasisPoints: l.rateBasisPoints,
+        amountMinor: l.amountMinor,
+      })),
+      placeOfSupply: tax.jurisdiction.region,
+      interState: tax.jurisdiction.interState,
+      /** What the provider's plan charges per cycle; null when it could not be read here. */
+      providerChargeMinor,
+      /** False: the provider would charge something else, and the checkout will be refused. */
+      chargeMatches: providerChargeMinor === null ? null : providerChargeMinor === tax.totalMinor,
+    };
+  }
+
+  /**
+   * Where a plan checkout stands, for the console's "waiting for your payment" panel. The
+   * plan is ACTIVE only when OUR subscription says so, which only a verified provider payment
+   * applied by the webhook processor can make true. The provider's record of the checkout
+   * (Razorpay: created, authenticated, expired...) only says whether to keep waiting. Nothing
+   * here changes any state, and nothing the browser sends is taken as proof of payment.
+   */
+  async checkoutStatus(
+    organizationId: string,
+    ref: string,
+  ): Promise<{
+    state: 'ACTIVE' | 'PENDING' | 'PROCESSING' | 'FAILED' | 'EXPIRED' | 'UNKNOWN';
+    planActive: boolean;
+  }> {
+    const account = await this.prisma.organizerBillingAccount.findUnique({
+      where: { organizationId },
+    });
+    const current = account
+      ? await this.prisma.organizerSubscription.findUnique({ where: { currentKey: account.id } })
+      : null;
+    const planActive =
+      !!current && current.source === 'PROVIDER' && LIVE_PAID.includes(current.status);
+    if (planActive && (!ref || current!.providerSubscriptionRef === ref)) {
+      return { state: 'ACTIVE', planActive };
+    }
+    if (!account || !/^sub_[A-Za-z0-9]{6,40}$/.test(ref)) {
+      return { state: 'UNKNOWN', planActive };
+    }
+    const provider = await this.registry.byKey(account.provider);
+    if (provider.key !== 'RAZORPAY_BILLING' || !provider.fetchSubscription) {
+      return { state: 'UNKNOWN', planActive };
+    }
+    const rec = await provider.fetchSubscription(ref);
+    // Another organization's checkout is "not found", never a status: refs are not a way in.
+    if (!rec.verified || rec.organizationId !== organizationId) {
+      throw new AppException(ErrorCodes.NOT_FOUND, 'Checkout not found.', HttpStatus.NOT_FOUND);
+    }
+    switch (rec.status) {
+      case 'INCOMPLETE':
+        return { state: 'PENDING', planActive };
+      case 'AUTHENTICATED':
+      case 'ACTIVE':
+        // Paid or authorised at the provider; the plan starts when the webhook is applied.
+        return { state: 'PROCESSING', planActive };
+      case 'PAST_DUE':
+      case 'HALTED':
+        return { state: 'FAILED', planActive };
+      default:
+        return { state: 'EXPIRED', planActive };
+    }
   }
 
   async startCreditPackCheckout(

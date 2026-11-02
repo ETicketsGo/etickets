@@ -17,6 +17,13 @@ import { capabilityMissing, providerUnavailable } from './provider-errors';
 
 export const RAZORPAY_PURPOSE_SUBSCRIPTION = 'etg_billing_subscription';
 export const RAZORPAY_PURPOSE_CREDIT_PACK = 'etg_billing_credit_pack';
+/**
+ * How long an unpaid subscription page stays open. Razorpay's Subscriptions API accepts no
+ * return URL (callback_url and redirect_url are refused: "is/are not required and should not be
+ * sent", checked on the test API 2026-11-01), so the console opens the page in a new tab and
+ * polls our server. `expire_by` makes an abandoned page end as `expired` instead of lingering.
+ */
+export const RAZORPAY_CHECKOUT_EXPIRY_SECONDS = 24 * 60 * 60;
 
 type Obj = Record<string, unknown>;
 
@@ -170,6 +177,7 @@ export class RazorpaySubscriptionsProvider implements BillingProvider {
         // Razorpay needs a cycle count. Ten years; cancellation ends it sooner.
         total_count: req.interval === 'YEAR' ? 10 : 120,
         customer_notify: 1,
+        expire_by: Math.floor(Date.now() / 1000) + RAZORPAY_CHECKOUT_EXPIRY_SECONDS,
         notes,
       }),
     );
@@ -205,6 +213,23 @@ export class RazorpaySubscriptionsProvider implements BillingProvider {
     return { provider: this.key, sessionRef: str(link.id)!, url };
   }
 
+  async planCharge(providerPriceRef: string): Promise<{ amountMinor: number; currency: string }> {
+    const plan = await this.call(() => this.client.plans.fetch(providerPriceRef));
+    const item = (plan.item ?? {}) as Obj;
+    return {
+      amountMinor: Number(item.amount ?? 0),
+      currency: String(item.currency ?? '').toUpperCase(),
+    };
+  }
+
+  /**
+   * Asks Razorpay to cancel at the end of the current cycle (`cancel_at_cycle_end: 1`; the SDK
+   * sends it only for a truthy second argument). Razorpay's answer to that request is the
+   * subscription still `active`, with no field that records the scheduled cancellation
+   * (has_scheduled_changes stays false, end_at and charge_at unchanged - checked on the test
+   * API 2026-11-01), so the only confirmation is the id coming back and, at the cycle end, the
+   * `subscription.cancelled` webhook.
+   */
   async cancelAtPeriodEnd(subscriptionRef: string): Promise<ProviderSubscriptionRecord> {
     const sub = await this.call(() => this.client.subscriptions.cancel(subscriptionRef, true));
     return { ...this.subscriptionRecord(sub), cancelAtPeriodEnd: true };
@@ -326,6 +351,7 @@ export class RazorpaySubscriptionsProvider implements BillingProvider {
       subscriptionRef: str(sub.id) ?? '',
       customerRef: str(sub.customer_id),
       status: razorpayStatus(str(sub.status) ?? ''),
+      providerStatus: str(sub.status),
       providerPriceRef: str(sub.plan_id),
       // Razorpay does not report a scheduled cancellation on the subscription; ours is recorded
       // when we ask for it (cancelAtPeriodEnd), so reconciliation never "resumes" it.

@@ -4,7 +4,13 @@ import {
   money,
   type BillingPlanCode,
 } from '@eticketsgo/shared-types';
-import type { BillingPlanPrice, BillingPlanSummary, OrganizerBilling } from '@eticketsgo/web-kit';
+import type {
+  BillingCheckoutStatus,
+  BillingPlanPrice,
+  BillingPlanQuote,
+  BillingPlanSummary,
+  OrganizerBilling,
+} from '@eticketsgo/web-kit';
 
 /**
  * The words on Billing & plans, kept out of the page so they are tested.
@@ -56,10 +62,57 @@ export function planStatusSentence(
   }
 }
 
-/** "Rs 999 a month" style labels, using the shared money format. */
-export function priceLabel(price: BillingPlanPrice): string {
-  return `${money(price.amountMinor, price.currency)} ${price.interval === 'YEAR' ? 'a year' : 'a month'}`;
+/**
+ * What is added on top of a catalogue price. Indian plan prices are before GST, which is added
+ * at checkout at whatever rate the server's tax rules give (never a rate written here).
+ */
+export function priceTaxSuffix(currency: string): string {
+  return currency === 'INR' ? ' + applicable GST' : '';
 }
+
+/** "Rs 999 a month + applicable GST" style labels, using the shared money format. */
+export function priceLabel(price: BillingPlanPrice): string {
+  return `${money(price.amountMinor, price.currency)} ${price.interval === 'YEAR' ? 'a year' : 'a month'}${priceTaxSuffix(price.currency)}`;
+}
+
+/** The prices that can be bought here now (the server says; an older API omits the flag). */
+export function purchasablePrices(plan: Pick<BillingPlanSummary, 'prices'>): BillingPlanPrice[] {
+  return plan.prices.filter((p) => p.purchasable !== false);
+}
+
+const rate = (bps: number) => `${(bps / 100).toFixed(bps % 100 === 0 ? 0 : 2)}%`;
+
+/** The itemised quote shown before paying: base, each tax with its rate, total. */
+export function quoteRows(
+  q: BillingPlanQuote,
+): { label: string; amount: string; total?: boolean }[] {
+  const rows: { label: string; amount: string; total?: boolean }[] = [
+    { label: 'Plan price', amount: money(q.netMinor, q.currency) },
+  ];
+  for (const l of q.lines) {
+    rows.push({
+      label: l.rateBasisPoints > 0 ? `${l.label} (${rate(l.rateBasisPoints)})` : l.label,
+      amount: money(l.amountMinor, q.currency),
+    });
+  }
+  if (q.mode === 'PROVIDER_AUTOMATIC') {
+    rows.push({ label: 'Tax', amount: 'Worked out at checkout' });
+  }
+  rows.push({
+    label: `Total ${q.interval === 'YEAR' ? 'a year' : 'a month'}`,
+    amount: money(q.totalMinor, q.currency),
+    total: true,
+  });
+  return rows;
+}
+
+/** Whether the organizer may continue to pay: refused when the provider would charge otherwise. */
+export function quoteCanContinue(q: BillingPlanQuote): boolean {
+  return q.chargeMatches !== false;
+}
+
+export const QUOTE_MISMATCH =
+  'We cannot take this payment now: the payment provider would charge a different amount from this quote. Nothing was charged. Contact ETicketsGo support.';
 
 /** The lines a plan card lists, in catalogue order: "2,000 campaign emails a month", "Email campaigns". */
 export function planFeatureLines(plan: Pick<BillingPlanSummary, 'entitlements'>): string[] {
@@ -78,16 +131,22 @@ export function planFeatureLines(plan: Pick<BillingPlanSummary, 'entitlements'>)
   return lines;
 }
 
-/** What an upgrade button says and does while paid plans are closed or open. */
+/**
+ * What an upgrade button says and does while paid plans are closed or open.
+ *
+ * Closed (billing off): "Ask about <plan>". Open, but no price of this plan can be bought here
+ * (no provider plan for this deployment, or none in this country): no button, a plain sentence.
+ */
 export function upgradeAction(
   billing: Pick<OrganizerBilling, 'billingEnabled' | 'currentPlanCode'>,
   plan: Pick<BillingPlanSummary, 'code' | 'prices'>,
-): { kind: 'current' | 'none' | 'ask' | 'checkout'; label: string } {
+): { kind: 'current' | 'none' | 'ask' | 'unavailable' | 'checkout'; label: string } {
   if (plan.code === billing.currentPlanCode) return { kind: 'current', label: 'Your plan' };
   if (plan.code === 'FREE') return { kind: 'none', label: '' };
   const name = PLAN_NAMES[plan.code];
-  if (!billing.billingEnabled || plan.prices.length === 0) {
-    return { kind: 'ask', label: `Ask about ${name}` };
+  if (!billing.billingEnabled) return { kind: 'ask', label: `Ask about ${name}` };
+  if (purchasablePrices(plan).length === 0) {
+    return { kind: 'unavailable', label: `${name} is not available to buy yet in your country.` };
   }
   return { kind: 'checkout', label: `Upgrade to ${name}` };
 }
@@ -137,6 +196,49 @@ export function paidPlanControls(billing: Pick<OrganizerBilling, 'subscription' 
     cancel: paid && !s!.cancelAtPeriodEnd,
   };
 }
+
+// ── Paying in another tab (Razorpay: its subscription page cannot send you back) ─────
+
+/**
+ * What the "waiting for your payment" panel says for the SERVER's answer. Only the server's
+ * ACTIVE (a verified provider payment applied by the webhook) is "confirmed"; nothing the
+ * browser has - an address, a query parameter, a closed tab - can make it so.
+ */
+export function checkoutStatusPanel(status: BillingCheckoutStatus | null): {
+  message: string;
+  done: boolean;
+  confirmed: boolean;
+} {
+  if (!status) return { message: PAY_IN_NEW_TAB, done: false, confirmed: false };
+  switch (status.state) {
+    case 'ACTIVE':
+      return status.planActive
+        ? { message: PAYMENT_CONFIRMED, done: true, confirmed: true }
+        : { message: CHECKOUT_PROCESSING, done: false, confirmed: false };
+    case 'PROCESSING':
+      return { message: CHECKOUT_PROCESSING, done: false, confirmed: false };
+    case 'FAILED':
+      return { message: CHECKOUT_FAILED, done: true, confirmed: false };
+    case 'EXPIRED':
+      return { message: CHECKOUT_EXPIRED, done: true, confirmed: false };
+    case 'PENDING':
+    case 'UNKNOWN':
+    default:
+      return { message: PAY_IN_NEW_TAB, done: false, confirmed: false };
+  }
+}
+
+export const PAY_IN_NEW_TAB =
+  'The payment page is open in a new tab. When you have paid there, come back to this tab. We check your payment every few seconds.';
+export const CHECKOUT_PROCESSING =
+  'We have your payment details. We are waiting for the payment provider to confirm the payment. Your plan starts as soon as it does.';
+export const CHECKOUT_FAILED =
+  'The payment did not go through. Nothing changed on your plan. You can try again.';
+export const CHECKOUT_EXPIRED =
+  'This payment page has closed without a payment. Nothing was charged. You can start again.';
+export const REFRESH_STATUS_LABEL = 'I have paid - check again';
+export const PAYMENT_TAB_BLOCKED =
+  'Your browser blocked the new tab. Use the button below to open the payment page.';
 
 /** How long the return page keeps asking the server before it says "not confirmed yet". */
 export const CONFIRM_POLL_MS = 3_000;
