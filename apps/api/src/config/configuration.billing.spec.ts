@@ -93,6 +93,7 @@ describe('billing configuration', () => {
       RAZORPAY_BILLING_KEY_SECRET: 'rzpsecretVALUE',
       RAZORPAY_BILLING_WEBHOOK_SECRET: 'rzpwebhookVALUE',
       // GST tax invoice seller facts: TEST values (format-valid, not a real registration).
+      BILLING_SELLER_GST_STATUS_IN: 'REGISTERED',
       BILLING_SELLER_GSTIN_IN: '36TESTA0000T1ZO',
       BILLING_SELLER_SAC_IN: '990000',
       BILLING_SELLER_ADDRESS_IN: 'TEST ONLY, 1 Test Street, Hyderabad 500001',

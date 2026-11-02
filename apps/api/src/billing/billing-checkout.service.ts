@@ -235,6 +235,8 @@ export class BillingCheckoutService {
       })),
       placeOfSupply: tax.jurisdiction.region,
       interState: tax.jurisdiction.interState,
+      /** India: REGISTERED (GST added) or UNREGISTERED (no GST; total = price). Else null. */
+      sellerGstStatus: tax.sellerGstStatus,
       /** What the provider's plan charges per cycle; null when it could not be read here. */
       providerChargeMinor,
       /** False: the provider would charge something else, and the checkout will be refused. */

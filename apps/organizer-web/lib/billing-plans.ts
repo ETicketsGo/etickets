@@ -64,15 +64,22 @@ export function planStatusSentence(
 
 /**
  * What is added on top of a catalogue price. Indian plan prices are before GST, which is added
- * at checkout at whatever rate the server's tax rules give (never a rate written here).
+ * at checkout at whatever rate the server's tax rules give (never a rate written here) - but
+ * only when the server says the seller is GST-registered. An UNREGISTERED seller charges no
+ * GST: the price is the total and nothing is added. Without the server's word (an older API),
+ * the cautious label stays.
  */
-export function priceTaxSuffix(currency: string): string {
-  return currency === 'INR' ? ' + applicable GST' : '';
+export function priceTaxSuffix(
+  currency: string,
+  sellerGstStatus?: BillingPlanPrice['sellerGstStatus'],
+): string {
+  if (currency !== 'INR') return '';
+  return sellerGstStatus === 'UNREGISTERED' ? '' : ' + applicable GST';
 }
 
 /** "Rs 999 a month + applicable GST" style labels, using the shared money format. */
 export function priceLabel(price: BillingPlanPrice): string {
-  return `${money(price.amountMinor, price.currency)} ${price.interval === 'YEAR' ? 'a year' : 'a month'}${priceTaxSuffix(price.currency)}`;
+  return `${money(price.amountMinor, price.currency)} ${price.interval === 'YEAR' ? 'a year' : 'a month'}${priceTaxSuffix(price.currency, price.sellerGstStatus)}`;
 }
 
 /** The prices that can be bought here now (the server says; an older API omits the flag). */

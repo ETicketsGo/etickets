@@ -94,6 +94,7 @@ price and says "<Plan> is not available to buy yet in your country."
 | `STRIPE_API_VERSION`                 | Optional pin, shared with the ticket adapter; unset = the SDK's pinned version.              |
 | `STRIPE_BILLING_AUTOMATIC_TAX`       | `false` by default. `true`: US plan and pack tax from Stripe Tax (`automatic_tax`).          |
 | `PLATFORM_TAX_REGION`                | The state the platform is registered in (India). Decides CGST + SGST against IGST.           |
+| `BILLING_SELLER_GST_STATUS_IN`       | `UNVERIFIED` (default) \| `UNREGISTERED` \| `REGISTERED`. Declared by the owner; see below.  |
 | `BILLING_SELLER_GSTIN_IN`            | The seller's GSTIN on Indian invoices. Format and check character are verified.              |
 | `BILLING_SELLER_SAC_IN`              | The SAC of the platform service (6 digits, `99xxxx`), printed on each invoice line.          |
 | `BILLING_SELLER_ADDRESS_IN`          | The registered address (principal place of business) printed on Indian invoices.             |
@@ -101,6 +102,31 @@ price and says "<Plan> is not available to buy yet in your country."
 The three `BILLING_SELLER_*_IN` values and `PLATFORM_TAX_REGION` come from the GST registration
 certificate, from the owner. They are never written in code or fixtures (tests use values marked
 TEST). The seller's legal name is the India entity in `packages/shared-types/src/legal.ts`.
+
+### India seller GST status (`BILLING_SELLER_GST_STATUS_IN`)
+
+Explicit only: it is never worked out from turnover. `billing/billing-seller.ts` holds the rules.
+
+| Status         | Needs                                                                                                    | Tax on organizer billing                                                              | Invoice                                                                                                                                                                                        |
+| -------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `REGISTERED`   | GSTIN (checksum, same state), SAC, address, `PLATFORM_TAX_REGION`, an active `PLATFORM_SERVICES` TaxRule | GST from the rule (CGST + SGST or IGST)                                               | "Tax invoice": GSTIN, SAC, state, tax lines with rates                                                                                                                                         |
+| `UNREGISTERED` | address, `PLATFORM_TAX_REGION`. A GSTIN set as well is a contradiction                                   | None. `PLATFORM_SERVICES` rules are not read (not deleted)                            | "Invoice": seller name + address + state, buyer, place of supply, line, total, payment reference, the note "GST not charged: supplier not registered under GST." No tax line, no GSTIN, no SAC |
+| `UNVERIFIED`   | (default)                                                                                                | PRODUCTION: refused. Elsewhere: as REGISTERED if a GSTIN is set, else as UNREGISTERED | as the status it acts as                                                                                                                                                                       |
+
+- PRODUCTION refuses an Indian quote, checkout and invoice while the status is `UNVERIFIED`, a
+  fact it needs is missing or invalid, or `UNREGISTERED` has a GSTIN; boot refuses the same with
+  `IN` in `BILLING_LIVE_MARKETS` (the message names `BILLING_SELLER_GST_STATUS_IN`).
+- Each invoice freezes the status (`documentJson.sellerGstStatus` and `seller.gstStatus`); an
+  issued invoice keeps its status after the configuration changes. An unregistered invoice that
+  carries tax is refused before a number is taken.
+- The console labels an INR price "+ applicable GST" only when the server reports the seller is
+  not `UNREGISTERED` (`prices[].sellerGstStatus`; the quote also returns `sellerGstStatus`).
+- Organizer billing has no refund or credit-note document of its own; a billing adjustment is
+  labelled "Credit note" / "Refund" / "Discount", never "GST credit note".
+- The Razorpay plan amount follows the status: UNREGISTERED charges the price (Pro monthly
+  `99900`); REGISTERED charges price plus GST (`117882` at the TEST 18% rule). `chargeMatches`
+  on the quote, and the checkout itself, refuse a plan that charges anything else. Switching
+  modes means re-pointing `BillingPrice.providerPriceRefTest` / `...Live` to the matching plan.
 
 Every credential above may instead be given as a secret reference in `<NAME>_REF` (for example
 `STRIPE_BILLING_WEBHOOK_SECRET_REF=billing/stripe/test/webhook-secret`), resolved through
@@ -110,10 +136,12 @@ Boot refuses (`billingConfigurationErrors`) outside PRODUCTION: `BILLING_PROVIDE
 outside LOCAL, DEV and QA; `BILLING_ENABLED=true` in STAGING; any LIVE key (`sk_live_`,
 `rk_live_`, `rzp_live_`) for billing; `BILLING_ENABLED=true` with neither provider fully
 configured; `BILLING_LIVE_ENABLED=true` or a non-empty `BILLING_LIVE_MARKETS`. In PRODUCTION
-with `IN` in `BILLING_LIVE_MARKETS`, boot also refuses unless `BILLING_SELLER_GSTIN_IN` (valid
-GSTIN, its state code = `PLATFORM_TAX_REGION`), `BILLING_SELLER_SAC_IN`,
-`BILLING_SELLER_ADDRESS_IN` and `PLATFORM_TAX_REGION` are all set; at runtime an Indian checkout,
-quote or invoice is refused on the same condition (`billing/billing-seller.ts`). QA and the other
+with `IN` in `BILLING_LIVE_MARKETS`, boot also refuses unless `BILLING_SELLER_GST_STATUS_IN` is
+declared and its facts are complete: REGISTERED needs `BILLING_SELLER_GSTIN_IN` (valid GSTIN, its
+state code = `PLATFORM_TAX_REGION`), `BILLING_SELLER_SAC_IN`, `BILLING_SELLER_ADDRESS_IN` and
+`PLATFORM_TAX_REGION`; UNREGISTERED needs the address and `PLATFORM_TAX_REGION` and no GSTIN. At
+runtime an Indian checkout, quote or invoice is refused on the same condition
+(`billing/billing-seller.ts`). QA and the other
 non-production environments are unchanged by the production gate below.
 
 ## Production live billing (the gate)
@@ -190,9 +218,10 @@ sell it.
 1. Ask Razorpay to enable **Subscriptions** on the account (it is not on by default). Until it is,
    checkout answers "Paying for a plan through Razorpay is not switched on for this account yet".
 2. Create a Plan per BillingPrice (INR, `period` monthly or yearly, `interval` 1). Razorpay
-   computes no tax, so the plan amount is EXACTLY the BillingPrice amount PLUS GST as the
-   configured rule gives it (the checkout's tax quote `totalMinor`; for example Pro INR 999 plus
-   the rule's GST). Write each plan id to `BillingPrice.providerPriceRefTest`. Checkout refuses a
+   computes no tax, so the plan amount is EXACTLY the checkout's tax quote `totalMinor`: the
+   BillingPrice amount PLUS GST as the configured rule gives it when the seller is REGISTERED
+   (Pro INR 999 -> 117882 at the TEST 18% rule), the BillingPrice amount alone (99900) when it is
+   UNREGISTERED. Write each plan id to `BillingPrice.providerPriceRefTest`. Checkout refuses a
    plan whose amount, currency or period differs from price plus tax. A GST rate change needs a
    new Razorpay plan (and its ref), or renewals are refused as a mismatch for staff to see.
 3. Add a webhook `https://<qa-api-host>/api/billing/webhooks/razorpay` with its own secret
@@ -311,7 +340,10 @@ had ever been issued in any environment).
   staff cannot make a paid pack look wrong.
 - The invoice prints each tax line (label and rate) and the place of supply. "Tax not applied"
   is printed only for an invoice with no tax line at all (the test double).
-- **India: a GST tax invoice.** An ETGB invoice freezes, at issue, the seller (legal name, GSTIN,
+- **India, unregistered seller: an ordinary invoice** (`BILLING_SELLER_GST_STATUS_IN=UNREGISTERED`):
+  titled "Invoice", no tax lines, no GSTIN, no SAC, with the note "GST not charged: supplier not
+  registered under GST." See the status table above.
+- **India, registered seller: a GST tax invoice.** An ETGB invoice freezes, at issue, the seller (legal name, GSTIN,
   SAC, registered address, state and state code), the buyer (legal name, state, GSTIN when the
   billing account has one in `taxId`) and the provider payment id (`documentJson.seller`,
   `.buyer`, `.paymentRef`). It prints "Tax invoice", the SAC on each line, the place of supply,

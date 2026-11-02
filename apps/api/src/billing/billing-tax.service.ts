@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import { computeTax, selectTaxRules, type TaxRuleInput } from '../pricing/tax-calculator';
 import { taxRuleFromRow } from '../tax/tax-rule-row';
+import { effectiveGstStatus, type EffectiveSellerGstStatus } from './billing-seller';
 
 /**
  * Tax on what the PLATFORM sells to an organizer: a plan subscription or an email credit pack.
@@ -30,6 +31,11 @@ import { taxRuleFromRow } from '../tax/tax-rule-row';
  * STRIPE_BILLING_AUTOMATIC_TAX=true hands US tax to Stripe Tax: the checkout is created with
  * `automatic_tax` and tax-exclusive prices, and the invoice records the tax Stripe charged.
  * Off (the default), the US uses PLATFORM_SERVICES rules like India, per state.
+ *
+ * ── INDIA: AN UNREGISTERED SELLER CHARGES NO GST ─────────────────────────────────────
+ * BILLING_SELLER_GST_STATUS_IN=UNREGISTERED (billing-seller.ts): the PLATFORM_SERVICES rules
+ * are not read at all for India - they stay in place for the day the seller registers - and the
+ * quote is the base price with no tax line. PRODUCTION while UNVERIFIED: refused, never guessed.
  */
 export type BillingTaxMode = 'MANUAL' | 'PROVIDER_AUTOMATIC';
 
@@ -50,6 +56,8 @@ export interface BillingTaxQuote {
   /** What the organizer is charged (MANUAL). PROVIDER_AUTOMATIC: net, tax added by Stripe. */
   totalMinor: number;
   lines: BillingTaxLine[];
+  /** India only: the seller's GST status this quote was made under. Null elsewhere. */
+  sellerGstStatus: EffectiveSellerGstStatus | null;
   jurisdiction: {
     country: string;
     /** The organizer's billing state: the place of supply. */
@@ -100,10 +108,33 @@ export class BillingTaxService {
     const region = org?.registeredRegion?.trim() || null;
     const sellerRegion = this.config.get<string>('PLATFORM_TAX_REGION')?.trim() || null;
     const amount = Math.max(0, Math.round(input.amountMinor));
+    const sellerGstStatus =
+      input.country === 'IN' ? effectiveGstStatus((n) => this.config.get<string>(n)) : null;
     const base = {
       currency: input.currency,
+      sellerGstStatus,
       jurisdiction: { country: input.country, region, sellerRegion, interState: null },
     };
+
+    if (input.country === 'IN') {
+      if (sellerGstStatus === null) {
+        throw notConfigured(
+          'Paying for a plan is closed in India for now. Nothing was charged. Contact ETicketsGo support.',
+          { country: 'IN', missing: 'BILLING_SELLER_GST_STATUS_IN' },
+        );
+      }
+      if (sellerGstStatus === 'UNREGISTERED') {
+        // No GST: an unregistered supplier may not charge it. The price is the total.
+        return {
+          ...base,
+          mode: 'MANUAL',
+          netMinor: amount,
+          taxMinor: 0,
+          totalMinor: amount,
+          lines: [],
+        };
+      }
+    }
 
     if (input.country === 'US' && this.stripeAutomaticTax()) {
       return {

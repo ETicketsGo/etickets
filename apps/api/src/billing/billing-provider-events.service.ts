@@ -818,6 +818,8 @@ export class BillingProviderEventService {
       taxMinor: purchase.taxMinor,
       totalMinor: purchase.totalMinor,
       lines: purchase.taxLines as unknown as BillingTaxLine[],
+      // Informational only; the invoice takes the seller's status from its own snapshot.
+      sellerGstStatus: null,
       jurisdiction: {
         country: purchase.country,
         region: null,
