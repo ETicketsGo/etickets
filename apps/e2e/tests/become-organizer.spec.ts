@@ -36,6 +36,9 @@ async function registerAndSignIn(page: Page, who: ReturnType<typeof disposable>)
     localStorage.setItem('etg_access', t.accessToken);
     localStorage.setItem('etg_refresh', t.refreshToken);
   }, tokens);
+  // The session hint the browser's tokenStore writes beside the tokens; the storefront's
+  // middleware reads it to send a signed-out visitor straight to sign in.
+  await page.context().addCookies([{ name: 'etg_session', value: '1', url: CUSTOMER }]);
   return tokens;
 }
 

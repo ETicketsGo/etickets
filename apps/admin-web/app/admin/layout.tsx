@@ -14,20 +14,19 @@ import { StepUpProvider } from '@/components/step-up';
   link this operator could not see (`lib/page-access.ts`), instead of a refused request.
 */
 /*
-  While a signed-in operator's session is confirmed, the wait is drawn inside the console frame
-  (RequireAuth's `pendingFrame`), so a refresh does not paint an empty page with a spinner and
-  then the whole console round it. The frame asks the API for nothing of its own.
+  The frame is RequireAuth's (`frame`), not a child of it: it is drawn round the wait while the
+  operator's session is confirmed and stays the same element when the page replaces the
+  spinner, so a refresh shows the console from the first paint and nothing in it is remounted.
+  The frame asks the API for nothing of its own.
 */
-const adminPendingFrame = (content: React.ReactNode) => <AdminShell>{content}</AdminShell>;
+const adminFrame = (content: React.ReactNode) => <AdminShell>{content}</AdminShell>;
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   return (
-    <RequireAuth roles={['ADMIN', 'SUPER_ADMIN']} pendingFrame={adminPendingFrame}>
+    <RequireAuth roles={['ADMIN', 'SUPER_ADMIN']} frame={adminFrame}>
       <MfaGate>
         <StepUpProvider>
-          <AdminShell>
-            <PageAccessGate>{children}</PageAccessGate>
-          </AdminShell>
+          <PageAccessGate>{children}</PageAccessGate>
         </StepUpProvider>
       </MfaGate>
     </RequireAuth>

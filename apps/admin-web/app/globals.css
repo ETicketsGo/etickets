@@ -9,17 +9,6 @@
 @tailwind components;
 @tailwind utilities;
 
-/*
-  RequireAuth's two waiting screens (web-kit hooks.tsx): the console frame for a browser that
-  holds a session, the plain spinner for one that does not. Both are in the server HTML;
-  `sessionPresenceScript` in the root layout marks <html> before the first paint, and this
-  shows the one that is true, so a refresh never paints an empty page before the console.
-*/
-html:not([data-session='in']) [data-session-only='in'],
-html[data-session='in'] [data-session-only='out'] {
-  display: none;
-}
-
 html {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;

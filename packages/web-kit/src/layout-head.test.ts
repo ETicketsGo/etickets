@@ -17,10 +17,10 @@ describe('console root layouts', () => {
       expect(code).toMatch(
         /<body(?: data-brand="console")?>\s*<script dangerouslySetInnerHTML=\{\{ __html: workspaceThemeScript \}\} \/>/,
       );
-      // The pre-paint session mark RequireAuth's waiting screens depend on (refresh flicker).
-      expect(code).toMatch(
-        /<script dangerouslySetInnerHTML=\{\{ __html: workspaceThemeScript \}\} \/>\s*<script dangerouslySetInnerHTML=\{\{ __html: sessionPresenceScript \}\} \/>/,
-      );
+      // The session hint reaches RequireAuth, so a refresh draws the console frame from the
+      // first paint instead of an empty page with a spinner (refresh flicker, 2026-11).
+      expect(code).toContain('(await cookies()).get(SESSION_HINT_COOKIE)');
+      expect(code).toContain('<WebProviders sessionHint={sessionHint}>');
     });
   }
 });

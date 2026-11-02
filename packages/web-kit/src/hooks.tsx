@@ -3,6 +3,8 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { usePathname, useRouter } from 'next/navigation';
 import {
+  createContext,
+  useContext,
   useEffect,
   useReducer,
   useRef,
@@ -11,8 +13,8 @@ import {
   type ReactNode,
 } from 'react';
 import {
-  ACCESS_TOKEN_STORAGE_KEY,
   api,
+  backfillSessionHintCookie,
   tokenStore,
   getAuthSnapshot,
   getServerAuthSnapshot,
@@ -42,19 +44,23 @@ export function useHydrated(): boolean {
   );
 }
 
+const SessionHintContext = createContext(false);
+
 /**
- * Marks <html> with `data-session="in"` when this browser holds a session token, before the
- * first paint. Rendered by each console's root layout beside `workspaceThemeScript`.
- *
- * It does not authorise anything: it only chooses which of the two waiting screens that
- * `RequireAuth` puts in the server HTML is visible (the CSS is `[data-session-only]` in the
- * console's globals.css), so a signed-in refresh shows the console frame and a signed-out one
- * the plain spinner on its way to sign in. Wrapped, because a private window can throw on
- * localStorage, and then nothing is marked and the spinner shows, as before.
+ * What the SERVER believed about the session when it drew this page: the `etg_session` hint
+ * cookie `tokenStore` writes beside the tokens (see `SESSION_HINT_COOKIE`), read by the root
+ * layout and handed down here. A hint, never a credential: it only chooses which waiting screen
+ * the server draws, so the first paint already matches the person looking at it.
  */
-export const sessionPresenceScript = `(function(){try{
-if(localStorage.getItem('${ACCESS_TOKEN_STORAGE_KEY}')){document.documentElement.setAttribute('data-session','in');}
-}catch(e){}})();`;
+export function SessionHintProvider({
+  signedIn,
+  children,
+}: {
+  signedIn: boolean;
+  children: ReactNode;
+}) {
+  return <SessionHintContext.Provider value={signedIn}>{children}</SessionHintContext.Provider>;
+}
 
 /** Fetches the current user; null when signed out. */
 export function useAuthUser() {
@@ -86,7 +92,7 @@ export function RequireAuth({
   children,
   loginPath = '/login',
   roleMismatchRedirect,
-  pendingFrame,
+  frame,
 }: {
   roles?: string[];
   children: ReactNode;
@@ -102,18 +108,26 @@ export function RequireAuth({
    */
   roleMismatchRedirect?: string;
   /**
-   * The console's own frame, drawn around the spinner while a SIGNED-IN person's session is
-   * being confirmed. See `sessionPresenceScript` for why both answers are in the server HTML.
-   * Without it the wait is a bare spinner on an empty page - which, on every refresh of every
-   * console page, was a blank screen for a moment and then the whole console appearing round it.
+   * The console's frame (sidebar, top bar), drawn round the page AND round the wait while a
+   * signed-in person's session is confirmed - the same element in both, so it is never
+   * remounted. Without it the wait was a bare spinner on an empty page, and every refresh of
+   * every console page showed that blank page for a moment before the console appeared round
+   * it. Whether to draw it before the token can be read comes from `SessionHintProvider`.
    */
-  pendingFrame?: (content: ReactNode) => ReactNode;
+  frame?: (content: ReactNode) => ReactNode;
 }) {
   const router = useRouter();
   const pathname = usePathname();
   const { user, isLoading } = useAuthUser();
   const hydrated = useHydrated();
+  const hint = useContext(SessionHintContext);
   const hasToken = typeof window !== 'undefined' && !!tokenStore.access;
+  /*
+    Who the frame is drawn for. The server cannot read localStorage, so it - and the hydration
+    pass, which must draw exactly what the server drew - go by the hint; every render after
+    that goes by the token itself, which wins whenever the two disagree.
+  */
+  const framed = !!frame && (hydrated ? hasToken : hint);
   /*
     Re-read the session when it changes. A session can end under an open page - a team removal
     answers the next request, whichever request it is, by clearing the tokens - and without this
@@ -126,8 +140,10 @@ export function RequireAuth({
   useEffect(() => {
     if (!hasToken) {
       router.replace(`${loginPath}?next=${encodeURIComponent(pathname)}`);
+    } else if (frame) {
+      backfillSessionHintCookie();
     }
-  }, [hasToken, router, pathname, loginPath]);
+  }, [hasToken, router, pathname, loginPath, frame]);
 
   if (!hasToken || isLoading) {
     const spinner = (
@@ -135,26 +151,9 @@ export function RequireAuth({
         <Spinner />
       </div>
     );
-    if (!pendingFrame) return spinner;
-    /*
-      ── THE WAIT LOOKS LIKE THE CONSOLE, FROM THE FIRST FRAME ──────────────────────────────
-      The token is in localStorage, which the server cannot read, so the server HTML carries
-      both answers: the console frame (signed in) and the bare spinner (signed out, on the way
-      to sign in). `sessionPresenceScript` marks <html> before the first paint and CSS shows
-      the one that is true. Once hydrated the token is readable and only the true one is
-      rendered; the wrappers stay in place so the frame is not remounted, and lose the marker
-      so a later sign-out is not hidden by a stale <html> attribute.
-    */
-    return (
-      <>
-        {(!hydrated || hasToken) && (
-          <div data-session-only={hydrated ? undefined : 'in'}>{pendingFrame(spinner)}</div>
-        )}
-        {(!hydrated || !hasToken) && (
-          <div data-session-only={hydrated ? undefined : 'out'}>{spinner}</div>
-        )}
-      </>
-    );
+    // A fragment in both places, like the return below, so the frame keeps its place in the
+    // tree when the page replaces the spinner inside it.
+    return <>{framed && frame ? frame(spinner) : spinner}</>;
   }
 
   if (roles && user && !user.roles.some((r) => roles.includes(r)) && roleMismatchRedirect) {
@@ -169,7 +168,7 @@ export function RequireAuth({
       </div>
     );
   }
-  return <>{children}</>;
+  return <>{frame ? frame(children) : children}</>;
 }
 
 /**

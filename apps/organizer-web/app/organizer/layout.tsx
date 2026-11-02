@@ -22,7 +22,6 @@ import { navFor } from '@/components/organizer-nav';
 import { OrgProvider, OrgSwitcher } from '@/components/org-context';
 import { useOnboardingDismissed, useOnboardingProgress } from '@/lib/onboarding';
 import { WorkspaceTheme, useWorkspace } from '@/components/workspace-chrome';
-import { orgPermissions } from '@/lib/org-permissions';
 import { DeskNotificationsButton, DeskSchemeSwitch } from '@/components/desk-chrome';
 import { OrganizerLegalFooter } from '@/components/organizer-legal-footer';
 
@@ -80,48 +79,6 @@ function useSetupNotice(orgId: string, enabled: boolean): ShellNotice | null {
   };
 }
 
-const CREATE_EVENT = { label: 'Create event', href: '/organizer/events/new' };
-
-function CreateEventDrawerLink() {
-  return (
-    <Link href={CREATE_EVENT.href} className={`w-full ${brandButtonClasses('primary', 'md')}`}>
-      Create event
-    </Link>
-  );
-}
-
-/**
- * The console frame while a signed-in person's session is being confirmed (RequireAuth's
- * `pendingFrame`), so a refresh paints the console from its first frame instead of an empty
- * page with a spinner and then the console appearing round it.
- *
- * It is what `OrganizerChrome` draws before its own data arrives - the same props it has while
- * the organization list is in flight (no name, every section offered, `useWorkspace`) - and it
- * asks the API for nothing, because it is also in the server HTML of a signed-out visitor
- * (hidden, see `sessionPresenceScript`).
- */
-const PENDING_NAV = navFor({ doesFilmBusiness: false, can: orgPermissions(undefined) });
-function OrganizerPendingFrame({ children }: { children: React.ReactNode }) {
-  return (
-    <AppShell
-      brand="Organizer"
-      nav={PENDING_NAV}
-      workspace={{ name: ' ' }}
-      headerAccessory={<DeskSchemeSwitch />}
-      notifications={<DeskNotificationsButton href="/organizer/notifications" />}
-      primaryAction={CREATE_EVENT}
-      drawerAccessory={<CreateEventDrawerLink />}
-      width="fluid"
-      appearance="desk"
-    >
-      {children}
-    </AppShell>
-  );
-}
-const organizerPendingFrame = (content: React.ReactNode) => (
-  <OrganizerPendingFrame>{content}</OrganizerPendingFrame>
-);
-
 /**
  * The organizer's own masthead, their palette, and their team's chrome.
  *
@@ -153,12 +110,21 @@ function OrganizerChrome({ children }: { children: React.ReactNode }) {
         The console's one primary action, for the members who can create events. Check-in
         staff cannot, and are not offered it - the same rule their sidebar follows.
       */
-      primaryAction={canCreate ? CREATE_EVENT : null}
+      primaryAction={canCreate ? { label: 'Create event', href: '/organizer/events/new' } : null}
       /*
         On a phone the top bar has no room for it beside the appearance switch, so the primary
         action leads the menu instead: there, with its words, rather than nowhere.
       */
-      drawerAccessory={canCreate ? <CreateEventDrawerLink /> : undefined}
+      drawerAccessory={
+        canCreate ? (
+          <Link
+            href="/organizer/events/new"
+            className={`w-full ${brandButtonClasses('primary', 'md')}`}
+          >
+            Create event
+          </Link>
+        ) : undefined
+      }
       // Organizer pages are tables, schedules and seat maps; the frame should not be what
       // squeezes them. Forms and prose keep their own measure inside it - see AppShell.
       width="fluid"
@@ -220,6 +186,18 @@ function SuspensionGate({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+/*
+  The console is RequireAuth's `frame`, not a child of it: drawn round the wait while the
+  session is confirmed, and the same element when the page replaces the spinner. A refresh
+  therefore shows the console from the first paint instead of an empty page with a spinner and
+  then the whole console appearing round it, and nothing in it is remounted at that moment.
+*/
+const organizerFrame = (content: React.ReactNode) => (
+  <SuspensionGate>
+    <OrganizerChrome>{content}</OrganizerChrome>
+  </SuspensionGate>
+);
+
 export default function OrganizerLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
@@ -243,11 +221,9 @@ export default function OrganizerLayout({ children }: { children: React.ReactNod
       // has not created their organization yet — the step that grants the role. Sending them
       // there beats telling them their account cannot access the area that would fix it.
       roleMismatchRedirect="/start"
-      pendingFrame={organizerPendingFrame}
+      frame={organizerFrame}
     >
-      <SuspensionGate>
-        <OrganizerChrome>{children}</OrganizerChrome>
-      </SuspensionGate>
+      {children}
     </RequireAuth>
   );
 }
