@@ -27,6 +27,7 @@ import {
   planFeatureLines,
   planStatusSentence,
   priceLabel,
+  priceTaxSuffix,
   upgradeAction,
   usageSentence,
 } from './billing-plans';
@@ -142,6 +143,27 @@ describe('Billing & plans words', () => {
         trialDays: null,
       }),
     ).toMatch(/9,990 a year \+ applicable GST$/);
+  });
+
+  it('the GST suffix follows the seller mode the server reports, never a hardcoded guess', () => {
+    const inr = {
+      id: 'p',
+      interval: 'MONTH' as const,
+      amountMinor: 99900,
+      currency: 'INR',
+      trialDays: null,
+    };
+    // Unregistered seller: no GST is charged, so nothing is "added".
+    const unreg = priceLabel({ ...inr, sellerGstStatus: 'UNREGISTERED' });
+    expect(unreg).toMatch(/999 a month$/);
+    expect(unreg).not.toMatch(/GST/);
+    expect(priceLabel({ ...inr, sellerGstStatus: 'REGISTERED' })).toMatch(
+      /999 a month \+ applicable GST$/,
+    );
+    // Not declared yet, or an older API: the cautious label stays.
+    expect(priceLabel({ ...inr, sellerGstStatus: 'UNVERIFIED' })).toMatch(/\+ applicable GST$/);
+    expect(priceLabel({ ...inr, sellerGstStatus: null })).toMatch(/\+ applicable GST$/);
+    expect(priceTaxSuffix('USD', 'REGISTERED')).toBe('');
   });
 
   it('never offers a dead button: closed billing asks, open billing with a price checks out', () => {

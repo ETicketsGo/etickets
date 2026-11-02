@@ -29,6 +29,7 @@ const QUOTE: BillingTaxQuote = {
     { label: 'CGST', rateBasisPoints: 900, baseMinor: 99900, amountMinor: 8991 },
     { label: 'SGST', rateBasisPoints: 900, baseMinor: 99900, amountMinor: 8991 },
   ],
+  sellerGstStatus: 'REGISTERED',
   jurisdiction: {
     country: 'IN',
     region: 'Telangana',
@@ -141,7 +142,9 @@ describe('the quote shown before paying', () => {
 
 describe('PRODUCTION: no Indian checkout without a GST tax invoice', () => {
   it('refuses before the provider is asked when the seller facts are missing', async () => {
-    const { svc, p } = service({ env: { APP_ENV: 'PRODUCTION' } });
+    const { svc, p } = service({
+      env: { APP_ENV: 'PRODUCTION', BILLING_SELLER_GST_STATUS_IN: 'REGISTERED' },
+    });
     await expect(svc.startPlanCheckout('org-1', PRICE.id)).rejects.toThrow(
       /cannot issue a GST tax invoice/,
     );
@@ -155,6 +158,7 @@ describe('PRODUCTION: no Indian checkout without a GST tax invoice', () => {
     const { svc } = service({
       env: {
         APP_ENV: 'PRODUCTION',
+        BILLING_SELLER_GST_STATUS_IN: 'REGISTERED',
         BILLING_SELLER_GSTIN_IN: '36TESTA0000T1ZA', // TEST, wrong check character
         BILLING_SELLER_SAC_IN: '990000',
         BILLING_SELLER_ADDRESS_IN: 'TEST ONLY, 1 Test Street, Hyderabad 500001',

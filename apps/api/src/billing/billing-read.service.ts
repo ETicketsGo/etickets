@@ -9,6 +9,7 @@ import { BillingInvoiceService } from './billing-invoice.service';
 import { billingCountryOf } from './billing-account';
 import { BillingProviderRegistry } from './provider/billing-provider.registry';
 import { creditPackOffers } from './credit-packs';
+import { effectiveGstStatus } from './billing-seller';
 
 const PAID_LIVE = ['ACTIVE', 'PAST_DUE', 'GRACE'] as const;
 
@@ -99,6 +100,15 @@ export class BillingReadService {
       open &&
       (providerKey === 'MOCK' ||
         !!(live ? x.providerPriceRefLive : x.providerPriceRefTest)?.trim());
+    /*
+      India: the seller's GST status, so the console labels a price "+ applicable GST" only when
+      GST is actually added (REGISTERED). UNVERIFIED: PRODUCTION has not declared one yet.
+      Elsewhere null.
+    */
+    const sellerGstStatus =
+      country === 'IN'
+        ? (effectiveGstStatus((n) => this.config.get<string>(n)) ?? 'UNVERIFIED')
+        : null;
 
     const plans =
       catalog.length > 0
@@ -118,6 +128,7 @@ export class BillingReadService {
               currency: x.currency,
               trialDays: x.trialDays,
               purchasable: purchasable(x),
+              sellerGstStatus: x.country === 'IN' ? sellerGstStatus : null,
             })),
           }))
         : (['FREE', 'PRO', 'PREMIUM'] as const).map((code) => ({

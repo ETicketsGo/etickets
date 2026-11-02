@@ -6,7 +6,7 @@ import { AppException, ErrorCodes } from '../common/errors';
 import { assignInvoiceNumber } from './invoice-number';
 import { documentOperator } from '@eticketsgo/shared-types';
 import type { BillingTaxLine, BillingTaxQuote } from './billing-tax.service';
-import { assertIndiaSellerReady, indiaSellerDetails } from './billing-seller';
+import { GST_NOT_CHARGED_NOTE, assertIndiaSellerReady, indiaSellerDetails } from './billing-seller';
 
 /**
  * Printed only on an invoice that carries no tax line at all (the test double's payments).
@@ -15,6 +15,19 @@ import { assertIndiaSellerReady, indiaSellerDetails } from './billing-seller';
  */
 export const TAX_NOT_APPLIED_NOTE =
   'Tax not applied. ETicketsGo has not yet started charging tax on plan payments.';
+
+/** The GST status frozen on a seller snapshot; null for a non-Indian seller. */
+function sellerGstStatusOf(seller: object): 'REGISTERED' | 'UNREGISTERED' | null {
+  const v = (seller as { gstStatus?: unknown }).gstStatus;
+  return v === 'REGISTERED' || v === 'UNREGISTERED' ? v : null;
+}
+
+/** An unregistered supplier may not charge GST: such an invoice is refused, never issued. */
+function assertNoGstFromUnregistered(seller: object, taxMinor: number): void {
+  if (sellerGstStatusOf(seller) === 'UNREGISTERED' && taxMinor > 0) {
+    throw new Error('An invoice from a seller not registered under GST cannot carry tax.');
+  }
+}
 
 /** What the invoice says about tax: its lines and where it was supplied. */
 export interface InvoiceTax {
@@ -51,8 +64,10 @@ export class BillingInvoiceService {
   /**
    * The issuing company, frozen on the document: the same country the number series follows.
    * An Indian invoice (ETGB) also carries the GST registration facts - GSTIN, SAC, registered
-   * address and state - from configuration at the moment of issue (billing-seller.ts). In
-   * PRODUCTION an Indian invoice is refused while they are incomplete or the GSTIN is invalid.
+   * address and state - from configuration at the moment of issue (billing-seller.ts), with the
+   * seller's GST status (`gstStatus`). An UNREGISTERED seller's snapshot has no GSTIN and no
+   * SAC. In PRODUCTION an Indian invoice is refused while the status is UNVERIFIED or the facts
+   * it needs are incomplete, invalid or contradictory.
    */
   private sellerSnapshot(country: string, currency: string) {
     const operator = documentOperator({ transactionCountry: country, currency });
@@ -61,6 +76,9 @@ export class BillingInvoiceService {
     const d = indiaSellerDetails((n) => this.get(n));
     return {
       ...operator,
+      // Without configuration (a bare harness) nothing is known: no status is recorded rather
+      // than one guessed, and the invoice prints as it did before the status existed.
+      gstStatus: this.config ? d.gstStatus : null,
       gstin: d.gstin,
       sac: d.sac,
       address: d.address,
@@ -155,6 +173,7 @@ export class BillingInvoiceService {
         include: { account: true },
       });
       const seller = this.sellerSnapshot(invoice.account.country, invoice.currency);
+      assertNoGstFromUnregistered(seller, invoice.taxMinor);
       const buyer = await this.buyerSnapshot(tx, invoice.account);
       const number = await assignInvoiceNumber(tx, at, invoice.account.country);
       return tx.organizerInvoice.update({
@@ -170,6 +189,7 @@ export class BillingInvoiceService {
             billingCountry: invoice.account.country,
             // The issuing company, frozen: the same country the number series follows.
             seller,
+            sellerGstStatus: sellerGstStatusOf(seller),
             buyer,
             taxId: invoice.account.taxId,
             currency: invoice.currency,
@@ -231,9 +251,16 @@ export class BillingInvoiceService {
     }
     // Before the number is taken: a refused seller leaves the series untouched.
     const seller = this.sellerSnapshot(account.country, input.currency);
+    assertNoGstFromUnregistered(seller, taxMinor);
+    const sellerGstStatus = sellerGstStatusOf(seller);
     const buyer = await this.buyerSnapshot(tx, account);
     const number = await assignInvoiceNumber(tx, input.paidAt, account.country);
-    const taxNote = taxMinor > 0 || taxLines.length > 0 ? null : TAX_NOT_APPLIED_NOTE;
+    const taxNote =
+      sellerGstStatus === 'UNREGISTERED'
+        ? GST_NOT_CHARGED_NOTE
+        : taxMinor > 0 || taxLines.length > 0
+          ? null
+          : TAX_NOT_APPLIED_NOTE;
     const invoice = await tx.organizerInvoice.create({
       data: {
         accountId: input.accountId,
@@ -263,6 +290,9 @@ export class BillingInvoiceService {
             has none and keeps printing what it printed.
           */
           seller,
+          // The seller's GST status when issued: REGISTERED (tax invoice), UNREGISTERED
+          // (ordinary invoice, no GST) or null (not India, or issued before this was recorded).
+          sellerGstStatus,
           buyer,
           taxId: account.taxId,
           currency: input.currency,

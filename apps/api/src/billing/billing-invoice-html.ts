@@ -1,5 +1,6 @@
 import { formatMinor } from '../receipts/receipt-html';
 import { TAX_NOT_APPLIED_NOTE } from './billing-invoice.service';
+import { GST_NOT_CHARGED_NOTE } from './billing-seller';
 
 /**
  * A platform invoice to an organizer (ETGB-2627-000001, ETG-BIL-US-2026-000001) as a
@@ -40,6 +41,11 @@ export interface BillingInvoiceView {
 }
 
 export interface InvoiceSellerFacts {
+  /**
+   * The seller's GST status frozen at issue. UNREGISTERED prints an ordinary "Invoice" with no
+   * tax lines, no GSTIN and no SAC. Null: not recorded (an older invoice), printed as before.
+   */
+  gstStatus?: 'REGISTERED' | 'UNREGISTERED' | null;
   gstin: string | null;
   sac: string | null;
   address: string | null;
@@ -61,9 +67,13 @@ export function invoiceDocumentFacts(documentJson: unknown): {
   const doc = (documentJson ?? {}) as Record<string, unknown>;
   const s = (doc.seller ?? null) as Record<string, unknown> | null;
   const b = (doc.buyer ?? null) as Record<string, unknown> | null;
+  const status = s?.gstStatus ?? doc.sellerGstStatus;
+  const gstStatus: InvoiceSellerFacts['gstStatus'] =
+    status === 'REGISTERED' || status === 'UNREGISTERED' ? status : null;
   const seller =
-    s && (text(s.gstin) || text(s.sac) || text(s.address) || text(s.state))
+    s && (gstStatus || text(s.gstin) || text(s.sac) || text(s.address) || text(s.state))
       ? {
+          gstStatus,
           gstin: text(s.gstin),
           sac: text(s.sac),
           address: text(s.address),
@@ -108,7 +118,7 @@ export function renderBillingInvoiceHtml(v: BillingInvoiceView): string {
   const rows = v.lines
     .map(
       (l) =>
-        `<tr><td>${esc(l.description)}${v.seller?.sac ? ` <span class="muted">(SAC ${esc(v.seller.sac)})</span>` : ''}</td><td class="num">${esc(l.quantity)}</td>` +
+        `<tr><td>${esc(l.description)}${v.seller?.sac && v.seller.gstStatus !== 'UNREGISTERED' ? ` <span class="muted">(SAC ${esc(v.seller.sac)})</span>` : ''}</td><td class="num">${esc(l.quantity)}</td>` +
         `<td class="num">${money(l.unitAmountMinor)}</td>` +
         `<td class="num">${money(l.quantity * l.unitAmountMinor)}</td></tr>`,
     )
@@ -117,12 +127,18 @@ export function renderBillingInvoiceHtml(v: BillingInvoiceView): string {
     v.periodStart && v.periodEnd
       ? `<div class="muted">Period ${esc(day(v.periodStart))} to ${esc(day(v.periodEnd))}</div>`
       : '';
+  // An unregistered supplier's invoice: no GST at all - no tax rows, no GSTIN, no SAC.
+  const unregistered = v.seller?.gstStatus === 'UNREGISTERED';
   const taxLines = v.taxLines ?? [];
-  const taxNote =
-    v.taxMinor > 0 || taxLines.length > 0 ? '' : `<li>${esc(TAX_NOT_APPLIED_NOTE)}</li>`;
+  const taxNote = unregistered
+    ? `<li>${esc(GST_NOT_CHARGED_NOTE)}</li>`
+    : v.taxMinor > 0 || taxLines.length > 0
+      ? ''
+      : `<li>${esc(TAX_NOT_APPLIED_NOTE)}</li>`;
   const rate = (bps: number) => `${(bps / 100).toFixed(bps % 100 === 0 ? 0 : 2)}%`;
-  const taxRows =
-    taxLines.length > 0
+  const taxRows = unregistered
+    ? ''
+    : taxLines.length > 0
       ? taxLines
           .map(
             (l) =>
@@ -132,9 +148,9 @@ export function renderBillingInvoiceHtml(v: BillingInvoiceView): string {
           .join('\n      ')
       : `<tr><th colspan="3">Tax</th><td class="num">${money(v.taxMinor)}</td></tr>`;
   const supply = v.placeOfSupply ? `<li>Place of supply: ${esc(v.placeOfSupply)}.</li>` : '';
-  const f = v.seller ?? null;
+  const f = v.seller ? { ...v.seller, ...(unregistered ? { gstin: null, sac: null } : {}) } : null;
   // A GST tax invoice says so, and names the seller's registration.
-  const title = f?.gstin ? 'Tax invoice' : 'Invoice';
+  const title = f?.gstin && !unregistered ? 'Tax invoice' : 'Invoice';
   const sellerFacts = f
     ? [
         f.address ? `<div class="muted">${esc(f.address)}</div>` : '',

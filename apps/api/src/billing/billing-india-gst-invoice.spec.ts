@@ -26,6 +26,7 @@ const TEST_SAC = '990000'; // TEST: chapter 99 shape only
 const TEST_ADDRESS = 'TEST ONLY, 1 Test Street, Test Nagar, Hyderabad 500001';
 
 const SELLER_ENV = {
+  BILLING_SELLER_GST_STATUS_IN: 'REGISTERED',
   BILLING_SELLER_GSTIN_IN: TEST_GSTIN_TG,
   BILLING_SELLER_SAC_IN: TEST_SAC,
   BILLING_SELLER_ADDRESS_IN: TEST_ADDRESS,
@@ -62,6 +63,7 @@ describe('India seller details', () => {
     expect(indiaSellerDetails(getter(SELLER_ENV))).toEqual({
       legalName: 'DeepTrics Software Solutions Private Limited',
       country: 'IN',
+      gstStatus: 'REGISTERED',
       gstin: TEST_GSTIN_TG,
       sac: TEST_SAC,
       address: TEST_ADDRESS,
@@ -72,7 +74,7 @@ describe('India seller details', () => {
   });
 
   it('names every missing fact, by variable name only', () => {
-    const problems = indiaSellerProblems(getter({}));
+    const problems = indiaSellerProblems(getter({ BILLING_SELLER_GST_STATUS_IN: 'REGISTERED' }));
     expect(problems.join('\n')).toMatch(/BILLING_SELLER_GSTIN_IN is not set/);
     expect(problems.join('\n')).toMatch(/BILLING_SELLER_SAC_IN is not set/);
     expect(problems.join('\n')).toMatch(/BILLING_SELLER_ADDRESS_IN is not set/);
@@ -89,7 +91,7 @@ describe('India seller details', () => {
   });
 
   it('PRODUCTION refuses India when the facts are missing or invalid; elsewhere it passes', () => {
-    const prod = { APP_ENV: 'PRODUCTION' };
+    const prod = { APP_ENV: 'PRODUCTION', BILLING_SELLER_GST_STATUS_IN: 'REGISTERED' };
     expect(() => assertIndiaSellerReady(getter(prod), 'IN')).toThrow(AppException);
     expect(() =>
       assertIndiaSellerReady(
@@ -109,6 +111,7 @@ describe('India seller details', () => {
       BILLING_PROVIDER: 'providers',
       BILLING_LIVE_ENABLED: 'true',
       BILLING_LIVE_MARKETS: 'IN',
+      BILLING_SELLER_GST_STATUS_IN: 'REGISTERED',
       RAZORPAY_BILLING_KEY_ID: 'rzp_live_KEYID',
       RAZORPAY_BILLING_KEY_SECRET: 'rzpsecretVALUE',
       RAZORPAY_BILLING_WEBHOOK_SECRET: 'rzpwebhookVALUE',

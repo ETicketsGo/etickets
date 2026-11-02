@@ -126,6 +126,8 @@ describe('integration-real-postgres: billing providers (Stripe Billing, Razorpay
     ORGANIZER_WEB_URL: 'https://organizer.test',
     STRIPE_BILLING_AUTOMATIC_TAX: 'true',
     PLATFORM_TAX_REGION: 'Karnataka',
+    // These cases model a GST-registered seller (GST from the PLATFORM_SERVICES rule).
+    BILLING_SELLER_GST_STATUS_IN: 'REGISTERED',
   };
   let taxRuleId = '';
   const createdPackPrices: string[] = [];

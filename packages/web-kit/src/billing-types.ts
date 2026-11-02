@@ -33,6 +33,12 @@ export interface BillingPlanPrice {
    * its provider plan for this deployment. Absent (older API): treat as purchasable.
    */
   purchasable?: boolean;
+  /**
+   * India only: the seller's GST status. REGISTERED: GST is added at checkout. UNREGISTERED: no
+   * GST, the price is the total. UNVERIFIED: not declared yet (PRODUCTION does not sell).
+   * Null/absent: not India, or an older API (treated as GST added, the cautious label).
+   */
+  sellerGstStatus?: 'REGISTERED' | 'UNREGISTERED' | 'UNVERIFIED' | null;
 }
 
 /** GET /organizations/:id/billing/quote?priceId= - a plan price with tax, before checkout. */
@@ -47,6 +53,8 @@ export interface BillingPlanQuote {
   lines: { label: string; rateBasisPoints: number; amountMinor: number }[];
   placeOfSupply: string | null;
   interState: boolean | null;
+  /** India: REGISTERED (GST added) or UNREGISTERED (no GST). Null elsewhere or older API. */
+  sellerGstStatus?: 'REGISTERED' | 'UNREGISTERED' | null;
   /** What the provider's plan charges per cycle; null when not read (or not applicable). */
   providerChargeMinor: number | null;
   /** False: the provider would charge a different amount, and checkout will be refused. */

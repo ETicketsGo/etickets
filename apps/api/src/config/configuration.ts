@@ -875,6 +875,20 @@ const envSchema = z.object({
   BILLING_SELLER_GSTIN_IN: z.string().trim().max(15).optional(),
   BILLING_SELLER_SAC_IN: z.string().trim().max(8).optional(),
   BILLING_SELLER_ADDRESS_IN: z.string().trim().max(400).optional(),
+  /**
+   * Whether the India seller is registered under GST - set by the owner, never derived from
+   * turnover. REGISTERED: GST tax invoices (GSTIN + SAC + address + an active PLATFORM_SERVICES
+   * TaxRule). UNREGISTERED: no GST is charged on organizer billing and the invoice is an ordinary
+   * "Invoice" (legal name + address; a GSTIN set alongside is a contradiction and refused in
+   * PRODUCTION). UNVERIFIED (default): PRODUCTION refuses Indian billing (and the boot refuses
+   * IN in BILLING_LIVE_MARKETS) until it is set. Outside PRODUCTION, UNVERIFIED behaves as
+   * REGISTERED when BILLING_SELLER_GSTIN_IN is set, otherwise as UNREGISTERED
+   * (billing/billing-seller.ts).
+   */
+  BILLING_SELLER_GST_STATUS_IN: z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() ? v.trim().toUpperCase() : undefined),
+    z.enum(['UNVERIFIED', 'UNREGISTERED', 'REGISTERED']).default('UNVERIFIED'),
+  ),
 
   OTP_SMS_TEMPLATE: z.string().optional(),
 
@@ -1875,11 +1889,11 @@ export function billingConfigurationErrors(
       if (!has('RAZORPAY_BILLING_WEBHOOK_SECRET')) {
         errors.push(`${missing('RAZORPAY_BILLING_WEBHOOK_SECRET')}IN.`);
       }
-      // A GST tax invoice needs the seller's GSTIN, SAC, address and state (billing-seller.ts).
+      // The seller facts the declared GST status needs (billing-seller.ts): REGISTERED needs
+      // GSTIN, SAC, address and state; UNREGISTERED needs address and state and NO GSTIN;
+      // UNVERIFIED (the default) is refused until the owner declares one.
       for (const problem of indiaSellerProblems((name) => value(name))) {
-        errors.push(
-          `  - ${problem} BILLING_LIVE_MARKETS lists IN, whose invoices are GST tax invoices.`,
-        );
+        errors.push(`  - ${problem} BILLING_LIVE_MARKETS lists IN.`);
       }
     }
     // Any billing key present in PRODUCTION must be live, listed market or not.
