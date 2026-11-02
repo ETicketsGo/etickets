@@ -28,6 +28,35 @@ export interface BillingPlanPrice {
   amountMinor: number;
   currency: string;
   trialDays: number | null;
+  /**
+   * Whether this price can be bought here now: billing open in this country and the price has
+   * its provider plan for this deployment. Absent (older API): treat as purchasable.
+   */
+  purchasable?: boolean;
+}
+
+/** GET /organizations/:id/billing/quote?priceId= - a plan price with tax, before checkout. */
+export interface BillingPlanQuote {
+  priceId: string;
+  interval: 'MONTH' | 'YEAR';
+  currency: string;
+  mode: 'MANUAL' | 'PROVIDER_AUTOMATIC';
+  netMinor: number;
+  taxMinor: number;
+  totalMinor: number;
+  lines: { label: string; rateBasisPoints: number; amountMinor: number }[];
+  placeOfSupply: string | null;
+  interState: boolean | null;
+  /** What the provider's plan charges per cycle; null when not read (or not applicable). */
+  providerChargeMinor: number | null;
+  /** False: the provider would charge a different amount, and checkout will be refused. */
+  chargeMatches: boolean | null;
+}
+
+/** GET /organizations/:id/billing/checkout-status?ref= - server truth, never the redirect. */
+export interface BillingCheckoutStatus {
+  state: 'ACTIVE' | 'PENDING' | 'PROCESSING' | 'FAILED' | 'EXPIRED' | 'UNKNOWN';
+  planActive: boolean;
 }
 
 export interface BillingPlanSummary {

@@ -1,10 +1,12 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { HttpStatus, Injectable, Optional } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import { assignInvoiceNumber } from './invoice-number';
 import { documentOperator } from '@eticketsgo/shared-types';
 import type { BillingTaxLine, BillingTaxQuote } from './billing-tax.service';
+import { assertIndiaSellerReady, indiaSellerDetails } from './billing-seller';
 
 /**
  * Printed only on an invoice that carries no tax line at all (the test double's payments).
@@ -37,7 +39,52 @@ export interface InvoiceLine {
  */
 @Injectable()
 export class BillingInvoiceService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly config?: ConfigService,
+  ) {}
+
+  private get(name: string): string | undefined {
+    return this.config?.get<string>(name);
+  }
+
+  /**
+   * The issuing company, frozen on the document: the same country the number series follows.
+   * An Indian invoice (ETGB) also carries the GST registration facts - GSTIN, SAC, registered
+   * address and state - from configuration at the moment of issue (billing-seller.ts). In
+   * PRODUCTION an Indian invoice is refused while they are incomplete or the GSTIN is invalid.
+   */
+  private sellerSnapshot(country: string, currency: string) {
+    const operator = documentOperator({ transactionCountry: country, currency });
+    if (country !== 'IN') return operator;
+    assertIndiaSellerReady((n) => this.get(n), country);
+    const d = indiaSellerDetails((n) => this.get(n));
+    return {
+      ...operator,
+      gstin: d.gstin,
+      sac: d.sac,
+      address: d.address,
+      state: d.state,
+      stateCode: d.stateCode,
+    };
+  }
+
+  /** Who is billed, frozen with the number: name, state (place of supply) and GSTIN if any. */
+  private async buyerSnapshot(
+    tx: Prisma.TransactionClient,
+    account: { organizationId: string; country: string; taxId: string | null },
+  ) {
+    const org = await tx.organization.findUnique({
+      where: { id: account.organizationId },
+      select: { name: true, legalName: true, registeredRegion: true },
+    });
+    return {
+      name: org?.legalName || org?.name || null,
+      country: account.country,
+      state: org?.registeredRegion?.trim() || null,
+      taxId: account.taxId,
+    };
+  }
 
   async createDraft(
     accountId: string,
@@ -107,6 +154,8 @@ export class BillingInvoiceService {
         where: { id: invoiceId },
         include: { account: true },
       });
+      const seller = this.sellerSnapshot(invoice.account.country, invoice.currency);
+      const buyer = await this.buyerSnapshot(tx, invoice.account);
       const number = await assignInvoiceNumber(tx, at, invoice.account.country);
       return tx.organizerInvoice.update({
         where: { id: invoiceId },
@@ -120,10 +169,8 @@ export class BillingInvoiceService {
             organizationId: invoice.account.organizationId,
             billingCountry: invoice.account.country,
             // The issuing company, frozen: the same country the number series follows.
-            seller: documentOperator({
-              transactionCountry: invoice.account.country,
-              currency: invoice.currency,
-            }),
+            seller,
+            buyer,
             taxId: invoice.account.taxId,
             currency: invoice.currency,
             lines: invoice.lines,
@@ -152,6 +199,8 @@ export class BillingInvoiceService {
       accountId: string;
       provider: 'MOCK' | 'STRIPE_BILLING' | 'RAZORPAY_BILLING';
       providerInvoiceRef: string;
+      /** The provider's payment id, printed as the payment reference. */
+      paymentRef?: string | null;
       currency: string;
       lines: InvoiceLine[];
       taxMinor: number;
@@ -180,6 +229,9 @@ export class BillingInvoiceService {
     if (taxLines.length > 0 && taxLines.reduce((s, l) => s + l.amountMinor, 0) !== taxMinor) {
       throw new Error('Invoice tax lines do not add up to the tax charged.');
     }
+    // Before the number is taken: a refused seller leaves the series untouched.
+    const seller = this.sellerSnapshot(account.country, input.currency);
+    const buyer = await this.buyerSnapshot(tx, account);
     const number = await assignInvoiceNumber(tx, input.paidAt, account.country);
     const taxNote = taxMinor > 0 || taxLines.length > 0 ? null : TAX_NOT_APPLIED_NOTE;
     const invoice = await tx.organizerInvoice.create({
@@ -210,10 +262,8 @@ export class BillingInvoiceService {
             Indian company - then the currency. A document issued before this field existed
             has none and keeps printing what it printed.
           */
-          seller: documentOperator({
-            transactionCountry: account.country,
-            currency: input.currency,
-          }),
+          seller,
+          buyer,
           taxId: account.taxId,
           currency: input.currency,
           lines: input.lines,
@@ -226,6 +276,7 @@ export class BillingInvoiceService {
           taxNote,
           provider: input.provider,
           providerInvoiceRef: input.providerInvoiceRef,
+          paymentRef: input.paymentRef ?? null,
         } as unknown as Prisma.InputJsonValue,
       },
     });

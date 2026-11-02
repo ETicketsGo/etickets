@@ -583,6 +583,7 @@ export class BillingProviderEventService {
         accountId: account.id,
         provider: provider.key as 'STRIPE_BILLING' | 'RAZORPAY_BILLING',
         providerInvoiceRef: rec.invoiceRef ?? rec.paymentRef,
+        paymentRef: rec.paymentRef,
         currency: rec.currency,
         lines: [
           {
@@ -876,6 +877,7 @@ export class BillingProviderEventService {
         accountId: account.id,
         provider: provider.key as 'STRIPE_BILLING' | 'RAZORPAY_BILLING',
         providerInvoiceRef: rec.invoiceRef ?? rec.paymentRef,
+        paymentRef: rec.paymentRef,
         currency: rec.currency,
         lines: [{ description: pack.name, quantity: 1, unitAmountMinor: split.netMinor }],
         taxMinor: split.taxMinor,

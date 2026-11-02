@@ -61,6 +61,19 @@ the RAW bytes, stored, then processed in the same request, idempotently:
 | `POST /api/organizations/:id/billing/portal`                  | owner (Stripe only)           |
 | `POST /api/organizations/:id/billing/cancel`                  | owner (cancels at period end) |
 | `GET /api/organizations/:id/billing/invoices/:invoiceId/html` | owner, manager                |
+| `GET /api/organizations/:id/billing/quote?priceId=`           | owner, manager (read only)    |
+| `GET /api/organizations/:id/billing/checkout-status?ref=`     | owner, manager (read only)    |
+
+`quote` is the checkout's own tax quote, itemised (base, CGST + SGST or IGST with rates, total),
+plus `providerChargeMinor` / `chargeMatches`: what the Razorpay plan charges per cycle. The
+console shows it before paying and does not continue on a mismatch (checkout refuses it too).
+`checkout-status` answers the "waiting for your payment" panel: `ACTIVE` only when OUR
+subscription is live (a verified payment applied by the webhook); otherwise PENDING, PROCESSING,
+FAILED or EXPIRED from Razorpay's record of that subscription (its notes must name this
+organization). It never changes state. Each plan price in `GET .../billing` carries
+`purchasable`: billing open in this country (flag, live market, credentials) AND a provider plan
+ref for this deployment's key mode. The console hides "Upgrade" for a plan with no purchasable
+price and says "<Plan> is not available to buy yet in your country."
 
 ## Configuration (names only - never put values in documents)
 
@@ -81,6 +94,13 @@ the RAW bytes, stored, then processed in the same request, idempotently:
 | `STRIPE_API_VERSION`                 | Optional pin, shared with the ticket adapter; unset = the SDK's pinned version.              |
 | `STRIPE_BILLING_AUTOMATIC_TAX`       | `false` by default. `true`: US plan and pack tax from Stripe Tax (`automatic_tax`).          |
 | `PLATFORM_TAX_REGION`                | The state the platform is registered in (India). Decides CGST + SGST against IGST.           |
+| `BILLING_SELLER_GSTIN_IN`            | The seller's GSTIN on Indian invoices. Format and check character are verified.              |
+| `BILLING_SELLER_SAC_IN`              | The SAC of the platform service (6 digits, `99xxxx`), printed on each invoice line.          |
+| `BILLING_SELLER_ADDRESS_IN`          | The registered address (principal place of business) printed on Indian invoices.             |
+
+The three `BILLING_SELLER_*_IN` values and `PLATFORM_TAX_REGION` come from the GST registration
+certificate, from the owner. They are never written in code or fixtures (tests use values marked
+TEST). The seller's legal name is the India entity in `packages/shared-types/src/legal.ts`.
 
 Every credential above may instead be given as a secret reference in `<NAME>_REF` (for example
 `STRIPE_BILLING_WEBHOOK_SECRET_REF=billing/stripe/test/webhook-secret`), resolved through
@@ -89,7 +109,11 @@ Every credential above may instead be given as a secret reference in `<NAME>_REF
 Boot refuses (`billingConfigurationErrors`) outside PRODUCTION: `BILLING_PROVIDER=providers`
 outside LOCAL, DEV and QA; `BILLING_ENABLED=true` in STAGING; any LIVE key (`sk_live_`,
 `rk_live_`, `rzp_live_`) for billing; `BILLING_ENABLED=true` with neither provider fully
-configured; `BILLING_LIVE_ENABLED=true` or a non-empty `BILLING_LIVE_MARKETS`. QA and the other
+configured; `BILLING_LIVE_ENABLED=true` or a non-empty `BILLING_LIVE_MARKETS`. In PRODUCTION
+with `IN` in `BILLING_LIVE_MARKETS`, boot also refuses unless `BILLING_SELLER_GSTIN_IN` (valid
+GSTIN, its state code = `PLATFORM_TAX_REGION`), `BILLING_SELLER_SAC_IN`,
+`BILLING_SELLER_ADDRESS_IN` and `PLATFORM_TAX_REGION` are all set; at runtime an Indian checkout,
+quote or invoice is refused on the same condition (`billing/billing-seller.ts`). QA and the other
 non-production environments are unchanged by the production gate below.
 
 ## Production live billing (the gate)
@@ -181,6 +205,37 @@ sell it.
    endpoint ignores ticket payments (no `etg_purpose` note). Subscribing each endpoint only to its
    own events keeps the logs quiet.
 
+### Coming back from Razorpay (no return URL)
+
+Razorpay's Subscriptions API accepts no return address: `callback_url` and `redirect_url` are
+refused ("is/are not required and should not be sent", checked on the test API 2026-11-01), and
+the hosted `short_url` page does not send the customer back. So the console opens the payment
+page in a NEW TAB and the billing tab polls `checkout-status` every few seconds for up to 15
+minutes, with "I have paid - check again" and "Open the payment page". Each subscription is
+created with `expire_by` = now + 24 hours, so an abandoned page ends as `expired` (shown as
+"This payment page has closed"). Stripe still returns to `/organizer/billing?checkout=...`. A
+query parameter is only ever a hint for which message to show; never proof of payment.
+
+### Cancelling at the end of the period (Razorpay)
+
+`POST .../billing/cancel` calls `POST /v1/subscriptions/:id/cancel` with
+`cancel_at_cycle_end: 1`. Razorpay answers with the subscription still `active` and NO field that
+records the scheduled cancellation: `has_scheduled_changes` stays false and `end_at`, `charge_at`
+and `current_end` are unchanged (checked on the test API 2026-11-01, on an active test
+subscription). The dashboard therefore shows nothing until the cycle ends. Our subscription
+records `cancelAtPeriodEnd`; the end comes with the `subscription.cancelled` webhook at the cycle
+end. That end-of-cycle webhook has NOT been observed yet (it needs a full cycle).
+
+### Recurring test payments (Razorpay test mode)
+
+The QA account's hosted subscription page offers UPI, Cards and EMandate. Verified 2026-11-01 on
+a probe subscription: the domestic test Visa `4718 6091 0820 4366` (any future expiry, any CVV,
+"Skip OTP" on card saving, any 6-digit OTP on the mock bank page) authorises the mandate and the
+subscription becomes `active`. The test Mastercard `5267 3181 8797 5449` is refused ("not
+eligible for recurring payments"), and `5104 0155 5555 5558` is treated as international (off on
+the account). Use a 10-digit mobile Razorpay accepts (it rejects `9999999999` and
+`9876543210`). UPI Autopay and eMandate were not tried.
+
 ### RBI e-mandate (India)
 
 - Recurring debits run on an e-mandate (card, UPI Autopay or eNACH, whichever the account has
@@ -256,6 +311,13 @@ had ever been issued in any environment).
   staff cannot make a paid pack look wrong.
 - The invoice prints each tax line (label and rate) and the place of supply. "Tax not applied"
   is printed only for an invoice with no tax line at all (the test double).
+- **India: a GST tax invoice.** An ETGB invoice freezes, at issue, the seller (legal name, GSTIN,
+  SAC, registered address, state and state code), the buyer (legal name, state, GSTIN when the
+  billing account has one in `taxId`) and the provider payment id (`documentJson.seller`,
+  `.buyer`, `.paymentRef`). It prints "Tax invoice", the SAC on each line, the place of supply,
+  CGST + SGST or IGST with rates and amounts, the total and the payment reference. A later
+  change of configuration never rewrites an issued invoice; an invoice issued before these
+  fields existed prints as it did.
 
 ## Email credit packs (owner decision 2026-10-27)
 

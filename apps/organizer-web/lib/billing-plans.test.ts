@@ -10,7 +10,18 @@ import {
   PAYMENT_CONFIRMED,
   PAYMENT_NOT_CONFIRMED_YET,
   RETURN_MESSAGES,
+  CHECKOUT_EXPIRED,
+  CHECKOUT_FAILED,
+  CHECKOUT_PROCESSING,
+  PAY_IN_NEW_TAB,
+  PAYMENT_TAB_BLOCKED,
+  QUOTE_MISMATCH,
+  REFRESH_STATUS_LABEL,
   checkoutReturn,
+  checkoutStatusPanel,
+  purchasablePrices,
+  quoteCanContinue,
+  quoteRows,
   paidPlanConfirmed,
   paidPlanControls,
   planFeatureLines,
@@ -112,6 +123,27 @@ describe('Billing & plans words', () => {
     ).toMatch(/190\.00 a year$/);
   });
 
+  it('an Indian price says GST is added on top, without naming a rate', () => {
+    const label = priceLabel({
+      id: 'p',
+      interval: 'MONTH',
+      amountMinor: 99900,
+      currency: 'INR',
+      trialDays: null,
+    });
+    expect(label).toMatch(/999 a month \+ applicable GST$/);
+    expect(label).not.toMatch(/18|%/);
+    expect(
+      priceLabel({
+        id: 'p',
+        interval: 'YEAR',
+        amountMinor: 999000,
+        currency: 'INR',
+        trialDays: null,
+      }),
+    ).toMatch(/9,990 a year \+ applicable GST$/);
+  });
+
   it('never offers a dead button: closed billing asks, open billing with a price checks out', () => {
     const pro = {
       code: 'PRO' as const,
@@ -133,9 +165,10 @@ describe('Billing & plans words', () => {
       kind: 'checkout',
       label: 'Upgrade to Pro',
     });
+    // Open, but nothing of this plan can be bought here: a plain sentence, no button.
     expect(
-      upgradeAction({ billingEnabled: true, currentPlanCode: 'FREE' }, { ...pro, prices: [] }).kind,
-    ).toBe('ask');
+      upgradeAction({ billingEnabled: true, currentPlanCode: 'FREE' }, { ...pro, prices: [] }),
+    ).toEqual({ kind: 'unavailable', label: 'Pro is not available to buy yet in your country.' });
     expect(upgradeAction({ billingEnabled: false, currentPlanCode: 'PRO' }, pro).kind).toBe(
       'current',
     );
@@ -216,8 +249,140 @@ describe('paying through a provider', () => {
     ).toEqual({ portal: false, cancel: false });
   });
 
+  it('hides Premium when its price has no provider plan here', () => {
+    const premium = {
+      code: 'PREMIUM' as const,
+      prices: [
+        {
+          id: 'pm',
+          interval: 'MONTH' as const,
+          amountMinor: 249900,
+          currency: 'INR',
+          trialDays: null,
+          purchasable: false,
+        },
+        {
+          id: 'py',
+          interval: 'YEAR' as const,
+          amountMinor: 2499000,
+          currency: 'INR',
+          trialDays: null,
+          purchasable: false,
+        },
+      ],
+    };
+    expect(upgradeAction({ billingEnabled: true, currentPlanCode: 'PRO' }, premium)).toEqual({
+      kind: 'unavailable',
+      label: 'Premium is not available to buy yet in your country.',
+    });
+    // One interval set up, the other not: only that one is offered.
+    const oneReady = {
+      ...premium,
+      prices: [{ ...premium.prices[0], purchasable: true }, premium.prices[1]],
+    };
+    expect(upgradeAction({ billingEnabled: true, currentPlanCode: 'PRO' }, oneReady).kind).toBe(
+      'checkout',
+    );
+    expect(purchasablePrices(oneReady).map((p) => p.id)).toEqual(['pm']);
+  });
+
+  it('shows the quote itemised, with each rate from the server, and the total', () => {
+    const quote = {
+      priceId: 'p',
+      interval: 'MONTH' as const,
+      currency: 'INR',
+      mode: 'MANUAL' as const,
+      netMinor: 99900,
+      taxMinor: 17982,
+      totalMinor: 117882,
+      lines: [
+        { label: 'CGST', rateBasisPoints: 900, amountMinor: 8991 },
+        { label: 'SGST', rateBasisPoints: 900, amountMinor: 8991 },
+      ],
+      placeOfSupply: 'Telangana',
+      interState: false,
+      providerChargeMinor: 117882,
+      chargeMatches: true,
+    };
+    const rows = quoteRows(quote);
+    expect(rows.map((r) => r.label)).toEqual([
+      'Plan price',
+      'CGST (9%)',
+      'SGST (9%)',
+      'Total a month',
+    ]);
+    expect(rows[0].amount).toMatch(/999$/);
+    expect(rows[3].amount).toMatch(/1,178\.82/);
+    expect(rows[3].total).toBe(true);
+    expect(quoteCanContinue(quote)).toBe(true);
+    const igst = quoteRows({
+      ...quote,
+      lines: [{ label: 'IGST', rateBasisPoints: 1800, amountMinor: 17982 }],
+    });
+    expect(igst.map((r) => r.label)).toEqual(['Plan price', 'IGST (18%)', 'Total a month']);
+  });
+
+  it('will not continue when the provider would charge something other than the quote', () => {
+    const base = {
+      priceId: 'p',
+      interval: 'MONTH' as const,
+      currency: 'INR',
+      mode: 'MANUAL' as const,
+      netMinor: 99900,
+      taxMinor: 17982,
+      totalMinor: 117882,
+      lines: [],
+      placeOfSupply: null,
+      interState: null,
+    };
+    expect(quoteCanContinue({ ...base, providerChargeMinor: 99900, chargeMatches: false })).toBe(
+      false,
+    );
+    // Not read (Stripe, or the provider was unreachable): the server still checks at checkout.
+    expect(quoteCanContinue({ ...base, providerChargeMinor: null, chargeMatches: null })).toBe(
+      true,
+    );
+  });
+
+  it('confirms a payment made in another tab only from the server', () => {
+    expect(checkoutStatusPanel(null)).toEqual({
+      message: PAY_IN_NEW_TAB,
+      done: false,
+      confirmed: false,
+    });
+    expect(checkoutStatusPanel({ state: 'PENDING', planActive: false }).confirmed).toBe(false);
+    expect(checkoutStatusPanel({ state: 'PROCESSING', planActive: false })).toEqual({
+      message: CHECKOUT_PROCESSING,
+      done: false,
+      confirmed: false,
+    });
+    // An "ACTIVE" that the server does not back with a live plan is not a confirmation.
+    expect(checkoutStatusPanel({ state: 'ACTIVE', planActive: false }).confirmed).toBe(false);
+    expect(checkoutStatusPanel({ state: 'ACTIVE', planActive: true })).toEqual({
+      message: PAYMENT_CONFIRMED,
+      done: true,
+      confirmed: true,
+    });
+    expect(checkoutStatusPanel({ state: 'FAILED', planActive: false }).message).toBe(
+      CHECKOUT_FAILED,
+    );
+    expect(checkoutStatusPanel({ state: 'EXPIRED', planActive: false }).message).toBe(
+      CHECKOUT_EXPIRED,
+    );
+    // The address bar is not an input: a redirect hint maps to a message, never to a status.
+    expect(checkoutReturn('?checkout=success&status=active')).toBe('plan-success');
+    expect(checkoutStatusPanel(null).confirmed).toBe(false);
+  });
+
   it('writes every payment sentence in plain ASCII', () => {
     for (const s of [
+      PAY_IN_NEW_TAB,
+      CHECKOUT_PROCESSING,
+      CHECKOUT_FAILED,
+      CHECKOUT_EXPIRED,
+      PAYMENT_TAB_BLOCKED,
+      QUOTE_MISMATCH,
+      REFRESH_STATUS_LABEL,
       PAYMENT_CONFIRMED,
       PAYMENT_NOT_CONFIRMED_YET,
       CANCEL_DIALOG_TEXT,

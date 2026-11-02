@@ -30,6 +30,7 @@ import {
   BILLING_LIVE_MARKET_CODES,
   parseBillingLiveMarkets,
 } from '../billing/provider/billing-credentials';
+import { indiaSellerProblems } from '../billing/billing-seller';
 
 /** Validated environment. Fails fast on boot if misconfigured. */
 const envSchema = z.object({
@@ -863,6 +864,17 @@ const envSchema = z.object({
    * same amount, a possibly-wrong heading. See `tax-calculator.ts`.
    */
   PLATFORM_TAX_REGION: z.string().trim().max(60).optional(),
+  /**
+   * The registration facts an Indian platform invoice (ETGB series, a GST tax invoice) prints
+   * for its seller, DeepTrics Software Solutions Private Limited: the GSTIN, the SAC of the
+   * service and the registered address. The state is PLATFORM_TAX_REGION. Owner-supplied from
+   * the GST certificate; never written in code. In PRODUCTION with IN in BILLING_LIVE_MARKETS
+   * the boot refuses without all of them and a GSTIN that passes its checksum
+   * (billing/billing-seller.ts).
+   */
+  BILLING_SELLER_GSTIN_IN: z.string().trim().max(15).optional(),
+  BILLING_SELLER_SAC_IN: z.string().trim().max(8).optional(),
+  BILLING_SELLER_ADDRESS_IN: z.string().trim().max(400).optional(),
 
   OTP_SMS_TEMPLATE: z.string().optional(),
 
@@ -1862,6 +1874,12 @@ export function billingConfigurationErrors(
       }
       if (!has('RAZORPAY_BILLING_WEBHOOK_SECRET')) {
         errors.push(`${missing('RAZORPAY_BILLING_WEBHOOK_SECRET')}IN.`);
+      }
+      // A GST tax invoice needs the seller's GSTIN, SAC, address and state (billing-seller.ts).
+      for (const problem of indiaSellerProblems((name) => value(name))) {
+        errors.push(
+          `  - ${problem} BILLING_LIVE_MARKETS lists IN, whose invoices are GST tax invoices.`,
+        );
       }
     }
     // Any billing key present in PRODUCTION must be live, listed market or not.

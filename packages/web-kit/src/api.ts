@@ -85,6 +85,8 @@ import type {
   AdminCreditPack,
   AdminSubscriptionPage,
   BillingCheckoutSession,
+  BillingCheckoutStatus,
+  BillingPlanQuote,
   OrganizationEntitlements,
   OrganizerBilling,
   OrganizerInvoiceRow,
@@ -1195,6 +1197,16 @@ export const api = {
       request<OrganizationEntitlements>(`/organizations/${organizationId}/entitlements`),
     invoices: (organizationId: string) =>
       request<OrganizerInvoiceRow[]>(`/organizations/${organizationId}/billing/invoices`),
+    /** A plan price with tax, itemised, and whether the provider plan charges the same. */
+    quote: (organizationId: string, priceId: string) =>
+      request<BillingPlanQuote>(
+        `/organizations/${organizationId}/billing/quote?priceId=${encodeURIComponent(priceId)}`,
+      ),
+    /** Where a checkout stands, from the server. Never activates anything. */
+    checkoutStatus: (organizationId: string, ref: string) =>
+      request<BillingCheckoutStatus>(
+        `/organizations/${organizationId}/billing/checkout-status?ref=${encodeURIComponent(ref)}`,
+      ),
     /** A hosted provider page. The plan arrives only when the provider's verified payment does. */
     checkout: (organizationId: string, priceId: string) =>
       request<BillingCheckoutSession>(`/organizations/${organizationId}/billing/checkout`, {

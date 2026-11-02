@@ -23,6 +23,11 @@ function txFor(country: string) {
         .fn()
         .mockResolvedValue({ id: 'acc', organizationId: 'org-1', country, taxId: null }),
     },
+    organization: {
+      findUnique: jest
+        .fn()
+        .mockResolvedValue({ name: 'Org', legalName: null, registeredRegion: null }),
+    },
     $queryRaw: jest.fn().mockResolvedValue([{ value: 1 }]),
   };
   return { tx, create };

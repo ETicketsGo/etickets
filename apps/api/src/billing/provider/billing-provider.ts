@@ -137,6 +137,8 @@ export interface ProviderSubscriptionRecord {
   subscriptionRef: string;
   customerRef: string | null;
   status: ProviderSubscriptionStatus;
+  /** The provider's own word for the status (Razorpay: created, expired, cancelled...). */
+  providerStatus?: string | null;
   providerPriceRef: string | null;
   /** Null when the provider does not report a scheduled cancellation (Razorpay). */
   cancelAtPeriodEnd: boolean | null;
@@ -223,6 +225,11 @@ export interface BillingProvider {
   createCreditPackCheckout?(req: CreditPackCheckoutRequest): Promise<BillingCheckoutSession>;
   /** A provider-hosted page to change the payment method or cancel (Stripe only). */
   createPortal?(customerRef: string, returnUrl: string): Promise<{ url: string }>;
+  /**
+   * Read-only: what the provider's plan charges per cycle (Razorpay only: its plan amount is the
+   * total, our tax included). Lets the console show that the quote equals the charge.
+   */
+  planCharge?(providerPriceRef: string): Promise<{ amountMinor: number; currency: string }>;
   /** Cancel at the end of the current period. Returns the provider's record afterwards. */
   cancelAtPeriodEnd?(subscriptionRef: string): Promise<ProviderSubscriptionRecord>;
 }
