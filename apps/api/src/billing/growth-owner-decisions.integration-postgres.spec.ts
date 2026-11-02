@@ -68,6 +68,8 @@ describe('integration-real-postgres: owner decisions 2026-10-27', () => {
     APP_ENV: 'LOCAL',
     BILLING_ENABLED: 'true',
     PLATFORM_TAX_REGION: 'Karnataka',
+    // These cases model a GST-registered seller (GST from the PLATFORM_SERVICES rule).
+    BILLING_SELLER_GST_STATUS_IN: 'REGISTERED',
     ORGANIZER_WEB_URL: 'https://organizer.test',
     CUSTOMER_WEB_URL: 'https://shop.test',
     JWT_ACCESS_SECRET: 'j'.repeat(40),
