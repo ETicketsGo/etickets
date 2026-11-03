@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Check, Copy } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { BRAND_FOCUS } from '@eticketsgo/web-kit';
+import { useMounted } from '@/lib/use-mounted';
 
 /**
  * A booking reference or receipt number, shown the same way everywhere and copyable.
@@ -41,7 +42,10 @@ export function ReferenceCode({
 }) {
   const t = useTranslations('storefront.common');
   const [copied, setCopied] = useState(false);
-  const canCopy = typeof navigator !== 'undefined' && Boolean(navigator.clipboard);
+  // After mount only: the server has no `navigator`, so reading it during render drew the
+  // button in the browser but not in the server HTML, a hydration mismatch.
+  const mounted = useMounted();
+  const canCopy = mounted && Boolean(navigator.clipboard);
 
   const copy = async () => {
     try {

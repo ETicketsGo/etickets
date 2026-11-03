@@ -51,6 +51,19 @@ async function settled(page: Page): Promise<{ cls: number; moves: string[] }> {
   });
 }
 
+/** React's hydration errors (#418 markup, #423 recoverable, #425 text), as they happen. */
+function hydrationProblems(page: Page): string[] {
+  const found: string[] = [];
+  const hydration = /#(418|423|425)\b|hydrat/i;
+  page.on('console', (m) => {
+    if (m.type() === 'error' && hydration.test(m.text())) found.push(m.text());
+  });
+  page.on('pageerror', (e) => {
+    if (hydration.test(String(e))) found.push(String(e));
+  });
+  return found;
+}
+
 /** A visitor who has been here before: the browser resolved India and mirrored it. */
 async function returningVisitor(context: BrowserContext) {
   const url = new URL(CUSTOMER);
@@ -141,5 +154,60 @@ test.describe('storefront pages paint finished and stay put', () => {
       expect(moves, `${path}: client-side redirect`).toEqual([]);
       expect(cls, `${path}: layout shift`).toBeLessThan(CLS_LIMIT);
     }
+  });
+
+  /*
+    Signed in, an event page threw React #418 on every load: the review form was drawn from
+    `tokenStore.access` during render, false on the server and true in the browser, so React threw
+    the server HTML away and redrew the page (the sticky Book bar blinked out, LCP 5.6 s on a
+    throttled phone). The page now answers from the session-hint cookie until it has mounted.
+    A session that carries the hint and one that predates it must both hydrate cleanly.
+  */
+  for (const withHint of [true, false]) {
+    test(`a signed-in event page hydrates cleanly (${withHint ? 'with' : 'without'} the session hint)`, async ({
+      page,
+      context,
+      request,
+    }) => {
+      await seedBrowserAuth(context, await apiLogin(request, 'customer1@eticketsgo.test'));
+      await returningVisitor(context);
+      await page.setViewportSize({ width: 412, height: 839 });
+      const event = await firstEventPath(page);
+      // Visiting a page writes the hint for a signed-in browser; take it away to test without.
+      await context.clearCookies({ name: 'etg_session' });
+      if (withHint)
+        await context.addCookies([
+          { name: 'etg_session', value: '1', domain: new URL(CUSTOMER).hostname, path: '/' },
+        ]);
+      const problems = hydrationProblems(page);
+      await watch(page);
+      await page.goto(`${CUSTOMER}${event}`);
+      await expect(page.locator('main h1').first()).toBeVisible({ timeout: 30_000 });
+      const { cls } = await settled(page);
+      expect(problems, 'hydration errors').toEqual([]);
+      expect(cls, 'layout shift').toBeLessThan(CLS_LIMIT);
+      await expect(page.locator('#review-comment')).toBeVisible();
+      if (withHint) {
+        // The server's own HTML, before any script: the Book bar and the review form are in it.
+        const html = await (
+          await context.request.get(`${CUSTOMER}${event}`, {
+            headers: { cookie: 'etg_market=IN; etg_session=1' },
+          })
+        ).text();
+        expect(html).toContain('data-testid="sticky-continue"');
+        expect(html).toContain('id="review-comment"');
+      }
+    });
+  }
+
+  test('a signed-out event page hydrates cleanly', async ({ page, context }) => {
+    await returningVisitor(context);
+    const event = await firstEventPath(page);
+    const problems = hydrationProblems(page);
+    await page.goto(`${CUSTOMER}${event}`);
+    await expect(page.locator('main h1').first()).toBeVisible({ timeout: 30_000 });
+    await settled(page);
+    expect(problems, 'hydration errors').toEqual([]);
+    await expect(page.locator('#review-comment')).toHaveCount(0);
   });
 });

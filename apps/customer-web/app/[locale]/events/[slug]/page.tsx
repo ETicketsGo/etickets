@@ -7,6 +7,7 @@ import {
   recommendationsQuery,
   reviewsQuery,
 } from '@/lib/storefront-queries';
+import { serverSessionHint } from '@/lib/session-hint';
 import { EventDetailPage } from './event-page';
 
 /**
@@ -21,6 +22,8 @@ import { EventDetailPage } from './event-page';
  */
 export default async function Page({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
+  // The layout reads the same cookie for the header, so this adds no new dynamic input.
+  const signedInHint = await serverSessionHint();
   const state = await prefetchPublic(async (client) => {
     const event = await client.fetchQuery(eventQuery(slug));
     await Promise.allSettled([
@@ -32,7 +35,7 @@ export default async function Page({ params }: { params: Promise<{ slug: string 
   });
   return (
     <HydrationBoundary state={state}>
-      <EventDetailPage />
+      <EventDetailPage initialSignedIn={signedInHint} />
     </HydrationBoundary>
   );
 }

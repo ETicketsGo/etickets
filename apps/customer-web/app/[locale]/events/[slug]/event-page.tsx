@@ -26,7 +26,8 @@ import {
   venueAddressLine,
   venueMapQuery,
 } from '@eticketsgo/web-kit';
-import { api, tokenStore, ApiRequestError } from '@/lib/api';
+import { api, ApiRequestError } from '@/lib/api';
+import { useShellAuth } from '@/lib/use-shell-auth';
 import { useFormat } from '@/lib/format';
 import { pushRecent } from '@/lib/recent';
 import { eventZone, sessionZone } from '@/lib/event-when';
@@ -86,7 +87,12 @@ import {
   useVenueWhen,
 } from '@/components/booking-brand';
 
-export function EventDetailPage() {
+export function EventDetailPage({
+  initialSignedIn = false,
+}: {
+  /** What the server read from the session-hint cookie (`serverSessionHint`). */
+  initialSignedIn?: boolean;
+} = {}) {
   // `tx` is the shared vocabulary (Free, Sold out); `sf` is storefront copy.
   const tx = useTranslations('common');
   const sf = useTranslations('storefront');
@@ -159,7 +165,15 @@ export function EventDetailPage() {
   const toast = useToast();
   const [rating, setRating] = useState(0);
   const [comment, setComment] = useState('');
-  const authed = typeof window !== 'undefined' && !!tokenStore.access;
+  /*
+    Signed in? The server and the first client paint must give the SAME answer, or React drops
+    the server HTML (error #418) and redraws the whole page on the phone - the sticky Book bar
+    blinked out and LCP doubled for every signed-in visitor. This read `tokenStore.access`
+    during render, which is always false on the server and true in a signed-in browser.
+    `useShellAuth` answers from the session-hint cookie until mount, then follows the token,
+    so a signed-in visitor gets the review form in the server HTML with nothing to reconcile.
+  */
+  const { authed } = useShellAuth(initialSignedIn);
 
   const reviews = useQuery({ ...reviewsQuery(event?.id), enabled: !!event });
   const mine = useQuery({

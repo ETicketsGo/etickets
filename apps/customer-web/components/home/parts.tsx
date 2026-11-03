@@ -456,7 +456,15 @@ export function StageHero({ event }: { event: PublicEventCard }) {
   const when = useVenueWhen()(event.nextSessionAt, eventZone(event));
   const image = cardImage(event, 'banner');
   const [failed, setFailed] = useState(false);
-  const today = isTodayAt(event.nextSessionAt, eventZone(event));
+  /*
+    "Today" on a calendar both renders agree on. With no zone, `Intl` falls back to the
+    process's own: UTC on the server, the visitor's in the browser, so near midnight the server
+    and the first client paint disagreed about the badge (React #418). The reader's zone is the
+    same in both until mount; with neither known the badge waits for the browser.
+  */
+  const readerZone = useReaderZone();
+  const todayZone = eventZone(event) ?? readerZone;
+  const today = todayZone ? isTodayAt(event.nextSessionAt, todayZone) : false;
   return (
     <section
       data-brand-tone="stage"
