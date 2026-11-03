@@ -151,6 +151,22 @@ export function DiscoverHome({ recentIds = [] }: { recentIds?: string[] }) {
 
   // Everything on in scope: the hero, and the section under the chips when nothing is chosen.
   const scoped = useQuery({ ...homeEventsQuery(preference), enabled: ready });
+  /*
+    Whether the page's answer arrived AFTER its first paint: it was drawn as the placeholder (a
+    first visit, before the browser knew where it was), or the browser's location answer moved
+    the scope the server drew (nobody chose it). Read once, so the server and the first client
+    render agree.
+
+    It decides one thing: how tall the empty stage is. The placeholder is the stage plus the
+    chips and a feature block - more than a screen - and the empty stage is a few lines. Swapped
+    in, it pulled "Before you pay" up from below the fold into the middle of the screen
+    (production, no events: 0.35 CLS on a desktop, 0.64 on a phone). Drawn after a placeholder,
+    the empty stage is a screen tall instead, so what follows it stays below the fold. A page
+    the server drew empty is drawn as before: nothing moves there.
+  */
+  const [startedPending] = useState(() => scoped.isPending);
+  const [firstScopeKey] = useState(scopeKey);
+  const settledLate = startedPending || (!preference.chosen && scopeKey !== firstScopeKey);
 
   const filterParams = useMemo((): Record<string, string> => {
     if (filter.kind === 'today') return todayRange();
@@ -353,7 +369,11 @@ export function DiscoverHome({ recentIds = [] }: { recentIds?: string[] }) {
           The reverse misleads as much: when nothing is on sale ANYWHERE it says that, and
           offers no search (see `emptyStage`).
         */
-        <section data-brand-tone="stage" className="bg-brand-canvas">
+        <section
+          data-brand-tone="stage"
+          data-testid="home-empty-stage"
+          className={`bg-brand-canvas ${settledLate ? 'min-h-[100svh]' : ''}`}
+        >
           <div className={`${WRAP} py-16 lg:py-24`}>
             <h2 className="max-w-3xl text-balance font-brand-display text-brand-d1 text-brand-ink">
               {!place

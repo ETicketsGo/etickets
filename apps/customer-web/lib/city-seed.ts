@@ -1,5 +1,5 @@
 import { cache } from 'react';
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 import {
   CITY_COOKIE,
   MARKET_COOKIE,
@@ -8,6 +8,8 @@ import {
 } from '@eticketsgo/web-kit/server';
 import { RECENT_COOKIE, parseRecentIds } from '@/lib/recent';
 import { READER_ZONE_COOKIE, validZone } from '@/lib/reader-zone-cookie';
+import { firstVisitCountry } from '@/lib/first-visit-location';
+import { PREFETCH_OFF_COOKIE } from '@/lib/prefetch';
 
 /**
  * Where this visitor is browsing, as the server can know it: the cookies the browser mirrors
@@ -39,8 +41,16 @@ export const serverReaderZone = cache(async (): Promise<string | undefined> => {
 
 export const serverCitySeed = cache(async (): Promise<CitySeed> => {
   const store = await cookies();
-  return citySeedFrom({
+  const seed = citySeedFrom({
     stored: store.get(CITY_COOKIE)?.value,
     market: store.get(MARKET_COOKIE)?.value,
   });
+  /*
+    A first visit (no cookie says where): the edge's country, when there is one the browser is
+    certain to be given too (`lib/first-visit-location.ts`). `etg_prefetch=off` leaves it to the
+    browser, like every other read, for journeys that stand in for the API there.
+  */
+  if (seed.ready || store.get(PREFETCH_OFF_COOKIE)?.value === 'off') return seed;
+  const country = firstVisitCountry(await headers());
+  return country ? { ...seed, country, ready: true } : seed;
 });
