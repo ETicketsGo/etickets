@@ -20,6 +20,7 @@ export * from './brand';
 export * from './hooks';
 export * from './nav';
 export * from './shell';
+export * from './shell-preferences';
 export * from './console';
 export * from './toggle';
 export * from './admin-grouping';
