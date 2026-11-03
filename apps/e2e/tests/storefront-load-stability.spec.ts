@@ -125,6 +125,43 @@ test.describe('storefront pages paint finished and stay put', () => {
     expect(cls).toBeLessThan(CLS_LIMIT);
   });
 
+  /*
+    The server draws event pages with their event now, and it cannot see the session (the token is
+    in localStorage). Anything the page draws differently for a signed-in visitor has to wait for
+    hydration, or React throws #418 and redraws the whole page in the browser - which QA caught on
+    every signed-in event page (the review form was read from storage during render).
+  */
+  for (const signedIn of [false, true]) {
+    test(`event and list pages hydrate cleanly ${signedIn ? 'signed in' : 'signed out'}`, async ({
+      page,
+      context,
+      request,
+    }) => {
+      if (signedIn) {
+        await seedBrowserAuth(context, await apiLogin(request, 'customer1@eticketsgo.test'));
+        const url = new URL(CUSTOMER);
+        await context.addCookies([
+          { name: 'etg_session', value: '1', domain: url.hostname, path: '/' },
+        ]);
+      }
+      await returningVisitor(context);
+      const event = await firstEventPath(page);
+      const problems: string[] = [];
+      page.on('console', (m) => {
+        if (m.type() === 'error' && /#418|#423|#425|hydrat/i.test(m.text()))
+          problems.push(m.text());
+      });
+      page.on('pageerror', (e) => {
+        if (/#418|#423|#425|hydrat/i.test(String(e))) problems.push(String(e));
+      });
+      for (const path of [event, '/', '/events', '/explore']) {
+        await page.goto(`${CUSTOMER}${path}`, { waitUntil: 'networkidle' });
+        await expect(page.locator('main h1, main h2').first()).toBeVisible({ timeout: 30_000 });
+      }
+      expect(problems).toEqual([]);
+    });
+  }
+
   test('signed-in account pages hold their place while they load', async ({
     page,
     context,
