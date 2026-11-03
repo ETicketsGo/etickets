@@ -13,14 +13,20 @@ import { StepUpProvider } from '@/components/step-up';
   `PageAccessGate` shows "You do not have access to this page" in place of a page whose menu
   link this operator could not see (`lib/page-access.ts`), instead of a refused request.
 */
+/*
+  The frame is RequireAuth's (`frame`), not a child of it: it is drawn round the wait while the
+  operator's session is confirmed and stays the same element when the page replaces the
+  spinner, so a refresh shows the console from the first paint and nothing in it is remounted.
+  The frame asks the API for nothing of its own.
+*/
+const adminFrame = (content: React.ReactNode) => <AdminShell>{content}</AdminShell>;
+
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   return (
-    <RequireAuth roles={['ADMIN', 'SUPER_ADMIN']}>
+    <RequireAuth roles={['ADMIN', 'SUPER_ADMIN']} frame={adminFrame}>
       <MfaGate>
         <StepUpProvider>
-          <AdminShell>
-            <PageAccessGate>{children}</PageAccessGate>
-          </AdminShell>
+          <PageAccessGate>{children}</PageAccessGate>
         </StepUpProvider>
       </MfaGate>
     </RequireAuth>

@@ -1,7 +1,11 @@
-import type { NextRequest } from 'next/server';
+import { NextResponse, type NextRequest } from 'next/server';
 import createMiddleware from 'next-intl/middleware';
 import { routing } from './i18n/routing';
 import { isIndexableDeployment, robotsTagFor } from './lib/indexability.mjs';
+import { signedOutRedirect } from './lib/signed-out-redirect';
+
+/** The prefixes a URL can carry: every locale but the default, which has none (`as-needed`). */
+const PREFIXED_LOCALES = routing.locales.filter((l) => l !== routing.defaultLocale);
 
 /**
  * Decides which language a request is served in, before anything renders.
@@ -31,7 +35,19 @@ const INDEXABLE = isIndexableDeployment({
  * response itself (redirect, rewrite or pass-through) is returned unchanged otherwise.
  */
 export default function middleware(request: NextRequest) {
-  const response = intl(request);
+  /*
+    A signed-out visitor on an account page that only redirects to sign in goes there now,
+    instead of seeing the account page first (`lib/signed-out-redirect.ts`). The cookie is the
+    session hint `tokenStore` writes beside the tokens (`lib/session-hint.ts`).
+  */
+  const signIn = signedOutRedirect(
+    request.nextUrl.pathname,
+    request.cookies.get('etg_session')?.value === '1',
+    PREFIXED_LOCALES,
+  );
+  const response = signIn
+    ? NextResponse.redirect(new URL(signIn, request.url), 307)
+    : intl(request);
   const tag = robotsTagFor({
     indexable: INDEXABLE,
     host: request.headers.get('x-forwarded-host') ?? request.headers.get('host'),

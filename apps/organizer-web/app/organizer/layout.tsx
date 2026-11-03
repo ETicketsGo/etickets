@@ -186,6 +186,18 @@ function SuspensionGate({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+/*
+  The console is RequireAuth's `frame`, not a child of it: drawn round the wait while the
+  session is confirmed, and the same element when the page replaces the spinner. A refresh
+  therefore shows the console from the first paint instead of an empty page with a spinner and
+  then the whole console appearing round it, and nothing in it is remounted at that moment.
+*/
+const organizerFrame = (content: React.ReactNode) => (
+  <SuspensionGate>
+    <OrganizerChrome>{content}</OrganizerChrome>
+  </SuspensionGate>
+);
+
 export default function OrganizerLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
@@ -209,10 +221,9 @@ export default function OrganizerLayout({ children }: { children: React.ReactNod
       // has not created their organization yet — the step that grants the role. Sending them
       // there beats telling them their account cannot access the area that would fix it.
       roleMismatchRedirect="/start"
+      frame={organizerFrame}
     >
-      <SuspensionGate>
-        <OrganizerChrome>{children}</OrganizerChrome>
-      </SuspensionGate>
+      {children}
     </RequireAuth>
   );
 }

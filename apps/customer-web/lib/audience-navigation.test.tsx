@@ -146,13 +146,38 @@ describe('the marketing header', () => {
     },
   );
 
-  it('signed in with no session hint: no Sign in is ever drawn, not even before mount', () => {
-    // The server's render for a hint-less session is a placeholder, never "Sign in".
+  /*
+    Refresh flicker (2026-11): the server used to draw an empty placeholder when there was no
+    session hint, and Sign in / Get started appeared a moment later on every signed-out load.
+    An absent hint now means "visitor" from the first byte; a signed-in session without the hint
+    (older than the cookie) is corrected on mount, and the backfill means it happens once.
+  */
+  it('no session hint: the server already draws Sign in and Get started', () => {
     path = '/features';
     const html = renderToStaticMarkup(tree(false));
     const header = html.slice(html.indexOf('<header'), html.indexOf('</header>'));
-    expect(header).toContain('data-auth="pending"');
-    expect(header).not.toContain('>Sign in<');
+    expect(header).not.toContain('data-auth="pending"');
+    expect(header).toContain('>Sign in<');
+    expect(header).toContain('>Get started<');
+  });
+
+  it('a session older than the hint is corrected on mount and given the hint', async () => {
+    path = '/features';
+    localStorage.setItem('etg_access', 'test-access-token');
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    await act(async () => {
+      root.render(tree(false));
+    });
+    cleanup = () => {
+      act(() => root.unmount());
+      host.remove();
+    };
+    const seen = labels(host.querySelector('header') as HTMLElement);
+    expect(seen).toContain('Go to app');
+    expect(seen).not.toContain('Sign in');
+    expect(document.cookie).toContain('etg_session=1');
   });
 
   it('has no bottom bar or city bar under it; the home page keeps its bottom bar', async () => {
@@ -213,13 +238,22 @@ describe('the home page header (owner, 2026-10-18: "Combined")', () => {
     expect(host.querySelector('nav[aria-label="Primary"]')).not.toBeNull();
   });
 
-  it('before the session is known: no platform links and no Sign in, not even on the server', () => {
+  it('no session hint: the server draws the visitor bar, platform row included', () => {
     path = '/';
     const html = renderToStaticMarkup(tree(false));
     const header = html.slice(html.indexOf('<header'), html.indexOf('</header>'));
-    expect(header).toContain('data-auth="pending"');
+    expect(header).not.toContain('data-auth="pending"');
+    expect(header).toContain('data-nav-row="platform"');
+    expect(header).toContain('>Get started<');
+    expect(header).toContain('>Features<');
+  });
+
+  it('with the session hint: the server draws the shop bar, no platform row and no Sign in', () => {
+    path = '/';
+    const html = renderToStaticMarkup(tree(true));
+    const header = html.slice(html.indexOf('<header'), html.indexOf('</header>'));
+    expect(header).not.toContain('data-nav-row="platform"');
     expect(header).not.toContain('>Sign in<');
-    expect(header).not.toContain('>Get started<');
     expect(header).not.toContain('>Features<');
   });
 });
@@ -295,13 +329,12 @@ describe('the shop header for a visitor', () => {
     }
   });
 
-  it('before the session is known on Explore: no platform links and no Sign in', () => {
+  it('no session hint on Explore: the server already draws the platform links', () => {
     path = '/explore';
     const html = renderToStaticMarkup(tree(false));
     const header = html.slice(html.indexOf('<header'), html.indexOf('</header>'));
-    expect(header).toContain('data-auth="pending"');
-    expect(header).not.toContain('>Sign in<');
-    expect(header).not.toContain('>Features<');
+    expect(header).not.toContain('data-auth="pending"');
+    expect(header).toContain('>Features<');
   });
 });
 

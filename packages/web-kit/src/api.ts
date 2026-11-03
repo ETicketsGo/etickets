@@ -155,6 +155,8 @@ const notifyTokenChange = (): void => {
  * a cookie that will not set in development is a cookie nobody tests.
  */
 const SESSION_HINT = 'etg_session';
+/** The hint's name, for a server layout that reads it (`SessionHintProvider` in hooks.tsx). */
+export const SESSION_HINT_COOKIE = SESSION_HINT;
 
 function writeSessionHint(signedIn: boolean): void {
   if (typeof document === 'undefined') return;
@@ -162,6 +164,16 @@ function writeSessionHint(signedIn: boolean): void {
   document.cookie = signedIn
     ? `${SESSION_HINT}=1; Path=/; Max-Age=31536000; SameSite=Lax${secure}`
     : `${SESSION_HINT}=; Path=/; Max-Age=0; SameSite=Lax${secure}`;
+}
+
+/**
+ * Writes the hint for a session that predates it (it exists since 2026-09), so the next page
+ * load is drawn right. Only ever writes the signed-in direction, and only when it is missing.
+ */
+export function backfillSessionHintCookie(): void {
+  if (typeof document === 'undefined' || !localStorage.getItem(ACCESS_KEY)) return;
+  if (document.cookie.split('; ').includes(`${SESSION_HINT}=1`)) return;
+  writeSessionHint(true);
 }
 
 export const tokenStore = {
