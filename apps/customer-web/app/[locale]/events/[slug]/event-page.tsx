@@ -26,7 +26,7 @@ import {
   venueAddressLine,
   venueMapQuery,
 } from '@eticketsgo/web-kit';
-import { api, tokenStore, ApiRequestError } from '@/lib/api';
+import { api, ApiRequestError } from '@/lib/api';
 import { useFormat } from '@/lib/format';
 import { pushRecent } from '@/lib/recent';
 import { eventZone, sessionZone } from '@/lib/event-when';
@@ -51,6 +51,7 @@ import {
   whenAlreadyFailed,
   moneyFractionDigits,
   useAuthUser,
+  useIsAuthenticated,
 } from '@eticketsgo/web-kit';
 import { currentPageUrl } from '@/lib/site-url';
 import { useReaderZone } from '@/lib/reader-zone';
@@ -159,7 +160,14 @@ export function EventDetailPage() {
   const toast = useToast();
   const [rating, setRating] = useState(0);
   const [comment, setComment] = useState('');
-  const authed = typeof window !== 'undefined' && !!tokenStore.access;
+  /*
+    Signed in or not, read the hydration-safe way: false while the server renders and while React
+    hydrates that HTML, the token's answer from then on. Read straight from storage during render,
+    it was false on the server and true in the browser's first render, so a signed-in visitor's
+    event page failed to hydrate (React #418) and was drawn a second time on the client - the
+    sticky Book bar vanished and came back - once the page arrived from the server with its event.
+  */
+  const authed = useIsAuthenticated();
 
   const reviews = useQuery({ ...reviewsQuery(event?.id), enabled: !!event });
   const mine = useQuery({

@@ -5,8 +5,8 @@ import { useParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { useRouter } from '@/i18n/navigation';
 import { CalendarDays, CheckCircle2, MapPin, ShieldCheck, Ticket } from 'lucide-react';
-import { errorMessage } from '@eticketsgo/web-kit';
-import { api, tokenStore } from '@/lib/api';
+import { errorMessage, useIsAuthenticated } from '@eticketsgo/web-kit';
+import { api } from '@/lib/api';
 import { useFormat } from '@/lib/format';
 import { brandButtonClasses } from '@eticketsgo/web-kit';
 import { Link } from '@/i18n/navigation';
@@ -41,6 +41,8 @@ function shareQrFallback(text: string): string {
  */
 export default function SharePage() {
   const t = useTranslations('storefront.sharedTicket');
+  // Hydration-safe: the label must match what the server drew (no token there).
+  const authed = useIsAuthenticated();
   const w = useTranslations('storefront.wallet');
   const { dateTime } = useFormat();
   const { token } = useParams<{ token: string }>();
@@ -178,12 +180,12 @@ export default function SharePage() {
               className="mt-3 w-full"
               loading={accept.isPending}
               onClick={() =>
-                tokenStore.access
+                authed
                   ? accept.mutate()
                   : router.push(`/login?next=${encodeURIComponent(`/share/${token}`)}`)
               }
             >
-              {tokenStore.access ? t('accept') : t('signInToAccept')}
+              {authed ? t('accept') : t('signInToAccept')}
             </BrandActionButton>
           </div>
         )}
