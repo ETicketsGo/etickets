@@ -33,6 +33,7 @@ export * from './phone-sign-in';
 export * from './console-handoff';
 export * from './password-field';
 export * from './city';
+export * from './city-scope';
 export * from './place-groups';
 /*
   Country + currency, re-exported from shared-types.

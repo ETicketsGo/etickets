@@ -2,13 +2,8 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
-import {
-  api as webKitApi,
-  brandChipClasses,
-  BrandButton,
-  countryKey,
-  useCity,
-} from '@eticketsgo/web-kit';
+import { brandChipClasses, BrandButton, useCity } from '@eticketsgo/web-kit';
+import { emptyPlaceCitiesQuery, emptyPlaceCountry } from '@/lib/storefront-queries';
 import { useCountryWords } from '@/lib/country-words';
 import { BrandEmpty } from './storefront-brand';
 
@@ -40,13 +35,8 @@ export function EmptyPlace({
   const t = useTranslations('storefront.placeGroups');
   const words = useCountryWords();
   const preference = useCity();
-  const country = preference.place?.country ?? preference.country;
-  const key = countryKey(country);
-  const nearby = useQuery({
-    queryKey: ['sellable-cities', key],
-    queryFn: () => webKitApi.location.cities({ country: key ?? undefined, limit: 8 }),
-    enabled: Boolean(key),
-  });
+  const key = emptyPlaceCountry(preference);
+  const nearby = useQuery({ ...emptyPlaceCitiesQuery(key), enabled: Boolean(key) });
   const suggestions = (nearby.data ?? [])
     .filter((c) => c.eventCount > 0 && c.city.toLowerCase() !== preference.city?.toLowerCase())
     .slice(0, 6);

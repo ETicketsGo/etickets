@@ -1,7 +1,7 @@
 'use client';
 
 import { useQueries } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { eventQuery } from '@/lib/storefront-queries';
 import { buyability, type Buyability } from '@/lib/home-feed';
 
 /**
@@ -23,8 +23,7 @@ export function useBuyability(
   const checked = [...new Set(slugs)].slice(0, max);
   const details = useQueries({
     queries: checked.map((slug) => ({
-      queryKey: ['event', slug],
-      queryFn: () => api.getEvent(slug),
+      ...eventQuery(slug),
       staleTime: 60_000,
       retry: false,
     })),

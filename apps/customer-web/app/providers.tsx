@@ -4,9 +4,21 @@
 // needs: a single city preference the header chip and every browse page agree on. The
 // organizer and admin consoles are not location-filtered, so this stays out of WebProviders.
 import { useLocale, useTranslations } from 'next-intl';
-import { CityProvider, WebProviders, type HumanCheckLabels } from '@eticketsgo/web-kit';
+import {
+  CityProvider,
+  WebProviders,
+  type CitySeed,
+  type HumanCheckLabels,
+} from '@eticketsgo/web-kit';
 
-export function Providers({ children }: { children: React.ReactNode }) {
+export function Providers({
+  children,
+  citySeed,
+}: {
+  children: React.ReactNode;
+  /** Where the server rendered this page (`lib/city-seed.ts`). Unset: unknown until resolved. */
+  citySeed?: CitySeed;
+}) {
   // The human-check dialog speaks the storefront's language (the consoles keep English).
   const t = useTranslations('common.humanCheck');
   const locale = useLocale();
@@ -24,7 +36,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
       // Turnstile takes a language code; `fr-CA` reads as its French.
       humanCheckLanguage={locale.startsWith('fr') ? 'fr' : 'en'}
     >
-      <CityProvider>{children}</CityProvider>
+      <CityProvider seed={citySeed}>{children}</CityProvider>
     </WebProviders>
   );
 }

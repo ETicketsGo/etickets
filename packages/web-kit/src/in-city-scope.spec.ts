@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { inCityScope, cityScope, type CityPreference } from './city';
+import { inCityScope, type CityPreference } from './city';
+import { cityScope } from './city-scope';
 
 /**
  * The one list the server does not filter.

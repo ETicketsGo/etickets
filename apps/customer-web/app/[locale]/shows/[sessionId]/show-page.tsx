@@ -1,0 +1,1099 @@
+'use client';
+
+import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query';
+import { useParams } from 'next/navigation';
+import { showOffersQuery, showSeatsQuery, showSummaryQuery } from '@/lib/storefront-queries';
+import { useRouter } from '@/i18n/navigation';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Armchair, ChevronLeft, Info } from 'lucide-react';
+import {
+  applySeatTap,
+  currencyForCountry,
+  seatGroupName,
+  MAX_SEATS_PER_BOOKING,
+  strandedSeats,
+  useAuthUser,
+  useToast,
+  BuyerRegionField,
+  BRAND_FOCUS,
+  BrandButton,
+  brandChipClasses,
+  type SelectableSeat,
+} from '@eticketsgo/web-kit';
+import { api, ApiRequestError, type SeatLayout, type SeatLayoutResponse } from '@/lib/api';
+import { useFormat } from '@/lib/format';
+import { BrandEmpty } from '@/components/storefront-brand';
+import { BrandLoadError, BrandSkeleton, BrandStatePage } from '@/components/brand-forms';
+import { BRAND_FIELD, BRAND_LINK, BRAND_PANEL } from '@/components/booking-brand';
+import { nextStepAfterBooking } from '@/lib/after-booking';
+import { GuestBuyerFields, useGuestBuyer } from '@/components/guest-buyer';
+import { startGuestBooking } from '@/lib/guest-session';
+import { PriceBreakdown } from '@/components/price-breakdown';
+import { ShowHeader } from '@/components/seat-selection/show-header';
+import { TicketCount } from '@/components/seat-selection/ticket-count';
+import { SeatMap } from '@/components/seat-selection/seat-map';
+import { StoreVenueMap } from '@/components/seat-selection/venue-map';
+import { SeatLegend } from '@/components/seat-selection/seat-legend';
+import { BookingBar } from '@/components/seat-selection/booking-bar';
+import {
+  bookingFailure,
+  closeSeatsNotForSale,
+  isSaleNotOpen,
+} from '@/components/seat-selection/online-booking';
+import { useTranslations } from 'next-intl';
+
+/**
+ * Errors about the SHOW rather than about the seats.
+ *
+ * ── WHY THE CODE AND NOT THE STATUS ────────────────────────────────────────────────
+ * Both arrive as 409. A seat lost to somebody faster and a showing whose regulatory pricing
+ * was never configured are the same HTTP status, so the status cannot tell them apart — and
+ * every one of these is raised as VALIDATION_FAILED, while no seat conflict is.
+ *
+ * The distinction decides what happens to the buyer's cart. Every one of these means
+ * re-picking seats cannot possibly help: the price ceiling is unmapped, the event is marked
+ * free while its tickets carry a price, this organizer does not take cash. Clearing the
+ * selection for them throws away work the customer did for no reason, and the visible reset
+ * reads as the failure while the sentence explaining it scrolls past.
+ */
+const SHOW_LEVEL_ERROR_CODES = ['VALIDATION_FAILED'];
+
+/**
+ * How an accessible seat is described.
+ *
+ * `Seat.kind` has always existed and the organizer's own seat map has always shown it; the
+ * customer's did not, so a wheelchair bay rendered as an ordinary seat — failing the customer
+ * who needs it and the one who takes it without knowing. Marked with an icon AND named in the
+ * accessible label, because a symbol alone is invisible to a screen reader and a label alone
+ * is invisible to everyone else.
+ */
+const SEAT_KIND_KEY: Record<string, 'wheelchair' | 'companion' | 'restrictedView'> = {
+  WHEELCHAIR: 'wheelchair',
+  COMPANION: 'companion',
+  // Sold, but the buyer is told before choosing it, in the seat's name and its tooltip.
+  RESTRICTED_VIEW: 'restrictedView',
+};
+
+const isAccessible = (kind: string) => kind === 'WHEELCHAIR' || kind === 'COMPANION';
+
+/** Where the mobile pay bar's "Price details" link lands. */
+const SUMMARY_ID = 'seat-summary';
+
+export function SeatSelectionPage() {
+  const sf = useTranslations('storefront');
+  const s = useTranslations('storefront.seats');
+  const k = useTranslations('storefront.checkout');
+  const { money, moneyFractionDigits } = useFormat();
+  const { sessionId } = useParams<{ sessionId: string }>();
+
+  /** A seat's state in words, for its accessible name. Anything unrecognised is unavailable. */
+  const seatStatusLabel = (status: string) =>
+    status === 'AVAILABLE'
+      ? s('statusAvailable')
+      : status === 'SOLD'
+        ? s('statusSold')
+        : status === 'HELD'
+          ? s('statusHeld')
+          : s('statusUnavailable');
+  const router = useRouter();
+  const toast = useToast();
+
+  /*
+    Which block of a large venue is open, if any.
+
+    Null means "show me the venue". A cinema never leaves null — its layout comes back whole
+    and the map step does not exist for it, which is right: a room of two hundred seats does
+    not need an overview to choose from.
+  */
+  const [sectionId, setSectionId] = useState<string | null>(null);
+
+  /*
+    Optional, only rendered for Indian venues, and PREFILLED from the last answer — the event
+    page's rule, so a returning customer is not asked the same optional question every time.
+    `touched` stops a late-arriving profile overwriting a choice made on this screen.
+  */
+  const { user } = useAuthUser();
+  const [buyerRegion, setBuyerRegion] = useState('');
+  const [regionTouched, setRegionTouched] = useState(false);
+  useEffect(() => {
+    if (!regionTouched && !buyerRegion && user?.lastBuyerRegion) {
+      setBuyerRegion(user.lastBuyerRegion);
+    }
+  }, [user?.lastBuyerRegion, regionTouched, buyerRegion]);
+
+  const {
+    data: layout,
+    isLoading,
+    isError,
+    refetch,
+    isFetching,
+  } = useQuery({
+    ...showSeatsQuery(sessionId, sectionId),
+    /*
+      Keep what is on screen while the next block loads. Without it every change of block blanked
+      the whole page to a skeleton - the map, the basket, the header - for a few hundred ms.
+    */
+    placeholderData: keepPreviousData,
+  });
+
+  /*
+    The venue overview, kept next to the seats once a block is open.
+
+    The same request (and cache entry) as the first screen, so it costs nothing extra. It lets the
+    customer see where the block they are in sits, and move to another block, without going
+    "back" anywhere: the seats and the venue are on one screen.
+  */
+  const overviewQ = useQuery({
+    ...showSeatsQuery(sessionId, null),
+    staleTime: 30_000,
+  });
+  const overview = overviewQ.data;
+  const venue: Extract<SeatLayoutResponse, { view: 'overview' }> | null =
+    overview?.view === 'overview' ? overview : null;
+
+  // Set when the customer picks a block, so the seats are brought into view once they arrive.
+  const scrollToSeats = useRef(false);
+  const seatsRef = useRef<HTMLDivElement>(null);
+  const chooseSection = (id: string) => {
+    scrollToSeats.current = true;
+    setSectionId(id);
+  };
+  const seatsShown = layout?.view !== 'overview' && sectionId !== null && !isFetching;
+  useEffect(() => {
+    if (!seatsShown || !scrollToSeats.current) return;
+    scrollToSeats.current = false;
+    const reduce =
+      typeof window !== 'undefined' &&
+      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    seatsRef.current?.scrollIntoView({ block: 'start', behavior: reduce ? 'auto' : 'smooth' });
+  }, [seatsShown, sectionId]);
+
+  /*
+    Which show this is. Failing to load it costs the header, never the seats: the map and the
+    booking work without it, so it neither blocks the page nor retries into a delay.
+  */
+  const summaryQ = useQuery({
+    ...showSummaryQuery(sessionId),
+    staleTime: 60_000,
+    retry: false,
+  });
+  const summary = summaryQ.data;
+
+  /*
+    ── WHEN NOTHING HERE CAN BE BOUGHT ───────────────────────────────────────────────
+    Found on QA: a show whose every checkout the server refused (its state has no ticket
+    price rules yet) let the buyer choose seats and press "Proceed to pay", then said why in
+    a toast that was gone in three seconds. "Proceed to pay" seemed to do nothing.
+
+    The server now says so up front, decided by the same rules checkout refuses a sale with.
+    A closed show keeps its map - the buyer can still see the room - but no seat can be
+    picked and nothing can be paid for, and one plain sentence says so for as long as they
+    are on the page. A show that is open can still have ticket types that are not: those
+    seats are drawn unavailable, and the rest of the room sells.
+
+    Absent (an older API, or the summary failed to load), nothing is closed here and the
+    inline error below catches a refusal instead.
+  */
+  const onlineBooking = summary?.onlineBooking;
+  const [refusedHere, setRefusedHere] = useState(false);
+  const salesClosed = onlineBooking?.open === false || refusedHere;
+  const closedTypes = useMemo(
+    () => new Set(onlineBooking?.closedTicketTypeIds ?? []),
+    [onlineBooking],
+  );
+  /** Why the last press of "Proceed to pay" failed. Stays until the buyer changes something. */
+  const [bookError, setBookError] = useState<string | null>(null);
+
+  // Selected seat ids, and the ticket count the buyer chose (null = pick one by one).
+  const [selected, setSelected] = useState<string[]>([]);
+  const [quantity, setQuantity] = useState<number | null>(null);
+  const selectedSet = useMemo(() => new Set(selected), [selected]);
+
+  /* Buying without an account. False for a signed-in customer, so their screen is unchanged. */
+  const guest = useGuestBuyer(user);
+
+  /*
+    ── SEATS THAT SURVIVE A TRIP TO THE SIGN-IN PAGE ─────────────────────────────────
+    Signing in navigates away and back, and this page held its seats in component state only
+    -- so the buyer returned to an empty map and had to find their seats again. The event page
+    has saved its selection for a while; this is the same idea for a seat map.
+
+    Saved by SEAT ID and re-checked against the live layout on the way back in, never restored
+    blind: a seat somebody else bought in the meantime is gone, and silently re-selecting it
+    would put a seat in the basket that the next request must refuse.
+  */
+  const selectionKey = `etg_seatsel_${sessionId}`;
+  const [restoring, setRestoring] = useState<string[] | null>(null);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(selectionKey);
+      if (!raw) return;
+      const saved = JSON.parse(raw) as {
+        sectionId?: string | null;
+        selected?: unknown;
+        quantity?: unknown;
+      } | null;
+      if (!saved) return;
+      const ids = Array.isArray(saved.selected)
+        ? saved.selected.filter((id): id is string => typeof id === 'string')
+        : [];
+      if (ids.length === 0) return;
+      setSectionId(saved.sectionId ?? null);
+      setQuantity(typeof saved.quantity === 'number' ? saved.quantity : null);
+      setRestoring(ids);
+    } catch {
+      /* A browser that will not read it simply starts with an empty map. */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectionKey]);
+
+  /*
+    What we know about every seat the customer has SEEN, not just the block on screen.
+
+    This has to accumulate. A large venue is read one block at a time, so a customer who
+    takes two seats in the stalls and then opens the balcony would otherwise have the
+    stalls seats vanish from their basket the moment the payload changed — the summary,
+    the price and the booking call all derive from this map.
+  */
+  const [known, setKnown] = useState<
+    Map<string, { label: string; rowLabel: string; categoryId: string; sectionName: string }>
+  >(new Map());
+
+  useEffect(() => {
+    if (!layout || layout.view !== 'seats') return;
+    setKnown((prev) => {
+      const next = new Map(prev);
+      for (const section of layout.sections) {
+        for (const row of section.rows) {
+          for (const seat of row.seats) {
+            next.set(seat.id, {
+              label: seat.label,
+              rowLabel: row.label,
+              categoryId: seat.categoryId,
+              // The block the buyer saw it under — what the basket calls it (see seatGroupName).
+              sectionName: section.name,
+            });
+          }
+        }
+      }
+      return next;
+    });
+  }, [layout]);
+
+  /* Put a saved selection back, keeping only the seats that are still free to take. */
+  useEffect(() => {
+    if (!restoring || !layout || layout.view !== 'seats') return;
+    const free = new Set<string>();
+    for (const section of layout.sections) {
+      for (const row of section.rows) {
+        for (const seat of row.seats) if (seat.status === 'AVAILABLE') free.add(seat.id);
+      }
+    }
+    const kept = restoring.filter((id) => free.has(id));
+    if (kept.length > 0) setSelected(kept);
+    setRestoring(null);
+  }, [restoring, layout]);
+
+  /*
+    And keep it saved. Nothing is written while a restore is still pending, or the empty
+    starting state would erase the very value being restored.
+  */
+  useEffect(() => {
+    if (restoring) return;
+    try {
+      if (selected.length === 0) localStorage.removeItem(selectionKey);
+      else localStorage.setItem(selectionKey, JSON.stringify({ sectionId, selected, quantity }));
+    } catch {
+      /* ignore */
+    }
+  }, [selectionKey, restoring, sectionId, selected, quantity]);
+
+  const categoriesById = useMemo(() => {
+    const map = new Map<string, SeatLayout['categories'][number]>();
+    layout?.categories.forEach((c) => map.set(c.id, c));
+    return map;
+  }, [layout]);
+
+  /*
+    The map as it may be bought from: a seat nobody can buy online is drawn as unavailable -
+    a disabled button whose name says so - rather than as a seat that does nothing when
+    pressed. Only what is drawn changes; the layout read from the server is left alone.
+  */
+  const shownLayout = useMemo(
+    () => closeSeatsNotForSale(layout, salesClosed, closedTypes),
+    [layout, salesClosed, closedTypes],
+  );
+
+  /* A seat that cannot be bought cannot stay in the basket, restored or not. */
+  useEffect(() => {
+    if (!salesClosed && closedTypes.size === 0) return;
+    setSelected((prev) => {
+      const kept = salesClosed
+        ? []
+        : prev.filter((id) => {
+            const categoryId = known.get(id)?.categoryId;
+            return !closedTypes.has(categoriesById.get(categoryId ?? '')?.ticketTypeId ?? '');
+          });
+      return kept.length === prev.length ? prev : kept;
+    });
+  }, [salesClosed, closedTypes, categoriesById, known]);
+
+  const tap = (seatId: string, row: readonly SelectableSeat[]) => {
+    if (salesClosed) return;
+    // Choosing again is trying again, so the last failure no longer describes the basket.
+    setBookError(null);
+    const result = applySeatTap({ selected, row, seatId, quantity });
+    if (result.limitReached) {
+      toast.push(s('maxSeats', { max: MAX_SEATS_PER_BOOKING }), 'warning');
+      return;
+    }
+    setSelected(result.selected);
+  };
+
+  const chooseQuantity = (count: number | null) => {
+    setBookError(null);
+    setQuantity(count);
+    // Fewer tickets than seats already chosen: keep the first ones, in the order they were chosen.
+    if (count !== null) setSelected((prev) => prev.slice(0, count));
+  };
+
+  /*
+    Seat id → the label a human uses, which includes the ROW. `seat.label` on its own is the
+    number within the row, so the summary listed "11, 12" and left the buyer to work out which
+    row from the map they had just clicked away from.
+  */
+  const seatLabelById = useMemo(() => {
+    const map = new Map<string, string>();
+    known.forEach((seat, id) => map.set(id, `${seat.rowLabel}${seat.label}`));
+    return map;
+  }, [known]);
+
+  const selectedLabels = useMemo(
+    () =>
+      selected
+        .map((id) => seatLabelById.get(id))
+        .filter((label): label is string => Boolean(label))
+        .sort((a, b) => a.localeCompare(b, undefined, { numeric: true })),
+    [selected, seatLabelById],
+  );
+
+  // Group the current selection by seat category for the summary + booking items.
+  const grouped = useMemo(() => {
+    const byCat = new Map<string, { seatIds: string[]; labels: string[] }>();
+    for (const id of selected) {
+      const seat = known.get(id);
+      if (!seat) continue;
+      const entry = byCat.get(seat.categoryId) ?? { seatIds: [], labels: [] };
+      entry.seatIds.push(id);
+      entry.labels.push(seatLabelById.get(id) ?? seat.label);
+      byCat.set(seat.categoryId, entry);
+    }
+    return byCat;
+  }, [selected, known, seatLabelById]);
+
+  /*
+    Seats this selection leaves on their own. A suggestion to shift along, never a refusal —
+    a buyer may have every reason to want exactly these seats.
+  */
+  const stranded = useMemo(() => {
+    const ids = new Set<string>();
+    if (!layout || layout.view !== 'seats' || selected.length === 0) return ids;
+    for (const section of layout.sections) {
+      for (const row of section.rows) {
+        for (const id of strandedSeats(row.seats, selectedSet)) ids.add(id);
+      }
+    }
+    return ids;
+  }, [layout, selected.length, selectedSet]);
+  const strandedLabels = [...stranded]
+    .map((id) => seatLabelById.get(id))
+    .filter((label): label is string => Boolean(label))
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+
+  /*
+    Price the cart here, not on the next screen.
+
+    Reported from QA: this panel showed a ticket subtotal and the words "transparent fees
+    shown on the next step", so the number the buyer actually pays first appeared AFTER they
+    had committed to seats. The quote endpoint holds nothing and writes nothing, so it is
+    safe to call on every change to the selection or the code.
+  */
+  const [code, setCode] = useState('');
+  const [appliedCode, setAppliedCode] = useState<string | null>(null);
+
+  // The seat category already names the ticket type that sells it, which is what the
+  // booking call uses too — so a quote and the booking price the identical cart.
+  const items = useMemo(
+    () =>
+      Array.from(grouped.entries()).map(([catId, entry]) => ({
+        ticketTypeId: categoriesById.get(catId)?.ticketTypeId ?? '',
+        quantity: entry.seatIds.length,
+        seatIds: entry.seatIds,
+      })),
+    [grouped, categoriesById],
+  );
+
+  const quoteQ = useQuery({
+    // buyerRegion is part of the key: it can change the tax SPLIT on the fee, so a quote
+    // taken before the buyer chose their state is a different quote.
+    queryKey: ['quote', sessionId, items, appliedCode, buyerRegion],
+    queryFn: () =>
+      api.quoteBooking({
+        eventSessionId: sessionId,
+        items,
+        ...(appliedCode ? { couponCode: appliedCode } : {}),
+        ...(buyerRegion ? { buyerRegion } : {}),
+      }),
+    enabled: items.length > 0 && items.every((i) => i.ticketTypeId),
+    // A stale price is worse than a brief spinner: this is the number the buyer is agreeing
+    // to, and the fee tiers it comes from are per-order.
+    staleTime: 0,
+  });
+  const quote = quoteQ.data?.fees;
+  /*
+    What every price on this screen is in: the quote once there is something to price, and the
+    venue's country before that — the same rule the server uses. Without it, `money()` fell
+    back to INR and a seat map for a cinema in Boise priced every seat in rupees.
+  */
+  const currency = quote?.currency ?? currencyForCountry(layout?.country) ?? 'INR';
+  const codeRejected = Boolean(appliedCode) && quoteQ.data?.coupon.applied === false;
+
+  /** Offers the organizer chose to advertise. Private codes are typed, never listed. */
+  const offersQ = useQuery({
+    ...showOffersQuery(sessionId),
+    staleTime: 300_000,
+  });
+
+  const total = useMemo(() => {
+    let sum = 0;
+    grouped.forEach((entry, catId) => {
+      const cat = categoriesById.get(catId);
+      if (cat) sum += cat.priceMinor * entry.seatIds.length;
+    });
+    return sum;
+  }, [grouped, categoriesById]);
+
+  const book = useMutation({
+    mutationFn: async () => {
+      const bookingItems = Array.from(grouped.entries())
+        .map(([catId, entry]) => {
+          const cat = categoriesById.get(catId);
+          if (!cat) return null;
+          return {
+            ticketTypeId: cat.ticketTypeId,
+            quantity: entry.seatIds.length,
+            seatIds: entry.seatIds,
+          };
+        })
+        .filter(Boolean) as {
+        ticketTypeId: string;
+        quantity: number;
+        seatIds: string[];
+      }[];
+      const order = {
+        eventSessionId: sessionId,
+        items: bookingItems,
+        // Carried through, so the price quoted on this screen is the price booked.
+        ...(appliedCode && !codeRejected ? { couponCode: appliedCode } : {}),
+        ...(buyerRegion ? { buyerRegion } : {}),
+        // The fee schedule this quote used: a schedule published since is refused, not charged.
+        ...(quoteQ.data?.feeScheduleVersion
+          ? { feeScheduleVersion: quoteQ.data.feeScheduleVersion }
+          : {}),
+      };
+      /*
+        A guest buys through the guest route. `startBooking` has already validated the name
+        and the email, and this re-reads them rather than trusting a copy.
+      */
+      if (guest.asGuest) {
+        const buyer = guest.validate();
+        if (!buyer) throw new Error('details');
+        return startGuestBooking({ ...order, buyerName: buyer.name, buyerEmail: buyer.email });
+      }
+      const me = await api.me();
+      /*
+        A signed-in account with no email address (a phone sign-in) buys with the name and
+        email it just gave. The name is saved to the profile, as the profile page would; the
+        email is used for these tickets and this receipt only - it is not written to the account
+        as if it had been verified. The server refuses a placeholder address either way.
+      */
+      if (guest.needsContact || !me.email || !me.fullName?.trim()) {
+        const buyer = guest.validate();
+        if (!buyer) throw new Error('details');
+        if (!me.fullName?.trim()) await api.updateProfile(buyer.name).catch(() => undefined);
+        return api.createBooking({ ...order, buyerName: buyer.name, buyerEmail: buyer.email });
+      }
+      return api.createBooking({ ...order, buyerName: me.fullName, buyerEmail: me.email });
+    },
+    onSuccess: (booking) => {
+      /*
+        The seats are held now, so the saved selection has done its job. Leaving it behind
+        would put an already-bought seat back in the basket on the way past this page again.
+      */
+      try {
+        localStorage.removeItem(selectionKey);
+      } catch {
+        /* ignore */
+      }
+      router.push(nextStepAfterBooking(booking));
+    },
+    onError: (e) => {
+      // 'details' is the guest form talking to itself: the fields already say what is missing.
+      if ((e as Error).message === 'details') return;
+      // The fee schedule changed since the quote: show the new total before anything else.
+      if (e instanceof ApiRequestError && e.code === 'FEE_SCHEDULE_CHANGED') void quoteQ.refetch();
+      /*
+        The show cannot be sold online. Said in the buyer's language, in the same words the
+        page would have used had it known sooner - and now it does know, so the map closes.
+      */
+      if (isSaleNotOpen(e)) {
+        setRefusedHere(true);
+        setBookError(s('salesClosedBody'));
+        toast.push(s('salesClosedBody'), 'error');
+        return;
+      }
+      /*
+        Kept on the page as well as toasted. A toast is gone in seconds and the buyer is left
+        looking at a button that "did nothing"; this stays beside the button until they change
+        something.
+      */
+      const failure = bookingFailure(e);
+      setBookError('key' in failure ? s(failure.key) : failure.message);
+      /*
+        Only a seat that is genuinely gone justifies emptying the cart. A conflict means pick
+        again; anything identifiably about the show means read this and try again, with the
+        seats still selected. Anything not identifiably about the show keeps the old behaviour
+        — assume a seat went and re-read the map — the safer default of the two.
+      */
+      const showLevel = e instanceof ApiRequestError && SHOW_LEVEL_ERROR_CODES.includes(e.code);
+      toast.push(e instanceof ApiRequestError ? e.message : s('seatTaken'), 'error');
+      if (!showLevel) {
+        setSelected([]);
+        refetch();
+      }
+    },
+  });
+
+  const payDisabled = selected.length === 0 || book.isPending || isFetching || salesClosed;
+  const payableMinor = quote?.totalMinor ?? total;
+  /*
+    One decision about decimals for the basket, the breakdown and the pay bar, so the seats'
+    line and the breakdown print one figure one way: "Rs 500.00" above "Rs 500.00", never
+    "Rs 500" above "Rs 500.00". The same rule the event page's booking card and Review & pay use.
+  */
+  const basketDigits = moneyFractionDigits(
+    [
+      ...Array.from(grouped.entries()).map(
+        ([catId, entry]) => (categoriesById.get(catId)?.priceMinor ?? 0) * entry.seatIds.length,
+      ),
+      total,
+      ...(quote
+        ? [
+            quote.subtotalMinor,
+            quote.discountMinor,
+            quote.bookingFeeMinor,
+            quote.paymentFeeMinor,
+            quote.customerFeeMinor ?? 0,
+            quote.feeTaxMinor ?? 0,
+            quote.maintenanceMinor ?? 0,
+            ...(quote.taxLines ?? []).map((l) => l.amountMinor),
+            quote.totalMinor,
+          ]
+        : []),
+    ],
+    currency,
+  );
+
+  /**
+   * Press Pay, from the summary panel or from the bar at the bottom of a phone.
+   *
+   * Nothing is sent until the guest form is satisfied. A failed check puts focus in the field
+   * that is wrong, which also scrolls it into view -- the bar is fixed to the bottom of the
+   * screen and the form it is complaining about may be well above it.
+   */
+  const startBooking = () => {
+    if (salesClosed) return;
+    if ((guest.asGuest || guest.needsContact) && !guest.validate()) return;
+    setBookError(null);
+    book.mutate();
+  };
+
+  // Heading levels: the show's title is the page's h1 when we know it; otherwise the map's is.
+  const MapHeading = summary ? 'h2' : 'h1';
+
+  if (isLoading)
+    return (
+      <BrandStatePage>
+        <BrandSkeleton className="h-96 w-full" />
+      </BrandStatePage>
+    );
+  if (isError)
+    return (
+      <BrandStatePage>
+        <BrandLoadError message={s('loadError')} onRetry={() => refetch()} />
+      </BrandStatePage>
+    );
+  if (!layout)
+    return (
+      <BrandStatePage>
+        <BrandEmpty
+          headingLevel="h2"
+          title={s('mapUnavailableTitle')}
+          hint={s('mapUnavailableHint')}
+        />
+      </BrandStatePage>
+    );
+
+  const header = summary ? <ShowHeader summary={summary} /> : null;
+
+  /*
+    Persistent, not a toast, and above the map so it is the first thing read. role=status:
+    it describes the page as it is, and is announced when it appears after a refusal.
+  */
+  const closedNotice = salesClosed ? (
+    <div
+      role="status"
+      data-testid="sales-closed"
+      className="flex items-start gap-3 rounded-brand-card bg-brand-caution-tint px-4 py-4"
+    >
+      <Info className="mt-0.5 h-5 w-5 shrink-0 text-brand-caution" aria-hidden />
+      <div>
+        <p className="text-brand-ui font-semibold text-brand-ink">{s('salesClosedTitle')}</p>
+        <p className="mt-1 text-brand-ui text-brand-ink-2">{s('salesClosedBody')}</p>
+      </div>
+    </div>
+  ) : null;
+
+  /*
+    ── THE PAGE ON THE BRAND LAYER ─────────────────────────────────────────────────────
+    The show's identity is a stage band (ShowHeader), the room is drawn on the stage tone, and
+    the basket - what is chosen and what it costs - is a paper panel beside it: paper is where
+    money reads calmest (DESIGN-SYSTEM.md section 1). Out to the page column's edges so the
+    band is a band, not a card.
+  */
+  const shell = (children: ReactNode) => (
+    <div
+      data-brand="customer"
+      className="-mx-4 -mt-6 bg-brand-canvas pb-16 font-brand-text text-brand-ink sm:-mx-6 sm:-mt-10 lg:-mx-8 lg:pb-24"
+    >
+      {header}
+      <div className={`space-y-6 px-4 sm:px-6 lg:px-10 ${header ? 'mt-8' : 'pt-8'}`}>
+        {closedNotice}
+        {children}
+      </div>
+    </div>
+  );
+
+  /*
+    The venue overview: blocks around a stage, with no seats in them.
+
+    Rendered instead of the seat grid, never alongside it. A page that showed both would be
+    asking the customer to choose in two places at once, and on a phone the grid would be
+    below the fold anyway.
+  */
+  if (layout.view === 'overview') {
+    return shell(
+      <>
+        <div>
+          <MapHeading className="font-brand-display text-brand-d2 text-brand-ink">
+            {s('chooseArea')}
+          </MapHeading>
+          <p className="mt-2 text-brand-ui text-brand-ink-2">{s('chooseAreaLead')}</p>
+        </div>
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+          <div className={`${BRAND_PANEL} min-w-0 p-4 sm:p-6 lg:col-span-2`}>
+            <StoreVenueMap
+              focal={layout.focal}
+              sections={layout.sections}
+              onSelect={chooseSection}
+              formatPrice={(minor) => money(minor, currency)}
+              pendingSectionId={isFetching ? sectionId : null}
+            />
+          </div>
+          {selected.length > 0 ? (
+            /*
+              The basket stays visible on the map: someone who has taken two seats in the stalls
+              and gone back to look at the balcony must be able to see they still hold those two.
+            */
+            <div className={`${BRAND_PANEL} p-6 lg:col-span-1`}>
+              <h2 className="font-brand-display text-brand-d3 text-brand-ink">
+                {s('basketTitle')}
+              </h2>
+              <p className="mt-2 text-brand-ui text-brand-ink-2">
+                {s('basketBody', { count: selected.length })}
+              </p>
+            </div>
+          ) : null}
+        </div>
+      </>,
+    );
+  }
+
+  const allSeats = layout.sections.flatMap((section) => section.rows.flatMap((row) => row.seats));
+  const hasSeats = allSeats.length > 0;
+  const hasSold = allSeats.some((seat) => seat.status === 'SOLD');
+  const hasHeld = allSeats.some((seat) => seat.status === 'HELD' || seat.status === 'BLOCKED');
+  const hasAccessible = allSeats.some((seat) => isAccessible(seat.kind));
+  // True only when the customer arrived here from a venue map, which is the only case
+  // where "back to the map" is a place they can actually return to.
+  const cameFromMap = sectionId !== null;
+  const stageLink = `inline-flex min-h-11 items-center gap-1.5 rounded-sm text-brand-ui font-medium text-brand-ink underline decoration-brand-line-strong underline-offset-4 hover:text-brand-gold-text hover:decoration-brand-gold-text ${BRAND_FOCUS}`;
+
+  return shell(
+    <div className={`space-y-6 ${selected.length > 0 ? 'pb-28 lg:pb-0' : ''}`}>
+      {/* Announced, not shown: the map itself shows what is chosen. */}
+      <p className="sr-only" aria-live="polite">
+        {selected.length > 0
+          ? `${s('selectionCount', { count: selected.length })}: ${selectedLabels.join(', ')}`
+          : ''}
+      </p>
+
+      {/*
+        One column that cannot grow past the screen, stated rather than implied: an implicit grid
+        track sizes to its widest content, and a seat map is wider than a phone.
+      */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_24rem] lg:gap-8">
+        {/* Seat map, on the stage tone: the room with the lights down, chosen seats lit. */}
+        <section
+          ref={seatsRef}
+          data-brand-tone="stage"
+          aria-labelledby="seat-map-heading"
+          className="min-w-0 scroll-mt-24 rounded-brand-card bg-brand-canvas p-4 sm:p-6"
+        >
+          <div className="space-y-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                {cameFromMap ? (
+                  <button type="button" onClick={() => setSectionId(null)} className={stageLink}>
+                    <ChevronLeft className="h-4 w-4" aria-hidden />
+                    {s('backToMap')}
+                  </button>
+                ) : null}
+                <MapHeading
+                  id="seat-map-heading"
+                  className="font-brand-display text-brand-d3 text-brand-ink"
+                >
+                  {cameFromMap ? (layout.sections[0]?.name ?? s('selectSeats')) : s('selectSeats')}
+                </MapHeading>
+              </div>
+              {selected.length > 0 ? (
+                <button type="button" onClick={() => setSelected([])} className={stageLink}>
+                  {s('clearSeats')}
+                </button>
+              ) : null}
+            </div>
+
+            {/*
+              Other blocks, one tap away. On a phone the venue map would push the seats off the
+              screen, so the blocks are a wrapping row of buttons instead; on a wide screen the
+              map itself sits beside the seats and this row is not needed.
+            */}
+            {cameFromMap && venue ? (
+              <details className="lg:hidden" open={venue.sections.length <= 8}>
+                <summary className={`mb-2 cursor-pointer ${stageLink}`}>
+                  {s('changeArea', { count: venue.sections.length })}
+                </summary>
+                <div role="group" aria-label={s('otherAreas')} className="flex flex-wrap gap-2">
+                  {venue.sections.map((section) => {
+                    const active = section.id === sectionId;
+                    const unavailable = section.availableCount === 0 || section.kind === 'ZONE';
+                    return (
+                      <button
+                        key={section.id}
+                        type="button"
+                        aria-pressed={active}
+                        disabled={unavailable && !active}
+                        onClick={() => chooseSection(section.id)}
+                        className={`${brandChipClasses(active)} h-11 disabled:opacity-40`}
+                      >
+                        {section.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </details>
+            ) : null}
+
+            {hasSeats && !salesClosed ? (
+              <TicketCount value={quantity} onChange={chooseQuantity} />
+            ) : null}
+
+            {strandedLabels.length > 0 ? (
+              <p
+                role="status"
+                className="flex items-start gap-2 rounded-brand-control bg-brand-caution-tint px-3 py-2 text-brand-meta text-brand-caution"
+              >
+                <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+                <span>
+                  {strandedLabels.length === 1
+                    ? s('strandedOne', { seats: strandedLabels[0] })
+                    : s('strandedMany', { seats: strandedLabels.join(', ') })}{' '}
+                  {s('strandedAdvice')}
+                </span>
+              </p>
+            ) : null}
+
+            {!hasSeats ? (
+              <div className="rounded-brand-control bg-brand-surface p-6 text-center">
+                <Armchair className="mx-auto h-6 w-6 text-brand-ink-3" aria-hidden />
+                <p className="mt-2 text-brand-ui font-semibold text-brand-ink">
+                  {s('noSeatsTitle')}
+                </p>
+                <p className="mt-1 text-brand-meta text-brand-ink-2">{s('noSeatsHint')}</p>
+              </div>
+            ) : (
+              <>
+                <SeatMap
+                  layout={shownLayout?.view === 'seats' ? shownLayout : layout}
+                  selected={selectedSet}
+                  stranded={stranded}
+                  onTap={tap}
+                  formatMinor={(minor) => money(minor, currency)}
+                  seatStatusLabel={seatStatusLabel}
+                  kindLabel={(kind) => (SEAT_KIND_KEY[kind] ? s(SEAT_KIND_KEY[kind]) : null)}
+                />
+                <SeatLegend
+                  hasSold={hasSold}
+                  // Seats closed to online sale are drawn unavailable; the key says what that looks like.
+                  hasHeld={hasHeld || salesClosed || closedTypes.size > 0}
+                  hasAccessible={hasAccessible}
+                />
+              </>
+            )}
+          </div>
+        </section>
+
+        {/* Venue (wide screens) + summary */}
+        <div className="space-y-6">
+          {cameFromMap && venue ? (
+            <div className={`${BRAND_PANEL} hidden p-6 lg:block`}>
+              <h2 className="font-brand-display text-brand-d3 text-brand-ink">
+                {s('venueMapTitle')}
+              </h2>
+              <p className="mb-3 mt-1 text-brand-meta text-brand-ink-3">{s('venueMapLead')}</p>
+              <StoreVenueMap
+                focal={venue.focal}
+                sections={venue.sections}
+                onSelect={chooseSection}
+                formatPrice={(minor) => money(minor, currency)}
+                activeSectionId={sectionId}
+                pendingSectionId={isFetching ? sectionId : null}
+                listWhenNarrow={false}
+              />
+            </div>
+          ) : null}
+          <section
+            id={SUMMARY_ID}
+            aria-labelledby="your-seats-heading"
+            className={`${BRAND_PANEL} scroll-mt-24 p-4 sm:p-6 lg:sticky lg:top-24 lg:h-fit`}
+          >
+            <h2 id="your-seats-heading" className="font-brand-display text-brand-d3 text-brand-ink">
+              {s('yourSeats')}
+            </h2>
+
+            {selected.length === 0 ? (
+              <p className="mt-2 text-brand-ui text-brand-ink-2">{s('noneSelected')}</p>
+            ) : (
+              <ul className="mt-4 divide-y divide-brand-line">
+                {Array.from(grouped.entries()).map(([catId, entry]) => {
+                  const cat = categoriesById.get(catId);
+                  const name = seatGroupName(
+                    entry.seatIds.map((id) => known.get(id)?.sectionName ?? ''),
+                    cat?.name,
+                  );
+                  return (
+                    <li
+                      key={catId}
+                      className="flex items-start justify-between gap-3 py-3 first:pt-0 last:pb-0"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-brand-ui font-semibold text-brand-ink">
+                          {name.title || s('seatsFallback')}
+                          {name.category ? (
+                            <span className="font-normal text-brand-ink-3"> - {name.category}</span>
+                          ) : null}
+                        </p>
+                        <p className="mt-0.5 text-brand-meta text-brand-ink-2">
+                          {[...entry.labels]
+                            .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+                            .join(', ')}
+                        </p>
+                      </div>
+                      <span className="whitespace-nowrap text-brand-ui tabular-nums text-brand-ink">
+                        {money(
+                          (cat?.priceMinor ?? 0) * entry.seatIds.length,
+                          currency,
+                          undefined,
+                          basketDigits,
+                        )}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+
+            {/*
+              A discount code, and the offers worth advertising. The dropdown lists only codes the
+              organizer PUBLISHED; private codes are still typed into the box beside it.
+            */}
+            {selected.length > 0 && (
+              <div className="mt-5 border-t border-brand-line pt-5">
+                {appliedCode && !codeRejected ? (
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-brand-ui text-brand-ink-2">
+                      {s.rich('codeApplied', {
+                        code: appliedCode,
+                        strong: (chunks) => (
+                          <strong className="font-semibold text-brand-ink">{chunks}</strong>
+                        ),
+                      })}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAppliedCode(null);
+                        setCode('');
+                      }}
+                      className={`min-h-11 ${BRAND_LINK} text-brand-meta`}
+                    >
+                      {k('remove')}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {(offersQ.data?.length ?? 0) > 0 && (
+                      <select
+                        aria-label={k('availableOffers')}
+                        value=""
+                        onChange={(e) => {
+                          if (!e.target.value) return;
+                          setCode(e.target.value);
+                          setAppliedCode(e.target.value);
+                        }}
+                        className={`${BRAND_FIELD} w-full`}
+                      >
+                        <option value="">{k('availableOffers')}</option>
+                        {offersQ.data!.map((o) => (
+                          <option key={o.code} value={o.code}>
+                            {o.code} - {o.label}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    <div className="flex items-start gap-2">
+                      <input
+                        aria-label={k('discountCode')}
+                        placeholder={s('haveCode')}
+                        value={code}
+                        onChange={(e) => setCode(e.target.value.toUpperCase())}
+                        className={`${BRAND_FIELD} min-w-0 flex-1 uppercase placeholder:normal-case`}
+                      />
+                      <BrandButton
+                        variant="secondary"
+                        disabled={!code.trim()}
+                        onClick={() => setAppliedCode(code.trim())}
+                        className="shrink-0"
+                      >
+                        {k('apply')}
+                      </BrandButton>
+                    </div>
+                    {codeRejected && (
+                      <p role="alert" className="text-brand-meta text-brand-critical">
+                        {k('couponRejected')}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Above the breakdown, because it can change what the breakdown says. */}
+            <div className="mt-5">
+              <BuyerRegionField
+                value={buyerRegion}
+                onChange={(region) => {
+                  setRegionTouched(true);
+                  setBuyerRegion(region);
+                }}
+                country={layout?.country}
+                // Translated: the field's English defaults showed on French Indian pages (QA).
+                label={k('buyerRegionLabel')}
+                hint={k('buyerRegionHint')}
+                noneLabel={k('buyerRegionNone')}
+                prefilled={Boolean(user?.lastBuyerRegion) && !regionTouched}
+                prefilledNote={k('buyerRegionPrefilled')}
+              />
+            </div>
+
+            {/*
+              The full breakdown, here rather than one screen later — shared with the event page
+              so the platform never quotes two prices for the same purchase.
+            */}
+            <div className="mt-5">
+              <PriceBreakdown
+                quote={quote}
+                loading={quoteQ.isFetching}
+                fallbackTotalMinor={total}
+                fallbackCurrency={currency}
+                totalLabel={sf('event.totalSeats', { count: selected.length })}
+                emptyNote={sf('event.priceAddSeat')}
+                fractionDigits={basketDigits}
+              />
+            </div>
+
+            {/*
+              Name and email, for somebody with no account. Only once there is something to
+              buy: an empty map does not need to ask who the buyer is.
+            */}
+            {(guest.asGuest || guest.needsContact) && selected.length > 0 && (
+              <div className="mt-5">
+                <GuestBuyerFields state={guest} variant={guest.asGuest ? 'guest' : 'account'} />
+              </div>
+            )}
+
+            {/*
+              Why paying failed, on the page and beside the button. Announced once, here; the
+              phone's pay bar repeats it visually.
+            */}
+            {bookError ? (
+              <p
+                role="alert"
+                data-testid="booking-error"
+                className="mt-5 rounded-brand-control bg-brand-critical-tint px-3 py-2 text-brand-ui text-brand-critical"
+              >
+                {bookError}
+              </p>
+            ) : null}
+
+            {/* On phones the pay button lives in the bar at the bottom of the screen. */}
+            <div className="mt-5 hidden lg:block">
+              <BrandButton
+                size="lg"
+                className="w-full"
+                aria-busy={book.isPending || undefined}
+                disabled={payDisabled}
+                onClick={startBooking}
+              >
+                {book.isPending ? s('holdingSeats') : s('proceedToPay')}
+              </BrandButton>
+            </div>
+          </section>
+        </div>
+      </div>
+
+      {selected.length > 0 ? (
+        <BookingBar
+          count={selected.length}
+          seats={selectedLabels.join(', ')}
+          amount={money(payableMinor, currency, undefined, basketDigits)}
+          pending={book.isPending}
+          disabled={payDisabled}
+          onPay={startBooking}
+          detailsHref={`#${SUMMARY_ID}`}
+          error={bookError}
+        />
+      ) : null}
+    </div>,
+  );
+}

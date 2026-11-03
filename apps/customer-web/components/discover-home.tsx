@@ -6,7 +6,6 @@ import { useLocale, useTranslations } from 'next-intl';
 import {
   BRAND_FOCUS,
   BrandButton,
-  api as webKitApi,
   brandButtonClasses,
   brandChipClasses,
   cityScope,
@@ -22,12 +21,20 @@ import {
   chooseHero,
   emptyStage,
   hasPhoto,
-  heroCandidates,
+  homeDetailSlugs,
   photosFirst,
   postersFirst,
   type Buyability,
 } from '@/lib/home-feed';
 import { Link } from '@/i18n/navigation';
+import {
+  anywhereTotalQuery,
+  categoriesQuery,
+  eventQuery,
+  homeEventsQuery,
+  homeMoviesQuery,
+  sellableCitiesQuery,
+} from '@/lib/storefront-queries';
 import { useRecentlyViewed } from '@/lib/use-live-events';
 import {
   EventRow,
@@ -114,12 +121,19 @@ function weekendRange(): { dateFrom: string; dateTo: string } {
 /** The page's side gutters, matching the header's (DESIGN-SYSTEM.md section 3). */
 const WRAP = 'mx-auto max-w-shell px-4 sm:px-6 lg:px-10';
 
-export function DiscoverHome() {
+export function DiscoverHome({ recentIds = [] }: { recentIds?: string[] }) {
   const t = useTranslations('home');
   const locale = useLocale();
   const preference = useCity();
   const scope = cityScope(preference);
   const scopeKey = JSON.stringify(scope);
+  /*
+    Whether the place is known well enough to ask for lists. Until it is (a first visit, before
+    the browser has resolved where it is), the page shows its skeleton rather than every
+    country's events followed by the visitor's own - the "other page first" flash. A returning
+    visitor's place comes from the server (`lib/city-seed.ts`) and is ready at once.
+  */
+  const ready = preference.ready ?? true;
   const [filter, setFilter] = useState<Filter>({ kind: 'all' });
 
   /*
@@ -136,10 +150,7 @@ export function DiscoverHome() {
       : null);
 
   // Everything on in scope: the hero, and the section under the chips when nothing is chosen.
-  const scoped = useQuery({
-    queryKey: ['events', 'home', scopeKey],
-    queryFn: () => api.listEvents({ pageSize: '24', ...scope }),
-  });
+  const scoped = useQuery({ ...homeEventsQuery(preference), enabled: ready });
 
   const filterParams = useMemo((): Record<string, string> => {
     if (filter.kind === 'today') return todayRange();
@@ -151,13 +162,10 @@ export function DiscoverHome() {
   const filtered = useQuery({
     queryKey: ['events', 'home', scopeKey, filterParams],
     queryFn: () => api.listEvents({ pageSize: '24', ...scope, ...filterParams }),
-    enabled: filter.kind !== 'all',
+    enabled: ready && filter.kind !== 'all',
   });
 
-  const categories = useQuery({
-    queryKey: ['public-categories'],
-    queryFn: () => api.publicCategories(),
-  });
+  const categories = useQuery(categoriesQuery());
   const kindChips = useMemo(() => {
     const counts = new Map<string, { name: string; count: number }>();
     for (const c of categories.data ?? []) {
@@ -175,17 +183,7 @@ export function DiscoverHome() {
     });
   }, [categories.data]);
 
-  const movies = useQuery({
-    queryKey: ['movies', 'home', scopeKey],
-    queryFn: () =>
-      api.listMovies(
-        preference.city
-          ? { city: preference.city }
-          : preference.country
-            ? { country: preference.country }
-            : undefined,
-      ),
-  });
+  const movies = useQuery({ ...homeMoviesQuery(preference), enabled: ready });
   const films = postersFirst(movies.data ?? []).slice(0, 5);
 
   /*
@@ -197,18 +195,14 @@ export function DiscoverHome() {
   const place_ = selectedPlace(preference);
   const homeCode = countryKey(place_.country);
 
-  const { events: recent } = useRecentlyViewed(preference);
+  const { events: recent } = useRecentlyViewed(preference, recentIds);
 
   /*
     Cities we actually sell in, asked for ONLY when the place we are showing has nothing, so
     the empty front door names places with something on instead of an empty picker.
   */
   const nothingHere = scoped.isSuccess && scoped.data.data.length === 0;
-  const sellableCities = useQuery({
-    queryKey: ['public-sellable-cities', homeCode],
-    queryFn: () => webKitApi.location.cities({ country: homeCode ?? undefined, limit: 8 }),
-    enabled: nothingHere,
-  });
+  const sellableCities = useQuery({ ...sellableCitiesQuery(homeCode), enabled: nothingHere });
   // Other cities in the SELECTED city's country that have something on: the nearest honest answer.
   const suggestedCities = (
     sellableCities.data && sellableCities.data.length > 0
@@ -224,8 +218,7 @@ export function DiscoverHome() {
     that could only lead to another empty page.
   */
   const anywhere = useQuery({
-    queryKey: ['events', 'home', 'anywhere-total'],
-    queryFn: () => api.listEvents({ pageSize: '1' }),
+    ...anywhereTotalQuery(),
     enabled: nothingHere && Boolean(place),
     staleTime: 60_000,
   });
@@ -246,8 +239,7 @@ export function DiscoverHome() {
   const filteredAll = photosFirst(filtered.data?.data ?? []);
   const checkSlugs = [
     ...new Set([
-      ...heroCandidates(all),
-      ...all.slice(0, 9).map((e) => e.slug),
+      ...homeDetailSlugs(all),
       ...(filter.kind === 'all' ? [] : filteredAll.slice(0, 9).map((e) => e.slug)),
       // And the 4 recently viewed below.
       ...recent.slice(0, 4).map((e) => e.slug),
@@ -255,8 +247,7 @@ export function DiscoverHome() {
   ];
   const details = useQueries({
     queries: checkSlugs.map((slug) => ({
-      queryKey: ['event', slug],
-      queryFn: () => api.getEvent(slug),
+      ...eventQuery(slug),
       staleTime: 60_000,
       retry: false,
     })),
@@ -287,7 +278,8 @@ export function DiscoverHome() {
   const lead = (filter.kind === 'all' ? all.filter((e) => e.id !== hero?.id) : filteredAll).sort(
     (a, b) => unbuyable(a) - unbuyable(b),
   );
-  const leadLoading = filter.kind === 'all' ? scoped.isLoading : filtered.isLoading;
+  // `isPending`, not `isLoading`: a list waiting for the place is not fetching yet, and is not empty.
+  const leadLoading = filter.kind === 'all' ? scoped.isPending : filtered.isPending;
   const leadTotal =
     filter.kind === 'all' ? (scoped.data?.meta.total ?? 0) : (filtered.data?.meta.total ?? 0);
 
@@ -317,7 +309,7 @@ export function DiscoverHome() {
       <h1 className="sr-only">{place ? t('page.title', { place }) : t('page.titleAnywhere')}</h1>
 
       {/* 1. The stage. */}
-      {scoped.isLoading || heroPending ? (
+      {scoped.isPending || heroPending ? (
         <div data-brand-tone="stage" className="bg-brand-canvas">
           <div
             className={`${WRAP} flex min-h-[520px] flex-col justify-end pb-8 lg:min-h-[600px] lg:pb-16`}

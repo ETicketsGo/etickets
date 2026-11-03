@@ -12,7 +12,19 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { MapPin, Check, Crosshair, Globe, Search, X, Loader2 } from 'lucide-react';
-import { MARKETS, countryMatches, marketFor } from '@eticketsgo/shared-types';
+import { MARKETS, countryMatches } from '@eticketsgo/shared-types';
+import {
+  ALL_CITIES,
+  CITY_COOKIE,
+  CITY_STORAGE_KEY,
+  EMPTY_CITY_SEED,
+  MARKET_COOKIE,
+  isoCountry,
+  parseStoredCity,
+  serializeStoredCity,
+  type CityPlace,
+  type CitySeed,
+} from './city-scope';
 import { groupCitiesByCountry } from './place-groups';
 import { api, type ResolvedLocation, type SellableCity } from './api';
 import { visitorCountry } from './locale';
@@ -74,51 +86,12 @@ export function countryPhrase(code: string): string {
  * not have to scroll past a comedy night in Idaho to find out what is on near them, and
  * should not be shown an empty page if we guess Bengaluru.
  */
-const STORAGE_KEY = 'etg.city';
-
-/** Stored when the person deliberately chose everywhere, so we stop suggesting at them. */
-const ALL_CITIES = '__all__';
-
-/**
- * Where a chosen city is: its state and country.
- *
- * A city name alone is not a place - there is a Springfield in Illinois and one in Missouri,
- * and a Hyderabad in India and one in Pakistan. A city chosen from "use my location" or from
- * the search carries where it is, and that travels with it to every list it filters.
- */
-export interface CityPlace {
-  region: string | null;
-  country: string | null;
-}
-
-/**
- * A two-letter country code, or null. Venue data spells countries out ("India"); scope uses codes.
- * Read through the market table so a city picked from the list - which names its country - keeps
- * its own country as the scope, instead of silently falling back to a guess.
- */
-function isoCountry(value: string | null | undefined): string | null {
-  const v = (value ?? '').trim();
-  if (!v) return null;
-  if (/^[A-Za-z]{2}$/.test(v)) return v.toUpperCase();
-  return marketFor(v)?.code ?? null;
-}
+const STORAGE_KEY = CITY_STORAGE_KEY;
 
 /** Reading storage throws in some privacy modes; a missing city is never worth a crash. */
 function readStored(): { city: string; place: CityPlace } | null {
   try {
-    const raw = globalThis.localStorage?.getItem(STORAGE_KEY) ?? null;
-    if (!raw) return null;
-    // Older visits stored the bare name; it is still honoured, with no place attached.
-    if (!raw.startsWith('{')) return { city: raw, place: { region: null, country: null } };
-    const parsed = JSON.parse(raw) as { city?: unknown; region?: unknown; country?: unknown };
-    if (typeof parsed.city !== 'string' || !parsed.city) return null;
-    return {
-      city: parsed.city,
-      place: {
-        region: typeof parsed.region === 'string' ? parsed.region : null,
-        country: typeof parsed.country === 'string' ? parsed.country : null,
-      },
-    };
+    return parseStoredCity(globalThis.localStorage?.getItem(STORAGE_KEY) ?? null);
   } catch {
     return null;
   }
@@ -142,8 +115,9 @@ function readStoredCity(): string | null {
  * truth and nothing chooses it separately: `scopeCountry` decides, here and everywhere else.
  * `SameSite=Lax` because it is read on a top-level navigation; no `httpOnly` because the
  * client writes it; it carries a two-letter country code and nothing else.
+ *
+ * The name (`MARKET_COOKIE`) lives in `city-scope.ts`, so the server reads the same cookie.
  */
-const MARKET_COOKIE = 'etg_market';
 
 /**
  * The market the person CHOSE, mirrored for server-rendered pages. Written only from a city
@@ -215,13 +189,25 @@ export function rememberMarketCountry(country: string | null): void {
 
 function writeStoredCity(city: string | null, place?: CityPlace | null): void {
   try {
-    if (city === ALL_CITIES) globalThis.localStorage?.setItem(STORAGE_KEY, city);
-    else if (city)
-      globalThis.localStorage?.setItem(
-        STORAGE_KEY,
-        JSON.stringify({ city, region: place?.region ?? null, country: place?.country ?? null }),
-      );
+    if (city) globalThis.localStorage?.setItem(STORAGE_KEY, serializeStoredCity(city, place));
     else globalThis.localStorage?.removeItem(STORAGE_KEY);
+  } catch {
+    /* a preference we cannot persist is still worth honouring for this session */
+  }
+  rememberStoredCity(city ? serializeStoredCity(city, place) : null);
+}
+
+/**
+ * The stored city, mirrored into a cookie (`etg_city`) so the server can render the first paint
+ * in the visitor's place. Same value as localStorage, which stays the truth on the device.
+ */
+function rememberStoredCity(value: string | null): void {
+  if (typeof document === 'undefined') return;
+  try {
+    const secure = location.protocol === 'https:' ? '; Secure' : '';
+    document.cookie = value
+      ? `${CITY_COOKIE}=${encodeURIComponent(value)}; Path=/; Max-Age=31536000; SameSite=Lax${secure}`
+      : `${CITY_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax${secure}`;
   } catch {
     /* a preference we cannot persist is still worth honouring for this session */
   }
@@ -271,6 +257,16 @@ export interface CityPreference {
    * double of this interface does not have to carry it.
    */
   selectedCountry?: string | null;
+  /**
+   * Whether the scope above is settled enough to fetch lists with.
+   *
+   * True from the first render when the device already knew its place (the server read it from
+   * a cookie), otherwise once the location answer has arrived (or failed). A list asked for
+   * before then would be the whole world, replaced a moment later by the visitor's country -
+   * the "another page flashes first" effect. Optional so test doubles need not carry it;
+   * absent means ready.
+   */
+  ready?: boolean;
   /** A few cities worth offering immediately. Never the complete list — see `searchCities`. */
   topCities: SellableCity[];
   /** A guess we have not applied, worth offering. Null once accepted or dismissed. */
@@ -329,7 +325,7 @@ export interface CityPreference {
 
 const useIsomorphicLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect;
 
-export function useCityPreference(): CityPreference {
+export function useCityPreference(seed: CitySeed = EMPTY_CITY_SEED): CityPreference {
   /*
     Storage is read AFTER hydration, never during the first render.
 
@@ -339,13 +335,21 @@ export function useCityPreference(): CityPreference {
     city), and a layout effect applies the stored choice before the browser paints, so nobody
     sees "All cities" flash. A layout effect and not a plain one for exactly that reason.
   */
-  const [city, setCityState] = useState<string | null>(null);
-  const [chosen, setChosen] = useState<boolean>(false);
-  const [place, setPlace] = useState<CityPlace | null>(null);
+  const [city, setCityState] = useState<string | null>(seed.city);
+  const [chosen, setChosen] = useState<boolean>(seed.chosen);
+  const [place, setPlace] = useState<CityPlace | null>(seed.place);
   // The market last selected from a city, which "All cities" keeps (see `selectedMarketFor`).
   const [remembered, setRemembered] = useState<string | null>(null);
   useIsomorphicLayoutEffect(() => {
     const stored = readStored();
+    /*
+      Keep the server's copy in step with this device. A choice made before the cookie existed
+      is mirrored now, so the next page load renders in that place from the first paint; a
+      cookie with no choice behind it (storage cleared) is dropped.
+    */
+    const raw = stored ? serializeStoredCity(stored.city, stored.place) : null;
+    const seeded = seed.city ? serializeStoredCity(seed.city, seed.place) : null;
+    if (raw !== seeded) rememberStoredCity(raw);
     if (!stored) return;
     setCityState(stored.city);
     setChosen(true);
@@ -354,7 +358,8 @@ export function useCityPreference(): CityPreference {
       stored.city !== ALL_CITIES ? isoCountry(stored.place.country) : readSelectedMarket(),
     );
   }, []);
-  const [country, setCountry] = useState<string | null>(null);
+  const [country, setCountry] = useState<string | null>(seed.country);
+  const [ready, setReady] = useState<boolean>(seed.ready);
   const [locatedCountry, setLocatedCountry] = useState<string | null>(null);
   const [topCities, setTopCities] = useState<SellableCity[]>([]);
   const [suggestion, setSuggestion] = useState<ResolvedLocation | null>(null);
@@ -378,6 +383,7 @@ export function useCityPreference(): CityPreference {
       .resolve({ region: visitorCountry() ?? undefined })
       .then((result) => {
         if (cancelled) return;
+        setReady(true);
         setTopCities(result.topCities);
         setLocatedCountry(result.country ? result.country.toUpperCase() : null);
         /*
@@ -420,6 +426,7 @@ export function useCityPreference(): CityPreference {
       .catch(() => {
         // Location is an enhancement. If it fails the customer browses everything, which
         // is exactly what happened before this existed.
+        if (!cancelled) setReady(true);
       });
     return () => {
       cancelled = true;
@@ -431,6 +438,7 @@ export function useCityPreference(): CityPreference {
     setPlace(next ? (nextPlace ?? null) : null);
     setChosen(true);
     setSuggestion(null);
+    setReady(true);
     // A city chosen with a known country browses in that country - never a stale guess.
     const own = next ? isoCountry(nextPlace?.country) : null;
     if (own) {
@@ -584,6 +592,7 @@ export function useCityPreference(): CityPreference {
     country,
     locatedCountry,
     selectedCountry,
+    ready,
     topCities,
     suggestion,
     chosen,
@@ -609,8 +618,15 @@ export function useCityPreference(): CityPreference {
  */
 const CityContext = createContext<CityPreference | null>(null);
 
-export function CityProvider({ children }: { children: React.ReactNode }) {
-  const preference = useCityPreference();
+export function CityProvider({
+  children,
+  seed,
+}: {
+  children: React.ReactNode;
+  /** Where the server rendered this page; see `CitySeed`. Unset: unknown until resolved. */
+  seed?: CitySeed;
+}) {
+  const preference = useCityPreference(seed);
   return <CityContext.Provider value={preference}>{children}</CityContext.Provider>;
 }
 
@@ -642,53 +658,6 @@ export function useCity(): CityPreference {
       searchCities: async () => [],
     }
   );
-}
-
-/**
- * What the storefront should ask the API for, given where the customer is.
- *
- * One place, because the answer has to be identical on the home page, on Browse and on
- * Movies — and it was not: the home page ignored the preference entirely, so choosing
- * Bengaluru in the header changed Browse and left the homepage showing Mumbai. Three
- * pages each deciding this for themselves is three chances to disagree.
- */
-export function cityScope(preference: CityPreference): {
-  city?: string;
-  country?: string;
-  cityCountry?: string;
-  region?: string;
-} {
-  if (preference.city) {
-    /*
-      The city's OWN country and state travel with it, so Springfield, Illinois and
-      Springfield, Missouri are two places. Deliberately not `country`: that is the visitor's
-      scope, which a hand-picked city overrides, and the API ignores it when a city is given.
-    */
-    const place = preference.place;
-    return {
-      city: preference.city,
-      ...(place?.country ? { cityCountry: place.country } : {}),
-      ...(place?.region ? { region: place.region } : {}),
-    };
-  }
-  if (preference.country) return { country: preference.country };
-  return {};
-}
-
-/**
- * The place the customer SELECTED, as the grouping functions want it.
- *
- * The chosen city and that city's own country - not the visitor's guessed scope, which a
- * hand-picked city overrides. With no city, the country scope alone.
- */
-export function selectedPlace(preference: CityPreference): {
-  city: string | null;
-  country: string | null;
-} {
-  if (preference.city) {
-    return { city: preference.city, country: preference.place?.country ?? preference.country };
-  }
-  return { city: null, country: preference.country };
 }
 
 /**
@@ -1118,10 +1087,16 @@ export function CityPicker({
                   />
                 </div>
 
+                {/*
+                  On a phone the list is a fixed height, not a maximum. The cities arrive after
+                  the sheet opens, and a sheet pinned to the bottom edge that grows with them
+                  pushed its own header and search box 170px up the screen under the thumb that
+                  had just opened it.
+                */}
                 <ul
                   id="city-results"
                   role="listbox"
-                  className="max-h-[45vh] overflow-auto p-1.5 sm:max-h-64"
+                  className="h-[45vh] overflow-auto p-1.5 sm:h-auto sm:max-h-64"
                 >
                   {/*
                 Said plainly, because the alternative is a panel that looks like it failed to
