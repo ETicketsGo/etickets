@@ -8,10 +8,19 @@
  * placeholder" journey regressed.
  *
  * Pass the same callback as `onError`: `ref={whenAlreadyFailed(fail)} onError={fail}`. A load
- * that is still in flight (`complete` false) is left to `onError`.
+ * still in flight is left to `onError`. A picture that only LOOKS empty at this instant (complete,
+ * no width yet) is confirmed with `decode()` before anything is taken down: a working picture
+ * must never be swapped for the placeholder.
  */
 export function whenAlreadyFailed(onFail: () => void) {
   return (img: HTMLImageElement | null) => {
-    if (img && img.complete && img.naturalWidth === 0 && (img.currentSrc || img.src)) onFail();
+    if (!img || !img.complete || img.naturalWidth > 0 || !(img.currentSrc || img.src)) return;
+    if (typeof img.decode !== 'function') return;
+    img.decode().then(
+      () => undefined,
+      () => {
+        if (img.naturalWidth === 0) onFail();
+      },
+    );
   };
 }
