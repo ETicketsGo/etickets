@@ -1,6 +1,7 @@
 'use client';
 
 import { forwardRef, useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
+import { whenAlreadyFailed } from './image-ref';
 
 /*
   ── THE BRAND LAYER'S SHARED PIECES ────────────────────────────────────────────────
@@ -230,6 +231,7 @@ export function EventArtwork({
           alt={alt}
           loading={priority ? 'eager' : 'lazy'}
           decoding="async"
+          ref={whenAlreadyFailed(() => setFailed(src))}
           onError={() => setFailed(src)}
           className="absolute inset-0 h-full w-full object-cover"
           style={objectPosition ? { objectPosition } : undefined}

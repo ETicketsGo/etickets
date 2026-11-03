@@ -9,6 +9,7 @@ import { SiteChrome } from '@/components/site-chrome';
 import { SkipToContent } from '@/components/skip-to-content';
 import { SwRegister } from '@/components/sw-register';
 import { serverSessionHint } from '@/lib/session-hint';
+import { serverCitySeed, serverReaderZone } from '@/lib/city-seed';
 import { buildId } from '@/lib/build-id';
 // Self-hosted, so `next build` never downloads fonts.
 import { inter } from '@eticketsgo/web-kit/fonts/inter';
@@ -170,6 +171,13 @@ export default async function LocaleLayout({
     moment later, which is what "I can see the regular landing page for just micro seconds" was.
   */
   const signedInHint = await serverSessionHint();
+  /*
+    Where the visitor browses, from the cookies their own city preference mirrors. The city
+    chip, the page title and every scoped list are drawn in that place from the first paint
+    instead of "everywhere" first and the visitor's country a moment later.
+  */
+  const citySeed = await serverCitySeed();
+  const readerZone = await serverReaderZone();
   setRequestLocale(locale);
 
   return (
@@ -188,7 +196,7 @@ export default async function LocaleLayout({
       <body>
         <NextIntlClientProvider>
           <SkipToContent />
-          <Providers>
+          <Providers citySeed={citySeed} readerZone={readerZone}>
             <SiteChrome initialSignedIn={signedInHint} buildId={buildId()}>
               {children}
             </SiteChrome>

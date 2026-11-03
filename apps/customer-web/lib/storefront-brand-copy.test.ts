@@ -21,8 +21,8 @@ const MESSAGES = join(ROOT, '..', '..', 'packages', 'i18n', 'src', 'messages');
 
 /** The files whose every visible word must come from the catalogue. */
 const FILES = [
-  'app/[locale]/explore/page.tsx',
-  'app/[locale]/movies/page.tsx',
+  'app/[locale]/explore/explore-page.tsx',
+  'app/[locale]/movies/movies-page.tsx',
   'components/storefront-brand.tsx',
   'components/place-sections.tsx',
   'components/home/parts.tsx',
@@ -101,8 +101,8 @@ function namespace(locale: string, ns: string): Record<string, unknown> {
 
 describe('every message Explore and Movies ask for exists in English and French', () => {
   const cases: [string, string, string][] = [
-    ['app/[locale]/explore/page.tsx', 't', 'explore'],
-    ['app/[locale]/movies/page.tsx', 't', 'movies'],
+    ['app/[locale]/explore/explore-page.tsx', 't', 'explore'],
+    ['app/[locale]/movies/movies-page.tsx', 't', 'movies'],
     ['components/place-sections.tsx', 't', 'placeGroups'],
   ];
   it.each(cases)('%s (%s -> storefront.%s)', (file, binding, ns) => {
@@ -117,7 +117,7 @@ describe('every message Explore and Movies ask for exists in English and French'
   });
 
   it('every section title the page maps by key exists', () => {
-    const source = read('app/[locale]/explore/page.tsx');
+    const source = read('app/[locale]/explore/explore-page.tsx');
     const mapped = [...source.matchAll(/:\s*'(section[A-Za-z]+)'/g)].map((m) => m[1]);
     expect(mapped.length).toBeGreaterThan(0);
     for (const locale of ['en', 'fr-CA']) {
