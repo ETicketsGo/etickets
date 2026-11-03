@@ -5,6 +5,7 @@ import { Check, Minus, Plus } from 'lucide-react';
 import { BRAND_FOCUS, BrandStatusPill, formatFor } from '@eticketsgo/web-kit';
 import { useFormat } from '@/lib/format';
 import { venueWhenParts } from '@/lib/event-when';
+import { useReaderZone } from '@/lib/reader-zone';
 
 /*
   ── THE BOOKING FLOW'S OWN PIECES ON THE BRAND LAYER ──────────────────────────────────
@@ -172,8 +173,11 @@ export function useVenueWhen() {
   // The storefront's English is en-IN (as dateTime's default), never the browser's own locale.
   const locale = formatFor(useLocale()).locale ?? 'en-IN';
   const { zoneAbbrev } = useFormat();
+  // Agreed between server and browser, so a server-drawn time hydrates (`lib/reader-zone.tsx`).
+  const readerZone = useReaderZone();
   // The formatting itself lives in `venueWhenParts`, so it can be tested in any reader's zone.
-  return (iso: string, zone: string | undefined) => venueWhenParts(iso, zone, locale, zoneAbbrev);
+  return (iso: string, zone: string | undefined) =>
+    venueWhenParts(iso, zone, locale, zoneAbbrev, readerZone);
 }
 
 /**

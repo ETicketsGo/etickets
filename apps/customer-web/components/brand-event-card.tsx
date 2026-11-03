@@ -2,7 +2,12 @@
 
 import { useState } from 'react';
 import { CalendarDays, MapPin } from 'lucide-react';
-import { BRAND_FOCUS, EventArtwork, eventImageSource } from '@eticketsgo/web-kit';
+import {
+  BRAND_FOCUS,
+  EventArtwork,
+  eventImageSource,
+  whenAlreadyFailed,
+} from '@eticketsgo/web-kit';
 import type { PaginatedEvents } from '@/lib/api';
 import { useFormat } from '@/lib/format';
 import { eventZone } from '@/lib/event-when';
@@ -70,6 +75,7 @@ export function BrandEventCard({
                   // Camel case, as the home page's hero: React 19 writes it as `fetchpriority`.
                   fetchPriority={priority ? 'high' : undefined}
                   decoding="async"
+                  ref={whenAlreadyFailed(() => setBroken(true))}
                   onError={() => setBroken(true)}
                   className="absolute inset-0 h-full w-full object-cover"
                 />

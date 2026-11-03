@@ -10,12 +10,16 @@ import {
   type CitySeed,
   type HumanCheckLabels,
 } from '@eticketsgo/web-kit';
+import { ReaderZoneProvider } from '@/lib/reader-zone';
 
 export function Providers({
   children,
   citySeed,
+  readerZone,
 }: {
   children: React.ReactNode;
+  /** The reader's time zone the server rendered with (`lib/reader-zone.tsx`). */
+  readerZone?: string;
   /** Where the server rendered this page (`lib/city-seed.ts`). Unset: unknown until resolved. */
   citySeed?: CitySeed;
 }) {
@@ -36,7 +40,9 @@ export function Providers({
       // Turnstile takes a language code; `fr-CA` reads as its French.
       humanCheckLanguage={locale.startsWith('fr') ? 'fr' : 'en'}
     >
-      <CityProvider seed={citySeed}>{children}</CityProvider>
+      <ReaderZoneProvider zone={readerZone}>
+        <CityProvider seed={citySeed}>{children}</CityProvider>
+      </ReaderZoneProvider>
     </WebProviders>
   );
 }

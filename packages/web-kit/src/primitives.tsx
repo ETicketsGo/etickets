@@ -31,6 +31,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import type { BadgeTone } from './components';
+import { whenAlreadyFailed } from './image-ref';
 
 /*
   ── THE CONSOLE PRIMITIVES, PART TWO ────────────────────────────────────────────────
@@ -701,6 +702,7 @@ export function ImageFrame({
           alt={alt}
           loading={priority ? 'eager' : 'lazy'}
           decoding="async"
+          ref={whenAlreadyFailed(() => setFailed(src))}
           onError={() => setFailed(src)}
           className="absolute inset-0 h-full w-full object-cover"
           style={objectPosition ? { objectPosition } : undefined}

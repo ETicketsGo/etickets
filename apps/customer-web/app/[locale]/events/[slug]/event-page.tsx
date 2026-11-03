@@ -48,10 +48,12 @@ import {
   BuyerRegionField,
   Wordmark,
   formatFor,
+  whenAlreadyFailed,
   moneyFractionDigits,
   useAuthUser,
 } from '@eticketsgo/web-kit';
 import { currentPageUrl } from '@/lib/site-url';
+import { useReaderZone } from '@/lib/reader-zone';
 import {
   addOnsQuery,
   bundlesQuery,
@@ -92,6 +94,8 @@ export function EventDetailPage() {
   const { money, dateOnly } = useFormat();
   // The venue's clock, in parts, for the hero, the booking panel and the date chips.
   const venueWhen = useVenueWhen();
+  // The reader's zone as the server rendered it, so the page hydrates (`lib/reader-zone.tsx`).
+  const readerZone = useReaderZone();
   // The written-out date ("Thursday 5 November") in the storefront's English, never the browser's.
   const locale = formatFor(useLocale()).locale ?? 'en-IN';
   const durationText = useDurationText();
@@ -606,7 +610,7 @@ export function EventDetailPage() {
     on a phone, where the card is below the story, beside the jump to the tickets.
   */
   const shownWhen = session ? venueWhen(session.startsAt, zone) : null;
-  const longDate = session ? longVenueDate(session.startsAt, zone, locale) : null;
+  const longDate = session ? longVenueDate(session.startsAt, zone, locale, readerZone) : null;
   const onSaleTypes = (session?.ticketTypes ?? []).filter(
     (t) => t.available > 0 && t.saleState !== 'CLOSED' && t.saleState !== 'NOT_YET',
   );
@@ -836,6 +840,7 @@ export function EventDetailPage() {
                   height={720}
                   // The largest thing on the page. Camel case: React 19 writes it as `fetchpriority`.
                   fetchPriority="high"
+                  ref={whenAlreadyFailed(() => markImageFailed(heroImage.full))}
                   onError={() => markImageFailed(heroImage.full)}
                   style={{ objectPosition: heroImage.position }}
                   className="h-full w-full animate-fade-in object-cover"
@@ -922,6 +927,7 @@ export function EventDetailPage() {
                     height={64}
                     loading="lazy"
                     // A thumbnail that cannot load takes its image out of the gallery with it.
+                    ref={whenAlreadyFailed(() => markImageFailed(image.full))}
                     onError={() => markImageFailed(image.full)}
                     className="aspect-video h-16 object-cover"
                   />

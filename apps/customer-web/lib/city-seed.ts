@@ -7,6 +7,7 @@ import {
   type CitySeed,
 } from '@eticketsgo/web-kit/server';
 import { RECENT_COOKIE, parseRecentIds } from '@/lib/recent';
+import { READER_ZONE_COOKIE, validZone } from '@/lib/reader-zone-cookie';
 
 /**
  * Where this visitor is browsing, as the server can know it: the cookies the browser mirrors
@@ -28,6 +29,12 @@ import { RECENT_COOKIE, parseRecentIds } from '@/lib/recent';
 export const serverRecentIds = cache(async (): Promise<string[]> => {
   const store = await cookies();
   return parseRecentIds(store.get(RECENT_COOKIE)?.value);
+});
+
+/** The reader's time zone as the browser last reported it (`lib/reader-zone.tsx`), or undefined. */
+export const serverReaderZone = cache(async (): Promise<string | undefined> => {
+  const store = await cookies();
+  return validZone(store.get(READER_ZONE_COOKIE)?.value);
 });
 
 export const serverCitySeed = cache(async (): Promise<CitySeed> => {

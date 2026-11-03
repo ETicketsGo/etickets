@@ -9,7 +9,7 @@ import { SiteChrome } from '@/components/site-chrome';
 import { SkipToContent } from '@/components/skip-to-content';
 import { SwRegister } from '@/components/sw-register';
 import { serverSessionHint } from '@/lib/session-hint';
-import { serverCitySeed } from '@/lib/city-seed';
+import { serverCitySeed, serverReaderZone } from '@/lib/city-seed';
 import { buildId } from '@/lib/build-id';
 // Self-hosted, so `next build` never downloads fonts.
 import { inter } from '@eticketsgo/web-kit/fonts/inter';
@@ -177,6 +177,7 @@ export default async function LocaleLayout({
     instead of "everywhere" first and the visitor's country a moment later.
   */
   const citySeed = await serverCitySeed();
+  const readerZone = await serverReaderZone();
   setRequestLocale(locale);
 
   return (
@@ -195,7 +196,7 @@ export default async function LocaleLayout({
       <body>
         <NextIntlClientProvider>
           <SkipToContent />
-          <Providers citySeed={citySeed}>
+          <Providers citySeed={citySeed} readerZone={readerZone}>
             <SiteChrome initialSignedIn={signedInHint} buildId={buildId()}>
               {children}
             </SiteChrome>

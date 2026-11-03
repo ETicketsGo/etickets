@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { API, CUSTOMER } from './helpers';
+import { API, CUSTOMER, browserFetchesStorefrontData } from './helpers';
 
 /**
  * Discovery follows the customer's SELECTED city.
@@ -68,6 +68,8 @@ const CITIES = [
 ];
 
 async function mockCatalogue(page: Page) {
+  // The catalogue below is a stand-in the server cannot see: the browser asks for everything.
+  await browserFetchesStorefrontData(page.context());
   await page.route('**/api/public/location/resolve*', (r) =>
     r.fulfill({
       json: {

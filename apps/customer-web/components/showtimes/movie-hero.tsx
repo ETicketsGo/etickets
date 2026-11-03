@@ -8,6 +8,7 @@ import {
   hasRating,
   portableImageUrl,
   type PublicMovieShows,
+  whenAlreadyFailed,
 } from '@eticketsgo/web-kit';
 import { ContentLabelBadge } from '@/components/content-label-badge';
 import { useRatingText } from '@/components/reviews/use-rating-text';
@@ -76,6 +77,7 @@ export function MovieHero({ movie }: { movie: PublicMovieShows['movie'] }) {
               <img
                 src={portableImageUrl(movie.posterUrl) ?? undefined}
                 alt={t('poster', { title: movie.title })}
+                ref={whenAlreadyFailed(() => setPosterFailed(true))}
                 onError={() => setPosterFailed(true)}
                 className="h-full w-full object-cover"
               />

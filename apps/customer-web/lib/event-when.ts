@@ -85,9 +85,11 @@ export function venueWhenParts(
   zone: string | undefined,
   locale: string,
   zoneAbbrev: (iso: string, zone?: string) => string,
+  /** The reader's zone, for a venue whose own is unknown (`useReaderZone`). */
+  reader: string | undefined = readerTimeZone(),
 ): { day: string; time: string; zone: string } {
   const at = new Date(iso);
-  const shownZone = zone ?? readerTimeZone();
+  const shownZone = zone ?? reader;
   const opts = shownZone ? { timeZone: shownZone } : {};
   let day: string;
   let time: string;

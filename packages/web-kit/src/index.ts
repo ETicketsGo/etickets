@@ -34,6 +34,7 @@ export * from './console-handoff';
 export * from './password-field';
 export * from './city';
 export * from './city-scope';
+export * from './image-ref';
 export * from './place-groups';
 /*
   Country + currency, re-exported from shared-types.

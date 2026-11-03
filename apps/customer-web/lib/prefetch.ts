@@ -1,4 +1,8 @@
+import { cookies } from 'next/headers';
 import { QueryClient, dehydrate, type DehydratedState } from '@tanstack/react-query';
+
+/** See `prefetchPublic`: set to `off`, the browser fetches every read itself. */
+export const PREFETCH_OFF_COOKIE = 'etg_prefetch';
 
 /**
  * Fetches a page's above-the-fold reads on the server, for the browser to start from.
@@ -26,6 +30,15 @@ export async function prefetchPublic(
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: 15_000 } },
   });
+  /*
+    `etg_prefetch=off` hands every read back to the browser, exactly as before this existed.
+
+    For the end-to-end journeys that stand in for the API inside the browser (a show that cannot
+    be sold, a seat map with a given shape, a catalogue of five cities): the server cannot see
+    those stand-ins, so they ask it not to answer first. It only ever makes a page do more work
+    in the visitor's own browser; it unlocks nothing.
+  */
+  if ((await cookies()).get(PREFETCH_OFF_COOKIE)?.value === 'off') return dehydrate(client);
   let timer: ReturnType<typeof setTimeout> | undefined;
   await Promise.race([
     load(client).catch(() => undefined),
