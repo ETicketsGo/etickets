@@ -49,6 +49,7 @@ export {
   DEFAULT_MARKET,
   marketFor,
   marketFromHint,
+  postalCodeProblem,
   regionFor,
   type Market,
 } from '@eticketsgo/shared-types';

@@ -40,11 +40,26 @@ const optionalUrl = z
   })
   .optional();
 
+/*
+  A picture field also accepts the API path an UPLOAD writes (`/public/organizers/<id>/logo?v=…`).
+  Without this, the profile form echoed that path back on every save and was refused as "not a
+  valid URL", so once an organizer had uploaded a picture no other profile field could be saved.
+*/
+const ORG_IMAGE_PATH = /^\/public\/organizers\/[A-Za-z0-9_-]+\/(logo|cover)(\?v=[0-9a-f]+)?$/;
+const optionalImageUrl = z
+  .string()
+  .trim()
+  .max(500)
+  .refine((v) => v === '' || /^https?:\/\/.+/i.test(v) || ORG_IMAGE_PATH.test(v), {
+    message: 'Enter a valid URL starting with http:// or https://',
+  })
+  .optional();
+
 // Public organizer profile (v1.2 WS6). Every field is optional; '' clears it.
 export const updateOrganizationProfileSchema = z.object({
   description: z.string().trim().max(2000).optional(),
-  logoUrl: optionalUrl,
-  coverImageUrl: optionalUrl,
+  logoUrl: optionalImageUrl,
+  coverImageUrl: optionalImageUrl,
   website: optionalUrl,
   twitterUrl: optionalUrl,
   instagramUrl: optionalUrl,

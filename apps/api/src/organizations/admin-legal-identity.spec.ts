@@ -166,3 +166,42 @@ describe('what the admin is told about readiness', () => {
     expect((await service.adminLegalIdentityStatus('org-1')).canIssueTaxInvoice).toBe(false);
   });
 });
+
+describe('a postal code that cannot belong to the country', () => {
+  const OWNER = { id: 'owner-1', email: 'o@x.test', fullName: 'O', roles: [] } as never;
+  const fieldsOf = (e: unknown) => (e as AppException).details;
+
+  it('is refused under the field, against the stored country, before anything is written', async () => {
+    const { service, prisma } = setup();
+    const err = await service
+      .updateLegalIdentity(OWNER, 'org-1', { registeredPostalCode: '83642' } as never)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(AppException);
+    expect(JSON.stringify(fieldsOf(err))).toContain('registeredPostalCode');
+    expect(JSON.stringify(fieldsOf(err))).toContain('PIN code');
+    expect(prisma.organization.update).not.toHaveBeenCalled();
+  });
+
+  it('is judged with the country sent in the same save', async () => {
+    const { service, prisma } = setup();
+    await service.updateLegalIdentity(OWNER, 'org-1', {
+      registeredCountry: 'United States',
+      registeredPostalCode: '83642',
+    } as never);
+    expect(prisma.organization.update).toHaveBeenCalled();
+  });
+
+  it('applies on the admin path too', async () => {
+    const { service, prisma } = setup();
+    await expect(
+      service.adminUpdateLegalIdentity(ADMIN, 'org-1', { registeredPostalCode: 'ABC' } as never),
+    ).rejects.toBeInstanceOf(AppException);
+    expect(prisma.organization.update).not.toHaveBeenCalled();
+  });
+
+  it('does not block a save that leaves the address alone', async () => {
+    const { service, prisma } = setup({ ...ORG, registeredPostalCode: 'bad' });
+    await service.updateLegalIdentity(OWNER, 'org-1', { financeContactName: 'Fin' } as never);
+    expect(prisma.organization.update).toHaveBeenCalled();
+  });
+});
