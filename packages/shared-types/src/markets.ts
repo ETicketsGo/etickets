@@ -96,6 +96,13 @@ export interface Market {
    */
   postalCode?: { label: string; pattern: string; example: string };
   /**
+   * `false` where the tax system has no "tax invoice": a US sales-tax registration (or an EIN,
+   * which is not a sales-tax registration at all) does not turn a receipt into one. Absent
+   * means the country's registrations DO make a seller's sale document a tax invoice (India's
+   * GST invoice, a VAT invoice).
+   */
+  taxInvoices?: false;
+  /**
    * The subdivisions, where a stable public list exists and an address actually uses one.
    *
    * Empty means "this country does not work that way" — Singapore has no meaningful
@@ -298,6 +305,7 @@ export const MARKETS: readonly Market[] = [
     ],
     taxRegistrationLabel: 'EIN',
     regionLabel: 'State',
+    taxInvoices: false,
     // Five digits, or ZIP+4.
     postalCode: { label: 'ZIP code', pattern: '^[0-9]{5}(-[0-9]{4})?$', example: '83642' },
     regions: US_REGIONS,
@@ -484,6 +492,21 @@ export function postalCodeProblem(
   return new RegExp(rule.pattern).test(code)
     ? null
     : `Enter a valid ${rule.label}, for example ${rule.example}.`;
+}
+
+/**
+ * Whether a seller in this country, holding a tax registration, issues TAX INVOICES rather
+ * than receipts. The registration NUMBER is still printed either way; this decides only the
+ * document's title and series. Unknown country: an EIN is a US identifier and never makes a
+ * tax invoice; anything else keeps the long-standing rule.
+ */
+export function issuesTaxInvoices(
+  country: string | null | undefined,
+  taxRegistrationKind?: string | null,
+): boolean {
+  const market = marketFor(country);
+  if (market) return market.taxInvoices !== false;
+  return !/^\s*EIN\s*$/i.test(taxRegistrationKind ?? '');
 }
 
 /**

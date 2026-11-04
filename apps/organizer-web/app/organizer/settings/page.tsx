@@ -23,6 +23,7 @@ import {
   MARKETS,
   marketFor,
   postalCodeProblem,
+  issuesTaxInvoices,
   Select,
   type Organization,
 } from '@eticketsgo/web-kit';
@@ -96,6 +97,7 @@ const LEGAL_FIELDS: {
     key: 'taxRegistrationNumber',
     label: 'Tax registration number (if you have one)',
     placeholder: 'As issued to you',
+    // The US wording replaces this where the country has no tax invoice (see the field below).
     hint: 'With a registration on file, buyers get tax invoices. Without it, plain receipts.',
   },
   { key: 'registeredAddressLine1', label: 'Registered address', wide: true },
@@ -392,6 +394,14 @@ export default function SettingsPage() {
     Reloaded from the server whenever it changes unless the owner has started typing, so a
     background refresh cannot overwrite half-finished input.
   */
+  // Where the SAVED country has no tax invoice (US), sales are receipts whatever number is on file.
+  const savedReceiptsOnly = legalQuery.data
+    ? !issuesTaxInvoices(legalQuery.data.registeredCountry, legalQuery.data.taxRegistrationKind)
+    : false;
+  const savedRegistrationLabel =
+    legalQuery.data?.taxRegistrationKind ||
+    marketFor(legalQuery.data?.registeredCountry)?.taxRegistrationLabel ||
+    'registration';
   const [legalBase, setLegalBase] = useState<LegalValues>(() => legalValues({}));
   const [legal, setLegal] = useState<LegalValues>(() => legalValues({}));
   // A ref for the same reason as `profileTouched`.
@@ -731,20 +741,32 @@ export default function SettingsPage() {
             <div
               data-testid="legal-document-status"
               className={`mb-4 rounded-md border px-3 py-2 text-caption text-text-primary ${
-                legalQuery.data.canIssueTaxInvoice
+                legalQuery.data.canIssueTaxInvoice ||
+                (savedReceiptsOnly && legalQuery.data.missing.length === 0)
                   ? 'border-status-success/40 bg-status-success/10'
                   : 'border-status-warning/40 bg-status-warning/10'
               }`}
             >
-              {legalQuery.data.taxRegistrationNumber ? (
+              {legalQuery.data.taxRegistrationNumber && !savedReceiptsOnly ? (
                 <>
                   Your buyers get documents titled <strong>tax invoice</strong> that show your{' '}
-                  {legalQuery.data.taxRegistrationKind ||
-                    marketFor(legalQuery.data.registeredCountry)?.taxRegistrationLabel ||
-                    'registration'}{' '}
-                  {legalQuery.data.taxRegistrationNumber}. We print the number as you enter it. We
-                  do not check it with your tax authority, so confirm with your tax adviser that
-                  these documents meet your local invoice rules.
+                  {savedRegistrationLabel} {legalQuery.data.taxRegistrationNumber}. We print the
+                  number as you enter it. We do not check it with your tax authority, so confirm
+                  with your tax adviser that these documents meet your local invoice rules.
+                </>
+              ) : legalQuery.data.taxRegistrationNumber ? (
+                /*
+                  US: an EIN is not a sales-tax registration, and a receipt does not become a "tax
+                  invoice" because one is on file (owner decision, 2026-11-04).
+                */
+                <>
+                  Your buyers get a <strong>receipt</strong> for every sale. It shows your{' '}
+                  {savedRegistrationLabel} {legalQuery.data.taxRegistrationNumber} as you entered
+                  it.
+                </>
+              ) : savedReceiptsOnly ? (
+                <>
+                  Your buyers get a <strong>receipt</strong> for every sale.
                 </>
               ) : (
                 <>
@@ -916,7 +938,13 @@ export default function SettingsPage() {
                         id={`legal-${f.key}`}
                         label={label}
                         placeholder={placeholder}
-                        hint={f.hint}
+                        hint={
+                          f.key === 'taxRegistrationNumber' &&
+                          market &&
+                          !issuesTaxInvoices(legal.registeredCountry)
+                            ? 'Printed on the receipts your buyers get. It does not make them tax invoices.'
+                            : f.hint
+                        }
                         error={legalErrors[f.key]}
                         value={legal[f.key]}
                         onChange={(e) => setLegalField(f.key, e.target.value)}
