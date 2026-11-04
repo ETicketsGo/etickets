@@ -84,7 +84,7 @@ time from Account, Delete account.
 
 **Category:** Events. **Contact email:** owner to provide (Play shows it publicly).
 **Privacy policy URL:** `https://www.eticketsgo.com/privacy`
-**Account deletion URL:** `https://www.eticketsgo.com/delete-account` (PR 477, merged 2026-10-24; live once deployed)
+**Account deletion URL:** `https://www.eticketsgo.com/delete-account` (live on production; checked 2026-11-04)
 
 ## Data safety (reviewed 2026-10-24 against the 1.0.0 AAB)
 
@@ -97,8 +97,7 @@ Razorpay's published table for its Android SDK
 
 Security answers: data is encrypted in transit (HTTPS only; cleartext is off). Users can ask
 for their data to be deleted: in the app (Account > Delete account) and at
-`https://www.eticketsgo.com/delete-account` (**404 on production today**; see the release
-checklist).
+`https://www.eticketsgo.com/delete-account` (live on production; checked 2026-11-04).
 
 | Data type (Play)                                  | Collected in 1.0.0                                                                   | Shared                                         | Purpose                                        | Optional |
 | ------------------------------------------------- | ------------------------------------------------------------------------------------ | ---------------------------------------------- | ---------------------------------------------- | -------- |
@@ -144,6 +143,36 @@ Owner-approved in principle on 2026-10-24 and written in `apps/customer-web/app/
 - Section 9, the app: Razorpay (India) and Stripe (where we take payment elsewhere) collect payment and device data on their own screens; notifications, crash reports and the Google Play integrity check are described as **built in but not switched on**.
 
 When push, crash reporting or the integrity check is switched on, update the Data safety form first, then this section if the behaviour differs from what it says.
+
+## App access (reviewer instructions, draft)
+
+Paste into App content > App access > "All or some functionality is restricted". The owner
+creates the account on PRODUCTION; never put a password in this file.
+
+```
+Browsing events, films and seat maps needs no account.
+
+Sign-in is needed for checkout, Your tickets and Account. Use email sign-in:
+1. Open Account, tap "Sign in", choose "Email".
+2. Email: <reviewer email>   Password: <reviewer password>
+Phone sign-in sends a one-time code by SMS and cannot be used by reviewers.
+
+Payment opens Razorpay (India) or Stripe (US) on the provider's own page. Please do not
+complete a payment: it charges a real card.
+
+Account deletion: Account > Delete account. This permanently deletes the reviewer account;
+we will recreate it if needed. The same is available at
+https://www.eticketsgo.com/delete-account
+```
+
+## Release notes (1.0.0)
+
+```
+<en-US>
+First release of ETicketsGo for Android. Find films and live events near you, choose your
+seats, see every fee before you pay, and keep your tickets on your phone, even offline.
+</en-US>
+```
 
 ## Content rating (IARC questionnaire, draft)
 
