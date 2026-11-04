@@ -12,6 +12,13 @@ Bradstreet (section 4).
 
 ## 0. Release candidate: Android 1.0.0
 
+**Status 2026-11-04.** versionCode 4 below is SUPERSEDED (it lacks the repeat phone sign-up
+message). A versionCode 5 bundle was built from main 7b3da50f: EAS build
+`a74795bf-0f76-4236-9e89-705eb6b8f5ed`, sha256
+`e99e500d960cec55f239281b645502175e7c42dfb0f80dd38e42ed75d3fb5e15`, same upload key,
+targetSdk 36. A device test of it then found the refund sheet hidden by the keyboard (PR 555).
+**Upload the bundle built after PR 555 merges (versionCode 6), not 4 or 5.**
+
 Approved by the owner (2026-10-24) for a FUTURE upload to the internal testing track of the
 **DeepTrics Software Solutions Private Limited** organization account, once that account is
 verified. Not uploaded anywhere.
@@ -207,7 +214,7 @@ Internal testing has no Google review and reaches only invited testers.
 
 ### 5.3 Required for the PRODUCTION LAUNCH (owner approval for each)
 
-- [ ] Production `/delete-account` live (customer-web deploy) and `/privacy` v2 live.
+- [x] Production `/delete-account` live (customer-web deploy) and `/privacy` v2 live (checked 2026-11-04).
 - [ ] Full App content submitted: Data safety, content rating (IARC, "Digital purchases: no"),
       target audience 18+, financial features none, account deletion URL.
 - [ ] Main store listing: text, icon, feature graphic, screenshots (section above).
