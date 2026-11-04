@@ -6,7 +6,7 @@
  * with no I/O in it.
  */
 
-import type { DocumentOperator } from '@eticketsgo/shared-types';
+import { issuesTaxInvoices, type DocumentOperator } from '@eticketsgo/shared-types';
 
 export const RECEIPT_DOCUMENT_VERSION = 1;
 
@@ -157,9 +157,21 @@ export interface BuildReceiptInput {
  * TaxRule configuration and nothing else.
  */
 export function resolveSaleKind(
-  seller: Pick<ReceiptSeller, 'taxRegistrationNumber'>,
+  seller: Pick<ReceiptSeller, 'taxRegistrationNumber'> & {
+    taxRegistrationKind?: string | null;
+    address?: { country: string | null } | null;
+  },
 ): ReceiptKindName {
-  return seller.taxRegistrationNumber?.trim() ? 'TAX_INVOICE' : 'RECEIPT';
+  /*
+    Only where the country HAS tax invoices. In the US an EIN identifies a business for income
+    tax; it is not a sales-tax registration and makes nothing a "tax invoice", so a US sale is a
+    receipt with the EIN printed on it (owner decision, 2026-11-04). India's GST invoice is
+    unchanged. Decided at issue time only: documents already issued keep their kind and number.
+  */
+  if (!seller.taxRegistrationNumber?.trim()) return 'RECEIPT';
+  return issuesTaxInvoices(seller.address?.country, seller.taxRegistrationKind)
+    ? 'TAX_INVOICE'
+    : 'RECEIPT';
 }
 
 /**
@@ -175,7 +187,12 @@ function buildNotes(input: BuildReceiptInput): string[] {
   if (input.taxLines.length === 0) {
     notes.push('No tax was charged on this sale.');
   }
-  if (input.kind !== 'CREDIT_NOTE' && !input.seller.taxRegistrationNumber?.trim()) {
+  if (
+    input.kind !== 'CREDIT_NOTE' &&
+    !input.seller.taxRegistrationNumber?.trim() &&
+    // Where no tax invoice exists, saying this is "not a tax invoice" only confuses the buyer.
+    issuesTaxInvoices(input.seller.address.country, input.seller.taxRegistrationKind)
+  ) {
     notes.push('The seller has not recorded a tax registration, so this is not a tax invoice.');
   }
   if (input.kind === 'CREDIT_NOTE') {

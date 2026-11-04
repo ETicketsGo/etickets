@@ -18,6 +18,8 @@
  * statement: none of these block an organizer from selling today, and pretending otherwise
  * to force completion would be a lie the product tells.
  */
+import { issuesTaxInvoices } from '@eticketsgo/shared-types';
+
 export type ReadinessSeverity = 'BLOCKING' | 'IMPORTANT' | 'SUGGESTED';
 
 export interface ReadinessItem {
@@ -167,8 +169,10 @@ export function organizationReadiness(org: ReadinessInput): ReadinessItem[] {
       key: 'tax-registration',
       severity: 'SUGGESTED',
       title: 'Add your tax registration, if you have one',
-      consequence:
-        'With one on file your buyers get tax invoices. Without it they get valid receipts, which is fine if you are not registered.',
+      // Only where a registration makes a tax invoice: in the US the number is printed on a receipt.
+      consequence: issuesTaxInvoices(org.registeredCountry)
+        ? 'With one on file your buyers get tax invoices. Without it they get valid receipts, which is fine if you are not registered.'
+        : 'With one on file it is printed on the receipts your buyers get. Without it they get the same valid receipts.',
       fixPath: SETTINGS_LEGAL,
     });
   }

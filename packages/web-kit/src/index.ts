@@ -50,6 +50,7 @@ export {
   marketFor,
   marketFromHint,
   postalCodeProblem,
+  issuesTaxInvoices,
   regionFor,
   type Market,
 } from '@eticketsgo/shared-types';

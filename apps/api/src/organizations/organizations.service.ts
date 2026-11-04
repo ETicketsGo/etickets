@@ -11,6 +11,7 @@ import {
   Role,
   isReservedEmail,
   postalCodeProblem,
+  issuesTaxInvoices,
 } from '@eticketsgo/shared-types';
 import type {
   CreateOrganizationInput,
@@ -496,7 +497,10 @@ export class OrganizationsService {
     return {
       ...org,
       missing,
-      canIssueTaxInvoice: Boolean(org.taxRegistrationNumber?.trim()) && missing.length === 0,
+      canIssueTaxInvoice:
+        Boolean(org.taxRegistrationNumber?.trim()) &&
+        issuesTaxInvoices(org.registeredCountry, org.taxRegistrationKind) &&
+        missing.length === 0,
     };
   }
 
@@ -554,7 +558,10 @@ export class OrganizationsService {
 
     return {
       ...org,
-      canIssueTaxInvoice: Boolean(org.taxRegistrationNumber?.trim()) && missing.length === 0,
+      canIssueTaxInvoice:
+        Boolean(org.taxRegistrationNumber?.trim()) &&
+        issuesTaxInvoices(org.registeredCountry, org.taxRegistrationKind) &&
+        missing.length === 0,
       missing,
     };
   }

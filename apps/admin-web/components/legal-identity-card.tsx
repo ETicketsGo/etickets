@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import {
+  issuesTaxInvoices,
   api,
   Button,
   Card,
@@ -123,22 +124,28 @@ export function LegalIdentityCard({ organizationId }: { organizationId: string }
   }
 
   const status = q.data!;
+  const receiptsOnly = !issuesTaxInvoices(status.registeredCountry, status.taxRegistrationKind);
 
   return (
     <Card title="Seller identity & tax registration">
       <p
         className={`mb-4 rounded-md px-3 py-2 text-caption ${
-          status.canIssueTaxInvoice
+          status.canIssueTaxInvoice || (receiptsOnly && status.missing.length === 0)
             ? 'bg-tint-success text-status-success'
             : 'bg-tint-warning text-status-warning'
         }`}
         role="status"
       >
-        {status.canIssueTaxInvoice
-          ? 'Complete — documents for this organizer are issued as tax invoices.'
-          : status.missing.length > 0
-            ? `Documents are issued as plain receipts, not tax invoices. Still needed: ${status.missing.join(', ')}.`
-            : 'No tax registration on file, so documents are issued as plain receipts.'}
+        {/*
+          Says what the issuer does (receipt-document.ts, resolveSaleKind): a registration number
+          makes a tax invoice except where the country has none (US), whatever else is missing.
+        */}
+        {(status.taxRegistrationNumber && !receiptsOnly
+          ? 'Documents for this organizer are issued as tax invoices.'
+          : status.taxRegistrationNumber
+            ? 'Documents for this organizer are issued as receipts that show its registration number. This country has no tax invoice.'
+            : 'No tax registration on file, so documents are issued as plain receipts.') +
+          (status.missing.length > 0 ? ` Still needed: ${status.missing.join(', ')}.` : '')}
       </p>
 
       {/*
