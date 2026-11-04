@@ -90,6 +90,12 @@ export interface Market {
    */
   regionLabel: string;
   /**
+   * What this country calls its postal code, and the shape one takes - only where that shape
+   * is fixed and public (a US ZIP, an Indian PIN). Absent means "any text": a pattern guessed
+   * for a country nobody checked would refuse real addresses.
+   */
+  postalCode?: { label: string; pattern: string; example: string };
+  /**
    * The subdivisions, where a stable public list exists and an address actually uses one.
    *
    * Empty means "this country does not work that way" — Singapore has no meaningful
@@ -270,6 +276,8 @@ export const MARKETS: readonly Market[] = [
     ],
     taxRegistrationLabel: 'GSTIN',
     regionLabel: 'State',
+    // Six digits, never starting with 0.
+    postalCode: { label: 'PIN code', pattern: '^[1-9][0-9]{5}$', example: '520010' },
     regions: IN_REGIONS,
     timezones: ['Asia/Kolkata'],
   },
@@ -290,6 +298,8 @@ export const MARKETS: readonly Market[] = [
     ],
     taxRegistrationLabel: 'EIN',
     regionLabel: 'State',
+    // Five digits, or ZIP+4.
+    postalCode: { label: 'ZIP code', pattern: '^[0-9]{5}(-[0-9]{4})?$', example: '83642' },
     regions: US_REGIONS,
     timezones: [
       'America/New_York',
@@ -458,6 +468,22 @@ export function marketFor(country: string | null | undefined): Market | null {
         EXTRA_SPELLINGS[m.code]?.includes(needle),
     ) ?? null
   );
+}
+
+/**
+ * Why a postal code cannot belong to this country, or null when it can (or when the country
+ * has no fixed shape to check). Blank is not a problem here: an address is filled in over time.
+ */
+export function postalCodeProblem(
+  country: string | null | undefined,
+  postalCode: string | null | undefined,
+): string | null {
+  const code = postalCode?.trim();
+  const rule = marketFor(country)?.postalCode;
+  if (!code || !rule) return null;
+  return new RegExp(rule.pattern).test(code)
+    ? null
+    : `Enter a valid ${rule.label}, for example ${rule.example}.`;
 }
 
 /**

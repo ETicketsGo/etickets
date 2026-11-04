@@ -10,6 +10,7 @@ import {
   OrganizationStatus,
   Role,
   isReservedEmail,
+  postalCodeProblem,
 } from '@eticketsgo/shared-types';
 import type {
   CreateOrganizationInput,
@@ -359,6 +360,8 @@ export class OrganizationsService {
         legalEntityType: true,
         taxRegistrationKind: true,
         taxRegistrationNumber: true,
+        registeredCountry: true,
+        registeredPostalCode: true,
       },
     });
     const data: Record<string, string | null> = {};
@@ -366,6 +369,7 @@ export class OrganizationsService {
       if (value === undefined) continue;
       data[key] = value === '' ? null : value;
     }
+    assertPostalCodeFitsCountry(before, data);
     const updated = await this.prisma.organization.update({ where: { id }, data });
     await this.audit.record({
       actorUserId: user.id,
@@ -417,6 +421,8 @@ export class OrganizationsService {
         legalEntityType: true,
         taxRegistrationKind: true,
         taxRegistrationNumber: true,
+        registeredCountry: true,
+        registeredPostalCode: true,
       },
     });
     if (!before) {
@@ -428,6 +434,7 @@ export class OrganizationsService {
       if (value === undefined) continue;
       data[key] = value === '' ? null : value;
     }
+    assertPostalCodeFitsCountry(before, data);
     const updated = await this.prisma.organization.update({ where: { id }, data });
 
     await this.audit.record({
@@ -1782,4 +1789,31 @@ function refusalReasonOf(err: unknown): string {
     if (err.code === ErrorCodes.NOT_FOUND) return 'invalid_or_used';
   }
   return 'error';
+}
+
+/**
+ * Refuse a postal code that cannot belong to the country it would be saved with - a US ZIP
+ * under India, or a four-digit ZIP. Checked against the country AFTER this save, so changing
+ * the country and the code together is judged as the pair the organizer meant. Only a code in
+ * THIS request is checked: a save of the finance contact must not be refused over an address
+ * nobody touched.
+ *
+ * Same error shape as the validation pipe, so the form can put the message under the field.
+ */
+function assertPostalCodeFitsCountry(
+  before: { registeredCountry: string | null; registeredPostalCode: string | null } | null,
+  data: Record<string, string | null>,
+): void {
+  if (!('registeredPostalCode' in data)) return;
+  const country =
+    'registeredCountry' in data ? data.registeredCountry : (before?.registeredCountry ?? null);
+  const problem = postalCodeProblem(country, data.registeredPostalCode);
+  if (problem) {
+    throw new AppException(
+      ErrorCodes.VALIDATION_FAILED,
+      'The request failed validation.',
+      HttpStatus.BAD_REQUEST,
+      { fields: { registeredPostalCode: [problem] } },
+    );
+  }
 }

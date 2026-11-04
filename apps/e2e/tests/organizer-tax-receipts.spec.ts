@@ -66,10 +66,10 @@ test.describe('organizer: tax identity, receipts and refunds', () => {
 
     // The state that matters: it does not pretend to be fine, and it says what is missing.
     await expect(page.getByText(/Incomplete\./)).toBeVisible();
-    await expect(page.getByText(/still get a/)).toBeVisible();
+    await expect(page.getByTestId('legal-document-status')).toContainText(/get a receipt/);
 
     // And it is explicit that the number is not format-checked, so nobody assumes it was.
-    await expect(page.getByText(/We do not validate its format/)).toBeVisible();
+    await expect(page.getByText(/We do not check its format/)).toBeVisible();
   });
 
   test('4-6: saving a tax registration flips the page to "can issue a tax invoice"', async ({
@@ -103,12 +103,17 @@ test.describe('organizer: tax identity, receipts and refunds', () => {
 
     await expect(page.getByText('Legal and tax details saved.')).toBeVisible({ timeout: 15_000 });
     // Says what is on (tax invoices), not "Complete." - other legal gaps are listed separately.
-    await expect(page.getByText(/Sales are documented as/)).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('legal-document-status')).toContainText(/titled tax invoice/, {
+      timeout: 15_000,
+    });
     await expect(page.getByText('29AABCU9603R1ZM')).toBeVisible();
 
     // The value survives a reload — it was persisted, not just held in form state.
     await page.reload();
     await expect(page.getByLabel(/^GSTIN/)).toHaveValue('29AABCU9603R1ZM');
+    // Saved but never loaded back, it read "Select..." after every reload (PROD, 2026-11).
+    await expect(page.getByLabel(/Registered as/i)).toHaveValue('Private limited company');
+    await expect(page.getByLabel('Country')).toHaveValue('India');
   });
 
   test('7-8: a manager cannot change the tax identity, only the owner can', async ({ request }) => {
