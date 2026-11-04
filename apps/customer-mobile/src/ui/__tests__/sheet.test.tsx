@@ -52,6 +52,7 @@ describe('Sheet and the keyboard', () => {
     expect(show).toBeDefined();
 
     await act(() => show!({ endCoordinates: { height: 300 } }));
+    // jest runs as iOS: the keyboard height plus the 16 of spacing.
     expect(panelPadding()).toBe(316);
 
     await act(() => hide!({ endCoordinates: { height: 0 } }));

@@ -53,9 +53,16 @@ export function Sheet({
         />
         <View
           className="rounded-t-xl border-t border-border bg-background-surface"
-          // While the keyboard is open it covers the bottom inset, so the sheet sits on
-          // the keyboard instead of on the screen edge.
-          style={{ paddingBottom: (keyboard > 0 ? keyboard : insets.bottom) + 16 }}
+          // While the keyboard is open the sheet sits on it instead of on the screen edge.
+          // Android reports the keyboard's height without the navigation bar under it, so
+          // there the bottom inset is added back (measured on a moto g31: the button was
+          // cut by exactly the gesture bar).
+          style={{
+            paddingBottom:
+              (keyboard > 0
+                ? keyboard + (Platform.OS === 'android' ? insets.bottom : 0)
+                : insets.bottom) + 16,
+          }}
         >
           {/* Grabber: a visual affordance only — it is not a control. */}
           <View className="items-center py-2.5" accessibilityElementsHidden>

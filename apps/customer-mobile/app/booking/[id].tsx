@@ -100,6 +100,12 @@ export default function BookingScreen() {
       ) : (
         <ScrollView
           contentContainerClassName="gap-6 px-4 pb-10 pt-2"
+          /*
+            The refund sheet is a Modal, but React still routes its touches through this
+            ScrollView. With the default ('never') the first tap on "Send request" while
+            typing only closed the keyboard, and the request was never sent.
+          */
+          keyboardShouldPersistTaps="handled"
           refreshControl={
             <RefreshControl refreshing={bookingQuery.isRefetching} onRefresh={refresh} />
           }
