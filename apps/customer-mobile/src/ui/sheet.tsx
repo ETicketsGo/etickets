@@ -1,5 +1,5 @@
-import { type ReactNode } from 'react';
-import { Modal, Pressable, View } from 'react-native';
+import { type ReactNode, useEffect, useState } from 'react';
+import { Keyboard, Modal, Platform, Pressable, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text } from './text';
 import { IconButton } from './button';
@@ -28,6 +28,7 @@ export function Sheet({
   dismissable?: boolean;
 }) {
   const insets = useSafeAreaInsets();
+  const keyboard = useKeyboardHeight(visible);
 
   return (
     <Modal
@@ -52,7 +53,9 @@ export function Sheet({
         />
         <View
           className="rounded-t-xl border-t border-border bg-background-surface"
-          style={{ paddingBottom: insets.bottom + 16 }}
+          // While the keyboard is open it covers the bottom inset, so the sheet sits on
+          // the keyboard instead of on the screen edge.
+          style={{ paddingBottom: (keyboard > 0 ? keyboard : insets.bottom) + 16 }}
         >
           {/* Grabber: a visual affordance only — it is not a control. */}
           <View className="items-center py-2.5" accessibilityElementsHidden>
@@ -71,4 +74,31 @@ export function Sheet({
       </View>
     </Modal>
   );
+}
+
+/**
+ * Height of the on-screen keyboard while the sheet is open.
+ *
+ * A Modal is its own window, and with `statusBarTranslucent` under Android's edge-to-edge
+ * layout that window is NOT resized for the keyboard, so `adjustResize` and a
+ * KeyboardAvoidingView in the screen below do nothing here. Found on a physical Android
+ * phone: the refund reason box and "Send request" sat entirely behind the keyboard, so a
+ * customer could not see what they typed. iOS never resizes for the keyboard either.
+ */
+function useKeyboardHeight(active: boolean): number {
+  const [height, setHeight] = useState(0);
+  useEffect(() => {
+    if (!active) return;
+    const show = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hide = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const subs = [
+      Keyboard.addListener(show, (e) => setHeight(e.endCoordinates.height)),
+      Keyboard.addListener(hide, () => setHeight(0)),
+    ];
+    return () => {
+      subs.forEach((s) => s.remove());
+      setHeight(0);
+    };
+  }, [active]);
+  return height;
 }
