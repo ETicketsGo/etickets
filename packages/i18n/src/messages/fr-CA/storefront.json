@@ -1000,7 +1000,10 @@
       "EARLY_ACCESS": "Accès anticipé par courriel",
       "OFFERS": "Offres par courriel"
     },
-    "organizerPurposeFor": "{purpose} de {name}"
+    "organizerPurposeFor": "{purpose} de {name}",
+    "smsHeading": "Textos au sujet de mes réservations",
+    "smsToggleLabel": "Textos au sujet de mes réservations",
+    "smsVerifyFirst": "Vérifiez d’abord votre numéro de mobile dans <link>votre profil</link>. Vous pourrez ensuite activer cette option."
   },
   "following": {
     "heading": "Organisateurs suivis",

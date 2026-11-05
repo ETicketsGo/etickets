@@ -71,7 +71,7 @@ export class MarketingConsentController {
   async get(@CurrentUser() user: RequestUser) {
     const subject = { userId: user.id, email: user.email };
     const [channels, history] = await Promise.all([
-      this.consent.stateFor(subject, [...CONSENT_CHANNELS]),
+      this.channelsFor(user),
       // Returned to the person themselves, not just to an administrator. A data-subject
       // access request asks for exactly this, and the cheapest way to be able to answer one
       // is for the answer to already be an endpoint.
@@ -109,7 +109,10 @@ export class MarketingConsentController {
       the registry so the stored label always names a version that really exists.
     */
     const policyVersion = policyVersionLabel(
-      getApplicablePolicy(body.channel === 'sms' ? 'SMS' : 'PRIVACY', jurisdiction),
+      getApplicablePolicy(
+        body.channel === 'sms' || body.channel === 'sms:transactional' ? 'SMS' : 'PRIVACY',
+        jurisdiction,
+      ),
     );
 
     /*
@@ -140,6 +143,23 @@ export class MarketingConsentController {
       */
       accountWide: true,
     });
-    return this.consent.stateFor({ userId: user.id, email: user.email }, [...CONSENT_CHANNELS]);
+    return this.channelsFor(user);
+  }
+
+  /*
+    ── "SMS ABOUT MY BOOKINGS" SHOWS WHAT THE SEND WILL DO ─────────────────────────────────
+    The newest row per channel is right for every other channel, but texts about bookings are
+    agreed for ONE verified number. The switch is shown ON only when that consent exists for the
+    account's current verified number - the same rule the send applies - so a grant for an old
+    number, or one that names no number, reads OFF and the person is asked again.
+  */
+  private async channelsFor(user: RequestUser) {
+    const subject = { userId: user.id, email: user.email };
+    const channels = await this.consent.stateFor(subject, [...CONSENT_CHANNELS]);
+    const phone = await this.consent.verifiedPhone(user.id);
+    const sms = phone ? await this.consent.smsTransactionalConsent(subject, phone) : 'none';
+    return channels.map((c) =>
+      c.channel === 'sms:transactional' ? { ...c, granted: sms === 'granted' } : c,
+    );
   }
 }

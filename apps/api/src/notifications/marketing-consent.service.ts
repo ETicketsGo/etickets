@@ -234,12 +234,18 @@ export class MarketingConsentService {
       select: { granted: true, phone: true },
       take: 50,
     });
+    /*
+      Newest first. A grant counts only for this number and only if no withdrawal came after it;
+      ANY withdrawal (for any number, or none) ends every older grant, so turning texts off - or
+      changing number, which records one - can never be undone by an old agreement resurfacing.
+    */
     let grantedElsewhere = false;
     for (const row of rows) {
       const forThis = row.phone ? samePhone(row.phone) === target : false;
-      if (!row.granted && (!row.phone || forThis)) return 'withdrawn';
-      if (row.granted && forThis) return 'granted';
-      if (row.granted) grantedElsewhere = true;
+      // A newer grant for another number already decided the answer; this withdrawal is older.
+      if (!row.granted) return grantedElsewhere ? 'other_number' : 'withdrawn';
+      if (forThis) return 'granted';
+      grantedElsewhere = true;
     }
     return grantedElsewhere ? 'other_number' : 'none';
   }

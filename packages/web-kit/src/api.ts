@@ -4692,7 +4692,13 @@ export interface NotificationPreferenceView {
    * Whether each channel has anywhere to send to. A WhatsApp switch offered to somebody with
    * no phone number is a switch that cannot work; this is what lets the UI say so.
    */
-  destinations: { hasPhone: boolean; phoneVerified: boolean; emailUsable: boolean };
+  destinations: {
+    hasPhone: boolean;
+    phoneVerified: boolean;
+    emailUsable: boolean;
+    /** Texts to this number need the person's own SMS consent (US and Canada). */
+    smsConsentRequired?: boolean;
+  };
   types: {
     type: string;
     urgency: 'ROUTINE' | 'IMPORTANT' | 'URGENT';

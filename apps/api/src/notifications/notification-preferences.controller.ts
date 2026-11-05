@@ -9,6 +9,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SuppressionService } from './delivery/suppression.service';
 import { policyFor } from './policy/notification-policy';
 import type { ChannelKey } from './channels/notification-channel.interface';
+import { smsConsentRequiredFor } from './policy/sms-consent';
 
 /**
  * The message types a customer is offered control over.
@@ -139,6 +140,12 @@ export class NotificationPreferencesController {
         information for the UI rather than a gate on delivery.
       */
       phoneVerified: Boolean(account?.phoneVerifiedAt),
+      /*
+        Whether texts to this number need the person's own "SMS about my bookings" consent
+        (US and Canada). Indian booking texts are DLT-registered transactional templates and
+        never read it, so the switch is not offered there: it would change nothing.
+      */
+      smsConsentRequired: account?.phone ? smsConsentRequiredFor(account.phone) : false,
       emailUsable: !(await this.suppression.isSuppressed('email', user.email)),
     };
   }

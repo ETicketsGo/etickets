@@ -2,7 +2,6 @@
 
 import { useId, useState } from 'react';
 import { useRouter } from '@/i18n/navigation';
-import { Link } from '@/i18n/navigation';
 import { api, tokenStore, ApiRequestError } from '@/lib/api';
 import {
   BRAND_ALERT,
@@ -18,6 +17,7 @@ import { PhoneNumberField, usePhoneNumber } from '@/components/phone-number-fiel
 import { useTranslations } from 'next-intl';
 import { BRAND_FOCUS } from '@eticketsgo/web-kit';
 import { phoneSignInOutcome } from '@eticketsgo/shared-types';
+import { SmsConsentLinks, SmsConsentStatement } from '@/components/sms-consent-text';
 
 /**
  * Signing in - or signing up - with a mobile number and a code.
@@ -416,24 +416,11 @@ function SmsConsentDisclosure({
           className={`mt-1 h-4 w-4 shrink-0 cursor-pointer accent-brand-ink disabled:cursor-not-allowed ${BRAND_FOCUS}`}
         />
         <span className="text-brand-ui leading-relaxed text-brand-ink-2">
-          Send me transactional text messages from ETicketsGo about my bookings, tickets, event
-          updates, cancellations, refunds, and account or service notifications. Message frequency
-          varies. Message and data rates may apply. Reply{' '}
-          <strong className="font-semibold text-brand-ink">STOP</strong> to opt out or{' '}
-          <strong className="font-semibold text-brand-ink">HELP</strong> for help. Consent is not a
-          condition of purchase.
+          <SmsConsentStatement />
         </span>
       </label>
       <p className="text-brand-ui text-brand-ink-2">
-        See our{' '}
-        <Link href="/terms" className={BRAND_LINK}>
-          Terms &amp; Conditions
-        </Link>{' '}
-        and{' '}
-        <Link href="/privacy" className={BRAND_LINK}>
-          Privacy Policy
-        </Link>
-        .
+        <SmsConsentLinks />
       </p>
     </div>
   );
