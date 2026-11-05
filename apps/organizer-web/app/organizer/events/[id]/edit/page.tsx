@@ -40,7 +40,13 @@ import {
   type AttendanceMode,
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
-import { EVENT_CATEGORIES, isListedCategory } from '@/lib/templates';
+import {
+  categoryBody,
+  categoryFieldFrom,
+  EVENT_CATEGORIES,
+  isListedCategory,
+  TYPE_LABEL_MAX,
+} from '@/lib/templates';
 import {
   EVENT_IMAGE_MAX_COUNT,
   EventGalleryEditor,
@@ -96,7 +102,7 @@ interface EditForm {
 function formFrom(event: WithRefundRule): EditForm {
   return {
     title: event.title,
-    category: event.category,
+    category: categoryFieldFrom(event).text,
     description: event.description ?? '',
     refundPolicy: event.refundPolicy ?? '',
     refundsEnabled: event.refundsEnabled ?? true,
@@ -184,7 +190,7 @@ export default function EditEvent() {
         JSON.stringify(nowDetails) === JSON.stringify(before.details));
     if (untouched) {
       setForm(next);
-      setCategoryMode(isListedCategory(event.category) ? 'list' : 'other');
+      setCategoryMode(categoryFieldFrom(event).mode);
       setDetails(nextDetails);
     }
     setLoaded({ form: next, details: nextDetails });
@@ -206,7 +212,18 @@ export default function EditEvent() {
           form.refundCutoffHours !== loaded.form.refundCutoffHours);
       return api.events.update(id, {
         title: form.title,
-        category: form.category,
+        /*
+          An event saved before "Other event type" existed keeps its hand-typed category until
+          the organizer changes that text: a save of some other field must not move it.
+        */
+        ...(categoryMode === 'other' &&
+        !event?.typeLabel &&
+        event &&
+        !isListedCategory(event.category) &&
+        event.category !== 'Other' &&
+        form.category === event.category
+          ? { category: form.category }
+          : categoryBody(categoryMode, form.category)),
         description: form.description || undefined,
         refundPolicy: form.refundPolicy || undefined,
         feeMode: form.feeMode,
@@ -473,13 +490,15 @@ export default function EditEvent() {
                   {c}
                 </option>
               ))}
-              <option value="__other">Something else...</option>
+              <option value="__other">Other event type...</option>
             </Select>
             {categoryMode === 'other' && (
               <Input
                 id="category-other"
-                label="Your category"
+                label="Event type"
                 required
+                maxLength={TYPE_LABEL_MAX}
+                hint="Buyers see this on the event. It is listed under Other when they browse."
                 value={form.category}
                 onChange={(e) => setForm({ ...form, category: e.target.value })}
                 onBlur={() => setShown((s) => ({ ...s, category: true }))}

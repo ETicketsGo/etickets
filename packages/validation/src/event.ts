@@ -80,6 +80,23 @@ export type EventArtist = z.infer<typeof eventArtistSchema>;
 export const createEventSchema = z.object({
   title: z.string().trim().min(3).max(180),
   category: z.string().trim().min(2).max(80),
+  /**
+   * The organizer's own name for the event type, when "Other event type" was chosen. Short
+   * plain text: control characters are dropped and markup is refused, because it is printed
+   * on cards, the event page and emails. Empty clears it (null).
+   */
+  typeLabel: z
+    .string()
+    .transform((v) => v.replace(/[\u0000-\u001f\u007f]/g, '').trim())
+    .pipe(
+      z
+        .string()
+        .max(40, 'Keep the event type to 40 characters or fewer.')
+        .refine((v) => !/[<>]/.test(v), 'The event type cannot contain < or >.'),
+    )
+    .transform((v) => (v === '' ? null : v))
+    .nullable()
+    .optional(),
   description: z.string().trim().max(8000).optional(),
   venueId: z.string().cuid(),
   /**

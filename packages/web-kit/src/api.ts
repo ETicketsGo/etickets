@@ -3841,6 +3841,8 @@ export interface PublicEventCard {
   title: string;
   slug: string;
   category: string;
+  /** The organizer's own event type for "Other event type"; shown in place of the category. */
+  typeLabel?: string | null;
   venue: {
     name: string;
     city: string;
@@ -3890,6 +3892,7 @@ export interface PublicEvent extends EventDetails {
   title: string;
   slug: string;
   category: string;
+  typeLabel?: string | null;
   /** The cover image, as a path for `apiAssetUrl`. Null when none was uploaded. */
   imagePath?: string | null;
   /** The cover's copies; see `eventImageSource`. */
@@ -5520,6 +5523,7 @@ export interface OrgEventRow {
   title: string;
   slug: string;
   category: string;
+  typeLabel?: string | null;
   status: string;
   createdAt: string;
   venue: { name: string; city: string };
@@ -5759,6 +5763,7 @@ export interface OrgEventDetail extends EventDetails {
   title: string;
   slug: string;
   category: string;
+  typeLabel?: string | null;
   description: string | null;
   status: string;
   feeMode: string;
@@ -5802,6 +5807,7 @@ export interface CreateEventBody extends EventDetails {
   attendanceMode?: AttendanceMode;
   title: string;
   category: string;
+  typeLabel?: string | null;
   description?: string;
   /** Prose shown to buyers. Describes the terms; the two below enforce them. */
   refundPolicy?: string;

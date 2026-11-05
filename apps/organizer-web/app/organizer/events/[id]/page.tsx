@@ -239,7 +239,7 @@ export default function EventOverview() {
             )}
             <dl className="mt-5 grid grid-cols-1 gap-y-3 border-t border-border pt-4 text-[0.9375rem]">
               {[
-                ['Category', event.category],
+                ['Category', event.typeLabel ? `Other: ${event.typeLabel}` : event.category],
                 [
                   'Venue',
                   [event.venue.name, event.venue.address, event.venue.city]

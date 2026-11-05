@@ -113,3 +113,36 @@ export type EventCategory = (typeof EVENT_CATEGORIES)[number];
 export function isListedCategory(value: string): boolean {
   return (EVENT_CATEGORIES as readonly string[]).includes(value);
 }
+
+/*
+  ── OTHER EVENT TYPE ─────────────────────────────────────────────────────────────────────
+  "Something else" used to save the typed words AS the category, so every hand-typed event
+  became a one-event category of its own: no browse filter found it and the facet list grew a
+  row per typo. Now the category is `Other` (one filter for all of them) and the words are the
+  event's `typeLabel`, which buyers see in its place.
+*/
+export const OTHER_CATEGORY = 'Other';
+export const TYPE_LABEL_MAX = 40;
+
+/** What the category field sends: a listed category, or `Other` plus the typed event type. */
+export function categoryBody(
+  mode: 'list' | 'other',
+  text: string,
+): { category: string; typeLabel: string | null } {
+  return mode === 'other'
+    ? { category: OTHER_CATEGORY, typeLabel: text.trim() }
+    : { category: text, typeLabel: null };
+}
+
+/**
+ * How a stored event fills the category field. An event saved before `typeLabel` existed keeps
+ * its hand-typed category in the text box; nothing about it changes until it is saved again.
+ */
+export function categoryFieldFrom(event: { category: string; typeLabel?: string | null }): {
+  mode: 'list' | 'other';
+  text: string;
+} {
+  if (event.typeLabel) return { mode: 'other', text: event.typeLabel };
+  if (isListedCategory(event.category)) return { mode: 'list', text: event.category };
+  return { mode: 'other', text: event.category === OTHER_CATEGORY ? '' : event.category };
+}

@@ -150,7 +150,7 @@ const BRAND_RATIO: Record<BrandRatio, string> = {
  * A grid of initials on coloured squares reads as a broken catalogue: it tells the buyer
  * nothing and says the organizer did not finish. The fallback here is a small poster: the
  * category as an eyebrow, the title set in the display face, and a marigold rule, on the
- * stage colour. It carries the same information a photo would have framed, and it is plainly
+ * light sunken surface. It carries the same information a photo would have framed, and it is plainly
  * artwork rather than a stock photo pretending to be the organizer's own.
  *
  * Shape is the box's (`ratio`), never the image's, so a row of cards lines up whatever was
@@ -167,12 +167,10 @@ export function EventArtwork({
   objectPosition,
   priority = false,
   className = '',
-  tone = 'stage',
 }: {
   /**
-   * How the no-photo fallback is drawn. `stage` is the dark tile; `lift` is for a card that
-   * already sits ON a dark band, where a dark tile has no edge and reads as a black hole: it
-   * uses the band's raised surface instead.
+   * Accepted for older callers and ignored: the no-photo fallback is now one light tile
+   * everywhere, so a card looks the same whether or not its organizer uploaded art.
    */
   tone?: 'stage' | 'lift';
   src?: string | null;
@@ -196,17 +194,20 @@ export function EventArtwork({
       className={`relative isolate w-full overflow-hidden rounded-brand-card bg-brand-image-fallback ${BRAND_RATIO[ratio]} ${className}`}
     >
       {missing ? (
+        /*
+          One light default, whatever the section around it. The stage (ink) version made a card
+          without a picture a black tile among photographs, so an event's look changed with
+          whether its organizer had uploaded art. Ivory, ink type and the gold rule now, the
+          same treatment the event page uses for its own missing picture.
+        */
         <div
-          {...(tone === 'stage' ? { 'data-brand-tone': 'stage' } : {})}
           data-artwork="fallback"
           role="img"
           aria-label={title}
-          className={`absolute inset-0 flex min-w-0 flex-col justify-end gap-2 p-[8%] ${
-            tone === 'stage' ? 'bg-brand-canvas' : 'bg-brand-sunken'
-          }`}
+          className="absolute inset-0 flex min-w-0 flex-col justify-end gap-2 border border-brand-line bg-brand-sunken p-[8%]"
         >
           {eyebrow && (
-            <span className="text-brand-eyebrow uppercase text-brand-ink-3">{eyebrow}</span>
+            <span className="text-brand-eyebrow uppercase text-brand-gold-text">{eyebrow}</span>
           )}
           <span
             className={`break-words font-brand-display font-bold leading-[1.05] tracking-tight text-brand-ink ${

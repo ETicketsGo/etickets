@@ -86,6 +86,7 @@ import {
   useVenueWhen,
 } from '@/components/booking-brand';
 import { useEventPlace } from '@/lib/event-place';
+import { eventKind } from '@/lib/event-kind';
 
 export function EventDetailPage() {
   // `tx` is the shared vocabulary (Free, Sold out); `sf` is storefront copy.
@@ -637,7 +638,7 @@ export function EventDetailPage() {
   const supportEmail = publishedDetail(BUSINESS_DETAILS.supportEmail);
   const minutes = session ? showDurationMinutes(session.startsAt, session.endsAt) : null;
   const duration = minutes ? durationText(minutes) : null;
-  const eyebrow = [event.category, place(event).city, longDate?.short].filter(
+  const eyebrow = [eventKind(event), place(event).city, longDate?.short].filter(
     (part): part is string => Boolean(part),
   );
   const arrival = arrivalFacts(futureSessions.length > 0);
@@ -824,7 +825,9 @@ export function EventDetailPage() {
         */}
         <figure
           data-brand-tone="stage"
-          className="relative mt-8 overflow-hidden bg-brand-image-fallback sm:mt-10"
+          className={`relative mt-8 overflow-hidden sm:mt-10 ${
+            heroImage ? 'bg-brand-image-fallback' : 'border border-brand-line bg-brand-sunken'
+          }`}
         >
           <div className="relative aspect-video w-full lg:aspect-[21/9]">
             {heroImage ? (
@@ -859,9 +862,17 @@ export function EventDetailPage() {
               <div
                 aria-hidden
                 data-testid={hasArt ? 'event-hero-placeholder' : 'event-hero-brand'}
-                className="absolute inset-0 flex flex-col items-center justify-center gap-5 text-etg-gold-on-ink"
+                className="absolute inset-0 flex flex-col items-center justify-center gap-4 px-6 text-center"
               >
-                <Wordmark tone="dark" size="xl" />
+                {/*
+                  The same page whether or not a picture was uploaded: a light default in the
+                  ivory/ink/gold tokens, naming what kind of event it is, rather than an ink block
+                  that turned the page dark only for events without art.
+                */}
+                <span className="text-brand-eyebrow uppercase text-brand-gold-text">
+                  {eventKind(event)}
+                </span>
+                <Wordmark size="xl" />
                 <span className="h-px w-12 bg-brand-marigold" />
               </div>
             )}

@@ -63,18 +63,18 @@ test.describe('creating an event', () => {
     await category.getByRole('radio', { name: 'Theatre' }).check();
 
     /*
-      "Something else" stays - under "Community or other" - and reveals a text box. A list
+      "Other event type" stays - under "Community or other" - and reveals a text box. A list
       that cannot express what somebody is running just gets the nearest wrong answer picked.
     */
     await page.getByRole('button', { name: 'Change kind of event' }).click();
     await page.getByRole('radio', { name: 'Community or other' }).check();
     await page.getByRole('button', { name: 'Continue' }).click();
-    await expect(page.getByLabel('Your category')).toBeHidden();
+    await expect(page.getByLabel('Event type', { exact: true })).toBeHidden();
     await page
       .getByRole('group', { name: 'Category' })
-      .getByRole('radio', { name: 'Something else' })
+      .getByRole('radio', { name: 'Other event type' })
       .check();
-    await expect(page.getByLabel('Your category')).toBeVisible();
+    await expect(page.getByLabel('Event type', { exact: true })).toBeVisible();
   });
 
   test('1b: opening the wizard and leaving it does not offer a draft back', async ({ page }) => {

@@ -70,7 +70,7 @@ import {
 import { homeLocation, venuePayload } from '@/components/venue-fields';
 import { useOrg } from '@/components/org-context';
 import { venueInputZone, wallClockToInstant, zoneLabel } from '@/lib/zoned-time';
-import { getTemplate } from '@/lib/templates';
+import { categoryBody, getTemplate, TYPE_LABEL_MAX } from '@/lib/templates';
 import { clearEventDraft, draftAge, readEventDraft, saveEventDraft } from '@/lib/event-draft';
 import {
   ADMISSION_CHOICES,
@@ -853,7 +853,7 @@ function NewEventWizard() {
           organizationId: activeOrg.id,
           venueId: finalVenueId,
           title: basics.title,
-          category: basics.category,
+          ...categoryBody(categoryMode, basics.category),
           description: basics.description || undefined,
           refundPolicy: basics.refundPolicy || undefined,
           refundsEnabled: basics.refundsEnabled,
@@ -1303,7 +1303,7 @@ function NewEventWizard() {
                 {/*
                   The category, from this experience's few - shown as choices, with the first
                   already picked. Browse builds its category list from this column, so a list
-                  keeps it tidy; "Something else" stays where it belongs.
+                  keeps it tidy; "Other event type" stays where it belongs.
                 */}
                 {exp.categories.length > 1 || exp.allowOther ? (
                   <fieldset>
@@ -1345,7 +1345,7 @@ function NewEventWizard() {
                                 }
                               }}
                             />
-                            {c === '__other' ? 'Something else' : c}
+                            {c === '__other' ? 'Other event type' : c}
                           </label>
                         );
                       })}
@@ -1365,8 +1365,10 @@ function NewEventWizard() {
                 {categoryMode === 'other' && (
                   <Input
                     id="category-other"
-                    label="Your category"
+                    label="Event type"
                     required
+                    maxLength={TYPE_LABEL_MAX}
+                    hint="Buyers see this on the event. It is listed under Other when they browse."
                     placeholder="e.g. Poetry reading"
                     value={basics.category}
                     onChange={(e) => setBasics({ ...basics, category: e.target.value })}
