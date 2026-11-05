@@ -2078,6 +2078,8 @@ model Booking {
   guestAccess GuestBookingAccess[]
 
   @@index([organizationId])
+  /// The organizer's recent bookings list, newest first (Bookings & attendees).
+  @@index([organizationId, createdAt])
   @@index([eventId])
   @@index([status])
   @@index([holdExpiresAt])

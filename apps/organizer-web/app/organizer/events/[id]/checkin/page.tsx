@@ -25,18 +25,13 @@ import {
 import { OfflineCheckin } from '@/components/offline-checkin';
 import { timeAtVenue } from '@/components/events/event-list-model';
 import { looksLikeTicketNumber } from '@/lib/ticket-number';
-
-interface DetectedBarcode {
-  rawValue: string;
-}
-interface BarcodeDetectorLike {
-  detect(source: CanvasImageSource): Promise<DetectedBarcode[]>;
-}
-declare global {
-  interface Window {
-    BarcodeDetector?: new (opts?: { formats: string[] }) => BarcodeDetectorLike;
-  }
-}
+import {
+  cameraErrorMessage,
+  cameraUnavailableReason,
+  createQrReader,
+  openCamera,
+  REPEAT_SCAN_WINDOW_MS,
+} from '@/lib/qr-camera';
 
 const RESULT_TONE: Record<CheckInOutcome['result'], BadgeTone> = {
   SUCCESS: 'success',
@@ -147,56 +142,83 @@ export default function CheckinTab() {
     onError: (e) => toast.push(errorMessage(e), 'error'),
   });
 
-  // Camera scanning (where the BarcodeDetector API is available).
+  /*
+    ── CAMERA SCANNING ───────────────────────────────────────────────────────────────
+    Any browser with a camera and a secure page: the native QR detector where it exists, jsQR
+    otherwise (lib/qr-camera.ts). Desktop Chrome on Windows has no BarcodeDetector and used to
+    be told it "does not support scanning" without the camera ever being asked for.
+
+    One decode at a time; the pending state is read from a ref (the interval closure kept the
+    first render's `isPending` for ever); the same code is ignored for a few seconds so a
+    ticket held up to the lens is not sent twice; and the camera is released on a result, on
+    Stop, on leaving the page and when the tab is hidden.
+  */
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const pendingRef = useRef(false);
+  pendingRef.current = scan.isPending;
   useEffect(() => {
     if (!scanning) return;
     let stream: MediaStream | null = null;
-    let timer: ReturnType<typeof setInterval> | null = null;
+    let timer: ReturnType<typeof setTimeout> | null = null;
     let cancelled = false;
+    let last = { value: '', at: 0 };
+
+    const stop = () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+      stream?.getTracks().forEach((t) => t.stop());
+      stream = null;
+    };
+    const onHidden = () => {
+      if (document.visibilityState === 'hidden') setScanning(false);
+    };
+    document.addEventListener('visibilitychange', onHidden);
 
     (async () => {
-      if (typeof window === 'undefined' || !window.BarcodeDetector || !navigator.mediaDevices) {
-        toast.push(
-          'Camera scanning is not supported in this browser. Use manual entry.',
-          'warning',
-        );
+      const unavailable = cameraUnavailableReason();
+      if (unavailable) {
+        setCameraError(unavailable);
         setScanning(false);
         return;
       }
       try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment' },
-        });
-        if (cancelled) return;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          await videoRef.current.play();
-        }
-        const detector = new window.BarcodeDetector({ formats: ['qr_code'] });
-        timer = setInterval(async () => {
-          if (!videoRef.current || scan.isPending) return;
-          try {
-            const codes = await detector.detect(videoRef.current);
-            if (codes[0]?.rawValue) {
-              const t = codes[0].rawValue;
-              setToken(t);
-              setScanning(false);
-              scan.mutate(t);
+        stream = await openCamera();
+        if (cancelled) return stop();
+        const video = videoRef.current;
+        if (!video) return stop();
+        video.srcObject = stream;
+        await video.play();
+        setCameraError(null);
+        const reader = await createQrReader();
+        const tick = async () => {
+          if (cancelled) return;
+          if (!pendingRef.current) {
+            try {
+              const value = await reader.detect(video);
+              const now = Date.now();
+              if (value && !(value === last.value && now - last.at < REPEAT_SCAN_WINDOW_MS)) {
+                last = { value, at: now };
+                setToken(value);
+                setScanning(false);
+                scan.mutate(value);
+                return;
+              }
+            } catch {
+              /* a frame that is not ready yet */
             }
-          } catch {
-            /* frame not ready */
           }
-        }, 700);
-      } catch {
-        toast.push('Could not access the camera.', 'error');
+          timer = setTimeout(tick, 250);
+        };
+        void tick();
+      } catch (err) {
+        setCameraError(cameraErrorMessage(err));
         setScanning(false);
       }
     })();
 
     return () => {
-      cancelled = true;
-      if (timer) clearInterval(timer);
-      stream?.getTracks().forEach((t) => t.stop());
+      document.removeEventListener('visibilitychange', onHidden);
+      stop();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scanning]);
@@ -282,10 +304,26 @@ export default function CheckinTab() {
                   </Button>
                 </div>
               ) : (
-                <Button variant="outline" className="w-full" onClick={() => setScanning(true)}>
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => {
+                    setCameraError(null);
+                    setScanning(true);
+                  }}
+                >
                   Scan with camera
                 </Button>
               )}
+              {cameraError ? (
+                <p
+                  role="alert"
+                  data-testid="camera-error"
+                  className="text-caption text-status-error"
+                >
+                  {cameraError}
+                </p>
+              ) : null}
 
               <Textarea
                 id="token"

@@ -1,3 +1,4 @@
+import type { BookingStatus as PrismaBookingStatus } from '@prisma/client';
 import { HttpStatus, Injectable } from '@nestjs/common';
 import {
   CheckInResult,
@@ -478,6 +479,117 @@ export class CheckinsService {
       currency: b.currency,
       totalMinor: b.totalMinor,
     }));
+  }
+
+  /**
+   * The organization's bookings, newest first, a page at a time - what "Bookings & attendees"
+   * shows before anybody types.
+   *
+   * ── WHY THERE IS NOW A DEFAULT LIST ─────────────────────────────────────────────────────
+   * The page was search-only: an organizer whose free booking had been emailed and checked in
+   * opened it and saw "Search to see bookings", as if there were none. The concern behind
+   * search-only (paging through customer contact details on a counter screen) is met another
+   * way: rows carry no email and no phone, exactly like the search, and pages are capped.
+   *
+   * Bounded: keyset pagination on (createdAt, id) with at most 50 rows, served by the
+   * (organizationId, createdAt) index. Abandoned holds (PENDING_PAYMENT, EXPIRED) are left
+   * out unless asked for, or they would bury the bookings that happened.
+   */
+  async listRecentBookings(
+    staff: RequestUser,
+    organizationId: string,
+    opts: {
+      cursor?: string;
+      limit?: number;
+      eventId?: string;
+      status?: string[];
+      q?: string;
+      from?: Date;
+      to?: Date;
+    } = {},
+  ) {
+    await this.access.assertMember(staff, organizationId, STAFF_ROLES);
+    const limit = Math.min(Math.max(opts.limit ?? 25, 1), 50);
+    const term = opts.q?.trim();
+    const statuses = (
+      opts.status?.length
+        ? opts.status
+        : ['CONFIRMED', 'PARTIALLY_REFUNDED', 'REFUNDED', 'CANCELLED', 'DISPUTED']
+    ) as PrismaBookingStatus[];
+    const rows = await this.prisma.booking.findMany({
+      where: {
+        organizationId,
+        status: { in: statuses },
+        ...(opts.eventId ? { eventId: opts.eventId } : {}),
+        ...(opts.from || opts.to
+          ? {
+              createdAt: {
+                ...(opts.from ? { gte: opts.from } : {}),
+                ...(opts.to ? { lt: opts.to } : {}),
+              },
+            }
+          : {}),
+        ...(term
+          ? {
+              OR: [
+                { reference: { contains: term, mode: 'insensitive' as const } },
+                { buyerName: { contains: term, mode: 'insensitive' as const } },
+              ],
+            }
+          : {}),
+      },
+      select: {
+        id: true,
+        reference: true,
+        status: true,
+        buyerName: true,
+        currency: true,
+        totalMinor: true,
+        createdAt: true,
+        eventId: true,
+        _count: { select: { tickets: true } },
+        tickets: { where: { status: TicketStatus.CHECKED_IN }, select: { id: true } },
+        event: {
+          select: { title: true, venue: { select: { timezone: true, country: true } } },
+        },
+        eventSession: {
+          select: {
+            startsAt: true,
+            screen: {
+              select: {
+                name: true,
+                venue: { select: { timezone: true, country: true } },
+                cinema: { select: { name: true, timezone: true, country: true } },
+              },
+            },
+          },
+        },
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
+      ...(opts.cursor ? { cursor: { id: opts.cursor }, skip: 1 } : {}),
+    });
+    const page = rows.slice(0, limit);
+    return {
+      data: page.map((b) => ({
+        id: b.id,
+        reference: b.reference,
+        status: b.status,
+        buyerName: b.buyerName,
+        // No buyer email or phone, as in the search: see findBookings.
+        ticketCount: b._count.tickets,
+        checkedInCount: b.tickets.length,
+        eventId: b.eventId,
+        eventTitle: b.event.title,
+        startsAt: b.eventSession.startsAt,
+        screenName: b.eventSession.screen?.name ?? null,
+        timezone: bookingZone(b.event.venue, b.eventSession.screen),
+        currency: b.currency,
+        totalMinor: b.totalMinor,
+        createdAt: b.createdAt,
+      })),
+      nextCursor: rows.length > limit ? page[page.length - 1].id : null,
+    };
   }
 
   /** Authorized reversal of a check-in (organizer/admin only). */

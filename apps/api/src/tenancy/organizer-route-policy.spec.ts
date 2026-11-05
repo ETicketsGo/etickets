@@ -106,6 +106,8 @@ export const ORGANIZER_ROUTE_POLICY: Record<string, StaffPolicy> = {
   'GET /checkins/sessions': 'NONE',
   'GET /checkins/roster': 'NONE',
   'GET /checkins/bookings': 'NONE',
+  // The default list on Bookings & attendees: same staff policy as the search.
+  'GET /checkins/bookings/recent': 'NONE',
   'POST /checkins/visual': 'NONE',
   'POST /checkins/reverse': 'NONE',
   // ── Offline check-in ──
@@ -417,6 +419,7 @@ const STAFF_IN_ROLES_ALLOWED = new Set([
   'CheckinsController.gateSessions',
   'CheckinsController.roster',
   'CheckinsController.findBookings',
+  'CheckinsController.recentBookings',
   'CheckinsController.visual',
   'CheckinsController.reverse',
   // Staff-only routes under /users, gated by @RequiresAdmin(BOOKING_READ).

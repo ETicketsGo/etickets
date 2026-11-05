@@ -1,6 +1,6 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
 import { Printer, Search, SearchX } from 'lucide-react';
 import {
@@ -92,6 +92,28 @@ export default function CounterBookingsPage() {
     enabled: Boolean(organizationId) && applied.length >= 3,
   });
 
+  /*
+    ── RECENT BOOKINGS BY DEFAULT ───────────────────────────────────────────────────────
+    The page used to be search-only, so an organizer whose free booking had been emailed and
+    checked in saw "Search to see bookings" and nothing else. With no search typed it now
+    lists the newest bookings, free and paid, a page at a time (no contact details: see
+    CheckinsService.listRecentBookings). Status narrows on the server, not on one page.
+  */
+  const [recentStatus, setRecentStatus] = useState('');
+  const recent = useInfiniteQuery({
+    queryKey: ['recent-bookings', organizationId, recentStatus],
+    queryFn: ({ pageParam }) =>
+      api.checkins.recentBookings(organizationId!, {
+        cursor: pageParam || undefined,
+        limit: 25,
+        status: recentStatus || undefined,
+      }),
+    initialPageParam: '',
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    enabled: Boolean(organizationId) && applied.length < 3,
+  });
+  const recentRows = (recent.data?.pages ?? []).flatMap((p) => p.data);
+
   const rows = results.data ?? [];
   const statuses = narrowingOptions(rows, (b) => b.status, bookingStatusLabel);
   const events = narrowingOptions(
@@ -137,9 +159,12 @@ export default function CounterBookingsPage() {
       className: 'whitespace-nowrap tabular-nums',
       render: (b) => (
         <div className="space-y-1">
-          <p className="font-semibold">{money(b.totalMinor, b.currency)}</p>
+          <p className="font-semibold">
+            {b.totalMinor === 0 ? 'Free' : money(b.totalMinor, b.currency)}
+          </p>
           <p className="text-caption text-text-muted">
             {b.ticketCount} ticket{b.ticketCount === 1 ? '' : 's'}
+            {b.checkedInCount !== undefined ? `, ${b.checkedInCount} checked in` : ''}
           </p>
         </div>
       ),
@@ -169,7 +194,7 @@ export default function CounterBookingsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Bookings & attendees"
-        description="For the counter: look up a booking by name or reference, then print it."
+        description="The newest bookings first. Search by name or reference to find one, then print it."
       />
 
       <Card>
@@ -211,12 +236,61 @@ export default function CounterBookingsPage() {
       )}
 
       {applied.length < 3 && (
-        <EmptyState
-          icon={Search}
-          title="Search to see bookings"
-          hint="Type a buyer's name or a booking reference above. Results show the show, the total and whether the tickets can be printed."
-          compact
-        />
+        <SectionCard
+          title="Recent bookings"
+          description="Free and paid, newest first. Search above to find a particular one."
+        >
+          <div className="space-y-4" data-testid="recent-bookings">
+            <div className="max-w-xs">
+              <Select
+                label="Status"
+                value={recentStatus}
+                onChange={(e) => setRecentStatus(e.target.value)}
+              >
+                <option value="">Confirmed, refunded and cancelled</option>
+                <option value="CONFIRMED">Confirmed</option>
+                <option value="CANCELLED">Cancelled</option>
+                <option value="REFUNDED,PARTIALLY_REFUNDED">Refunded</option>
+                <option value="PENDING_PAYMENT">Awaiting payment</option>
+              </Select>
+            </div>
+            {recent.isError ? (
+              <p role="alert" className="text-ui text-status-error">
+                {errorMessage(recent.error)}
+              </p>
+            ) : recent.isLoading ? (
+              <p className="text-caption text-text-muted">Loading bookings...</p>
+            ) : recentRows.length === 0 ? (
+              <EmptyState
+                icon={Search}
+                title="No bookings yet"
+                hint="Bookings appear here as soon as somebody books, free or paid."
+                compact
+              />
+            ) : (
+              <>
+                <DataTable
+                  caption="Recent bookings"
+                  columns={columns}
+                  rows={recentRows}
+                  rowKey={(b) => b.id}
+                  density="compact"
+                  mobile="cards"
+                  onRowClick={(b) => setOpen(b)}
+                />
+                {recent.hasNextPage ? (
+                  <Button
+                    variant="outline"
+                    loading={recent.isFetchingNextPage}
+                    onClick={() => void recent.fetchNextPage()}
+                  >
+                    Load more
+                  </Button>
+                ) : null}
+              </>
+            )}
+          </div>
+        </SectionCard>
       )}
 
       {applied.length >= 3 && results.data && (
