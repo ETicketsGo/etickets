@@ -128,6 +128,7 @@ export function CancelSessionDialog({
   session,
   whenLabel,
   sold = 0,
+  free = false,
   onClose,
 }: {
   eventId: string;
@@ -135,8 +136,14 @@ export function CancelSessionDialog({
   whenLabel: string;
   /** Tickets sold for this date. With any, cancelling refunds their buyers. */
   sold?: number;
+  /**
+   * A free event: cancelling tells attendees and cancels their tickets, and refunds nothing,
+   * because nothing was paid. The wording must not promise or ask for refunds.
+   */
+  free?: boolean;
   onClose: () => void;
 }) {
+  const refunding = sold > 0 && !free;
   const qc = useQueryClient();
   const toast = useToast();
   const [reason, setReason] = useState('');
@@ -146,10 +153,15 @@ export function CancelSessionDialog({
     mutationFn: () => api.shows.cancel(session!.id, reason.trim()),
     onSuccess: (r) => {
       const owed = r.bookingsRequiringRefund?.length ?? 0;
+      const told = r.freeBookingsCancelled?.length ?? 0;
+      const freePart =
+        told > 0
+          ? ` ${told} free ${told === 1 ? 'booking was' : 'bookings were'} cancelled and ${told === 1 ? 'its attendee' : 'their attendees'} told. No refund is due for ${told === 1 ? 'it' : 'them'}.`
+          : '';
       toast.push(
         owed > 0
-          ? `Date cancelled. ${owed} ${owed === 1 ? 'buyer is' : 'buyers are'} owed a refund and will be told. Approve the refunds on Refunds.`
-          : 'Date cancelled. It is no longer on sale.',
+          ? `Session cancelled. ${owed} paid ${owed === 1 ? 'buyer is' : 'buyers are'} owed a refund and will be told. Approve the refunds on Refunds.${freePart}`
+          : `Session cancelled. It is no longer on sale.${freePart}`,
         'success',
       );
       qc.invalidateQueries({ queryKey: ['event', eventId] });
@@ -162,11 +174,13 @@ export function CancelSessionDialog({
     <Dialog
       open={session !== null}
       onClose={onClose}
-      title="Cancel this date?"
+      title="Cancel this session?"
       description={
-        sold > 0
-          ? `${whenLabel}. ${sold} ${sold === 1 ? 'ticket is' : 'tickets are'} sold for it. Each paid booking gets a refund request for the full amount, which you approve on Refunds, and every ticket holder is told by email. Cash taken at the counter is handed back there. This cannot be undone.`
-          : `${whenLabel}. Nobody has booked it. Buyers will no longer see it. This cannot be undone.`
+        refunding
+          ? `${whenLabel}. ${sold} ${sold === 1 ? 'ticket is' : 'tickets are'} sold for it. Each paid booking gets a refund request for the full amount, which you approve on Refunds, and every ticket holder is told by email. Free tickets are cancelled without a refund. Cash taken at the counter is handed back there. This cannot be undone.`
+          : sold > 0
+            ? `${whenLabel}. ${sold} free ${sold === 1 ? 'ticket is' : 'tickets are'} booked for it. Those tickets are cancelled and every attendee is told by email. Nothing is refunded, because nothing was paid. This cannot be undone.`
+            : `${whenLabel}. Nobody has booked it. Buyers will no longer see it. This cannot be undone.`
       }
       footer={
         <>
@@ -179,7 +193,7 @@ export function CancelSessionDialog({
             disabled={reason.trim().length < 3}
             onClick={() => cancel.mutate()}
           >
-            {sold > 0 ? 'Cancel date and refund' : 'Cancel date'}
+            {refunding ? 'Cancel and refund' : 'Cancel session'}
           </Button>
         </>
       }

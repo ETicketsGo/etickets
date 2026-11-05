@@ -1092,6 +1092,12 @@ export const api = {
       request<{ status: string; bookingId: string }>(`/payments/${bookingId}/collect-cash`, {
         method: 'POST',
       }),
+    /**
+     * Whether a pending booking can be paid for right now, and why not: asked before Pay is
+     * pressed so the checkout can disable it with the real reason.
+     */
+    availability: (bookingId: string) =>
+      request<PaymentAvailability>(`/payments/availability/${bookingId}`, { auth: false }),
     mockPay: (bookingId: string, outcome: 'succeeded' | 'failed') =>
       request<{ status: string; bookingId: string }>(`/payments/${bookingId}/mock-pay`, {
         method: 'POST',
@@ -1295,6 +1301,18 @@ export const api = {
     uploadCover: (id: string, image: Blob, filename = 'cover.jpg') =>
       uploadOrgImage(id, 'cover', image, filename),
     removeCover: (id: string) => removeOrgImage(id, 'cover'),
+    /**
+     * The stored picture as a Blob, for the crop dialog's "Adjust". From the API itself, never
+     * the public URL: that may redirect to a CDN with no CORS headers, whose pixels the browser
+     * will not let a canvas read.
+     */
+    imageSource: async (id: string, kind: 'logo' | 'cover'): Promise<Blob> => {
+      const res = await fetch(`${API_URL}/organizations/${id}/${kind}/source`, {
+        headers: tokenStore.access ? { authorization: `Bearer ${tokenStore.access}` } : {},
+      });
+      if (!res.ok) throw new Error(`Could not open the saved picture (${res.status}).`);
+      return res.blob();
+    },
     get: (id: string) => request<Organization>(`/organizations/${id}`),
     updateProfile: (id: string, body: OrganizationProfileInput) =>
       request<Organization>(`/organizations/${id}`, {
@@ -2246,8 +2264,13 @@ export const api = {
   },
 
   checkins: {
-    scan: (body: { token: string; expectedSessionId?: string; deviceInfo?: string }) =>
-      request<CheckInOutcome>('/checkins', { method: 'POST', body: JSON.stringify(body) }),
+    scan: (body: {
+      token: string;
+      expectedSessionId?: string;
+      /** The event whose check-in page is open: another event's ticket is refused. */
+      expectedEventId?: string;
+      deviceInfo?: string;
+    }) => request<CheckInOutcome>('/checkins', { method: 'POST', body: JSON.stringify(body) }),
     reverse: (ticketId: string) =>
       request<{ result: string; ticketId: string }>('/checkins/reverse', {
         method: 'POST',
@@ -2286,7 +2309,12 @@ export const api = {
      * Recorded as a VISUAL check-in, which is a different claim from a scan: one verifies a
      * signed token, the other verifies that somebody looked.
      */
-    admitVisually: (body: { ticketId: string; expectedSessionId?: string; deviceInfo?: string }) =>
+    admitVisually: (body: {
+      ticketId: string;
+      expectedSessionId?: string;
+      expectedEventId?: string;
+      deviceInfo?: string;
+    }) =>
       request<CheckInOutcome>('/checkins/visual', {
         method: 'POST',
         body: JSON.stringify(body),
@@ -5329,6 +5357,8 @@ export interface CancelShowResult extends ShowSalesResult {
    * the UI must not imply customers have their money back.
    */
   bookingsRequiringRefund: string[];
+  /** Free bookings on the session: cancelled and told, never refunded (nothing was paid). */
+  freeBookingsCancelled?: string[];
 }
 
 export interface PublicMovieCard {
@@ -5619,6 +5649,8 @@ export interface EventCancelResult {
   datesCancelled: number;
   /** References of the paid bookings a refund was opened for. */
   bookingsRequiringRefund: string[];
+  /** Free bookings on the session: cancelled and told, never refunded (nothing was paid). */
+  freeBookingsCancelled?: string[];
   /** Cash bookings on this event still owed back: the platform cannot refund cash. */
   cashToReturn: number;
   /** Refund requests on this event waiting for approval, with their totals per currency. */
@@ -6959,6 +6991,14 @@ export interface RazorpayCheckout {
    */
   upiEnabled?: boolean;
 }
+/** What `/payments/availability/:bookingId` answers. */
+export interface PaymentAvailability {
+  available: boolean;
+  /** Why not: the platform has no gateway for it, or this organizer has not finished setup. */
+  reason?: 'platform_not_configured' | 'organizer_not_onboarded' | 'not_payable';
+  provider?: string;
+}
+
 export interface PayResult {
   providerRef: string;
   clientActionUrl: string;

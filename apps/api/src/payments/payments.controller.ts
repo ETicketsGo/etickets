@@ -1,4 +1,4 @@
-import { Body, Controller, Inject, Param, Post, RawBodyRequest, Req } from '@nestjs/common';
+import { Body, Controller, Get, Inject, Param, Post, RawBodyRequest, Req } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { SkipThrottle } from '@nestjs/throttler';
 import type { Request } from 'express';
@@ -35,6 +35,18 @@ export class PaymentsController {
     organization is asserted separately — a role alone would let staff at one venue confirm
     another venue's takings.
   */
+  /*
+    Whether a booking can be paid for right now, asked before Pay is pressed: the checkout
+    disables Pay and says why when it cannot. Public so the guest checkout can ask too; it
+    returns a reason code only, never buyer or organizer data (see paymentAvailability).
+  */
+  @Public()
+  @Get('availability/:bookingId')
+  @ApiOperation({ summary: 'Whether a pending booking can be paid for, and why not.' })
+  availability(@Param('bookingId') bookingId: string) {
+    return this.payments.paymentAvailability(bookingId);
+  }
+
   @Roles(Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER, Role.CHECKIN_STAFF)
   // Recording cash confirms a booking against money only the venue saw. Never platform staff.
   @OrganizerOnly('cash.collect')

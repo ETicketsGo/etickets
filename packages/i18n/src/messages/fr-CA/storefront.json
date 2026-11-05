@@ -324,7 +324,9 @@
     "paymentsActivatingTitle": "Le paiement en ligne est en cours d'activation",
     "paymentsActivatingBody": "La carte, UPI et les virements bancaires seront disponibles ici des que notre passerelle de paiement sera approuvee. Vos places ne sont pas facturees et aucun paiement n'a ete pris.",
     "paymentsActivatingBodyGeneric": "Le paiement en ligne sera bientot disponible ici. Vos places ne sont pas facturees et aucun paiement n'a ete pris.",
-    "paymentsActivatingOperator": "ETicketsGo est exploité en Inde par {entity}, Hyderabad, Telangana, Inde. Notre demande de passerelle de paiement est en cours."
+    "paymentsActivatingOperator": "ETicketsGo est exploité en Inde par {entity}, Hyderabad, Telangana, Inde. Notre demande de passerelle de paiement est en cours.",
+    "paymentsOrganizerNotReadyTitle": "Cet organisateur ne peut pas encore accepter les paiements par carte",
+    "paymentsOrganizerNotReadyBody": "L'organisateur configure encore les paiements pour cet evenement. Vos places ne sont pas facturees et aucun paiement n'a ete pris. Annulez la reservation pour liberer les places, ou reessayez plus tard."
   },
   "confirmation": {
     "steps": {

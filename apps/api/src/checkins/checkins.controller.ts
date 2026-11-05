@@ -9,12 +9,16 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe';
 const scanSchema = z.object({
   token: z.string().min(1),
   expectedSessionId: z.string().cuid().optional(),
+  /** The event whose check-in page is open: another event's ticket is refused. */
+  expectedEventId: z.string().cuid().optional(),
   deviceInfo: z.string().max(200).optional(),
 });
 const reverseSchema = z.object({ ticketId: z.string().cuid() });
 const visualSchema = z.object({
   ticketId: z.string().cuid(),
   expectedSessionId: z.string().cuid().optional(),
+  /** The event whose check-in page is open: another event's ticket is refused. */
+  expectedEventId: z.string().cuid().optional(),
   deviceInfo: z.string().max(200).optional(),
 });
 const findBookingsSchema = z.object({
@@ -49,6 +53,7 @@ export class CheckinsController {
   ) {
     return this.checkins.scan(staff, body.token, {
       expectedSessionId: body.expectedSessionId,
+      expectedEventId: body.expectedEventId,
       deviceInfo: body.deviceInfo,
     });
   }
@@ -106,6 +111,7 @@ export class CheckinsController {
     */
     return this.checkins.admitVisually(staff, body.ticketId, {
       expectedSessionId: body.expectedSessionId,
+      expectedEventId: body.expectedEventId,
       deviceInfo: body.deviceInfo,
     });
   }

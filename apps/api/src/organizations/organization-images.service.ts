@@ -194,6 +194,25 @@ export class OrganizationImagesService {
    * address; otherwise the API serves the bytes exactly as it always has. The ROW decides,
    * not the configuration, because during a backfill both answers are live at once.
    */
+  /**
+   * The stored bytes themselves, for the console's crop dialog to re-open ("Adjust").
+   *
+   * Never a redirect. The public route answers with a 301 to the bucket's CDN address when
+   * the picture is in object storage, and that bucket sends no CORS headers, so the browser
+   * could not read the pixels: Adjust worked against database-held pictures and failed on QA,
+   * where they live in R2. Members who can edit the picture only.
+   */
+  async readSource(user: RequestUser, organizationId: string, kind: OrgImageKind) {
+    await this.access.assertMember(user, organizationId, ORGANIZER_ROLES);
+    const row = await this.prisma.organizationImage.findUnique({
+      where: { organizationId_kind: { organizationId, kind } },
+      select: { bytes: true, storageKey: true, contentType: true, sha256: true },
+    });
+    if (!row) return null;
+    const object = await this.objects.read(row);
+    return object ? { bytes: object.body, contentType: row.contentType } : null;
+  }
+
   async read(organizationId: string, kind: OrgImageKind) {
     const row = await this.prisma.organizationImage.findUnique({
       where: { organizationId_kind: { organizationId, kind } },

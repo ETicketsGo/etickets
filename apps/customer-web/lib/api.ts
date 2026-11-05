@@ -134,6 +134,7 @@ export const api = {
   // same-origin path handled by mockPay.
   payBooking: wk.bookings.pay,
   mockPay: wk.payments.mockPay,
+  paymentAvailability: wk.payments.availability,
   // India (Razorpay): verify the Checkout signature after the modal returns. Never
   // proof of payment — the confirmation page polls the backend, which is confirmed
   // by the signed webhook.

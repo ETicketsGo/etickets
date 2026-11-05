@@ -441,7 +441,7 @@ export class NotificationService {
       between silently rewrite messages that were already composed.
     */
     const locale = await this.localeFor(input);
-    const resolved = await this.resolveChannelKeys(input);
+    const { channels: resolved, smsNotSent } = await this.resolveChannelKeys(input);
     const db = tx ?? this.prisma;
     const recipientRef = input.userId ?? input.toEmail ?? '';
 
@@ -495,6 +495,50 @@ export class NotificationService {
       // actually written, and the dedupe key is unique, so this finds exactly it.
       const row = await db.notification.findFirst({ where: { dedupeKey }, select: { id: true } });
       if (row) ids.push(row.id);
+    }
+
+    /*
+      ── WHY NO TEXT WAS SENT, ON THE BOOKING ─────────────────────────────────────────────
+      A booking whose SMS was not sent (switch off for the type, market not enabled, no
+      verified phone, the customer turned it off) used to leave no row at all: the reason was
+      at most a log line, and support could not answer "why did I get no text?". It is now a
+      SKIPPED row on the booking with the reason, under the same dedupe key a real SMS row
+      would carry, so a redelivered event cannot write two. No phone number is stored.
+    */
+    const bookingId = input.bookingId ?? bookingIdFrom(input.payload);
+    if (smsNotSent && bookingId) {
+      const dedupeKey = dedupeKeyFor({
+        type: input.type,
+        channel: 'sms',
+        recipientRef,
+        payload: input.payload,
+        explicitIntent: input.intentKey,
+      });
+      await db.notification.createMany({
+        data: [
+          {
+            type: input.type,
+            userId: input.userId ?? null,
+            toEmail: null,
+            payload: input.payload as Prisma.InputJsonValue,
+            channel: 'sms',
+            locale,
+            status: NotificationStatus.SKIPPED,
+            scheduledFor: state.scheduledFor,
+            lastError: `not_sent: ${smsNotSent}`,
+            dedupeKey,
+            intentKey: intentKeyFor({
+              type: input.type,
+              recipientRef,
+              payload: input.payload,
+              explicitIntent: input.intentKey,
+            }),
+            bookingId,
+            sendReason: input.sendReason ?? SendKind.PRIMARY,
+          },
+        ],
+        skipDuplicates: true,
+      });
     }
     return ids;
   }
@@ -990,7 +1034,9 @@ export class NotificationService {
     return res.count;
   }
 
-  private async resolveChannelKeys(input: NotifyInput): Promise<ChannelKey[]> {
+  private async resolveChannelKeys(
+    input: NotifyInput,
+  ): Promise<{ channels: ChannelKey[]; smsNotSent?: string }> {
     /*
       One resolver answers the whole product question -- policy, then preference, then
       consent -- and knows no provider names. Which vendor carries the resulting channel is
@@ -1005,7 +1051,8 @@ export class NotificationService {
         allowDeferred: input.allowDeferredChannel === true,
         payload: input.payload,
       });
-      return resolved.channels;
+      const sms = resolved.removed?.find((r) => r.channel === 'sms');
+      return { channels: resolved.channels, smsNotSent: sms?.reason };
     }
 
     /*
@@ -1036,7 +1083,7 @@ export class NotificationService {
       ticket. Filtering here rather than at each call site means a new marketing message
       cannot forget to ask.
     */
-    if (isTransactional(input.type)) return known;
+    if (isTransactional(input.type)) return { channels: known };
 
     const allowed: ChannelKey[] = [];
     for (const channel of known) {
@@ -1052,7 +1099,7 @@ export class NotificationService {
           `${known.length - allowed.length} channel(s): no consent on file`,
       );
     }
-    return allowed;
+    return { channels: allowed };
   }
 
   /** Renders a template for a single channel into a RenderedNotification. */

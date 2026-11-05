@@ -205,6 +205,65 @@ export class PaymentsService {
     isDummyAllowed(resolvePaymentEnv(process.env.APP_ENV)) &&
     (process.env.PAYMENT_PROVIDER_NAME ?? 'mock') === 'mock';
 
+  /**
+   * Whether this booking could be paid for right now, and if not, why - asked BEFORE the buyer
+   * presses Pay. The same gates `createIntent` applies, in the same order, with nothing created.
+   *
+   * ── WHY ──────────────────────────────────────────────────────────────────────────────
+   * The checkout learned that payments were unavailable only from a refused Pay: it then showed
+   * "Online payment is being activated" beside a Pay button that was still enabled, so a buyer
+   * could press it again and again. Asked up front, the page can disable the button and say
+   * which of three different things is true.
+   *
+   * Returns no buyer or organizer data, only a reason code: the booking id is an unguessable
+   * cuid, and whether an organizer can take card payments is shown to every buyer anyway.
+   */
+  async paymentAvailability(bookingId: string): Promise<{
+    available: boolean;
+    reason?: 'platform_not_configured' | 'organizer_not_onboarded' | 'not_payable';
+    provider?: string;
+  }> {
+    const booking = await this.prisma.booking.findUnique({
+      where: { id: bookingId },
+      select: {
+        status: true,
+        totalMinor: true,
+        currency: true,
+        paymentMethod: true,
+        event: { select: { organizationId: true, venue: { select: { country: true } } } },
+      },
+    });
+    if (!booking || booking.status !== BookingStatus.PENDING_PAYMENT || booking.totalMinor <= 0) {
+      return { available: false, reason: 'not_payable' };
+    }
+    const country = booking.event?.venue?.country ?? undefined;
+    // India: Razorpay is used when it is routed and configured, exactly as in createIntent.
+    if (
+      routeProviderForBooking({ currency: booking.currency, country }) === 'razorpay' &&
+      this.config.get<string>('RAZORPAY_KEY_ID')
+    ) {
+      return { available: true, provider: 'razorpay' };
+    }
+    const marketplace = this.marketplaceProviderFor(booking);
+    const organizationId = booking.event?.organizationId;
+    if (marketplace && organizationId) {
+      const account = await this.prisma.organizerPaymentAccount.findUnique({
+        where: { organizationId_provider: { organizationId, provider: marketplace.name } },
+        select: { providerAccountId: true, chargesEnabled: true },
+      });
+      if (!account?.providerAccountId || !account.chargesEnabled) {
+        return { available: false, reason: 'organizer_not_onboarded' };
+      }
+    }
+    const routed = await this.orchestrator.providerAvailable({
+      currency: booking.currency,
+      country,
+    });
+    return routed.available
+      ? { available: true, provider: routed.provider }
+      : { available: false, reason: 'platform_not_configured' };
+  }
+
   /** Create a payment intent for a pending booking (the buyer only). */
   async createIntent(
     bookingId: string,
@@ -417,7 +476,7 @@ export class PaymentsService {
       });
       if (!account?.providerAccountId || !account.chargesEnabled) {
         throw new AppException(
-          ErrorCodes.PAYMENT_PROVIDER_UNAVAILABLE,
+          ErrorCodes.ORGANIZER_PAYMENTS_NOT_READY,
           'This organizer has not finished payment setup yet and cannot accept payments.',
           HttpStatus.CONFLICT,
           { organizationId },
@@ -474,7 +533,8 @@ export class PaymentsService {
         metadata,
       },
     });
-    return intent;
+    // Which gateway took it, so the checkout never treats a real gateway's answer as the mock's.
+    return { ...intent, provider: provider ?? 'mock' };
   }
 
   /**

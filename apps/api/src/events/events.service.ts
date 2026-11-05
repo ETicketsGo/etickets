@@ -1,5 +1,5 @@
 import { HttpStatus, Injectable, Logger, Optional } from '@nestjs/common';
-import { Prisma, Prisma as PrismaNamespace } from '@prisma/client';
+import { Prisma, Prisma as PrismaNamespace, PaymentStatus } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
 import * as QRCode from 'qrcode';
 import { createHash, randomBytes } from 'node:crypto';
@@ -586,6 +586,86 @@ export class EventsService {
     };
   }
 
+  /**
+   * What, if anything, makes switching this event between free and paid unsafe.
+   *
+   * ── WHAT USED TO BE COUNTED ───────────────────────────────────────────────────────────
+   * Every booking the event ever had, in any state. One abandoned checkout - a buyer who
+   * opened the payment page and left, or a pay attempt refused because payments were not yet
+   * live - locked the event's price model for good, and the organizer was told it "already has
+   * bookings" while the console showed none sold.
+   *
+   * ── WHAT IS COUNTED NOW ───────────────────────────────────────────────────────────────
+   * Only what the switch would actually contradict: confirmed (or refunded, or disputed)
+   * bookings, a checkout still inside its hold, money a gateway took or is taking, documents
+   * already issued, and refunds. An expired hold or a cancelled unpaid booking is history,
+   * not an obligation; it stays on file untouched and no longer blocks the edit. Scoped to
+   * THIS event only.
+   */
+  private async freeSwitchBlocker(
+    eventId: string,
+  ): Promise<{ reason: string; count: number; message: string } | null> {
+    const now = new Date();
+    const [settled, holding, money, documents, refunds] = await Promise.all([
+      this.prisma.booking.count({
+        where: {
+          eventId,
+          status: {
+            in: [
+              BookingStatus.CONFIRMED,
+              BookingStatus.PARTIALLY_REFUNDED,
+              BookingStatus.REFUNDED,
+              BookingStatus.DISPUTED,
+            ],
+          },
+        },
+      }),
+      this.prisma.booking.count({
+        where: { eventId, status: BookingStatus.PENDING_PAYMENT, holdExpiresAt: { gt: now } },
+      }),
+      this.prisma.payment.count({
+        where: {
+          booking: { eventId },
+          status: {
+            in: [
+              PaymentStatus.PROCESSING,
+              PaymentStatus.AUTHORIZED,
+              PaymentStatus.SUCCEEDED,
+              PaymentStatus.REFUNDED,
+              PaymentStatus.PARTIALLY_REFUNDED,
+            ],
+          },
+        },
+      }),
+      this.prisma.receipt.count({ where: { booking: { eventId } } }),
+      this.prisma.refund.count({ where: { booking: { eventId } } }),
+    ]);
+    const alternative =
+      ' To sell it the other way, add a new event, or add a separately priced ticket type.';
+    if (settled > 0) {
+      return {
+        reason: 'confirmed_bookings',
+        count: settled,
+        message: `This event has ${settled} confirmed booking${settled === 1 ? '' : 's'}, so it cannot be switched between free and paid.${alternative}`,
+      };
+    }
+    if (money > 0 || documents > 0 || refunds > 0) {
+      return {
+        reason: 'financial_records',
+        count: money + documents + refunds,
+        message: `Payments, receipts or refunds are on file for this event, so it cannot be switched between free and paid.${alternative}`,
+      };
+    }
+    if (holding > 0) {
+      return {
+        reason: 'checkout_in_progress',
+        count: holding,
+        message: `${holding} buyer${holding === 1 ? ' is' : 's are'} checking out right now. Try again in a few minutes, when ${holding === 1 ? 'that hold ends' : 'those holds end'}.`,
+      };
+    }
+    return null;
+  }
+
   async update(user: RequestUser, id: string, patch: Partial<CreateEventInput>) {
     const event = await this.loadOwnedEvent(user, id);
     const editable: EventStatus[] = [
@@ -611,14 +691,12 @@ export class EventsService {
       refused with the reason, so the organizer can fix the prices or the event and retry.
     */
     if (patch.isFree !== undefined && patch.isFree !== event.isFree) {
-      const bookings = await this.prisma.booking.count({ where: { eventId: id } });
-      if (bookings > 0) {
-        throw new AppException(
-          ErrorCodes.CONFLICT,
-          'This event already has bookings, so it cannot be switched between free and paid.',
-          HttpStatus.CONFLICT,
-          { bookings },
-        );
+      const blocker = await this.freeSwitchBlocker(id);
+      if (blocker) {
+        throw new AppException(ErrorCodes.CONFLICT, blocker.message, HttpStatus.CONFLICT, {
+          reason: blocker.reason,
+          count: blocker.count,
+        });
       }
       if (patch.isFree) {
         const priced = await this.prisma.ticketType.count({

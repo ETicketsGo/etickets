@@ -166,6 +166,14 @@ export class NotificationPolicyResolver {
     if (channels.includes('sms')) return channels;
     if (!transactional || !this.prisma) return channels;
     if (!smsTransactionalEnabled(input.type, this.config?.get<string>('SMS_TRANSACTIONAL_TYPES'))) {
+      /*
+        Named, not silent: with the switch off for this type this used to return with no log
+        and no record, so "why did my booking get no text?" had no answer anywhere. Recorded
+        only where SMS exists as a channel and the caller did not narrow it away.
+      */
+      if (input.known('sms') && (!input.requested || input.requested.includes('sms'))) {
+        removed.push({ channel: 'sms', reason: 'not switched on for this message type' });
+      }
       return channels;
     }
     if (input.requested && !input.requested.includes('sms')) return channels;

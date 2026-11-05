@@ -19,7 +19,13 @@ const ORGANIZER = { id: 'u-1', email: 'o@t.test', fullName: 'O', roles: [] } as 
 function setup(over: {
   eventIsFree?: boolean;
   eventStatus?: string;
+  /** Confirmed (settled) bookings: what blocks a switch. */
   bookings?: number;
+  /** Checkouts still inside their hold. */
+  holds?: number;
+  payments?: number;
+  receipts?: number;
+  refunds?: number;
   pricedTicketTypes?: number;
 }) {
   const event = {
@@ -35,7 +41,15 @@ function setup(over: {
 
   const prisma = {
     event: { findUnique: jest.fn().mockResolvedValue(event), update: eventUpdate },
-    booking: { count: jest.fn().mockResolvedValue(over.bookings ?? 0) },
+    booking: {
+      // The settled count asks for a status list; the hold count asks for PENDING_PAYMENT.
+      count: jest.fn(async ({ where }: { where: { status?: unknown } }) =>
+        where.status === 'PENDING_PAYMENT' ? (over.holds ?? 0) : (over.bookings ?? 0),
+      ),
+    },
+    payment: { count: jest.fn().mockResolvedValue(over.payments ?? 0) },
+    receipt: { count: jest.fn().mockResolvedValue(over.receipts ?? 0) },
+    refund: { count: jest.fn().mockResolvedValue(over.refunds ?? 0) },
     ticketType: {
       count: jest.fn().mockResolvedValue(over.pricedTicketTypes ?? 0),
       create: ticketTypeCreate,
@@ -134,7 +148,38 @@ describe('switching an event between free and paid', () => {
     */
     const { service, eventUpdate } = setup({ eventIsFree: false, bookings: 3 });
     await expect(service.update(ORGANIZER, 'ev-1', { isFree: true })).rejects.toThrow(
-      /already has bookings/i,
+      /3 confirmed bookings/i,
+    );
+    expect(eventUpdate).not.toHaveBeenCalled();
+  });
+
+  it('is not blocked by abandoned checkouts or cancelled unpaid bookings (PROD, 2026-11-05)', async () => {
+    /*
+      The PROD case: one checkout on a paid event was refused because payments were not live,
+      and the buyer cancelled. That CANCELLED booking locked the event as paid for good. Only
+      confirmed bookings, live holds and money count now, so it switches.
+    */
+    const { service, eventUpdate } = setup({ eventIsFree: false, bookings: 0, holds: 0 });
+    await service.update(ORGANIZER, 'ev-1', { isFree: true });
+    expect(eventUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { isFree: true } }));
+  });
+
+  it('waits for a checkout that is still inside its hold, and says so', async () => {
+    const { service, eventUpdate } = setup({ eventIsFree: false, holds: 1 });
+    await expect(service.update(ORGANIZER, 'ev-1', { isFree: true })).rejects.toThrow(
+      /checking out right now/i,
+    );
+    expect(eventUpdate).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a payment', { payments: 1 }],
+    ['an issued receipt', { receipts: 1 }],
+    ['a refund', { refunds: 1 }],
+  ])('refuses while %s is on file, even with no confirmed booking left', async (_, extra) => {
+    const { service, eventUpdate } = setup({ eventIsFree: false, ...extra });
+    await expect(service.update(ORGANIZER, 'ev-1', { isFree: true })).rejects.toThrow(
+      /Payments, receipts or refunds are on file/i,
     );
     expect(eventUpdate).not.toHaveBeenCalled();
   });

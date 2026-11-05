@@ -152,9 +152,8 @@ function OrgImage({
     if (!shown) return;
     setOpening(true);
     try {
-      const res = await fetch(shown, { mode: 'cors' });
-      if (!res.ok) throw new Error();
-      const blob = await res.blob();
+      // From the API, not the public URL: that can redirect to a CDN with no CORS headers.
+      const blob = await api.organizations.imageSource(orgId, kind);
       setSource({ src: URL.createObjectURL(blob), type: blob.type });
     } catch {
       setProblem('The saved image could not be opened for adjusting. Upload it again instead.');

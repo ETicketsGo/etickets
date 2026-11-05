@@ -213,7 +213,11 @@ export default function SessionsTab() {
               }}
               className="whitespace-nowrap rounded text-caption text-status-error underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
             >
-              {lockReason(s) ? 'Cancel date and refund' : 'Cancel date'}
+              {/*
+                Refund wording only where money was taken. A free event's session is cancelled
+                and its attendees told; nothing is refunded because nothing was paid.
+              */}
+              {lockReason(s) && !event?.isFree ? 'Cancel and refund' : 'Cancel session'}
             </button>
           </div>
         ) : null,
@@ -315,6 +319,7 @@ export default function SessionsTab() {
         eventId={id}
         session={cancelling}
         whenLabel={cancelling ? timeAtVenue(cancelling.startsAt, venueTz ?? null) : ''}
+        free={Boolean(event?.isFree)}
         sold={
           cancelling
             ? sessionSeating({ session: cancelling, space: null, layout: null, now: Date.now() })

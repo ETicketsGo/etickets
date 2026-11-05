@@ -93,7 +93,10 @@ export function phoneProblem(
 ): string | null {
   const v = (e164 ?? '').trim();
   if (!v) return null;
-  if (!/^\+\d{6,15}$/.test(v)) return 'Enter the number using digits only.';
+  // Characters first, then length: "12" is digits, just too few of them, and saying "digits
+  // only" to somebody who typed only digits sends them looking for the wrong mistake.
+  if (!/^\+\d+$/.test(v)) return 'Enter the number using digits only.';
+  if (v.length > 16) return 'That number is too long for a phone number.';
   const digits = v.slice(1);
   const chosen = marketFor(options.country);
   const market =

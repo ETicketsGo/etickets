@@ -143,6 +143,40 @@ export class OrganizationsController {
     return this.logos.upload(user, id, 'LOGO', file);
   }
 
+  /*
+    The stored picture's bytes for the console's crop dialog ("Adjust"). The public route may
+    redirect to a CDN that sends no CORS headers, which the browser cannot read pixels from.
+  */
+  @Get(':id/logo/source')
+  @ApiOperation({ summary: 'The stored profile picture bytes, for re-cropping (members only).' })
+  async logoSource(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    return this.sendSource(res, await this.logos.readSource(user, id, 'LOGO'));
+  }
+
+  @Get(':id/cover/source')
+  @ApiOperation({ summary: 'The stored cover image bytes, for re-cropping (members only).' })
+  async coverSource(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    return this.sendSource(res, await this.logos.readSource(user, id, 'COVER'));
+  }
+
+  private sendSource(res: Response, image: { bytes: Uint8Array; contentType: string } | null) {
+    if (!image) {
+      res.status(404).json({ code: 'NOT_FOUND', message: 'No picture is stored.' });
+      return;
+    }
+    res.setHeader('Content-Type', image.contentType);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.end(Buffer.from(image.bytes));
+  }
+
   @Delete(':id/logo')
   @ApiOperation({ summary: 'Remove the organization profile picture.' })
   removeLogo(@CurrentUser() user: RequestUser, @Param('id') id: string) {

@@ -234,6 +234,9 @@ export const ORGANIZER_ROUTE_POLICY: Record<string, StaffPolicy> = {
   'GET /organizations/:id/actions': ORG_READ('organization.read'),
   'POST /organizations/:id/logo': 'NONE',
   'DELETE /organizations/:id/logo': 'NONE',
+  // The stored picture for the crop dialog: members who can edit it, as for uploading.
+  'GET /organizations/:id/logo/source': 'NONE',
+  'GET /organizations/:id/cover/source': 'NONE',
   'POST /organizations/:id/cover': 'NONE',
   'DELETE /organizations/:id/cover': 'NONE',
   'PATCH /organizations/:id': 'NONE',

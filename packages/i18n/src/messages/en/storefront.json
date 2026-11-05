@@ -324,7 +324,9 @@
     "paymentsActivatingTitle": "Online payment is being activated",
     "paymentsActivatingBody": "Card, UPI and netbanking will be available here as soon as our payment gateway is approved. Your seats are not charged and no payment has been taken.",
     "paymentsActivatingBodyGeneric": "Online payment will be available here soon. Your seats are not charged and no payment has been taken.",
-    "paymentsActivatingOperator": "ETicketsGo is operated in India by {entity}, Hyderabad, Telangana, India. Our payment gateway application is in progress."
+    "paymentsActivatingOperator": "ETicketsGo is operated in India by {entity}, Hyderabad, Telangana, India. Our payment gateway application is in progress.",
+    "paymentsOrganizerNotReadyTitle": "This organizer cannot take card payments yet",
+    "paymentsOrganizerNotReadyBody": "The organizer is still setting up payments for this event. Your seats are not charged and no payment has been taken. Cancel the booking to release the seats, or try again later."
   },
   "confirmation": {
     "steps": {

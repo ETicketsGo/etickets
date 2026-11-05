@@ -18,6 +18,7 @@ import {
   type RefundResult,
 } from '../provider/payment-provider.interface';
 import { PaymentErrorCode, PaymentProviderError } from '../domain/payment-errors';
+import { UnavailablePaymentProvider } from '../provider/unavailable-payment.provider';
 import { CircuitBreaker } from './circuit-breaker';
 import { PaymentProviderResolver } from '../provider/payment-provider.resolver';
 import { PaymentProviderRegistry } from './provider-registry';
@@ -268,6 +269,24 @@ export class PaymentOrchestrator {
       candidates.push(this.defaultCandidate());
     }
     return candidates;
+  }
+
+  /**
+   * Whether a payment in this currency could be taken right now, asked without creating
+   * anything: the same resolution `createPayment` uses, so the answer cannot disagree with
+   * what pressing Pay would do. A provider standing in for one that is still being activated
+   * (`UnavailablePaymentProvider`) is not a usable one.
+   */
+  async providerAvailable(
+    context: PaymentContext,
+  ): Promise<{ available: boolean; provider?: string }> {
+    try {
+      const candidates = await this.resolveTargets(context);
+      const usable = candidates.find((c) => !(c.provider instanceof UnavailablePaymentProvider));
+      return usable ? { available: true, provider: usable.name } : { available: false };
+    } catch {
+      return { available: false };
+    }
   }
 
   private pushIfAvailable(
