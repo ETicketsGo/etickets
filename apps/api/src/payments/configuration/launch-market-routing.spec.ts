@@ -89,11 +89,12 @@ describe('launch-market payment routing, in a fully wired environment', () => {
     expect(selectRoute(real(), { currency: 'AUD' })?.provider).toBe('stripe');
   });
 
-  it('gives INR a failover and gives the North American currencies none', () => {
-    // Razorpay does not settle USD or CAD. Naming it as a failover would turn a clean
-    // "provider unavailable" into a confusing decline at the gateway.
+  it('gives no currency a failover to another legal entity', () => {
+    // Razorpay does not settle USD or CAD, and INR must never fall over to the US platform's
+    // Stripe account: an outage refuses the payment rather than moving it to another entity.
     const byCurrency = new Map(routesFor(REAL, FULLY_WIRED).map((r) => [r.currency, r]));
-    expect(byCurrency.get('INR')?.failoverProvider).toBe('stripe');
+    expect(byCurrency.get('INR')?.provider).toBe('razorpay');
+    expect(byCurrency.get('INR')?.failoverProvider).toBeUndefined();
     expect(byCurrency.get('USD')?.failoverProvider).toBeUndefined();
     expect(byCurrency.get('CAD')?.failoverProvider).toBeUndefined();
   });
@@ -115,7 +116,7 @@ describe('launch-market payment routing, in a fully wired environment', () => {
     const shuffled = [...real()].reverse();
     expect(selectRoute(shuffled, { currency: 'CAD' })?.provider).toBe('stripe');
     expect(selectRoute(shuffled, { currency: 'INR' })?.provider).toBe('razorpay');
-    expect(selectRoute(shuffled, { currency: 'INR' })?.failoverProvider).toBe('stripe');
+    expect(selectRoute(shuffled, { currency: 'INR' })?.failoverProvider ?? null).toBeNull();
   });
 });
 

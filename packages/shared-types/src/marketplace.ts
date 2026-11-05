@@ -222,7 +222,14 @@ export interface ProviderRouteContext {
  * turning a routing decision into a configuration lookup.
  */
 export const CURRENCY_PROVIDERS: Record<string, readonly MarketplaceProvider[]> = {
-  INR: ['razorpay', 'stripe'],
+  /*
+    Razorpay only. Stripe used to be listed second, which the route bootstrap turned into a
+    FAILOVER the moment Stripe keys existed: a Razorpay outage would then have charged Indian
+    buyers through the US platform's Stripe account - another legal entity, another settlement
+    currency, another tax position - with nobody deciding it. India settles through the India
+    entity's gateway; if that is down, the payment is refused, not moved.
+  */
+  INR: ['razorpay'],
   USD: ['stripe'],
   CAD: ['stripe'],
 };
