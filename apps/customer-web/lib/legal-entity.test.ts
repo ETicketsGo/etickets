@@ -54,20 +54,24 @@ describe('the footer line', () => {
     );
   });
 
-  it('India: the owner operator line, with the legal name untranslated in French', () => {
+  it('India: one line, the brand once and the company by its short name, untranslated in French', () => {
     const m = footerOperator('IN')!;
-    expect(footer('en')(m.key, m.values)).toBe(
-      'Operated in India by DeepTrics Software Solutions Private Limited.',
+    expect(footer('en')('copyrightOperated', { year: 2026, ...m })).toBe(
+      '© 2026 ETicketsGo. Operated by DeepTrics Software Solutions Pvt Ltd.',
     );
-    expect(footer('fr-CA')(m.key, m.values)).toBe(
-      'Exploité en Inde par DeepTrics Software Solutions Private Limited.',
+    expect(footer('fr-CA')('copyrightOperated', { year: 2026, ...m })).toBe(
+      '© 2026 ETicketsGo. Exploité par DeepTrics Software Solutions Pvt Ltd.',
     );
   });
 
-  it('United States: the owner operator line', () => {
+  it('United States: one line naming DeepTrics LLC once', () => {
     const m = footerOperator('US')!;
-    expect(footer('en')(m.key, m.values)).toBe('Operated in the United States by DeepTrics LLC.');
-    expect(footer('fr-CA')(m.key, m.values)).toBe('Exploité aux États-Unis par DeepTrics LLC.');
+    expect(footer('en')('copyrightOperated', { year: 2026, ...m })).toBe(
+      '© 2026 ETicketsGo. Operated by DeepTrics LLC.',
+    );
+    expect(footer('fr-CA')('copyrightOperated', { year: 2026, ...m })).toBe(
+      '© 2026 ETicketsGo. Exploité par DeepTrics LLC.',
+    );
   });
 
   it('an unknown market has no operator line at all, never both companies', () => {

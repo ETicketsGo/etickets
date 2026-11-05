@@ -134,8 +134,7 @@
     },
     "tagline": "Achetez vos billets, gardez-les sur votre téléphone et entrez sans faire la queue.",
     "copyright": "© {year} ETicketsGo. Tous droits réservés.",
-    "operatedIN": "Exploité en Inde par {entity}.",
-    "operatedUS": "Exploité aux États-Unis par {entity}.",
+    "copyrightOperated": "© {year} ETicketsGo. Exploité par {entity}.",
     "build": "Version {id}",
     "testEnvironment": "Environnement de test - les paiements sont simulés."
   },

@@ -979,7 +979,7 @@ model Organization {
 
   /// The registered legal entity, when it differs from the trading name customers see.
   /// An invoice names this one.
-  legalName             String?
+  legalName                  String?
   /// What the organizer registered AS: sole proprietorship, Pvt Ltd, LLC, charity.
   ///
   /// ── WHY THIS AND NOT ONLY A TAX NUMBER ─────────────────────────────────────────
@@ -991,13 +991,16 @@ model Organization {
   ///
   /// Options come from the country's own list in MARKETS, so nobody is asked to pick a form
   /// that does not exist where they registered.
-  legalEntityType       String?
+  legalEntityType            String?
   /// Tax registration: GSTIN in India, sales-tax permit or EIN in the US, GST/HST number
   /// in Canada. Deliberately ONE free-text field plus a kind, rather than a column per
   /// country — the format is a jurisdiction's business and hardcoding a regex here would
   /// mean shipping code every time a market is added.
-  taxRegistrationKind   String?
-  taxRegistrationNumber String?
+  taxRegistrationKind        String?
+  taxRegistrationNumber      String?
+  /// Registrations beyond the main one above: [{ kind, number }], e.g. a second state's sales tax ID
+  /// or a PAN beside a GSTIN. Recorded only; documents print the main registration.
+  additionalTaxRegistrations Json?
 
   /// Registered address, structured because an invoice needs the parts separately.
   registeredAddressLine1 String?
@@ -2037,14 +2040,14 @@ model Booking {
   /// Null on every booking priced by the ordinary fee schedule. The money columns above stay
   /// the CHARGED amounts, so every reader downstream (receipts, refunds, settlement, payouts,
   /// finance) is unchanged; these say why the booking fee is what it is.
-  feePolicyId         String?
-  feePolicy           PlatformFeePolicy?     @relation(fields: [feePolicyId], references: [id], onDelete: Restrict)
-  feePolicyKind       PlatformFeePolicyKind?
-  feePolicyVersion    Int?
+  feePolicyId          String?
+  feePolicy            PlatformFeePolicy?     @relation(fields: [feePolicyId], references: [id], onDelete: Restrict)
+  feePolicyKind        PlatformFeePolicyKind?
+  feePolicyVersion     Int?
   /// The booking fee the platform schedule would have charged, before any cinema cap.
-  baseBookingFeeMinor Int?
+  baseBookingFeeMinor  Int?
   /// How much of that the policy took off, before any cinema cap. Never negative.
-  feeWaivedMinor      Int?
+  feeWaivedMinor       Int?
   /// How a per-ticket platform fee (COMBINED, or FIXED_PER_TICKET) was worked out:
   /// { type, percentBps, fixedPerTicketMinor, ticketCount, percentPartMinor, fixedPartMinor,
   /// source }, plus { minFeeMinor, maxFeeMinor, limitApplied } when the terms had a limit.
@@ -3249,7 +3252,7 @@ model SuppressedDestination {
   /// essential transactional mail (tickets, receipts, sign-in codes, refunds) does NOT.
   /// One row per scope, so a later hard bounce on an address that complained adds an ALL row
   /// beside the MARKETING one and both reasons stay on record.
-  scope            String    @default("ALL")
+  scope            String  @default("ALL")
   /// Which provider reported it, when one did.
   provider         String?
   /// The delivery attempt this came from, for tracing it back to the event.

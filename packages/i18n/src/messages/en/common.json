@@ -134,8 +134,7 @@
     },
     "tagline": "Buy tickets, keep them on your phone, and get in without queueing.",
     "copyright": "© {year} ETicketsGo. All rights reserved.",
-    "operatedIN": "Operated in India by {entity}.",
-    "operatedUS": "Operated in the United States by {entity}.",
+    "copyrightOperated": "© {year} ETicketsGo. Operated by {entity}.",
     "build": "Build {id}",
     "testEnvironment": "Test environment - payments are simulated."
   },

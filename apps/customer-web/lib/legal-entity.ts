@@ -81,19 +81,17 @@ export function operatorMessage(
 }
 
 /**
- * The footer's operator line for a selected market, as a `common.footer` message, or null.
+ * The company the footer names for a selected market, by its short name, or null.
  *
- * India: "Operated in India by <legal name>." United States: "Operated in the United States
- * by <legal name>." Anything else, or no market: null, and the footer shows only the neutral
- * copyright line. The footer never names both companies; the Legal & Policies pages do.
+ * One line: "(c) 2026 ETicketsGo. Operated by DeepTrics LLC." (`common.footer.copyrightOperated`).
+ * It replaced a copyright line plus "Operated in the United States by DeepTrics LLC.", which
+ * read as the company named twice (owner, 2026-11-05). No market, or one with no company: null,
+ * and the footer shows only the neutral copyright line. The footer never names both companies;
+ * the Legal & Policies pages do, with the full legal names.
  */
-export function footerOperator(
-  market: string | null | undefined,
-): { key: 'operatedIN' | 'operatedUS'; values: { entity: string } } | null {
+export function footerOperator(market: string | null | undefined): { entity: string } | null {
   const entity = publicLegalEntity(market);
-  if (entity?.country === 'IN') return { key: 'operatedIN', values: { entity: entity.legalName } };
-  if (entity?.country === 'US') return { key: 'operatedUS', values: { entity: entity.legalName } };
-  return null;
+  return entity?.country === 'IN' || entity?.country === 'US' ? { entity: entity.shortName } : null;
 }
 
 /** One row of the legal and business information section. */

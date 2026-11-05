@@ -27,6 +27,15 @@ import {
   Select,
   type Organization,
 } from '@eticketsgo/web-kit';
+import {
+  contactEmailProblem,
+  contactNameProblem,
+  phoneProblem,
+  taxRegistrationNumberProblem,
+  taxRegistrationType,
+  taxRegistrationTypes,
+} from '@eticketsgo/shared-types';
+import { ContactPhoneField } from '@/components/contact-phone-field';
 import { useOrg } from '@/components/org-context';
 import { ColorSchemeSwitch } from '@/components/workspace-chrome';
 import { ProfilePicture } from './profile-picture';
@@ -49,12 +58,14 @@ const PROFILE_FIELDS: {
 /**
  * Everything an invoice has to name.
  *
- * `taxRegistrationKind` is free text on purpose — it labels whatever number the organizer
- * holds (GSTIN in India, EIN in the US, GST/HST in Canada) without this form deciding which
- * markets exist. The placeholder suggests; it does not constrain.
+ * `taxRegistrationKind` is picked from the country's own list where we have one (EIN, state
+ * sales tax ID or not registered in the US; GSTIN, PAN or not GST registered in India) and stays
+ * free text elsewhere, so a market we have not modelled is not forced into another's words.
  */
+type LegalTextKey = Exclude<keyof OrganizationLegalIdentityInput, 'additionalTaxRegistrations'>;
+
 const LEGAL_FIELDS: {
-  key: keyof OrganizationLegalIdentityInput;
+  key: LegalTextKey;
   label: string;
   placeholder?: string;
   hint?: string;
@@ -90,7 +101,7 @@ const LEGAL_FIELDS: {
   */
   {
     key: 'taxRegistrationKind',
-    label: 'Tax registration type (if you have one)',
+    label: 'Tax registration',
     placeholder: 'GSTIN / EIN / GST-HST',
   },
   {
@@ -152,11 +163,9 @@ function profileValues(org: Partial<Record<ProfileKey, string | null>>): Profile
 }
 
 const LEGAL_KEYS = LEGAL_FIELDS.map((f) => f.key);
-type LegalValues = Record<keyof OrganizationLegalIdentityInput, string>;
+type LegalValues = Record<LegalTextKey, string>;
 
-function legalValues(
-  d: Partial<Record<keyof OrganizationLegalIdentityInput, string | null>>,
-): LegalValues {
+function legalValues(d: Partial<Record<LegalTextKey, string | null>>): LegalValues {
   return Object.fromEntries(LEGAL_KEYS.map((k) => [k, d[k] ?? ''])) as LegalValues;
 }
 
@@ -175,21 +184,57 @@ const EMAIL_KEYS = new Set<string>([
   'financeContactEmail',
   'grievanceOfficerEmail',
 ]);
-const LOOKS_LIKE_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const NAME_KEYS = new Set<string>(['financeContactName', 'grievanceOfficerName']);
+const PHONE_KEYS = new Set<string>([
+  'contactPhone',
+  'financeContactPhone',
+  'grievanceOfficerPhone',
+]);
 
-/** The problem with one value, checked before it is sent so the person sees it at the field. */
-function fieldProblem(key: string, value: string): string | null {
+/**
+ * The problem with one value, checked before it is sent so the person sees it at the field.
+ *
+ * The rules are the API's own (`@eticketsgo/shared-types` organizer-contact), so the form never
+ * passes what the server refuses. Only CHANGED fields are judged - see `changed` - so a number
+ * or a name saved before these rules existed keeps saving untouched beside another edit.
+ */
+function fieldProblem(
+  key: string,
+  value: string,
+  ctx: { country: string | null | undefined; kind?: string | null },
+): string | null {
   const v = value.trim();
   if (!v) return null;
   if (URL_KEYS.has(key) && !/^https?:\/\/.+/i.test(v)) {
     return 'Enter a full link starting with https://';
   }
-  if (EMAIL_KEYS.has(key) && !LOOKS_LIKE_EMAIL.test(v)) return 'Enter a valid email address.';
-  if (key === 'taxRegistrationNumber' && !/^[A-Za-z0-9][A-Za-z0-9 \-/]*$/.test(v)) {
-    return 'Use letters, digits, spaces, hyphens or slashes only.';
+  if (EMAIL_KEYS.has(key)) return contactEmailProblem(v);
+  if (NAME_KEYS.has(key)) return contactNameProblem(v);
+  if (PHONE_KEYS.has(key)) return phoneProblem(v, { country: ctx.country });
+  if (key === 'taxRegistrationNumber') {
+    if (!/^[A-Za-z0-9][A-Za-z0-9 \-/]*$/.test(v)) {
+      return 'Use letters, digits, spaces, hyphens or slashes only.';
+    }
+    return taxRegistrationNumberProblem(ctx.country, ctx.kind, v);
   }
   return null;
 }
+
+type ExtraRegistration = { kind: string; number: string };
+
+/** The extra registrations a read or a save returned, as editable rows. */
+function extrasOf(d: unknown): ExtraRegistration[] {
+  const list = (d as { additionalTaxRegistrations?: unknown } | undefined)
+    ?.additionalTaxRegistrations;
+  return Array.isArray(list)
+    ? list.map((r: { kind?: unknown; number?: unknown }) => ({
+        kind: String(r.kind ?? ''),
+        number: String(r.number ?? ''),
+      }))
+    : [];
+}
+const trimmedExtras = (rows: ExtraRegistration[]) =>
+  rows.map((r) => ({ kind: r.kind.trim(), number: r.number.trim() }));
 
 /**
  * The API's per-field messages (the validation envelope's `fields`), one per field.
@@ -329,8 +374,8 @@ export default function SettingsPage() {
   });
   const submitProfile = () => {
     const problems: Record<string, string> = {};
-    for (const key of PROFILE_KEYS) {
-      const problem = fieldProblem(key, form[key]);
+    for (const key of Object.keys(profileChanges) as ProfileKey[]) {
+      const problem = fieldProblem(key, form[key], { country: activeOrg.registeredCountry });
       if (problem) problems[key] = problem;
     }
     setProfileErrors(problems);
@@ -407,6 +452,8 @@ export default function SettingsPage() {
   // A ref for the same reason as `profileTouched`.
   const legalTouched = useRef(false);
   const [legalErrors, setLegalErrors] = useState<Record<string, string>>({});
+  const [extraBase, setExtraBase] = useState<ExtraRegistration[]>([]);
+  const [extra, setExtra] = useState<ExtraRegistration[]>([]);
   const legalOrgId = useRef(activeOrg.id);
   useEffect(() => {
     const switched = legalOrgId.current !== activeOrg.id;
@@ -418,7 +465,11 @@ export default function SettingsPage() {
     const d = legalQuery.data;
     if (!d) return;
     setLegalBase(legalValues(d));
-    if (switched || !legalTouched.current) setLegal(legalValues(d));
+    setExtraBase(extrasOf(d));
+    if (switched || !legalTouched.current) {
+      setLegal(legalValues(d));
+      setExtra(extrasOf(d));
+    }
   }, [legalQuery.data, activeOrg.id]);
   const setLegalFields = (patch: Partial<LegalValues>) => {
     legalTouched.current = true;
@@ -429,10 +480,19 @@ export default function SettingsPage() {
     });
     setLegal((f) => ({ ...f, ...patch }));
   };
-  const setLegalField = (key: keyof OrganizationLegalIdentityInput, value: string) =>
-    setLegalFields({ [key]: value });
+  const setLegalField = (key: LegalTextKey, value: string) => setLegalFields({ [key]: value });
+  const setExtraRows = (rows: ExtraRegistration[]) => {
+    legalTouched.current = true;
+    setLegalErrors((errs) =>
+      Object.fromEntries(
+        Object.entries(errs).filter(([k]) => !k.startsWith('additionalTaxRegistrations')),
+      ),
+    );
+    setExtra(rows);
+  };
   const legalChanges = changed(legalBase, legal);
-  const legalDirty = Object.keys(legalChanges).length > 0;
+  const extraDirty = JSON.stringify(trimmedExtras(extra)) !== JSON.stringify(extraBase);
+  const legalDirty = Object.keys(legalChanges).length > 0 || extraDirty;
 
   const saveLegal = useMutation({
     mutationFn: (body: OrganizationLegalIdentityInput) =>
@@ -442,9 +502,11 @@ export default function SettingsPage() {
         Show what the server stored straight away, from the record it returned. Waiting for the
         refetch left the old values on screen for a moment, which read as the save not taking.
       */
-      const saved = legalValues(org as Partial<Record<keyof LegalValues, string | null>>);
+      const saved = legalValues(org as Partial<Record<LegalTextKey, string | null>>);
       setLegalBase(saved);
       setLegal(saved);
+      setExtraBase(extrasOf(org));
+      setExtra(extrasOf(org));
       legalTouched.current = false;
       toast.push('Legal and tax details saved.', 'success');
       qc.invalidateQueries({ queryKey: ['organizations', activeOrg.id, 'legal-identity'] });
@@ -464,12 +526,28 @@ export default function SettingsPage() {
   });
   const submitLegal = () => {
     const problems: Record<string, string> = {};
-    for (const key of LEGAL_KEYS) {
-      const problem = fieldProblem(key, legal[key]);
+    const ctx = { country: legal.registeredCountry, kind: legal.taxRegistrationKind };
+    // The number is judged against its kind, so a new kind re-checks the number beside it.
+    const judged = new Set<string>(Object.keys(legalChanges));
+    if (judged.has('taxRegistrationKind')) judged.add('taxRegistrationNumber');
+    for (const key of judged) {
+      const problem = fieldProblem(key, legal[key as LegalTextKey], ctx);
       if (problem) problems[key] = problem;
     }
-    const postal = postalCodeProblem(legal.registeredCountry, legal.registeredPostalCode);
-    if (postal) problems.registeredPostalCode = postal;
+    if (judged.has('registeredPostalCode') || judged.has('registeredCountry')) {
+      const postal = postalCodeProblem(legal.registeredCountry, legal.registeredPostalCode);
+      if (postal) problems.registeredPostalCode = postal;
+    }
+    if (extraDirty) {
+      trimmedExtras(extra).forEach((r, i) => {
+        const problem = !r.kind
+          ? 'Choose a registration.'
+          : !r.number
+            ? 'Enter the number.'
+            : taxRegistrationNumberProblem(legal.registeredCountry, r.kind, r.number);
+        if (problem) problems[`additionalTaxRegistrations.${i}`] = problem;
+      });
+    }
     setLegalErrors(problems);
     if (Object.keys(problems).length > 0) {
       toast.push('Not saved. Check the fields marked in red.', 'error');
@@ -479,7 +557,10 @@ export default function SettingsPage() {
       toast.push('Nothing to save. No field has changed.', 'info');
       return;
     }
-    saveLegal.mutate(legalChanges);
+    saveLegal.mutate({
+      ...legalChanges,
+      ...(extraDirty ? { additionalTaxRegistrations: trimmedExtras(extra) } : {}),
+    });
   };
 
   /*
@@ -691,17 +772,29 @@ export default function SettingsPage() {
               onChange={(e) => setField('description', e.target.value)}
             />
             <div className="grid gap-4 sm:grid-cols-2">
-              {PROFILE_FIELDS.map((f) => (
-                <Input
-                  key={f.key}
-                  id={`org-${f.key}`}
-                  label={f.label}
-                  placeholder={f.placeholder}
-                  value={form[f.key]}
-                  error={profileErrors[f.key]}
-                  onChange={(e) => setField(f.key, e.target.value)}
-                />
-              ))}
+              {PROFILE_FIELDS.map((f) =>
+                f.key === 'contactPhone' ? (
+                  <ContactPhoneField
+                    key={f.key}
+                    id={`org-${f.key}`}
+                    label={f.label}
+                    value={form.contactPhone}
+                    homeCountry={activeOrg.registeredCountry}
+                    error={profileErrors.contactPhone}
+                    onChange={(v) => setField('contactPhone', v)}
+                  />
+                ) : (
+                  <Input
+                    key={f.key}
+                    id={`org-${f.key}`}
+                    label={f.label}
+                    placeholder={f.placeholder}
+                    value={form[f.key]}
+                    error={profileErrors[f.key]}
+                    onChange={(e) => setField(f.key, e.target.value)}
+                  />
+                ),
+              )}
             </div>
             <div className="flex flex-wrap items-center gap-3">
               <Button
@@ -848,10 +941,17 @@ export default function SettingsPage() {
                               (r) => r.name === legal.registeredRegion,
                             );
                             const formFits = next?.legalEntityTypes.includes(legal.legalEntityType);
+                            // A registration type the new country does not have (an EIN in
+                            // India) is cleared the same way; the number stays, visible.
+                            const kindFits =
+                              !next?.taxRegistrationTypes ||
+                              !legal.taxRegistrationKind ||
+                              Boolean(taxRegistrationType(next.code, legal.taxRegistrationKind));
                             setLegalFields({
                               registeredCountry: e.target.value,
                               ...(regionFits ? {} : { registeredRegion: '' }),
                               ...(formFits ? {} : { legalEntityType: '' }),
+                              ...(kindFits ? {} : { taxRegistrationKind: '' }),
                             });
                           }}
                         >
@@ -917,46 +1017,215 @@ export default function SettingsPage() {
                       </div>
                     );
                   }
+                  const types = taxRegistrationTypes(legal.registeredCountry);
+                  const chosenType = taxRegistrationType(
+                    legal.registeredCountry,
+                    legal.taxRegistrationKind,
+                  );
+                  if (f.key === 'taxRegistrationKind' && types) {
+                    const kinds = types.map((t) => t.kind);
+                    // A stored kind in another spelling ("ein") selects its list entry.
+                    const selected = chosenType?.kind ?? legal.taxRegistrationKind;
+                    return (
+                      <div key={f.key}>
+                        <Select
+                          id={`legal-${f.key}`}
+                          label={f.label}
+                          hint="Which number you hold. Choose not registered if you have none."
+                          error={legalErrors[f.key]}
+                          value={selected}
+                          onChange={(e) => {
+                            const next = taxRegistrationType(
+                              legal.registeredCountry,
+                              e.target.value,
+                            );
+                            // "Not registered" has no number: clear it in the form, visibly.
+                            setLegalFields({
+                              taxRegistrationKind: e.target.value,
+                              ...(next?.notRegistered ? { taxRegistrationNumber: '' } : {}),
+                            });
+                          }}
+                        >
+                          <option value="">Select</option>
+                          {storedOption(selected, kinds)}
+                          {types.map((t) => (
+                            <option key={t.kind} value={t.kind}>
+                              {t.label}
+                            </option>
+                          ))}
+                        </Select>
+                      </div>
+                    );
+                  }
+                  if (f.key === 'taxRegistrationNumber' && chosenType?.notRegistered) {
+                    return (
+                      <p key={f.key} className="self-end pb-3 text-caption text-text-muted">
+                        No number is needed. Your buyers get receipts.
+                      </p>
+                    );
+                  }
+                  if (f.key === 'financeContactPhone' || f.key === 'grievanceOfficerPhone') {
+                    return (
+                      <ContactPhoneField
+                        key={f.key}
+                        id={`legal-${f.key}`}
+                        label={f.label}
+                        value={legal[f.key]}
+                        homeCountry={legal.registeredCountry}
+                        error={legalErrors[f.key]}
+                        onChange={(v) => setLegalField(f.key, v)}
+                      />
+                    );
+                  }
                   /*
                     "Tax registration number" is what the platform calls it; "GSTIN" is what the
                     organizer calls it, and they are looking for the one on their own
                     certificate. A postal code is a ZIP code or a PIN code the same way.
                   */
+                  const numberRule =
+                    f.key === 'taxRegistrationNumber' ? chosenType?.number : undefined;
                   const label =
-                    f.key === 'taxRegistrationNumber' && market
-                      ? `${market.taxRegistrationLabel} (if you have one)`
-                      : f.key === 'registeredPostalCode' && market?.postalCode
-                        ? market.postalCode.label
-                        : f.label;
-                  const placeholder =
-                    f.key === 'taxRegistrationKind' && market
+                    f.key === 'taxRegistrationNumber' && chosenType
+                      ? `${chosenType.kind} number`
+                      : f.key === 'taxRegistrationNumber' && market
+                        ? `${market.taxRegistrationLabel} (if you have one)`
+                        : f.key === 'registeredPostalCode' && market?.postalCode
+                          ? market.postalCode.label
+                          : f.label;
+                  const placeholder = numberRule
+                    ? `For example ${numberRule.example}`
+                    : f.key === 'taxRegistrationKind' && market
                       ? market.taxRegistrationLabel
                       : f.placeholder;
-                  return (
+                  const invoiceHint =
+                    f.key === 'taxRegistrationNumber' &&
+                    market &&
+                    !issuesTaxInvoices(legal.registeredCountry, legal.taxRegistrationKind)
+                      ? 'Printed on the receipts your buyers get. It does not make them tax invoices.'
+                      : f.hint;
+                  const field = (
                     <div key={f.key} className={f.wide ? 'sm:col-span-2' : undefined}>
                       <Input
                         id={`legal-${f.key}`}
                         label={label}
                         placeholder={placeholder}
                         hint={
-                          f.key === 'taxRegistrationNumber' &&
-                          market &&
-                          !issuesTaxInvoices(legal.registeredCountry)
-                            ? 'Printed on the receipts your buyers get. It does not make them tax invoices.'
-                            : f.hint
+                          numberRule
+                            ? `${numberRule.hint} ${invoiceHint ?? ''}`.trim()
+                            : invoiceHint
                         }
                         error={legalErrors[f.key]}
                         value={legal[f.key]}
-                        onChange={(e) => setLegalField(f.key, e.target.value)}
+                        autoCapitalize={numberRule?.uppercase ? 'characters' : undefined}
+                        onChange={(e) =>
+                          setLegalField(
+                            f.key,
+                            numberRule?.uppercase ? e.target.value.toUpperCase() : e.target.value,
+                          )
+                        }
                       />
                     </div>
                   );
+                  if (f.key !== 'taxRegistrationNumber' || !types) return field;
+                  /*
+                    ── MORE THAN ONE REGISTRATION ──────────────────────────────────────────
+                    A US organizer can hold a sales tax ID in each state it sells in; an Indian
+                    one a GSTIN per state and a PAN. The main registration above is the one
+                    printed on documents; these are recorded beside it.
+                  */
+                  const offered = types.filter((t) => !t.notRegistered);
+                  return [
+                    field,
+                    <div
+                      key="extra"
+                      className="space-y-3 sm:col-span-2"
+                      data-testid="extra-registrations"
+                    >
+                      {extra.map((row, i) => {
+                        const rowType = taxRegistrationType(legal.registeredCountry, row.kind);
+                        const err = legalErrors[`additionalTaxRegistrations.${i}`];
+                        return (
+                          <div
+                            key={i}
+                            className="grid items-start gap-2 sm:grid-cols-[1fr_1fr_auto]"
+                          >
+                            <Select
+                              id={`legal-extra-kind-${i}`}
+                              label={`Other registration ${i + 1}`}
+                              value={rowType?.kind ?? row.kind}
+                              onChange={(e) =>
+                                setExtraRows(
+                                  extra.map((r, j) =>
+                                    j === i ? { ...r, kind: e.target.value } : r,
+                                  ),
+                                )
+                              }
+                            >
+                              <option value="">Select</option>
+                              {storedOption(
+                                rowType?.kind ?? row.kind,
+                                offered.map((t) => t.kind),
+                              )}
+                              {offered.map((t) => (
+                                <option key={t.kind} value={t.kind}>
+                                  {t.label}
+                                </option>
+                              ))}
+                            </Select>
+                            <Input
+                              id={`legal-extra-number-${i}`}
+                              label="Number"
+                              placeholder={
+                                rowType?.number
+                                  ? `For example ${rowType.number.example}`
+                                  : undefined
+                              }
+                              value={row.number}
+                              error={err}
+                              onChange={(e) =>
+                                setExtraRows(
+                                  extra.map((r, j) =>
+                                    j === i
+                                      ? {
+                                          ...r,
+                                          number: rowType?.number?.uppercase
+                                            ? e.target.value.toUpperCase()
+                                            : e.target.value,
+                                        }
+                                      : r,
+                                  ),
+                                )
+                              }
+                            />
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="sm:mt-7"
+                              aria-label={`Remove other registration ${i + 1}`}
+                              onClick={() => setExtraRows(extra.filter((_, j) => j !== i))}
+                            >
+                              Remove
+                            </Button>
+                          </div>
+                        );
+                      })}
+                      {extra.length < 10 ? (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => setExtraRows([...extra, { kind: '', number: '' }])}
+                        >
+                          Add another registration
+                        </Button>
+                      ) : null}
+                    </div>,
+                  ];
                 })}
               </div>
               <p className="mt-4 text-caption text-text-muted">
-                We record your registration number exactly as you enter it and print it unchanged.
-                We do not check its format, because each tax authority sets its own. Documents
-                already issued keep the details they were issued with.
+                We print your registration number exactly as you enter it. For the United States and
+                India we check that it has the right format. We do not check it with the tax
+                authority. Documents already issued keep the details they were issued with.
               </p>
               <div className="mt-4 flex flex-wrap items-center gap-3">
                 <Button

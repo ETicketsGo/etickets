@@ -261,9 +261,10 @@ test.describe('the public compliance surface', () => {
       const page = await ctx.newPage();
       for (const path of ['/', '/about']) {
         await page.goto(`${CUSTOMER}${path}`);
-        await expect(page.getByTestId('footer-rights'), path).toHaveText(FOOTER);
-        await expect(page.getByTestId('footer-operator'), path).toHaveText(
-          'Operated in India by DeepTrics Software Solutions Private Limited.',
+        // One line, the brand once and the company by its short name (owner, 2026-11-05). The
+        // full legal name stays on About and the Legal & Policies pages (checked below).
+        await expect(page.getByTestId('footer-rights'), path).toHaveText(
+          `© ${new Date().getFullYear()} ETicketsGo. Operated by DeepTrics Software Solutions Pvt Ltd.`,
         );
       }
       await ctx.close();

@@ -70,7 +70,7 @@ describe('an admin recording a registration on an organizer’s behalf', () => {
     */
     const { service, audit } = setup();
     await service.adminUpdateLegalIdentity(ADMIN, 'org-1', {
-      taxRegistrationNumber: 'X',
+      taxRegistrationNumber: '36BBBBB1111B2Z6',
     } as never);
     const entry = audit.record.mock.calls[0][0];
     expect(entry.action).toBe('ORGANIZATION_LEGAL_IDENTITY_UPDATED_BY_ADMIN');
@@ -117,7 +117,7 @@ describe('an admin recording a registration on an organizer’s behalf', () => {
     // address every time somebody corrected only the phone number.
     const { service, prisma } = setup();
     await service.adminUpdateLegalIdentity(ADMIN, 'org-1', {
-      financeContactPhone: '+91 90000 00000',
+      financeContactPhone: '+919000000000',
       legalName: undefined,
     } as never);
     expect(Object.keys(prisma.organization.update.mock.calls[0][0].data)).toEqual([

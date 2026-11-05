@@ -106,12 +106,12 @@ const APP_LINKS = ['Explore', 'Movies', 'Tickets'];
   (never both, and never a guess from an IP address). The Legal & Policies pages list both.
 */
 const LEGAL_LINE = `© ${new Date().getFullYear()} ETicketsGo. All rights reserved.`;
-const INDIA_LINE = 'Operated in India by DeepTrics Software Solutions Private Limited.';
-const US_LINE = 'Operated in the United States by DeepTrics LLC.';
+// One line with a market: the brand once, then the company by its short name (owner, 2026-11-05).
+const INDIA_LINE = `© ${new Date().getFullYear()} ETicketsGo. Operated by DeepTrics Software Solutions Pvt Ltd.`;
+const US_LINE = `© ${new Date().getFullYear()} ETicketsGo. Operated by DeepTrics LLC.`;
 /** The footer names no company: the neutral copyright line only. */
 function expectNeutral(footer: HTMLElement) {
   expect(footer.querySelector('[data-testid="footer-rights"]')?.textContent).toBe(LEGAL_LINE);
-  expect(footer.querySelector('[data-testid="footer-operator"]')).toBeNull();
   expect(footer.textContent).not.toContain('DeepTrics');
 }
 
@@ -380,16 +380,14 @@ describe('the footer names the company for the selected market', () => {
   it('India: the copyright line and the Indian company', async () => {
     choose('Hyderabad', 'Telangana', 'India');
     const { footer } = await mount('/', false);
-    expect(footer.querySelector('[data-testid="footer-rights"]')?.textContent).toBe(LEGAL_LINE);
-    expect(footer.querySelector('[data-testid="footer-operator"]')?.textContent).toBe(INDIA_LINE);
+    expect(footer.querySelector('[data-testid="footer-rights"]')?.textContent).toBe(INDIA_LINE);
     expect(footer.textContent).not.toContain('DeepTrics LLC');
   });
 
   it('United States: DeepTrics LLC', async () => {
     choose('Austin', 'Texas', 'United States');
     const { footer } = await mount('/features', false);
-    expect(footer.querySelector('[data-testid="footer-rights"]')?.textContent).toBe(LEGAL_LINE);
-    expect(footer.querySelector('[data-testid="footer-operator"]')?.textContent).toBe(US_LINE);
+    expect(footer.querySelector('[data-testid="footer-rights"]')?.textContent).toBe(US_LINE);
     expect(footer.textContent).not.toContain('Private Limited');
   });
 
@@ -429,7 +427,7 @@ describe('the footer names the company for the selected market', () => {
       await act(async () => {
         await new Promise((r) => setTimeout(r, 0));
       });
-      expect(footer.querySelector('[data-testid="footer-operator"]')?.textContent).toBe(INDIA_LINE);
+      expect(footer.querySelector('[data-testid="footer-rights"]')?.textContent).toBe(INDIA_LINE);
       expect(footer.textContent).not.toContain('DeepTrics LLC');
       // "All cities" keeps the market for the server-rendered legal pages too.
       expect(document.cookie).toContain('etg_selected_market=IN');
@@ -478,10 +476,9 @@ describe('on a legal page the footer follows the market the page body follows', 
     async (route) => {
       search = 'country=IN';
       const { footer } = await mount(route, false);
-      expect(footer.querySelector('[data-testid="footer-operator"]')?.textContent).toBe(
+      expect(footer.querySelector('[data-testid="footer-rights"]')?.textContent).toBe(
         INDIA_OPERATOR_LINE,
       );
-      expect(footer.textContent).toContain(LEGAL_LINE);
     },
   );
 
