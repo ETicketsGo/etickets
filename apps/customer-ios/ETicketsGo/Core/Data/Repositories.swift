@@ -5,7 +5,7 @@ import Foundation
 // whole of the "replace mocks with NestJS" step — no view or view model changes.
 
 protocol CatalogRepository: Sendable {
-    func discovery() async throws -> DiscoveryFeed
+    func discovery(city: String?) async throws -> DiscoveryFeed
     func events(_ query: EventQuery) async throws -> Page<EventSummary>
     func event(slug: String) async throws -> EventDetail
     func movieShows(slug: String) async throws -> MovieShows
@@ -23,7 +23,7 @@ protocol TicketsRepository: Sendable {
 struct RemoteCatalogRepository: CatalogRepository {
     let client: APIClient
 
-    func discovery() async throws -> DiscoveryFeed { try await client.send(CustomerAPI.discovery()) }
+    func discovery(city: String?) async throws -> DiscoveryFeed { try await client.send(CustomerAPI.discovery(city: city)) }
     func events(_ query: EventQuery) async throws -> Page<EventSummary> {
         try await client.send(CustomerAPI.events(query))
     }
@@ -40,4 +40,9 @@ struct RemoteTicketsRepository: TicketsRepository {
     func ticket(id: String) async throws -> Ticket { try await client.send(CustomerAPI.ticket(id: id)) }
     func bookings() async throws -> [Booking] { try await client.send(CustomerAPI.bookings()).data }
     func booking(id: String) async throws -> Booking { try await client.send(CustomerAPI.booking(id: id)) }
+}
+
+extension CatalogRepository {
+    /// Discovery with no city scope.
+    func discovery() async throws -> DiscoveryFeed { try await discovery(city: nil) }
 }

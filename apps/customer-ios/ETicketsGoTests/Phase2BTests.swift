@@ -125,7 +125,7 @@ struct OfflineTicketTests {
         #expect(!url.lastPathComponent.contains("usr-demo"))
 
         let wallet = try #require(store.load(userId: "usr-demo", now: now))
-        #expect(wallet.tickets.count == 4)  // the September ticket is past
+        #expect(wallet.tickets.count == 5)  // the September ticket is past
         #expect(wallet.tickets.allSatisfy { $0.qrToken == nil })
 
         let protection = try FileManager.default.attributesOfItem(atPath: url.path)[.protectionKey] as? FileProtectionType
@@ -159,7 +159,7 @@ struct OfflineTicketTests {
         await cut.load(userId: "usr-demo", now: now.addingTimeInterval(3600))
         guard case let .tickets(upcoming, _, offlineSince)? = cut.state.value else { Issue.record("expected saved tickets"); return }
         #expect(offlineSince == now)
-        #expect(upcoming.count == 4 && upcoming.allSatisfy { $0.qrToken == nil })
+        #expect(upcoming.count == 5 && upcoming.allSatisfy { $0.qrToken == nil })
 
         let signedOut = MyTicketsViewModel(repository: OfflineRepository(error: .unauthorized), offline: offline)
         await signedOut.load(userId: "usr-demo", now: now)

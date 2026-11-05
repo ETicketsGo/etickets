@@ -153,8 +153,14 @@ struct MovieDetailView: View {
         }
         ForEach(MovieDetailViewModel.days(data.shows), id: \.day) { group in
             VStack(alignment: .leading, spacing: ETGSpace.sm) {
-                Text(Formatters.dayAndTime(group.day, timeZone: group.shows.first?.timeZone).day)
-                    .font(ETGFont.headline).foregroundStyle(ETGColor.ink)
+                HStack(alignment: .firstTextBaseline) {
+                    Text(Formatters.dayAndTime(group.day, timeZone: group.shows.first?.timeZone).day)
+                        .font(ETGFont.headline).foregroundStyle(ETGColor.ink)
+                    Spacer()
+                    if let note = Formatters.zoneNote(group.shows.first?.timeZone, at: group.day) {
+                        Text(note).font(ETGFont.caption).foregroundStyle(ETGColor.muted)
+                    }
+                }
                 ForEach(group.shows) { show in
                     NavigationLink(value: Route.event(slug: show.eventSlug)) { ShowtimeRow(show: show) }
                         .buttonStyle(.plain)
@@ -170,7 +176,7 @@ struct ShowtimeRow: View {
 
     var body: some View {
         HStack(spacing: ETGSpace.md) {
-            Text(Formatters.time(show.startsAt, timeZone: show.timeZone))
+            Text(Formatters.time(show.startsAt, timeZone: show.timeZone, namingZone: false))
                 .font(ETGFont.headline.monospacedDigit())
                 .foregroundStyle(ETGColor.ink)
                 .frame(minWidth: 72, alignment: .leading)

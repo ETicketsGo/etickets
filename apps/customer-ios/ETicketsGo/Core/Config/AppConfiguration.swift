@@ -21,6 +21,12 @@ struct AppConfiguration: Sendable, Equatable {
     /// Exact email addresses or E.164 phone numbers. No patterns: a wildcard could admit
     /// accounts nobody approved.
     var qaTestAccounts: [String] = []
+    /// Whether this build may create holds, start payments or cancel bookings. Off for QA and
+    /// PROD until separately approved: QA booking data must not be mutated from the app.
+    /// MOCK simulates the whole journey against an in-memory server.
+    var allowsBookingWrites = false
+
+    var bookingWritesPermitted: Bool { environment == .mock || (environment == .qa && allowsBookingWrites) }
 
     /// Reads are always allowed; writes only against QA, and only when the build opted in.
     /// PROD is read-only whatever the build settings say, so a misconfigured xcconfig cannot
@@ -66,7 +72,8 @@ struct AppConfiguration: Sendable, Equatable {
             .map(String.init)
         return AppConfiguration(
             environment: environment, apiBaseURL: url, allowsMutations: allows,
-            qaTestAccounts: environment == .qa ? accounts : [])
+            qaTestAccounts: environment == .qa ? accounts : [],
+            allowsBookingWrites: environment == .qa && (info["ETGAllowBookingWrites"] as? String)?.uppercased() == "YES")
     }
 
     static func load(from bundle: Bundle = .main) -> AppConfiguration {

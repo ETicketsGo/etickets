@@ -26,13 +26,47 @@ private func simulatedLatency(_ duration: Duration) async throws {
     if duration > .zero { try await Task.sleep(for: duration) }
 }
 
+/// After `allowed` successful calls, every call fails as if offline — for exercising the saved
+/// ticket path in MOCK.
+final class GoesOffline: @unchecked Sendable {
+    private let lock = NSLock()
+    private var remaining: Int?
+    init(after allowed: Int?) { remaining = allowed }
+    func check() throws {
+        let offline = lock.withLock { () -> Bool in
+            guard let left = remaining else { return false }
+            if left > 0 { remaining = left - 1; return false }
+            return true
+        }
+        if offline { throw APIError.transport(.notConnectedToInternet) }
+    }
+}
+
+/// Fails its first call, then succeeds — for exercising error and retry screens in MOCK.
+final class FailOnce: @unchecked Sendable {
+    private let lock = NSLock()
+    private var armed: Bool
+    init(armed: Bool) { self.armed = armed }
+    func check() throws {
+        let fail = lock.withLock { () -> Bool in defer { armed = false }; return armed }
+        if fail { throw APIError.transport(.timedOut) }
+    }
+}
+
 struct MockCatalogRepository: CatalogRepository {
     var fixtures = FixtureStore()
     var latency: Duration = .milliseconds(350)
+    var failOnce = FailOnce(armed: false)
 
-    func discovery() async throws -> DiscoveryFeed {
+    /// Like the server, a chosen city narrows the shelves to that city's events.
+    func discovery(city: String?) async throws -> DiscoveryFeed {
         try await simulatedLatency(latency)
-        return try fixtures.load("discovery")
+        try failOnce.check()
+        let feed: DiscoveryFeed = try fixtures.load("discovery")
+        guard let city else { return feed }
+        let inCity = { (e: EventSummary) in e.venue.city.caseInsensitiveCompare(city) == .orderedSame }
+        return DiscoveryFeed(nowShowing: feed.nowShowing, trendingEvents: feed.trendingEvents.filter(inCity),
+                             thisWeekend: feed.thisWeekend.filter(inCity), categories: feed.categories)
     }
 
     /// Filters locally so search and categories behave believably. The real filtering
@@ -43,6 +77,7 @@ struct MockCatalogRepository: CatalogRepository {
         let text = query.text?.trimmingCharacters(in: .whitespaces).lowercased() ?? ""
         let matches = all.filter { event in
             (query.category == nil || event.category == query.category)
+                && (query.city == nil || event.venue.city.caseInsensitiveCompare(query.city!) == .orderedSame)
                 && (text.isEmpty
                     || event.title.lowercased().contains(text)
                     || event.venue.name.lowercased().contains(text)
@@ -70,31 +105,37 @@ struct MockCatalogRepository: CatalogRepository {
     }
 }
 
-/// Like GET /tickets, answers only for a signed-in session.
+/// Like GET /tickets, answers only for a signed-in session. Includes whatever the MOCK
+/// commerce server issued during this run.
 struct MockTicketsRepository: TicketsRepository {
     let session: AuthSession
     var fixtures = FixtureStore()
     var latency: Duration = .milliseconds(350)
+    var server: MockCommerceServer?
+    var network = GoesOffline(after: nil)
 
     func tickets() async throws -> [Ticket] {
         try await signedIn()
-        return try fixtures.load("tickets")
+        try network.check()
+        let issued = await server?.issuedTickets ?? []
+        return issued + (try fixtures.load("tickets") as [Ticket])
     }
 
     func ticket(id: String) async throws -> Ticket {
         try await signedIn()
-        let all: [Ticket] = try fixtures.load("tickets")
+        let all: [Ticket] = (await server?.issuedTickets ?? []) + (try fixtures.load("tickets") as [Ticket])
         guard let match = all.first(where: { $0.id == id }) else { throw APIError.server(status: 404, code: "NOT_FOUND", message: "Ticket not found.") }
         return match
     }
 
     func bookings() async throws -> [Booking] {
         try await signedIn()
-        return try fixtures.load("bookings")
+        return (await server?.allBookings() ?? []) + (try fixtures.load("bookings") as [Booking])
     }
 
     func booking(id: String) async throws -> Booking {
         try await signedIn()
+        if let live = try? await server?.booking(id: id) { return live }
         let all: [Booking] = try fixtures.load("bookings")
         guard let match = all.first(where: { $0.id == id }) else { throw APIError.server(status: 404, code: "NOT_FOUND", message: "Booking not found.") }
         return match

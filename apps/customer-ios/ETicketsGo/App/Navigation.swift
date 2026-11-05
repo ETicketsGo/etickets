@@ -12,6 +12,7 @@ enum Route: Hashable {
     case ticket(Ticket)
     case bookings
     case booking(Booking)
+    case selectTickets(EventDetail, sessionId: String?)
 }
 
 /// Cross-tab navigation: switching tabs, and opening Explore with a category chosen on Home.
@@ -70,6 +71,7 @@ struct RootTabView: View {
         }
         .tint(ETGColor.ink)
         .sheet(isPresented: $auth.isPresentingSignIn) { SignInView() }
+        .sheet(isPresented: Bindable(container.city).isPresentingPicker) { CityPickerView() }
         .task {
             await container.auth.start()
             #if DEBUG
@@ -103,6 +105,7 @@ struct RouteDestination: View {
         case let .ticket(ticket): TicketDetailView(ticket: ticket)
         case .bookings: BookingsView()
         case let .booking(booking): BookingDetailView(booking: booking)
+        case let .selectTickets(event, sessionId): TicketSelectionView(event: event, preselectedSessionId: sessionId)
         }
     }
 }

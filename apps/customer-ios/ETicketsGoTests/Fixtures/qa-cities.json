@@ -1,0 +1,7 @@
+[
+  { "city": "Boise", "country": "United States", "countryCode": "US", "eventCount": 15 },
+  { "city": "Hyderabad", "country": "India", "countryCode": "IN", "eventCount": 9 },
+  { "city": "Bengaluru", "country": "India", "countryCode": "IN", "eventCount": 8 },
+  { "city": "Mumbai", "country": "India", "countryCode": "IN", "eventCount": 8 },
+  { "city": "Vijayawada", "country": "India", "countryCode": "IN", "eventCount": 5 }
+]

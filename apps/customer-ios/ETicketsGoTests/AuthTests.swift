@@ -326,7 +326,7 @@ struct MockAuthTests {
         }
         try await container.auth.login(email: "Demo.Customer@example.com ", password: MockAuthService.demoPassword)
         #expect(container.auth.user?.fullName == "Demo Customer")
-        #expect(try await container.tickets.tickets().count == 5)
+        #expect(try await container.tickets.tickets().count == 6)
 
         await container.auth.logout()
         #expect(container.auth.state == .signedOut)

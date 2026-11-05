@@ -2,7 +2,7 @@
   {
     "id": "tkt-1",
     "serial": "ETG-7Q2M-0001",
-    "status": "VALID",
+    "status": "ACTIVE",
     "holderName": "Demo Customer",
     "ticketType": "Lawn",
     "event": {
@@ -30,7 +30,7 @@
   {
     "id": "tkt-2",
     "serial": "ETG-7Q2M-0002",
-    "status": "VALID",
+    "status": "ACTIVE",
     "holderName": "Demo Customer",
     "ticketType": "Lawn",
     "event": {
@@ -58,7 +58,7 @@
   {
     "id": "tkt-3",
     "serial": "ETG-9F4C-0001",
-    "status": "VALID",
+    "status": "ACTIVE",
     "holderName": "Demo Customer",
     "ticketType": "Recliner",
     "event": {
@@ -86,7 +86,7 @@
   {
     "id": "tkt-5",
     "serial": "ETG-5C1A-0001",
-    "status": "VALID",
+    "status": "TRANSFERRED",
     "holderName": "Demo Customer",
     "ticketType": "Stalls",
     "event": {
@@ -112,9 +112,37 @@
     "vendorBarcodeFormat": null
   },
   {
+    "id": "tkt-6",
+    "serial": "ETG-6D2E-0001",
+    "status": "REFUNDED",
+    "holderName": "Demo Customer",
+    "ticketType": "Workshop seat",
+    "event": {
+      "title": "Wheel & Clay Pottery Workshop",
+      "slug": "wheel-and-clay-pottery-vijayawada"
+    },
+    "startsAt": "2026-11-01T05:30:00.000Z",
+    "qrToken": "MOCK.ETG-6D2E-0001",
+    "qrDataUrl": "data:image/png;base64,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",
+    "bookingId": "bkg-4",
+    "bookingRef": "ETG-R2F8NC",
+    "experienceType": "event",
+    "seatLabel": null,
+    "venueName": "Studio Mitti",
+    "screenName": null,
+    "cinemaName": null,
+    "assignmentStatus": "UNASSIGNED",
+    "attendeeName": null,
+    "ownedByViewer": true,
+    "assignedToViewer": false,
+    "timezone": "Asia/Kolkata",
+    "vendorBarcode": null,
+    "vendorBarcodeFormat": null
+  },
+  {
     "id": "tkt-4",
     "serial": "ETG-2B8D-0001",
-    "status": "USED",
+    "status": "CHECKED_IN",
     "holderName": "Demo Customer",
     "ticketType": "General admission",
     "event": {

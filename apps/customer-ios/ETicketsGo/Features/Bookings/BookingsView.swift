@@ -127,7 +127,9 @@ final class BookingDetailViewModel {
 
 struct BookingDetailView: View {
     @Environment(AppContainer.self) private var container
+    @Environment(AppRouter.self) private var router
     @State private var model: BookingDetailViewModel?
+    @State private var resuming: ReservedBooking?
     private let initial: Booking
 
     init(booking: Booking) { initial = booking }
@@ -141,6 +143,12 @@ struct BookingDetailView: View {
                     Text(booking.event.title).font(ETGFont.title).foregroundStyle(ETGColor.ink)
                     Text(booking.eventSession.startsAt.formatted(.dateTime.weekday(.wide).day().month(.wide).year().hour().minute()))
                         .font(ETGFont.subheadline).foregroundStyle(ETGColor.muted)
+                    if Self.canResume(booking) {
+                        Button("Continue checkout") { resuming = ReservedBooking(booking: Self.resumable(booking)) }
+                            .buttonStyle(.etgPrimary)
+                            .padding(.top, ETGSpace.sm)
+                            .accessibilityIdentifier("booking.resume")
+                    }
                     if let reference = booking.reference {
                         Text("Reference \(reference)").font(ETGFont.subheadline.weight(.semibold)).foregroundStyle(ETGColor.inkSecondary)
                             .textSelection(.enabled)
@@ -181,6 +189,31 @@ struct BookingDetailView: View {
             if model == nil { model = BookingDetailViewModel(booking: initial, repository: container.tickets) }
             await model?.load()
         }
+        .fullScreenCover(item: $resuming, onDismiss: { Task { await model?.load() } }) { reserved in
+            NavigationStack {
+                CheckoutView(created: reserved.booking, title: booking.event.title) { outcome in
+                    if outcome == .confirmed { router.paths[router.selectedTab] = []; router.selectedTab = .tickets }
+                }
+            }
+            .environment(container)
+            .environment(router)
+        }
+    }
+
+    /// An interrupted checkout: still pending and the server's hold has time left.
+    static func canResume(_ booking: Booking, now: Date = .now) -> Bool {
+        booking.status == "PENDING_PAYMENT" && (booking.holdExpiresAt.map { $0 > now } ?? false)
+    }
+
+    /// The checkout screen's input, from the booking's own server-side amounts.
+    static func resumable(_ booking: Booking) -> CreatedBooking {
+        CreatedBooking(
+            id: booking.id, status: booking.status, currency: booking.currency, holdExpiresAt: booking.holdExpiresAt,
+            fees: FeeBreakdown(currency: booking.currency, subtotalMinor: booking.subtotalMinor, discountMinor: booking.discountMinor,
+                               netSubtotalMinor: booking.subtotalMinor, bookingFeeMinor: booking.bookingFeeMinor,
+                               paymentFeeMinor: booking.paymentFeeMinor, customerFeeMinor: booking.customerFeeMinor, taxLines: [],
+                               taxMinor: 0, maintenanceMinor: nil, totalMinor: booking.totalMinor),
+            paymentMethod: .online, payment: nil)
     }
 
     private func line(_ label: String, _ minor: Int, _ currency: String, emphasised: Bool = false) -> some View {
