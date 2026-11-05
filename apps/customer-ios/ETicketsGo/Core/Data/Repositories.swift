@@ -13,6 +13,9 @@ protocol CatalogRepository: Sendable {
 
 protocol TicketsRepository: Sendable {
     func tickets() async throws -> [Ticket]
+    func ticket(id: String) async throws -> Ticket
+    func bookings() async throws -> [Booking]
+    func booking(id: String) async throws -> Booking
 }
 
 // MARK: - Remote (QA / PROD)
@@ -34,4 +37,7 @@ struct RemoteTicketsRepository: TicketsRepository {
     let client: APIClient
 
     func tickets() async throws -> [Ticket] { try await client.send(CustomerAPI.tickets()) }
+    func ticket(id: String) async throws -> Ticket { try await client.send(CustomerAPI.ticket(id: id)) }
+    func bookings() async throws -> [Booking] { try await client.send(CustomerAPI.bookings()).data }
+    func booking(id: String) async throws -> Booking { try await client.send(CustomerAPI.booking(id: id)) }
 }

@@ -189,6 +189,23 @@ Other endpoints Phase 2 needs:
 - MFA.
 - Biometric unlock.
 
+## Phase 2B (local, in progress)
+
+| Area                                             | Status                                                                                                                                                                                                                           |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Discovery, event detail and movie-show contracts | **Verified against recorded QA responses** (`ETicketsGoTests/Fixtures`, `docs/recording-fixtures.md`). Show times fall back to `venue.timezone` (PR #462) where there's no cinema                                                |
+| Booking history and booking detail               | `GET /bookings`, `GET /bookings/:id`. Linked from Profile. MOCK only so far                                                                                                                                                      |
+| Ticket detail                                    | `GET /tickets/:id` when the ticket is opened. If that fails, the saved copy is shown and labelled as such                                                                                                                        |
+| Server-issued QR                                 | Shown only when the server lets this viewer present the ticket (`qrToken` present and non-empty). Transferred tickets and vendor barcodes that aren't QR get an explanation instead of a code. The app never draws a code itself |
+| Offline read-only tickets                        | `FileOfflineTicketStore` (details below). Used when the server can't be reached, with an "offline" notice                                                                                                                        |
+| QA validation of the signed-in endpoints         | **Blocked.** Needs an approved QA test account and stable QA                                                                                                                                                                     |
+
+**How the offline ticket store works**
+
+- **What's saved:** upcoming tickets only, with no signed token. It keeps the server-rendered image and whether the ticket could be presented.
+- **Where:** one file per user, named by a hash of the user ID, with complete file protection and excluded from backups.
+- **Expiry and clearing:** a copy older than 7 days isn't shown. Everything is cleared on sign-out and when the server ends the session.
+
 ## Phase 2 plan
 
 1. **Auth.** Done in 2A (above). Still to do: forgot and reset password, phone attach, and Sign in with Apple, which needs backend support.
