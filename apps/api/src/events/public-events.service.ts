@@ -351,6 +351,7 @@ export class PublicEventsService {
           title: e.title,
           slug: e.slug,
           category: e.category,
+          typeLabel: e.typeLabel ?? null,
           venue: cardVenue(e.venue),
           // So a card says "Online" rather than naming a venue nobody goes to.
           attendanceMode: e.attendanceMode,
@@ -475,6 +476,7 @@ export class PublicEventsService {
       images: eventImagesView(event.id, event.images),
       experienceType: event.experienceType,
       category: event.category,
+      typeLabel: event.typeLabel ?? null,
       description: event.description,
       refundPolicy: event.refundPolicy,
       feeMode: event.feeMode,
@@ -656,6 +658,7 @@ export class PublicEventsService {
         title: e.title,
         slug: e.slug,
         category: e.category,
+        typeLabel: e.typeLabel ?? null,
         venue: cardVenue(e.venue),
         organizer: org.name,
         imagePath: coverImagePath(e.id, e.images),

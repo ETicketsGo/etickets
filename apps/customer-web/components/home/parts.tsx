@@ -20,6 +20,7 @@ import { eventZone } from '@/lib/event-when';
 import { useReaderZone } from '@/lib/reader-zone';
 import { priceSlot, type Buyability } from '@/lib/home-feed';
 import { useEventPlace } from '@/lib/event-place';
+import { eventKind } from '@/lib/event-kind';
 
 /*
   ── THE HOME PAGE'S PIECES (docs/design/DESIGN-SYSTEM.md) ─────────────────────────────
@@ -249,13 +250,13 @@ export function FeatureCard({ event, state }: { event: PublicEventCard; state?: 
             sizes="(min-width: 1024px) 58vw, 100vw"
             alt=""
             title={event.title}
-            eyebrow={event.category}
+            eyebrow={eventKind(event)}
             ratio="16:9"
           />
         </div>
       </div>
       <p className="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-brand-eyebrow uppercase text-brand-gold-text">
-        {event.category}
+        {eventKind(event)}
         <ContentLabelBadge label={event.contentLabel} />
       </p>
       <h3 className="mt-1 line-clamp-3 text-balance font-brand-display text-brand-d3 text-brand-ink">
@@ -293,7 +294,7 @@ export function EventRow({ event, state }: { event: PublicEventCard; state?: Buy
       </div>
       <div className="min-w-0 self-end sm:self-center">
         <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-brand-eyebrow uppercase text-brand-gold-text">
-          {event.category}
+          {eventKind(event)}
           <ContentLabelBadge label={event.contentLabel} />
         </p>
         <h3 className="mt-1 line-clamp-2 font-brand-display text-brand-card text-brand-ink">
@@ -342,14 +343,14 @@ export function EventTile({
             sizes="(min-width: 1024px) 25vw, 72vw"
             alt=""
             title={event.title}
-            eyebrow={event.category}
+            eyebrow={eventKind(event)}
             ratio="4:3"
           />
         </div>
       </div>
       <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-brand-eyebrow uppercase text-brand-gold-text">
         <span>
-          {event.category}
+          {eventKind(event)}
           {showCity ? ` / ${place(event).city}` : ''}
         </span>
         <ContentLabelBadge label={event.contentLabel} />
@@ -501,7 +502,7 @@ export function StageHero({ event }: { event: PublicEventCard }) {
           <div className="flex flex-wrap items-center gap-3">
             {today && <BrandStatusPill status="live">{nav('today')}</BrandStatusPill>}
             <span className="text-brand-eyebrow uppercase text-brand-gold-text">
-              {event.category} / {place(event).city}
+              {eventKind(event)} / {place(event).city}
             </span>
             <ContentLabelBadge label={event.contentLabel} />
           </div>

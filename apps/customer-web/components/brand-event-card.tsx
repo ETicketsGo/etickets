@@ -16,6 +16,7 @@ import { ContentLabelBadge } from './content-label-badge';
 import { FromPrice } from './home/parts';
 import { SaveEventButton } from './storefront-brand';
 import { useEventPlace } from '@/lib/event-place';
+import { eventKind } from '@/lib/event-kind';
 
 /*
   ── AN EVENT IN A GRID, ON THE BRAND LAYER ───────────────────────────────────────────
@@ -87,14 +88,14 @@ export function BrandEventCard({
                 src={null}
                 alt=""
                 title={event.title}
-                eyebrow={event.category}
+                eyebrow={eventKind(event)}
                 ratio="4:3"
               />
             )}
           </div>
         </div>
         <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-brand-eyebrow uppercase text-brand-gold-text">
-          <span>{event.category}</span>
+          <span>{eventKind(event)}</span>
           <ContentLabelBadge label={event.contentLabel} />
         </p>
         <h3 className="mt-1 line-clamp-2 font-brand-display text-brand-card text-brand-ink">

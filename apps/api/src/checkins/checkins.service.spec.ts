@@ -166,7 +166,7 @@ describe('CheckinsService.scan', () => {
       });
       const out = await service.scan(STAFF, 'token', {});
       expect(out.result).toBe(CheckInResult.CANCELLED);
-      expect(out.message).toMatch(/Booking is/);
+      expect(out.message).toMatch(/booking is/i);
       expect(prisma.ticket.updateMany).not.toHaveBeenCalled();
     },
   );

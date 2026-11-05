@@ -8,19 +8,20 @@ import { BrandStatusPill, EventArtwork, brandButtonClasses, brandChipClasses } f
   never carried by colour alone.
 */
 describe('EventArtwork', () => {
-  it('draws the title as artwork, on the stage tone, when there is no picture', () => {
+  it('draws the title as artwork, on the light tile, when there is no picture', () => {
     const html = renderToStaticMarkup(
       <EventArtwork alt="" title="Notes From the Local Train" eyebrow="Comedy" />,
     );
     expect(html).toContain('data-artwork="fallback"');
-    expect(html).toContain('data-brand-tone="stage"');
+    expect(html).not.toContain('data-brand-tone="stage"');
+    expect(html).toContain('bg-brand-sunken');
     expect(html).toContain('aria-label="Notes From the Local Train"');
     expect(html).toContain('>Notes From the Local Train<');
     expect(html).toContain('>Comedy<');
     expect(html).not.toContain('<img');
   });
 
-  it('lifts the no-photo tile off a dark band instead of drawing black on black', () => {
+  it('draws the same light tile whatever tone an older caller passes', () => {
     const html = renderToStaticMarkup(
       <EventArtwork alt="" title="Pilot Currency Film" ratio="2:3" tone="lift" />,
     );

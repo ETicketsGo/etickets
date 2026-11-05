@@ -86,6 +86,7 @@ import {
   useVenueWhen,
 } from '@/components/booking-brand';
 import { useEventPlace } from '@/lib/event-place';
+import { eventKind } from '@/lib/event-kind';
 
 export function EventDetailPage() {
   // `tx` is the shared vocabulary (Free, Sold out); `sf` is storefront copy.
@@ -637,7 +638,7 @@ export function EventDetailPage() {
   const supportEmail = publishedDetail(BUSINESS_DETAILS.supportEmail);
   const minutes = session ? showDurationMinutes(session.startsAt, session.endsAt) : null;
   const duration = minutes ? durationText(minutes) : null;
-  const eyebrow = [event.category, place(event).city, longDate?.short].filter(
+  const eyebrow = [eventKind(event), place(event).city, longDate?.short].filter(
     (part): part is string => Boolean(part),
   );
   const arrival = arrivalFacts(futureSessions.length > 0);
@@ -752,6 +753,7 @@ export function EventDetailPage() {
   );
 
   const photoControl = `flex min-h-11 items-center gap-1.5 rounded-full bg-brand-scrim/70 px-4 text-brand-meta font-semibold text-brand-ink transition-colors hover:bg-brand-scrim/90 ${BRAND_FOCUS}`;
+  const photoControlOnPaper = `flex min-h-11 items-center gap-1.5 rounded-full border border-brand-line-strong bg-brand-canvas px-4 text-brand-meta font-semibold text-brand-ink transition-colors hover:bg-brand-sunken ${BRAND_FOCUS}`;
 
   return (
     <div
@@ -823,8 +825,11 @@ export function EventDetailPage() {
           below it moves and no broken image shows.
         */}
         <figure
-          data-brand-tone="stage"
-          className="relative mt-8 overflow-hidden bg-brand-image-fallback sm:mt-10"
+          // The ink stage frames a photograph; the no-picture default stays on paper.
+          {...(heroImage ? { 'data-brand-tone': 'stage' } : {})}
+          className={`relative mt-8 overflow-hidden sm:mt-10 ${
+            heroImage ? 'bg-brand-image-fallback' : 'border border-brand-line bg-brand-sunken'
+          }`}
         >
           <div className="relative aspect-video w-full lg:aspect-[21/9]">
             {heroImage ? (
@@ -859,9 +864,19 @@ export function EventDetailPage() {
               <div
                 aria-hidden
                 data-testid={hasArt ? 'event-hero-placeholder' : 'event-hero-brand'}
-                className="absolute inset-0 flex flex-col items-center justify-center gap-5 text-etg-gold-on-ink"
+                className="absolute inset-0 flex flex-col items-center justify-center gap-4 px-6 text-center"
               >
-                <Wordmark tone="dark" size="xl" />
+                {/*
+                  The same page whether or not a picture was uploaded: a light default in the
+                  ivory/ink/gold tokens, naming what kind of event it is, rather than an ink block
+                  that turned the page dark only for events without art.
+                */}
+                <span className="text-brand-eyebrow uppercase text-brand-gold-text">
+                  {eventKind(event)}
+                </span>
+                <span className="text-brand-ink">
+                  <Wordmark tone="brand" size="xl" />
+                </span>
                 <span className="h-px w-12 bg-brand-marigold" />
               </div>
             )}
@@ -881,7 +896,12 @@ export function EventDetailPage() {
                   : sf('event.galleryOpenOne')}
               </button>
             )}
-            <button type="button" onClick={share} className={photoControl}>
+            <button
+              type="button"
+              onClick={share}
+              // The scrim is a stage colour; on the paper default it would be ink on dark grey.
+              className={heroImage ? photoControl : photoControlOnPaper}
+            >
               <Share2 className="h-4 w-4" aria-hidden />
               {shared ? sf('common.copied') : tx('action.share')}
             </button>

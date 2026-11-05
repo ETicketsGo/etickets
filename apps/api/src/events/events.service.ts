@@ -108,6 +108,7 @@ function assertPriceFitsEvent(isFree: boolean, priceMinor: number) {
 const REVIEWED_EVENT_FIELDS = [
   'title',
   'category',
+  'typeLabel',
   'description',
   'venueId',
   'refundPolicy',
@@ -308,6 +309,7 @@ export class EventsService {
       title: input.title,
       slug: slugify(input.title),
       category: input.category,
+      typeLabel: input.typeLabel ?? null,
       description: input.description,
       refundPolicy: input.refundPolicy,
       /*
@@ -451,6 +453,7 @@ export class EventsService {
           title: `${original.title} (Copy)`,
           slug: slugify(`${original.title}-copy`),
           category: original.category,
+          typeLabel: original.typeLabel,
           description: original.description,
           feeMode: original.feeMode,
           isFree: original.isFree,

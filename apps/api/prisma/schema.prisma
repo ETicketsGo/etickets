@@ -1550,6 +1550,9 @@ model Event {
   title          String
   slug           String         @unique
   category       String
+  /// What the organizer called the event when none of the categories fitted ("Other event
+  /// type"). Shown to buyers in place of the category; filters and facets keep `category`.
+  typeLabel      String?
   description    String?
   status         EventStatus    @default(DRAFT)
   feeMode        FeeMode        @default(CUSTOMER_PAYS)

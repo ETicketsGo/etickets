@@ -19,6 +19,7 @@
 
 import { isComplete, type EventArtist, type LocationValue } from '@eticketsgo/web-kit';
 import { TAX_CATEGORIES } from '@eticketsgo/shared-types';
+import { isListedCategory, TYPE_LABEL_MAX } from './templates';
 
 export type WizardStepId = 'basics' | 'where' | 'tickets' | 'details' | 'review';
 
@@ -329,7 +330,11 @@ export function matchesPreset(tickets: TicketDraft[], names: readonly string[]):
 export function validateBasics(basics: { title: string; category: string }): FieldErrors {
   const e: FieldErrors = {};
   if (basics.title.trim().length < 3) e.title = 'Title must be at least 3 characters.';
-  if (!basics.category.trim()) e.category = 'Category is required.';
+  const category = basics.category.trim();
+  if (!category) e.category = 'Category is required.';
+  else if (!isListedCategory(category) && category.length > TYPE_LABEL_MAX)
+    e.category = `Keep the event type to ${TYPE_LABEL_MAX} characters or fewer.`;
+  else if (/[<>]/.test(category)) e.category = 'The event type cannot contain < or >.';
   return e;
 }
 
